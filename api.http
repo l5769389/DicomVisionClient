@@ -1,0 +1,77 @@
+@host = http://127.0.0.1:8000
+@apiPrefix = /api/v1/
+
+# Replace with your local DICOM folder
+@dicomFolder = D:/testDicom/test
+
+### Health check
+GET {{host}}/health
+Accept: application/json
+
+### Load DICOM folder
+POST {{host}}{{apiPrefix}}/dicom/loadFolder
+Content-Type: application/json
+Accept: application/json
+
+{
+  "folderPath": "{{dicomFolder}}"
+}
+
+> {%
+const body = response.body;
+const seriesId = body.seriesId || (body.seriesList && body.seriesList[0] && body.seriesList[0].seriesId);
+if (seriesId) {
+  client.global.set("seriesId", seriesId);
+}
+%}
+
+### Create Stack view
+POST {{host}}{{apiPrefix}}/view/create
+Content-Type: application/json
+Accept: application/json
+
+{
+  "seriesId": "{{seriesId}}",
+  "viewType": "Stack"
+}
+
+> {%
+const body = response.body;
+if (body.viewId) {
+  client.global.set("viewId", body.viewId);
+}
+%}
+
+### Set viewport size and fetch first image
+POST {{host}}{{apiPrefix}}/view/setSize
+Content-Type: application/json
+Accept: application/json
+
+{
+  "opType": "setSize",
+  "size": {
+    "width": 512,
+    "height": 512
+  },
+  "viewId": "{{viewId}}"
+}
+
+### Optional: create MPR view
+POST {{host}}{{apiPrefix}}/view/create
+Content-Type: application/json
+Accept: application/json
+
+{
+  "seriesId": "{{seriesId}}",
+  "viewType": "MPR"
+}
+
+### Optional: create 3D view
+POST {{host}}{{apiPrefix}}/view/create
+Content-Type: application/json
+Accept: application/json
+
+{
+  "seriesId": "{{seriesId}}",
+  "viewType": "3D"
+}

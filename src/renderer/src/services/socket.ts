@@ -1,4 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
+import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
 
 let socket: Socket | null = null
 
@@ -8,7 +9,8 @@ export function connectSocket(origin: string): Socket {
   }
 
   socket = io(origin, {
-    transports: ['websocket', 'polling']
+    transports: ['websocket', 'polling'],
+    forceNew: true
   })
 
   return socket
@@ -16,4 +18,30 @@ export function connectSocket(origin: string): Socket {
 
 export function getSocket(): Socket | null {
   return socket
+}
+
+export function bindView(viewId: string): void {
+  if (!socket || !viewId) {
+    return
+  }
+
+  socket.emit('bind_view', { viewId })
+}
+
+export function emitViewOperation(payload: {
+  viewId: string
+  opType: ViewOperationType
+  subOpType?: string
+  actionType?: DragActionType
+  x?: number
+  y?: number
+  zoom?: number
+  delta?: number
+  hor_flip?: boolean
+  ver_flip?: boolean
+}): void {
+  if (!socket || !payload.viewId) {
+    return
+  }
+  socket.emit('view_operation', payload)
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import ViewerViewport from './ViewerViewport.vue'
+import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import type { MprViewportKey, ViewerTabItem } from '../../types/viewer'
 
 const props = defineProps<{
@@ -34,11 +34,15 @@ function getViewportCornerInfo(viewportKey: MprViewportKey) {
 function getViewportOrientation(viewportKey: MprViewportKey) {
   return props.activeTab.viewportOrientations?.[viewportKey] ?? props.activeTab.orientation
 }
+
+function getViewportCrosshair(viewportKey: MprViewportKey) {
+  return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
+}
 </script>
 
 <template>
   <div class="viewer-layout viewer-layout--mpr">
-    <ViewerViewport
+    <ViewerCanvasStage
       v-for="item in viewportItems"
       :key="item.key"
       :viewport-key="item.key"
@@ -49,6 +53,7 @@ function getViewportOrientation(viewportKey: MprViewportKey) {
       :alt="item.label"
       :placeholder="`${item.label} 预览`"
       :corner-info="getViewportCornerInfo(item.key)"
+      :mpr-crosshair="getViewportCrosshair(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @click-viewport="emit('viewportClick', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"

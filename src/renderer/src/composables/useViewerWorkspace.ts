@@ -4,6 +4,7 @@ import {
   STACK_DEFAULT_OPERATION,
   STACK_DRAG_OPERATIONS,
   STACK_OPERATION_PREFIX,
+  type ViewOperationType,
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { api, setApiBaseURL } from '../services/api'
@@ -370,13 +371,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function getActiveDragOperation(): string | null {
+  function getActiveDragOperation(): ViewOperationType | null {
     const normalizedOperation = activeOperation.value.startsWith(STACK_OPERATION_PREFIX)
       ? activeOperation.value.slice(STACK_OPERATION_PREFIX.length)
       : activeOperation.value
     const opType = normalizedOperation.split(':')[0]
 
-    return STACK_DRAG_OPERATIONS.includes(opType as (typeof STACK_DRAG_OPERATIONS)[number]) ? opType : null
+    return STACK_DRAG_OPERATIONS.includes(opType as (typeof STACK_DRAG_OPERATIONS)[number])
+      ? (opType as ViewOperationType)
+      : null
   }
 
   function handleViewportDrag(payload: {

@@ -12,6 +12,7 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
+    "@mdi/font": "^7.4.47",
     "@types/lodash": "^4.17.24",
     "axios": "^1.9.0",
     "lodash": "^4.17.23",
@@ -28,6 +29,7 @@
     "electron-vite": "^3.1.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
+    "vite-plugin-vue-devtools": "^8.1.1",
     "vite-plugin-vuetify": "^2.0.0",
     "vue-tsc": "^2.1.10"
   }

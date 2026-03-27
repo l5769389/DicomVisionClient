@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import ViewerViewport from './ViewerViewport.vue'
+import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import type { ViewerTabItem } from '../../types/viewer'
 
 defineProps<{
@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="viewer-layout viewer-layout--stack">
-    <ViewerViewport
+    <ViewerCanvasStage
       viewport-key="single"
       viewport-class="viewer-viewport--single"
       :is-active="true"

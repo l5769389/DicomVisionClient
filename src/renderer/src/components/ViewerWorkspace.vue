@@ -52,6 +52,9 @@ const stackToolSelections = ref<Record<string, string>>({
 })
 const activeTabRef = computed(() => props.activeTab)
 const activeOperationRef = computed(() => props.activeOperation)
+const toolbarIconSize = 25
+const menuIconSize = 18
+const toggleIconSize = 14
 const {
   activeViewportKey,
   cleanupPointerInteractions,
@@ -292,37 +295,37 @@ onBeforeUnmount(() => {
 
       <div v-if="activeTab" class="workspace-toolbar workspace-toolbar--actions">
         <div class="workspace-actions">
-          <template v-if="activeTab.viewType === 'Stack' && isPlaying">
-            <div class="workspace-action-group workspace-action-group--joined">
+          <div
+            v-for="tool in activeTools"
+            :key="tool.key"
+            class="workspace-action-group"
+            :class="{
+              'workspace-action-group--joined': tool.key === 'play' ? activeTab.viewType === 'Stack' && isPlaying : Boolean(tool.options)
+            }"
+          >
+            <template v-if="tool.key === 'play' && activeTab.viewType === 'Stack' && isPlaying">
               <v-btn class="workspace-action workspace-action--selected" variant="text" @click="pausePlayback">
-                <AppIcon name="pause" :size="24" />
+                <AppIcon name="pause" :size="toolbarIconSize" />
               </v-btn>
               <v-btn class="workspace-action workspace-action--danger" variant="text" @click="endPlayback">
-                <AppIcon name="stop" :size="24" />
+                <AppIcon name="stop" :size="toolbarIconSize" />
               </v-btn>
-            </div>
-          </template>
+            </template>
 
-          <template v-else>
-            <div
-              v-for="tool in activeTools"
-              :key="tool.key"
-              class="workspace-action-group"
-              :class="{ 'workspace-action-group--joined': Boolean(tool.options) }"
-            >
+            <template v-else>
               <v-btn
                 class="workspace-action"
                 :class="{ 'workspace-action--selected': activeOperation === getToolValue(tool) }"
                 variant="text"
                 @click="applyTool(tool)"
               >
-                <AppIcon :name="getToolIcon(tool)" :size="24" />
+                <AppIcon :name="getToolIcon(tool)" :size="toolbarIconSize" />
               </v-btn>
 
               <v-menu v-if="tool.options" location="bottom">
                 <template #activator="{ props: menuProps }">
                   <v-btn class="workspace-action-toggle" variant="text" v-bind="menuProps">
-                    <AppIcon name="chevron-down" :size="16" :stroke-width="2.2" />
+                    <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
                   </v-btn>
                 </template>
 
@@ -335,21 +338,15 @@ onBeforeUnmount(() => {
                   >
                     <template #prepend>
                       <span class="workspace-action-menu-icon">
-                        <AppIcon :name="option.icon" :size="18" />
+                        <AppIcon :name="option.icon" :size="menuIconSize" />
                       </span>
                     </template>
                     <v-list-item-title>{{ option.label }}</v-list-item-title>
                   </v-list-item>
                 </v-list>
               </v-menu>
-            </div>
-          </template>
-        </div>
-
-        <div class="workspace-tags">
-          <span v-if="activeTab.viewType" class="workspace-chip">{{ activeTab.viewType }}</span>
-          <span v-if="getActiveSliceLabel()" class="workspace-chip">{{ getActiveSliceLabel() }}</span>
-          <span v-if="activeTab.windowLabel" class="workspace-chip">{{ activeTab.windowLabel }}</span>
+            </template>
+          </div>
         </div>
       </div>
 

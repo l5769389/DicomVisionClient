@@ -18,7 +18,7 @@ function createWindow(): BrowserWindow {
     height: 960,
     minWidth: 1280,
     minHeight: 800,
-    title: 'DICOM Vision',
+    frame: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: resolvePreloadPath(),

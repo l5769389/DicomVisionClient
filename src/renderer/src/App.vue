@@ -8,6 +8,7 @@ const viewer = useViewerWorkspace()
 
 <template>
   <v-app class="app-root">
+    <div class="window-drag-region" aria-hidden="true"></div>
     <div class="app-shell" :class="{ 'app-shell--collapsed': viewer.isSidebarCollapsed.value }">
       <SidebarPanel
         :connection-state="viewer.connectionState.value"

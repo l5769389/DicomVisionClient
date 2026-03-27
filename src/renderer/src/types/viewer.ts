@@ -52,6 +52,8 @@ export interface MprCrosshairInfo {
   centerX: number
   centerY: number
   hitRadius: number
+  horizontalPosition: number | null
+  verticalPosition: number | null
 }
 
 export interface OrientationInfo {

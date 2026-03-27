@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import VueDevTools from 'vite-plugin-vue-devtools'
 import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 
 export default defineConfig({
@@ -25,6 +26,7 @@ export default defineConfig({
       }
     },
     plugins: [
+      VueDevTools(),
       vue({
         template: { transformAssetUrls }
       }),

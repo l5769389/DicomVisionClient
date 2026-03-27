@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
 import throttle from 'lodash/throttle'
 import { DRAG_ACTION_TYPES, STACK_DRAG_OPERATIONS, type ViewOperationType, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import type { MprViewportKey, ViewerTabItem, ViewType } from '../types/viewer'
+import type { MprCrosshairInfo, MprViewportKey, ViewerTabItem, ViewType } from '../types/viewer'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
@@ -23,6 +23,13 @@ interface PointerComposableState {
 }
 
 const DRAG_START_THRESHOLD = 3
+
+function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: number } {
+  return {
+    x: crosshairInfo.verticalPosition ?? crosshairInfo.centerX,
+    y: crosshairInfo.horizontalPosition ?? crosshairInfo.centerY
+  }
+}
 
 export function useViewerWorkspacePointer(options: PointerComposableOptions): PointerComposableState {
   const activeViewportKey = ref<MprViewportKey | 'single' | 'volume'>('mpr-ax')
@@ -78,21 +85,69 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return STACK_DRAG_OPERATIONS.includes(getNormalizedOperation() as (typeof STACK_DRAG_OPERATIONS)[number])
   }
 
-  function getViewportPoint(event: PointerEvent): { x: number; y: number } | null {
-    const pointerTarget = event.currentTarget
-    if (!(pointerTarget instanceof HTMLElement)) {
+  function resolvePointerContainer(event: PointerEvent): HTMLElement | null {
+    const target = event.target
+    if (!(target instanceof Element)) {
       return null
     }
 
-    const rect = pointerTarget.getBoundingClientRect()
+    return target.closest('.viewer-viewport')
+  }
+
+  function resolveViewportImageElement(event: PointerEvent): HTMLImageElement | null {
+    const container = resolvePointerContainer(event)
+    if (!container) {
+      return null
+    }
+
+    const image = container.querySelector<HTMLImageElement>('.viewer-image')
+    return image instanceof HTMLImageElement ? image : null
+  }
+
+  function getRenderedImageRect(imageElement: HTMLImageElement): DOMRect {
+    const rect = imageElement.getBoundingClientRect()
+    const naturalWidth = imageElement.naturalWidth
+    const naturalHeight = imageElement.naturalHeight
+    if (!naturalWidth || !naturalHeight || !rect.width || !rect.height) {
+      return rect
+    }
+
+    const elementAspectRatio = rect.width / rect.height
+    const imageAspectRatio = naturalWidth / naturalHeight
+
+    if (elementAspectRatio > imageAspectRatio) {
+      const renderedWidth = rect.height * imageAspectRatio
+      const offsetX = (rect.width - renderedWidth) / 2
+      return new DOMRect(rect.left + offsetX, rect.top, renderedWidth, rect.height)
+    }
+
+    const renderedHeight = rect.width / imageAspectRatio
+    const offsetY = (rect.height - renderedHeight) / 2
+    return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
+  }
+
+  function getNormalizedViewportPoint(event: PointerEvent): { x: number; y: number } | null {
+    const imageElement = resolveViewportImageElement(event)
+    if (!imageElement) {
+      return null
+    }
+
+    const rect = getRenderedImageRect(imageElement)
+    if (!rect.width || !rect.height) {
+      return null
+    }
+
+    const normalizedX = (event.clientX - rect.left) / rect.width
+    const normalizedY = (event.clientY - rect.top) / rect.height
+
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
+      x: Math.max(0, Math.min(1, normalizedX)),
+      y: Math.max(0, Math.min(1, normalizedY))
     }
   }
 
   function emitCrosshairEvent(viewportKey: string, phase: 'start' | 'move' | 'end', event: PointerEvent): void {
-    const point = getViewportPoint(event)
+    const point = getNormalizedViewportPoint(event)
     if (!point) {
       return
     }
@@ -103,6 +158,33 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       x: point.x,
       y: point.y
     })
+  }
+
+  function isPointNearCrosshairCenter(
+    event: PointerEvent,
+    viewportKey: string,
+    point: { x: number; y: number }
+  ): boolean {
+    const crosshairInfo =
+      viewportKey === 'single' || viewportKey === 'volume'
+        ? null
+        : options.activeTab.value?.viewportCrosshairs?.[viewportKey as MprViewportKey] ?? null
+
+    if (!crosshairInfo) {
+      return false
+    }
+
+    const renderedImage = resolveViewportImageElement(event)
+    if (!renderedImage) {
+      return false
+    }
+
+    const rect = getRenderedImageRect(renderedImage)
+    const center = getCrosshairCenter(crosshairInfo)
+    const hitRadius = crosshairInfo.hitRadius * Math.min(rect.width, rect.height)
+    const deltaX = (point.x - center.x) * rect.width
+    const deltaY = (point.y - center.y) * rect.height
+    return deltaX * deltaX + deltaY * deltaY <= hitRadius * hitRadius
   }
 
   function stopViewportDrag(pointerTarget?: EventTarget | null): void {
@@ -144,7 +226,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   function handleViewportPointerMove(event: PointerEvent): void {
     if (isCrosshairDragging.value && activePointerId.value === event.pointerId) {
-      const point = getViewportPoint(event)
+      const point = getNormalizedViewportPoint(event)
       if (!point) {
         return
       }
@@ -219,13 +301,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!event.isPrimary || event.button !== 0) {
       return
     }
-    const pointerTarget = event.currentTarget
+    const pointerTarget = resolvePointerContainer(event)
     if (!(pointerTarget instanceof HTMLElement)) {
       return
     }
-
     if (isCrosshairOperationEnabled()) {
       setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+      const point = getNormalizedViewportPoint(event)
+      if (!point || !isPointNearCrosshairCenter(event, viewportKey, point)) {
+        return
+      }
       event.preventDefault()
       pointerTarget.setPointerCapture(event.pointerId)
       isCrosshairDragging.value = true

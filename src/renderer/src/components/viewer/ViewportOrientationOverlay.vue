@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="viewer-orientation-overlay">
+  <div class="pointer-events-none absolute inset-0 z-[3]">
     <span v-if="orientation.top" class="viewer-orientation-label viewer-orientation-label--top">{{ orientation.top }}</span>
     <span v-if="orientation.right" class="viewer-orientation-label viewer-orientation-label--right">{{ orientation.right }}</span>
     <span v-if="orientation.bottom" class="viewer-orientation-label viewer-orientation-label--bottom">{{ orientation.bottom }}</span>

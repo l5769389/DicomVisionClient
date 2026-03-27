@@ -17,10 +17,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="viewer-layout viewer-layout--stack">
+  <div class="viewer-layout viewer-layout--stack h-full w-full">
     <ViewerCanvasStage
       viewport-key="single"
-      viewport-class="viewer-viewport--single"
+      viewport-class="grid place-items-center"
       :is-active="true"
       :render-surface-active="true"
       :image-src="activeTab.imageSrc"

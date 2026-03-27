@@ -2,7 +2,7 @@
   "name": "dicom-vision-client",
   "version": "0.1.0",
   "private": true,
-  "description": "Vue3 + Electron + electron-vite + Socket.IO + Axios + Vuetify DICOM viewer frontend",
+  "description": "Vue3 + Electron + electron-vite + Socket.IO + Axios + Tailwind CSS DICOM viewer frontend",
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
@@ -13,12 +13,13 @@
   },
   "dependencies": {
     "@mdi/font": "^7.4.47",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/lodash": "^4.17.24",
     "axios": "^1.9.0",
     "lodash": "^4.17.23",
     "socket.io-client": "^4.8.1",
-    "vue": "^3.5.13",
-    "vuetify": "^3.11.2"
+    "tailwindcss": "^4.2.2",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^3.0.0",
@@ -30,7 +31,6 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vite-plugin-vue-devtools": "^8.1.1",
-    "vite-plugin-vuetify": "^2.0.0",
     "vue-tsc": "^2.1.10"
   }
 }

@@ -7,9 +7,12 @@ const viewer = useViewerWorkspace()
 </script>
 
 <template>
-  <v-app class="app-root">
+  <div class="relative h-full overflow-hidden bg-transparent text-slate-50">
     <div class="window-drag-region" aria-hidden="true"></div>
-    <div class="app-shell" :class="{ 'app-shell--collapsed': viewer.isSidebarCollapsed.value }">
+    <div
+      class="grid h-screen max-h-screen gap-4 overflow-hidden bg-transparent p-4 transition-[grid-template-columns] duration-200 ease-out max-[900px]:grid-cols-1"
+      :class="viewer.isSidebarCollapsed.value ? 'grid-cols-[92px_minmax(0,1fr)]' : 'grid-cols-[320px_minmax(0,1fr)] max-[1280px]:grid-cols-[288px_minmax(0,1fr)]'"
+    >
       <SidebarPanel
         :connection-state="viewer.connectionState.value"
         :has-selected-series="viewer.hasSelectedSeries.value"
@@ -43,5 +46,5 @@ const viewer = useViewerWorkspace()
         @workspace-ready="viewer.setViewerStage"
       />
     </div>
-  </v-app>
+  </div>
 </template>

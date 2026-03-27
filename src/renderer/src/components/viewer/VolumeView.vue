@@ -16,10 +16,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="viewer-layout viewer-layout--volume">
+  <div class="h-full w-full">
     <ViewerCanvasStage
       viewport-key="volume"
-      viewport-class="viewer-viewport--volume"
+      viewport-class="grid place-items-center"
       :is-active="true"
       :render-surface-active="true"
       :image-src="activeTab.imageSrc"

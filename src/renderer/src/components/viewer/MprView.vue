@@ -18,9 +18,9 @@ const emit = defineEmits<{
 }>()
 
 const viewportItems = computed(() => [
-  { key: 'mpr-ax' as const, label: 'Axial', className: 'viewer-viewport--top' },
-  { key: 'mpr-sag' as const, label: 'Sagittal', className: 'viewer-viewport--bottom' },
-  { key: 'mpr-cor' as const, label: 'Coronal', className: 'viewer-viewport--main' }
+  { key: 'mpr-ax' as const, label: 'Axial', className: 'col-start-1 row-start-1' },
+  { key: 'mpr-sag' as const, label: 'Sagittal', className: 'col-start-1 row-start-2' },
+  { key: 'mpr-cor' as const, label: 'Coronal', className: 'col-start-2 row-span-2 row-start-1' }
 ])
 
 function getViewportImage(viewportKey: MprViewportKey): string {
@@ -41,7 +41,7 @@ function getViewportCrosshair(viewportKey: MprViewportKey) {
 </script>
 
 <template>
-  <div class="viewer-layout viewer-layout--mpr">
+  <div class="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
     <ViewerCanvasStage
       v-for="item in viewportItems"
       :key="item.key"

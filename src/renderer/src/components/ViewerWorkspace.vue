@@ -44,7 +44,9 @@ const emit = defineEmits<{
 }>()
 
 const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
+const workspaceRef = ref<HTMLElement | null>(null)
 const isPlaying = ref(false)
+const openMenuKey = ref<string | null>(null)
 const stackToolSelections = ref<Record<string, string>>({
   rotate: 'rotate:cw90',
   measure: 'measure:line',
@@ -52,9 +54,10 @@ const stackToolSelections = ref<Record<string, string>>({
 })
 const activeTabRef = computed(() => props.activeTab)
 const activeOperationRef = computed(() => props.activeOperation)
-const toolbarIconSize = 25
+const toolbarIconSize = 24
 const menuIconSize = 18
 const toggleIconSize = 14
+
 const {
   activeViewportKey,
   cleanupPointerInteractions,
@@ -151,18 +154,6 @@ function emitWorkspaceReady(): void {
   })
 }
 
-function getActiveSliceLabel(): string {
-  if (props.activeTab?.viewType !== 'MPR') {
-    return props.activeTab?.sliceLabel ?? ''
-  }
-
-  if (activeViewportKey.value === 'single' || activeViewportKey.value === 'volume') {
-    return ''
-  }
-
-  return props.activeTab?.viewportSliceLabels?.[activeViewportKey.value] ?? ''
-}
-
 function getToolIcon(tool: StackTool): string {
   const selectedValue = stackToolSelections.value[tool.key]
   if (!tool.options || !selectedValue) {
@@ -176,7 +167,20 @@ function getToolValue(tool: StackTool): string {
   return `${STACK_OPERATION_PREFIX}${stackToolSelections.value[tool.key] ?? tool.key}`
 }
 
+function isToolSelected(tool: StackTool): boolean {
+  return props.activeOperation === getToolValue(tool)
+}
+
+function closeMenus(): void {
+  openMenuKey.value = null
+}
+
+function toggleToolMenu(toolKey: string): void {
+  openMenuKey.value = openMenuKey.value === toolKey ? null : toolKey
+}
+
 function applyTool(tool: StackTool): void {
+  closeMenus()
   if (tool.key === 'play') {
     isPlaying.value = true
     emit('setActiveOperation', `${STACK_OPERATION_PREFIX}play`)
@@ -191,16 +195,19 @@ function selectToolOption(tool: StackTool, optionValue: string): void {
     ...stackToolSelections.value,
     [tool.key]: optionValue
   }
+  closeMenus()
   emit('setActiveOperation', `${STACK_OPERATION_PREFIX}${optionValue}`)
 }
 
 function pausePlayback(): void {
   isPlaying.value = false
+  closeMenus()
   emit('setActiveOperation', `${STACK_OPERATION_PREFIX}pause`)
 }
 
 function endPlayback(): void {
   isPlaying.value = false
+  closeMenus()
   emit('setActiveOperation', `${STACK_OPERATION_PREFIX}end`)
 }
 
@@ -211,6 +218,20 @@ function handleViewportClick(viewportKey: string): void {
 function handleViewportWheel(payload: { viewportKey: string; deltaY: number }): void {
   setActiveViewport(payload.viewportKey as never)
   emit('viewportWheel', payload.deltaY)
+}
+
+function handleDocumentPointerDown(event: PointerEvent): void {
+  const target = event.target
+  if (!(target instanceof HTMLElement)) {
+    closeMenus()
+    return
+  }
+
+  if (target.closest('[data-tool-menu-root]')) {
+    return
+  }
+
+  closeMenus()
 }
 
 watch(
@@ -230,6 +251,7 @@ watch(
       if (viewType === 'MPR') {
         emit('setActiveOperation', `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`)
       }
+      closeMenus()
     }
 
     isPlaying.value = false
@@ -239,6 +261,7 @@ watch(
 
 onMounted(() => {
   emitWorkspaceReady()
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
 })
 
 watch(
@@ -260,102 +283,152 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
   cleanupPointerInteractions()
 })
 </script>
 
 <template>
-  <main class="workspace">
-    <div v-if="!hasSelectedSeries" class="workspace-frame workspace-frame--empty">
-      <div class="viewer-empty viewer-empty--blank viewer-empty--standalone">
-        <span v-if="message">{{ message }}</span>
-        <span v-else>请先在左侧序列列表中选择一条序列，再打开对应视图。</span>
+  <main
+    ref="workspaceRef"
+    class="min-h-0 min-w-0 overflow-hidden rounded-[26px] border border-sky-100/10 bg-[linear-gradient(180deg,rgba(6,13,24,0.97),rgba(7,14,27,0.99))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+  >
+    <div v-if="!hasSelectedSeries" class="grid h-full place-items-center rounded-[20px] border border-dashed border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))] p-8 text-center">
+      <div class="max-w-xl space-y-3">
+        <div class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400/70">Viewer Workspace</div>
+        <div class="text-3xl font-semibold tracking-[0.08em] text-slate-50">等待载入序列</div>
+        <div class="mx-auto h-px w-24 bg-gradient-to-r from-transparent via-sky-300/45 to-transparent"></div>
+        <p class="text-sm leading-7 text-slate-300">
+          {{ message || '请先在左侧序列列表中选择一条序列，然后打开对应视图。' }}
+        </p>
       </div>
     </div>
 
-    <div v-else class="workspace-frame">
-      <div class="viewer-tabs">
-        <v-btn
+    <div v-else class="flex h-full min-h-0 flex-col gap-3">
+      <div class="panel-scrollbar flex items-stretch gap-2 overflow-x-auto overflow-y-hidden pb-1">
+        <div
           v-for="tab in viewerTabs"
           :key="tab.key"
-          class="viewer-tab"
-          :class="{ 'viewer-tab--active': tab.key === activeTabKey }"
-          variant="flat"
-          @click="emit('activateTab', tab.key)"
+          class="group flex max-w-[360px] shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 transition"
+          :class="
+            tab.key === activeTabKey
+              ? 'border-sky-300/35 bg-[linear-gradient(180deg,rgba(22,121,199,0.92),rgba(10,89,159,0.94))] text-white shadow-[0_12px_28px_rgba(8,89,156,0.26)]'
+              : 'border-white/8 bg-slate-900/80 text-slate-300 hover:border-sky-300/18 hover:bg-slate-800/90'
+          "
         >
-          <span class="viewer-tab-title">
-            <span class="viewer-tab-series">{{ tab.seriesTitle }}</span>
-            <span class="viewer-tab-type">{{ tab.viewType }}</span>
-          </span>
-          <v-btn size="x-small" variant="flat" class="viewer-tab-close" @click.stop="emit('closeTab', tab.key)">
+          <button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" @click="emit('activateTab', tab.key)">
+            <span class="truncate text-sm font-semibold">{{ tab.seriesTitle }}</span>
+            <span class="rounded-full border border-white/12 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
+              {{ tab.viewType }}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/12 text-white transition hover:bg-white/18"
+            aria-label="关闭视图"
+            @click.stop="emit('closeTab', tab.key)"
+          >
             <AppIcon name="close" :size="15" :stroke-width="2.1" />
-          </v-btn>
-        </v-btn>
+          </button>
+        </div>
       </div>
 
-      <div v-if="activeTab" class="workspace-toolbar workspace-toolbar--actions">
-        <div class="workspace-actions">
+      <div
+        v-if="activeTab"
+        class="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(17,28,42,0.96),rgba(11,20,32,0.98))] px-4 py-3 max-[900px]:items-start"
+      >
+        <div class="min-w-0">
+          <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400/70">{{ activeTab.viewType }} Viewer</div>
+          <div class="mt-1 truncate text-sm text-slate-200">{{ activeTab.seriesTitle }}</div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
           <div
             v-for="tool in activeTools"
             :key="tool.key"
-            class="workspace-action-group"
-            :class="{
-              'workspace-action-group--joined': tool.key === 'play' ? activeTab.viewType === 'Stack' && isPlaying : Boolean(tool.options)
-            }"
+            class="relative flex items-center"
+            :class="tool.key === 'play' ? (activeTab.viewType === 'Stack' && isPlaying ? 'rounded-2xl border border-sky-300/22' : '') : tool.options ? 'rounded-2xl border border-white/8' : ''"
           >
             <template v-if="tool.key === 'play' && activeTab.viewType === 'Stack' && isPlaying">
-              <v-btn class="workspace-action workspace-action--selected" variant="text" @click="pausePlayback">
+              <button
+                type="button"
+                class="inline-flex h-12 w-12 items-center justify-center rounded-l-2xl bg-[linear-gradient(180deg,rgba(42,149,228,0.95),rgba(20,102,176,0.95))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
+                :title="tool.label"
+                @click="pausePlayback"
+              >
                 <AppIcon name="pause" :size="toolbarIconSize" />
-              </v-btn>
-              <v-btn class="workspace-action workspace-action--danger" variant="text" @click="endPlayback">
+              </button>
+              <button
+                type="button"
+                class="inline-flex h-12 w-12 items-center justify-center rounded-r-2xl border-l border-white/8 bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))] text-white transition hover:brightness-110"
+                title="停止播放"
+                @click="endPlayback"
+              >
                 <AppIcon name="stop" :size="toolbarIconSize" />
-              </v-btn>
+              </button>
             </template>
 
             <template v-else>
-              <v-btn
-                class="workspace-action"
-                :class="{ 'workspace-action--selected': activeOperation === getToolValue(tool) }"
-                variant="text"
+              <button
+                type="button"
+                class="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(54,67,82,0.92),rgba(37,47,59,0.94))] text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:brightness-110"
+                :class="{
+                  'rounded-r-none border-r-0': Boolean(tool.options),
+                  'bg-[linear-gradient(180deg,rgba(42,149,228,0.95),rgba(20,102,176,0.95))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_10px_24px_rgba(8,89,156,0.24)]': isToolSelected(tool)
+                }"
+                :title="tool.label"
                 @click="applyTool(tool)"
               >
                 <AppIcon :name="getToolIcon(tool)" :size="toolbarIconSize" />
-              </v-btn>
+              </button>
 
-              <v-menu v-if="tool.options" location="bottom">
-                <template #activator="{ props: menuProps }">
-                  <v-btn class="workspace-action-toggle" variant="text" v-bind="menuProps">
-                    <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
-                  </v-btn>
-                </template>
+              <div v-if="tool.options" class="relative" data-tool-menu-root>
+                <button
+                  type="button"
+                  class="inline-flex h-12 w-8 items-center justify-center rounded-r-2xl border border-white/8 border-l-white/10 bg-[linear-gradient(180deg,rgba(67,81,96,0.95),rgba(47,58,71,0.96))] text-slate-100 transition hover:brightness-110"
+                  :aria-expanded="openMenuKey === tool.key"
+                  :title="`${tool.label}选项`"
+                  @click.stop="toggleToolMenu(tool.key)"
+                >
+                  <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
+                </button>
 
-                <v-list density="compact" class="workspace-action-menu">
-                  <v-list-item
+                <div
+                  v-if="openMenuKey === tool.key"
+                  class="absolute right-0 top-[calc(100%+0.5rem)] z-20 min-w-[168px] rounded-2xl border border-white/10 bg-[rgba(17,29,45,0.98)] p-2 shadow-[0_20px_44px_rgba(2,8,18,0.36)]"
+                >
+                  <button
                     v-for="option in tool.options"
                     :key="option.value"
-                    :active="stackToolSelections[tool.key] === option.value"
+                    type="button"
+                    class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-200 transition hover:bg-sky-300/10"
+                    :class="{ 'bg-sky-300/14 text-white': stackToolSelections[tool.key] === option.value }"
                     @click="selectToolOption(tool, option.value)"
                   >
-                    <template #prepend>
-                      <span class="workspace-action-menu-icon">
-                        <AppIcon :name="option.icon" :size="menuIconSize" />
-                      </span>
-                    </template>
-                    <v-list-item-title>{{ option.label }}</v-list-item-title>
-                  </v-list-item>
-                </v-list>
-              </v-menu>
+                    <span class="inline-flex w-5 items-center justify-center text-slate-300">
+                      <AppIcon :name="option.icon" :size="menuIconSize" />
+                    </span>
+                    <span>{{ option.label }}</span>
+                  </button>
+                </div>
+              </div>
             </template>
           </div>
         </div>
       </div>
 
-      <div v-if="isViewLoading" class="viewer-empty">
-        <v-progress-circular indeterminate color="primary" size="28" width="3" />
-        <span>正在加载视图...</span>
+      <div v-if="isViewLoading" class="grid flex-1 place-items-center rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98))] p-8">
+        <div class="flex items-center gap-3 text-sm text-slate-300">
+          <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
+          <span>正在加载视图...</span>
+        </div>
       </div>
 
-      <div v-else-if="activeTab" ref="viewportHostRef" class="viewer-canvas-wrap viewer-canvas-wrap--layout">
+      <div
+        v-else-if="activeTab"
+        ref="viewportHostRef"
+        class="flex-1 overflow-hidden rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98)),repeating-linear-gradient(90deg,rgba(255,255,255,0.015)_0,rgba(255,255,255,0.015)_1px,transparent_1px,transparent_28px)] p-2.5"
+      >
         <StackView
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
@@ -390,9 +463,13 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <div v-else class="viewer-empty viewer-empty--blank">
-        <span v-if="message">{{ message }}</span>
-        <span v-else>点击“快速浏览 / 3D / MPR”打开当前序列对应的视图。</span>
+      <div v-else class="grid flex-1 place-items-center rounded-[20px] border border-dashed border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))] p-8 text-center">
+        <div class="max-w-lg space-y-3">
+          <div class="text-2xl font-semibold tracking-[0.06em] text-slate-50">打开一个视图</div>
+          <p class="text-sm leading-7 text-slate-300">
+            {{ message || '点击“快速浏览 / 3D / MPR”打开当前序列对应的视图。' }}
+          </p>
+        </div>
       </div>
     </div>
   </main>

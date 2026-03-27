@@ -133,5 +133,5 @@ watch(
 </script>
 
 <template>
-  <canvas ref="canvasRef" class="viewer-overlay-canvas" />
+  <canvas ref="canvasRef" class="pointer-events-none absolute inset-0 z-[2]" />
 </template>

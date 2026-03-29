@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 
 const props = defineProps<{
@@ -35,6 +35,17 @@ const mdiIconMap: Record<string, string> = {
   'pseudocolor-pet': 'mdi-molecule',
   'pseudocolor-rainbow': 'mdi-format-color-fill',
   'chevron-down': 'mdi-chevron-down',
+  'chevron-left': 'mdi-chevron-left',
+  'chevron-right': 'mdi-chevron-right',
+  connected: 'mdi-lan-connect',
+  connecting: 'mdi-lan-pending',
+  disconnected: 'mdi-lan-disconnect',
+  menu: 'mdi-tune-variant',
+  settings: 'mdi-cog-outline',
+  palette: 'mdi-palette-swatch-outline',
+  bell: 'mdi-bell-outline',
+  shield: 'mdi-shield-check-outline',
+  trash: 'mdi-trash-can-outline',
   close: 'mdi-close'
 }
 

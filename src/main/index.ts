@@ -12,6 +12,18 @@ function resolvePreloadPath(): string {
   return join(__dirname, '../preload/index.js')
 }
 
+function resolveAppIconPath(): string | undefined {
+  const iconFileName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  const candidates = [
+    join(process.cwd(), 'build', iconFileName),
+    join(app.getAppPath(), 'build', iconFileName),
+    join(process.resourcesPath, 'build', iconFileName),
+    join(process.resourcesPath, iconFileName)
+  ]
+
+  return candidates.find((candidate) => existsSync(candidate))
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1600,
@@ -20,6 +32,7 @@ function createWindow(): BrowserWindow {
     minHeight: 800,
     frame: false,
     autoHideMenuBar: true,
+    icon: resolveAppIconPath(),
     webPreferences: {
       preload: resolvePreloadPath(),
       sandbox: false

@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import VueDevTools from 'vite-plugin-vue-devtools'
+import vuetify from 'vite-plugin-vuetify'
 
 export default defineConfig({
   main: {
@@ -28,6 +29,7 @@ export default defineConfig({
     plugins: [
       VueDevTools(),
       vue(),
+      vuetify(),
       tailwindcss()
     ]
   }

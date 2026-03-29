@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+﻿import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import {
   DRAG_ACTION_TYPES,
   STACK_DEFAULT_OPERATION,
@@ -68,6 +68,7 @@ interface ViewerWorkspaceState {
   message: Ref<string>
   operationItems: ViewerOperationItem[]
   openView: (viewType: ViewType) => Promise<void>
+  openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
   removeSeries: (seriesId: string) => void
   selectSeries: (seriesId: string) => void
   selectedSeriesId: Ref<string>
@@ -97,6 +98,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewportElements = ref<Partial<Record<MprViewportKey, HTMLElement | null>>>({})
   const seriesCornerInfoMap = ref<Record<string, CornerInfo>>({})
   const loadingSeriesCornerInfo = new Map<string, Promise<CornerInfo>>()
+  const viewSizeCache = new Map<string, string>()
 
   const operationItems: ViewerOperationItem[] = []
 
@@ -488,14 +490,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
 
-      const existingIds = new Set(seriesList.value.map((item) => item.seriesId))
-      const appendedSeries = incomingSeries.filter((item) => !existingIds.has(item.seriesId))
+      const existingSeriesKeys = new Set(
+        seriesList.value.map((item) => item.seriesInstanceUid || `${item.folderPath}::${item.seriesId}`)
+      )
+      const appendedSeries = incomingSeries.filter((item) => {
+        const seriesKey = item.seriesInstanceUid || `${item.folderPath}::${item.seriesId}`
+        if (existingSeriesKeys.has(seriesKey)) {
+          return false
+        }
+        existingSeriesKeys.add(seriesKey)
+        return true
+      })
 
       if (appendedSeries.length) {
         seriesList.value = [...seriesList.value, ...appendedSeries]
       }
 
-      const nextSeriesId = data.seriesId ?? incomingSeries[0]?.seriesId ?? selectedSeriesId.value
+      const nextSeriesId = appendedSeries[0]?.seriesId ?? selectedSeriesId.value
       if (nextSeriesId) {
         selectSeries(nextSeriesId)
       }
@@ -537,6 +548,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     const closingTab = viewerTabs.value[currentIndex]
+    if (closingTab.viewId) {
+      viewSizeCache.delete(closingTab.viewId)
+    }
+    Object.values(closingTab.viewportViewIds ?? {}).forEach((viewId) => {
+      if (viewId) {
+        viewSizeCache.delete(viewId)
+      }
+    })
     const closingImageSrc = viewerTabs.value[currentIndex]?.imageSrc
     if (closingImageSrc?.startsWith('blob:')) {
       URL.revokeObjectURL(closingImageSrc)
@@ -676,6 +695,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  function hasViewSizeChanged(viewId: string, size: { width: number; height: number }): boolean {
+    const nextSignature = `${size.width}x${size.height}`
+    const previousSignature = viewSizeCache.get(viewId)
+    if (previousSignature === nextSignature) {
+      return false
+    }
+    viewSizeCache.set(viewId, nextSignature)
+    return true
+  }
+
   async function renderTab(tabKey: string): Promise<void> {
     const tab = viewerTabs.value.find((item) => item.key === tabKey)
     if (!tab) {
@@ -692,6 +721,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             return
           }
           bindView(viewId)
+          if (!hasViewSizeChanged(viewId, size)) {
+            return
+          }
           await api.post<OperationAcceptedResponse>('/view/setSize', {
             opType: VIEW_OPERATION_TYPES.setSize,
             size,
@@ -712,6 +744,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     bindView(tab.viewId)
+    if (!hasViewSizeChanged(tab.viewId, size)) {
+      return
+    }
     await api.post<OperationAcceptedResponse>('/view/setSize', {
       opType: VIEW_OPERATION_TYPES.setSize,
       size,
@@ -719,24 +754,24 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  async function openView(viewType: ViewType): Promise<void> {
-    if (!selectedSeriesId.value) {
+  async function openSeriesView(seriesId: string, viewType: ViewType): Promise<void> {
+    if (!seriesId) {
       return
     }
 
-    const existingTab = findTab(selectedSeriesId.value, viewType)
+    selectedSeriesId.value = seriesId
+
+    const existingTab = findTab(seriesId, viewType)
     const hasExistingView =
       viewType === 'MPR'
         ? Object.values(existingTab?.viewportViewIds ?? {}).some(Boolean)
         : Boolean(existingTab?.viewId)
     if (hasExistingView && existingTab) {
       activeTabKey.value = existingTab.key
-      await nextTick()
-      await renderTab(existingTab.key)
       return
     }
 
-    const tabKey = existingTab?.key ?? ensureTab(selectedSeriesId.value, viewType)
+    const tabKey = existingTab?.key ?? ensureTab(seriesId, viewType)
     if (!tabKey) {
       return
     }
@@ -752,7 +787,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         const responses = await Promise.all(
           viewportKeys.map(async (viewportKey) => {
             const { data } = await api.post<ViewCreateResponse>('/view/create', {
-              seriesId: selectedSeriesId.value,
+              seriesId,
               viewType: getCreateViewTypeForViewport(viewportKey)
             })
             return [viewportKey, data.viewId] as const
@@ -767,7 +802,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         )
       } else {
         const { data } = await api.post<ViewCreateResponse>('/view/create', {
-          seriesId: selectedSeriesId.value,
+          seriesId,
           viewType
         })
         nextViewId = data.viewId
@@ -824,6 +859,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  async function openView(viewType: ViewType): Promise<void> {
+    if (!selectedSeriesId.value) {
+      return
+    }
+
+    await openSeriesView(selectedSeriesId.value, viewType)
+  }
+
   function setupResizeObserver(): void {
     if (!viewerStage.value || typeof ResizeObserver === 'undefined') {
       return
@@ -876,6 +919,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isSidebarCollapsed,
     isViewLoading,
     message,
+    openSeriesView,
     openView,
     operationItems,
     removeSeries,
@@ -890,3 +934,4 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     viewerTabs
   }
 }
+

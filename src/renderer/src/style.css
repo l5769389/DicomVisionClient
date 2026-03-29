@@ -30,6 +30,8 @@
 
   * {
     box-sizing: border-box;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   html,
@@ -43,13 +45,7 @@
 
   html,
   body {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  html::-webkit-scrollbar,
-  body::-webkit-scrollbar {
-    display: none;
+    scrollbar-gutter: stable;
   }
 
   body {
@@ -68,6 +64,94 @@
 }
 
 @layer components {
+  .v-btn.v-btn--disabled {
+    opacity: 1 !important;
+  }
+
+  .v-btn.v-btn--disabled:not(.v-btn--variant-text) {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    background:
+      linear-gradient(180deg, rgba(41, 49, 61, 0.86), rgba(29, 37, 48, 0.92)) !important;
+    color: rgba(226, 232, 240, 0.42) !important;
+    box-shadow: none !important;
+  }
+
+  .v-btn.v-btn--disabled .v-btn__overlay,
+  .v-btn.v-btn--disabled .v-btn__underlay {
+    opacity: 0 !important;
+  }
+
+  .toolbar-tool-button.v-btn--active,
+  .toolbar-tool-button.toolbar-tool-button--active {
+    background:
+      linear-gradient(180deg, rgba(42, 149, 228, 0.95), rgba(20, 102, 176, 0.95)) !important;
+    color: #fff !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 10px 24px rgba(8, 89, 156, 0.24) !important;
+  }
+
+  .toolbar-tool-button.v-btn--active .v-btn__overlay,
+  .toolbar-tool-button.toolbar-tool-button--active .v-btn__overlay,
+  .toolbar-tool-button.v-btn--active .v-btn__underlay,
+  .toolbar-tool-button.toolbar-tool-button--active .v-btn__underlay {
+    opacity: 0 !important;
+  }
+
+  .tab-viewtype-chip {
+    color: rgba(255, 255, 255, 0.9) !important;
+    opacity: 1 !important;
+  }
+
+  .tab-viewtype-chip.v-chip {
+    background: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .tab-viewtype-chip .v-chip__content {
+    color: inherit !important;
+    opacity: 1 !important;
+  }
+
+  .tab-strip-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .tab-strip-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  .series-list-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(86, 164, 227, 0.42) rgba(255, 255, 255, 0.04);
+  }
+
+  .series-list-scroll::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .series-list-scroll::-webkit-scrollbar-track {
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+  }
+
+  .series-list-scroll::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg, rgba(122, 210, 255, 0.48), rgba(45, 136, 214, 0.34)) padding-box;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 0 0 1px rgba(125, 211, 252, 0.08);
+  }
+
+  .series-list-scroll::-webkit-scrollbar-thumb:hover {
+    background:
+      linear-gradient(180deg, rgba(139, 221, 255, 0.62), rgba(58, 151, 231, 0.48)) padding-box;
+  }
+
   .window-drag-region {
     position: fixed;
     top: 0;
@@ -77,15 +161,6 @@
     z-index: 1000;
     -webkit-app-region: drag;
     cursor: move;
-  }
-
-  .panel-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .panel-scrollbar::-webkit-scrollbar {
-    display: none;
   }
 
   .viewer-corner-block {

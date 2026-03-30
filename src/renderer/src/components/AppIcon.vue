@@ -13,6 +13,7 @@ const mdiIconMap: Record<string, string> = {
   window: 'mdi-circle-half-full',
   crosshair: 'mdi-crosshairs-gps',
   rotate: 'mdi-rotate-right',
+  rotate3d: 'mdi-axis-arrow',
   'rotate-cw90': 'mdi-rotate-right-variant',
   'rotate-ccw90': 'mdi-rotate-left-variant',
   'mirror-h': 'mdi-flip-horizontal',

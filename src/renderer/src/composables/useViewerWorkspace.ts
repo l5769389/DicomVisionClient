@@ -373,26 +373,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function getActiveDragOperation(): ViewOperationType | null {
-    const normalizedOperation = activeOperation.value.startsWith(STACK_OPERATION_PREFIX)
-      ? activeOperation.value.slice(STACK_OPERATION_PREFIX.length)
-      : activeOperation.value
-    const opType = normalizedOperation.split(':')[0]
-
-    return STACK_DRAG_OPERATIONS.includes(opType as (typeof STACK_DRAG_OPERATIONS)[number])
-      ? (opType as ViewOperationType)
-      : null
-  }
-
   function handleViewportDrag(payload: {
     deltaX: number
     deltaY: number
+    opType: ViewOperationType
     phase: 'start' | 'move' | 'end'
     viewportKey: string
   }): void {
     const tab = activeTab.value
-    const opType = getActiveDragOperation()
-    if (!tab || !opType) {
+    if (!tab || !STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])) {
       return
     }
     const viewId =
@@ -407,7 +396,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (tab.viewType === 'MPR') {
       emitMprViewOperation(payload.viewportKey, {
-        opType,
+        opType: payload.opType,
         actionType: payload.phase,
         x: payload.deltaX,
         y: payload.deltaY
@@ -417,7 +406,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     emitViewOperation({
       viewId,
-      opType,
+      opType: payload.opType,
       actionType: payload.phase,
       x: payload.deltaX,
       y: payload.deltaY

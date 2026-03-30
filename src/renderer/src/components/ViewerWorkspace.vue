@@ -1,30 +1,17 @@
 ﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
-import { STACK_DEFAULT_OPERATION, STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
+import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import type { ViewerOperationItem, ViewerTabItem, WorkspaceReadyPayload } from '../types/viewer'
 import { useViewerWorkspacePointer } from '../composables/useViewerWorkspacePointer'
-import { VBtn, VCard, VChip } from 'vuetify/components'
-import AppIcon from './AppIcon.vue'
 import MprView from './viewer/MprView.vue'
 import StackView from './viewer/StackView.vue'
 import VolumeView from './viewer/VolumeView.vue'
+import ViewerTabStrip from './workspace/ViewerTabStrip.vue'
+import ViewerToolbar from './workspace/ViewerToolbar.vue'
+import type { StackTool, StackToolOption } from './workspace/toolbarTypes'
 
-interface StackToolOption {
-  value: string
-  label: string
-  icon: string
-}
-
-interface StackTool {
-  key: string
-  label: string
-  icon: string
-  kind?: 'mode' | 'action'
-  options?: StackToolOption[]
-}
-
-const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'page'])
+const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page'])
 
 const props = defineProps<{
   activeOperation: string
@@ -43,7 +30,7 @@ const emit = defineEmits<{
   closeTab: [tabKey: string]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
-  viewportDrag: [payload: { deltaX: number; deltaY: number; phase: 'start' | 'move' | 'end'; viewportKey: string }]
+  viewportDrag: [payload: { deltaX: number; deltaY: number; opType: string; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
@@ -52,13 +39,15 @@ const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
 const tabStripRef = ref<HTMLElement | null>(null)
 const workspaceRef = ref<HTMLElement | null>(null)
 const isPlaying = ref(false)
+const isPlaybackPaused = ref(false)
 const openMenuKey = ref<string | null>(null)
+const activeToolbarToolKey = ref<string>('window')
+const transientActiveToolKey = ref<string | null>(null)
 const canScrollTabsLeft = ref(false)
 const canScrollTabsRight = ref(false)
-const stackToolSelections = ref<Record<string, string>>({
+const stackToolSelections = ref<Partial<Record<string, string>>>({
   rotate: 'rotate:cw90',
-  measure: 'measure:line',
-  pseudocolor: 'pseudocolor:gray'
+  measure: 'measure:line'
 })
 const activeTabRef = computed(() => props.activeTab)
 const activeOperationRef = computed(() => props.activeOperation)
@@ -66,6 +55,7 @@ const toolbarIconSize = 20
 const menuIconSize = 16
 const toggleIconSize = 12
 let playbackTimer: ReturnType<typeof window.setInterval> | null = null
+let transientToolTimer: ReturnType<typeof window.setTimeout> | null = null
 
 const {
   activeViewportKey,
@@ -138,6 +128,14 @@ const genericTools: StackTool[] = [
   { key: 'export', label: '导出', icon: 'export', kind: 'action' }
 ]
 
+const volumeTools: StackTool[] = [
+  { key: 'rotate3d', label: '3D旋转', icon: 'rotate3d', kind: 'mode' },
+  { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
+  { key: 'export', label: '导出', icon: 'export', kind: 'action' }
+]
+
 const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: '十字线', icon: 'crosshair', kind: 'mode' },
   ...genericTools
@@ -148,13 +146,11 @@ const activeTools = computed(() =>
     ? stackTools
     : props.activeTab?.viewType === 'MPR'
       ? genericToolsWithCrosshair
-      : genericTools
+      : props.activeTab?.viewType === '3D'
+        ? volumeTools
+        : genericTools
 )
-const normalizedActiveOperation = computed(() =>
-  props.activeOperation.startsWith(STACK_OPERATION_PREFIX)
-    ? props.activeOperation.slice(STACK_OPERATION_PREFIX.length).split(':')[0]
-    : props.activeOperation.split(':')[0]
-)
+const areToolbarActionsDisabled = computed(() => props.activeTab?.viewType === 'Stack' && (isPlaying.value || isPlaybackPaused.value))
 
 function emitWorkspaceReady(): void {
   const activeViewport = viewportHostRef.value?.querySelector<HTMLElement>('[data-active-render-surface="true"]')
@@ -231,15 +227,6 @@ function handleTabStripWheel(event: WheelEvent): void {
   updateTabScrollState()
 }
 
-function getToolIcon(tool: StackTool): string {
-  const selectedValue = stackToolSelections.value[tool.key]
-  if (!tool.options || !selectedValue) {
-    return tool.icon
-  }
-
-  return tool.options.find((item) => item.value === selectedValue)?.icon ?? tool.icon
-}
-
 function getModeOperationValue(toolKey: string): string {
   if (toolKey === 'page') {
     return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`
@@ -248,14 +235,66 @@ function getModeOperationValue(toolKey: string): string {
   return `${STACK_OPERATION_PREFIX}${toolKey}`
 }
 
-function getNormalizedActiveOperation(): string {
-  return props.activeOperation.startsWith(STACK_OPERATION_PREFIX)
-    ? props.activeOperation.slice(STACK_OPERATION_PREFIX.length).split(':')[0]
-    : props.activeOperation.split(':')[0]
+function getDefaultToolbarToolKey(viewType: ViewerTabItem['viewType'] | undefined): string {
+  if (viewType === 'MPR') {
+    return 'crosshair'
+  }
+  if (viewType === '3D') {
+    return 'rotate3d'
+  }
+  return 'window'
+}
+
+function setToolbarToolActive(toolKey: string): void {
+  clearTransientActiveTool()
+  activeToolbarToolKey.value = toolKey
+}
+
+function clearTransientActiveTool(): void {
+  if (transientToolTimer != null) {
+    window.clearTimeout(transientToolTimer)
+    transientToolTimer = null
+  }
+  transientActiveToolKey.value = null
+}
+
+function flashToolActive(toolKey: string, nextToolKey: string, callback?: () => void): void {
+  clearTransientActiveTool()
+  transientActiveToolKey.value = toolKey
+  transientToolTimer = window.setTimeout(() => {
+    transientActiveToolKey.value = null
+    activeToolbarToolKey.value = nextToolKey
+    transientToolTimer = null
+    callback?.()
+  }, 260)
+}
+
+function getSelectedOption(toolKey: string): StackToolOption | null {
+  const tool = stackTools.find((item) => item.key === toolKey)
+  const selectedValue = stackToolSelections.value[toolKey]
+  if (!tool?.options || !selectedValue) {
+    return null
+  }
+
+  return tool.options.find((item) => item.value === selectedValue) ?? null
+}
+
+function activateSelectedOption(toolKey: string): string | null {
+  const selectedOption = getSelectedOption(toolKey)
+  if (!selectedOption) {
+    return null
+  }
+
+  emit('setActiveOperation', `${STACK_OPERATION_PREFIX}${selectedOption.value}`)
+  return selectedOption.value
 }
 
 function isToolSelected(tool: StackTool): boolean {
-  return SELECTABLE_TOOL_KEYS.has(tool.key) && normalizedActiveOperation.value === (tool.key === 'page' ? VIEW_OPERATION_TYPES.scroll : tool.key)
+  if (transientActiveToolKey.value === tool.key) {
+    return true
+  }
+
+  return activeToolbarToolKey.value === tool.key
 }
 
 function stopPlayback(): void {
@@ -264,11 +303,17 @@ function stopPlayback(): void {
     playbackTimer = null
   }
   isPlaying.value = false
+  isPlaybackPaused.value = false
 }
 
 function startPlayback(): void {
-  stopPlayback()
+  if (playbackTimer != null) {
+    window.clearInterval(playbackTimer)
+    playbackTimer = null
+  }
+  closeMenus()
   isPlaying.value = true
+  isPlaybackPaused.value = false
   playbackTimer = window.setInterval(() => {
     emit('viewportWheel', 1)
   }, 180)
@@ -299,14 +344,50 @@ function closeMenus(): void {
   openMenuKey.value = null
 }
 
-function toggleToolMenu(toolKey: string): void {
-  openMenuKey.value = openMenuKey.value === toolKey ? null : toolKey
+function setMenuOpen(toolKey: string | null): void {
+  openMenuKey.value = toolKey
 }
 
 function applyTool(tool: StackTool): void {
+  if (areToolbarActionsDisabled.value && tool.key !== 'play') {
+    return
+  }
+
   closeMenus()
   if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
+    stopViewportDrag()
+    setToolbarToolActive(tool.key)
     emit('setActiveOperation', getModeOperationValue(tool.key))
+    return
+  }
+
+  if (tool.key === 'reset') {
+    stopViewportDrag()
+    const defaultToolKey = getDefaultToolbarToolKey(props.activeTab?.viewType)
+    flashToolActive('reset', defaultToolKey, () => {
+      emit('setActiveOperation', getModeOperationValue(defaultToolKey))
+    })
+    return
+  }
+
+  if (tool.key === 'rotate') {
+    if (!activateSelectedOption(tool.key)) {
+      return
+    }
+
+    setToolbarToolActive(tool.key)
+    return
+  }
+
+  if (tool.key === 'measure' || tool.key === 'pseudocolor') {
+    if (!getSelectedOption(tool.key)) {
+      return
+    }
+
+    if (activeToolbarToolKey.value !== tool.key) {
+      setToolbarToolActive(tool.key)
+      activateSelectedOption(tool.key)
+    }
     return
   }
 
@@ -327,14 +408,28 @@ function selectToolOption(tool: StackTool, optionValue: string): void {
   }
   closeMenus()
 
-  if (MODE_TOOL_KEYS.has(tool.key)) {
+  if (tool.key === 'rotate' || tool.key === 'measure' || tool.key === 'pseudocolor') {
+    stopViewportDrag()
+    setToolbarToolActive(tool.key)
     emit('setActiveOperation', `${STACK_OPERATION_PREFIX}${optionValue}`)
   }
 }
 
 function pausePlayback(): void {
   closeMenus()
-  stopPlayback()
+  if (isPlaying.value) {
+    if (playbackTimer != null) {
+      window.clearInterval(playbackTimer)
+      playbackTimer = null
+    }
+    isPlaying.value = false
+    isPlaybackPaused.value = true
+    return
+  }
+
+  if (isPlaybackPaused.value) {
+    startPlayback()
+  }
 }
 
 function endPlayback(): void {
@@ -380,10 +475,11 @@ watch(
     if (tabOrViewChanged) {
       stopPlayback()
       setActiveViewport(viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
+      setToolbarToolActive(getDefaultToolbarToolKey(viewType))
       if (viewType === 'MPR') {
         emit('setActiveOperation', `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`)
       } else {
-        emit('setActiveOperation', STACK_DEFAULT_OPERATION)
+        emit('setActiveOperation', getModeOperationValue(getDefaultToolbarToolKey(viewType)))
       }
       closeMenus()
     }
@@ -423,7 +519,18 @@ watch(
   () => props.activeOperation,
   (value) => {
     if (!value) {
-      emit('setActiveOperation', STACK_DEFAULT_OPERATION)
+      const defaultToolKey = getDefaultToolbarToolKey(props.activeTab?.viewType)
+      setToolbarToolActive(defaultToolKey)
+      emit('setActiveOperation', getModeOperationValue(defaultToolKey))
+      return
+    }
+
+    const normalizedOperation = value.startsWith(STACK_OPERATION_PREFIX)
+      ? value.slice(STACK_OPERATION_PREFIX.length).split(':')[0]
+      : value.split(':')[0]
+    const matchedToolKey = normalizedOperation === VIEW_OPERATION_TYPES.scroll ? 'page' : normalizedOperation
+    if (SELECTABLE_TOOL_KEYS.has(matchedToolKey)) {
+      setToolbarToolActive(matchedToolKey)
     }
   },
   { immediate: true }
@@ -433,6 +540,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('resize', updateTabScrollState)
   stopPlayback()
+  clearTransientActiveTool()
   cleanupPointerInteractions()
 })
 </script>
@@ -454,162 +562,38 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="flex h-full min-h-0 flex-col gap-3">
-      <div class="flex min-w-0 items-center gap-2">
-        <VBtn
-          variant="flat"
-          class="!inline-flex !h-9 !w-9 !min-w-0 shrink-0 !items-center !justify-center !rounded-xl !border !border-white/8 !bg-slate-900/88 !text-slate-200 transition"
-          :class="
-            canScrollTabsLeft
-              ? 'hover:border-sky-300/24 hover:text-white'
-              : 'cursor-default border-white/6 bg-slate-900/46 text-slate-600'
-          "
-          aria-label="向左滚动标签页"
-          :disabled="!canScrollTabsLeft"
-          @click="scrollTabs('left')"
-        >
-          <AppIcon name="chevron-left" :size="18" />
-        </VBtn>
+      <ViewerTabStrip
+        v-model:tab-strip-ref="tabStripRef"
+        :active-tab-key="activeTabKey"
+        :can-scroll-tabs-left="canScrollTabsLeft"
+        :can-scroll-tabs-right="canScrollTabsRight"
+        :viewer-tabs="viewerTabs"
+        @activate-tab="emit('activateTab', $event)"
+        @close-tab="emit('closeTab', $event)"
+        @scroll-tabs="scrollTabs"
+        @tab-strip-scroll="updateTabScrollState"
+        @tab-strip-wheel="handleTabStripWheel"
+      />
 
-        <div
-          ref="tabStripRef"
-          class="tab-strip-scroll flex min-w-0 flex-1 flex-nowrap snap-x snap-mandatory items-stretch gap-2 overflow-x-auto overflow-y-hidden pb-1 pr-1 [scrollbar-gutter:stable]"
-          @scroll="updateTabScrollState"
-          @wheel="handleTabStripWheel"
-        >
-          <VCard
-            v-for="tab in viewerTabs"
-            :key="tab.key"
-            :data-tab-key="tab.key"
-            class="group flex max-w-[320px] shrink-0 snap-start items-center gap-2 !rounded-2xl !border !px-3 !py-2 transition"
-            :class="
-              tab.key === activeTabKey
-                ? '!border-sky-300/35 !bg-[linear-gradient(180deg,rgba(22,121,199,0.92),rgba(10,89,159,0.94))] text-white shadow-[0_12px_28px_rgba(8,89,156,0.26)]'
-                : '!border-white/8 !bg-slate-900/80 text-slate-300 hover:!border-sky-300/18 hover:!bg-slate-800/90'
-            "
-          >
-            <button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" @click="emit('activateTab', tab.key)">
-              <span class="truncate text-sm font-semibold">{{ tab.seriesTitle }}</span>
-              <VChip
-                size="x-small"
-                variant="flat"
-                class="tab-viewtype-chip !rounded-full !border !px-2 !py-0.5 !text-[11px] !font-semibold !uppercase !tracking-[0.14em]"
-                :class="
-                  tab.key === activeTabKey
-                    ? '!border-white/18 !bg-white/12 !text-white'
-                    : '!border-slate-400/18 !bg-white/6 !text-slate-100'
-                "
-              >
-                {{ tab.viewType }}
-              </VChip>
-            </button>
-            <VBtn
-              variant="flat"
-              class="!inline-flex !h-8 !w-8 !min-w-0 shrink-0 !items-center !justify-center !rounded-xl !bg-white/12 !text-white transition hover:!bg-white/18"
-              aria-label="关闭视图"
-              @click.stop="emit('closeTab', tab.key)"
-            >
-              <AppIcon name="close" :size="15" :stroke-width="2.1" />
-            </VBtn>
-          </VCard>
-        </div>
-
-        <VBtn
-          variant="flat"
-          class="!inline-flex !h-9 !w-9 !min-w-0 shrink-0 !items-center !justify-center !rounded-xl !border !border-white/8 !bg-slate-900/88 !text-slate-200 transition"
-          :class="
-            canScrollTabsRight
-              ? 'hover:border-sky-300/24 hover:text-white'
-              : 'cursor-default border-white/6 bg-slate-900/46 text-slate-600'
-          "
-          aria-label="向右滚动标签页"
-          :disabled="!canScrollTabsRight"
-          @click="scrollTabs('right')"
-        >
-          <AppIcon name="chevron-right" :size="18" />
-        </VBtn>
-      </div>
-
-      <VCard
+      <ViewerToolbar
         v-if="activeTab"
-        class="flex min-h-10 shrink-0 items-center justify-start !rounded-2xl !border !border-white/8 !bg-[linear-gradient(180deg,rgba(17,28,42,0.96),rgba(11,20,32,0.98))] !px-3 !py-2"
-      >
-        <div class="flex flex-1 flex-wrap items-center justify-start gap-2">
-          <div
-            v-for="tool in activeTools"
-            :key="tool.key"
-            class="relative flex items-center"
-            :class="tool.key === 'play' ? (activeTab.viewType === 'Stack' && isPlaying ? 'rounded-2xl border border-sky-300/22' : '') : tool.options ? 'rounded-2xl border border-white/8' : ''"
-          >
-            <template v-if="tool.key === 'play' && activeTab.viewType === 'Stack' && isPlaying">
-              <VBtn
-                variant="flat"
-                class="!inline-flex !h-10 !w-10 !min-w-0 !items-center !justify-center !rounded-l-2xl !bg-[linear-gradient(180deg,rgba(42,149,228,0.95),rgba(20,102,176,0.95))] !text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
-                :title="tool.label"
-                @click="pausePlayback"
-              >
-                <AppIcon name="pause" :size="toolbarIconSize" />
-              </VBtn>
-              <VBtn
-                variant="flat"
-                class="!inline-flex !h-10 !w-10 !min-w-0 !items-center !justify-center !rounded-r-2xl !border-l !border-white/8 !bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))] !text-white transition hover:brightness-110"
-                title="停止播放"
-                @click="endPlayback"
-              >
-                <AppIcon name="stop" :size="toolbarIconSize" />
-              </VBtn>
-            </template>
-
-            <template v-else>
-              <VBtn
-                variant="flat"
-                type="button"
-                class="!inline-flex !h-10 !w-10 !min-w-0 !items-center !justify-center !rounded-2xl !border !border-white/8 !bg-[linear-gradient(180deg,rgba(54,67,82,0.92),rgba(37,47,59,0.94))] !text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:brightness-110"
-                :active="isToolSelected(tool)"
-                :class="{
-                  'toolbar-tool-button': true,
-                  '!rounded-r-[10px] !border-r-0': Boolean(tool.options),
-                  'toolbar-tool-button--active': isToolSelected(tool)
-                }"
-                :title="tool.label"
-                @click.stop="applyTool(tool)"
-              >
-                <AppIcon :name="getToolIcon(tool)" :size="toolbarIconSize" />
-              </VBtn>
-
-              <div v-if="tool.options" class="relative" data-tool-menu-root>
-                <VBtn
-                  variant="flat"
-                  class="!inline-flex !h-10 !w-7 !min-w-0 !items-center !justify-center !rounded-l-[10px] !rounded-r-2xl !border !border-white/8 !border-l-white/10 !bg-[linear-gradient(180deg,rgba(67,81,96,0.95),rgba(47,58,71,0.96))] !text-slate-100 transition hover:brightness-110"
-                  :aria-expanded="openMenuKey === tool.key"
-                  :title="`${tool.label}选项`"
-                  @click.stop="toggleToolMenu(tool.key)"
-                >
-                  <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
-                </VBtn>
-
-                <div
-                  v-if="openMenuKey === tool.key"
-                  class="absolute right-0 top-[calc(100%+0.5rem)] z-20 min-w-[168px] rounded-2xl border border-white/10 bg-[rgba(17,29,45,0.98)] p-2 shadow-[0_20px_44px_rgba(2,8,18,0.36)]"
-                >
-                  <VBtn
-                    v-for="option in tool.options"
-                    :key="option.value"
-                    variant="text"
-                    class="!flex !w-full !items-center !justify-start !gap-3 !rounded-xl !px-3 !py-2.5 !text-left !text-sm !text-slate-200 transition hover:!bg-sky-300/10"
-                    :class="{ '!bg-sky-300/14 !text-white': stackToolSelections[tool.key] === option.value }"
-                    @click="selectToolOption(tool, option.value)"
-                  >
-                    <span class="inline-flex w-5 items-center justify-center text-slate-300">
-                      <AppIcon :name="option.icon" :size="menuIconSize" />
-                    </span>
-                    <span>{{ option.label }}</span>
-                  </VBtn>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-      </VCard>
+        :active-tab="activeTab"
+        :active-tools="activeTools"
+        :are-toolbar-actions-disabled="areToolbarActionsDisabled"
+        :is-playing="isPlaying"
+        :is-playback-paused="isPlaybackPaused"
+        :is-tool-selected="isToolSelected"
+        :menu-icon-size="menuIconSize"
+        :open-menu-key="openMenuKey"
+        :stack-tool-selections="stackToolSelections"
+        :toggle-icon-size="toggleIconSize"
+        :toolbar-icon-size="toolbarIconSize"
+        @apply-tool="applyTool"
+        @end-playback="endPlayback"
+        @pause-playback="pausePlayback"
+        @select-tool-option="selectToolOption"
+        @set-menu-open="setMenuOpen"
+      />
 
       <div v-if="isViewLoading" class="grid flex-1 place-items-center rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98))] p-8">
         <div class="flex items-center gap-3 text-sm text-slate-300">

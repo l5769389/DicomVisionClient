@@ -1,31 +1,9 @@
-# DICOM Vision Client
-
-Initialized frontend scaffold with:
-
-- Vue 3
-- Electron
-- electron-vite
-- socket.io-client
-- axios
-- Vuetify
-
-## Commands
-
-```bash
-npm install
-npm run dev
-```
-
-## Current Scope
-
-- Electron desktop shell
-- Native folder chooser bridge
-- Vuetify app shell
-- Axios API service
-- Socket.IO client service
-
-## Planned Next Steps
-
-1. Folder scanning and study/series list
-2. Stack / MPR / 3D views
-3. Window/level, zoom, pan, rotate, mirror, measure tools
+1. 按钮的需求,按钮分为几种： 
+   1. 平移、缩放、调窗、翻页 为点击后该功能生效、图标为激活状态。点击其他按钮后按钮失去激活状态。
+   2. 重置按钮点击后，重置按钮被激活较短的时间来告知用户该按钮被点击了，然后激活的按钮就变为初始状态下激活的按钮比如：调窗。
+   3. 带下拉框的按钮。有两种，
+      1. 一类是，旋转，下拉框内容是： 顺时针90 逆时针90 水平镜像、 垂直镜像。始状态图标显示为默认icon、点击没有效果，选中下拉框的一项后，
+         默认icon切换为了选中的项目图标，且为激活状态。再次点击默认icon位置，此功能又触发了一次。
+      2. 测量， 下拉框内容是： 线段、角度、矩形区域、椭圆区域。   伪彩， 下拉框内容待定。  始状态图标显示为默认icon、点击没有效果，选中下拉框的一项后，
+         默认icon切换为了选中的项目图标，且为激活状态。再次点击默认icon位置，比如激活是已经是线段了，则没有变化。
+   4. 播放，点击后切换为暂停和结束按钮、 当播放中的状态生效时其他按钮被禁用。

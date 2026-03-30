@@ -47,7 +47,8 @@ export function createEmptyOrientationInfo(): OrientationInfo {
     top: null,
     right: null,
     bottom: null,
-    left: null
+    left: null,
+    volumeQuaternion: null
   }
 }
 
@@ -182,7 +183,10 @@ export function normalizeOrientationInfo(value: unknown): OrientationInfo {
     top: normalize(record.top),
     right: normalize(record.right),
     bottom: normalize(record.bottom),
-    left: normalize(record.left)
+    left: normalize(record.left),
+    volumeQuaternion: Array.isArray(record.volumeQuaternion) && record.volumeQuaternion.length === 4
+      ? (record.volumeQuaternion.map((item) => Number(item)) as [number, number, number, number])
+      : null
   }
 }
 

@@ -61,6 +61,7 @@ export interface OrientationInfo {
   right: string | null
   bottom: string | null
   left: string | null
+  volumeQuaternion?: [number, number, number, number] | null
 }
 
 export interface ViewImageResponse {

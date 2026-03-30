@@ -4,7 +4,8 @@ export const VIEW_OPERATION_TYPES = {
   crosshair: 'crosshair',
   pan: 'pan',
   zoom: 'zoom',
-  window: 'window'
+  window: 'window',
+  rotate3d: 'rotate3d'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]
 
@@ -20,7 +21,8 @@ export const STACK_DEFAULT_OPERATION = `${STACK_OPERATION_PREFIX}${VIEW_OPERATIO
 export const STACK_DRAG_OPERATIONS = [
   VIEW_OPERATION_TYPES.pan,
   VIEW_OPERATION_TYPES.zoom,
-  VIEW_OPERATION_TYPES.window
+  VIEW_OPERATION_TYPES.window,
+  VIEW_OPERATION_TYPES.rotate3d
 ] as const
 
 export const VIEWPORT_DEFAULT_SIZE = {

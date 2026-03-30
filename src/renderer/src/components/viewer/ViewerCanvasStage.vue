@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CornerInfo, MprCrosshairInfo, OrientationInfo } from '../../types/viewer'
+import VolumeOrientationCube from './VolumeOrientationCube.vue'
 import ViewportCornerOverlay from './ViewportCornerOverlay.vue'
 import ViewportCrosshairOverlay from './ViewportCrosshairOverlay.vue'
 import ViewportOrientationOverlay from './ViewportOrientationOverlay.vue'
@@ -193,6 +194,7 @@ watch(
       />
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />
+      <VolumeOrientationCube v-if="viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
       <span
         v-if="!imageSrc"
         class="absolute left-3 top-3 rounded-full bg-slate-900/80 px-3 py-1 text-xs tracking-[0.14em] text-slate-400"

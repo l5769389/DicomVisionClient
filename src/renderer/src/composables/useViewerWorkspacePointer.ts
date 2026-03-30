@@ -8,7 +8,13 @@ interface PointerComposableOptions {
   activeTab: Ref<ViewerTabItem | null>
   emitActiveViewportChange: (viewportKey: string) => void
   emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
-  emitViewportDrag: (payload: { deltaX: number; deltaY: number; phase: 'start' | 'move' | 'end'; viewportKey: string }) => void
+  emitViewportDrag: (payload: {
+    deltaX: number
+    deltaY: number
+    opType: ViewOperationType
+    phase: 'start' | 'move' | 'end'
+    viewportKey: string
+  }) => void
 }
 
 interface PointerComposableState {
@@ -35,6 +41,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   const activeViewportKey = ref<MprViewportKey | 'single' | 'volume'>('mpr-ax')
   const crosshairPointerViewportKey = ref('')
   const dragViewportKey = ref('')
+  const dragOperationType = ref<ViewOperationType | null>(null)
   const isCrosshairDragging = ref(false)
   const isViewportDragging = ref(false)
   const activePointerId = ref<number | null>(null)
@@ -44,9 +51,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   let totalDeltaX = 0
   let totalDeltaY = 0
   let hasSentDragStart = false
-
+  let dragStartNormalizedPoint: { x: number; y: number } | null = null
+  let lastDragNormalizedPoint: { x: number; y: number } | null = null
   const emitThrottledViewportDrag = throttle(
-    (payload: { deltaX: number; deltaY: number; phase: 'move'; viewportKey: string }) => {
+    (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
       options.emitViewportDrag(payload)
     },
     30,
@@ -102,6 +110,27 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     const image = container.querySelector<HTMLImageElement>('.viewer-image')
     return image instanceof HTMLImageElement ? image : null
+  }
+
+  function getNormalizedContainerPoint(event: PointerEvent): { x: number; y: number } | null {
+    const container = resolvePointerContainer(event)
+    if (!container) {
+      return null
+    }
+
+    const rect = container.getBoundingClientRect()
+    if (!rect.width || !rect.height) {
+      return null
+    }
+
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+    }
+  }
+
+  function isVolumeTrackballRotation(): boolean {
+    return options.activeTab.value?.viewType === '3D' && getNormalizedOperation() === VIEW_OPERATION_TYPES.rotate3d
   }
 
   function getRenderedImageRect(imageElement: HTMLImageElement): DOMRect {
@@ -205,12 +234,23 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     emitThrottledViewportDrag.flush()
 
     if (hasSentDragStart) {
-      options.emitViewportDrag({
-        deltaX: 0,
-        deltaY: 0,
-        phase: DRAG_ACTION_TYPES.end,
-        viewportKey: dragViewportKey.value
-      })
+      if (dragOperationType.value && dragViewportKey.value === 'volume' && dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d && lastDragNormalizedPoint) {
+        options.emitViewportDrag({
+          deltaX: lastDragNormalizedPoint.x,
+          deltaY: lastDragNormalizedPoint.y,
+          opType: dragOperationType.value,
+          phase: DRAG_ACTION_TYPES.end,
+          viewportKey: dragViewportKey.value
+        })
+      } else if (dragOperationType.value) {
+        options.emitViewportDrag({
+          deltaX: 0,
+          deltaY: 0,
+          opType: dragOperationType.value,
+          phase: DRAG_ACTION_TYPES.end,
+          viewportKey: dragViewportKey.value
+        })
+      }
     }
 
     isViewportDragging.value = false
@@ -218,6 +258,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     totalDeltaX = 0
     totalDeltaY = 0
     hasSentDragStart = false
+    dragStartNormalizedPoint = null
+    lastDragNormalizedPoint = null
+    dragOperationType.value = null
     if (pointerTarget instanceof HTMLElement && activePointerId.value != null && pointerTarget.hasPointerCapture(activePointerId.value)) {
       pointerTarget.releasePointerCapture(activePointerId.value)
     }
@@ -261,20 +304,50 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       }
 
       hasSentDragStart = true
-      options.emitViewportDrag({
-        deltaX: 0,
-        deltaY: 0,
-        phase: DRAG_ACTION_TYPES.start,
+      if (dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d && dragViewportKey.value === 'volume' && dragStartNormalizedPoint) {
+        options.emitViewportDrag({
+          deltaX: dragStartNormalizedPoint.x,
+          deltaY: dragStartNormalizedPoint.y,
+          opType: dragOperationType.value,
+          phase: DRAG_ACTION_TYPES.start,
+          viewportKey: dragViewportKey.value
+        })
+      } else if (dragOperationType.value) {
+        options.emitViewportDrag({
+          deltaX: 0,
+          deltaY: 0,
+          opType: dragOperationType.value,
+          phase: DRAG_ACTION_TYPES.start,
+          viewportKey: dragViewportKey.value
+        })
+      }
+    }
+
+    if (dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d && dragViewportKey.value === 'volume') {
+      const point = getNormalizedContainerPoint(event)
+      if (!point) {
+        return
+      }
+      lastDragNormalizedPoint = point
+      emitThrottledViewportDrag({
+        deltaX: point.x,
+        deltaY: point.y,
+        opType: dragOperationType.value,
+        phase: DRAG_ACTION_TYPES.move,
+        viewportKey: dragViewportKey.value
+      })
+      return
+    }
+
+    if (dragOperationType.value) {
+      emitThrottledViewportDrag({
+        deltaX: totalDeltaX,
+        deltaY: totalDeltaY,
+        opType: dragOperationType.value,
+        phase: DRAG_ACTION_TYPES.move,
         viewportKey: dragViewportKey.value
       })
     }
-
-    emitThrottledViewportDrag({
-      deltaX: totalDeltaX,
-      deltaY: totalDeltaY,
-      phase: DRAG_ACTION_TYPES.move,
-      viewportKey: dragViewportKey.value
-    })
   }
 
   function handleViewportPointerUp(event: PointerEvent): void {
@@ -328,6 +401,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     pointerTarget.setPointerCapture(event.pointerId)
     setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
     dragViewportKey.value = viewportKey
+    dragOperationType.value = getNormalizedOperation() as ViewOperationType
     isViewportDragging.value = true
     activePointerId.value = event.pointerId
     lastPointerX = event.clientX
@@ -335,6 +409,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     totalDeltaX = 0
     totalDeltaY = 0
     hasSentDragStart = false
+    dragStartNormalizedPoint =
+      viewportKey === 'volume' && dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d ? getNormalizedContainerPoint(event) : null
+    lastDragNormalizedPoint = dragStartNormalizedPoint
   }
 
   function cleanupPointerInteractions(): void {

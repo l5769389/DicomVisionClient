@@ -63,6 +63,7 @@ onBeforeUnmount(() => {
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
           @set-active-operation="viewer.setActiveOperation"
+          @trigger-view-action="viewer.triggerViewAction"
           @active-viewport-change="viewer.setActiveViewportKey"
           @mpr-crosshair="viewer.handleMprCrosshair"
           @viewport-drag="viewer.handleViewportDrag"

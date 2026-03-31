@@ -30,6 +30,7 @@ const emit = defineEmits<{
   closeTab: [tabKey: string]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
+  triggerViewAction: [action: 'reset']
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: string; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
   workspaceReady: [payload: WorkspaceReadyPayload]
@@ -133,6 +134,7 @@ const volumeTools: StackTool[] = [
   { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
+  { key: 'reset', label: '重置', icon: 'reset', kind: 'action' },
   { key: 'export', label: '导出', icon: 'export', kind: 'action' }
 ]
 
@@ -363,6 +365,7 @@ function applyTool(tool: StackTool): void {
 
   if (tool.key === 'reset') {
     stopViewportDrag()
+    emit('triggerViewAction', 'reset')
     const defaultToolKey = getDefaultToolbarToolKey(props.activeTab?.viewType)
     flashToolActive('reset', defaultToolKey, () => {
       emit('setActiveOperation', getModeOperationValue(defaultToolKey))

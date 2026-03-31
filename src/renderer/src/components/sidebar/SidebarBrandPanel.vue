@@ -7,8 +7,8 @@
     <div class="pointer-events-none absolute inset-[12px] rounded-[22px] border border-sky-200/8"></div>
     <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-100/26 to-transparent"></div>
 
-    <div class="pointer-events-none absolute right-7 top-6 hidden h-[68px] w-[68px] rounded-[20px] border border-sky-300/14 bg-[linear-gradient(180deg,rgba(17,39,63,0.7),rgba(10,23,39,0.82))] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_24px_rgba(3,10,18,0.24)] md:block">
-      <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(111,206,255,0.2),transparent_34%),linear-gradient(rgba(125,211,252,0.09)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.09)_1px,transparent_1px)] bg-[size:auto,12px_12px,12px_12px]"></div>
+    <div class="pointer-events-none absolute right-7 top-6 hidden h-[68px] w-[68px] overflow-hidden rounded-[20px] border border-sky-300/14 bg-[linear-gradient(180deg,rgba(17,39,63,0.7),rgba(10,23,39,0.82))] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_24px_rgba(3,10,18,0.24)] md:block">
+      <div class="absolute inset-0 rounded-[20px] bg-[radial-gradient(circle_at_top_left,rgba(111,206,255,0.2),transparent_34%),linear-gradient(rgba(125,211,252,0.09)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,0.09)_1px,transparent_1px)] bg-[size:auto,12px_12px,12px_12px]"></div>
       <div class="absolute inset-[7px] rounded-[14px] border border-white/8"></div>
       <div class="absolute left-1/2 top-[7px] bottom-[7px] w-px -translate-x-1/2 bg-sky-200/18"></div>
       <div class="absolute top-1/2 left-[7px] right-[7px] h-px -translate-y-1/2 bg-sky-200/18"></div>

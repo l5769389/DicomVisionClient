@@ -13,6 +13,8 @@ const props = withDefaults(
     imageClass?: string
     imageSrc: string
     isActive?: boolean
+    isLoading?: boolean
+    loadingLabel?: string
     mprCrosshair?: MprCrosshairInfo | null
     orientation: OrientationInfo
     placeholder: string
@@ -24,6 +26,8 @@ const props = withDefaults(
   {
     imageClass: '',
     isActive: false,
+    isLoading: false,
+    loadingLabel: '正在加载视图...',
     mprCrosshair: null,
     renderSurfaceActive: false,
     softImage: false,
@@ -195,8 +199,17 @@ watch(
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />
       <VolumeOrientationCube v-if="viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
+      <div
+        v-if="isLoading"
+        class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"
+      >
+        <div class="flex items-center gap-3 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
+          <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
+          <span>{{ loadingLabel }}</span>
+        </div>
+      </div>
       <span
-        v-if="!imageSrc"
+        v-if="!imageSrc && !isLoading"
         class="absolute left-3 top-3 rounded-full bg-slate-900/80 px-3 py-1 text-xs tracking-[0.14em] text-slate-400"
       >
         {{ placeholder }}

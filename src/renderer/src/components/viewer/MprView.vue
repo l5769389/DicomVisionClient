@@ -38,6 +38,10 @@ function getViewportOrientation(viewportKey: MprViewportKey) {
 function getViewportCrosshair(viewportKey: MprViewportKey) {
   return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
 }
+
+function isViewportLoading(viewportKey: MprViewportKey): boolean {
+  return Boolean(props.activeTab.viewportViewIds?.[viewportKey]) && !getViewportImage(viewportKey)
+}
 </script>
 
 <template>
@@ -50,6 +54,8 @@ function getViewportCrosshair(viewportKey: MprViewportKey) {
       :is-active="activeViewportKey === item.key"
       :render-surface-active="activeViewportKey === item.key"
       :image-src="getViewportImage(item.key)"
+      :is-loading="isViewportLoading(item.key)"
+      loading-label="正在加载 MPR 视图..."
       :alt="item.label"
       :placeholder="`${item.label} 预览`"
       :corner-info="getViewportCornerInfo(item.key)"

@@ -22,22 +22,57 @@ const cubeTransform = computed(() => {
   }
 
   const [x, y, z, w] = quaternion
-  const inverseX = -x
-  const inverseY = -y
-  const inverseZ = -z
-  const inverseW = w
-  const sinHalfAngle = Math.sqrt(Math.max(0, 1 - inverseW * inverseW))
+  const xx = x * x
+  const yy = y * y
+  const zz = z * z
+  const xy = x * y
+  const xz = x * z
+  const yz = y * z
+  const wx = w * x
+  const wy = w * y
+  const wz = w * z
 
-  if (sinHalfAngle < 1e-6) {
-    return 'rotate3d(0, 0, 1, 0deg)'
-  }
+  // Camera quaternion -> visible model rotation = inverse(camera rotation).
+  const patientRotation = [
+    [1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)],
+    [2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)],
+    [2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)]
+  ]
 
-  const axisX = inverseX / sinHalfAngle
-  const axisY = inverseY / sinHalfAngle
-  const axisZ = inverseZ / sinHalfAngle
-  const angleDegrees = (2 * Math.acos(Math.max(-1, Math.min(1, inverseW))) * 180) / Math.PI
+  // Patient axes to CSS cube axes:
+  // +L -> +X, +P -> -Z, +S -> -Y
+  const basis = [
+    [1, 0, 0],
+    [0, 0, -1],
+    [0, -1, 0]
+  ]
 
-  return `rotate3d(${axisX}, ${axisY}, ${axisZ}, ${angleDegrees}deg)`
+  const multiply3x3 = (left: number[][], right: number[][]): number[][] =>
+    left.map((row) =>
+      right[0].map((_, columnIndex) => row.reduce((sum, value, rowIndex) => sum + value * right[rowIndex][columnIndex], 0))
+    )
+
+  const cubeRotation = multiply3x3(multiply3x3(basis, patientRotation), basis)
+  const cssMatrix = [
+    cubeRotation[0][0],
+    cubeRotation[1][0],
+    cubeRotation[2][0],
+    0,
+    cubeRotation[0][1],
+    cubeRotation[1][1],
+    cubeRotation[2][1],
+    0,
+    cubeRotation[0][2],
+    cubeRotation[1][2],
+    cubeRotation[2][2],
+    0,
+    0,
+    0,
+    0,
+    1
+  ]
+
+  return `matrix3d(${cssMatrix.join(',')})`
 })
 
 const faces = [

@@ -77,6 +77,7 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
+  triggerViewAction: (action: 'reset') => void
   viewerStage: Ref<HTMLElement | null>
   viewerTabs: Ref<ViewerTabItem[]>
 }
@@ -149,6 +150,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function setActiveOperation(value: string): void {
     activeOperation.value = value
+  }
+
+  function triggerViewAction(action: 'reset'): void {
+    if (action !== 'reset') {
+      return
+    }
+
+    const tab = activeTab.value
+    if (!tab) {
+      return
+    }
+
+    if (tab.viewType !== 'Stack' && tab.viewType !== '3D') {
+      return
+    }
+
+    if (!tab.viewId) {
+      return
+    }
+
+    emitViewOperation({
+      viewId: tab.viewId,
+      opType: VIEW_OPERATION_TYPES.reset
+    })
   }
 
   function getCreateViewTypeForViewport(viewportKey: MprViewportKey): BackendCreateViewType {
@@ -919,6 +944,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     setActiveViewportKey,
     setViewerStage,
     toggleSidebar,
+    triggerViewAction,
     viewerStage,
     viewerTabs
   }

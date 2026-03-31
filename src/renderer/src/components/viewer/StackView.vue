@@ -59,6 +59,8 @@ function handleSliceSliderInput(event: Event): void {
       :is-active="true"
       :render-surface-active="true"
       :image-src="props.activeTab.imageSrc"
+      :is-loading="Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc"
+      loading-label="正在加载栈视图..."
       :alt="props.activeTab.viewType"
       placeholder="单视口预览"
       :corner-info="props.activeTab.cornerInfo"

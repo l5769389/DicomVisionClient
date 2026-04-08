@@ -6,9 +6,12 @@ import { useViewerWorkspacePointer } from '../composables/useViewerWorkspacePoin
 import MprView from './viewer/MprView.vue'
 import StackView from './viewer/StackView.vue'
 import VolumeView from './viewer/VolumeView.vue'
+import VolumeRenderConfigPanel from './workspace/VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './workspace/ViewerTabStrip.vue'
 import ViewerToolbar from './workspace/ViewerToolbar.vue'
 import type { StackTool, StackToolOption } from './workspace/toolbarTypes'
+import { createDefaultVolumeRenderConfig } from '../composables/volumeRenderConfig'
+import type { VolumeRenderConfig } from '../types/viewer'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d'])
 const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page'])
@@ -30,7 +33,9 @@ const emit = defineEmits<{
   closeTab: [tabKey: string]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
-  triggerViewAction: [action: 'reset']
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  triggerViewAction: [payload: { action: 'reset' | 'volumePreset'; value?: string }]
+  volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: string; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
   workspaceReady: [payload: WorkspaceReadyPayload]
@@ -46,9 +51,11 @@ const activeToolbarToolKey = ref<string>('window')
 const transientActiveToolKey = ref<string | null>(null)
 const canScrollTabsLeft = ref(false)
 const canScrollTabsRight = ref(false)
+const isVolumeConfigPanelOpen = ref(false)
 const stackToolSelections = ref<Partial<Record<string, string>>>({
   rotate: 'rotate:cw90',
-  measure: 'measure:line'
+  measure: 'measure:line',
+  volumePreset: 'volumePreset:aaa'
 })
 const activeTabRef = computed(() => props.activeTab)
 const activeOperationRef = computed(() => props.activeOperation)
@@ -134,6 +141,20 @@ const volumeTools: StackTool[] = [
   { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
+  { key: 'volumeParams', label: '参数', icon: 'settings', kind: 'action' },
+  {
+    key: 'volumePreset',
+    label: '模板',
+    icon: 'volumePreset',
+    kind: 'action',
+    options: [
+      { value: 'volumePreset:aaa', label: 'AAA', icon: 'volume-preset-aaa' },
+      { value: 'volumePreset:red', label: 'Red', icon: 'volume-preset-red' },
+      { value: 'volumePreset:cardiac', label: 'Cardiac', icon: 'volume-preset-cardiac' },
+      { value: 'volumePreset:muscle', label: 'Muscle', icon: 'volume-preset-muscle' },
+      { value: 'volumePreset:mip', label: 'MIP', icon: 'volume-preset-mip' }
+    ]
+  },
   { key: 'reset', label: '重置', icon: 'reset', kind: 'action' },
   { key: 'export', label: '导出', icon: 'export', kind: 'action' }
 ]
@@ -365,10 +386,33 @@ function applyTool(tool: StackTool): void {
 
   if (tool.key === 'reset') {
     stopViewportDrag()
-    emit('triggerViewAction', 'reset')
+    if (props.activeTab?.viewType === '3D') {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        volumePreset: 'volumePreset:aaa'
+      }
+    }
+    emit('triggerViewAction', { action: 'reset' })
     const defaultToolKey = getDefaultToolbarToolKey(props.activeTab?.viewType)
     flashToolActive('reset', defaultToolKey, () => {
       emit('setActiveOperation', getModeOperationValue(defaultToolKey))
+    })
+    return
+  }
+
+  if (tool.key === 'volumeParams') {
+    isVolumeConfigPanelOpen.value = !isVolumeConfigPanelOpen.value
+    return
+  }
+
+  if (tool.key === 'volumePreset') {
+    const selectedOption = getSelectedOption(tool.key)
+    if (!selectedOption) {
+      return
+    }
+
+    flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+      emit('triggerViewAction', { action: 'volumePreset', value: selectedOption.value })
     })
     return
   }
@@ -415,6 +459,13 @@ function selectToolOption(tool: StackTool, optionValue: string): void {
     stopViewportDrag()
     setToolbarToolActive(tool.key)
     emit('setActiveOperation', `${STACK_OPERATION_PREFIX}${optionValue}`)
+    return
+  }
+
+  if (tool.key === 'volumePreset') {
+    flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+      emit('triggerViewAction', { action: 'volumePreset', value: optionValue })
+    })
   }
 }
 
@@ -444,9 +495,20 @@ function handleViewportClick(viewportKey: string): void {
   setActiveViewport(viewportKey as never)
 }
 
-function handleViewportWheel(payload: { viewportKey: string; deltaY: number }): void {
+function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean }): void {
   setActiveViewport(payload.viewportKey as never)
-  emit('viewportWheel', payload.deltaY)
+  const delta =
+    payload.exact
+      ? payload.deltaY
+      : payload.deltaY > 0
+        ? 1
+        : payload.deltaY < 0
+          ? -1
+          : 0
+  if (!Number.isFinite(delta) || delta === 0) {
+    return
+  }
+  emit('viewportWheel', delta)
 }
 
 function handleDocumentPointerDown(event: PointerEvent): void {
@@ -477,6 +539,7 @@ watch(
 
     if (tabOrViewChanged) {
       stopPlayback()
+      isVolumeConfigPanelOpen.value = false
       setActiveViewport(viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
       setToolbarToolActive(getDefaultToolbarToolKey(viewType))
       if (viewType === 'MPR') {
@@ -537,6 +600,25 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => props.activeTab?.volumePreset,
+  (value) => {
+    if (props.activeTab?.viewType !== '3D') {
+      return
+    }
+
+    stackToolSelections.value = {
+      ...stackToolSelections.value,
+      volumePreset: value || 'volumePreset:aaa'
+    }
+  },
+  { immediate: true }
+)
+
+const activeVolumeRenderConfig = computed(() =>
+  props.activeTab?.viewType === '3D' ? props.activeTab.volumeRenderConfig ?? createDefaultVolumeRenderConfig('aaa') : null
 )
 
 onBeforeUnmount(() => {
@@ -608,11 +690,23 @@ onBeforeUnmount(() => {
       <div
         v-else-if="activeTab"
         ref="viewportHostRef"
-        class="flex-1 overflow-hidden rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98)),repeating-linear-gradient(90deg,rgba(255,255,255,0.015)_0,rgba(255,255,255,0.015)_1px,transparent_1px,transparent_28px)] p-2.5"
+        class="relative flex-1 overflow-hidden rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98)),repeating-linear-gradient(90deg,rgba(255,255,255,0.015)_0,rgba(255,255,255,0.015)_1px,transparent_1px,transparent_28px)] p-2.5"
       >
+        <div
+          v-if="activeTab.viewType === '3D' && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
+          class="absolute right-5 top-5 z-[20]"
+        >
+          <VolumeRenderConfigPanel
+            :config="activeVolumeRenderConfig"
+            @config-change="emit('volumeConfigChange', $event)"
+          />
+        </div>
+
         <StackView
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
+          :corner-info="activeTab.cornerInfo"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDown"
@@ -625,6 +719,8 @@ onBeforeUnmount(() => {
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
+          :get-corner-info="(viewportKey) => activeTab.viewportCornerInfos?.[viewportKey] ?? activeTab.cornerInfo"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDown"

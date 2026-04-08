@@ -37,6 +37,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   clickViewport: [viewportKey: string]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerMove: [event: PointerEvent]
@@ -58,6 +59,49 @@ const imageFrame = ref({
 })
 
 let resizeObserver: ResizeObserver | null = null
+
+function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
+  const image = imageRef.value
+  if (!image || !event || !props.imageSrc) {
+    emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+    return
+  }
+
+  const rect = getRenderedImageRect(image)
+  if (!rect.width || !rect.height) {
+    emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+    return
+  }
+
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+    emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+    return
+  }
+
+  const normalizedX = (event.clientX - rect.left) / rect.width
+  const normalizedY = (event.clientY - rect.top) / rect.height
+  emit('hoverViewportChange', {
+    viewportKey: props.viewportKey,
+    x: Math.max(0, Math.min(1, normalizedX)),
+    y: Math.max(0, Math.min(1, normalizedY))
+  })
+}
+
+function handlePointerDown(event: PointerEvent): void {
+  emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+  emit('pointerDown', event, props.viewportKey)
+}
+
+function handlePointerMove(event: PointerEvent): void {
+  if (event.buttons === 0) {
+    emitHoverViewportPoint(event)
+  }
+  emit('pointerMove', event)
+}
+
+function handlePointerLeave(): void {
+  emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+}
 
 function getRenderedImageRect(image: HTMLImageElement): DOMRect {
   const rect = image.getBoundingClientRect()
@@ -166,10 +210,11 @@ watch(
     :data-active-viewport="isActive ? 'true' : 'false'"
     @click="emit('clickViewport', viewportKey)"
     @wheel.prevent="emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
-    @pointerdown="emit('pointerDown', $event, viewportKey)"
-    @pointermove="emit('pointerMove', $event)"
+    @pointerdown="handlePointerDown"
+    @pointermove="handlePointerMove"
     @pointerup="emit('pointerUp', $event)"
     @pointercancel="emit('pointerCancel', $event)"
+    @pointerleave="handlePointerLeave"
   >
     <div
       ref="stageRef"
@@ -180,7 +225,7 @@ watch(
       <img
         v-if="imageSrc"
         ref="imageRef"
-        class="block h-full w-full select-none object-contain object-center pointer-events-none"
+        class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
         :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
         :src="imageSrc"
         :alt="alt"
@@ -189,6 +234,7 @@ watch(
         @load="updateStageMetrics"
       />
       <ViewportCrosshairOverlay
+        :corner-info="cornerInfo"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
         :image-frame="imageFrame"

@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
+import type { ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
 
 let socket: Socket | null = null
 
@@ -39,9 +40,17 @@ export function emitViewOperation(payload: {
   delta?: number
   hor_flip?: boolean
   ver_flip?: boolean
+  volumeConfig?: VolumeRenderConfig
 }): void {
   if (!socket || !payload.viewId) {
     return
   }
   socket.emit('view_operation', payload)
+}
+
+export function emitViewHover(payload: ViewHoverPayload): void {
+  if (!socket || !payload.viewId) {
+    return
+  }
+  socket.emit('view_hover', payload)
 }

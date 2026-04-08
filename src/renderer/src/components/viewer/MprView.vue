@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { MprViewportKey, ViewerTabItem } from '../../types/viewer'
+import type { CornerInfo, MprViewportKey, ViewerTabItem } from '../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
   activeViewportKey: string
+  getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
 }>()
 
 const emit = defineEmits<{
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   viewportClick: [viewportKey: string]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
 
 const viewportItems = computed(() => [
@@ -25,10 +27,6 @@ const viewportItems = computed(() => [
 
 function getViewportImage(viewportKey: MprViewportKey): string {
   return props.activeTab.viewportImages?.[viewportKey] ?? ''
-}
-
-function getViewportCornerInfo(viewportKey: MprViewportKey) {
-  return props.activeTab.viewportCornerInfos?.[viewportKey] ?? props.activeTab.cornerInfo
 }
 
 function getViewportOrientation(viewportKey: MprViewportKey) {
@@ -58,10 +56,11 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       loading-label="正在加载 MPR 视图..."
       :alt="item.label"
       :placeholder="`${item.label} 预览`"
-      :corner-info="getViewportCornerInfo(item.key)"
+      :corner-info="props.getCornerInfo(item.key)"
       :mpr-crosshair="getViewportCrosshair(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @click-viewport="emit('viewportClick', $event)"
+      @hover-viewport-change="emit('hoverViewportChange', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="emit('pointerDown', $event, item.key)"
       @pointer-move="emit('pointerMove', $event)"

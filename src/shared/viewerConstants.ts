@@ -6,7 +6,9 @@ export const VIEW_OPERATION_TYPES = {
   zoom: 'zoom',
   window: 'window',
   rotate3d: 'rotate3d',
-  reset: 'reset'
+  reset: 'reset',
+  volumePreset: 'volumePreset',
+  volumeConfig: 'volumeConfig'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]
 

@@ -1,19 +1,21 @@
 ﻿<script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { ViewerTabItem } from '../../types/viewer'
+import type { CornerInfo, ViewerTabItem } from '../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
+  cornerInfo: CornerInfo
 }>()
 
 const emit = defineEmits<{
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   viewportClick: [viewportKey: string]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
 
 const sliceInfo = computed(() => {
@@ -31,6 +33,16 @@ const sliceInfo = computed(() => {
   }
 })
 
+const sliderValue = ref(1)
+
+watch(
+  sliceInfo,
+  (value) => {
+    sliderValue.value = Math.min(Math.max(value.current, 1), value.total)
+  },
+  { immediate: true }
+)
+
 function handleSliceSliderInput(event: Event): void {
   const target = event.target
   if (!(target instanceof HTMLInputElement)) {
@@ -38,14 +50,17 @@ function handleSliceSliderInput(event: Event): void {
   }
 
   const nextValue = Number(target.value)
-  const delta = nextValue - sliceInfo.value.current
+  const previousValue = sliderValue.value
+  sliderValue.value = nextValue
+  const delta = nextValue - previousValue
   if (!Number.isFinite(delta) || delta === 0) {
     return
   }
 
   emit('viewportWheel', {
     viewportKey: 'single',
-    deltaY: delta
+    deltaY: delta,
+    exact: true
   })
 }
 </script>
@@ -63,9 +78,10 @@ function handleSliceSliderInput(event: Event): void {
       loading-label="正在加载栈视图..."
       :alt="props.activeTab.viewType"
       placeholder="单视口预览"
-      :corner-info="props.activeTab.cornerInfo"
+      :corner-info="props.cornerInfo"
       :orientation="props.activeTab.orientation"
       @click-viewport="emit('viewportClick', $event)"
+      @hover-viewport-change="emit('hoverViewportChange', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="emit('pointerDown', $event, 'single')"
       @pointer-move="emit('pointerMove', $event)"
@@ -75,14 +91,14 @@ function handleSliceSliderInput(event: Event): void {
 
     <div class="flex min-h-0 flex-col items-center rounded-xl border border-white/8 bg-[linear-gradient(180deg,rgba(10,18,31,0.94),rgba(7,13,24,0.98))] px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
       <span class="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Slice</span>
-      <span class="mt-1 text-[10px] font-semibold text-slate-500">1</span>
+      <span class="mt-1 text-[10px] font-semibold text-slate-500">{{ sliderValue }}</span>
       <div class="my-2 flex min-h-0 flex-1 items-center">
         <input
           class="stack-slice-slider h-full w-3.5 cursor-pointer accent-sky-300"
           type="range"
           min="1"
           :max="sliceInfo.total"
-          :value="sliceInfo.current"
+          :value="sliderValue"
           orient="vertical"
           aria-label="切换切片"
           @input="handleSliceSliderInput"

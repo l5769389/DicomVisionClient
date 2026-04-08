@@ -7,8 +7,9 @@ import {
   type ViewOperationType,
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
+import throttle from 'lodash/throttle'
 import { api, setApiBaseURL } from '../services/api'
-import { bindView, connectSocket, emitViewOperation, getSocket } from '../services/socket'
+import { bindView, connectSocket, emitViewHover, emitViewOperation, getSocket } from '../services/socket'
 import {
   buildTabTitle,
   createEmptyCornerInfo,
@@ -27,6 +28,11 @@ import {
   normalizeCornerInfo,
   normalizeOrientationInfo
 } from './viewerWorkspaceTabs'
+import {
+  createDefaultVolumeRenderConfig,
+  normalizeVolumePresetKey,
+  normalizeVolumeRenderConfig
+} from './volumeRenderConfig'
 import type {
   BackendCreateViewType,
   CornerInfo,
@@ -37,7 +43,9 @@ import type {
   MprViewportKey,
   OperationAcceptedResponse,
   OrientationInfo,
+  VolumeRenderConfig,
   ViewCreateResponse,
+  ViewHoverResponse,
   ViewImageResponse,
   ViewerOperationItem,
   ViewerTabItem,
@@ -61,7 +69,9 @@ interface ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     viewportKey: string
   }) => void
+  handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
   handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
+  handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
@@ -77,12 +87,14 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
-  triggerViewAction: (action: 'reset') => void
+  triggerViewAction: (payload: { action: 'reset' | 'volumePreset'; value?: string }) => void
   viewerStage: Ref<HTMLElement | null>
   viewerTabs: Ref<ViewerTabItem[]>
 }
 
 export function useViewerWorkspace(): ViewerWorkspaceState {
+  const VOLUME_CONFIG_DEBOUNCE_MS = 120
+  const HOVER_EMIT_THROTTLE_MS = 30
   const backendOrigin = ref('http://127.0.0.1:8000')
   const message = ref('')
   const isSidebarCollapsed = ref(false)
@@ -100,6 +112,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const seriesCornerInfoMap = ref<Record<string, CornerInfo>>({})
   const loadingSeriesCornerInfo = new Map<string, Promise<CornerInfo>>()
   const viewSizeCache = new Map<string, string>()
+  const pendingVolumeConfigByViewId = new Map<string, VolumeRenderConfig>()
+  const volumeConfigTimers = new Map<string, ReturnType<typeof window.setTimeout>>()
+  const hoveredViewIds = new Set<string>()
 
   const operationItems: ViewerOperationItem[] = []
 
@@ -113,6 +128,61 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
+  const emitThrottledViewHover = throttle(
+    (payload: { viewId: string; x: number; y: number }) => {
+      emitViewHover(payload)
+    },
+    HOVER_EMIT_THROTTLE_MS,
+    { leading: true, trailing: true }
+  )
+  const hoverCornerPattern = /^X:\s*-?\d+\s+Y:\s*-?\d+$/i
+
+  function stripHoverCornerInfo(cornerInfo: CornerInfo): CornerInfo {
+    return {
+      ...cornerInfo,
+      bottomRight: cornerInfo.bottomRight.filter((line) => !hoverCornerPattern.test(line.trim()))
+    }
+  }
+
+  function withHoverCornerInfo(cornerInfo: CornerInfo, row: number | null = null, col: number | null = null): CornerInfo {
+    const hoverLine = cornerInfo.bottomRight.find((line) => hoverCornerPattern.test(line.trim())) ?? null
+    const bottomRight = cornerInfo.bottomRight.filter((line) => !hoverCornerPattern.test(line.trim()))
+    if (row != null && col != null) {
+      bottomRight.push(`X:${col} Y:${row}`)
+    } else if (hoverLine) {
+      bottomRight.push(hoverLine)
+    }
+    return {
+      ...cornerInfo,
+      bottomRight
+    }
+  }
+
+  function updateHoverCornerInfoByViewId(viewId: string, row: number | null = null, col: number | null = null): void {
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.viewId === viewId && item.viewType === 'Stack') {
+        return {
+          ...item,
+          cornerInfo: withHoverCornerInfo(item.cornerInfo, row, col)
+        }
+      }
+
+      const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0] as
+        | MprViewportKey
+        | undefined
+      if (!viewportKey || item.viewType !== 'MPR') {
+        return item
+      }
+
+        return {
+        ...item,
+        viewportCornerInfos: {
+          ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
+          [viewportKey]: withHoverCornerInfo(item.viewportCornerInfos?.[viewportKey] ?? item.cornerInfo, row, col)
+        }
+      }
+    })
+  }
 
   function findTab(seriesId: string, viewType?: ViewType): ViewerTabItem | undefined {
     return viewerTabs.value.find((item) =>
@@ -152,17 +222,62 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeOperation.value = value
   }
 
-  function triggerViewAction(action: 'reset'): void {
-    if (action !== 'reset') {
+  function flushVolumeConfig(viewId: string): void {
+
+    const pendingConfig = pendingVolumeConfigByViewId.get(viewId)
+    if (!pendingConfig) {
       return
     }
 
+    const timer = volumeConfigTimers.get(viewId)
+    if (timer) {
+      window.clearTimeout(timer)
+      volumeConfigTimers.delete(viewId)
+    }
+
+    pendingVolumeConfigByViewId.delete(viewId)
+    emitViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.volumeConfig,
+      volumeConfig: pendingConfig
+    })
+  }
+
+  function clearPendingVolumeConfig(viewId: string): void {
+    const timer = volumeConfigTimers.get(viewId)
+    if (timer) {
+      window.clearTimeout(timer)
+      volumeConfigTimers.delete(viewId)
+    }
+    pendingVolumeConfigByViewId.delete(viewId)
+  }
+
+  function scheduleVolumeConfigEmit(viewId: string, config: VolumeRenderConfig): void {
+    pendingVolumeConfigByViewId.set(viewId, config)
+    const existingTimer = volumeConfigTimers.get(viewId)
+    if (existingTimer) {
+      window.clearTimeout(existingTimer)
+    }
+    volumeConfigTimers.set(
+      viewId,
+      window.setTimeout(() => {
+        volumeConfigTimers.delete(viewId)
+        flushVolumeConfig(viewId)
+      }, VOLUME_CONFIG_DEBOUNCE_MS)
+    )
+  }
+
+  function triggerViewAction(payload: { action: 'reset' | 'volumePreset'; value?: string }): void {
     const tab = activeTab.value
     if (!tab) {
       return
     }
 
-    if (tab.viewType !== 'Stack' && tab.viewType !== '3D') {
+    if (payload.action === 'reset' && tab.viewType !== 'Stack' && tab.viewType !== '3D') {
+      return
+    }
+
+    if (payload.action === 'volumePreset' && tab.viewType !== '3D') {
       return
     }
 
@@ -170,10 +285,77 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    clearPendingVolumeConfig(tab.viewId)
+
+    if (payload.action === 'reset' && tab.viewType === '3D') {
+      const defaultConfig = createDefaultVolumeRenderConfig('aaa')
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              volumePreset: 'volumePreset:aaa',
+              volumeRenderConfig: defaultConfig
+            }
+          : item
+      )
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.reset
+      })
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.volumeConfig,
+        volumeConfig: defaultConfig
+      })
+      return
+    }
+
+    if (payload.action === 'volumePreset' && payload.value) {
+      const presetKey = normalizeVolumePresetKey(payload.value)
+      const presetConfig = createDefaultVolumeRenderConfig(presetKey)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              volumePreset: `volumePreset:${presetKey}`,
+              volumeRenderConfig: presetConfig
+            }
+          : item
+      )
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.volumeConfig,
+        volumeConfig: presetConfig
+      })
+      return
+    }
+
     emitViewOperation({
       viewId: tab.viewId,
       opType: VIEW_OPERATION_TYPES.reset
     })
+  }
+
+  function handleVolumeConfigChange(config: VolumeRenderConfig): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== '3D' || !tab.viewId) {
+      return
+    }
+
+    const normalizedConfig = normalizeVolumeRenderConfig(config, config.preset)
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            volumePreset: `volumePreset:${normalizedConfig.preset}`,
+            volumeRenderConfig: normalizedConfig
+          }
+        : item
+    )
+
+    scheduleVolumeConfigEmit(tab.viewId, normalizedConfig)
   }
 
   function getCreateViewTypeForViewport(viewportKey: MprViewportKey): BackendCreateViewType {
@@ -367,6 +549,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  function handleHoverInfo(payload: ViewHoverResponse | undefined): void {
+    if (!payload?.viewId || !hoveredViewIds.has(payload.viewId)) {
+      return
+    }
+    updateHoverCornerInfoByViewId(payload.viewId, payload.row, payload.col)
+  }
+
   function handleViewportWheel(deltaY: number): void {
     const tab = activeTab.value
     if (!tab) {
@@ -378,7 +567,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const scroll = deltaY > 0 ? 1 : deltaY < 0 ? -1 : 0
+    const normalizedDelta = Number.isFinite(deltaY) ? Math.trunc(deltaY) : 0
+    const scroll = normalizedDelta > 0 ? normalizedDelta : normalizedDelta < 0 ? normalizedDelta : 0
     if (!scroll) {
       return
     }
@@ -447,6 +637,33 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function handleHoverViewportChange(payload: { viewportKey: string; x: number | null; y: number | null }): void {
+    const tab = activeTab.value
+    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR')) {
+      return
+    }
+
+    const viewId =
+      tab.viewType === 'MPR' ? tab.viewportViewIds?.[payload.viewportKey as MprViewportKey] ?? '' : tab.viewId
+    if (!viewId) {
+      return
+    }
+
+    if (payload.x == null || payload.y == null) {
+      emitThrottledViewHover.cancel()
+      hoveredViewIds.delete(viewId)
+      updateHoverCornerInfoByViewId(viewId)
+      return
+    }
+
+    hoveredViewIds.add(viewId)
+    emitThrottledViewHover({
+      viewId,
+      x: payload.x,
+      y: payload.y
+    })
+  }
+
   function cleanupSocketListeners(): void {
     const socket = getSocket()
     if (!socket) {
@@ -460,6 +677,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     socket.io.off('reconnect_error', handleSocketReconnectError)
     socket.io.off('reconnect_failed', handleSocketReconnectFailed)
     socket.off('image_update', handleImageUpdate)
+    socket.off('hover_info', handleHoverInfo)
     socket.off('image_error', handleImageError)
     socket.off('render_error', handleImageError)
   }
@@ -477,6 +695,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     socket.io.on('reconnect_error', handleSocketReconnectError)
     socket.io.on('reconnect_failed', handleSocketReconnectFailed)
     socket.on('image_update', handleImageUpdate)
+    socket.on('hover_info', handleHoverInfo)
     socket.on('image_error', handleImageError)
     socket.on('render_error', handleImageError)
   }
@@ -563,6 +782,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const closingTab = viewerTabs.value[currentIndex]
     if (closingTab.viewId) {
+      clearPendingVolumeConfig(closingTab.viewId)
+    }
+    if (closingTab.viewId) {
       viewSizeCache.delete(closingTab.viewId)
     }
     Object.values(closingTab.viewportViewIds ?? {}).forEach((viewId) => {
@@ -632,8 +854,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
       const seriesCornerInfo = seriesCornerInfoMap.value[item.seriesId] ?? createEmptyCornerInfo()
-      const sliceCornerInfo = normalizeCornerInfo(payload.cornerInfo)
+      const sliceCornerInfo = stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo))
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
+      const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
+      const volumeRenderConfig = payload.volumeConfig
+        ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
+        : item.volumeRenderConfig
 
       const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
         | MprViewportKey
@@ -661,12 +887,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-            [viewportKey]: mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)
+            [viewportKey]: withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
           },
           viewportOrientations: {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
             [viewportKey]: orientationInfo
-          }
+          },
+          volumePreset,
+          volumeRenderConfig
         }
       }
 
@@ -680,8 +908,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         imageSrc,
         sliceLabel,
         windowLabel,
-        cornerInfo: mergeCornerInfo(seriesCornerInfo, sliceCornerInfo),
-        orientation: orientationInfo
+        cornerInfo: withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
+        orientation: orientationInfo,
+        volumePreset,
+        volumeRenderConfig
       }
     })
   }
@@ -793,7 +1023,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isViewLoading.value = true
 
     try {
-      const seriesCornerInfo = await ensureSeriesCornerInfo(selectedSeriesId.value)
+      const seriesCornerInfo = withHoverCornerInfo(await ensureSeriesCornerInfo(selectedSeriesId.value))
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
       if (viewType === 'MPR') {
@@ -846,7 +1076,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                       'mpr-sag': seriesCornerInfo
                     }
                   : createEmptyMprCornerInfos(),
-              viewportOrientations: createEmptyMprOrientations()
+              viewportOrientations: createEmptyMprOrientations(),
+              volumePreset: 'volumePreset:aaa',
+              volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
             }
           : item
       )
@@ -910,6 +1142,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   })
 
   onBeforeUnmount(() => {
+    for (const viewId of Array.from(pendingVolumeConfigByViewId.keys())) {
+      flushVolumeConfig(viewId)
+    }
+    emitThrottledViewHover.cancel()
     cleanupSocketListeners()
     if (resizeObserver && observedViewerStage) {
       resizeObserver.unobserve(observedViewerStage)
@@ -925,7 +1161,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     chooseFolder,
     closeTab,
     connectionState,
+    handleHoverViewportChange,
     handleMprCrosshair,
+    handleVolumeConfigChange,
     handleViewportDrag,
     handleViewportWheel,
     hasSelectedSeries,

@@ -7,6 +7,7 @@ import type {
   ViewerTabItem,
   ViewType
 } from '../types/viewer'
+import { createDefaultVolumeRenderConfig } from './volumeRenderConfig'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
 
@@ -241,6 +242,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     cornerInfo: createEmptyCornerInfo(),
     viewportCornerInfos: createEmptyMprCornerInfos(),
     orientation: createEmptyOrientationInfo(),
-    viewportOrientations: createEmptyMprOrientations()
+    viewportOrientations: createEmptyMprOrientations(),
+    volumePreset: 'volumePreset:aaa',
+    volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
   }
 }

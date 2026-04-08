@@ -64,6 +64,37 @@ export interface OrientationInfo {
   volumeQuaternion?: [number, number, number, number] | null
 }
 
+export type VolumeBlendMode = 'composite' | 'mip'
+
+export interface VolumeLayerConfig {
+  key: string
+  label: string
+  enabled: boolean
+  ww: number
+  wl: number
+  opacity: number
+  colorStart: string
+  colorEnd: string
+}
+
+export type VolumeInterpolationMode = 'nearest' | 'linear' | 'cubic'
+
+export interface VolumeLightingConfig {
+  shading: boolean
+  interpolation: VolumeInterpolationMode
+  ambient: number
+  diffuse: number
+  specular: number
+  roughness: number
+}
+
+export interface VolumeRenderConfig {
+  preset: string
+  blendMode: VolumeBlendMode
+  layers: VolumeLayerConfig[]
+  lighting: VolumeLightingConfig
+}
+
 export interface ViewImageResponse {
   imageFormat?: 'png' | 'jpeg'
   viewId: string
@@ -78,6 +109,20 @@ export interface ViewImageResponse {
   mpr_crosshair?: MprCrosshairInfo | null
   cornerInfo?: unknown
   orientation?: unknown
+  volumePreset?: string
+  volumeConfig?: VolumeRenderConfig | null
+}
+
+export interface ViewHoverPayload {
+  viewId: string
+  x: number
+  y: number
+}
+
+export interface ViewHoverResponse {
+  viewId: string
+  row: number
+  col: number
 }
 
 export interface ViewerTabItem {
@@ -98,6 +143,8 @@ export interface ViewerTabItem {
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
   orientation: OrientationInfo
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
+  volumePreset?: string
+  volumeRenderConfig?: VolumeRenderConfig | null
 }
 
 export interface ViewerOperationItem {

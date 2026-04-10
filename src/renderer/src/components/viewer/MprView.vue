@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, MprViewportKey, ViewerTabItem } from '../../types/viewer'
+import type { CornerInfo, MeasurementDraft, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
   activeViewportKey: string
+  getDraftMeasurement: (viewportKey: MprViewportKey) => MeasurementDraft | null
+  getMeasurements: (viewportKey: MprViewportKey) => MeasurementOverlay[]
   getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
 }>()
 
@@ -57,6 +59,8 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :alt="item.label"
       :placeholder="`${item.label} 预览`"
       :corner-info="props.getCornerInfo(item.key)"
+      :draft-measurement="props.getDraftMeasurement(item.key)"
+      :measurements="props.getMeasurements(item.key)"
       :mpr-crosshair="getViewportCrosshair(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @click-viewport="emit('viewportClick', $event)"

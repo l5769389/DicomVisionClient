@@ -40,6 +40,9 @@ import type {
   ConnectionState,
   FolderSeriesItem,
   LoadFolderResponse,
+  MeasurementDraftPoint,
+  MeasurementOverlay,
+  MeasurementToolType,
   MprViewportKey,
   OperationAcceptedResponse,
   OrientationInfo,
@@ -70,7 +73,9 @@ interface ViewerWorkspaceState {
     viewportKey: string
   }) => void
   handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
+  handleMeasurementDraft: (payload: { viewportKey: string; toolType: MeasurementToolType; phase: 'start' | 'move' | 'end'; points: MeasurementDraftPoint[] }) => void
   handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
+  handleMeasurementCreate: (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[] }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -409,6 +414,42 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function emitMeasurementOperation(
+    payload: {
+      viewportKey: string
+      toolType: MeasurementToolType
+      phase: 'start' | 'move' | 'end'
+      points: MeasurementDraftPoint[]
+    }
+  ): void {
+    const tab = activeTab.value
+    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') || !payload.points.length) {
+      return
+    }
+
+    const operationPayload = {
+      opType: VIEW_OPERATION_TYPES.measurement,
+      subOpType: payload.toolType,
+      actionType: payload.phase,
+      viewportKey: payload.viewportKey,
+      points: payload.points
+    } as const
+
+    if (tab.viewType === 'MPR') {
+      emitMprViewOperation(payload.viewportKey, operationPayload)
+      return
+    }
+
+    if (!tab.viewId) {
+      return
+    }
+
+    emitViewOperation({
+      viewId: tab.viewId,
+      ...operationPayload
+    })
+  }
+
   function setViewerStage(payload: WorkspaceReadyPayload): void {
     const nextElement = payload.element ?? null
     const previousElement = viewerStage.value
@@ -635,6 +676,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       x: payload.x,
       y: payload.y
     })
+  }
+
+  function handleMeasurementCreate(payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[] }): void {
+    emitMeasurementOperation({
+      ...payload,
+      phase: DRAG_ACTION_TYPES.end
+    })
+  }
+
+  function handleMeasurementDraft(payload: {
+    viewportKey: string
+    toolType: MeasurementToolType
+    phase: 'start' | 'move' | 'end'
+    points: MeasurementDraftPoint[]
+  }): void {
+    if (payload.phase === DRAG_ACTION_TYPES.start) {
+      // Draft label lines are now owned by ViewerWorkspace local draft state.
+    }
+
+    emitMeasurementOperation(payload)
   }
 
   function handleHoverViewportChange(payload: { viewportKey: string; x: number | null; y: number | null }): void {
@@ -885,6 +946,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
             [viewportKey]: payload.mpr_crosshair ?? null
           },
+          viewportMeasurements: {
+            ...(item.viewportMeasurements ?? {}),
+            [viewportKey]: (payload.measurements ?? []) as MeasurementOverlay[]
+          },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
             [viewportKey]: withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
@@ -908,6 +973,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         imageSrc,
         sliceLabel,
         windowLabel,
+        measurements: (payload.measurements ?? []) as MeasurementOverlay[],
         cornerInfo: withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
         orientation: orientationInfo,
         volumePreset,
@@ -1066,6 +1132,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
               viewportImages: createEmptyMprImages(),
               viewportSliceLabels: createEmptyMprSliceLabels(),
               viewportCrosshairs: createEmptyMprCrosshairs(),
+              measurements: [],
               cornerInfo: seriesCornerInfo,
               orientation: createEmptyOrientationInfo(),
               viewportCornerInfos:
@@ -1076,6 +1143,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                       'mpr-sag': seriesCornerInfo
                     }
                   : createEmptyMprCornerInfos(),
+              viewportMeasurements: {},
               viewportOrientations: createEmptyMprOrientations(),
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
@@ -1161,6 +1229,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     closeTab,
     connectionState,
     handleHoverViewportChange,
+    handleMeasurementDraft,
+    handleMeasurementCreate,
     handleMprCrosshair,
     handleVolumeConfigChange,
     handleViewportDrag,

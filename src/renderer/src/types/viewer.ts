@@ -47,6 +47,34 @@ export interface WorkspaceReadyPayload {
 }
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle'
+
+export interface MeasurementDraftPoint {
+  x: number
+  y: number
+}
+
+export interface MeasurementDraft {
+  toolType: MeasurementToolType
+  points: MeasurementDraftPoint[]
+  labelLines?: string[]
+  isCommitted?: boolean
+}
+
+export interface MeasurementDraftPayload {
+  viewId: string
+  viewportKey: string
+  toolType: MeasurementToolType
+  labelLines: string[]
+  sliceIndex?: number
+}
+
+export interface MeasurementOverlay {
+  measurementId: string
+  toolType: MeasurementToolType
+  points: MeasurementDraftPoint[]
+  labelLines: string[]
+}
 
 export interface MprCrosshairInfo {
   centerX: number
@@ -107,6 +135,7 @@ export interface ViewImageResponse {
     wl?: number | null
   }
   mpr_crosshair?: MprCrosshairInfo | null
+  measurements?: MeasurementOverlay[]
   cornerInfo?: unknown
   orientation?: unknown
   volumePreset?: string
@@ -139,8 +168,10 @@ export interface ViewerTabItem {
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
+  measurements?: MeasurementOverlay[]
   cornerInfo: CornerInfo
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
+  viewportMeasurements?: Partial<Record<MprViewportKey, MeasurementOverlay[]>>
   orientation: OrientationInfo
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
   volumePreset?: string

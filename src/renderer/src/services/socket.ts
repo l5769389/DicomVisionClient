@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
-import type { ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
+import type { MeasurementDraftPayload, MeasurementDraftPoint, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
 
 let socket: Socket | null = null
 
@@ -36,6 +36,8 @@ export function emitViewOperation(payload: {
   actionType?: DragActionType
   x?: number
   y?: number
+  points?: MeasurementDraftPoint[]
+  viewportKey?: string
   zoom?: number
   delta?: number
   hor_flip?: boolean
@@ -53,4 +55,12 @@ export function emitViewHover(payload: ViewHoverPayload): void {
     return
   }
   socket.emit('view_hover', payload)
+}
+
+export function onMeasurementDraft(handler: (payload: MeasurementDraftPayload) => void): void {
+  socket?.on('measurement_draft', handler)
+}
+
+export function offMeasurementDraft(handler: (payload: MeasurementDraftPayload) => void): void {
+  socket?.off('measurement_draft', handler)
 }

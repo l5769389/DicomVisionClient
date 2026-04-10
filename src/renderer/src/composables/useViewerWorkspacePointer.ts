@@ -1,12 +1,26 @@
 import { ref, type Ref } from 'vue'
 import throttle from 'lodash/throttle'
 import { DRAG_ACTION_TYPES, STACK_DRAG_OPERATIONS, type ViewOperationType, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import type { MprCrosshairInfo, MprViewportKey, ViewerTabItem, ViewType } from '../types/viewer'
+import type {
+  MeasurementDraft,
+  MeasurementDraftPoint,
+  MeasurementToolType,
+  MprCrosshairInfo,
+  MprViewportKey,
+  ViewerTabItem
+} from '../types/viewer'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
   activeTab: Ref<ViewerTabItem | null>
   emitActiveViewportChange: (viewportKey: string) => void
+  emitMeasurementDraft: (payload: {
+    viewportKey: string
+    toolType: MeasurementToolType
+    phase: 'start' | 'move' | 'end'
+    points: MeasurementDraftPoint[]
+  }) => void
+  emitMeasurementCreate: (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[] }) => void
   emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
   emitViewportDrag: (payload: {
     deltaX: number
@@ -20,15 +34,18 @@ interface PointerComposableOptions {
 interface PointerComposableState {
   activeViewportKey: Ref<MprViewportKey | 'single' | 'volume'>
   cleanupPointerInteractions: () => void
+  draftMeasurements: Ref<Partial<Record<string, MeasurementDraft | null>>>
   handleViewportPointerCancel: (event: PointerEvent) => void
   handleViewportPointerDown: (event: PointerEvent, viewportKey: string) => void
   handleViewportPointerMove: (event: PointerEvent) => void
   handleViewportPointerUp: (event: PointerEvent) => void
   setActiveViewport: (viewportKey: MprViewportKey | 'single' | 'volume') => void
   stopViewportDrag: (pointerTarget?: EventTarget | null) => void
+  updateDraftMeasurementLabelLines: (viewportKey: string, labelLines: string[]) => void
 }
 
 const DRAG_START_THRESHOLD = 3
+const DISTINCT_POINT_EPSILON = 0.001
 
 function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: number } {
   return {
@@ -41,8 +58,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   const activeViewportKey = ref<MprViewportKey | 'single' | 'volume'>('mpr-ax')
   const crosshairPointerViewportKey = ref('')
   const dragViewportKey = ref('')
+  const measurementViewportKey = ref('')
   const dragOperationType = ref<ViewOperationType | null>(null)
+  const draftMeasurements = ref<Partial<Record<string, MeasurementDraft | null>>>({})
   const isCrosshairDragging = ref(false)
+  const isMeasurementDrawing = ref(false)
   const isViewportDragging = ref(false)
   const activePointerId = ref<number | null>(null)
 
@@ -74,6 +94,49 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     { leading: true, trailing: true }
   )
 
+  const emitThrottledMeasurementDraft = throttle(
+    (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[] }) => {
+      options.emitMeasurementDraft({
+        viewportKey: payload.viewportKey,
+        toolType: payload.toolType,
+        phase: DRAG_ACTION_TYPES.move,
+        points: payload.points
+      })
+    },
+    30,
+    { leading: true, trailing: true }
+  )
+
+  function setPointerCapture(pointerTarget: HTMLElement, pointerId: number): void {
+    pointerTarget.setPointerCapture(pointerId)
+    activePointerId.value = pointerId
+  }
+
+  function releasePointerCapture(pointerTarget?: EventTarget | null): void {
+    if (!(pointerTarget instanceof HTMLElement) || activePointerId.value == null) {
+      activePointerId.value = null
+      return
+    }
+    if (pointerTarget.hasPointerCapture(activePointerId.value)) {
+      pointerTarget.releasePointerCapture(activePointerId.value)
+    }
+    activePointerId.value = null
+  }
+
+  function emitMeasurementDraftPhase(
+    viewportKey: string,
+    toolType: MeasurementToolType,
+    phase: 'start' | 'move' | 'end',
+    points: MeasurementDraftPoint[]
+  ): void {
+    options.emitMeasurementDraft({
+      viewportKey,
+      toolType,
+      phase,
+      points
+    })
+  }
+
   function setActiveViewport(viewportKey: MprViewportKey | 'single' | 'volume'): void {
     activeViewportKey.value = viewportKey
     options.emitActiveViewportChange(viewportKey)
@@ -85,8 +148,26 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       : options.activeOperation.value.split(':')[0]
   }
 
+  function getMeasurementToolType(): MeasurementToolType | null {
+    const normalized = options.activeOperation.value.startsWith('stack:')
+      ? options.activeOperation.value.slice('stack:'.length)
+      : options.activeOperation.value
+    const [toolKey, toolType] = normalized.split(':')
+    if (toolKey !== 'measure') {
+      return null
+    }
+    if (toolType === 'line' || toolType === 'rect' || toolType === 'ellipse' || toolType === 'angle') {
+      return toolType
+    }
+    return null
+  }
+
   function isCrosshairOperationEnabled(): boolean {
     return options.activeTab.value?.viewType === 'MPR' && getNormalizedOperation() === VIEW_OPERATION_TYPES.crosshair
+  }
+
+  function isMeasurementOperationEnabled(): boolean {
+    return (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') && getMeasurementToolType() != null
   }
 
   function isMouseDragOperationEnabled(): boolean {
@@ -217,14 +298,18 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function stopViewportDrag(pointerTarget?: EventTarget | null): void {
+    if (isMeasurementDrawing.value) {
+      emitThrottledMeasurementDraft.cancel()
+      isMeasurementDrawing.value = false
+      measurementViewportKey.value = ''
+      releasePointerCapture(pointerTarget)
+    }
+
     if (isCrosshairDragging.value) {
       emitThrottledCrosshairMove.cancel()
-      if (pointerTarget instanceof HTMLElement && activePointerId.value != null && pointerTarget.hasPointerCapture(activePointerId.value)) {
-        pointerTarget.releasePointerCapture(activePointerId.value)
-      }
       isCrosshairDragging.value = false
       crosshairPointerViewportKey.value = ''
-      activePointerId.value = null
+      releasePointerCapture(pointerTarget)
     }
 
     if (!isViewportDragging.value) {
@@ -261,13 +346,102 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     dragStartNormalizedPoint = null
     lastDragNormalizedPoint = null
     dragOperationType.value = null
-    if (pointerTarget instanceof HTMLElement && activePointerId.value != null && pointerTarget.hasPointerCapture(activePointerId.value)) {
-      pointerTarget.releasePointerCapture(activePointerId.value)
+    releasePointerCapture(pointerTarget)
+  }
+
+  function clearDraftMeasurement(viewportKey?: string): void {
+    if (!viewportKey) {
+      draftMeasurements.value = {}
+      return
     }
-    activePointerId.value = null
+    draftMeasurements.value = {
+      ...draftMeasurements.value,
+      [viewportKey]: null
+    }
+  }
+
+  function updateDraftMeasurement(viewportKey: string, draft: MeasurementDraft): void {
+    draftMeasurements.value = {
+      ...draftMeasurements.value,
+      [viewportKey]: draft
+    }
+  }
+
+  function updateDraftMeasurementLabelLines(viewportKey: string, labelLines: string[]): void {
+    const draft = draftMeasurements.value[viewportKey]
+    if (!draft) {
+      return
+    }
+    updateDraftMeasurement(viewportKey, {
+      ...draft,
+      labelLines
+    })
+  }
+
+  function isValidMeasurement(toolType: MeasurementToolType, points: MeasurementDraftPoint[]): boolean {
+    if (toolType === 'angle') {
+      if (points.length < 3) {
+        return false
+      }
+      return isDistinctPoint(points[1], points[0]) && isDistinctPoint(points[1], points[2])
+    }
+    if (points.length < 2) {
+      return false
+    }
+    return isDistinctPoint(points[0], points[1])
+  }
+
+  function isDistinctPoint(a: MeasurementDraftPoint, b: MeasurementDraftPoint): boolean {
+    return Math.abs(a.x - b.x) > DISTINCT_POINT_EPSILON || Math.abs(a.y - b.y) > DISTINCT_POINT_EPSILON
+  }
+
+  function createMeasurementDraft(toolType: MeasurementToolType, points: MeasurementDraftPoint[], isCommitted = false): MeasurementDraft {
+    return {
+      toolType,
+      points,
+      isCommitted
+    }
   }
 
   function handleViewportPointerMove(event: PointerEvent): void {
+    if (isMeasurementDrawing.value && activePointerId.value === event.pointerId) {
+      const toolType = getMeasurementToolType()
+      const point = getNormalizedViewportPoint(event)
+      if (!toolType || !point) {
+        return
+      }
+
+      const currentDraft = draftMeasurements.value[measurementViewportKey.value]
+      if (!currentDraft) {
+        return
+      }
+
+      if (toolType === 'angle') {
+        if (currentDraft.points.length === 2) {
+          const nextDraft = createMeasurementDraft(toolType, [currentDraft.points[0], point])
+          updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+        } else if (currentDraft.points.length === 3) {
+          const nextDraft = createMeasurementDraft(toolType, [currentDraft.points[0], currentDraft.points[1], point])
+          updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+          emitThrottledMeasurementDraft({
+            viewportKey: measurementViewportKey.value,
+            toolType,
+            points: nextDraft.points
+          })
+        }
+        return
+      }
+
+      const nextDraft = createMeasurementDraft(toolType, [currentDraft.points[0], point])
+      updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+      emitThrottledMeasurementDraft({
+        viewportKey: measurementViewportKey.value,
+        toolType,
+        points: nextDraft.points
+      })
+      return
+    }
+
     if (isCrosshairDragging.value && activePointerId.value === event.pointerId) {
       const point = getNormalizedViewportPoint(event)
       if (!point) {
@@ -355,6 +529,34 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
+    if (isMeasurementDrawing.value) {
+      const toolType = getMeasurementToolType()
+      const viewportKey = measurementViewportKey.value
+      const draft = viewportKey ? draftMeasurements.value[viewportKey] : null
+      if (toolType && viewportKey && draft) {
+        if (toolType === 'angle' && draft.points.length === 2) {
+          if (isValidMeasurement('line', draft.points)) {
+            updateDraftMeasurement(viewportKey, createMeasurementDraft(toolType, [draft.points[0], draft.points[1]]))
+            emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.end, draft.points)
+          } else {
+            clearDraftMeasurement(viewportKey)
+          }
+        } else if (isValidMeasurement(toolType, draft.points)) {
+          emitThrottledMeasurementDraft.flush()
+          options.emitMeasurementCreate({
+            viewportKey,
+            toolType,
+            points: draft.points
+          })
+          updateDraftMeasurement(viewportKey, createMeasurementDraft(toolType, draft.points, true))
+        } else {
+          clearDraftMeasurement(viewportKey)
+        }
+      }
+      stopViewportDrag(event.currentTarget)
+      return
+    }
+
     if (isCrosshairDragging.value) {
       emitThrottledCrosshairMove.flush()
       emitCrosshairEvent(crosshairPointerViewportKey.value, DRAG_ACTION_TYPES.end, event)
@@ -367,6 +569,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
+    if (isMeasurementDrawing.value && measurementViewportKey.value) {
+      clearDraftMeasurement(measurementViewportKey.value)
+    }
     stopViewportDrag(event.currentTarget)
   }
 
@@ -378,6 +583,32 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!(pointerTarget instanceof HTMLElement)) {
       return
     }
+    if (isMeasurementOperationEnabled()) {
+      const toolType = getMeasurementToolType()
+      const point = getNormalizedViewportPoint(event)
+      if (!toolType || !point) {
+        return
+      }
+      event.preventDefault()
+      setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+      setPointerCapture(pointerTarget, event.pointerId)
+      isMeasurementDrawing.value = true
+      measurementViewportKey.value = viewportKey
+
+      const existingDraft = draftMeasurements.value[viewportKey]
+      if (toolType === 'angle' && existingDraft?.toolType === 'angle' && existingDraft.points.length === 2) {
+        const nextDraft = createMeasurementDraft(toolType, [existingDraft.points[0], existingDraft.points[1], point])
+        updateDraftMeasurement(viewportKey, nextDraft)
+        emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
+        return
+      }
+
+      const nextDraft = createMeasurementDraft(toolType, [point, point])
+      updateDraftMeasurement(viewportKey, nextDraft)
+      emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
+      return
+    }
+
     if (isCrosshairOperationEnabled()) {
       setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
       const point = getNormalizedViewportPoint(event)
@@ -385,10 +616,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         return
       }
       event.preventDefault()
-      pointerTarget.setPointerCapture(event.pointerId)
+      setPointerCapture(pointerTarget, event.pointerId)
       isCrosshairDragging.value = true
       crosshairPointerViewportKey.value = viewportKey
-      activePointerId.value = event.pointerId
       emitCrosshairEvent(viewportKey, DRAG_ACTION_TYPES.start, event)
       return
     }
@@ -398,12 +628,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     event.preventDefault()
-    pointerTarget.setPointerCapture(event.pointerId)
+    setPointerCapture(pointerTarget, event.pointerId)
     setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
     dragViewportKey.value = viewportKey
     dragOperationType.value = getNormalizedOperation() as ViewOperationType
     isViewportDragging.value = true
-    activePointerId.value = event.pointerId
     lastPointerX = event.clientX
     lastPointerY = event.clientY
     totalDeltaX = 0
@@ -417,17 +646,21 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function cleanupPointerInteractions(): void {
     emitThrottledViewportDrag.cancel()
     emitThrottledCrosshairMove.cancel()
+    emitThrottledMeasurementDraft.cancel()
+    clearDraftMeasurement()
     stopViewportDrag()
   }
 
   return {
     activeViewportKey,
     cleanupPointerInteractions,
+    draftMeasurements,
     handleViewportPointerCancel,
     handleViewportPointerDown,
     handleViewportPointerMove,
     handleViewportPointerUp,
     setActiveViewport,
-    stopViewportDrag
+    stopViewportDrag,
+    updateDraftMeasurementLabelLines
   }
 }

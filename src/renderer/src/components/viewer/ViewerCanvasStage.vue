@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CornerInfo, MprCrosshairInfo, OrientationInfo } from '../../types/viewer'
+import type { CornerInfo, MeasurementDraft, MeasurementOverlay, MprCrosshairInfo, OrientationInfo } from '../../types/viewer'
 import VolumeOrientationCube from './VolumeOrientationCube.vue'
 import ViewportCornerOverlay from './ViewportCornerOverlay.vue'
 import ViewportCrosshairOverlay from './ViewportCrosshairOverlay.vue'
+import ViewportMeasurementOverlay from './ViewportMeasurementOverlay.vue'
 import ViewportOrientationOverlay from './ViewportOrientationOverlay.vue'
 
 const props = withDefaults(
   defineProps<{
     alt: string
     cornerInfo: CornerInfo
+    draftMeasurement?: MeasurementDraft | null
+    measurements?: MeasurementOverlay[]
     imageClass?: string
     imageSrc: string
     isActive?: boolean
@@ -24,6 +27,8 @@ const props = withDefaults(
     viewportKey: string
   }>(),
   {
+    draftMeasurement: null,
+    measurements: () => [],
     imageClass: '',
     isActive: false,
     isLoading: false,
@@ -241,6 +246,11 @@ watch(
         :mpr-crosshair="mprCrosshair"
         :viewport-key="viewportKey"
         :is-active="isActive"
+      />
+      <ViewportMeasurementOverlay
+        :draft-measurement="draftMeasurement"
+        :measurements="measurements"
+        :image-frame="imageFrame"
       />
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />

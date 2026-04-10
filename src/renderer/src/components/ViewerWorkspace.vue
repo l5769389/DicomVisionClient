@@ -1,7 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import type { ViewerOperationItem, ViewerTabItem, WorkspaceReadyPayload } from '../types/viewer'
+import { offMeasurementDraft, onMeasurementDraft } from '../services/socket'
+import type { MeasurementDraft, MeasurementDraftPayload, MeasurementOverlay, ViewerOperationItem, ViewerTabItem, WorkspaceReadyPayload } from '../types/viewer'
 import { useViewerWorkspacePointer } from '../composables/useViewerWorkspacePointer'
 import MprView from './viewer/MprView.vue'
 import StackView from './viewer/StackView.vue'
@@ -14,7 +15,7 @@ import { createDefaultVolumeRenderConfig } from '../composables/volumeRenderConf
 import type { VolumeRenderConfig } from '../types/viewer'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure'])
 
 const props = defineProps<{
   activeOperation: string
@@ -31,6 +32,8 @@ const emit = defineEmits<{
   activateTab: [tabKey: string]
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
+  measurementDraft: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
+  measurementCreate: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; points: { x: number; y: number }[] }]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
@@ -68,16 +71,20 @@ let transientToolTimer: ReturnType<typeof window.setTimeout> | null = null
 const {
   activeViewportKey,
   cleanupPointerInteractions,
+  draftMeasurements,
   handleViewportPointerCancel,
   handleViewportPointerDown,
   handleViewportPointerMove,
   handleViewportPointerUp,
   setActiveViewport,
-  stopViewportDrag
+  stopViewportDrag,
+  updateDraftMeasurementLabelLines
 } = useViewerWorkspacePointer({
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
   emitActiveViewportChange: (viewportKey) => emit('activeViewportChange', viewportKey),
+  emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
+  emitMeasurementCreate: (payload) => emit('measurementCreate', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
   emitViewportDrag: (payload) => emit('viewportDrag', payload)
 })
@@ -129,10 +136,24 @@ const stackTools: StackTool[] = [
   }
 ]
 
+const measureTool: StackTool = {
+  key: 'measure',
+  label: '测量',
+  icon: 'measure',
+  kind: 'action',
+  options: [
+    { value: 'measure:line', label: '线段', icon: 'measure-line' },
+    { value: 'measure:rect', label: '矩形', icon: 'measure-rect' },
+    { value: 'measure:ellipse', label: '椭圆', icon: 'measure-ellipse' },
+    { value: 'measure:angle', label: '角度', icon: 'measure-angle' }
+  ]
+}
+
 const genericTools: StackTool[] = [
   { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
+  measureTool,
   { key: 'export', label: '导出', icon: 'export', kind: 'action' }
 ]
 
@@ -163,6 +184,41 @@ const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: '十字线', icon: 'crosshair', kind: 'mode' },
   ...genericTools
 ]
+
+function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
+  const draft = draftMeasurements.value[viewportKey]
+  if (!draft || !props.activeTab) {
+    return draft ?? null
+  }
+
+  if (draft.isCommitted && hasCommittedMeasurementMatch(viewportKey, draft)) {
+    return null
+  }
+
+  return draft
+}
+
+function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
+  if (!props.activeTab) {
+    return []
+  }
+  if (props.activeTab.viewType === 'MPR') {
+    return props.activeTab.viewportMeasurements?.[viewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? []
+  }
+  return props.activeTab.measurements ?? []
+}
+
+function hasCommittedMeasurementMatch(viewportKey: string, draft: MeasurementDraft): boolean {
+  return getCommittedMeasurements(viewportKey).some((measurement) => {
+    if (measurement.toolType !== draft.toolType || measurement.points.length !== draft.points.length) {
+      return false
+    }
+    return measurement.points.every((point, index) => {
+      const draftPoint = draft.points[index]
+      return Math.abs(point.x - draftPoint.x) <= 0.002 && Math.abs(point.y - draftPoint.y) <= 0.002
+    })
+  })
+}
 
 const activeTools = computed(() =>
   props.activeTab?.viewType === 'Stack'
@@ -525,6 +581,13 @@ function handleDocumentPointerDown(event: PointerEvent): void {
   closeMenus()
 }
 
+function handleMeasurementDraftUpdate(payload: MeasurementDraftPayload | undefined): void {
+  if (!payload?.viewportKey) {
+    return
+  }
+  updateDraftMeasurementLabelLines(payload.viewportKey, payload.labelLines ?? [])
+}
+
 watch(
   () => [props.activeTabKey, props.activeTab?.viewType] as const,
   ([, viewType], previousValue) => {
@@ -558,6 +621,7 @@ onMounted(() => {
   emitWorkspaceReady()
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   window.addEventListener('resize', updateTabScrollState)
+  onMeasurementDraft(handleMeasurementDraftUpdate)
   void nextTick().then(updateTabScrollState)
 })
 
@@ -583,7 +647,10 @@ watch(
 
 watch(
   () => props.activeOperation,
-  (value) => {
+  (value, previousValue) => {
+    if (previousValue !== undefined && value !== previousValue) {
+      cleanupPointerInteractions()
+    }
     if (!value) {
       const defaultToolKey = getDefaultToolbarToolKey(props.activeTab?.viewType)
       setToolbarToolActive(defaultToolKey)
@@ -624,6 +691,7 @@ const activeVolumeRenderConfig = computed(() =>
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('resize', updateTabScrollState)
+  offMeasurementDraft(handleMeasurementDraftUpdate)
   stopPlayback()
   clearTransientActiveTool()
   cleanupPointerInteractions()
@@ -706,6 +774,8 @@ onBeforeUnmount(() => {
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
           :corner-info="activeTab.cornerInfo"
+          :draft-measurement="getDraftMeasurement('single')"
+          :measurements="getCommittedMeasurements('single')"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
@@ -719,6 +789,8 @@ onBeforeUnmount(() => {
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
+          :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
+          :get-measurements="(viewportKey) => getCommittedMeasurements(viewportKey)"
           :get-corner-info="(viewportKey) => activeTab.viewportCornerInfos?.[viewportKey] ?? activeTab.cornerInfo"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"

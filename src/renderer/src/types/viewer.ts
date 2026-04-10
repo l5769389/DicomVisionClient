@@ -55,10 +55,12 @@ export interface MeasurementDraftPoint {
 }
 
 export interface MeasurementDraft {
+  measurementId?: string
   toolType: MeasurementToolType
   points: MeasurementDraftPoint[]
   labelLines?: string[]
   isCommitted?: boolean
+  selectedHandleIndex?: number | null
 }
 
 export interface MeasurementDraftPayload {

@@ -33,7 +33,7 @@ const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
   measurementDraft: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
-  measurementCreate: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; points: { x: number; y: number }[] }]
+  measurementCreate: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; points: { x: number; y: number }[]; measurementId?: string }]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
@@ -86,7 +86,8 @@ const {
   emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
   emitMeasurementCreate: (payload) => emit('measurementCreate', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
-  emitViewportDrag: (payload) => emit('viewportDrag', payload)
+  emitViewportDrag: (payload) => emit('viewportDrag', payload),
+  getCommittedMeasurements: (viewportKey) => getCommittedMeasurements(viewportKey)
 })
 
 const stackTools: StackTool[] = [
@@ -206,6 +207,36 @@ function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
     return props.activeTab.viewportMeasurements?.[viewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? []
   }
   return props.activeTab.measurements ?? []
+}
+
+function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
+  const committedMeasurements = getCommittedMeasurements(viewportKey)
+  const draft = draftMeasurements.value[viewportKey]
+  const editingMeasurementId = draft?.measurementId
+  if (!editingMeasurementId) {
+    return committedMeasurements
+  }
+
+  const hasCommittedMatch = draft.isCommitted
+    ? committedMeasurements.some((measurement) => {
+        if (measurement.measurementId !== editingMeasurementId || measurement.toolType !== draft.toolType) {
+          return false
+        }
+        if (measurement.points.length !== draft.points.length) {
+          return false
+        }
+        return measurement.points.every((point, index) => {
+          const draftPoint = draft.points[index]
+          return Math.abs(point.x - draftPoint.x) <= 0.002 && Math.abs(point.y - draftPoint.y) <= 0.002
+        })
+      })
+    : false
+
+  if (hasCommittedMatch) {
+    return committedMeasurements
+  }
+
+  return committedMeasurements.filter((measurement) => measurement.measurementId !== editingMeasurementId)
 }
 
 function hasCommittedMeasurementMatch(viewportKey: string, draft: MeasurementDraft): boolean {
@@ -775,7 +806,7 @@ onBeforeUnmount(() => {
           :active-tab="activeTab"
           :corner-info="activeTab.cornerInfo"
           :draft-measurement="getDraftMeasurement('single')"
-          :measurements="getCommittedMeasurements('single')"
+          :measurements="getVisibleCommittedMeasurements('single')"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
@@ -790,7 +821,7 @@ onBeforeUnmount(() => {
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
-          :get-measurements="(viewportKey) => getCommittedMeasurements(viewportKey)"
+          :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
           :get-corner-info="(viewportKey) => activeTab.viewportCornerInfos?.[viewportKey] ?? activeTab.cornerInfo"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"

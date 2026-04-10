@@ -75,7 +75,7 @@ interface ViewerWorkspaceState {
   handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
   handleMeasurementDraft: (payload: { viewportKey: string; toolType: MeasurementToolType; phase: 'start' | 'move' | 'end'; points: MeasurementDraftPoint[] }) => void
   handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
-  handleMeasurementCreate: (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[] }) => void
+  handleMeasurementCreate: (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -420,6 +420,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       toolType: MeasurementToolType
       phase: 'start' | 'move' | 'end'
       points: MeasurementDraftPoint[]
+      measurementId?: string
     }
   ): void {
     const tab = activeTab.value
@@ -429,6 +430,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const operationPayload = {
       opType: VIEW_OPERATION_TYPES.measurement,
+      measurementId: payload.measurementId,
       subOpType: payload.toolType,
       actionType: payload.phase,
       viewportKey: payload.viewportKey,
@@ -678,7 +680,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function handleMeasurementCreate(payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[] }): void {
+  function handleMeasurementCreate(payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string }): void {
     emitMeasurementOperation({
       ...payload,
       phase: DRAG_ACTION_TYPES.end

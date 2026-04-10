@@ -32,6 +32,7 @@ export function bindView(viewId: string): void {
 export function emitViewOperation(payload: {
   viewId: string
   opType: ViewOperationType
+  measurementId?: string
   subOpType?: string
   actionType?: DragActionType
   x?: number

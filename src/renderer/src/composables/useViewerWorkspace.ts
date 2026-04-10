@@ -1129,7 +1129,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (observedViewerStage === viewerStage.value) {
-
       return
     }
 

@@ -6,6 +6,7 @@ import type { CornerInfo, MeasurementDraft, MeasurementOverlay, ViewerTabItem } 
 const props = defineProps<{
   activeTab: ViewerTabItem
   cornerInfo: CornerInfo
+  cursorClass?: string
   draftMeasurement?: MeasurementDraft | null
   measurements?: MeasurementOverlay[]
 }>()
@@ -14,6 +15,7 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
+  pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   viewportClick: [viewportKey: string]
@@ -81,6 +83,7 @@ function handleSliceSliderInput(event: Event): void {
       :alt="props.activeTab.viewType"
       placeholder="单视口预览"
       :corner-info="props.cornerInfo"
+      :cursor-class="props.cursorClass ?? ''"
       :draft-measurement="props.draftMeasurement ?? null"
       :measurements="props.measurements ?? []"
       :orientation="props.activeTab.orientation"
@@ -88,6 +91,7 @@ function handleSliceSliderInput(event: Event): void {
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="emit('pointerDown', $event, 'single')"
+      @pointer-leave="emit('pointerLeave', $event)"
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"
       @pointer-cancel="emit('pointerCancel', $event)"

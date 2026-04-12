@@ -60,6 +60,7 @@ export interface MeasurementDraft {
   points: MeasurementDraftPoint[]
   labelLines?: string[]
   isCommitted?: boolean
+  isMoving?: boolean
   selectedHandleIndex?: number | null
 }
 

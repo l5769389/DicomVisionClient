@@ -11,6 +11,7 @@ const props = withDefaults(
   defineProps<{
     alt: string
     cornerInfo: CornerInfo
+    cursorClass?: string
     draftMeasurement?: MeasurementDraft | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
@@ -29,6 +30,7 @@ const props = withDefaults(
   {
     draftMeasurement: null,
     measurements: () => [],
+    cursorClass: '',
     imageClass: '',
     isActive: false,
     isLoading: false,
@@ -45,6 +47,7 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
+  pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   wheelViewport: [payload: { viewportKey: string; deltaY: number }]
@@ -106,6 +109,7 @@ function handlePointerMove(event: PointerEvent): void {
 
 function handlePointerLeave(): void {
   emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+  emit('pointerLeave', props.viewportKey)
 }
 
 function getRenderedImageRect(image: HTMLImageElement): DOMRect {
@@ -208,11 +212,13 @@ watch(
     class="viewer-viewport relative h-full w-full overflow-hidden rounded-2xl border border-slate-600/20 bg-[linear-gradient(180deg,rgba(4,8,14,0.98),rgba(2,5,10,1)),radial-gradient(circle_at_top_right,rgba(35,130,210,0.08),transparent_28%)] text-slate-200"
     :class="[
       viewportClass,
+      cursorClass,
       isActive
         ? 'border-sky-300/40 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_0_0_1px_rgba(83,170,241,0.18),0_8px_16px_rgba(8,89,156,0.14)]'
         : ''
     ]"
     :data-active-viewport="isActive ? 'true' : 'false'"
+    :data-viewport-key="viewportKey"
     @click="emit('clickViewport', viewportKey)"
     @wheel.prevent="emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
     @pointerdown="handlePointerDown"

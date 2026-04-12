@@ -6,6 +6,7 @@ import type { CornerInfo, MeasurementDraft, MeasurementOverlay, MprViewportKey, 
 const props = defineProps<{
   activeTab: ViewerTabItem
   activeViewportKey: string
+  getCursorClass: (viewportKey: MprViewportKey) => string
   getDraftMeasurement: (viewportKey: MprViewportKey) => MeasurementDraft | null
   getMeasurements: (viewportKey: MprViewportKey) => MeasurementOverlay[]
   getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
+  pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   viewportClick: [viewportKey: string]
@@ -52,6 +54,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :viewport-key="item.key"
       :viewport-class="item.className"
       :is-active="activeViewportKey === item.key"
+      :cursor-class="props.getCursorClass(item.key)"
       :render-surface-active="activeViewportKey === item.key"
       :image-src="getViewportImage(item.key)"
       :is-loading="isViewportLoading(item.key)"
@@ -67,6 +70,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="emit('pointerDown', $event, item.key)"
+      @pointer-leave="emit('pointerLeave', $event)"
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"
       @pointer-cancel="emit('pointerCancel', $event)"

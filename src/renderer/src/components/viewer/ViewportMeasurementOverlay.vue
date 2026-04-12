@@ -15,7 +15,7 @@ interface RenderedMeasurement {
   labelLines: string[]
   labelStyle: { left: string; top: string } | null
   rectBounds: { left: number; top: number; width: number; height: number } | null
-  mode: 'committed' | 'selected' | 'draft'
+  mode: 'committed' | 'selected' | 'moving' | 'draft'
 }
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
@@ -124,7 +124,7 @@ function buildRenderedMeasurement(
   toolType: MeasurementToolType,
   points: MeasurementDraftPoint[],
   labelLines: string[],
-  mode: 'committed' | 'selected' | 'draft'
+  mode: 'committed' | 'selected' | 'moving' | 'draft'
 ): RenderedMeasurement | null {
   if (!points.length || props.imageFrame.width <= 0 || props.imageFrame.height <= 0) {
     return null
@@ -173,7 +173,13 @@ const renderedDraftMeasurement = computed(() =>
         props.draftMeasurement.toolType,
         props.draftMeasurement.points,
         props.draftMeasurement.labelLines ?? [],
-        props.draftMeasurement.measurementId && props.draftMeasurement.selectedHandleIndex == null ? 'selected' : 'draft'
+        props.draftMeasurement.measurementId
+          ? props.draftMeasurement.selectedHandleIndex === -1 && props.draftMeasurement.isMoving
+            ? 'moving'
+            : props.draftMeasurement.selectedHandleIndex == null || props.draftMeasurement.selectedHandleIndex === -1
+              ? 'selected'
+              : 'draft'
+          : 'draft'
       )
     : null
 )
@@ -187,6 +193,12 @@ function getOuterStroke(measurement: RenderedMeasurement): string {
 }
 
 function getInnerStroke(measurement: RenderedMeasurement): string {
+  if (measurement.mode === 'moving') {
+    return 'rgba(255,224,130,1)'
+  }
+  if (measurement.mode === 'selected') {
+    return 'rgba(255,202,111,0.98)'
+  }
   return measurement.mode === 'committed' ? committedStrokeInner : draftStrokeInner
 }
 
@@ -214,6 +226,16 @@ function getHandleFill(measurement: RenderedMeasurement): string {
 
 function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
   return measurement.mode !== 'committed'
+}
+
+function getShapeFill(measurement: RenderedMeasurement): string {
+  if (measurement.mode === 'moving') {
+    return 'rgba(255,184,77,0.18)'
+  }
+  if (measurement.mode === 'selected') {
+    return 'rgba(255,184,77,0.1)'
+  }
+  return 'none'
 }
 </script>
 
@@ -259,7 +281,7 @@ function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
             :y="measurement.rectBounds.top"
             :width="measurement.rectBounds.width"
             :height="measurement.rectBounds.height"
-            fill="none"
+            :fill="getShapeFill(measurement)"
             :stroke="getOuterStroke(measurement)"
             stroke-width="5"
             stroke-linejoin="round"
@@ -270,7 +292,7 @@ function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
             :y="measurement.rectBounds.top"
             :width="measurement.rectBounds.width"
             :height="measurement.rectBounds.height"
-            fill="none"
+            :fill="getShapeFill(measurement)"
             :stroke="getInnerStroke(measurement)"
             stroke-width="2.5"
             stroke-linejoin="round"
@@ -284,7 +306,7 @@ function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
             :cy="measurement.rectBounds.top + measurement.rectBounds.height / 2"
             :rx="measurement.rectBounds.width / 2"
             :ry="measurement.rectBounds.height / 2"
-            fill="none"
+            :fill="getShapeFill(measurement)"
             :stroke="getOuterStroke(measurement)"
             stroke-width="5"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
@@ -294,7 +316,7 @@ function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
             :cy="measurement.rectBounds.top + measurement.rectBounds.height / 2"
             :rx="measurement.rectBounds.width / 2"
             :ry="measurement.rectBounds.height / 2"
-            fill="none"
+            :fill="getShapeFill(measurement)"
             :stroke="getInnerStroke(measurement)"
             stroke-width="2.5"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"

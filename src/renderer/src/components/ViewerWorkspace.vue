@@ -73,12 +73,14 @@ const {
   cleanupPointerInteractions,
   draftMeasurements,
   handleViewportPointerCancel,
+  handleViewportPointerLeave,
   handleViewportPointerDown,
   handleViewportPointerMove,
   handleViewportPointerUp,
   setActiveViewport,
   stopViewportDrag,
-  updateDraftMeasurementLabelLines
+  updateDraftMeasurementLabelLines,
+  viewportCursorClasses
 } = useViewerWorkspacePointer({
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
@@ -238,6 +240,10 @@ function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverla
   }
 
   return committedMeasurements.filter((measurement) => measurement.measurementId !== editingMeasurementId)
+}
+
+function getViewportCursorClass(viewportKey: string): string {
+  return viewportCursorClasses.value[viewportKey] ?? ''
 }
 
 function hasCommittedMeasurementMatch(viewportKey: string, draft: MeasurementDraft): boolean {
@@ -819,12 +825,14 @@ onBeforeUnmount(() => {
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
           :corner-info="activeTab.cornerInfo"
+          :cursor-class="getViewportCursorClass('single')"
           :draft-measurement="getDraftMeasurement('single')"
           :measurements="getVisibleCommittedMeasurements('single')"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDown"
+          @pointer-leave="handleViewportPointerLeave"
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"
@@ -834,6 +842,7 @@ onBeforeUnmount(() => {
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
           :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
           :get-corner-info="(viewportKey) => activeTab.viewportCornerInfos?.[viewportKey] ?? activeTab.cornerInfo"
@@ -841,6 +850,7 @@ onBeforeUnmount(() => {
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDown"
+          @pointer-leave="handleViewportPointerLeave"
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"

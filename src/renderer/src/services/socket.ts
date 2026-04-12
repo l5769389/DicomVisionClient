@@ -3,6 +3,7 @@ import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
 import type { MeasurementDraftPayload, MeasurementDraftPoint, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
 
 let socket: Socket | null = null
+const measurementDraftHandlers = new Set<(payload: MeasurementDraftPayload) => void>()
 
 export function connectSocket(origin: string): Socket {
   if (socket) {
@@ -12,6 +13,9 @@ export function connectSocket(origin: string): Socket {
   socket = io(origin, {
     transports: ['websocket', 'polling'],
     forceNew: true
+  })
+  measurementDraftHandlers.forEach((handler) => {
+    socket?.on('measurement_draft', handler)
   })
 
   return socket
@@ -59,9 +63,11 @@ export function emitViewHover(payload: ViewHoverPayload): void {
 }
 
 export function onMeasurementDraft(handler: (payload: MeasurementDraftPayload) => void): void {
+  measurementDraftHandlers.add(handler)
   socket?.on('measurement_draft', handler)
 }
 
 export function offMeasurementDraft(handler: (payload: MeasurementDraftPayload) => void): void {
+  measurementDraftHandlers.delete(handler)
   socket?.off('measurement_draft', handler)
 }

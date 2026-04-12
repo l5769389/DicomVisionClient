@@ -83,6 +83,7 @@ const {
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
   emitActiveViewportChange: (viewportKey) => emit('activeViewportChange', viewportKey),
+  emitOperationChange: (value) => emit('setActiveOperation', value),
   emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
   emitMeasurementCreate: (payload) => emit('measurementCreate', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
@@ -679,7 +680,20 @@ watch(
 watch(
   () => props.activeOperation,
   (value, previousValue) => {
-    if (previousValue !== undefined && value !== previousValue) {
+    const normalizeOperation = (operation: string | undefined): string => {
+      if (!operation) {
+        return ''
+      }
+      return operation.startsWith(STACK_OPERATION_PREFIX)
+        ? operation.slice(STACK_OPERATION_PREFIX.length)
+        : operation
+    }
+    const previousNormalized = normalizeOperation(previousValue)
+    const currentNormalized = normalizeOperation(value)
+    const isMeasurementToMeasurementSwitch =
+      previousNormalized.startsWith('measure:') && currentNormalized.startsWith('measure:')
+
+    if (previousValue !== undefined && value !== previousValue && !isMeasurementToMeasurementSwitch) {
       cleanupPointerInteractions()
     }
     if (!value) {

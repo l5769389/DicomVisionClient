@@ -15,6 +15,7 @@ interface PointerComposableOptions {
   activeOperation: Ref<string>
   activeTab: Ref<ViewerTabItem | null>
   emitActiveViewportChange: (viewportKey: string) => void
+  emitOperationChange: (value: string) => void
   emitMeasurementDraft: (payload: {
     viewportKey: string
     toolType: MeasurementToolType
@@ -496,16 +497,19 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     measurement: MeasurementOverlay,
     point: MeasurementDraftPoint,
     rect: DOMRect
-  ): { hit: boolean; handleIndex: number | null } {
+  ): { hit: boolean; handleIndex: number | null; score: number } {
     const handleIndex = findHandleIndexAtPoint(measurement.toolType, measurement.points, point, rect)
     if (handleIndex != null) {
-      return { hit: true, handleIndex }
+      return { hit: true, handleIndex, score: 0 }
     }
 
     if (measurement.toolType === 'line' && measurement.points.length >= 2) {
+      const distance = pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect)
+      const hitRadius = MEASUREMENT_HIT_RADIUS_PX * 1.35
       return {
-        hit: pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect) <= MEASUREMENT_HIT_RADIUS_PX ** 2,
-        handleIndex: null
+        hit: distance <= hitRadius ** 2,
+        handleIndex: null,
+        score: distance
       }
     }
 
@@ -515,9 +519,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       const top = Math.min(measurement.points[0].y, measurement.points[1].y)
       const bottom = Math.max(measurement.points[0].y, measurement.points[1].y)
       if (measurement.toolType === 'rect') {
+        const inside = point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
+        const pxLeft = Math.abs((point.x - left) * rect.width)
+        const pxRight = Math.abs((right - point.x) * rect.width)
+        const pxTop = Math.abs((point.y - top) * rect.height)
+        const pxBottom = Math.abs((bottom - point.y) * rect.height)
+        const edgeDistance = Math.min(pxLeft, pxRight, pxTop, pxBottom)
+        const areaPenalty = (right - left) * rect.width * (bottom - top) * rect.height * 0.0001
         return {
-          hit: point.x >= left && point.x <= right && point.y >= top && point.y <= bottom,
-          handleIndex: null
+          hit: inside,
+          handleIndex: null,
+          score: edgeDistance + areaPenalty
         }
       }
       const cx = (left + right) / 2
@@ -526,35 +538,55 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       const ry = Math.max((bottom - top) / 2, 1e-6)
       const nx = (point.x - cx) / rx
       const ny = (point.y - cy) / ry
-      return { hit: nx * nx + ny * ny <= 1.0, handleIndex: null }
-    }
-
-    if (measurement.toolType === 'angle' && measurement.points.length >= 3) {
+      const ellipseValue = nx * nx + ny * ny
+      const radiusDelta = Math.abs(ellipseValue - 1.0)
+      const areaPenalty = (right - left) * rect.width * (bottom - top) * rect.height * 0.0001
       return {
-        hit:
-          pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect) <= MEASUREMENT_HIT_RADIUS_PX ** 2 ||
-          pointToSegmentDistanceSquared(point, measurement.points[1], measurement.points[2], rect) <= MEASUREMENT_HIT_RADIUS_PX ** 2,
-        handleIndex: null
+        hit: ellipseValue <= 1.0,
+        handleIndex: null,
+        score: radiusDelta * 100 + (ellipseValue < 0.72 ? 40 : 0) + areaPenalty
       }
     }
 
-    return { hit: false, handleIndex: null }
+    if (measurement.toolType === 'angle' && measurement.points.length >= 3) {
+      const firstDistance = pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect)
+      const secondDistance = pointToSegmentDistanceSquared(point, measurement.points[1], measurement.points[2], rect)
+      const distance = Math.min(firstDistance, secondDistance)
+      const hitRadius = MEASUREMENT_HIT_RADIUS_PX * 1.2
+      return {
+        hit: distance <= hitRadius ** 2,
+        handleIndex: null,
+        score: distance
+      }
+    }
+
+    return { hit: false, handleIndex: null, score: Number.POSITIVE_INFINITY }
   }
 
   function findCommittedMeasurementAtPoint(
     viewportKey: string,
     point: MeasurementDraftPoint,
-    rect: DOMRect
+    rect: DOMRect,
+    excludeMeasurementId?: string
   ): { measurement: MeasurementOverlay; handleIndex: number | null } | null {
-    const measurements = options.getCommittedMeasurements(viewportKey)
-    for (let index = measurements.length - 1; index >= 0; index -= 1) {
-      const measurement = measurements[index]
+    const measurements = options
+      .getCommittedMeasurements(viewportKey)
+      .filter((measurement) => measurement.measurementId !== excludeMeasurementId)
+    let bestMatch: { measurement: MeasurementOverlay; handleIndex: number | null; score: number } | null = null
+    for (const measurement of measurements) {
       const result = isMeasurementHit(measurement, point, rect)
-      if (result.hit) {
-        return { measurement, handleIndex: result.handleIndex }
+      if (!result.hit) {
+        continue
+      }
+      if (!bestMatch || result.score < bestMatch.score) {
+        bestMatch = {
+          measurement,
+          handleIndex: result.handleIndex,
+          score: result.score
+        }
       }
     }
-    return null
+    return bestMatch ? { measurement: bestMatch.measurement, handleIndex: bestMatch.handleIndex } : null
   }
 
   function updateEditedMeasurementPoints(
@@ -811,25 +843,43 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         }
       }
 
-      const committedMeasurementHit = findCommittedMeasurementAtPoint(viewportKey, point, imageRect)
-      if (committedMeasurementHit && committedMeasurementHit.measurement.toolType === toolType) {
+      const committedMeasurementHit = findCommittedMeasurementAtPoint(
+        viewportKey,
+        point,
+        imageRect,
+        existingDraft?.measurementId
+      )
+      if (committedMeasurementHit) {
+        options.emitOperationChange(`stack:measure:${committedMeasurementHit.measurement.toolType}`)
         const nextDraft = createMeasurementDraft(
           committedMeasurementHit.measurement.toolType,
           committedMeasurementHit.measurement.points,
           false,
           committedMeasurementHit.measurement.measurementId,
-          committedMeasurementHit.handleIndex
+          null
         )
         updateDraftMeasurement(viewportKey, {
           ...nextDraft,
           labelLines: committedMeasurementHit.measurement.labelLines
         })
-        if (committedMeasurementHit.handleIndex != null) {
-          setPointerCapture(pointerTarget, event.pointerId)
-          isMeasurementDrawing.value = true
-          measurementViewportKey.value = viewportKey
-          emitMeasurementDraftPhase(viewportKey, committedMeasurementHit.measurement.toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
+        return
+      }
+
+      if (existingDraft?.measurementId) {
+        const isCurrentDraftHit = isMeasurementHit(
+          {
+            measurementId: existingDraft.measurementId,
+            toolType: existingDraft.toolType,
+            points: existingDraft.points,
+            labelLines: existingDraft.labelLines ?? []
+          },
+          point,
+          imageRect
+        )
+        if (isCurrentDraftHit.hit) {
+          return
         }
+        clearDraftMeasurement(viewportKey)
         return
       }
 

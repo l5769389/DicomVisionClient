@@ -15,7 +15,7 @@ interface RenderedMeasurement {
   labelLines: string[]
   labelStyle: { left: string; top: string } | null
   rectBounds: { left: number; top: number; width: number; height: number } | null
-  isDraft: boolean
+  mode: 'committed' | 'selected' | 'draft'
 }
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
@@ -124,7 +124,7 @@ function buildRenderedMeasurement(
   toolType: MeasurementToolType,
   points: MeasurementDraftPoint[],
   labelLines: string[],
-  isDraft: boolean
+  mode: 'committed' | 'selected' | 'draft'
 ): RenderedMeasurement | null {
   if (!points.length || props.imageFrame.width <= 0 || props.imageFrame.height <= 0) {
     return null
@@ -141,7 +141,7 @@ function buildRenderedMeasurement(
     screenPoints,
     handlePoints,
     labelLines,
-    isDraft,
+    mode,
     rectBounds,
     labelStyle: labelLines.length && labelPosition
       ? {
@@ -160,7 +160,7 @@ const renderedMeasurements = computed(() =>
         measurement.toolType,
         measurement.points,
         measurement.labelLines ?? [],
-        false
+        'committed'
       )
     )
     .filter((measurement): measurement is RenderedMeasurement => measurement != null)
@@ -173,7 +173,7 @@ const renderedDraftMeasurement = computed(() =>
         props.draftMeasurement.toolType,
         props.draftMeasurement.points,
         props.draftMeasurement.labelLines ?? [],
-        true
+        props.draftMeasurement.measurementId && props.draftMeasurement.selectedHandleIndex == null ? 'selected' : 'draft'
       )
     : null
 )
@@ -183,33 +183,37 @@ const allRenderedMeasurements = computed(() =>
 )
 
 function getOuterStroke(measurement: RenderedMeasurement): string {
-  return measurement.isDraft ? draftStrokeOuter : committedStrokeOuter
+  return measurement.mode === 'committed' ? committedStrokeOuter : draftStrokeOuter
 }
 
 function getInnerStroke(measurement: RenderedMeasurement): string {
-  return measurement.isDraft ? draftStrokeInner : committedStrokeInner
+  return measurement.mode === 'committed' ? committedStrokeInner : draftStrokeInner
 }
 
 function getLabelClass(measurement: RenderedMeasurement): string {
-  return measurement.isDraft
+  return measurement.mode !== 'committed'
     ? 'border-amber-300/60 bg-[rgba(40,20,6,0.94)] text-amber-50'
     : 'border-sky-300/50 bg-[rgba(7,16,28,0.92)] text-slate-50'
 }
 
 function getOuterStrokeDasharray(measurement: RenderedMeasurement): string | undefined {
-  return measurement.isDraft ? '10 7' : undefined
+  return measurement.mode === 'draft' ? '10 7' : undefined
 }
 
 function getInnerStrokeDasharray(measurement: RenderedMeasurement): string | undefined {
-  return measurement.isDraft ? '10 7' : undefined
+  return measurement.mode === 'draft' ? '10 7' : undefined
 }
 
 function getHandleRadius(measurement: RenderedMeasurement): number {
-  return measurement.isDraft ? 4 : 3.5
+  return measurement.mode === 'committed' ? 3.5 : 4
 }
 
 function getHandleFill(measurement: RenderedMeasurement): string {
-  return measurement.isDraft ? 'rgba(255,244,214,0.98)' : 'white'
+  return measurement.mode === 'committed' ? 'white' : 'rgba(255,244,214,0.98)'
+}
+
+function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
+  return measurement.mode !== 'committed'
 }
 </script>
 
@@ -348,16 +352,18 @@ function getHandleFill(measurement: RenderedMeasurement): string {
           />
         </g>
 
-        <circle
-          v-for="(point, index) in measurement.handlePoints"
-          :key="`${measurement.key}-point-${index}`"
-          :cx="point.x"
-          :cy="point.y"
-          :r="getHandleRadius(measurement)"
-          :fill="getHandleFill(measurement)"
-          :stroke="getOuterStroke(measurement)"
-          stroke-width="1.25"
-        />
+        <template v-if="shouldRenderHandles(measurement)">
+          <circle
+            v-for="(point, index) in measurement.handlePoints"
+            :key="`${measurement.key}-point-${index}`"
+            :cx="point.x"
+            :cy="point.y"
+            :r="getHandleRadius(measurement)"
+            :fill="getHandleFill(measurement)"
+            :stroke="getOuterStroke(measurement)"
+            stroke-width="1.25"
+          />
+        </template>
       </template>
     </svg>
 

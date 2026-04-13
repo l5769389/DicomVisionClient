@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { MeasurementOverlay } from '../types/viewer'
+import type { MeasurementOverlay } from '../../types/viewer'
 import {
   createMeasurementDraft,
   findHandleIndexAtPoint,
   findMeasurementAtPoint,
   isMeasurementHit,
   isValidMeasurement,
+  resolveMeasurementPointerDownIntent,
   translateMeasurementPoints,
   updateEditedMeasurementPoints
 } from './measurementGeometry'
@@ -136,14 +137,81 @@ describe('measurementGeometry', () => {
         { x: 0.2, y: 0.2 },
         { x: 0.4, y: 0.4 }
       ],
-      true,
-      'm-1',
-      null,
-      false
+      'm-1'
     )
 
     expect(draft.measurementId).toBe('m-1')
-    expect(draft.isCommitted).toBe(true)
     expect(findHandleIndexAtPoint('line', draft.points, { x: 0.2, y: 0.2 }, createRect(0, 0, 200, 200))).toBe(0)
+  })
+
+  it('resolves pointer-down intent against draft and committed measurements', () => {
+    const rect = createRect(0, 0, 300, 300)
+    const existingDraft = createMeasurementDraft(
+      'rect',
+      [
+        { x: 0.2, y: 0.2 },
+        { x: 0.8, y: 0.8 }
+      ],
+      'draft-1'
+    )
+    const committedMeasurements: MeasurementOverlay[] = [
+      {
+        measurementId: 'committed-1',
+        toolType: 'line',
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.15, y: 0.15 }
+        ],
+        labelLines: []
+      }
+    ]
+
+    expect(
+      resolveMeasurementPointerDownIntent({
+        committedMeasurements,
+        existingDraft,
+        point: { x: 0.2, y: 0.2 },
+        rect
+      })
+    ).toEqual({ kind: 'edit_handle', handleIndex: 0 })
+
+    expect(
+      resolveMeasurementPointerDownIntent({
+        committedMeasurements,
+        existingDraft,
+        point: { x: 0.12, y: 0.12 },
+        rect
+      })
+    ).toEqual({
+      kind: 'select_committed',
+      measurement: committedMeasurements[0]
+    })
+
+    expect(
+      resolveMeasurementPointerDownIntent({
+        committedMeasurements: [],
+        existingDraft,
+        point: { x: 0.5, y: 0.5 },
+        rect
+      })
+    ).toEqual({ kind: 'move_draft' })
+
+    expect(
+      resolveMeasurementPointerDownIntent({
+        committedMeasurements: [],
+        existingDraft,
+        point: { x: 0.95, y: 0.05 },
+        rect
+      })
+    ).toEqual({ kind: 'clear_draft' })
+
+    expect(
+      resolveMeasurementPointerDownIntent({
+        committedMeasurements: [],
+        existingDraft: null,
+        point: { x: 0.4, y: 0.4 },
+        rect
+      })
+    ).toEqual({ kind: 'create_new' })
   })
 })

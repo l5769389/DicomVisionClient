@@ -1,4 +1,4 @@
-import type { MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../types/viewer'
+import type { MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../types/viewer'
 
 const DISTINCT_POINT_EPSILON = 0.001
 const MEASUREMENT_HIT_RADIUS_PX = 14
@@ -9,21 +9,22 @@ export interface MeasurementHitResult {
   score: number
 }
 
+export type MeasurementPointerDownIntent =
+  | { kind: 'edit_handle'; handleIndex: number }
+  | { kind: 'select_committed'; measurement: MeasurementOverlay }
+  | { kind: 'move_draft' }
+  | { kind: 'clear_draft' }
+  | { kind: 'create_new' }
+
 export function createMeasurementDraft(
   toolType: MeasurementToolType,
   points: MeasurementDraftPoint[],
-  isCommitted = false,
-  measurementId?: string,
-  selectedHandleIndex: number | null = null,
-  isMoving = false
+  measurementId?: string
 ): MeasurementDraft {
   return {
     measurementId,
     toolType,
-    points,
-    isCommitted,
-    isMoving,
-    selectedHandleIndex
+    points
   }
 }
 
@@ -209,6 +210,54 @@ export function findMeasurementAtPoint(
     }
   }
   return bestMatch ? { measurement: bestMatch.measurement, handleIndex: bestMatch.handleIndex } : null
+}
+
+export function resolveMeasurementPointerDownIntent(params: {
+  committedMeasurements: MeasurementOverlay[]
+  existingDraft: MeasurementDraft | null
+  point: MeasurementDraftPoint
+  rect: DOMRect
+}): MeasurementPointerDownIntent {
+  const { committedMeasurements, existingDraft, point, rect } = params
+
+  if (existingDraft?.measurementId) {
+    const handleIndex = findHandleIndexAtPoint(existingDraft.toolType, existingDraft.points, point, rect)
+    if (handleIndex != null) {
+      return { kind: 'edit_handle', handleIndex }
+    }
+  }
+
+  const committedMeasurementHit = findMeasurementAtPoint(
+    committedMeasurements,
+    point,
+    rect,
+    existingDraft?.measurementId
+  )
+  if (committedMeasurementHit) {
+    return {
+      kind: 'select_committed',
+      measurement: committedMeasurementHit.measurement
+    }
+  }
+
+  if (existingDraft?.measurementId) {
+    const currentDraftHit = isMeasurementHit(
+      {
+        measurementId: existingDraft.measurementId,
+        toolType: existingDraft.toolType,
+        points: existingDraft.points,
+        labelLines: existingDraft.labelLines ?? []
+      },
+      point,
+      rect
+    )
+    if (currentDraftHit.hit) {
+      return { kind: 'move_draft' }
+    }
+    return { kind: 'clear_draft' }
+  }
+
+  return { kind: 'create_new' }
 }
 
 export function updateEditedMeasurementPoints(

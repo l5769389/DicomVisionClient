@@ -30,11 +30,9 @@ describe('ViewportMeasurementOverlay', () => {
             { x: 0.2, y: 0.2 },
             { x: 0.6, y: 0.7 }
           ],
-          labelLines: ['ROI'],
-          selectedHandleIndex: null,
-          isMoving: false,
-          isCommitted: true
-        }
+          labelLines: ['ROI']
+        },
+        draftMeasurementMode: 'selected'
       }
     })
 
@@ -62,11 +60,9 @@ describe('ViewportMeasurementOverlay', () => {
             { x: 0.2, y: 0.3 },
             { x: 0.8, y: 0.9 }
           ],
-          labelLines: [],
-          selectedHandleIndex: -1,
-          isMoving: true,
-          isCommitted: false
-        }
+          labelLines: []
+        },
+        draftMeasurementMode: 'moving'
       }
     })
 

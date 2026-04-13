@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CornerInfo, CornerPosition } from '../../types/viewer'
+import type { CornerInfo, CornerPosition } from '../../../types/viewer'
 
 defineProps<{
   cornerInfo: CornerInfo

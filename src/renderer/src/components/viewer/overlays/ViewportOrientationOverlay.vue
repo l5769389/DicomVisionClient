@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { OrientationInfo } from '../../types/viewer'
+import type { OrientationInfo } from '../../../types/viewer'
 
 defineProps<{
   orientation: OrientationInfo

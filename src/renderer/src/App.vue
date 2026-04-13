@@ -2,8 +2,8 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import { VApp, VMain } from 'vuetify/components'
 import SidebarPanel from './components/SidebarPanel.vue'
-import ViewerWorkspace from './components/ViewerWorkspace.vue'
-import { useViewerWorkspace } from './composables/useViewerWorkspace'
+import ViewerWorkspace from './components/workspace/ViewerWorkspace.vue'
+import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 
 const viewer = useViewerWorkspace()
 

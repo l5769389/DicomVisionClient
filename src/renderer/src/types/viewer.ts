@@ -59,10 +59,9 @@ export interface MeasurementDraft {
   toolType: MeasurementToolType
   points: MeasurementDraftPoint[]
   labelLines?: string[]
-  isCommitted?: boolean
-  isMoving?: boolean
-  selectedHandleIndex?: number | null
 }
+
+export type DraftMeasurementMode = 'draft' | 'selected' | 'moving'
 
 export interface MeasurementDraftPayload {
   viewId: string

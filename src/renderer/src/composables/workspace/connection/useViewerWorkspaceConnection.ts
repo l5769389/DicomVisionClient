@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
-import { connectSocket, getSocket } from '../../services/socket'
-import { setApiBaseURL } from '../../services/api'
-import type { ConnectionState, ViewHoverResponse } from '../../types/viewer'
+import { connectSocket, getSocket } from '../../../services/socket'
+import { setApiBaseURL } from '../../../services/api'
+import type { ConnectionState, ViewHoverResponse } from '../../../types/viewer'
 
 interface ViewerWorkspaceConnectionOptions {
   backendOrigin: Ref<string>

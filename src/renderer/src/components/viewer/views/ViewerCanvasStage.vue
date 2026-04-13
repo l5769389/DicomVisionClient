@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CornerInfo, MeasurementDraft, MeasurementOverlay, MprCrosshairInfo, OrientationInfo } from '../../types/viewer'
-import VolumeOrientationCube from './VolumeOrientationCube.vue'
-import ViewportCornerOverlay from './ViewportCornerOverlay.vue'
-import ViewportCrosshairOverlay from './ViewportCrosshairOverlay.vue'
-import ViewportMeasurementOverlay from './ViewportMeasurementOverlay.vue'
-import ViewportOrientationOverlay from './ViewportOrientationOverlay.vue'
+import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprCrosshairInfo, OrientationInfo } from '../../../types/viewer'
+import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
+import ViewportCornerOverlay from '../overlays/ViewportCornerOverlay.vue'
+import ViewportCrosshairOverlay from '../overlays/ViewportCrosshairOverlay.vue'
+import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.vue'
+import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
 
 const props = withDefaults(
   defineProps<{
     alt: string
     cornerInfo: CornerInfo
     cursorClass?: string
+    draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
@@ -31,6 +32,7 @@ const props = withDefaults(
     draftMeasurement: null,
     measurements: () => [],
     cursorClass: '',
+    draftMeasurementMode: null,
     imageClass: '',
     isActive: false,
     isLoading: false,
@@ -254,6 +256,7 @@ watch(
         :is-active="isActive"
       />
       <ViewportMeasurementOverlay
+        :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
         :image-frame="imageFrame"

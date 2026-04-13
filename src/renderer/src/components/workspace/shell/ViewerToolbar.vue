@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { VBtn, VCard, VMenu } from 'vuetify/components'
-import AppIcon from '../AppIcon.vue'
-import type { ViewerTabItem } from '../../types/viewer'
+import AppIcon from '../../AppIcon.vue'
+import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
 
 defineProps<{

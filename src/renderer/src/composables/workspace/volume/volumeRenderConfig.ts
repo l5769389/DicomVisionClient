@@ -4,7 +4,7 @@ import type {
   VolumeLayerConfig,
   VolumeLightingConfig,
   VolumeRenderConfig
-} from '../../types/viewer'
+} from '../../../types/viewer'
 
 type LayerDefaults = Omit<VolumeLayerConfig, 'enabled'>
 

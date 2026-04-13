@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../types/viewer'
+import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
 
 interface ScreenPoint {
   x: number
@@ -25,6 +25,7 @@ const draftStrokeInner = 'rgba(255,184,77,0.98)'
 
 const props = withDefaults(
   defineProps<{
+    draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
     measurements?: MeasurementOverlay[]
     imageFrame: {
@@ -35,6 +36,7 @@ const props = withDefaults(
     }
   }>(),
   {
+    draftMeasurementMode: null,
     draftMeasurement: null,
     measurements: () => []
   }
@@ -173,13 +175,7 @@ const renderedDraftMeasurement = computed(() =>
         props.draftMeasurement.toolType,
         props.draftMeasurement.points,
         props.draftMeasurement.labelLines ?? [],
-        props.draftMeasurement.measurementId
-          ? props.draftMeasurement.selectedHandleIndex === -1 && props.draftMeasurement.isMoving
-            ? 'moving'
-            : props.draftMeasurement.selectedHandleIndex == null || props.draftMeasurement.selectedHandleIndex === -1
-              ? 'selected'
-              : 'draft'
-          : 'draft'
+        props.draftMeasurementMode ?? 'draft'
       )
     : null
 )

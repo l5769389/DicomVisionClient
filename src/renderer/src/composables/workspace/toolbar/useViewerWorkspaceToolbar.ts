@@ -1,8 +1,13 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import { createDefaultVolumeRenderConfig } from './volumeRenderConfig'
-import type { ViewerTabItem, VolumeRenderConfig } from '../../types/viewer'
-import type { StackTool, StackToolOption } from '../../components/workspace/toolbarTypes'
+import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
+import {
+  createMenuController,
+  createPlaybackController,
+  createToolbarActivationController
+} from './toolbarStateMachines'
+import type { ViewerTabItem, VolumeRenderConfig } from '../../../types/viewer'
+import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d'])
 const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure'])
@@ -30,8 +35,8 @@ const stackTools: StackTool[] = [
     icon: 'rotate',
     kind: 'action',
     options: [
-      { value: 'rotate:cw90', label: '顺时针 90°', icon: 'rotate-cw90' },
-      { value: 'rotate:ccw90', label: '逆时针 90°', icon: 'rotate-ccw90' },
+      { value: 'rotate:cw90', label: '顺时针 90', icon: 'rotate-cw90' },
+      { value: 'rotate:ccw90', label: '逆时针 90', icon: 'rotate-ccw90' },
       { value: 'rotate:mirror-h', label: '水平镜像', icon: 'mirror-h' },
       { value: 'rotate:mirror-v', label: '垂直镜像', icon: 'mirror-v' }
     ]
@@ -87,7 +92,10 @@ const volumeTools: StackTool[] = [
   { key: 'export', label: '导出', icon: 'export', kind: 'action' }
 ]
 
-const genericToolsWithCrosshair: StackTool[] = [{ key: 'crosshair', label: '十字线', icon: 'crosshair', kind: 'mode' }, ...genericTools]
+const genericToolsWithCrosshair: StackTool[] = [
+  { key: 'crosshair', label: '十字线', icon: 'crosshair', kind: 'mode' },
+  ...genericTools
+]
 
 interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
@@ -102,24 +110,33 @@ interface ViewerWorkspaceToolbarOptions {
 }
 
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
-  const isPlaying = ref(false)
-  const isPlaybackPaused = ref(false)
-  const openMenuKey = ref<string | null>(null)
-  const activeToolbarToolKey = ref<string>('window')
-  const transientActiveToolKey = ref<string | null>(null)
+  const playbackController = createPlaybackController()
+  const menuController = createMenuController()
+  const toolbarActivationController = createToolbarActivationController('window')
+
+  const playbackSnapshot = ref(playbackController.getSnapshot())
+  const menuSnapshot = ref(menuController.getSnapshot())
+  const toolbarActivationSnapshot = ref(toolbarActivationController.getSnapshot())
+
   const isVolumeConfigPanelOpen = ref(false)
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
     measure: 'measure:line',
     volumePreset: 'volumePreset:aaa'
   })
+  const pendingTransientCallback = ref<(() => void) | null>(null)
 
   const toolbarIconSize = 20
   const menuIconSize = 16
   const toggleIconSize = 12
 
   let playbackTimer: ReturnType<typeof window.setInterval> | null = null
-  let transientToolTimer: ReturnType<typeof window.setTimeout> | null = null
+
+  const isPlaying = computed(() => playbackSnapshot.value.matches('playing'))
+  const isPlaybackPaused = computed(() => playbackSnapshot.value.matches('paused'))
+  const openMenuKey = computed(() => menuSnapshot.value.context.openKey)
+  const activeToolbarToolKey = computed(() => toolbarActivationSnapshot.value.context.activeKey)
+  const transientActiveToolKey = computed(() => toolbarActivationSnapshot.value.context.transientKey)
 
   const activeTools = computed(() =>
     options.activeTab.value?.viewType === 'Stack'
@@ -158,28 +175,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return 'window'
   }
 
-  function clearTransientActiveTool(): void {
-    if (transientToolTimer != null) {
-      window.clearTimeout(transientToolTimer)
-      transientToolTimer = null
-    }
-    transientActiveToolKey.value = null
-  }
-
   function setToolbarToolActive(toolKey: string): void {
-    clearTransientActiveTool()
-    activeToolbarToolKey.value = toolKey
+    toolbarActivationController.setActive(toolKey)
   }
 
   function flashToolActive(toolKey: string, nextToolKey: string, callback?: () => void): void {
-    clearTransientActiveTool()
-    transientActiveToolKey.value = toolKey
-    transientToolTimer = window.setTimeout(() => {
-      transientActiveToolKey.value = null
-      activeToolbarToolKey.value = nextToolKey
-      transientToolTimer = null
-      callback?.()
-    }, 260)
+    pendingTransientCallback.value = callback ?? null
+    toolbarActivationController.flash(toolKey, nextToolKey)
   }
 
   function getSelectedOption(toolKey: string): StackToolOption | null {
@@ -208,11 +210,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function closeMenus(): void {
-    openMenuKey.value = null
+    menuController.close()
   }
 
   function setMenuOpen(toolKey: string | null): void {
-    openMenuKey.value = toolKey
+    if (toolKey == null) {
+      menuController.close()
+      return
+    }
+    menuController.toggle(toolKey)
   }
 
   function stopPlayback(): void {
@@ -220,8 +226,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       window.clearInterval(playbackTimer)
       playbackTimer = null
     }
-    isPlaying.value = false
-    isPlaybackPaused.value = false
+    playbackController.stop()
   }
 
   function startPlayback(): void {
@@ -230,8 +235,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       playbackTimer = null
     }
     closeMenus()
-    isPlaying.value = true
-    isPlaybackPaused.value = false
+    playbackController.start()
+    playbackTimer = window.setInterval(() => {
+      options.emitViewportWheel(1)
+    }, 180)
+  }
+
+  function resumePlayback(): void {
+    if (playbackTimer != null) {
+      window.clearInterval(playbackTimer)
+      playbackTimer = null
+    }
+    closeMenus()
+    playbackController.resume()
     playbackTimer = window.setInterval(() => {
       options.emitViewportWheel(1)
     }, 180)
@@ -244,12 +260,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         window.clearInterval(playbackTimer)
         playbackTimer = null
       }
-      isPlaying.value = false
-      isPlaybackPaused.value = true
+      playbackController.pause()
       return
     }
     if (isPlaybackPaused.value) {
-      startPlayback()
+      resumePlayback()
     }
   }
 
@@ -396,7 +411,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     ([, viewType], previousValue) => {
       const previousTabKey = previousValue?.[0]
       const previousViewType = previousValue?.[1]
-      const tabOrViewChanged = previousTabKey === undefined || viewType !== previousViewType || options.activeTab.value?.key !== previousTabKey
+      const tabOrViewChanged =
+        previousTabKey === undefined || viewType !== previousViewType || options.activeTab.value?.key !== previousTabKey
 
       if (previousTabKey !== undefined && tabOrViewChanged) {
         options.stopViewportDrag()
@@ -464,9 +480,30 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     { immediate: true }
   )
 
+  const playbackSubscription = playbackController.subscribe((snapshot) => {
+    playbackSnapshot.value = snapshot
+  })
+  const menuSubscription = menuController.subscribe((snapshot) => {
+    menuSnapshot.value = snapshot
+  })
+  const toolbarActivationSubscription = toolbarActivationController.subscribe((snapshot) => {
+    const previousTransientKey = toolbarActivationSnapshot.value.context.transientKey
+    toolbarActivationSnapshot.value = snapshot
+    if (previousTransientKey != null && snapshot.context.transientKey == null) {
+      pendingTransientCallback.value?.()
+      pendingTransientCallback.value = null
+    }
+  })
+
   onBeforeUnmount(() => {
     stopPlayback()
-    clearTransientActiveTool()
+    playbackSubscription.unsubscribe()
+    menuSubscription.unsubscribe()
+    toolbarActivationSubscription.unsubscribe()
+    playbackController.shutdown()
+    menuController.shutdown()
+    toolbarActivationController.shutdown()
+    pendingTransientCallback.value = null
   })
 
   return {

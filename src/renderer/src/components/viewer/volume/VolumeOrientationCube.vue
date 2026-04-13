@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { OrientationInfo } from '../../types/viewer'
+import type { OrientationInfo } from '../../../types/viewer'
 
 const DEFAULT_FACE_LABELS = {
   front: 'A',

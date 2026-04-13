@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { ViewerTabItem } from '../../types/viewer'
+import type { ViewerTabItem } from '../../../types/viewer'
 
 defineProps<{
   activeTab: ViewerTabItem

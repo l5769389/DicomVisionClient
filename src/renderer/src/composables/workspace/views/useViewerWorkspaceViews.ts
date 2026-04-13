@@ -1,7 +1,7 @@
 import { nextTick, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import { api } from '../../services/api'
-import { bindView } from '../../services/socket'
+import { api } from '../../../services/api'
+import { bindView } from '../../../services/socket'
 import {
   buildTabTitle,
   createEmptyCornerInfo,
@@ -21,7 +21,7 @@ import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
-} from './volumeRenderConfig'
+} from '../volume/volumeRenderConfig'
 import type {
   BackendCreateViewType,
   CornerInfo,
@@ -33,7 +33,7 @@ import type {
   ViewImageResponse,
   ViewerTabItem,
   ViewType
-} from '../../types/viewer'
+} from '../../../types/viewer'
 
 interface ViewerWorkspaceViewsOptions {
   activeTabKey: Ref<string>

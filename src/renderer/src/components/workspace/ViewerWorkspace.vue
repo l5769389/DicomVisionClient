@@ -1,17 +1,17 @@
 ﻿<script setup lang="ts">
 import { computed, useTemplateRef } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
-import type { MeasurementDraft, MeasurementOverlay, ViewerTabItem, WorkspaceReadyPayload } from '../types/viewer'
-import { useViewerWorkspacePointer } from '../composables/useViewerWorkspacePointer'
-import { useViewerWorkspaceShell } from '../composables/workspace/useViewerWorkspaceShell'
-import MprView from './viewer/MprView.vue'
-import StackView from './viewer/StackView.vue'
-import VolumeView from './viewer/VolumeView.vue'
-import VolumeRenderConfigPanel from './workspace/VolumeRenderConfigPanel.vue'
-import ViewerTabStrip from './workspace/ViewerTabStrip.vue'
-import ViewerToolbar from './workspace/ViewerToolbar.vue'
-import type { VolumeRenderConfig } from '../types/viewer'
-import { useViewerWorkspaceToolbar } from '../composables/workspace/useViewerWorkspaceToolbar'
+import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
+import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
+import MprView from '../viewer/views/MprView.vue'
+import StackView from '../viewer/views/StackView.vue'
+import VolumeView from '../viewer/views/VolumeView.vue'
+import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
+import ViewerTabStrip from './ViewerTabStrip.vue'
+import ViewerToolbar from './shell/ViewerToolbar.vue'
+import type { VolumeRenderConfig } from '../../types/viewer'
+import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 
 const props = defineProps<{
   activeOperation: string
@@ -50,6 +50,7 @@ const {
   activeViewportKey,
   cleanupPointerInteractions,
   draftMeasurements,
+  getDraftMeasurementMode,
   handleViewportPointerCancel,
   handleViewportPointerLeave,
   handleViewportPointerDown,
@@ -236,6 +237,7 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
           :active-tab="activeTab"
           :corner-info="activeTab.cornerInfo"
           :cursor-class="getViewportCursorClass('single')"
+          :draft-measurement-mode="getDraftMeasurementMode('single')"
           :draft-measurement="getDraftMeasurement('single')"
           :measurements="getVisibleCommittedMeasurements('single')"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
@@ -253,6 +255,7 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-measurement-mode="(viewportKey) => getDraftMeasurementMode(viewportKey)"
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
           :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
           :get-corner-info="(viewportKey) => getMprCornerInfo(viewportKey)"

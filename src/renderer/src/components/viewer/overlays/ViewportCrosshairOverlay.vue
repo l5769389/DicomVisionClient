@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { MprCrosshairInfo } from '../../types/viewer'
+import type { MprCrosshairInfo } from '../../../types/viewer'
 
 interface ImageFrame {
   left: number

@@ -1,12 +1,13 @@
 ﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, MeasurementDraft, MeasurementOverlay, ViewerTabItem } from '../../types/viewer'
+import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem } from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
   cornerInfo: CornerInfo
   cursorClass?: string
+  draftMeasurementMode?: DraftMeasurementMode | null
   draftMeasurement?: MeasurementDraft | null
   measurements?: MeasurementOverlay[]
 }>()
@@ -84,6 +85,7 @@ function handleSliceSliderInput(event: Event): void {
       placeholder="单视口预览"
       :corner-info="props.cornerInfo"
       :cursor-class="props.cursorClass ?? ''"
+      :draft-measurement-mode="props.draftMeasurementMode ?? null"
       :draft-measurement="props.draftMeasurement ?? null"
       :measurements="props.measurements ?? []"
       :orientation="props.activeTab.orientation"

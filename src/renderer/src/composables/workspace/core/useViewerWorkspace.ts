@@ -6,18 +6,18 @@ import {
   type ViewOperationType,
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
-import { api } from '../../services/api'
-import { emitViewOperation } from '../../services/socket'
-import { isMprViewportKey, normalizeCornerInfo } from './viewerWorkspaceTabs'
-import { useViewerWorkspaceConnection } from './useViewerWorkspaceConnection'
-import { useViewerWorkspaceHover } from './useViewerWorkspaceHover'
-import { useViewerWorkspaceViews } from './useViewerWorkspaceViews'
-import { useVolumeConfigSync } from './useVolumeConfigSync'
+import { api } from '../../../services/api'
+import { emitViewOperation } from '../../../services/socket'
+import { isMprViewportKey, normalizeCornerInfo } from '../views/viewerWorkspaceTabs'
+import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
+import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
+import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
+import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
-} from './volumeRenderConfig'
+} from '../volume/volumeRenderConfig'
 import type {
   CornerInfo,
   CornerInfoResponse,
@@ -31,7 +31,7 @@ import type {
   ViewType,
   VolumeRenderConfig,
   WorkspaceReadyPayload
-} from '../../types/viewer'
+} from '../../../types/viewer'
 
 interface ViewerWorkspaceState {
   activeOperation: Ref<string>

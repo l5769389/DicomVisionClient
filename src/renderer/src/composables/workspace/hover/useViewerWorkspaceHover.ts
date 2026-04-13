@@ -1,7 +1,7 @@
 import type { ComputedRef } from 'vue'
 import throttle from 'lodash/throttle'
-import type { CornerInfo, MprViewportKey, ViewHoverResponse, ViewerTabItem } from '../../types/viewer'
-import { emitViewHover } from '../../services/socket'
+import type { CornerInfo, MprViewportKey, ViewHoverResponse, ViewerTabItem } from '../../../types/viewer'
+import { emitViewHover } from '../../../services/socket'
 
 interface ViewerWorkspaceHoverOptions {
   activeTab: ComputedRef<ViewerTabItem | null>

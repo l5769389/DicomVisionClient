@@ -1,4 +1,4 @@
-import type { VolumeRenderConfig } from '../../types/viewer'
+import type { VolumeRenderConfig } from '../../../types/viewer'
 
 interface VolumeConfigSyncOptions {
   debounceMs: number

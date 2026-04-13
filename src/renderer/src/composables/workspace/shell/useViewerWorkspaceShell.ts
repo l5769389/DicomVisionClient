@@ -1,6 +1,6 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { offMeasurementDraft, onMeasurementDraft } from '../../services/socket'
-import type { MeasurementDraftPayload, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import { offMeasurementDraft, onMeasurementDraft } from '../../../services/socket'
+import type { MeasurementDraftPayload, ViewerTabItem, WorkspaceReadyPayload } from '../../../types/viewer'
 
 interface ViewerWorkspaceShellOptions {
   activeTab: ComputedRef<ViewerTabItem | null>

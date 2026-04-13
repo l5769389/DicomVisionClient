@@ -13,6 +13,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  copySelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
@@ -89,6 +91,8 @@ function handleSliceSliderInput(event: Event): void {
       :draft-measurement="props.draftMeasurement ?? null"
       :measurements="props.measurements ?? []"
       :orientation="props.activeTab.orientation"
+      @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
+      @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"

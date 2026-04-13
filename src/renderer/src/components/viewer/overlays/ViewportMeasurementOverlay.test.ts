@@ -43,6 +43,41 @@ describe('ViewportMeasurementOverlay', () => {
     expect(wrapper.text()).toContain('ROI')
   })
 
+  it('shows copy and delete actions for selected draft measurement', async () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 300,
+          height: 200
+        },
+        draftMeasurementMode: 'selected',
+        draftMeasurement: {
+          measurementId: 'm-selected',
+          toolType: 'line',
+          points: [
+            { x: 0.2, y: 0.2 },
+            { x: 0.5, y: 0.4 }
+          ],
+          labelLines: ['12.3 mm']
+        },
+        measurements: []
+      }
+    })
+
+    const buttons = wrapper.findAll('button')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]?.attributes('aria-label')).toBe('复制测量')
+    expect(buttons[1]?.attributes('aria-label')).toBe('删除测量')
+
+    await buttons[0]!.trigger('click')
+    await buttons[1]!.trigger('click')
+
+    expect(wrapper.emitted('copySelectedMeasurement')).toHaveLength(1)
+    expect(wrapper.emitted('deleteSelectedMeasurement')).toHaveLength(1)
+  })
+
   it('shows handles for a moving draft measurement', () => {
     const wrapper = mount(ViewportMeasurementOverlay, {
       props: {

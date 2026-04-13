@@ -1,490 +1,529 @@
-# 测量状态流转说明
+# 测量交互与状态机说明
 
-这份文档按当前前端实现梳理测量工具的状态变化，重点回答 3 个问题：
+本文档整理当前项目中测量功能的实现方式、状态流转，以及下一阶段准备加入的复制/删除交互方案。
 
-- 当前有哪些“测量状态”
-- 每个状态由什么事件进入、退出
-- 新建、选中、移动、改点、提交、取消时，界面和数据分别如何变化
+当前文档基于以下代码：
 
-文档基于以下实现文件：
+- `src/renderer/src/composables/measurements/useViewerWorkspacePointer.ts`
+- `src/renderer/src/composables/measurements/measurementInteractionMachine.ts`
+- `src/renderer/src/composables/measurements/measurementGeometry.ts`
+- `src/renderer/src/components/workspace/ViewerWorkspace.vue`
+- `src/renderer/src/components/viewer/views/ViewerCanvasStage.vue`
+- `src/renderer/src/components/viewer/overlays/ViewportMeasurementOverlay.vue`
+- `src/renderer/src/composables/workspace/core/useViewerWorkspace.ts`
 
-- `src/renderer/src/composables/useViewerWorkspacePointer.ts`
-- `src/renderer/src/components/ViewerWorkspace.vue`
-- `src/renderer/src/composables/useViewerWorkspace.ts`
-- `src/renderer/src/components/viewer/ViewportMeasurementOverlay.vue`
+## 1. 总体设计
 
-## 1. 总体模型
+当前测量系统已经拆成 4 层：
 
-当前测量交互由两层数据共同决定：
+1. 数据层
+- 已提交测量来自后端，存放在 `activeTab.measurements` 或 `activeTab.viewportMeasurements`
+- 当前前端编辑副本存放在 `draftMeasurements[viewportKey]`
 
-- 已完成测量
-  - 来自后端回传，存放在 `activeTab.measurements` 或 `activeTab.viewportMeasurements`
-  - 类型是 `MeasurementOverlay`
-- 当前草稿测量
-  - 仅存在前端，存放在 `draftMeasurements[viewportKey]`
-  - 类型是 `MeasurementDraft`
+2. 状态机层
+- `measurementInteractionMachine.ts` 负责“当前用户正在做什么”
+- 它不保存几何点位，只保存交互状态和少量上下文
 
-界面总是把“草稿层”画在“已完成层”之上。
+3. 几何层
+- `measurementGeometry.ts` 负责命中测试、控制点判断、平移、改点、合法性判断
+- 这一层尽量保持纯函数
 
-如果某个草稿带有 `measurementId`，说明它不是新建图形，而是在编辑一个已经存在的测量。此时：
+4. 视图层
+- `ViewportMeasurementOverlay.vue` 只根据传入的测量数据和 `draftMeasurementMode` 渲染
+- UI 不再自己猜测 `selectedHandleIndex === -1` 这类旧语义
 
-- 视图层会把同 `measurementId` 的已完成图形隐藏
-- 当前显示的就是草稿版本
-- 即使后端已经回传了最新结果，当前实现也仍然保持该草稿为选中/可编辑态
+## 2. 当前已完成的核心改造
 
-## 2. 关键字段
+以下内容已经完成：
 
-`MeasurementDraft` 当前最关键的字段有：
+- 已完成测量转为可编辑时，不会直接原地修改 committed measurement，而是复制成前端 draft
+- draft 数据与交互状态已解耦
+- `MeasurementDraft` 不再承载 `isCommitted`、`isMoving`、`selectedHandleIndex`
+- 测量交互已经迁移到显式状态机
+- pointer 逻辑已拆成路由层和专项 handler
+- 命中决策已抽为纯函数
+- UI 渲染模式已显式化为 `draft` / `selected` / `moving`
 
-- `measurementId`
-  - 不存在：表示“新建中的测量”
-  - 存在：表示“正在编辑已有测量”
-- `selectedHandleIndex`
-  - `null`：整体选中，但没有抓住某个控制点
-  - `0/1/2/3` 等：正在编辑某个控制点
-  - `-1`：正在整体移动
-- `isMoving`
-  - `true`：当前是整体平移中的高亮表现
-  - `false`：当前不是整体平移
-- `isCommitted`
-  - `false`：前端本地编辑中，尚未完成一次提交后的稳定展示
-  - `true`：该草稿已经提交过一次，当前被保留为“选中态”
+这意味着当前测量系统已经从“多个布尔值拼装状态”升级成“状态机 + 纯几何函数 + UI 显式模式”。
 
-补充说明：
+## 3. 当前数据模型
 
-- `measurementDragMoved` 不是响应式状态，它是指针交互期间的临时标记，用于区分“只是点击一下”还是“真的拖动了”
-- `isMeasurementDrawing` 这个命名偏宽泛，实际上同时承载了“新建中”和“编辑中”
-- `isMeasurementMovePending` 表示已经点中了图形主体，但还没超过拖动阈值，尚未正式进入整体移动
+### 3.1 committed measurement
 
-## 3. 界面上的可见状态
+后端返回的测量对象，类型为 `MeasurementOverlay`。
 
-虽然代码里没有单独定义枚举状态，但从渲染表现上可以拆成下面几种：
+用途：
 
-### 3.1 无草稿
+- 持久化测量结果
+- 作为正常显示层
+- 被选中时可复制为前端 draft
 
-- 当前 viewport 没有 `draftMeasurements[viewportKey]`
-- 画面只显示后端返回的已完成测量
+### 3.2 draft measurement
 
-### 3.2 新建草稿
+前端本地工作副本，类型为 `MeasurementDraft`。
 
-特征：
+用途：
 
-- `measurementId` 不存在
-- `selectedHandleIndex` 通常为 `null`
-- `isCommitted = false`
+- 新建中的测量
+- 已有测量的编辑副本
+- 当前选中的可继续编辑副本
 
-表现：
+当前 `MeasurementDraft` 只表示数据本身：
 
-- 橙色虚线/草稿态
-- 松开鼠标后，如果图形有效，则创建为正式测量并清掉草稿
-
-### 3.3 已选中已有测量
-
-特征：
-
-- `measurementId` 存在
-- `selectedHandleIndex = null`
-- `isMoving = false`
-
-表现：
-
-- 已完成测量被前端草稿替代显示
-- 视觉上是选中态，不是普通 committed 态
-
-### 3.4 正在整体移动
-
-特征：
-
-- `measurementId` 存在
-- `selectedHandleIndex = -1`
-- `isMoving = true`
-
-表现：
-
-- 高亮显示为 moving 态
-- `pointermove` 中持续平移所有点
-
-### 3.5 正在编辑控制点
-
-特征：
-
-- `measurementId` 存在
-- `selectedHandleIndex >= 0`
-- `isMoving = false`
-
-表现：
-
-- 对某个 handle 拖动
-- `line / angle` 直接改对应点
-- `rect / ellipse` 以对角点重建包围框
-
-## 4. 进入编辑态的入口
-
-`handleViewportPointerDown(event, viewportKey)` 是测量交互的总入口。
-
-### 4.1 点击现有草稿的控制点
-
-如果当前 viewport 已经有草稿，且命中了草稿 handle：
-
-1. `setPointerCapture`
-2. `isMeasurementDrawing = true`
-3. `measurementViewportKey = viewportKey`
-4. `measurementDragMoved = false`
-5. 更新草稿：
-   - `isCommitted = false`
-   - `isMoving = false`
-   - `selectedHandleIndex = handleIndex`
-6. 发送一次 `measurementDraft start`
-
-这会进入“编辑控制点”状态。
-
-### 4.2 点击后端返回的已完成测量
-
-如果当前没有命中草稿 handle，但命中了 committed measurement：
-
-1. 自动把工具切到对应测量类型 `stack:measure:<toolType>`
-2. 生成一个新的草稿副本
-3. 该草稿带上原测量的：
-   - `measurementId`
-   - `toolType`
-   - `points`
-   - `labelLines`
-
-这一步只是“转为可编辑态”，还没有开始拖动，因此不会立即 `setPointerCapture`。
-
-### 4.3 点击当前草稿主体
-
-如果当前已有草稿，且命中了草稿主体而非 handle：
-
-1. `setPointerCapture`
-2. 记录 `measurementPendingStartPoint`
-3. `isMeasurementMovePending = true`
-4. `measurementDragMoved = false`
-
-这时进入“待确认移动”状态。只有移动距离超过阈值后，才会真正进入整体移动。
-
-### 4.4 空白区域新建测量
-
-如果以上都没命中，则进入新建流程：
-
-1. `setPointerCapture`
-2. `isMeasurementDrawing = true`
-3. `measurementViewportKey = viewportKey`
-4. 创建初始草稿 `[point, point]`
-5. 发送 `measurementDraft start`
-
-对 `angle` 工具有一个特殊逻辑：
-
-- 第一次拖出前两点
-- 第二次点击/拖动补第三点
-
-## 5. Pointer Move 阶段
-
-### 5.1 待确认移动 -> 正式整体移动
-
-当 `isMeasurementMovePending = true` 时：
-
-1. 计算当前点与按下点的像素位移
-2. 如果位移小于 `DRAG_START_THRESHOLD`，继续等待
-3. 如果超过阈值：
-   - `isMeasurementMovePending = false`
-   - `isMeasurementDrawing = true`
-   - `measurementDragLastPoint = measurementPendingStartPoint`
-   - 更新草稿为：
-     - `isCommitted = false`
-     - `isMoving = true`
-     - `selectedHandleIndex = -1`
-
-此时正式进入“整体移动”。
-
-### 5.2 整体移动中的 move
-
-当草稿满足：
-
-- `measurementId` 存在
-- `selectedHandleIndex === -1`
-
-则每次移动都会：
-
-1. 计算相对上一个点的位移
-2. 调用 `translateMeasurementPoints(...)`
-3. 对所有点做平移，并限制在 `[0, 1]` 图像范围内
-4. 设置：
-   - `isMoving = true`
-   - `isCommitted = false`
-5. 发送节流后的 `measurementDraft move`
-
-### 5.3 控制点编辑中的 move
-
-当草稿满足：
-
-- `measurementId` 存在
-- `selectedHandleIndex >= 0`
-
-则每次移动都会：
-
-1. 根据工具类型更新点位
-2. `measurementDragMoved = true`
-3. 设置：
-   - `isMoving = false`
-   - `isCommitted = false`
-4. 发送节流后的 `measurementDraft move`
-
-### 5.4 新建中的 move
-
-当草稿没有 `measurementId` 时：
-
-- `line / rect / ellipse`：实时用起点和当前点更新图形
-- `angle`：按两段式逻辑更新第二点或第三点
-
-同样会发送节流后的 `measurementDraft move`。
-
-## 6. Pointer Up 阶段
-
-`handleViewportPointerUp(event)` 是状态收束点。
-
-### 6.1 待确认移动但没有真正拖动
-
-如果还停留在 `isMeasurementMovePending = true`：
-
-- 直接取消 pending
-- 不改草稿
-- 结束交互
-
-也就是说，单击一个已选中的图形主体，不会触发位移。
-
-### 6.2 编辑已有测量，但没有发生实际拖动
-
-条件：
-
-- `draft.measurementId` 存在
-- `draft.selectedHandleIndex != null`
-- `measurementDragMoved = false`
-
-当前实现会把草稿收敛成：
-
-- `isCommitted = false`
-- `isMoving = false`
-- `selectedHandleIndex = null`
-
-含义是：
-
-- 退出“正在改点/正在移动”的子状态
-- 保留为“已选中已有测量”
-- 不会退出编辑态
-
-### 6.3 新建或编辑后完成一次有效提交
-
-如果图形有效：
-
-1. 先 `emitThrottledMeasurementDraft.flush()`
-2. 再调用 `emitMeasurementCreate(...)`
-
-这一步在语义上既用于：
-
-- 新建一个测量
-- 也用于更新一个已有测量
-
-区分方式就是是否带 `measurementId`。
-
-提交后的前端行为：
-
-- 新建测量
-  - 没有 `measurementId`
-  - 直接 `clearDraftMeasurement(viewportKey)`
-  - 界面等待后端回传 committed measurement
-- 编辑已有测量
-  - 有 `measurementId`
-  - 不再清草稿
-  - 更新为：
-    - `isCommitted = true`
-    - `isMoving = false`
-    - `selectedHandleIndex = null`
-  - 因此会继续保持“选中且可再次编辑”的状态
-
-### 6.4 图形无效
-
-如果图形不满足最小有效条件：
-
-- 直接清掉草稿
-
-例如：
-
-- 线段两点重合
-- 矩形/椭圆两个角点重合
-- 角度工具不足 3 点，或两条边退化
-
-## 7. Cancel 阶段
-
-`handleViewportPointerCancel(event)` 的处理比 `pointerup` 更强硬。
-
-如果发生 cancel：
-
-- pending move 被清空
-- 当前 viewport 的草稿直接被清掉
-- 交互结束
-
-所以 cancel 更像“放弃本轮本地编辑”。
-
-## 8. 前后端通信语义
-
-前端对测量的 socket/操作层统一走 `emitMeasurementOperation(...)`：
-
-- `opType = measurement`
-- `subOpType = line | rect | ellipse | angle`
-- `actionType = start | move | end`
-- `viewportKey`
+- `toolType`
 - `points`
 - `measurementId?`
+- `labelLines?`
 
-其中：
+它不再表示交互态。
 
-- `measurementDraft start/move/end` 用于拖动过程中的预览和后端量测计算
-- `measurementCreate` 最终也会被转成一次 `phase = end` 的 measurement 操作
+### 3.3 draft 渲染模式
 
-当前前端把 `labelLines` 的所有权放在本地草稿层：
+视图层目前使用 `DraftMeasurementMode`：
 
-- 后端返回 `MeasurementDraftPayload`
-- `ViewerWorkspace.vue` 中的 `handleMeasurementDraftUpdate(...)` 会把 `labelLines` 写回本地草稿
+- `draft`
+- `selected`
+- `moving`
 
-## 9. 当前状态机
+其来源是：
 
-### 9.1 状态图
+- `measurementInteractionMachine.ts` 中的 `resolveDraftMeasurementMode(...)`
+
+## 4. 当前状态机
+
+### 4.1 状态定义
+
+当前测量状态机包含以下状态：
+
+- `idle`
+- `selected`
+- `creating`
+- `move_pending`
+- `moving`
+- `editing_handle`
+
+这些状态的含义如下：
+
+#### `idle`
+
+当前没有处于测量交互中。
+
+#### `selected`
+
+当前已有一个测量被选中，但还没有开始拖动或改控制点。
+
+上下文：
+
+- `viewportKey`
+- `measurementId`
+
+#### `creating`
+
+当前正在新建一个测量。
+
+上下文：
+
+- `viewportKey`
+- `toolType`
+
+#### `move_pending`
+
+已经按下了一个选中的测量主体，但还没超过拖拽阈值。
+
+这是一个很重要的过渡态，用于区分：
+
+- 单击选中
+- 真正开始拖动
+
+上下文：
+
+- `viewportKey`
+- `measurementId`
+- `startPoint`
+
+#### `moving`
+
+当前正在整体移动一个已有测量。
+
+上下文：
+
+- `viewportKey`
+- `measurementId`
+- `lastPoint`
+- `hasChanged`
+
+#### `editing_handle`
+
+当前正在编辑一个已有测量的控制点。
+
+上下文：
+
+- `viewportKey`
+- `measurementId`
+- `handleIndex`
+- `hasChanged`
+
+### 4.2 当前状态图
 
 ```mermaid
 stateDiagram-v2
-  [*] --> NoDraft
+  [*] --> idle
 
-  NoDraft --> DraftNew: 空白区 pointerdown
-  NoDraft --> SelectedExisting: 点击 committed measurement
+  idle --> selected: SELECT
+  idle --> creating: START_CREATE
+  idle --> move_pending: START_MOVE_PENDING
+  idle --> editing_handle: START_EDITING_HANDLE
 
-  SelectedExisting --> EditingHandle: 命中 handle + pointerdown
-  SelectedExisting --> MovePending: 命中主体 + pointerdown
-  SelectedExisting --> NoDraft: 点击其它位置并 clearDraft
+  selected --> idle: RESET
+  selected --> selected: SELECT
+  selected --> creating: START_CREATE
+  selected --> move_pending: START_MOVE_PENDING
+  selected --> editing_handle: START_EDITING_HANDLE
 
-  MovePending --> MovingWhole: 超过拖动阈值
-  MovePending --> SelectedExisting: pointerup / 未拖动
-  MovePending --> NoDraft: pointercancel
+  creating --> idle: RESET
+  creating --> selected: SELECT
 
-  EditingHandle --> EditingHandle: pointermove
-  EditingHandle --> SelectedExisting: pointerup / 未拖动
-  EditingHandle --> SelectedExisting: pointerup / 已提交更新
-  EditingHandle --> NoDraft: pointercancel
+  move_pending --> idle: RESET
+  move_pending --> selected: SELECT
+  move_pending --> moving: START_MOVING
 
-  MovingWhole --> MovingWhole: pointermove
-  MovingWhole --> SelectedExisting: pointerup / 已提交更新
-  MovingWhole --> NoDraft: pointercancel
+  moving --> idle: RESET
+  moving --> selected: SELECT
+  moving --> moving: MARK_CHANGED / UPDATE_LAST_POINT
 
-  DraftNew --> DraftNew: pointermove
-  DraftNew --> NoDraft: pointerup / 已提交新建
-  DraftNew --> NoDraft: pointerup / 无效图形
-  DraftNew --> NoDraft: pointercancel
+  editing_handle --> idle: RESET
+  editing_handle --> selected: SELECT
+  editing_handle --> editing_handle: MARK_CHANGED
 ```
 
-### 9.2 顺序流程图
+## 5. 当前 pointer 交互流程
+
+`useViewerWorkspacePointer.ts` 现在已经是“路由器 + 专项处理器”的结构。
+
+### 5.1 Pointer Down
+
+`handleViewportPointerDown(...)` 只负责分发到三类交互：
+
+- `handleMeasurementPointerDown`
+- `handleCrosshairPointerDown`
+- `handleViewportDragPointerDown`
+
+其中测量部分会先通过：
+
+- `resolveMeasurementPointerDownIntent(...)`
+
+把命中结果解释成意图：
+
+- `edit_handle`
+- `select_committed`
+- `move_draft`
+- `clear_draft`
+- `create_new`
+
+### 5.2 Pointer Move
+
+`handleViewportPointerMove(...)` 也只做分发：
+
+- 测量移动
+- crosshair 拖动
+- viewport drag
+
+其中测量移动逻辑已经拆到：
+
+- `handleMeasurementPointerMove(...)`
+- `handleActiveMeasurementEditMove(...)`
+
+### 5.3 Pointer Up
+
+`handleViewportPointerUp(...)` 负责收束：
+
+- `move_pending` 未越阈值时，回到 `selected`
+- `moving` / `editing_handle` / `creating` 时，提交或清理 draft
+- 统一结束 pointer capture
+
+### 5.4 Pointer Cancel
+
+`handleViewportPointerCancel(...)` 更偏向放弃本轮本地交互：
+
+- 新建中的草稿会被清掉
+- 正在拖动或改点也会终止
+
+## 6. 当前可见行为
+
+### 6.1 新建测量
+
+- 空白处按下后创建 draft
+- 拖动过程中持续发送 `measurementDraft`
+- 抬起后如果图形有效，则发送 `measurementCreate`
+- 新建成功后当前 draft 清掉，等待 committed measurement 回显
+
+### 6.2 选择已有测量
+
+- 点击 committed measurement 后，不直接改 committed
+- 会复制成带 `measurementId` 的 draft
+- 当前 committed 同 `measurementId` 的图形会被隐藏
+- 用户看到的是当前可继续编辑的 draft
+
+### 6.3 编辑已有测量
+
+- 点击 handle 进入 `editing_handle`
+- 点击主体进入 `move_pending`
+- 超过阈值后进入 `moving`
+- 提交后仍保留为 `selected`
+
+### 6.4 提交后保持选中
+
+这是当前已经完成的关键行为：
+
+- 以前：编辑或移动已有测量后，提交会立刻退回普通 committed 态
+- 现在：编辑或移动已有测量后，提交会继续保持为选中可编辑态
+
+## 7. 当前渲染规则
+
+`resolveDraftMeasurementMode(...)` 当前规则如下：
+
+- `moving` 且该 viewport 正在编辑已有测量：渲染为 `moving`
+- `selected` 或 `move_pending` 且该 viewport 正在编辑已有测量：渲染为 `selected`
+- 其它情况：渲染为 `draft`
+
+这意味着：
+
+- 新建中是 `draft`
+- 改控制点时也是 `draft`
+- 选中已有测量但未拖动时是 `selected`
+- 整体移动中是 `moving`
+
+## 8. 当前状态机设计评价
+
+当前这套状态规划是合理的，原因有三点：
+
+- 状态是互斥的，语义明确
+- `move_pending` 这种关键过渡态被显式建模了
+- 状态机和几何数据已经拆开，没有再靠多个布尔值拼装
+
+当前仍然保留在 pointer 层的复杂度主要是：
+
+- pointer 事件与副作用耦合
+- 测量复制、删除等对象级操作还没接入状态机
+
+## 9. 下一阶段需求：复制、删除、删除全部
+
+这是下一步准备完成的交互方案，目前尚未落代码。
+
+### 9.1 目标能力
+
+单个已选中测量支持：
+
+- 复制
+- 删除
+
+当前 viewport 支持：
+
+- 删除全部测量
+
+### 9.2 推荐 UI 方案
+
+推荐采用“对象就地操作 + 全局补充入口”的组合。
+
+#### 单个测量
+
+当某个测量进入 `selected` 状态时：
+
+- 在测量标签附近或 viewport 右上角显示轻量操作条
+- 提供：
+  - `复制`
+  - `删除`
+
+推荐原因：
+
+- 发现性强
+- 不需要用户回到顶部工具栏
+- 更符合“对当前对象操作”的心智
+
+#### 删除全部
+
+不建议放在测量旁边。
+
+建议放在：
+
+- 顶部测量菜单
+- 或 viewport 右键菜单
+
+文案建议：
+
+- `删除当前视图全部测量`
+
+并建议加确认。
+
+### 9.3 推荐快捷键
+
+建议同时支持快捷键：
+
+- `Delete` / `Backspace`
+  - 删除当前选中测量
+- `Ctrl/Cmd + C`
+  - 复制当前选中测量
+- `Esc`
+  - 取消选中
+
+这些快捷键作为效率入口，不作为唯一入口。
+
+## 10. 下一阶段交互草案
+
+### 10.1 复制
+
+触发方式：
+
+- 点击选中态浮动工具条中的 `复制`
+- 或按 `Ctrl/Cmd + C`
+
+建议行为：
+
+1. 以当前选中 measurement 为源创建一个新的 draft
+2. 新 draft 不复用原 `measurementId`
+3. 点位整体轻微偏移，避免完全重叠
+4. 新 draft 立即成为当前选中对象
+5. 保持可继续拖动或编辑
+
+推荐偏移：
+
+- 归一化坐标下 `x + 0.01`、`y + 0.01`
+- 超出边界时做 clamp
+
+### 10.2 删除单个
+
+触发方式：
+
+- 点击选中态浮动工具条中的 `删除`
+- 或按 `Delete`
+
+建议行为：
+
+1. 如果当前是 `selected`
+2. 删除对应 `measurementId`
+3. 清掉当前 draft
+4. 状态机回到 `idle`
+
+### 10.3 删除全部
+
+触发方式：
+
+- 顶部测量菜单中的 `删除当前视图全部测量`
+
+建议行为：
+
+1. 仅删除当前 viewport 下的全部测量
+2. 若当前有 draft，一并清理
+3. 状态机回到 `idle`
+4. 建议弹确认
+
+## 11. 下一阶段状态机扩展建议
+
+当前不建议为了复制/删除强行再增加很多常驻状态。
+
+更合理的方式是：
+
+- 保持当前主状态机负责“交互阶段”
+- 把复制、删除、删除全部视为“对 selected 对象的动作事件”
+
+### 11.1 建议新增事件
+
+建议在测量交互层引入以下动作事件：
+
+- `COPY_SELECTED`
+- `DELETE_SELECTED`
+- `DELETE_ALL_IN_VIEWPORT`
+- `CLEAR_SELECTION`
+
+### 11.2 建议状态机扩展方式
+
+推荐保守扩展，不新增重量级持久状态，只加动作事件：
 
 ```mermaid
-flowchart TD
-  A[Pointer Down] --> B{当前是测量工具?}
-  B -- 否 --> Z[交给其它交互]
-  B -- 是 --> C{命中已有草稿 handle?}
-
-  C -- 是 --> D[进入控制点编辑]
-  C -- 否 --> E{命中 committed measurement?}
-
-  E -- 是 --> F[复制 committed 为 draft<br/>转为可编辑态]
-  E -- 否 --> G{命中当前草稿主体?}
-
-  G -- 是 --> H[进入 MovePending]
-  G -- 否 --> I[创建新草稿]
-
-  D --> J[Pointer Move]
-  F --> K[等待下一次 pointerdown]
-  H --> J
-  I --> J
-
-  J --> L{当前处于 MovePending?}
-  L -- 是且未超阈值 --> J
-  L -- 是且超阈值 --> M[转为整体移动]
-  L -- 否 --> N{编辑已有测量?}
-
-  M --> O[更新 points 并发 move]
-  N -- 是 --> P[更新 handle 或整体位移]
-  N -- 否 --> Q[更新新建草稿]
-
-  O --> R[Pointer Up]
-  P --> R
-  Q --> R
-  H --> R
-
-  R --> S{pending 且未拖动?}
-  S -- 是 --> T[结束交互并保留选中态]
-  S -- 否 --> U{图形有效?}
-
-  U -- 否 --> V[清掉草稿]
-  U -- 是 --> W{是否已有 measurementId?}
-
-  W -- 否 --> X[提交新建并清草稿]
-  W -- 是 --> Y[提交更新并保留草稿为选中态]
+stateDiagram-v2
+  [*] --> idle
+  idle --> selected: SELECT
+  selected --> idle: CLEAR_SELECTION
+  selected --> selected: COPY_SELECTED
+  selected --> idle: DELETE_SELECTED
+  selected --> idle: DELETE_ALL_IN_VIEWPORT
 ```
 
-## 10. 视觉状态与数据状态的对应关系
+这里的含义是：
 
-`ViewportMeasurementOverlay.vue` 最终会把草稿映射为以下渲染模式：
+- `COPY_SELECTED`
+  - 本质是一次对象复制动作
+  - 完成后仍停留在“有选中对象”的语义上
+  - 只是选中的对象切换为新副本
+- `DELETE_SELECTED`
+  - 执行后失去选中对象，回到 `idle`
+- `DELETE_ALL_IN_VIEWPORT`
+  - 执行后回到 `idle`
 
-- `committed`
-  - 普通已完成态
-- `selected`
-  - 已选中已有测量
-- `moving`
-  - 整体平移中
-- `draft`
-  - 新建中或正在改点
+如果后面再支持多选，再考虑引入：
 
-映射规则核心是：
+- `multi_selected`
 
-- 有 `measurementId` 且 `selectedHandleIndex === -1 && isMoving === true`
-  - 渲染为 `moving`
-- 有 `measurementId` 且 `selectedHandleIndex == null || selectedHandleIndex === -1`
-  - 渲染为 `selected`
-- 其它草稿
-  - 渲染为 `draft`
+当前不要提前设计。
 
-所以：
+## 12. 推荐的实现顺序
 
-- “已选中已有测量”与“新建草稿”虽然都属于前端草稿层
-- 但视觉样式不同
+建议按以下顺序推进：
 
-## 11. 当前实现的关键结论
+1. 删除单个选中测量
+- 复杂度最低
+- 能先打通对象级操作链路
 
-可以把当前测量系统理解成下面这句话：
+2. 复制单个选中测量
+- 需要处理新 draft 偏移和重新选中
 
-> 已完成测量并不会直接原地编辑，而是先复制成一个前端草稿；用户所有拖动都发生在草稿上；提交后，新建草稿会消失，已有测量的草稿会保留为选中态。
+3. 删除当前 viewport 全部测量
+- 需要定义前后端接口和确认交互
 
-这也是最近改动后的核心行为变化：
+## 13. 代码改造建议
 
-- 以前：编辑/移动已有测量后，提交会立刻退出编辑态
-- 现在：编辑/移动已有测量后，提交仍保持选中态，便于继续调整
+### 13.1 前端
 
-## 12. 代码定位建议
+主要改动点预计在：
 
-如果你后续要继续改测量交互，建议优先看这几个函数：
+- `src/renderer/src/components/viewer/overlays/ViewportMeasurementOverlay.vue`
+  - 增加选中态操作按钮
+- `src/renderer/src/components/workspace/shell/ViewerToolbar.vue`
+  - 增加删除全部入口
+- `src/renderer/src/composables/measurements/useViewerWorkspacePointer.ts`
+  - 增加选中对象动作入口
+- `src/renderer/src/composables/measurements/measurementInteractionMachine.ts`
+  - 增加复制/删除相关事件
+- `src/renderer/src/composables/workspace/core/useViewerWorkspace.ts`
+  - 对接新的 measurement delete/copy 操作
 
-- `useViewerWorkspacePointer.ts`
-  - `handleViewportPointerDown`
-  - `handleViewportPointerMove`
-  - `handleViewportPointerUp`
-  - `handleViewportPointerCancel`
-  - `findCommittedMeasurementAtPoint`
-  - `isMeasurementHit`
-  - `updateEditedMeasurementPoints`
-  - `translateMeasurementPoints`
-- `ViewerWorkspace.vue`
-  - `getDraftMeasurement`
-  - `getVisibleCommittedMeasurements`
-  - `handleMeasurementDraftUpdate`
-- `useViewerWorkspace.ts`
-  - `emitMeasurementOperation`
-  - `handleMeasurementCreate`
-  - `handleMeasurementDraft`
+### 13.2 后端/协议
 
+如果复制和删除要持久化，建议补充统一测量操作语义，例如：
+
+- `measurement_copy`
+- `measurement_delete`
+- `measurement_delete_all`
+
+或者继续统一走 `measurement` 操作通道，但增加明确的 `actionType`。
+
+## 14. 总结
+
+当前已经完成的设计重点是：
+
+- 测量交互已状态机化
+- 几何逻辑已抽离
+- draft 数据与交互态已解耦
+- 已有测量编辑后会保持选中态
+
+下一步推荐实现的是：
+
+- 单测量删除
+- 单测量复制
+- 当前视图删除全部
+
+推荐交互方案是：
+
+- 选中后显示轻量浮动操作条
+- 同时支持键盘快捷键
+- 删除全部放在顶部菜单并加确认

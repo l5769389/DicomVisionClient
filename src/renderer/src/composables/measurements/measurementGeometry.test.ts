@@ -97,6 +97,33 @@ describe('measurementGeometry', () => {
     expect(match?.measurement.measurementId).toBe('inner')
   })
 
+  it('prefers the later measurement when overlapping hits have the same score', () => {
+    const rect = createRect(0, 0, 300, 300)
+    const overlapping: MeasurementOverlay[] = [
+      {
+        measurementId: 'first',
+        toolType: 'rect',
+        points: [
+          { x: 0.2, y: 0.2 },
+          { x: 0.6, y: 0.6 }
+        ],
+        labelLines: []
+      },
+      {
+        measurementId: 'second',
+        toolType: 'rect',
+        points: [
+          { x: 0.2, y: 0.2 },
+          { x: 0.6, y: 0.6 }
+        ],
+        labelLines: []
+      }
+    ]
+
+    const match = findMeasurementAtPoint(overlapping, { x: 0.4, y: 0.4 }, rect)
+    expect(match?.measurement.measurementId).toBe('second')
+  })
+
   it('updates rectangle corners against the opposite handle', () => {
     const nextPoints = updateEditedMeasurementPoints(
       'rect',

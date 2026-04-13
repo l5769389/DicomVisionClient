@@ -2,6 +2,8 @@ import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
 import type { MeasurementDraftPayload, MeasurementDraftPoint, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
 
+type ViewActionType = DragActionType | 'delete'
+
 let socket: Socket | null = null
 const measurementDraftHandlers = new Set<(payload: MeasurementDraftPayload) => void>()
 
@@ -38,7 +40,7 @@ export function emitViewOperation(payload: {
   opType: ViewOperationType
   measurementId?: string
   subOpType?: string
-  actionType?: DragActionType
+  actionType?: ViewActionType
   x?: number
   y?: number
   points?: MeasurementDraftPoint[]

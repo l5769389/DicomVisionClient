@@ -67,6 +67,7 @@ onBeforeUnmount(() => {
           @active-viewport-change="viewer.setActiveViewportKey"
           @measurement-draft="viewer.handleMeasurementDraft"
           @measurement-create="viewer.handleMeasurementCreate"
+          @measurement-delete="viewer.handleMeasurementDelete"
           @mpr-crosshair="viewer.handleMprCrosshair"
           @volume-config-change="viewer.handleVolumeConfigChange"
           @viewport-drag="viewer.handleViewportDrag"

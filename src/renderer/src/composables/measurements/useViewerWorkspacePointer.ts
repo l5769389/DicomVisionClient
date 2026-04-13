@@ -38,6 +38,7 @@ interface PointerComposableOptions {
     points: MeasurementDraftPoint[]
   }) => void
   emitMeasurementCreate: (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string }) => void
+  emitMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
   emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
   emitViewportDrag: (payload: {
     deltaX: number
@@ -52,6 +53,8 @@ interface PointerComposableOptions {
 interface PointerComposableState {
   activeViewportKey: Ref<MprViewportKey | 'single' | 'volume'>
   cleanupPointerInteractions: () => void
+  copySelectedMeasurement: (viewportKey?: string) => boolean
+  deleteSelectedMeasurement: (viewportKey?: string) => boolean
   draftMeasurements: Ref<Partial<Record<string, MeasurementDraft | null>>>
   getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
   handleViewportPointerCancel: (event: PointerEvent) => void
@@ -83,6 +86,56 @@ function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: nu
     x: crosshairInfo.verticalPosition ?? crosshairInfo.centerX,
     y: crosshairInfo.horizontalPosition ?? crosshairInfo.centerY
   }
+}
+
+function generateMeasurementId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `measurement-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function clampNormalizedPoint(point: MeasurementDraftPoint): MeasurementDraftPoint {
+  return {
+    x: Math.max(0, Math.min(1, point.x)),
+    y: Math.max(0, Math.min(1, point.y))
+  }
+}
+
+function offsetMeasurementPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
+  const shiftedPoints = points.map((point) =>
+    clampNormalizedPoint({
+      x: point.x + delta,
+      y: point.y + delta
+    })
+  )
+
+  const changed = shiftedPoints.some((point, index) => point.x !== points[index]?.x || point.y !== points[index]?.y)
+  if (changed) {
+    return shiftedPoints
+  }
+
+  return points.map((point) =>
+    clampNormalizedPoint({
+      x: point.x - delta,
+      y: point.y - delta
+    })
+  )
+}
+
+function arePointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {
+  if (a.length !== b.length) {
+    return false
+  }
+
+  return a.every((point, index) => {
+    const otherPoint = b[index]
+    return (
+      otherPoint != null &&
+      Math.abs(point.x - otherPoint.x) < 0.0005 &&
+      Math.abs(point.y - otherPoint.y) < 0.0005
+    )
+  })
 }
 
 function isCapturedMeasurementInteraction(
@@ -453,6 +506,84 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function resetMeasurementInteraction(): void {
     measurementInteractionController.reset()
     syncMeasurementInteractionState()
+  }
+
+  function resolveSelectedMeasurementDraft(viewportKey?: string): { viewportKey: string; draft: MeasurementDraft } | null {
+    const interactionState = measurementInteraction.value
+    if (interactionState.kind !== 'selected') {
+      return null
+    }
+
+    const targetViewportKey = viewportKey ?? interactionState.viewportKey
+    if (interactionState.viewportKey !== targetViewportKey) {
+      return null
+    }
+
+    const draft = getDraftMeasurement(targetViewportKey)
+    if (!draft?.measurementId) {
+      return null
+    }
+
+    return {
+      viewportKey: targetViewportKey,
+      draft
+    }
+  }
+
+  function copySelectedMeasurement(viewportKey?: string): boolean {
+    const selected = resolveSelectedMeasurementDraft(viewportKey)
+    if (!selected) {
+      return false
+    }
+
+    const copiedMeasurementId = generateMeasurementId()
+    const occupiedPointSets = [
+      ...options.getCommittedMeasurements(selected.viewportKey).map((measurement) => measurement.points),
+      ...Object.values(draftMeasurements.value)
+        .filter((draft): draft is MeasurementDraft => Boolean(draft))
+        .map((draft) => draft.points)
+    ]
+
+    let copiedPoints = selected.draft.points
+    for (let attempt = 1; attempt <= 12; attempt += 1) {
+      const candidate = offsetMeasurementPoints(selected.draft.points, 0.01 * attempt)
+      if (!occupiedPointSets.some((points) => arePointSetsClose(points, candidate))) {
+        copiedPoints = candidate
+        break
+      }
+      copiedPoints = candidate
+    }
+    const nextDraft: MeasurementDraft = {
+      ...selected.draft,
+      measurementId: copiedMeasurementId,
+      points: copiedPoints
+    }
+
+    updateDraftMeasurement(selected.viewportKey, nextDraft)
+    setSelectedMeasurementState(selected.viewportKey, copiedMeasurementId)
+    options.emitMeasurementCreate({
+      viewportKey: selected.viewportKey,
+      toolType: nextDraft.toolType,
+      points: nextDraft.points,
+      measurementId: copiedMeasurementId
+    })
+    return true
+  }
+
+  function deleteSelectedMeasurement(viewportKey?: string): boolean {
+    const selected = resolveSelectedMeasurementDraft(viewportKey)
+    if (!selected?.draft.measurementId) {
+      return false
+    }
+
+    options.emitMeasurementDelete({
+      viewportKey: selected.viewportKey,
+      measurementId: selected.draft.measurementId
+    })
+    clearDraftMeasurement(selected.viewportKey)
+    resetMeasurementInteraction()
+    clearViewportCursor(selected.viewportKey)
+    return true
   }
 
   function stopViewportDrag(pointerTarget?: EventTarget | null): void {
@@ -1084,6 +1215,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   return {
     activeViewportKey,
     cleanupPointerInteractions,
+    copySelectedMeasurement,
+    deleteSelectedMeasurement,
     draftMeasurements,
     getDraftMeasurementMode,
     handleViewportPointerCancel,

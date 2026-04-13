@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
 
 interface ScreenPoint {
@@ -9,6 +10,7 @@ interface ScreenPoint {
 
 interface RenderedMeasurement {
   key: string
+  measurementId: string | null
   toolType: MeasurementToolType
   screenPoints: ScreenPoint[]
   handlePoints: ScreenPoint[]
@@ -41,6 +43,11 @@ const props = withDefaults(
     measurements: () => []
   }
 )
+
+const emit = defineEmits<{
+  copySelectedMeasurement: []
+  deleteSelectedMeasurement: []
+}>()
 
 function toScreenPoint(point: MeasurementDraftPoint): ScreenPoint {
   return {
@@ -139,6 +146,7 @@ function buildRenderedMeasurement(
 
   return {
     key,
+    measurementId: key === 'draft' ? props.draftMeasurement?.measurementId ?? null : key,
     toolType,
     screenPoints,
     handlePoints,
@@ -183,6 +191,30 @@ const renderedDraftMeasurement = computed(() =>
 const allRenderedMeasurements = computed(() =>
   renderedDraftMeasurement.value ? [...renderedMeasurements.value, renderedDraftMeasurement.value] : renderedMeasurements.value
 )
+
+const selectedDraftActionStyle = computed(() => {
+  const measurement = renderedDraftMeasurement.value
+  if (!measurement || measurement.mode !== 'selected' || !measurement.measurementId) {
+    return null
+  }
+
+  const anchorX = measurement.labelStyle
+    ? Number.parseFloat(measurement.labelStyle.left)
+    : measurement.handlePoints[0]?.x ?? measurement.screenPoints[0]?.x ?? props.imageFrame.left + 12
+  const anchorY = measurement.labelStyle
+    ? Number.parseFloat(measurement.labelStyle.top) - 42
+    : (measurement.handlePoints[0]?.y ?? measurement.screenPoints[0]?.y ?? props.imageFrame.top + 12) - 42
+
+  const minLeft = props.imageFrame.left + 8
+  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - 128, minLeft)
+  const minTop = props.imageFrame.top + 8
+  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - 36, minTop)
+
+  return {
+    left: `${Math.round(Math.max(minLeft, Math.min(maxLeft, anchorX)))}px`,
+    top: `${Math.round(Math.max(minTop, Math.min(maxTop, anchorY)))}px`
+  }
+})
 
 function getOuterStroke(measurement: RenderedMeasurement): string {
   return measurement.mode === 'committed' ? committedStrokeOuter : draftStrokeOuter
@@ -400,6 +432,32 @@ function getShapeFill(measurement: RenderedMeasurement): string {
       >
         {{ line }}
       </div>
+    </div>
+
+    <div
+      v-if="selectedDraftActionStyle"
+      class="pointer-events-auto absolute z-[5] inline-flex items-center gap-1 rounded-xl border border-amber-300/45 bg-[rgba(23,14,7,0.94)] px-1.5 py-1 shadow-[0_14px_28px_rgba(0,0,0,0.34)] backdrop-blur"
+      :style="selectedDraftActionStyle"
+      @pointerdown.stop.prevent
+    >
+      <button
+        type="button"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-amber-50 transition hover:bg-amber-300/14"
+        title="复制"
+        aria-label="复制测量"
+        @click.stop="emit('copySelectedMeasurement')"
+      >
+        <AppIcon name="copy" :size="16" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/18 bg-red-400/10 text-red-100 transition hover:bg-red-400/18"
+        title="删除"
+        aria-label="删除测量"
+        @click.stop="emit('deleteSelectedMeasurement')"
+      >
+        <AppIcon name="trash" :size="16" />
+      </button>
     </div>
   </div>
 </template>

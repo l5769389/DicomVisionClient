@@ -64,6 +64,7 @@ interface ViewerWorkspaceState {
     points: MeasurementDraftPoint[]
     measurementId?: string
   }) => void
+  handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -552,6 +553,57 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function handleMeasurementDelete(payload: { viewportKey: string; measurementId: string }): void {
+    const tab = activeTab.value
+    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') || !payload.measurementId) {
+      return
+    }
+
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== tab.key) {
+        return item
+      }
+
+      if (item.viewType === 'MPR') {
+        return {
+          ...item,
+          viewportMeasurements: {
+            ...(item.viewportMeasurements ?? {}),
+            [payload.viewportKey]: (item.viewportMeasurements?.[payload.viewportKey as MprViewportKey] ?? []).filter(
+              (measurement) => measurement.measurementId !== payload.measurementId
+            )
+          }
+        }
+      }
+
+      return {
+        ...item,
+        measurements: (item.measurements ?? []).filter((measurement) => measurement.measurementId !== payload.measurementId)
+      }
+    })
+
+    const operationPayload = {
+      opType: VIEW_OPERATION_TYPES.measurement,
+      actionType: 'delete' as const,
+      measurementId: payload.measurementId,
+      viewportKey: payload.viewportKey
+    }
+
+    if (tab.viewType === 'MPR') {
+      emitMprViewOperation(payload.viewportKey, operationPayload)
+      return
+    }
+
+    if (!tab.viewId) {
+      return
+    }
+
+    emitViewOperation({
+      viewId: tab.viewId,
+      ...operationPayload
+    })
+  }
+
   function handleMeasurementDraft(payload: {
     viewportKey: string
     toolType: MeasurementToolType
@@ -661,6 +713,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     connectionState,
     handleHoverViewportChange,
     handleMeasurementCreate,
+    handleMeasurementDelete,
     handleMeasurementDraft,
     handleMprCrosshair,
     handleVolumeConfigChange,

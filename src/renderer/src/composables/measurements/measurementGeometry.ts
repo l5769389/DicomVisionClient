@@ -201,7 +201,7 @@ export function findMeasurementAtPoint(
     if (!result.hit) {
       continue
     }
-    if (!bestMatch || result.score < bestMatch.score) {
+    if (!bestMatch || result.score <= bestMatch.score) {
       bestMatch = {
         measurement,
         handleIndex: result.handleIndex,
@@ -225,6 +225,20 @@ export function resolveMeasurementPointerDownIntent(params: {
     if (handleIndex != null) {
       return { kind: 'edit_handle', handleIndex }
     }
+
+    const currentDraftHit = isMeasurementHit(
+      {
+        measurementId: existingDraft.measurementId,
+        toolType: existingDraft.toolType,
+        points: existingDraft.points,
+        labelLines: existingDraft.labelLines ?? []
+      },
+      point,
+      rect
+    )
+    if (currentDraftHit.hit) {
+      return { kind: 'move_draft' }
+    }
   }
 
   const committedMeasurementHit = findMeasurementAtPoint(
@@ -241,19 +255,6 @@ export function resolveMeasurementPointerDownIntent(params: {
   }
 
   if (existingDraft?.measurementId) {
-    const currentDraftHit = isMeasurementHit(
-      {
-        measurementId: existingDraft.measurementId,
-        toolType: existingDraft.toolType,
-        points: existingDraft.points,
-        labelLines: existingDraft.labelLines ?? []
-      },
-      point,
-      rect
-    )
-    if (currentDraftHit.hit) {
-      return { kind: 'move_draft' }
-    }
     return { kind: 'clear_draft' }
   }
 

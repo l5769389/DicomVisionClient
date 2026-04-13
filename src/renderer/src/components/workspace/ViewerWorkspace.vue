@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, useTemplateRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, useTemplateRef } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
@@ -29,6 +29,7 @@ const emit = defineEmits<{
   closeTab: [tabKey: string]
   measurementDraft: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
   measurementCreate: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; points: { x: number; y: number }[]; measurementId?: string }]
+  measurementDelete: [payload: { viewportKey: string; measurementId: string }]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
@@ -49,6 +50,8 @@ const viewerTabsRef = computed(() => props.viewerTabs)
 const {
   activeViewportKey,
   cleanupPointerInteractions,
+  copySelectedMeasurement,
+  deleteSelectedMeasurement,
   draftMeasurements,
   getDraftMeasurementMode,
   handleViewportPointerCancel,
@@ -67,6 +70,7 @@ const {
   emitOperationChange: (value) => emit('setActiveOperation', value),
   emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
   emitMeasurementCreate: (payload) => emit('measurementCreate', payload),
+  emitMeasurementDelete: (payload) => emit('measurementDelete', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
   emitViewportDrag: (payload) => emit('viewportDrag', payload),
   getCommittedMeasurements: (viewportKey) => getCommittedMeasurements(viewportKey)
@@ -159,6 +163,32 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
     viewerTabs: viewerTabsRef,
     viewportHostRef
   })
+
+function handleWorkspaceKeydown(event: KeyboardEvent): void {
+  const target = event.target
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+    return
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+    if (copySelectedMeasurement()) {
+      event.preventDefault()
+    }
+    return
+  }
+
+  if ((event.key === 'Delete' || event.key === 'Backspace') && deleteSelectedMeasurement()) {
+    event.preventDefault()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleWorkspaceKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleWorkspaceKeydown)
+})
 </script>
 
 <template>
@@ -240,6 +270,8 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
           :draft-measurement-mode="getDraftMeasurementMode('single')"
           :draft-measurement="getDraftMeasurement('single')"
           :measurements="getVisibleCommittedMeasurements('single')"
+          @copy-selected-measurement="copySelectedMeasurement($event)"
+          @delete-selected-measurement="deleteSelectedMeasurement($event)"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
@@ -259,6 +291,8 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
           :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
           :get-corner-info="(viewportKey) => getMprCornerInfo(viewportKey)"
+          @copy-selected-measurement="copySelectedMeasurement($event)"
+          @delete-selected-measurement="deleteSelectedMeasurement($event)"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"

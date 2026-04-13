@@ -52,6 +52,7 @@ const mdiIconMap: Record<string, string> = {
   palette: 'mdi-palette-swatch-outline',
   bell: 'mdi-bell-outline',
   shield: 'mdi-shield-check-outline',
+  copy: 'mdi-content-copy',
   trash: 'mdi-trash-can-outline',
   close: 'mdi-close'
 }

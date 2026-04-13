@@ -45,6 +45,8 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  copySelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string]
   clickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   pointerCancel: [event: PointerEvent]
@@ -260,6 +262,8 @@ watch(
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
         :image-frame="imageFrame"
+        @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
+        @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey)"
       />
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />

@@ -6,7 +6,7 @@ import type {
   OrientationInfo,
   ViewerTabItem,
   ViewType
-} from '../types/viewer'
+} from '../../types/viewer'
 import { createDefaultVolumeRenderConfig } from './volumeRenderConfig'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']

@@ -58,7 +58,6 @@ onBeforeUnmount(() => {
           :has-selected-series="viewer.hasSelectedSeries.value"
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
-          :operation-items="viewer.operationItems"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"

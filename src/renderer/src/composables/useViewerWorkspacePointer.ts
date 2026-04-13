@@ -10,6 +10,15 @@ import type {
   MprViewportKey,
   ViewerTabItem
 } from '../types/viewer'
+import {
+  createMeasurementDraft,
+  findHandleIndexAtPoint,
+  findMeasurementAtPoint,
+  isMeasurementHit,
+  isValidMeasurement,
+  translateMeasurementPoints,
+  updateEditedMeasurementPoints
+} from './measurementGeometry'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
@@ -49,9 +58,15 @@ interface PointerComposableState {
   viewportCursorClasses: Ref<Partial<Record<string, string>>>
 }
 
+type MeasurementInteractionState =
+  | { kind: 'idle' }
+  | { kind: 'selected'; viewportKey: string; measurementId: string }
+  | { kind: 'creating'; viewportKey: string; toolType: MeasurementToolType }
+  | { kind: 'move_pending'; viewportKey: string; measurementId: string; startPoint: MeasurementDraftPoint }
+  | { kind: 'moving'; viewportKey: string; measurementId: string; lastPoint: MeasurementDraftPoint; hasChanged: boolean }
+  | { kind: 'editing_handle'; viewportKey: string; measurementId: string; handleIndex: number; hasChanged: boolean }
+
 const DRAG_START_THRESHOLD = 3
-const DISTINCT_POINT_EPSILON = 0.001
-const MEASUREMENT_HIT_RADIUS_PX = 14
 
 function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: number } {
   return {
@@ -60,36 +75,26 @@ function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: nu
   }
 }
 
-function getMeasurementHandlePoints(
-  toolType: MeasurementToolType,
-  points: MeasurementDraftPoint[]
-): MeasurementDraftPoint[] {
-  if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {
-    const left = Math.min(points[0].x, points[1].x)
-    const right = Math.max(points[0].x, points[1].x)
-    const top = Math.min(points[0].y, points[1].y)
-    const bottom = Math.max(points[0].y, points[1].y)
-    return [
-      { x: left, y: top },
-      { x: right, y: top },
-      { x: right, y: bottom },
-      { x: left, y: bottom }
-    ]
-  }
-  return points
+function isCapturedMeasurementInteraction(
+  state: MeasurementInteractionState
+): state is Exclude<MeasurementInteractionState, { kind: 'idle' } | { kind: 'selected'; viewportKey: string; measurementId: string }> {
+  return (
+    state.kind === 'creating' ||
+    state.kind === 'move_pending' ||
+    state.kind === 'moving' ||
+    state.kind === 'editing_handle'
+  )
 }
 
 export function useViewerWorkspacePointer(options: PointerComposableOptions): PointerComposableState {
   const activeViewportKey = ref<MprViewportKey | 'single' | 'volume'>('mpr-ax')
   const crosshairPointerViewportKey = ref('')
   const dragViewportKey = ref('')
-  const measurementViewportKey = ref('')
   const dragOperationType = ref<ViewOperationType | null>(null)
   const draftMeasurements = ref<Partial<Record<string, MeasurementDraft | null>>>({})
   const viewportCursorClasses = ref<Partial<Record<string, string>>>({})
+  const measurementInteraction = ref<MeasurementInteractionState>({ kind: 'idle' })
   const isCrosshairDragging = ref(false)
-  const isMeasurementDrawing = ref(false)
-  const isMeasurementMovePending = ref(false)
   const isViewportDragging = ref(false)
   const activePointerId = ref<number | null>(null)
 
@@ -100,9 +105,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   let hasSentDragStart = false
   let dragStartNormalizedPoint: { x: number; y: number } | null = null
   let lastDragNormalizedPoint: { x: number; y: number } | null = null
-  let measurementDragLastPoint: MeasurementDraftPoint | null = null
-  let measurementPendingStartPoint: MeasurementDraftPoint | null = null
-  let measurementDragMoved = false
+
   const emitThrottledViewportDrag = throttle(
     (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
       options.emitViewportDrag(payload)
@@ -255,10 +258,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
-  function isVolumeTrackballRotation(): boolean {
-    return options.activeTab.value?.viewType === '3D' && getNormalizedOperation() === VIEW_OPERATION_TYPES.rotate3d
-  }
-
   function getRenderedImageRect(imageElement: HTMLImageElement): DOMRect {
     const rect = imageElement.getBoundingClientRect()
     const naturalWidth = imageElement.naturalWidth
@@ -342,16 +341,62 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return deltaX * deltaX + deltaY * deltaY <= hitRadius * hitRadius
   }
 
+  function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
+    return draftMeasurements.value[viewportKey] ?? null
+  }
+
+  function clearDraftMeasurement(viewportKey?: string): void {
+    if (!viewportKey) {
+      draftMeasurements.value = {}
+      return
+    }
+    draftMeasurements.value = {
+      ...draftMeasurements.value,
+      [viewportKey]: null
+    }
+  }
+
+  function updateDraftMeasurement(viewportKey: string, draft: MeasurementDraft): void {
+    draftMeasurements.value = {
+      ...draftMeasurements.value,
+      [viewportKey]: draft
+    }
+  }
+
+  function updateDraftMeasurementLabelLines(viewportKey: string, labelLines: string[]): void {
+    const draft = draftMeasurements.value[viewportKey]
+    if (!draft) {
+      return
+    }
+    updateDraftMeasurement(viewportKey, {
+      ...draft,
+      labelLines
+    })
+  }
+
+  function setSelectedMeasurementState(viewportKey: string, measurementId: string): void {
+    measurementInteraction.value = {
+      kind: 'selected',
+      viewportKey,
+      measurementId
+    }
+  }
+
+  function resetMeasurementInteraction(): void {
+    measurementInteraction.value = { kind: 'idle' }
+  }
+
   function stopViewportDrag(pointerTarget?: EventTarget | null): void {
-    if (isMeasurementDrawing.value) {
-      const stoppedViewportKey = measurementViewportKey.value
+    const interactionState = measurementInteraction.value
+    if (
+      isCapturedMeasurementInteraction(interactionState) ||
+      (interactionState.kind === 'selected' && activePointerId.value != null)
+    ) {
+      const stoppedViewportKey = interactionState.viewportKey
       emitThrottledMeasurementDraft.cancel()
-      isMeasurementDrawing.value = false
-      isMeasurementMovePending.value = false
-      measurementViewportKey.value = ''
-      measurementDragLastPoint = null
-      measurementPendingStartPoint = null
-      measurementDragMoved = false
+      if (isCapturedMeasurementInteraction(interactionState)) {
+        resetMeasurementInteraction()
+      }
       if (stoppedViewportKey) {
         clearViewportCursor(stoppedViewportKey)
       }
@@ -402,235 +447,20 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     releasePointerCapture(pointerTarget)
   }
 
-  function clearDraftMeasurement(viewportKey?: string): void {
-    if (!viewportKey) {
-      draftMeasurements.value = {}
-      return
-    }
-    draftMeasurements.value = {
-      ...draftMeasurements.value,
-      [viewportKey]: null
-    }
-  }
-
-  function updateDraftMeasurement(viewportKey: string, draft: MeasurementDraft): void {
-    draftMeasurements.value = {
-      ...draftMeasurements.value,
-      [viewportKey]: draft
-    }
-  }
-
-  function updateDraftMeasurementLabelLines(viewportKey: string, labelLines: string[]): void {
-    const draft = draftMeasurements.value[viewportKey]
-    if (!draft) {
-      return
-    }
-    updateDraftMeasurement(viewportKey, {
-      ...draft,
-      labelLines
-    })
-  }
-
-  function isValidMeasurement(toolType: MeasurementToolType, points: MeasurementDraftPoint[]): boolean {
-    if (toolType === 'angle') {
-      if (points.length < 3) {
-        return false
-      }
-      return isDistinctPoint(points[1], points[0]) && isDistinctPoint(points[1], points[2])
-    }
-    if (points.length < 2) {
-      return false
-    }
-    return isDistinctPoint(points[0], points[1])
-  }
-
-  function isDistinctPoint(a: MeasurementDraftPoint, b: MeasurementDraftPoint): boolean {
-    return Math.abs(a.x - b.x) > DISTINCT_POINT_EPSILON || Math.abs(a.y - b.y) > DISTINCT_POINT_EPSILON
-  }
-
-  function createMeasurementDraft(
-    toolType: MeasurementToolType,
-    points: MeasurementDraftPoint[],
-    isCommitted = false,
-    measurementId?: string,
-    selectedHandleIndex: number | null = null,
-    isMoving = false
-  ): MeasurementDraft {
-    return {
-      measurementId,
-      toolType,
-      points,
-      isCommitted,
-      isMoving,
-      selectedHandleIndex
-    }
-  }
-
-  function getPointerHitRadius(rect: DOMRect): { x: number; y: number } {
-    return {
-      x: MEASUREMENT_HIT_RADIUS_PX / Math.max(rect.width, 1),
-      y: MEASUREMENT_HIT_RADIUS_PX / Math.max(rect.height, 1)
-    }
-  }
-
-  function getDistanceSquared(a: MeasurementDraftPoint, b: MeasurementDraftPoint, rect: DOMRect): number {
-    const dx = (a.x - b.x) * rect.width
-    const dy = (a.y - b.y) * rect.height
-    return dx * dx + dy * dy
-  }
-
-  function findHandleIndexAtPoint(
-    toolType: MeasurementToolType,
-    points: MeasurementDraftPoint[],
-    point: MeasurementDraftPoint,
-    rect: DOMRect
-  ): number | null {
-    const handles = getMeasurementHandlePoints(toolType, points)
-    let bestIndex: number | null = null
-    let bestDistance = Number.POSITIVE_INFINITY
-    for (let index = 0; index < handles.length; index += 1) {
-      const distance = getDistanceSquared(handles[index], point, rect)
-      if (distance <= MEASUREMENT_HIT_RADIUS_PX * MEASUREMENT_HIT_RADIUS_PX && distance < bestDistance) {
-        bestDistance = distance
-        bestIndex = index
-      }
-    }
-    return bestIndex
-  }
-
-  function pointToSegmentDistanceSquared(
-    point: MeasurementDraftPoint,
-    start: MeasurementDraftPoint,
-    end: MeasurementDraftPoint,
-    rect: DOMRect
-  ): number {
-    const px = point.x * rect.width
-    const py = point.y * rect.height
-    const x1 = start.x * rect.width
-    const y1 = start.y * rect.height
-    const x2 = end.x * rect.width
-    const y2 = end.y * rect.height
-    const dx = x2 - x1
-    const dy = y2 - y1
-    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
-      const ox = px - x1
-      const oy = py - y1
-      return ox * ox + oy * oy
-    }
-    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
-    const cx = x1 + dx * t
-    const cy = y1 + dy * t
-    const ox = px - cx
-    const oy = py - cy
-    return ox * ox + oy * oy
-  }
-
-  function isMeasurementHit(
-    measurement: MeasurementOverlay,
-    point: MeasurementDraftPoint,
-    rect: DOMRect
-  ): { hit: boolean; handleIndex: number | null; score: number } {
-    const handleIndex = findHandleIndexAtPoint(measurement.toolType, measurement.points, point, rect)
-    if (handleIndex != null) {
-      return { hit: true, handleIndex, score: 0 }
-    }
-
-    if (measurement.toolType === 'line' && measurement.points.length >= 2) {
-      const distance = pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect)
-      const hitRadius = MEASUREMENT_HIT_RADIUS_PX * 1.35
-      return {
-        hit: distance <= hitRadius ** 2,
-        handleIndex: null,
-        score: distance
-      }
-    }
-
-    if ((measurement.toolType === 'rect' || measurement.toolType === 'ellipse') && measurement.points.length >= 2) {
-      const left = Math.min(measurement.points[0].x, measurement.points[1].x)
-      const right = Math.max(measurement.points[0].x, measurement.points[1].x)
-      const top = Math.min(measurement.points[0].y, measurement.points[1].y)
-      const bottom = Math.max(measurement.points[0].y, measurement.points[1].y)
-      if (measurement.toolType === 'rect') {
-        const inside = point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
-        const pxLeft = Math.abs((point.x - left) * rect.width)
-        const pxRight = Math.abs((right - point.x) * rect.width)
-        const pxTop = Math.abs((point.y - top) * rect.height)
-        const pxBottom = Math.abs((bottom - point.y) * rect.height)
-        const edgeDistance = Math.min(pxLeft, pxRight, pxTop, pxBottom)
-        const areaPenalty = (right - left) * rect.width * (bottom - top) * rect.height * 0.0001
-        return {
-          hit: inside,
-          handleIndex: null,
-          score: edgeDistance + areaPenalty
-        }
-      }
-      const cx = (left + right) / 2
-      const cy = (top + bottom) / 2
-      const rx = Math.max((right - left) / 2, 1e-6)
-      const ry = Math.max((bottom - top) / 2, 1e-6)
-      const nx = (point.x - cx) / rx
-      const ny = (point.y - cy) / ry
-      const ellipseValue = nx * nx + ny * ny
-      const radiusDelta = Math.abs(ellipseValue - 1.0)
-      const areaPenalty = (right - left) * rect.width * (bottom - top) * rect.height * 0.0001
-      return {
-        hit: ellipseValue <= 1.0,
-        handleIndex: null,
-        score: radiusDelta * 100 + (ellipseValue < 0.72 ? 40 : 0) + areaPenalty
-      }
-    }
-
-    if (measurement.toolType === 'angle' && measurement.points.length >= 3) {
-      const firstDistance = pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect)
-      const secondDistance = pointToSegmentDistanceSquared(point, measurement.points[1], measurement.points[2], rect)
-      const distance = Math.min(firstDistance, secondDistance)
-      const hitRadius = MEASUREMENT_HIT_RADIUS_PX * 1.2
-      return {
-        hit: distance <= hitRadius ** 2,
-        handleIndex: null,
-        score: distance
-      }
-    }
-
-    return { hit: false, handleIndex: null, score: Number.POSITIVE_INFINITY }
-  }
-
-  function findCommittedMeasurementAtPoint(
-    viewportKey: string,
-    point: MeasurementDraftPoint,
-    rect: DOMRect,
-    excludeMeasurementId?: string
-  ): { measurement: MeasurementOverlay; handleIndex: number | null } | null {
-    const measurements = options
-      .getCommittedMeasurements(viewportKey)
-      .filter((measurement) => measurement.measurementId !== excludeMeasurementId)
-    let bestMatch: { measurement: MeasurementOverlay; handleIndex: number | null; score: number } | null = null
-    for (const measurement of measurements) {
-      const result = isMeasurementHit(measurement, point, rect)
-      if (!result.hit) {
-        continue
-      }
-      if (!bestMatch || result.score < bestMatch.score) {
-        bestMatch = {
-          measurement,
-          handleIndex: result.handleIndex,
-          score: result.score
-        }
-      }
-    }
-    return bestMatch ? { measurement: bestMatch.measurement, handleIndex: bestMatch.handleIndex } : null
-  }
-
   function updateMeasurementHoverCursor(event: PointerEvent): void {
     const viewportKey = resolveViewportKeyFromEvent(event)
     if (!viewportKey || !isMeasurementOperationEnabled()) {
       return
     }
 
-    if (isMeasurementDrawing.value && measurementViewportKey.value === viewportKey) {
+    const interactionState = measurementInteraction.value
+    if (isCapturedMeasurementInteraction(interactionState)) {
+      if (interactionState.viewportKey !== viewportKey) {
+        return
+      }
       const draft = draftMeasurements.value[viewportKey]
       if (draft?.measurementId) {
-        setViewportCursor(viewportKey, 'cursor-move')
+        setViewportCursor(viewportKey, interactionState.kind === 'editing_handle' ? 'cursor-pointer' : 'cursor-move')
       }
       return
     }
@@ -669,74 +499,162 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     clearViewportCursor(viewportKey)
   }
 
-  function updateEditedMeasurementPoints(
+  function startEditingExistingHandle(
+    pointerTarget: HTMLElement,
+    pointerId: number,
+    viewportKey: string,
     toolType: MeasurementToolType,
-    points: MeasurementDraftPoint[],
-    selectedHandleIndex: number,
-    nextPoint: MeasurementDraftPoint
-  ): MeasurementDraftPoint[] {
-    if (toolType === 'line') {
-      return points.map((point, index) => (index === selectedHandleIndex ? nextPoint : point))
+    draft: MeasurementDraft,
+    handleIndex: number
+  ): void {
+    setPointerCapture(pointerTarget, pointerId)
+    measurementInteraction.value = {
+      kind: 'editing_handle',
+      viewportKey,
+      measurementId: draft.measurementId!,
+      handleIndex,
+      hasChanged: false
     }
-    if (toolType === 'angle') {
-      return points.map((point, index) => (index === selectedHandleIndex ? nextPoint : point))
-    }
-    if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {
-      const handles = getMeasurementHandlePoints(toolType, points)
-      const oppositeIndex = (selectedHandleIndex + 2) % 4
-      const opposite = handles[oppositeIndex]
-      return [
-        { x: Math.min(nextPoint.x, opposite.x), y: Math.min(nextPoint.y, opposite.y) },
-        { x: Math.max(nextPoint.x, opposite.x), y: Math.max(nextPoint.y, opposite.y) }
-      ]
-    }
-    return points
+    setViewportCursor(viewportKey, 'cursor-pointer')
+    updateDraftMeasurement(viewportKey, {
+      ...draft,
+      isCommitted: false,
+      isMoving: false,
+      selectedHandleIndex: handleIndex
+    })
+    emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, draft.points)
   }
 
-  function translateMeasurementPoints(
-    points: MeasurementDraftPoint[],
-    deltaX: number,
-    deltaY: number
-  ): MeasurementDraftPoint[] {
-    if (!points.length) {
-      return points
+  function selectCommittedMeasurement(viewportKey: string, measurement: MeasurementOverlay): void {
+    options.emitOperationChange(`stack:measure:${measurement.toolType}`)
+    const nextDraft = createMeasurementDraft(
+      measurement.toolType,
+      measurement.points,
+      false,
+      measurement.measurementId,
+      null
+    )
+    updateDraftMeasurement(viewportKey, {
+      ...nextDraft,
+      labelLines: measurement.labelLines
+    })
+    setSelectedMeasurementState(viewportKey, measurement.measurementId)
+  }
+
+  function startPendingMeasurementMove(
+    pointerTarget: HTMLElement,
+    pointerId: number,
+    viewportKey: string,
+    measurementId: string,
+    startPoint: MeasurementDraftPoint
+  ): void {
+    setPointerCapture(pointerTarget, pointerId)
+    measurementInteraction.value = {
+      kind: 'move_pending',
+      viewportKey,
+      measurementId,
+      startPoint
+    }
+    setViewportCursor(viewportKey, 'cursor-move')
+  }
+
+  function startNewMeasurement(
+    pointerTarget: HTMLElement,
+    pointerId: number,
+    viewportKey: string,
+    toolType: MeasurementToolType,
+    point: MeasurementDraftPoint,
+    existingDraft: MeasurementDraft | null
+  ): void {
+    setPointerCapture(pointerTarget, pointerId)
+    measurementInteraction.value = {
+      kind: 'creating',
+      viewportKey,
+      toolType
     }
 
-    const clampedDeltaX = Math.max(
-      Math.max(...points.map((currentPoint) => -currentPoint.x)),
-      Math.min(deltaX, Math.min(...points.map((currentPoint) => 1 - currentPoint.x)))
-    )
-    const clampedDeltaY = Math.max(
-      Math.max(...points.map((currentPoint) => -currentPoint.y)),
-      Math.min(deltaY, Math.min(...points.map((currentPoint) => 1 - currentPoint.y)))
-    )
+    if (toolType === 'angle' && existingDraft?.toolType === 'angle' && existingDraft.points.length === 2) {
+      const nextDraft = createMeasurementDraft(toolType, [existingDraft.points[0], existingDraft.points[1], point])
+      updateDraftMeasurement(viewportKey, nextDraft)
+      emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
+      return
+    }
 
-    return points.map((currentPoint) => ({
-      x: currentPoint.x + clampedDeltaX,
-      y: currentPoint.y + clampedDeltaY
-    }))
+    const nextDraft = createMeasurementDraft(toolType, [point, point])
+    updateDraftMeasurement(viewportKey, nextDraft)
+    emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
+  }
+
+  function commitOrClearMeasurementDraft(viewportKey: string, toolType: MeasurementToolType, draft: MeasurementDraft): void {
+    if (toolType === 'angle' && draft.points.length === 2) {
+      if (isValidMeasurement('line', draft.points)) {
+        updateDraftMeasurement(viewportKey, createMeasurementDraft(toolType, [draft.points[0], draft.points[1]]))
+        emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.end, draft.points)
+      } else {
+        clearDraftMeasurement(viewportKey)
+      }
+      return
+    }
+
+    if (!isValidMeasurement(toolType, draft.points)) {
+      clearDraftMeasurement(viewportKey)
+      return
+    }
+
+    emitThrottledMeasurementDraft.flush()
+    options.emitMeasurementCreate({
+      viewportKey,
+      toolType,
+      points: draft.points,
+      measurementId: draft.measurementId
+    })
+
+    if (draft.measurementId) {
+      updateDraftMeasurement(viewportKey, {
+        ...draft,
+        isCommitted: true,
+        isMoving: false,
+        selectedHandleIndex: null
+      })
+      setSelectedMeasurementState(viewportKey, draft.measurementId)
+      return
+    }
+
+    clearDraftMeasurement(viewportKey)
   }
 
   function handleViewportPointerMove(event: PointerEvent): void {
-    if (isMeasurementMovePending.value && activePointerId.value === event.pointerId) {
+    if (activePointerId.value !== event.pointerId) {
+      if (event.buttons === 0) {
+        updateMeasurementHoverCursor(event)
+      }
+      return
+    }
+
+    const interactionState = measurementInteraction.value
+    if (interactionState.kind === 'move_pending') {
       const point = getNormalizedViewportPoint(event)
-      const currentDraft = draftMeasurements.value[measurementViewportKey.value]
+      const currentDraft = draftMeasurements.value[interactionState.viewportKey]
       const imageElement = resolveViewportImageElement(event)
-      if (!point || !currentDraft || !measurementPendingStartPoint || !imageElement) {
+      if (!point || !currentDraft || !imageElement) {
         return
       }
 
       const imageRect = getRenderedImageRect(imageElement)
-      const movementX = (point.x - measurementPendingStartPoint.x) * imageRect.width
-      const movementY = (point.y - measurementPendingStartPoint.y) * imageRect.height
+      const movementX = (point.x - interactionState.startPoint.x) * imageRect.width
+      const movementY = (point.y - interactionState.startPoint.y) * imageRect.height
       if (Math.max(Math.abs(movementX), Math.abs(movementY)) < DRAG_START_THRESHOLD) {
         return
       }
 
-      isMeasurementMovePending.value = false
-      isMeasurementDrawing.value = true
-      measurementDragLastPoint = measurementPendingStartPoint
-      updateDraftMeasurement(measurementViewportKey.value, {
+      measurementInteraction.value = {
+        kind: 'moving',
+        viewportKey: interactionState.viewportKey,
+        measurementId: interactionState.measurementId,
+        lastPoint: interactionState.startPoint,
+        hasChanged: false
+      }
+      updateDraftMeasurement(interactionState.viewportKey, {
         ...currentDraft,
         isCommitted: false,
         isMoving: true,
@@ -744,62 +662,63 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       })
     }
 
-    if (isMeasurementDrawing.value && activePointerId.value === event.pointerId) {
+    const currentMeasurementState = measurementInteraction.value
+    if (currentMeasurementState.kind === 'moving' || currentMeasurementState.kind === 'editing_handle' || currentMeasurementState.kind === 'creating') {
       const toolType = getMeasurementToolType()
       const point = getNormalizedViewportPoint(event)
       if (!toolType || !point) {
         return
       }
 
-      const currentDraft = draftMeasurements.value[measurementViewportKey.value]
+      const currentDraft = draftMeasurements.value[currentMeasurementState.viewportKey]
       if (!currentDraft) {
         return
       }
 
-      if (currentDraft.measurementId && currentDraft.selectedHandleIndex != null) {
-        if (currentDraft.selectedHandleIndex === -1) {
-          if (!measurementDragLastPoint) {
-            measurementDragLastPoint = point
-            return
-          }
-          const nextPoints = translateMeasurementPoints(
-            currentDraft.points,
-            point.x - measurementDragLastPoint.x,
-            point.y - measurementDragLastPoint.y
-          )
-          measurementDragLastPoint = point
-          measurementDragMoved = true
-          const nextDraft = {
-            ...currentDraft,
-            points: nextPoints,
-            isMoving: true,
-            isCommitted: false
-          }
-          updateDraftMeasurement(measurementViewportKey.value, nextDraft)
-          emitThrottledMeasurementDraft({
-            viewportKey: measurementViewportKey.value,
-            toolType,
-            points: nextPoints
-          })
-          return
+      if (currentMeasurementState.kind === 'moving') {
+        const nextPoints = translateMeasurementPoints(
+          currentDraft.points,
+          point.x - currentMeasurementState.lastPoint.x,
+          point.y - currentMeasurementState.lastPoint.y
+        )
+        measurementInteraction.value = {
+          ...currentMeasurementState,
+          lastPoint: point,
+          hasChanged: true
         }
+        updateDraftMeasurement(currentMeasurementState.viewportKey, {
+          ...currentDraft,
+          points: nextPoints,
+          isMoving: true,
+          isCommitted: false
+        })
+        emitThrottledMeasurementDraft({
+          viewportKey: currentMeasurementState.viewportKey,
+          toolType,
+          points: nextPoints
+        })
+        return
+      }
+
+      if (currentMeasurementState.kind === 'editing_handle') {
         const nextPoints = updateEditedMeasurementPoints(
           toolType,
           currentDraft.points,
-          currentDraft.selectedHandleIndex,
+          currentMeasurementState.handleIndex,
           point
         )
-        measurementDragLastPoint = point
-        measurementDragMoved = true
-        const nextDraft = {
+        measurementInteraction.value = {
+          ...currentMeasurementState,
+          hasChanged: true
+        }
+        updateDraftMeasurement(currentMeasurementState.viewportKey, {
           ...currentDraft,
           points: nextPoints,
           isMoving: false,
           isCommitted: false
-        }
-        updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+        })
         emitThrottledMeasurementDraft({
-          viewportKey: measurementViewportKey.value,
+          viewportKey: currentMeasurementState.viewportKey,
           toolType,
           points: nextPoints
         })
@@ -808,13 +727,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
       if (toolType === 'angle') {
         if (currentDraft.points.length === 2) {
-          const nextDraft = createMeasurementDraft(toolType, [currentDraft.points[0], point])
-          updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+          updateDraftMeasurement(currentMeasurementState.viewportKey, createMeasurementDraft(toolType, [currentDraft.points[0], point]))
         } else if (currentDraft.points.length === 3) {
           const nextDraft = createMeasurementDraft(toolType, [currentDraft.points[0], currentDraft.points[1], point])
-          updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+          updateDraftMeasurement(currentMeasurementState.viewportKey, nextDraft)
           emitThrottledMeasurementDraft({
-            viewportKey: measurementViewportKey.value,
+            viewportKey: currentMeasurementState.viewportKey,
             toolType,
             points: nextDraft.points
           })
@@ -823,16 +741,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       }
 
       const nextDraft = createMeasurementDraft(toolType, [currentDraft.points[0], point])
-      updateDraftMeasurement(measurementViewportKey.value, nextDraft)
+      updateDraftMeasurement(currentMeasurementState.viewportKey, nextDraft)
       emitThrottledMeasurementDraft({
-        viewportKey: measurementViewportKey.value,
+        viewportKey: currentMeasurementState.viewportKey,
         toolType,
         points: nextDraft.points
       })
       return
     }
 
-    if (isCrosshairDragging.value && activePointerId.value === event.pointerId) {
+    if (isCrosshairDragging.value) {
       const point = getNormalizedViewportPoint(event)
       if (!point) {
         return
@@ -845,7 +763,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    if (!isViewportDragging.value || activePointerId.value !== event.pointerId) {
+    if (!isViewportDragging.value) {
       if (event.buttons === 0) {
         updateMeasurementHoverCursor(event)
       }
@@ -922,47 +840,35 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    if (isMeasurementMovePending.value) {
-      isMeasurementMovePending.value = false
-      measurementPendingStartPoint = null
+    const interactionState = measurementInteraction.value
+    if (interactionState.kind === 'move_pending') {
+      setSelectedMeasurementState(interactionState.viewportKey, interactionState.measurementId)
       stopViewportDrag(event.currentTarget)
       return
     }
 
-    if (isMeasurementDrawing.value) {
+    if (interactionState.kind === 'editing_handle' || interactionState.kind === 'moving' || interactionState.kind === 'creating') {
       const toolType = getMeasurementToolType()
-      const viewportKey = measurementViewportKey.value
-      const draft = viewportKey ? draftMeasurements.value[viewportKey] : null
-      if (toolType && viewportKey && draft) {
-        if (draft.measurementId && draft.selectedHandleIndex != null && !measurementDragMoved) {
+      const viewportKey = interactionState.viewportKey
+      const draft = getDraftMeasurement(viewportKey)
+      if (toolType && draft) {
+        if ((interactionState.kind === 'editing_handle' || interactionState.kind === 'moving') && !interactionState.hasChanged) {
           updateDraftMeasurement(viewportKey, {
             ...draft,
-            isCommitted: true,
+            isCommitted: false,
             isMoving: false,
             selectedHandleIndex: null
           })
+          if (draft.measurementId) {
+            setSelectedMeasurementState(viewportKey, draft.measurementId)
+          } else {
+            resetMeasurementInteraction()
+          }
           stopViewportDrag(event.currentTarget)
           return
         }
-        if (toolType === 'angle' && draft.points.length === 2) {
-          if (isValidMeasurement('line', draft.points)) {
-            updateDraftMeasurement(viewportKey, createMeasurementDraft(toolType, [draft.points[0], draft.points[1]]))
-            emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.end, draft.points)
-          } else {
-            clearDraftMeasurement(viewportKey)
-          }
-        } else if (isValidMeasurement(toolType, draft.points)) {
-          emitThrottledMeasurementDraft.flush()
-          options.emitMeasurementCreate({
-            viewportKey,
-            toolType,
-            points: draft.points,
-            measurementId: draft.measurementId
-          })
-          clearDraftMeasurement(viewportKey)
-        } else {
-          clearDraftMeasurement(viewportKey)
-        }
+
+        commitOrClearMeasurementDraft(viewportKey, toolType, draft)
       }
       stopViewportDrag(event.currentTarget)
       return
@@ -980,13 +886,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    if (isMeasurementMovePending.value) {
-      isMeasurementMovePending.value = false
-      measurementPendingStartPoint = null
-    }
-
-    if (isMeasurementDrawing.value && measurementViewportKey.value) {
-      clearDraftMeasurement(measurementViewportKey.value)
+    const interactionState = measurementInteraction.value
+    if (isCapturedMeasurementInteraction(interactionState)) {
+      clearDraftMeasurement(interactionState.viewportKey)
+      stopViewportDrag(event.currentTarget)
+      return
     }
     stopViewportDrag(event.currentTarget)
   }
@@ -1003,6 +907,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!(pointerTarget instanceof HTMLElement)) {
       return
     }
+
     if (isMeasurementOperationEnabled()) {
       const toolType = getMeasurementToolType()
       const point = getNormalizedViewportPoint(event)
@@ -1010,56 +915,33 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       if (!toolType || !point || !imageElement) {
         return
       }
+
       const imageRect = getRenderedImageRect(imageElement)
       event.preventDefault()
       setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
 
-      const existingDraft = draftMeasurements.value[viewportKey]
+      const existingDraft = getDraftMeasurement(viewportKey)
       if (existingDraft?.measurementId) {
         const handleIndex = findHandleIndexAtPoint(existingDraft.toolType, existingDraft.points, point, imageRect)
         if (handleIndex != null) {
-          setPointerCapture(pointerTarget, event.pointerId)
-          isMeasurementDrawing.value = true
-          measurementViewportKey.value = viewportKey
-          measurementPendingStartPoint = null
-          measurementDragLastPoint = point
-          measurementDragMoved = false
-          setViewportCursor(viewportKey, 'cursor-pointer')
-          updateDraftMeasurement(viewportKey, {
-            ...existingDraft,
-            isCommitted: false,
-            isMoving: false,
-            selectedHandleIndex: handleIndex
-          })
-          emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, existingDraft.points)
+          startEditingExistingHandle(pointerTarget, event.pointerId, viewportKey, toolType, existingDraft, handleIndex)
           return
         }
       }
 
-      const committedMeasurementHit = findCommittedMeasurementAtPoint(
-        viewportKey,
+      const committedMeasurementHit = findMeasurementAtPoint(
+        options.getCommittedMeasurements(viewportKey),
         point,
         imageRect,
         existingDraft?.measurementId
       )
       if (committedMeasurementHit) {
-        options.emitOperationChange(`stack:measure:${committedMeasurementHit.measurement.toolType}`)
-        const nextDraft = createMeasurementDraft(
-          committedMeasurementHit.measurement.toolType,
-          committedMeasurementHit.measurement.points,
-          false,
-          committedMeasurementHit.measurement.measurementId,
-          null
-        )
-        updateDraftMeasurement(viewportKey, {
-          ...nextDraft,
-          labelLines: committedMeasurementHit.measurement.labelLines
-        })
+        selectCommittedMeasurement(viewportKey, committedMeasurementHit.measurement)
         return
       }
 
       if (existingDraft?.measurementId) {
-        const isCurrentDraftHit = isMeasurementHit(
+        const currentDraftHit = isMeasurementHit(
           {
             measurementId: existingDraft.measurementId,
             toolType: existingDraft.toolType,
@@ -1069,34 +951,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
           point,
           imageRect
         )
-        if (isCurrentDraftHit.hit) {
-          setPointerCapture(pointerTarget, event.pointerId)
-          measurementViewportKey.value = viewportKey
-          measurementPendingStartPoint = point
-          measurementDragLastPoint = null
-          measurementDragMoved = false
-          isMeasurementMovePending.value = true
-          setViewportCursor(viewportKey, 'cursor-move')
+        if (currentDraftHit.hit) {
+          startPendingMeasurementMove(pointerTarget, event.pointerId, viewportKey, existingDraft.measurementId, point)
           return
         }
         clearDraftMeasurement(viewportKey)
+        resetMeasurementInteraction()
         return
       }
 
-      setPointerCapture(pointerTarget, event.pointerId)
-      isMeasurementDrawing.value = true
-      measurementViewportKey.value = viewportKey
-
-      if (toolType === 'angle' && existingDraft?.toolType === 'angle' && existingDraft.points.length === 2) {
-        const nextDraft = createMeasurementDraft(toolType, [existingDraft.points[0], existingDraft.points[1], point])
-        updateDraftMeasurement(viewportKey, nextDraft)
-        emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
-        return
-      }
-
-      const nextDraft = createMeasurementDraft(toolType, [point, point])
-      updateDraftMeasurement(viewportKey, nextDraft)
-      emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
+      startNewMeasurement(pointerTarget, event.pointerId, viewportKey, toolType, point, existingDraft)
       return
     }
 
@@ -1139,8 +1003,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     emitThrottledCrosshairMove.cancel()
     emitThrottledMeasurementDraft.cancel()
     viewportCursorClasses.value = {}
-    clearDraftMeasurement()
     stopViewportDrag()
+    clearDraftMeasurement()
+    resetMeasurementInteraction()
   }
 
   return {

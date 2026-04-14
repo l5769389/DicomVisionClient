@@ -1,33 +1,67 @@
 {
   "name": "dicom-vision-client",
+  "productName": "DicomVision Client",
   "version": "0.1.0",
   "private": true,
   "description": "Vue3 + Electron + electron-vite + Socket.IO + Axios + Tailwind CSS DICOM viewer frontend",
+  "author": "DicomVision",
   "main": "out/main/index.js",
   "type": "module",
   "build": {
     "appId": "com.dicomvision.client",
+    "productName": "DicomVision Client",
+    "artifactName": "DicomVision-Client-${version}-Setup.${ext}",
+    "copyright": "Copyright (c) DicomVision",
     "directories": {
-      "buildResources": "build"
+      "buildResources": "build",
+      "output": "dist-electron"
     },
     "files": [
       "out/**/*",
       "build/icon.*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "dist-server/DicomVisionServer",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "win": {
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "executableName": "DicomVisionClient",
+      "target": [
+        "nsis"
+      ]
     },
     "linux": {
       "icon": "build/icon.png"
     },
     "mac": {
       "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerHeader": "build/installerHeader.bmp",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "shortcutName": "DicomVision Client",
+      "uninstallDisplayName": "DicomVision Client",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",
     "preview": "electron-vite preview",
     "test": "vitest",
     "test:run": "vitest run",
@@ -53,6 +87,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/test-utils": "^2.4.6",
     "electron": "^37.0.0",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^3.1.0",
     "jsdom": "^29.0.2",
     "typescript": "^5.7.2",

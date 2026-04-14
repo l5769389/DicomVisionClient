@@ -4,6 +4,7 @@ declare global {
   interface Window {
     viewerApi: {
       chooseFolder: () => Promise<string | null>
+      getBackendOrigin: () => Promise<string>
     }
   }
 }

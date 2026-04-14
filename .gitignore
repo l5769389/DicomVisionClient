@@ -3,3 +3,9 @@
 /id/*
 .idea/
 *.tsbuildinfo
+/build/icon.ico
+/build/icon.png
+/build/installerHeader.bmp
+/build/installerSidebar.bmp
+/build/uninstallerSidebar.bmp
+/dist-electron/

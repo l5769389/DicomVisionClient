@@ -28,7 +28,13 @@ const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
   measurementDraft: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
-  measurementCreate: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; points: { x: number; y: number }[]; measurementId?: string }]
+  measurementCreate: [payload: {
+    viewportKey: string
+    toolType: 'line' | 'rect' | 'ellipse' | 'angle'
+    points: { x: number; y: number }[]
+    measurementId?: string
+    labelLines?: string[]
+  }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]

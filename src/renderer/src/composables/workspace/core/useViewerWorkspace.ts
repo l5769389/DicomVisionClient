@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { api } from '../../../services/api'
-import { emitViewOperation } from '../../../services/socket'
+import {emitViewOperation, ViewOperationInput} from '../../../services/socket'
 import { isMprViewportKey, normalizeCornerInfo } from '../views/viewerWorkspaceTabs'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
@@ -24,6 +24,7 @@ import type {
   ConnectionState,
   FolderSeriesItem,
   MeasurementDraftPoint,
+  MeasurementOverlay,
   MeasurementToolType,
   MprViewportKey,
   ViewImageResponse,
@@ -63,6 +64,7 @@ interface ViewerWorkspaceState {
     toolType: MeasurementToolType
     points: MeasurementDraftPoint[]
     measurementId?: string
+    labelLines?: string[]
   }) => void
   handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
@@ -276,7 +278,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function emitMprViewOperation(
     viewportKey: string,
-    payload: Omit<Parameters<typeof emitViewOperation>[0], 'viewId'>
+    payload: ViewOperationInput
   ): void {
     const context = getMprOperationContext(viewportKey)
     if (!context) {
@@ -301,14 +303,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const operationPayload = {
+    const operationPayload: ViewOperationInput = {
       opType: VIEW_OPERATION_TYPES.measurement,
       measurementId: payload.measurementId,
       subOpType: payload.toolType,
       actionType: payload.phase,
       viewportKey: payload.viewportKey,
       points: payload.points
-    } as const
+    }
 
     if (tab.viewType === 'MPR') {
       emitMprViewOperation(payload.viewportKey, operationPayload)
@@ -541,12 +543,69 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function upsertMeasurementOverlay(
+    list: MeasurementOverlay[],
+    payload: {
+      toolType: MeasurementToolType
+      points: MeasurementDraftPoint[]
+      measurementId?: string
+      labelLines?: string[]
+    }
+  ): MeasurementOverlay[] {
+    const nextMeasurementId = payload.measurementId?.trim()
+    if (!nextMeasurementId) {
+      return list
+    }
+
+    const nextOverlay: MeasurementOverlay = {
+      measurementId: nextMeasurementId,
+      toolType: payload.toolType,
+      points: payload.points,
+      labelLines: payload.labelLines ?? []
+    }
+
+    const index = list.findIndex((measurement) => measurement.measurementId === nextMeasurementId)
+    if (index === -1) {
+      return [...list, nextOverlay]
+    }
+
+    return list.map((measurement, currentIndex) => (currentIndex === index ? nextOverlay : measurement))
+  }
+
   function handleMeasurementCreate(payload: {
     viewportKey: string
     toolType: MeasurementToolType
     points: MeasurementDraftPoint[]
     measurementId?: string
+    labelLines?: string[]
   }): void {
+    const tab = activeTab.value
+    if (tab && (tab.viewType === 'Stack' || tab.viewType === 'MPR') && payload.measurementId?.trim()) {
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key) {
+          return item
+        }
+
+        if (item.viewType === 'MPR') {
+          return {
+            ...item,
+            viewportMeasurements: {
+              ...(item.viewportMeasurements ?? {}),
+              [payload.viewportKey]: upsertMeasurementOverlay(
+                item.viewportMeasurements?.[payload.viewportKey as MprViewportKey] ?? [],
+                payload
+              )
+            }
+          }
+        }
+
+        return {
+          ...item,
+          measurements: upsertMeasurementOverlay(item.measurements ?? [], payload)
+        }
+      })
+    }
+
     emitMeasurementOperation({
       ...payload,
       phase: DRAG_ACTION_TYPES.end
@@ -582,9 +641,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
     })
 
-    const operationPayload = {
+    const operationPayload: ViewOperationInput = {
       opType: VIEW_OPERATION_TYPES.measurement,
-      actionType: 'delete' as const,
+      actionType: 'delete',
       measurementId: payload.measurementId,
       viewportKey: payload.viewportKey
     }
@@ -690,7 +749,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   onMounted(() => {
-    connectBackend()
+    void (async () => {
+      const resolvedBackendOrigin = await window.viewerApi?.getBackendOrigin?.()
+      if (resolvedBackendOrigin) {
+        backendOrigin.value = resolvedBackendOrigin
+      }
+      connectBackend()
+    })()
   })
 
   onBeforeUnmount(() => {

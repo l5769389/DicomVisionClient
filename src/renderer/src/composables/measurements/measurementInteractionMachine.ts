@@ -21,6 +21,8 @@ interface MeasurementInteractionContext {
 
 type MeasurementInteractionEvent =
   | { type: 'RESET' }
+  | { type: 'COPY_SELECTED' }
+  | { type: 'DELETE_SELECTED' }
   | { type: 'SELECT'; viewportKey: string; measurementId: string }
   | { type: 'START_CREATE'; viewportKey: string; toolType: MeasurementToolType }
   | { type: 'START_MOVE_PENDING'; viewportKey: string; measurementId: string; startPoint: MeasurementDraftPoint }
@@ -119,6 +121,8 @@ const measurementInteractionMachine = setup({
     selected: {
       on: {
         RESET: { target: 'idle', actions: 'resetContext' },
+        COPY_SELECTED: { target: 'selected' },
+        DELETE_SELECTED: { target: 'idle', actions: 'resetContext' },
         SELECT: { target: 'selected', actions: 'assignSelection' },
         START_CREATE: { target: 'creating', actions: 'assignCreation' },
         START_MOVE_PENDING: { target: 'move_pending', actions: 'assignPendingMove' },
@@ -216,6 +220,30 @@ export function createMeasurementInteractionController() {
   return {
     getState(): MeasurementInteractionState {
       return toMeasurementInteractionState(actor.getSnapshot())
+    },
+    subscribe(listener: (state: MeasurementInteractionState) => void): () => void {
+      // 监听状态机变化
+      const subscription = actor.subscribe((snapshot) => {
+        listener(toMeasurementInteractionState(snapshot))
+      })
+      //立刻同步当前值
+      listener(toMeasurementInteractionState(actor.getSnapshot()))
+      // 返回取消订阅
+      return () => subscription.unsubscribe()
+    },
+    copySelected(): boolean {
+      if (!actor.getSnapshot().matches('selected')) {
+        return false
+      }
+      actor.send({ type: 'COPY_SELECTED' })
+      return actor.getSnapshot().matches('selected')
+    },
+    deleteSelected(): boolean {
+      if (!actor.getSnapshot().matches('selected')) {
+        return false
+      }
+      actor.send({ type: 'DELETE_SELECTED' })
+      return actor.getSnapshot().matches('idle')
     },
     reset(): void {
       actor.send({ type: 'RESET' })

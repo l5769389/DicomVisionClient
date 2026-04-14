@@ -4,6 +4,25 @@ import type { MeasurementDraftPayload, MeasurementDraftPoint, ViewHoverPayload, 
 
 type ViewActionType = DragActionType | 'delete'
 
+export interface ViewOperationPayload {
+  viewId: string
+  opType: ViewOperationType
+  measurementId?: string
+  subOpType?: string
+  actionType?: ViewActionType
+  x?: number
+  y?: number
+  points?: MeasurementDraftPoint[]
+  viewportKey?: string
+  zoom?: number
+  delta?: number
+  hor_flip?: boolean
+  ver_flip?: boolean
+  volumeConfig?: VolumeRenderConfig
+}
+
+export type ViewOperationInput = Omit<ViewOperationPayload, 'viewId'>
+
 let socket: Socket | null = null
 const measurementDraftHandlers = new Set<(payload: MeasurementDraftPayload) => void>()
 
@@ -35,22 +54,7 @@ export function bindView(viewId: string): void {
   socket.emit('bind_view', { viewId })
 }
 
-export function emitViewOperation(payload: {
-  viewId: string
-  opType: ViewOperationType
-  measurementId?: string
-  subOpType?: string
-  actionType?: ViewActionType
-  x?: number
-  y?: number
-  points?: MeasurementDraftPoint[]
-  viewportKey?: string
-  zoom?: number
-  delta?: number
-  hor_flip?: boolean
-  ver_flip?: boolean
-  volumeConfig?: VolumeRenderConfig
-}): void {
+export function emitViewOperation(payload: ViewOperationPayload): void {
   if (!socket || !payload.viewId) {
     return
   }

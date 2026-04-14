@@ -170,8 +170,13 @@ The 3D workflow includes preset selection and editable transfer-function control
 
 - `npm run dev`: start Electron in development mode
 - `npm run build`: build the application with electron-vite
+- `npm run stage:server`: copy a prebuilt server bundle into `dist-server/DicomVisionServer`
 - `npm run preview`: preview the built application
+- `npm run dist:win`: build the Windows installer, consuming a staged server bundle
+- `npm run release:win`: build the server bundle from the companion repository and assemble the Windows installer in one step
 - `npm run typecheck`: run renderer and node TypeScript checks
+
+For desktop packaging, the client repository is now only responsible for assembling the Electron installer. The backend repository should produce its own desktop bundle artifact first, then this repository stages that artifact before invoking `electron-builder`.
 
 ## Related Backend Project
 

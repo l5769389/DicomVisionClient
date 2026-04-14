@@ -37,7 +37,13 @@ interface PointerComposableOptions {
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
   }) => void
-  emitMeasurementCreate: (payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string }) => void
+  emitMeasurementCreate: (payload: {
+    viewportKey: string
+    toolType: MeasurementToolType
+    points: MeasurementDraftPoint[]
+    measurementId?: string
+    labelLines?: string[]
+  }) => void
   emitMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
   emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
   emitViewportDrag: (payload: {
@@ -174,6 +180,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   let hasSentDragStart = false
   let dragStartNormalizedPoint: { x: number; y: number } | null = null
   let lastDragNormalizedPoint: { x: number; y: number } | null = null
+  measurementInteractionController.subscribe((state) => {
+    measurementInteraction.value = state
+  })
 
   const emitThrottledViewportDrag = throttle(
     (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
@@ -473,12 +482,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
-  function syncMeasurementInteractionState(): MeasurementInteractionState {
-    const nextState = measurementInteractionController.getState()
-    measurementInteraction.value = nextState
-    return nextState
-  }
-
   function getDraftMeasurementMode(viewportKey: string): DraftMeasurementMode | null {
     const draft = draftMeasurements.value[viewportKey]
     if (!draft) {
@@ -500,12 +503,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   function setSelectedMeasurementState(viewportKey: string, measurementId: string): void {
     measurementInteractionController.select(viewportKey, measurementId)
-    syncMeasurementInteractionState()
   }
 
   function resetMeasurementInteraction(): void {
     measurementInteractionController.reset()
-    syncMeasurementInteractionState()
   }
 
   function resolveSelectedMeasurementDraft(viewportKey?: string): { viewportKey: string; draft: MeasurementDraft } | null {
@@ -533,6 +534,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function copySelectedMeasurement(viewportKey?: string): boolean {
     const selected = resolveSelectedMeasurementDraft(viewportKey)
     if (!selected) {
+      return false
+    }
+    if (!measurementInteractionController.copySelected()) {
       return false
     }
 
@@ -565,7 +569,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       viewportKey: selected.viewportKey,
       toolType: nextDraft.toolType,
       points: nextDraft.points,
-      measurementId: copiedMeasurementId
+      measurementId: copiedMeasurementId,
+      labelLines: nextDraft.labelLines ?? []
     })
     return true
   }
@@ -575,13 +580,15 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!selected?.draft.measurementId) {
       return false
     }
+    if (!measurementInteractionController.deleteSelected()) {
+      return false
+    }
 
     options.emitMeasurementDelete({
       viewportKey: selected.viewportKey,
       measurementId: selected.draft.measurementId
     })
     clearDraftMeasurement(selected.viewportKey)
-    resetMeasurementInteraction()
     clearViewportCursor(selected.viewportKey)
     return true
   }
@@ -709,7 +716,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   ): void {
     setPointerCapture(pointerTarget, pointerId)
     measurementInteractionController.startEditingHandle(viewportKey, draft.measurementId!, handleIndex)
-    syncMeasurementInteractionState()
     setViewportCursor(viewportKey, 'cursor-pointer')
     emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, draft.points)
   }
@@ -737,7 +743,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   ): void {
     setPointerCapture(pointerTarget, pointerId)
     measurementInteractionController.startMovePending(viewportKey, measurementId, startPoint)
-    syncMeasurementInteractionState()
     setViewportCursor(viewportKey, 'cursor-move')
   }
 
@@ -751,7 +756,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   ): void {
     setPointerCapture(pointerTarget, pointerId)
     measurementInteractionController.startCreate(viewportKey, toolType)
-    syncMeasurementInteractionState()
 
     if (toolType === 'angle' && existingDraft?.toolType === 'angle' && existingDraft.points.length === 2) {
       const nextDraft = createMeasurementDraft(toolType, [existingDraft.points[0], existingDraft.points[1], point])
@@ -786,7 +790,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       viewportKey,
       toolType,
       points: draft.points,
-      measurementId: draft.measurementId
+      measurementId: draft.measurementId,
+      labelLines: draft.labelLines ?? []
     })
 
     if (draft.measurementId) {
@@ -815,7 +820,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       )
       measurementInteractionController.markChanged()
       measurementInteractionController.updateLastPoint(point)
-      syncMeasurementInteractionState()
       updateDraftMeasurement(state.viewportKey, {
         ...currentDraft,
         points: nextPoints
@@ -836,7 +840,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         point
       )
       measurementInteractionController.markChanged()
-      syncMeasurementInteractionState()
       updateDraftMeasurement(state.viewportKey, {
         ...currentDraft,
         points: nextPoints
@@ -915,7 +918,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       }
 
       measurementInteractionController.startMoving(interactionState.startPoint)
-      syncMeasurementInteractionState()
     }
 
     const currentMeasurementState = measurementInteraction.value

@@ -16,6 +16,25 @@ describe('measurementInteractionMachine', () => {
     expect(controller.getState()).toEqual({ kind: 'idle' })
   })
 
+  it('handles copy and delete as selected-state commands', () => {
+    const controller = createMeasurementInteractionController()
+
+    expect(controller.copySelected()).toBe(false)
+    expect(controller.deleteSelected()).toBe(false)
+
+    controller.select('single', 'm1')
+
+    expect(controller.copySelected()).toBe(true)
+    expect(controller.getState()).toEqual({
+      kind: 'selected',
+      viewportKey: 'single',
+      measurementId: 'm1'
+    })
+
+    expect(controller.deleteSelected()).toBe(true)
+    expect(controller.getState()).toEqual({ kind: 'idle' })
+  })
+
   it('transitions pending move into moving with updated context', () => {
     const controller = createMeasurementInteractionController()
 

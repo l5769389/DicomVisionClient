@@ -8,6 +8,18 @@
 GET {{host}}/health
 Accept: application/json
 
+
+###
+GET https://dicomvisionserver.onrender.com/health
+Content-Type: application/json
+Accept: application/json
+
+###
+POST https://dicomvisionserver.onrender.com/api/v1/dicom/loadSample
+Content-Type: application/json
+Accept: application/json
+
+
 ### Load DICOM folder
 POST {{host}}{{apiPrefix}}/dicom/loadFolder
 Content-Type: application/json

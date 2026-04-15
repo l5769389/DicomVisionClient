@@ -26,7 +26,7 @@ function normalizeOrigin(origin: string): string {
 
 function resolveWebBackendOrigin(): string {
   if (import.meta.env.DEV) {
-    return 'http://127.0.0.1:8000'
+    return 'https://dicomvisionserver.onrender.com'
   }
 
   const configuredOrigin = getTrimmedEnvValue(import.meta.env.VITE_BACKEND_ORIGIN)

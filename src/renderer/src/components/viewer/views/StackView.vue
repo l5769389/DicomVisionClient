@@ -141,6 +141,7 @@ function handleSliceSliderInput(event: Event): void {
 
 <style scoped>
 .stack-slice-slider {
+  appearance: slider-vertical;
   writing-mode: bt-lr;
   transform: rotate(180deg);
 }

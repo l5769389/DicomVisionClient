@@ -115,6 +115,16 @@ This starts the Electron development environment through `electron-vite`.
 npm run build
 ```
 
+### Build for Web
+
+```bash
+npm run dev:web
+npm run build:web
+npm run preview:web
+```
+
+Use `VITE_BACKEND_ORIGIN` when the web frontend needs to connect to a remote backend. See [docs/web-packaging.zh-CN.md](D:/ct/git-repo/my/dicomVision/DicomVisionClient/docs/web-packaging.zh-CN.md).
+
 Run type checking when needed:
 
 ```bash

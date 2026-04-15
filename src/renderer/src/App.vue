@@ -37,6 +37,8 @@ onBeforeUnmount(() => {
         :class="viewer.isSidebarCollapsed.value ? 'grid-cols-[92px_minmax(0,1fr)]' : 'grid-cols-[320px_minmax(0,1fr)] max-[1280px]:grid-cols-[288px_minmax(0,1fr)]'"
       >
         <SidebarPanel
+          :viewer-folder-source-mode="viewer.viewerFolderSourceMode"
+          :viewer-platform="viewer.viewerPlatform"
           :connection-state="viewer.connectionState.value"
           :has-selected-series="viewer.hasSelectedSeries.value"
           :is-loading-folder="viewer.isLoadingFolder.value"

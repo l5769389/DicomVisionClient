@@ -60,9 +60,12 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.web.config.ts",
     "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",
     "preview": "electron-vite preview",
+    "preview:web": "vite preview --config vite.web.config.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json"

@@ -12,6 +12,7 @@ import { isMprViewportKey, normalizeCornerInfo } from '../views/viewerWorkspaceT
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
+import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
 import {
   createDefaultVolumeRenderConfig,
@@ -89,6 +90,8 @@ interface ViewerWorkspaceState {
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
   triggerViewAction: (payload: { action: 'reset' | 'volumePreset'; value?: string }) => void
+  viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
+  viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
   viewerTabs: Ref<ViewerTabItem[]>
 }
@@ -967,7 +970,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function chooseFolder(): Promise<void> {
-    const picked = await window.viewerApi?.chooseFolder?.()
+    const picked = await viewerRuntime.chooseFolder()
     if (!picked) {
       return
     }
@@ -979,9 +982,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isLoadingFolder.value = true
 
     try {
-      const { data } = await api.post<{ seriesList?: FolderSeriesItem[] }>('/dicom/loadFolder', {
-        folderPath: path
-      })
+      const { data } =
+        path === WEB_SAMPLE_FOLDER_SENTINEL
+          ? await api.post<{ seriesList?: FolderSeriesItem[]; samplePath?: string }>('/dicom/loadSample')
+          : await api.post<{ seriesList?: FolderSeriesItem[] }>('/dicom/loadFolder', {
+              folderPath: path
+            })
 
       const incomingSeries = data.seriesList ?? []
       if (!incomingSeries.length) {
@@ -1044,7 +1050,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   onMounted(() => {
     void (async () => {
-      const resolvedBackendOrigin = await window.viewerApi?.getBackendOrigin?.()
+      const resolvedBackendOrigin = await viewerRuntime.getBackendOrigin()
       if (resolvedBackendOrigin) {
         backendOrigin.value = resolvedBackendOrigin
       }
@@ -1098,6 +1104,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     setViewerStage,
     toggleSidebar,
     triggerViewAction,
+    viewerFolderSourceMode: viewerRuntime.folderSourceMode,
+    viewerPlatform: viewerRuntime.platform,
     viewerStage,
     viewerTabs
   }

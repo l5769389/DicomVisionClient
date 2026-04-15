@@ -1,5 +1,5 @@
 import { assign, createActor, setup, type SnapshotFrom } from 'xstate'
-import type { MeasurementDraftPoint } from '../../types/viewer'
+import type { DraftMeasurementMode, MeasurementDraftPoint } from '../../types/viewer'
 
 export type MtfInteractionState =
   | { kind: 'idle' }
@@ -242,4 +242,21 @@ export function createMtfInteractionController() {
       actor.send({ type: 'UPDATE_LAST_POINT', lastPoint })
     }
   }
+}
+
+export function resolveMtfDraftMode(
+  state: MtfInteractionState,
+  viewportKey: string,
+  hasMtfId: boolean
+): DraftMeasurementMode {
+  if (hasMtfId && state.kind !== 'idle' && state.viewportKey === viewportKey) {
+    if (state.kind === 'moving') {
+      return 'moving'
+    }
+    if (state.kind === 'selected' || state.kind === 'move_pending') {
+      return 'selected'
+    }
+  }
+
+  return 'draft'
 }

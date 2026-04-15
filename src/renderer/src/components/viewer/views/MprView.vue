@@ -10,6 +10,7 @@ const props = defineProps<{
   getDraftMeasurementMode: (viewportKey: MprViewportKey) => DraftMeasurementMode | null
   getDraftMeasurement: (viewportKey: MprViewportKey) => MeasurementDraft | null
   getMeasurements: (viewportKey: MprViewportKey) => MeasurementOverlay[]
+  getMtfDraftMode: (viewportKey: MprViewportKey) => DraftMeasurementMode | null
   getMtfDraft: (viewportKey: MprViewportKey) => { mtfId?: string; points: { x: number; y: number }[] } | null
   getMtfItems: (viewportKey: MprViewportKey) => ViewerMtfItem[]
   selectedMtfId?: string | null
@@ -75,6 +76,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :draft-measurement-mode="props.getDraftMeasurementMode(item.key)"
       :draft-measurement="props.getDraftMeasurement(item.key)"
       :measurements="props.getMeasurements(item.key)"
+      :mtf-draft-mode="props.getMtfDraftMode(item.key)"
       :mtf-draft="props.getMtfDraft(item.key)"
       :mtf-items="props.getMtfItems(item.key)"
       :selected-mtf-id="props.selectedMtfId ?? null"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
-import type { MeasurementDraftPoint, ViewerMtfItem } from '../../../types/viewer'
+import type { DraftMeasurementMode, MeasurementDraftPoint, ViewerMtfItem } from '../../../types/viewer'
 import {
   getOverlayHandlePointsFromRectBounds,
   getOverlayRectBounds,
@@ -9,15 +9,26 @@ import {
   type OverlayScreenPoint
 } from './overlayGeometry'
 
+type MtfRenderMode = 'committed' | 'selected' | 'moving' | 'draft'
+
 interface RenderedMtfItem {
-  mtfId: string
-  status: ViewerMtfItem['status']
+  key: string
+  mtfId: string | null
+  status: ViewerMtfItem['status'] | null
   rect: OverlayRectBounds
   handlePoints: OverlayScreenPoint[]
   metrics: ViewerMtfItem['metrics'] | null
   errorMessage: string | null
   isPlaceholder: boolean
+  mode: MtfRenderMode
 }
+
+const MIN_POPUP_RECT_SIZE_PX = 6
+
+const committedStrokeOuter = 'rgba(3,15,24,0.92)'
+const committedStrokeInner = 'rgba(85,231,255,0.98)'
+const draftStrokeOuter = 'rgba(56,22,4,0.92)'
+const draftStrokeInner = 'rgba(255,184,77,0.98)'
 
 const props = withDefaults(
   defineProps<{
@@ -27,11 +38,13 @@ const props = withDefaults(
       width: number
       height: number
     }
+    mtfDraftMode?: DraftMeasurementMode | null
     mtfDraft?: { mtfId?: string; points: MeasurementDraftPoint[] } | null
     mtfItems?: ViewerMtfItem[]
     selectedMtfId?: string | null
   }>(),
   {
+    mtfDraftMode: null,
     mtfDraft: null,
     mtfItems: () => [],
     selectedMtfId: null
@@ -42,52 +55,106 @@ const emit = defineEmits<{
   clear: []
   copy: []
   openCurve: []
-  select: [payload: { mtfId: string | null }]
 }>()
 
-const renderedDraftRect = computed(() => getOverlayRectBounds(props.imageFrame, props.mtfDraft?.points))
-
-const renderedMtfItems = computed<RenderedMtfItem[]>(() => {
-  const items: RenderedMtfItem[] = []
-
-  props.mtfItems.forEach((item) => {
-    const rect = getOverlayRectBounds(props.imageFrame, item.points)
-    if (!rect) {
-      return
-    }
-
-    items.push({
-      mtfId: item.mtfId,
-      status: item.status,
-      rect,
-      handlePoints: getOverlayHandlePointsFromRectBounds(rect),
-      metrics: item.metrics ?? null,
-      errorMessage: item.errorMessage ?? null,
-      isPlaceholder: item.isPlaceholder ?? false
-    })
-  })
-
-  return items
-})
-
-const selectedRenderedItem = computed(() => {
-  if (props.selectedMtfId) {
-    return renderedMtfItems.value.find((item) => item.mtfId === props.selectedMtfId) ?? null
+function buildRenderedMtfItem(
+  key: string,
+  points: MeasurementDraftPoint[],
+  mode: MtfRenderMode,
+  source?: ViewerMtfItem | null
+): RenderedMtfItem | null {
+  const rect = getOverlayRectBounds(props.imageFrame, points)
+  if (!rect) {
+    return null
   }
 
-  return renderedMtfItems.value.at(-1) ?? null
+  return {
+    key,
+    mtfId: source?.mtfId ?? (key === 'draft' ? props.mtfDraft?.mtfId ?? null : key),
+    status: source?.status ?? null,
+    rect,
+    handlePoints: getOverlayHandlePointsFromRectBounds(rect),
+    metrics: source?.metrics ?? null,
+    errorMessage: source?.errorMessage ?? null,
+    isPlaceholder: source?.isPlaceholder ?? false,
+    mode
+  }
+}
+
+function toMtfRenderMode(mode: DraftMeasurementMode | null | undefined): MtfRenderMode {
+  if (mode === 'moving') {
+    return 'moving'
+  }
+  if (mode === 'selected') {
+    return 'selected'
+  }
+  return 'draft'
+}
+
+const renderedCommittedItems = computed(() =>
+  props.mtfItems
+    .map((item) =>
+      buildRenderedMtfItem(
+        item.mtfId,
+        item.points,
+        item.mtfId === props.selectedMtfId && (!props.mtfDraft || props.mtfDraft.mtfId !== item.mtfId)
+          ? 'selected'
+          : 'committed',
+        item
+      )
+    )
+    .filter((item): item is RenderedMtfItem => item != null)
+)
+
+const renderedDraftItem = computed(() => {
+  if (!props.mtfDraft) {
+    return null
+  }
+
+  const sourceItem =
+    props.mtfDraft.mtfId != null ? props.mtfItems.find((item) => item.mtfId === props.mtfDraft?.mtfId) ?? null : null
+
+  return buildRenderedMtfItem('draft', props.mtfDraft.points, toMtfRenderMode(props.mtfDraftMode), sourceItem)
+})
+
+function canShowMetricCardForItem(item: RenderedMtfItem | null): boolean {
+  if (!item) {
+    return false
+  }
+
+  if (item.mode !== 'draft') {
+    return true
+  }
+
+  return item.rect.width >= MIN_POPUP_RECT_SIZE_PX && item.rect.height >= MIN_POPUP_RECT_SIZE_PX
+}
+
+const allRenderedItems = computed(() =>
+  renderedDraftItem.value ? [...renderedCommittedItems.value, renderedDraftItem.value] : renderedCommittedItems.value
+)
+
+const activeRenderedItem = computed(() => {
+  if (canShowMetricCardForItem(renderedDraftItem.value)) {
+    return renderedDraftItem.value
+  }
+
+  if (!props.selectedMtfId) {
+    return null
+  }
+
+  return renderedCommittedItems.value.find((item) => item.mtfId === props.selectedMtfId) ?? null
 })
 
 const metricCardStyle = computed(() => {
-  const rect = selectedRenderedItem.value?.rect ?? renderedDraftRect.value
+  const rect = activeRenderedItem.value?.rect
   if (!rect) {
     return null
   }
 
   const minLeft = props.imageFrame.left + 12
-  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - 228, minLeft)
+  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - 244, minLeft)
   const minTop = props.imageFrame.top + 12
-  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - 168, minTop)
+  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - 176, minTop)
 
   return {
     left: `${Math.round(Math.max(minLeft, Math.min(maxLeft, rect.left + rect.width + 12)))}px`,
@@ -96,7 +163,7 @@ const metricCardStyle = computed(() => {
 })
 
 const metricRows = computed(() => {
-  const metrics = selectedRenderedItem.value?.metrics
+  const metrics = activeRenderedItem.value?.metrics
   if (!metrics) {
     return []
   }
@@ -111,7 +178,11 @@ const metricRows = computed(() => {
 })
 
 const selectedStatusLabel = computed(() => {
-  switch (selectedRenderedItem.value?.status) {
+  if (renderedDraftItem.value?.mode === 'draft' && !renderedDraftItem.value?.mtfId) {
+    return '绘制 ROI'
+  }
+
+  switch (activeRenderedItem.value?.status) {
     case 'calculating':
       return '计算中'
     case 'error':
@@ -119,59 +190,100 @@ const selectedStatusLabel = computed(() => {
     case 'ready':
       return '分析完成'
     default:
-      return '绘制 ROI'
+      return activeRenderedItem.value ? '已选中 ROI' : '绘制 ROI'
   }
 })
+
+function getOuterStroke(item: RenderedMtfItem): string {
+  return item.mode === 'committed' ? committedStrokeOuter : draftStrokeOuter
+}
+
+function getInnerStroke(item: RenderedMtfItem): string {
+  if (item.mode === 'moving') {
+    return 'rgba(255,224,130,1)'
+  }
+  if (item.mode === 'selected') {
+    return 'rgba(255,202,111,0.98)'
+  }
+  return item.mode === 'committed' ? committedStrokeInner : draftStrokeInner
+}
+
+function getOuterStrokeDasharray(item: RenderedMtfItem): string | undefined {
+  return item.mode === 'draft' ? '10 7' : undefined
+}
+
+function getInnerStrokeDasharray(item: RenderedMtfItem): string | undefined {
+  return item.mode === 'draft' ? '10 7' : undefined
+}
+
+function shouldRenderHandles(item: RenderedMtfItem): boolean {
+  return item.mode !== 'committed'
+}
+
+function getHandleRadius(item: RenderedMtfItem): number {
+  return item.mode === 'committed' ? 3.5 : 4
+}
+
+function getHandleFill(item: RenderedMtfItem): string {
+  return item.mode === 'committed' ? 'white' : 'rgba(255,244,214,0.98)'
+}
+
+function getShapeFill(item: RenderedMtfItem): string {
+  if (item.mode === 'moving') {
+    return 'rgba(255,184,77,0.18)'
+  }
+  if (item.mode === 'selected') {
+    return 'rgba(255,184,77,0.1)'
+  }
+  return 'none'
+}
 </script>
 
 <template>
   <div class="pointer-events-none absolute inset-0 z-[8]">
-    <svg class="absolute inset-0 h-full w-full">
-      <g
-        v-for="item in renderedMtfItems"
-        :key="item.mtfId"
-        class="pointer-events-auto cursor-pointer"
-        @pointerdown.stop.prevent="emit('select', { mtfId: item.mtfId })"
-      >
+    <svg class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" shape-rendering="geometricPrecision">
+      <g v-for="item in allRenderedItems" :key="item.key">
         <rect
           :x="item.rect.left"
           :y="item.rect.top"
           :width="item.rect.width"
           :height="item.rect.height"
-          rx="8"
-          :fill="item.mtfId === selectedRenderedItem?.mtfId ? 'rgba(56,189,248,0.16)' : 'rgba(56,189,248,0.08)'"
-          :stroke="item.mtfId === selectedRenderedItem?.mtfId ? 'rgba(125,211,252,1)' : 'rgba(56,189,248,0.72)'"
-          :stroke-width="item.mtfId === selectedRenderedItem?.mtfId ? 2.5 : 1.6"
+          :fill="getShapeFill(item)"
+          :stroke="getOuterStroke(item)"
+          stroke-width="5"
+          stroke-linejoin="round"
+          :stroke-dasharray="getOuterStrokeDasharray(item)"
         />
-        <circle
-          v-for="(handle, index) in item.mtfId === selectedRenderedItem?.mtfId ? item.handlePoints : []"
-          :key="`${item.mtfId}-handle-${index}`"
-          :cx="handle.x"
-          :cy="handle.y"
-          r="4.5"
-          fill="rgba(255,255,255,0.98)"
-          stroke="rgba(8,30,48,0.9)"
-          stroke-width="1.5"
+        <rect
+          :x="item.rect.left"
+          :y="item.rect.top"
+          :width="item.rect.width"
+          :height="item.rect.height"
+          :fill="getShapeFill(item)"
+          :stroke="getInnerStroke(item)"
+          stroke-width="2.5"
+          stroke-linejoin="round"
+          :stroke-dasharray="getInnerStrokeDasharray(item)"
         />
-      </g>
 
-      <rect
-        v-if="renderedDraftRect"
-        :x="renderedDraftRect.left"
-        :y="renderedDraftRect.top"
-        :width="renderedDraftRect.width"
-        :height="renderedDraftRect.height"
-        rx="8"
-        fill="rgba(250,204,21,0.10)"
-        stroke="rgba(251,191,36,0.95)"
-        stroke-width="2"
-        stroke-dasharray="10 6"
-      />
+        <template v-if="shouldRenderHandles(item)">
+          <circle
+            v-for="(handle, index) in item.handlePoints"
+            :key="`${item.key}-handle-${index}`"
+            :cx="handle.x"
+            :cy="handle.y"
+            :r="getHandleRadius(item)"
+            :fill="getHandleFill(item)"
+            :stroke="getOuterStroke(item)"
+            stroke-width="1.25"
+          />
+        </template>
+      </g>
     </svg>
 
     <div
-      v-if="metricCardStyle && (selectedRenderedItem || renderedDraftRect)"
-      class="pointer-events-auto absolute w-[216px] rounded-2xl border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(5,16,28,0.96),rgba(5,12,20,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
+      v-if="metricCardStyle && activeRenderedItem"
+      class="pointer-events-auto absolute w-[228px] rounded-2xl border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(5,16,28,0.96),rgba(5,12,20,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
       :style="metricCardStyle"
       @pointerdown.stop.prevent
     >
@@ -180,29 +292,41 @@ const selectedStatusLabel = computed(() => {
           <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">MTF Metric</div>
           <div class="mt-1 text-sm font-semibold text-white">{{ selectedStatusLabel }}</div>
         </div>
-        <button
-          type="button"
-          class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/16 bg-red-400/10 text-red-100 transition hover:bg-red-400/18"
-          aria-label="删除 MTF ROI"
-          @click="emit('clear')"
-        >
-          <AppIcon name="trash" :size="16" />
-        </button>
+        <div class="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/6 p-1">
+          <button
+            type="button"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45"
+            :disabled="!activeRenderedItem.mtfId"
+            aria-label="复制 MTF ROI"
+            @click="emit('copy')"
+          >
+            <AppIcon name="copy" :size="16" />
+          </button>
+          <button
+            type="button"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/16 bg-red-400/10 text-red-100 transition hover:bg-red-400/18 disabled:cursor-not-allowed disabled:opacity-45"
+            :disabled="!activeRenderedItem.mtfId"
+            aria-label="删除 MTF ROI"
+            @click="emit('clear')"
+          >
+            <AppIcon name="trash" :size="16" />
+          </button>
+        </div>
       </div>
 
-      <div v-if="selectedRenderedItem?.status === 'ready'" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[12px] leading-5">
+      <div v-if="activeRenderedItem.status === 'ready'" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[12px] leading-5">
         <template v-for="row in metricRows" :key="row.label">
           <div class="text-slate-400">{{ row.label }}</div>
           <div class="text-right font-medium text-slate-50">{{ row.value }}</div>
         </template>
       </div>
 
-      <div v-else-if="selectedRenderedItem?.status === 'error'" class="mt-3 text-[12px] leading-5 text-red-100/90">
-        {{ selectedRenderedItem.errorMessage || '当前 ROI 的 MTF 分析未完成。' }}
+      <div v-else-if="activeRenderedItem.status === 'error'" class="mt-3 text-[12px] leading-5 text-red-100/90">
+        {{ activeRenderedItem.errorMessage || '当前 ROI 的 MTF 分析未完成。' }}
       </div>
 
-      <div v-else-if="selectedRenderedItem?.status === 'calculating'" class="mt-3 text-[12px] leading-5 text-slate-300">
-        正在向后端发送当前 ROI 并等待返回 MTF 指标。
+      <div v-else-if="activeRenderedItem.status === 'calculating'" class="mt-3 text-[12px] leading-5 text-slate-300">
+        正在将当前 ROI 发送到后端，并等待返回 MTF 指标。
       </div>
 
       <div v-else class="mt-3 text-[12px] leading-5 text-slate-300">
@@ -210,26 +334,17 @@ const selectedStatusLabel = computed(() => {
       </div>
 
       <div
-        v-if="selectedRenderedItem?.isPlaceholder"
+        v-if="activeRenderedItem.isPlaceholder"
         class="mt-3 rounded-xl border border-amber-300/12 bg-amber-300/8 px-3 py-2 text-[11px] leading-5 text-amber-50/90"
       >
         当前展示的是链路占位结果，后续可替换为真实 MTF 算法。
       </div>
 
-      <div class="mt-3 flex justify-end gap-2">
-        <button
-          type="button"
-          class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45"
-          :disabled="!selectedRenderedItem"
-          aria-label="复制 MTF ROI"
-          @click="emit('copy')"
-        >
-          <AppIcon name="copy" :size="16" />
-        </button>
+      <div class="mt-3 flex justify-end">
         <button
           type="button"
           class="rounded-lg border border-cyan-300/22 bg-cyan-300/10 px-3 py-1.5 text-[12px] font-medium text-cyan-50 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
-          :disabled="selectedRenderedItem?.status !== 'ready'"
+          :disabled="activeRenderedItem.status !== 'ready'"
           @click="emit('openCurve')"
         >
           查看曲线

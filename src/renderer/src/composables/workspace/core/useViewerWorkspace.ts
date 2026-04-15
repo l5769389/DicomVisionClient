@@ -483,6 +483,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     const mtfId = payload.mtfId ?? generateMtfId()
+    const nextSelectedMtfId = payload.mtfId ? mtfId : null
     updateActiveTabMtfState((item) =>
       updateMtfItemCollection(
         item,
@@ -496,7 +497,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           errorMessage: null
         },
         {
-          selectMtfId: mtfId
+          selectMtfId: nextSelectedMtfId
         }
       )
     )
@@ -522,7 +523,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             isPlaceholder: data.isPlaceholder ?? false
           },
           {
-            selectMtfId: mtfId
+            selectMtfId: nextSelectedMtfId
           }
         )
       )
@@ -545,7 +546,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             errorMessage: fallbackMessage
           },
           {
-            selectMtfId: mtfId
+            selectMtfId: nextSelectedMtfId
           }
         )
       )
@@ -560,9 +561,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
 
       const selectedMtfId =
-        payload.mtfId && mtfItems.some((candidate) => candidate.mtfId === payload.mtfId)
-          ? payload.mtfId
-          : mtfItems[mtfItems.length - 1]?.mtfId ?? null
+        payload.mtfId === null
+          ? null
+          : payload.mtfId && mtfItems.some((candidate) => candidate.mtfId === payload.mtfId)
+            ? payload.mtfId
+            : mtfItems[mtfItems.length - 1]?.mtfId ?? null
 
       return {
         ...item,

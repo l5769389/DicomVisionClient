@@ -8,7 +8,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  clear: []
   close: []
 }>()
 
@@ -107,14 +106,7 @@ const metrics = computed(() => props.mtfItem?.metrics ?? null)
             </div>
           </div>
 
-          <div class="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              class="rounded-xl border border-red-300/16 bg-red-400/10 px-3 py-2 text-sm text-red-100 transition hover:bg-red-400/18"
-              @click="emit('clear')"
-            >
-              删除 ROI
-            </button>
+          <div class="mt-5 flex justify-end">
             <button
               type="button"
               class="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/18"

@@ -37,6 +37,7 @@ import {
   resolveDraftMeasurementMode,
   type MeasurementInteractionState
 } from './measurementInteractionMachine'
+import { resolveMtfDraftMode } from './mtfInteractionMachine'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
@@ -81,6 +82,7 @@ interface PointerComposableState {
   deleteSelectedMtf: (viewportKey?: string) => boolean
   draftMeasurements: Ref<Partial<Record<string, MeasurementDraft | null>>>
   getMtfDraft: (viewportKey: string) => { mtfId?: string; points: MeasurementDraftPoint[] } | null
+  getMtfDraftMode: (viewportKey: string) => DraftMeasurementMode | null
   getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
   handleViewportPointerCancel: (event: PointerEvent) => void
   handleViewportPointerLeave: (viewportKey: string) => void
@@ -592,6 +594,15 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return null
     }
     return resolveDraftMeasurementMode(measurementInteraction.value, viewportKey, Boolean(draft.measurementId))
+  }
+
+  function getMtfDraftMode(viewportKey: string): DraftMeasurementMode | null {
+    const draft = mtfDrafts.value[viewportKey]
+    if (!draft) {
+      return null
+    }
+
+    return resolveMtfDraftMode(mtfInteraction.value, viewportKey, Boolean(draft.mtfId))
   }
 
   function updateDraftMeasurementLabelLines(viewportKey: string, labelLines: string[]): void {
@@ -1458,14 +1469,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return true
     }
 
-    if (intent.kind === 'clear_selection') {
-      mtfInteractionController.reset()
-      options.emitMtfSelect({ mtfId: null })
-      clearMtfDraft(viewportKey)
-      clearViewportCursor(viewportKey)
-      return true
-    }
-
     startNewMtf(pointerTarget, event.pointerId, viewportKey, context.point)
     return true
   }
@@ -1644,6 +1647,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     deleteSelectedMeasurement,
     draftMeasurements,
     getMtfDraft,
+    getMtfDraftMode,
     getDraftMeasurementMode,
     handleViewportPointerCancel,
     handleViewportPointerLeave,

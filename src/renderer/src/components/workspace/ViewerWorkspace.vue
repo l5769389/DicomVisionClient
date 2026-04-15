@@ -66,6 +66,7 @@ const {
   deleteSelectedMeasurement,
   draftMeasurements,
   getMtfDraft,
+  getMtfDraftMode,
   getDraftMeasurementMode,
   handleViewportPointerCancel,
   handleViewportPointerLeave,
@@ -374,6 +375,7 @@ onBeforeUnmount(() => {
           :draft-measurement-mode="getDraftMeasurementMode('single')"
           :draft-measurement="getDraftMeasurement('single')"
           :measurements="getVisibleCommittedMeasurements('single')"
+          :mtf-draft-mode="getMtfDraftMode('single')"
           :mtf-draft="getMtfDraft('single')"
           :mtf-items="getMtfItems('single')"
           :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
@@ -401,6 +403,7 @@ onBeforeUnmount(() => {
           :get-draft-measurement-mode="(viewportKey) => getDraftMeasurementMode(viewportKey)"
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
           :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
+          :get-mtf-draft-mode="(viewportKey) => getMtfDraftMode(viewportKey)"
           :get-mtf-draft="(viewportKey) => getMtfDraft(viewportKey)"
           :get-mtf-items="(viewportKey) => getMtfItems(viewportKey)"
           :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
@@ -431,12 +434,11 @@ onBeforeUnmount(() => {
           @pointer-cancel="handleViewportPointerCancel"
         />
 
-        <MtfCurveDialog
-          :is-open="isMtfCurveDialogOpen"
-          :mtf-item="selectedMtfItem"
-          @clear="handleClearMtf"
-          @close="handleCloseMtfCurve"
-        />
+      <MtfCurveDialog
+        :is-open="isMtfCurveDialogOpen"
+        :mtf-item="selectedMtfItem"
+        @close="handleCloseMtfCurve"
+      />
       </div>
 
       <div v-else class="grid flex-1 place-items-center rounded-[20px] border border-dashed border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))] p-8 text-center">

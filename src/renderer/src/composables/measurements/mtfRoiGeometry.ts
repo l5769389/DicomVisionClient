@@ -12,7 +12,6 @@ export type MtfPointerDownIntent =
   | { kind: 'edit_handle'; handleIndex: number }
   | { kind: 'select_item'; item: ViewerMtfItem }
   | { kind: 'move_selected' }
-  | { kind: 'clear_selection' }
   | { kind: 'create_new' }
 
 export function getMtfHandlePoints(points: MeasurementDraftPoint[]): MeasurementDraftPoint[] {
@@ -63,10 +62,6 @@ export function resolveMtfPointerDownIntent(params: {
   const hitItem = findMtfItemAtPoint(items, point)
   if (hitItem) {
     return { kind: 'select_item', item: hitItem }
-  }
-
-  if (selectedItem) {
-    return { kind: 'clear_selection' }
   }
 
   return { kind: 'create_new' }

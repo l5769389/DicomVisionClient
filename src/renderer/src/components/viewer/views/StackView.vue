@@ -10,6 +10,7 @@ const props = defineProps<{
   draftMeasurementMode?: DraftMeasurementMode | null
   draftMeasurement?: MeasurementDraft | null
   measurements?: MeasurementOverlay[]
+  mtfDraftMode?: DraftMeasurementMode | null
   mtfDraft?: { mtfId?: string; points: { x: number; y: number }[] } | null
   mtfItems?: ViewerMtfItem[]
   selectedMtfId?: string | null
@@ -97,6 +98,7 @@ function handleSliceSliderInput(event: Event): void {
       :draft-measurement-mode="props.draftMeasurementMode ?? null"
       :draft-measurement="props.draftMeasurement ?? null"
       :measurements="props.measurements ?? []"
+      :mtf-draft-mode="props.mtfDraftMode ?? null"
       :mtf-draft="props.mtfDraft ?? null"
       :mtf-items="props.mtfItems ?? []"
       :selected-mtf-id="props.selectedMtfId ?? null"

@@ -15,6 +15,7 @@ const props = withDefaults(
     cursorClass?: string
     draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
+    mtfDraftMode?: DraftMeasurementMode | null
     mtfDraft?: { mtfId?: string; points: { x: number; y: number }[] } | null
     mtfItems?: ViewerMtfItem[]
     selectedMtfId?: string | null
@@ -275,13 +276,13 @@ watch(
       />
       <ViewportMtfOverlay
         :image-frame="imageFrame"
+        :mtf-draft-mode="mtfDraftMode ?? null"
         :mtf-draft="mtfDraft ?? null"
         :mtf-items="mtfItems ?? []"
         :selected-mtf-id="selectedMtfId ?? null"
         @clear="emit('clearMtf')"
         @copy="emit('copySelectedMtf', props.viewportKey)"
         @open-curve="emit('openMtfCurve')"
-        @select="emit('selectMtf', $event)"
       />
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />

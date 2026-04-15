@@ -317,7 +317,7 @@ export function normalizeVolumeRenderConfig(
       key: fallbackLayer.key,
       label: typeof source.label === 'string' && source.label.trim() ? source.label.trim() : fallbackLayer.label,
       enabled: typeof source.enabled === 'boolean' ? source.enabled : fallbackLayer.enabled,
-      ww: Number.isFinite(Number(source.ww)) ? Math.max(1, Number(source.ww)) : fallbackLayer.ww,
+      ww: Number.isFinite(Number(source.ww)) ? Number(source.ww) : fallbackLayer.ww,
       wl: Number.isFinite(Number(source.wl)) ? Number(source.wl) : fallbackLayer.wl,
       opacity: Number.isFinite(Number(source.opacity))
         ? Math.max(0, Math.min(1, Number(source.opacity)))

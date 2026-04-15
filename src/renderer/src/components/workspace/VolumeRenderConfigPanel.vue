@@ -28,7 +28,7 @@ function toWidthSliderValue(value: number): number {
 }
 
 function fromWidthSliderValue(value: string): number {
-  return Math.max(1, Math.round(Number(value) / WINDOW_WIDTH_SLIDER_FACTOR))
+  return Math.round(Number(value) / WINDOW_WIDTH_SLIDER_FACTOR)
 }
 
 function toLevelSliderValue(value: number): number {
@@ -156,7 +156,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
             <input
               class="w-full accent-sky-300"
               type="range"
-              min="2"
+              min="-4000"
               max="6000"
               step="1"
               :value="toWidthSliderValue(layer.ww)"

@@ -21,6 +21,11 @@ interface RenderedMeasurement {
   mode: 'committed' | 'selected' | 'moving' | 'draft'
 }
 
+interface ParsedLabelLine {
+  key: string | null
+  value: string
+}
+
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
 const committedStrokeInner = 'rgba(85,231,255,0.98)'
 const draftStrokeOuter = 'rgba(56,22,4,0.92)'
@@ -241,6 +246,26 @@ function getShapeFill(measurement: RenderedMeasurement): string {
   }
   return 'none'
 }
+
+function parseLabelLine(line: string): ParsedLabelLine {
+  const normalized = line.trim()
+  const match = normalized.match(/^([A-Za-z][A-Za-z/-]*)\s+(.+)$/)
+  if (!match) {
+    return {
+      key: null,
+      value: normalized
+    }
+  }
+
+  return {
+    key: match[1],
+    value: match[2]
+  }
+}
+
+function isKeyValueLabelLine(line: string): boolean {
+  return parseLabelLine(line).key != null
+}
 </script>
 
 <template>
@@ -405,8 +430,17 @@ function getShapeFill(measurement: RenderedMeasurement): string {
         v-for="(line, index) in measurement.labelLines"
         :key="`${measurement.key}-label-${index}`"
         class="font-mono whitespace-nowrap"
+        :class="
+          isKeyValueLabelLine(line)
+            ? 'grid min-w-[11.5rem] grid-cols-[2.8rem_minmax(0,1fr)] items-baseline gap-x-0.5'
+            : 'block w-fit'
+        "
       >
-        {{ line }}
+        <template v-if="parseLabelLine(line).key">
+          <span class="text-slate-300/78">{{ parseLabelLine(line).key }}</span>
+          <span class="text-right">{{ parseLabelLine(line).value }}</span>
+        </template>
+        <span v-else class="col-span-2">{{ parseLabelLine(line).value }}</span>
       </div>
     </div>
 

@@ -567,9 +567,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function updateDraftMeasurement(viewportKey: string, draft: MeasurementDraft): void {
+    const existingDraft = draftMeasurements.value[viewportKey]
     draftMeasurements.value = {
       ...draftMeasurements.value,
-      [viewportKey]: draft
+      [viewportKey]: {
+        ...draft,
+        labelLines: draft.labelLines ?? existingDraft?.labelLines ?? []
+      }
     }
   }
 
@@ -610,6 +614,19 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!draft) {
       return
     }
+
+    const isActiveMeasurementInteractionForViewport =
+      (measurementInteraction.value.kind === 'creating' ||
+        measurementInteraction.value.kind === 'move_pending' ||
+        measurementInteraction.value.kind === 'moving' ||
+        measurementInteraction.value.kind === 'editing_handle') &&
+      measurementInteraction.value.viewportKey === viewportKey
+
+    // Keep the last visible metrics while the ROI is actively being dragged or edited.
+    if (isActiveMeasurementInteractionForViewport && labelLines.length === 0 && (draft.labelLines?.length ?? 0) > 0) {
+      return
+    }
+
     updateDraftMeasurement(viewportKey, {
       ...draft,
       labelLines

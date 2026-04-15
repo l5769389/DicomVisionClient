@@ -104,4 +104,35 @@ describe('ViewportMeasurementOverlay', () => {
     expect(wrapper.findAll('ellipse').length).toBe(2)
     expect(wrapper.findAll('circle').length).toBe(4)
   })
+
+  it('renders keyed roi labels in aligned key-value columns', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 320,
+          height: 240
+        },
+        measurements: [
+          {
+            measurementId: 'rect-1',
+            toolType: 'rect',
+            points: [
+              { x: 0.1, y: 0.1 },
+              { x: 0.5, y: 0.5 }
+            ],
+            labelLines: ['Size 120.0 * 120.0 mm', 'Area 2400.0 mm2', 'Mean 42.0']
+          }
+        ]
+      }
+    })
+
+    const labelRows = wrapper.findAll('[class*="grid-cols-[2.8rem_minmax(0,1fr)]"]')
+    expect(labelRows).toHaveLength(3)
+    expect(wrapper.text()).toContain('Size')
+    expect(wrapper.text()).toContain('120.0 * 120.0 mm')
+    expect(wrapper.text()).toContain('Area')
+    expect(wrapper.text()).toContain('2400.0 mm2')
+  })
 })

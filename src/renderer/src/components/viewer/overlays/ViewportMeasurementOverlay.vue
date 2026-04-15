@@ -2,18 +2,19 @@
 import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
-
-interface ScreenPoint {
-  x: number
-  y: number
-}
+import {
+  getOverlayHandlePointsFromRectBounds,
+  getOverlayRectBoundsFromScreenPoints,
+  toOverlayScreenPoint,
+  type OverlayScreenPoint
+} from './overlayGeometry'
 
 interface RenderedMeasurement {
   key: string
   measurementId: string | null
   toolType: MeasurementToolType
-  screenPoints: ScreenPoint[]
-  handlePoints: ScreenPoint[]
+  screenPoints: OverlayScreenPoint[]
+  handlePoints: OverlayScreenPoint[]
   labelLines: string[]
   labelStyle: { left: string; top: string } | null
   rectBounds: { left: number; top: number; width: number; height: number } | null
@@ -49,45 +50,20 @@ const emit = defineEmits<{
   deleteSelectedMeasurement: []
 }>()
 
-function toScreenPoint(point: MeasurementDraftPoint): ScreenPoint {
-  return {
-    x: props.imageFrame.left + point.x * props.imageFrame.width,
-    y: props.imageFrame.top + point.y * props.imageFrame.height
-  }
-}
-
-function getRectBounds(screenPoints: ScreenPoint[]) {
-  if (screenPoints.length < 2) {
-    return null
-  }
-  const [start, end] = screenPoints
-  return {
-    left: Math.min(start.x, end.x),
-    top: Math.min(start.y, end.y),
-    width: Math.abs(end.x - start.x),
-    height: Math.abs(end.y - start.y)
-  }
-}
-
 function getHandlePoints(
   toolType: MeasurementToolType,
-  screenPoints: ScreenPoint[],
+  screenPoints: OverlayScreenPoint[],
   rectBounds: { left: number; top: number; width: number; height: number } | null
-): ScreenPoint[] {
+): OverlayScreenPoint[] {
   if ((toolType === 'rect' || toolType === 'ellipse') && rectBounds) {
-    return [
-      { x: rectBounds.left, y: rectBounds.top },
-      { x: rectBounds.left + rectBounds.width, y: rectBounds.top },
-      { x: rectBounds.left + rectBounds.width, y: rectBounds.top + rectBounds.height },
-      { x: rectBounds.left, y: rectBounds.top + rectBounds.height }
-    ]
+    return getOverlayHandlePointsFromRectBounds(rectBounds)
   }
   return screenPoints
 }
 
 function getLabelPosition(
   toolType: MeasurementToolType,
-  screenPoints: ScreenPoint[],
+  screenPoints: OverlayScreenPoint[],
   rectBounds: { left: number; top: number; width: number; height: number } | null
 ) {
   if (!screenPoints.length) {
@@ -139,8 +115,8 @@ function buildRenderedMeasurement(
     return null
   }
 
-  const screenPoints = points.map((point) => toScreenPoint(point))
-  const rectBounds = getRectBounds(screenPoints)
+  const screenPoints = points.map((point) => toOverlayScreenPoint(props.imageFrame, point))
+  const rectBounds = getOverlayRectBoundsFromScreenPoints(screenPoints)
   const handlePoints = getHandlePoints(toolType, screenPoints, rectBounds)
   const labelPosition = getLabelPosition(toolType, screenPoints, rectBounds)
 

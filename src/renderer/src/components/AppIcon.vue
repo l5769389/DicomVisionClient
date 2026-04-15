@@ -32,6 +32,7 @@ const mdiIconMap: Record<string, string> = {
   'measure-rect': 'mdi-rectangle-outline',
   'measure-ellipse': 'mdi-ellipse-outline',
   'measure-angle': 'mdi-angle-acute',
+  mtf: 'mdi-chart-bell-curve-cumulative',
   play: 'mdi-play',
   pause: 'mdi-pause',
   stop: 'mdi-stop',

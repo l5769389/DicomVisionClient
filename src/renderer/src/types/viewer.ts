@@ -78,6 +78,50 @@ export interface MeasurementOverlay {
   labelLines: string[]
 }
 
+export interface MtfMetrics {
+  mtf50: number | null
+  mtf10: number | null
+  peakValue: number | null
+  sampleCount: number | null
+  unit?: string | null
+}
+
+export interface MtfCurvePoint {
+  frequency: number
+  value: number
+}
+
+export interface ViewerMtfItem {
+  mtfId: string
+  viewportKey: string
+  points: MeasurementDraftPoint[]
+  status: 'calculating' | 'ready' | 'error'
+  metrics?: MtfMetrics | null
+  curve?: MtfCurvePoint[]
+  errorMessage?: string | null
+  isPlaceholder?: boolean
+}
+
+export interface ViewerMtfState {
+  items: ViewerMtfItem[]
+  selectedMtfId?: string | null
+}
+
+export interface MtfAnalyzeRequest {
+  viewId: string
+  viewportKey: string
+  points: MeasurementDraftPoint[]
+}
+
+export interface MtfAnalyzeResponse {
+  viewId: string
+  viewportKey: string
+  points: MeasurementDraftPoint[]
+  metrics: MtfMetrics
+  curve: MtfCurvePoint[]
+  isPlaceholder?: boolean
+}
+
 export interface MprCrosshairInfo {
   centerX: number
   centerY: number
@@ -178,6 +222,7 @@ export interface ViewerTabItem {
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
+  mtfState?: ViewerMtfState | null
 }
 
 export interface ViewerOperationItem {

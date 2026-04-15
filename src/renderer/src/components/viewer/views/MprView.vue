@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprViewportKey, ViewerMtfItem, ViewerTabItem } from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -10,13 +10,20 @@ const props = defineProps<{
   getDraftMeasurementMode: (viewportKey: MprViewportKey) => DraftMeasurementMode | null
   getDraftMeasurement: (viewportKey: MprViewportKey) => MeasurementDraft | null
   getMeasurements: (viewportKey: MprViewportKey) => MeasurementOverlay[]
+  getMtfDraft: (viewportKey: MprViewportKey) => { mtfId?: string; points: { x: number; y: number }[] } | null
+  getMtfItems: (viewportKey: MprViewportKey) => ViewerMtfItem[]
+  selectedMtfId?: string | null
   getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
 }>()
 
 const emit = defineEmits<{
   copySelectedMeasurement: [viewportKey: string]
+  copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string]
+  clearMtf: []
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  openMtfCurve: []
+  selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -68,12 +75,19 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :draft-measurement-mode="props.getDraftMeasurementMode(item.key)"
       :draft-measurement="props.getDraftMeasurement(item.key)"
       :measurements="props.getMeasurements(item.key)"
+      :mtf-draft="props.getMtfDraft(item.key)"
+      :mtf-items="props.getMtfItems(item.key)"
+      :selected-mtf-id="props.selectedMtfId ?? null"
       :mpr-crosshair="getViewportCrosshair(item.key)"
       :orientation="getViewportOrientation(item.key)"
+      @clear-mtf="emit('clearMtf')"
+      @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
       @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
+      @open-mtf-curve="emit('openMtfCurve')"
+      @select-mtf="emit('selectMtf', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="emit('pointerDown', $event, item.key)"
       @pointer-leave="emit('pointerLeave', $event)"

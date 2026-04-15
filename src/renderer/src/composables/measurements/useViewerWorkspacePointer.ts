@@ -9,6 +9,7 @@ import type {
   MeasurementToolType,
   MprCrosshairInfo,
   MprViewportKey,
+  ViewerMtfItem,
   ViewerTabItem
 } from '../../types/viewer'
 import {
@@ -20,6 +21,17 @@ import {
   translateMeasurementPoints,
   updateEditedMeasurementPoints
 } from './measurementGeometry'
+import { createMtfInteractionController, type MtfInteractionState } from './mtfInteractionMachine'
+import {
+  findMtfHandleIndexAtPoint,
+  resolveMtfPointerDownIntent
+} from './mtfRoiGeometry'
+import {
+  buildRectRoiDraftPoints,
+  editRectRoiDraftPoints,
+  hasRectRoiDragExceededThreshold,
+  moveRectRoiDraftPoints
+} from './rectRoiPointerController'
 import {
   createMeasurementInteractionController,
   resolveDraftMeasurementMode,
@@ -45,6 +57,9 @@ interface PointerComposableOptions {
     labelLines?: string[]
   }) => void
   emitMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
+  emitMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => void
+  emitMtfDelete: (payload: { mtfId: string }) => void
+  emitMtfSelect: (payload: { mtfId: string | null }) => void
   emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
   emitViewportDrag: (payload: {
     deltaX: number
@@ -54,6 +69,7 @@ interface PointerComposableOptions {
     viewportKey: string
   }) => void
   getCommittedMeasurements: (viewportKey: string) => MeasurementOverlay[]
+  getMtfItems: (viewportKey: string) => ViewerMtfItem[]
 }
 
 interface PointerComposableState {
@@ -61,7 +77,10 @@ interface PointerComposableState {
   cleanupPointerInteractions: () => void
   copySelectedMeasurement: (viewportKey?: string) => boolean
   deleteSelectedMeasurement: (viewportKey?: string) => boolean
+  copySelectedMtf: (viewportKey?: string) => boolean
+  deleteSelectedMtf: (viewportKey?: string) => boolean
   draftMeasurements: Ref<Partial<Record<string, MeasurementDraft | null>>>
+  getMtfDraft: (viewportKey: string) => { mtfId?: string; points: MeasurementDraftPoint[] } | null
   getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
   handleViewportPointerCancel: (event: PointerEvent) => void
   handleViewportPointerLeave: (viewportKey: string) => void
@@ -155,20 +174,34 @@ function isCapturedMeasurementInteraction(
   )
 }
 
+function isCapturedMtfInteraction(
+  state: MtfInteractionState
+): state is Exclude<MtfInteractionState, { kind: 'idle' } | { kind: 'selected'; viewportKey: string; mtfId: string }> {
+  return state.kind === 'creating' || state.kind === 'move_pending' || state.kind === 'moving' || state.kind === 'editing_handle'
+}
+
 type ActiveMeasurementEditState = Extract<
   MeasurementInteractionState,
   { kind: 'creating' } | { kind: 'moving' } | { kind: 'editing_handle' }
 >
 
+interface MtfDraft {
+  mtfId?: string
+  points: MeasurementDraftPoint[]
+}
+
 export function useViewerWorkspacePointer(options: PointerComposableOptions): PointerComposableState {
   const measurementInteractionController = createMeasurementInteractionController()
+  const mtfInteractionController = createMtfInteractionController()
   const activeViewportKey = ref<MprViewportKey | 'single' | 'volume'>('mpr-ax')
   const crosshairPointerViewportKey = ref('')
   const dragViewportKey = ref('')
   const dragOperationType = ref<ViewOperationType | null>(null)
   const draftMeasurements = ref<Partial<Record<string, MeasurementDraft | null>>>({})
+  const mtfDrafts = ref<Partial<Record<string, MtfDraft | null>>>({})
   const viewportCursorClasses = ref<Partial<Record<string, string>>>({})
   const measurementInteraction = ref<MeasurementInteractionState>(measurementInteractionController.getState())
+  const mtfInteraction = ref<MtfInteractionState>(mtfInteractionController.getState())
   const isCrosshairDragging = ref(false)
   const isViewportDragging = ref(false)
   const activePointerId = ref<number | null>(null)
@@ -182,6 +215,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   let lastDragNormalizedPoint: { x: number; y: number } | null = null
   measurementInteractionController.subscribe((state) => {
     measurementInteraction.value = state
+  })
+  mtfInteractionController.subscribe((state) => {
+    mtfInteraction.value = state
   })
 
   const emitThrottledViewportDrag = throttle(
@@ -291,6 +327,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   function isMeasurementOperationEnabled(): boolean {
     return (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') && getMeasurementToolType() != null
+  }
+
+  function isMtfOperationEnabled(): boolean {
+    return (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') && getNormalizedOperation() === 'mtf'
   }
 
   function isMouseDragOperationEnabled(): boolean {
@@ -464,6 +504,44 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return draftMeasurements.value[viewportKey] ?? null
   }
 
+  function getMtfDraft(viewportKey: string): MtfDraft | null {
+    return mtfDrafts.value[viewportKey] ?? null
+  }
+
+  function getSelectedMtf(viewportKey?: string): ViewerMtfItem | null {
+    const tab = options.activeTab.value
+    const selectedMtfId = tab?.mtfState?.selectedMtfId
+    if (!selectedMtfId) {
+      return null
+    }
+
+    const selectedMtf = (tab?.mtfState?.items ?? []).find((item) => item.mtfId === selectedMtfId) ?? null
+    if (!selectedMtf) {
+      return null
+    }
+
+    if (viewportKey && selectedMtf.viewportKey !== viewportKey) {
+      return null
+    }
+
+    return selectedMtf
+  }
+
+  function resolveSelectedMtfDraft(viewportKey?: string): { viewportKey: string; draft: MtfDraft } | null {
+    const selectedMtf = getSelectedMtf(viewportKey)
+    if (!selectedMtf) {
+      return null
+    }
+
+    return {
+      viewportKey: selectedMtf.viewportKey,
+      draft: {
+        mtfId: selectedMtf.mtfId,
+        points: selectedMtf.points
+      }
+    }
+  }
+
   function clearDraftMeasurement(viewportKey?: string): void {
     if (!viewportKey) {
       draftMeasurements.value = {}
@@ -475,11 +553,37 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
+  function clearMtfDraft(viewportKey?: string): void {
+    if (!viewportKey) {
+      mtfDrafts.value = {}
+      return
+    }
+    mtfDrafts.value = {
+      ...mtfDrafts.value,
+      [viewportKey]: null
+    }
+  }
+
   function updateDraftMeasurement(viewportKey: string, draft: MeasurementDraft): void {
     draftMeasurements.value = {
       ...draftMeasurements.value,
       [viewportKey]: draft
     }
+  }
+
+  function updateMtfDraft(viewportKey: string, draft: MtfDraft): void {
+    mtfDrafts.value = {
+      ...mtfDrafts.value,
+      [viewportKey]: draft
+    }
+  }
+
+  function isValidMtfDraft(points: MeasurementDraftPoint[]): boolean {
+    if (points.length < 2) {
+      return false
+    }
+    const [start, end] = points
+    return Math.abs(end.x - start.x) >= 0.005 && Math.abs(end.y - start.y) >= 0.005
   }
 
   function getDraftMeasurementMode(viewportKey: string): DraftMeasurementMode | null {
@@ -593,7 +697,43 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return true
   }
 
+  function copySelectedMtf(viewportKey?: string): boolean {
+    const selected = resolveSelectedMtfDraft(viewportKey)
+    if (!selected) {
+      return false
+    }
+
+    options.emitMtfCommit({
+      viewportKey: selected.viewportKey,
+      points: offsetMeasurementPoints(selected.draft.points, 0.01)
+    })
+    return true
+  }
+
+  function deleteSelectedMtf(viewportKey?: string): boolean {
+    const selected = resolveSelectedMtfDraft(viewportKey)
+    if (!selected?.draft.mtfId) {
+      return false
+    }
+
+    mtfInteractionController.reset()
+    clearMtfDraft(selected.viewportKey)
+    clearViewportCursor(selected.viewportKey)
+    options.emitMtfDelete({ mtfId: selected.draft.mtfId })
+    options.emitMtfSelect({ mtfId: null })
+    return true
+  }
+
   function stopViewportDrag(pointerTarget?: EventTarget | null): void {
+    const mtfState = mtfInteraction.value
+    if (isCapturedMtfInteraction(mtfState)) {
+      const stoppedViewportKey = mtfState.viewportKey
+      mtfInteractionController.reset()
+      clearMtfDraft(stoppedViewportKey)
+      clearViewportCursor(stoppedViewportKey)
+      releasePointerCapture(pointerTarget)
+    }
+
     const interactionState = measurementInteraction.value
     if (
       isCapturedMeasurementInteraction(interactionState) ||
@@ -706,6 +846,52 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     clearViewportCursor(viewportKey)
   }
 
+  function updateMtfHoverCursor(event: PointerEvent): void {
+    const viewportKey = resolveViewportKeyFromEvent(event)
+    if (!viewportKey || !isMtfOperationEnabled()) {
+      return
+    }
+
+    const interactionState = mtfInteraction.value
+    if (isCapturedMtfInteraction(interactionState)) {
+      if (interactionState.viewportKey !== viewportKey) {
+        return
+      }
+      setViewportCursor(viewportKey, interactionState.kind === 'editing_handle' ? 'cursor-pointer' : 'cursor-move')
+      return
+    }
+
+    const point = getNormalizedViewportPoint(event)
+    const imageElement = resolveViewportImageElement(event)
+    if (!point || !imageElement) {
+      clearViewportCursor(viewportKey)
+      return
+    }
+
+    const imageRect = getRenderedImageRect(imageElement)
+    const selectedMtf = getSelectedMtf(viewportKey)
+    if (selectedMtf) {
+      const handleIndex = findMtfHandleIndexAtPoint(selectedMtf.points, point, imageRect)
+      if (handleIndex != null) {
+        setViewportCursor(viewportKey, 'cursor-pointer')
+        return
+      }
+    }
+
+    const hitItem = resolveMtfPointerDownIntent({
+      items: options.getMtfItems(viewportKey),
+      selectedItem: selectedMtf,
+      point,
+      rect: imageRect
+    })
+    if (hitItem.kind === 'move_selected' || hitItem.kind === 'select_item') {
+      setViewportCursor(viewportKey, 'cursor-move')
+      return
+    }
+
+    clearViewportCursor(viewportKey)
+  }
+
   function startEditingExistingHandle(
     pointerTarget: HTMLElement,
     pointerId: number,
@@ -813,11 +999,14 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (state.kind === 'moving') {
-      const nextPoints = translateMeasurementPoints(
-        currentDraft.points,
-        point.x - state.lastPoint.x,
-        point.y - state.lastPoint.y
-      )
+      const nextPoints =
+        toolType === 'rect' || toolType === 'ellipse'
+          ? moveRectRoiDraftPoints(currentDraft.points, state.lastPoint, point)
+          : translateMeasurementPoints(
+              currentDraft.points,
+              point.x - state.lastPoint.x,
+              point.y - state.lastPoint.y
+            )
       measurementInteractionController.markChanged()
       measurementInteractionController.updateLastPoint(point)
       updateDraftMeasurement(state.viewportKey, {
@@ -833,12 +1022,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (state.kind === 'editing_handle') {
-      const nextPoints = updateEditedMeasurementPoints(
-        toolType,
-        currentDraft.points,
-        state.handleIndex,
-        point
-      )
+      const nextPoints =
+        toolType === 'rect' || toolType === 'ellipse'
+          ? editRectRoiDraftPoints(currentDraft.points, state.handleIndex, point)
+          : updateEditedMeasurementPoints(toolType, currentDraft.points, state.handleIndex, point)
       measurementInteractionController.markChanged()
       updateDraftMeasurement(state.viewportKey, {
         ...currentDraft,
@@ -848,6 +1035,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         viewportKey: state.viewportKey,
         toolType,
         points: nextPoints
+      })
+      return true
+    }
+
+    if (toolType === 'rect' || toolType === 'ellipse') {
+      const nextDraft = createMeasurementDraft(toolType, buildRectRoiDraftPoints(currentDraft.points[0], point))
+      updateDraftMeasurement(state.viewportKey, nextDraft)
+      emitThrottledMeasurementDraft({
+        viewportKey: state.viewportKey,
+        toolType,
+        points: nextDraft.points
       })
       return true
     }
@@ -902,6 +1100,99 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return true
   }
 
+  function startEditingExistingMtfHandle(
+    pointerTarget: HTMLElement,
+    pointerId: number,
+    viewportKey: string,
+    mtfItem: ViewerMtfItem,
+    handleIndex: number
+  ): void {
+    setPointerCapture(pointerTarget, pointerId)
+    mtfInteractionController.startEditingHandle(viewportKey, mtfItem.mtfId, handleIndex)
+    updateMtfDraft(viewportKey, {
+      mtfId: mtfItem.mtfId,
+      points: mtfItem.points
+    })
+    setViewportCursor(viewportKey, 'cursor-pointer')
+  }
+
+  function startPendingMtfMove(
+    pointerTarget: HTMLElement,
+    pointerId: number,
+    viewportKey: string,
+    mtfItem: ViewerMtfItem,
+    startPoint: MeasurementDraftPoint
+  ): void {
+    setPointerCapture(pointerTarget, pointerId)
+    mtfInteractionController.startMovePending(viewportKey, mtfItem.mtfId, startPoint)
+    updateMtfDraft(viewportKey, {
+      mtfId: mtfItem.mtfId,
+      points: mtfItem.points
+    })
+    setViewportCursor(viewportKey, 'cursor-move')
+  }
+
+  function startNewMtf(
+    pointerTarget: HTMLElement,
+    pointerId: number,
+    viewportKey: string,
+    point: MeasurementDraftPoint
+  ): void {
+    setPointerCapture(pointerTarget, pointerId)
+    mtfInteractionController.startCreate(viewportKey)
+    options.emitMtfSelect({ mtfId: null })
+    clearMtfDraft(viewportKey)
+    updateMtfDraft(viewportKey, {
+      points: buildRectRoiDraftPoints(point, point)
+    })
+  }
+
+  function handleMtfInteractionPointerUp(pointerTarget?: EventTarget | null): boolean {
+    const interactionState = mtfInteraction.value
+    if (
+      interactionState.kind !== 'creating' &&
+      interactionState.kind !== 'moving' &&
+      interactionState.kind !== 'editing_handle'
+    ) {
+      return false
+    }
+
+    const viewportKey = interactionState.viewportKey
+    const draft = getMtfDraft(viewportKey)
+    if (draft) {
+      if ((interactionState.kind === 'editing_handle' || interactionState.kind === 'moving') && !interactionState.hasChanged) {
+        if (draft.mtfId) {
+          mtfInteractionController.select(viewportKey, draft.mtfId)
+          options.emitMtfSelect({ mtfId: draft.mtfId })
+        } else {
+          mtfInteractionController.reset()
+        }
+        stopViewportDrag(pointerTarget)
+        return true
+      }
+
+      if (isValidMtfDraft(draft.points)) {
+        options.emitMtfCommit({
+          viewportKey,
+          points: draft.points,
+          mtfId: draft.mtfId
+        })
+        if (draft.mtfId) {
+          mtfInteractionController.select(viewportKey, draft.mtfId)
+          options.emitMtfSelect({ mtfId: draft.mtfId })
+        }
+      } else if (draft.mtfId) {
+        mtfInteractionController.select(viewportKey, draft.mtfId)
+        options.emitMtfSelect({ mtfId: draft.mtfId })
+      } else {
+        options.emitMtfSelect({ mtfId: null })
+      }
+    }
+
+    stopViewportDrag(pointerTarget)
+    return true
+  }
+
   function handleMeasurementPointerMove(event: PointerEvent): boolean {
     const interactionState = measurementInteraction.value
     if (interactionState.kind === 'move_pending') {
@@ -911,9 +1202,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         return false
       }
 
-      const movementX = (context.point.x - interactionState.startPoint.x) * context.imageRect.width
-      const movementY = (context.point.y - interactionState.startPoint.y) * context.imageRect.height
-      if (Math.max(Math.abs(movementX), Math.abs(movementY)) < DRAG_START_THRESHOLD) {
+      if (!hasRectRoiDragExceededThreshold(interactionState.startPoint, context.point, context.imageRect, DRAG_START_THRESHOLD)) {
         return true
       }
 
@@ -936,6 +1225,61 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     handleActiveMeasurementEditMove(currentMeasurementState, toolType, context.point)
+    return true
+  }
+
+  function handleMtfPointerMove(event: PointerEvent): boolean {
+    const interactionState = mtfInteraction.value
+    if (interactionState.kind === 'move_pending') {
+      const context = resolveMeasurementPointerContext(event, interactionState.viewportKey)
+      const currentDraft = getMtfDraft(interactionState.viewportKey)
+      if (!context || !currentDraft) {
+        return false
+      }
+
+      if (!hasRectRoiDragExceededThreshold(interactionState.startPoint, context.point, context.imageRect, DRAG_START_THRESHOLD)) {
+        return true
+      }
+
+      mtfInteractionController.startMoving(interactionState.startPoint)
+    }
+
+    const currentState = mtfInteraction.value
+    if (currentState.kind !== 'creating' && currentState.kind !== 'moving' && currentState.kind !== 'editing_handle') {
+      return false
+    }
+
+    const context = resolveMeasurementPointerContext(event, currentState.viewportKey)
+    const currentDraft = getMtfDraft(currentState.viewportKey)
+    if (!context || !currentDraft) {
+      return true
+    }
+
+    if (currentState.kind === 'moving') {
+      const nextPoints = moveRectRoiDraftPoints(currentDraft.points, currentState.lastPoint, context.point)
+      mtfInteractionController.markChanged()
+      mtfInteractionController.updateLastPoint(context.point)
+      updateMtfDraft(currentState.viewportKey, {
+        ...currentDraft,
+        points: nextPoints
+      })
+      return true
+    }
+
+    if (currentState.kind === 'editing_handle') {
+      const nextPoints = editRectRoiDraftPoints(currentDraft.points, currentState.handleIndex, context.point)
+      mtfInteractionController.markChanged()
+      updateMtfDraft(currentState.viewportKey, {
+        ...currentDraft,
+        points: nextPoints
+      })
+      return true
+    }
+
+    updateMtfDraft(currentState.viewportKey, {
+      ...currentDraft,
+      points: buildRectRoiDraftPoints(currentDraft.points[0], context.point)
+    })
     return true
   }
 
@@ -1076,6 +1420,56 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return true
   }
 
+  function handleMtfPointerDown(event: PointerEvent, viewportKey: string, pointerTarget: HTMLElement): boolean {
+    if (!isMtfOperationEnabled()) {
+      return false
+    }
+
+    const context = resolveMeasurementPointerContext(event, viewportKey)
+    if (!context) {
+      return false
+    }
+
+    event.preventDefault()
+    setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+    const selectedMtf = getSelectedMtf(viewportKey)
+    const intent = resolveMtfPointerDownIntent({
+      items: options.getMtfItems(viewportKey),
+      selectedItem: selectedMtf,
+      point: context.point,
+      rect: context.imageRect
+    })
+
+    if (intent.kind === 'edit_handle' && selectedMtf) {
+      startEditingExistingMtfHandle(pointerTarget, event.pointerId, viewportKey, selectedMtf, intent.handleIndex)
+      return true
+    }
+
+    if (intent.kind === 'select_item') {
+      mtfInteractionController.select(viewportKey, intent.item.mtfId)
+      options.emitMtfSelect({ mtfId: intent.item.mtfId })
+      clearMtfDraft(viewportKey)
+      setViewportCursor(viewportKey, 'cursor-move')
+      return true
+    }
+
+    if (intent.kind === 'move_selected' && selectedMtf) {
+      startPendingMtfMove(pointerTarget, event.pointerId, viewportKey, selectedMtf, context.point)
+      return true
+    }
+
+    if (intent.kind === 'clear_selection') {
+      mtfInteractionController.reset()
+      options.emitMtfSelect({ mtfId: null })
+      clearMtfDraft(viewportKey)
+      clearViewportCursor(viewportKey)
+      return true
+    }
+
+    startNewMtf(pointerTarget, event.pointerId, viewportKey, context.point)
+    return true
+  }
+
   function handleCrosshairPointerDown(event: PointerEvent, viewportKey: string, pointerTarget: HTMLElement): boolean {
     if (!isCrosshairOperationEnabled()) {
       return false
@@ -1122,8 +1516,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function handleViewportPointerMove(event: PointerEvent): void {
     if (activePointerId.value !== event.pointerId) {
       if (event.buttons === 0) {
-        updateMeasurementHoverCursor(event)
+        if (isMtfOperationEnabled()) {
+          updateMtfHoverCursor(event)
+        } else {
+          updateMeasurementHoverCursor(event)
+        }
       }
+      return
+    }
+
+    if (handleMtfPointerMove(event)) {
       return
     }
 
@@ -1137,13 +1539,21 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     if (!handleViewportDragPointerMove(event)) {
       if (event.buttons === 0) {
-        updateMeasurementHoverCursor(event)
+        if (isMtfOperationEnabled()) {
+          updateMtfHoverCursor(event)
+        } else {
+          updateMeasurementHoverCursor(event)
+        }
       }
     }
   }
 
   function handleViewportPointerUp(event: PointerEvent): void {
     if (activePointerId.value !== event.pointerId) {
+      return
+    }
+
+    if (handleMtfInteractionPointerUp(event.currentTarget)) {
       return
     }
 
@@ -1168,6 +1578,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   function handleViewportPointerCancel(event: PointerEvent): void {
     if (activePointerId.value !== event.pointerId) {
+      return
+    }
+
+    if (isCapturedMtfInteraction(mtfInteraction.value)) {
+      stopViewportDrag(event.currentTarget)
       return
     }
 
@@ -1197,6 +1612,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
+    if (handleMtfPointerDown(event, viewportKey, context.pointerTarget)) {
+      return
+    }
+
     if (handleCrosshairPointerDown(event, viewportKey, context.pointerTarget)) {
       return
     }
@@ -1211,15 +1630,20 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     viewportCursorClasses.value = {}
     stopViewportDrag()
     clearDraftMeasurement()
+    clearMtfDraft()
     resetMeasurementInteraction()
+    mtfInteractionController.reset()
   }
 
   return {
     activeViewportKey,
     cleanupPointerInteractions,
+    copySelectedMtf,
     copySelectedMeasurement,
+    deleteSelectedMtf,
     deleteSelectedMeasurement,
     draftMeasurements,
+    getMtfDraft,
     getDraftMeasurementMode,
     handleViewportPointerCancel,
     handleViewportPointerLeave,

@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem } from '../../../types/viewer'
+import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerMtfItem, ViewerTabItem } from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -10,12 +10,19 @@ const props = defineProps<{
   draftMeasurementMode?: DraftMeasurementMode | null
   draftMeasurement?: MeasurementDraft | null
   measurements?: MeasurementOverlay[]
+  mtfDraft?: { mtfId?: string; points: { x: number; y: number }[] } | null
+  mtfItems?: ViewerMtfItem[]
+  selectedMtfId?: string | null
 }>()
 
 const emit = defineEmits<{
   copySelectedMeasurement: [viewportKey: string]
+  copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string]
+  clearMtf: []
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  openMtfCurve: []
+  selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -90,11 +97,18 @@ function handleSliceSliderInput(event: Event): void {
       :draft-measurement-mode="props.draftMeasurementMode ?? null"
       :draft-measurement="props.draftMeasurement ?? null"
       :measurements="props.measurements ?? []"
+      :mtf-draft="props.mtfDraft ?? null"
+      :mtf-items="props.mtfItems ?? []"
+      :selected-mtf-id="props.selectedMtfId ?? null"
       :orientation="props.activeTab.orientation"
+      @clear-mtf="emit('clearMtf')"
+      @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
       @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
+      @open-mtf-curve="emit('openMtfCurve')"
+      @select-mtf="emit('selectMtf', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="emit('pointerDown', $event, 'single')"
       @pointer-leave="emit('pointerLeave', $event)"
@@ -125,7 +139,6 @@ function handleSliceSliderInput(event: Event): void {
 
 <style scoped>
 .stack-slice-slider {
-  appearance: slider-vertical;
   writing-mode: bt-lr;
   transform: rotate(180deg);
 }

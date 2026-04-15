@@ -23,11 +23,13 @@ import type {
   CornerInfoResponse,
   ConnectionState,
   FolderSeriesItem,
+  MtfAnalyzeResponse,
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
   MprViewportKey,
   ViewImageResponse,
+  ViewerMtfItem,
   ViewerTabItem,
   ViewType,
   VolumeRenderConfig,
@@ -67,6 +69,10 @@ interface ViewerWorkspaceState {
     labelLines?: string[]
   }) => void
   handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
+  handleMtfClear: (payload?: { mtfId?: string | null }) => void
+  handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
+  handleMtfCopy: (payload?: { mtfId?: string | null }) => Promise<boolean>
+  handleMtfSelect: (payload: { mtfId: string | null }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -113,6 +119,56 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
+
+  function generateMtfId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+    return `mtf-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  }
+
+  function clampNormalizedPoint(point: MeasurementDraftPoint): MeasurementDraftPoint {
+    return {
+      x: Math.max(0, Math.min(1, point.x)),
+      y: Math.max(0, Math.min(1, point.y))
+    }
+  }
+
+  function offsetMtfPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
+    const shiftedPoints = points.map((point) =>
+      clampNormalizedPoint({
+        x: point.x + delta,
+        y: point.y + delta
+      })
+    )
+
+    const changed = shiftedPoints.some((point, index) => point.x !== points[index]?.x || point.y !== points[index]?.y)
+    if (changed) {
+      return shiftedPoints
+    }
+
+    return points.map((point) =>
+      clampNormalizedPoint({
+        x: point.x - delta,
+        y: point.y - delta
+      })
+    )
+  }
+
+  function arePointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {
+    if (a.length !== b.length) {
+      return false
+    }
+
+    return a.every((point, index) => {
+      const otherPoint = b[index]
+      return (
+        otherPoint != null &&
+        Math.abs(point.x - otherPoint.x) < 0.0005 &&
+        Math.abs(point.y - otherPoint.y) < 0.0005
+      )
+    })
+  }
 
   function updateHoverCornerInfoByViewId(viewId: string, row: number | null = null, col: number | null = null): void {
     viewerTabs.value = viewerTabs.value.map((item) => {
@@ -325,6 +381,241 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       viewId: tab.viewId,
       ...operationPayload
     })
+  }
+
+  function resolveViewIdForViewport(viewportKey: string): string | null {
+    const tab = activeTab.value
+    if (!tab) {
+      return null
+    }
+
+    if (tab.viewType === 'MPR') {
+      if (!isMprViewportKey(viewportKey)) {
+        return null
+      }
+      return tab.viewportViewIds?.[viewportKey] ?? null
+    }
+
+    if (tab.viewType !== 'Stack') {
+      return null
+    }
+
+    return tab.viewId || null
+  }
+
+  function updateActiveTabMtfState(updater: (current: ViewerTabItem) => ViewerTabItem): void {
+    const tab = activeTab.value
+    if (!tab) {
+      return
+    }
+
+    viewerTabs.value = viewerTabs.value.map((item) => (item.key === tab.key ? updater(item) : item))
+  }
+
+  function findMtfItem(item: ViewerTabItem, mtfId?: string | null): ViewerMtfItem | null {
+    if (!mtfId) {
+      return null
+    }
+
+    return item.mtfState?.items.find((candidate) => candidate.mtfId === mtfId) ?? null
+  }
+
+  function updateMtfItemCollection(
+    item: ViewerTabItem,
+    nextMtfItem: ViewerMtfItem,
+    options: {
+      remove?: boolean
+      selectMtfId?: string | null
+    } = {}
+  ): ViewerTabItem {
+    const previousItems = item.mtfState?.items ?? []
+    const nextItems = options.remove
+      ? previousItems.filter((candidate) => candidate.mtfId !== nextMtfItem.mtfId)
+      : (() => {
+          const index = previousItems.findIndex((candidate) => candidate.mtfId === nextMtfItem.mtfId)
+          if (index === -1) {
+            return [...previousItems, nextMtfItem]
+          }
+
+          return previousItems.map((candidate, currentIndex) => (currentIndex === index ? nextMtfItem : candidate))
+        })()
+
+    if (!nextItems.length) {
+      return {
+        ...item,
+        mtfState: null
+      }
+    }
+
+    const fallbackSelectedId =
+      item.mtfState?.selectedMtfId && nextItems.some((candidate) => candidate.mtfId === item.mtfState?.selectedMtfId)
+        ? item.mtfState.selectedMtfId
+        : nextItems[nextItems.length - 1]?.mtfId ?? null
+    const selectedMtfId =
+      options.selectMtfId === undefined
+        ? fallbackSelectedId
+        : options.selectMtfId && nextItems.some((candidate) => candidate.mtfId === options.selectMtfId)
+          ? options.selectMtfId
+          : fallbackSelectedId
+
+    return {
+      ...item,
+      mtfState: {
+        items: nextItems,
+        selectedMtfId
+      }
+    }
+  }
+
+  async function handleMtfCommit(payload: {
+    viewportKey: string
+    points: MeasurementDraftPoint[]
+    mtfId?: string
+  }): Promise<void> {
+    const tab = activeTab.value
+    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR')) {
+      return
+    }
+
+    const viewId = resolveViewIdForViewport(payload.viewportKey)
+    if (!viewId) {
+      return
+    }
+
+    const mtfId = payload.mtfId ?? generateMtfId()
+    updateActiveTabMtfState((item) =>
+      updateMtfItemCollection(
+        item,
+        {
+          mtfId,
+          viewportKey: payload.viewportKey,
+          points: payload.points,
+          status: 'calculating',
+          metrics: null,
+          curve: [],
+          errorMessage: null
+        },
+        {
+          selectMtfId: mtfId
+        }
+      )
+    )
+
+    try {
+      const { data } = await api.post<MtfAnalyzeResponse>('/view/mtf/analyze', {
+        viewId,
+        viewportKey: payload.viewportKey,
+        points: payload.points
+      })
+
+      updateActiveTabMtfState((item) =>
+        updateMtfItemCollection(
+          item,
+          {
+            mtfId,
+            viewportKey: data.viewportKey,
+            points: data.points,
+            status: 'ready',
+            metrics: data.metrics,
+            curve: data.curve,
+            errorMessage: null,
+            isPlaceholder: data.isPlaceholder ?? false
+          },
+          {
+            selectMtfId: mtfId
+          }
+        )
+      )
+    } catch (error) {
+      const fallbackMessage =
+        typeof error === 'object' && error != null && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : 'MTF 分析失败'
+
+      updateActiveTabMtfState((item) =>
+        updateMtfItemCollection(
+          item,
+          {
+            mtfId,
+            viewportKey: payload.viewportKey,
+            points: payload.points,
+            status: 'error',
+            metrics: null,
+            curve: [],
+            errorMessage: fallbackMessage
+          },
+          {
+            selectMtfId: mtfId
+          }
+        )
+      )
+    }
+  }
+
+  function handleMtfSelect(payload: { mtfId: string | null }): void {
+    updateActiveTabMtfState((item) => {
+      const mtfItems = item.mtfState?.items ?? []
+      if (!mtfItems.length) {
+        return item
+      }
+
+      const selectedMtfId =
+        payload.mtfId && mtfItems.some((candidate) => candidate.mtfId === payload.mtfId)
+          ? payload.mtfId
+          : mtfItems[mtfItems.length - 1]?.mtfId ?? null
+
+      return {
+        ...item,
+        mtfState: {
+          items: mtfItems,
+          selectedMtfId
+        }
+      }
+    })
+  }
+
+  function handleMtfClear(payload?: { mtfId?: string | null }): void {
+    updateActiveTabMtfState((item) => {
+      const targetMtfId = payload?.mtfId ?? item.mtfState?.selectedMtfId ?? null
+      const targetItem = findMtfItem(item, targetMtfId)
+      if (!targetItem) {
+        return item
+      }
+
+      return updateMtfItemCollection(item, targetItem, {
+        remove: true
+      })
+    })
+  }
+
+  async function handleMtfCopy(payload?: { mtfId?: string | null }): Promise<boolean> {
+    const tab = activeTab.value
+    if (!tab?.mtfState?.items.length) {
+      return false
+    }
+
+    const sourceItem = findMtfItem(tab, payload?.mtfId ?? tab.mtfState.selectedMtfId ?? null)
+    if (!sourceItem) {
+      return false
+    }
+
+    const occupiedPointSets = tab.mtfState.items.map((item) => item.points)
+    let copiedPoints = sourceItem.points
+    for (let attempt = 1; attempt <= 12; attempt += 1) {
+      const candidate = offsetMtfPoints(sourceItem.points, 0.01 * attempt)
+      if (!occupiedPointSets.some((points) => arePointSetsClose(points, candidate))) {
+        copiedPoints = candidate
+        break
+      }
+    }
+
+    await handleMtfCommit({
+      viewportKey: sourceItem.viewportKey,
+      points: copiedPoints,
+      mtfId: generateMtfId()
+    })
+
+    return true
   }
 
   function setViewerStage(payload: WorkspaceReadyPayload): void {
@@ -780,6 +1071,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleMeasurementCreate,
     handleMeasurementDelete,
     handleMeasurementDraft,
+    handleMtfClear,
+    handleMtfCommit,
+    handleMtfCopy,
+    handleMtfSelect,
     handleMprCrosshair,
     handleVolumeConfigChange,
     handleViewportDrag,

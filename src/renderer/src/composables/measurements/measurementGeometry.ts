@@ -1,4 +1,11 @@
 import type { MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../types/viewer'
+import {
+  findRectRoiHandleIndexAtPoint,
+  getRectRoiBounds,
+  getRectRoiHandlePoints,
+  isPointInsideRectRoi,
+  updateEditedRectRoiPoints
+} from './rectRoiGeometry'
 
 const DISTINCT_POINT_EPSILON = 0.001
 const MEASUREMENT_HIT_RADIUS_PX = 14
@@ -33,16 +40,7 @@ export function getMeasurementHandlePoints(
   points: MeasurementDraftPoint[]
 ): MeasurementDraftPoint[] {
   if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {
-    const left = Math.min(points[0].x, points[1].x)
-    const right = Math.max(points[0].x, points[1].x)
-    const top = Math.min(points[0].y, points[1].y)
-    const bottom = Math.max(points[0].y, points[1].y)
-    return [
-      { x: left, y: top },
-      { x: right, y: top },
-      { x: right, y: bottom },
-      { x: left, y: bottom }
-    ]
+    return getRectRoiHandlePoints(points)
   }
   return points
 }
@@ -64,23 +62,23 @@ function isDistinctPoint(a: MeasurementDraftPoint, b: MeasurementDraftPoint): bo
   return Math.abs(a.x - b.x) > DISTINCT_POINT_EPSILON || Math.abs(a.y - b.y) > DISTINCT_POINT_EPSILON
 }
 
-function getDistanceSquared(a: MeasurementDraftPoint, b: MeasurementDraftPoint, rect: DOMRect): number {
-  const dx = (a.x - b.x) * rect.width
-  const dy = (a.y - b.y) * rect.height
-  return dx * dx + dy * dy
-}
-
 export function findHandleIndexAtPoint(
   toolType: MeasurementToolType,
   points: MeasurementDraftPoint[],
   point: MeasurementDraftPoint,
   rect: DOMRect
 ): number | null {
+  if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {
+    return findRectRoiHandleIndexAtPoint(points, point, rect, MEASUREMENT_HIT_RADIUS_PX)
+  }
+
   const handles = getMeasurementHandlePoints(toolType, points)
   let bestIndex: number | null = null
   let bestDistance = Number.POSITIVE_INFINITY
   for (let index = 0; index < handles.length; index += 1) {
-    const distance = getDistanceSquared(handles[index], point, rect)
+    const dx = (handles[index].x - point.x) * rect.width
+    const dy = (handles[index].y - point.y) * rect.height
+    const distance = dx * dx + dy * dy
     if (distance <= MEASUREMENT_HIT_RADIUS_PX * MEASUREMENT_HIT_RADIUS_PX && distance < bestDistance) {
       bestDistance = distance
       bestIndex = index
@@ -137,33 +135,34 @@ export function isMeasurementHit(
   }
 
   if ((measurement.toolType === 'rect' || measurement.toolType === 'ellipse') && measurement.points.length >= 2) {
-    const left = Math.min(measurement.points[0].x, measurement.points[1].x)
-    const right = Math.max(measurement.points[0].x, measurement.points[1].x)
-    const top = Math.min(measurement.points[0].y, measurement.points[1].y)
-    const bottom = Math.max(measurement.points[0].y, measurement.points[1].y)
+    const bounds = getRectRoiBounds(measurement.points)
+    if (!bounds) {
+      return { hit: false, handleIndex: null, score: Number.POSITIVE_INFINITY }
+    }
+
     if (measurement.toolType === 'rect') {
-      const inside = point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
-      const pxLeft = Math.abs((point.x - left) * rect.width)
-      const pxRight = Math.abs((right - point.x) * rect.width)
-      const pxTop = Math.abs((point.y - top) * rect.height)
-      const pxBottom = Math.abs((bottom - point.y) * rect.height)
+      const inside = isPointInsideRectRoi(measurement.points, point)
+      const pxLeft = Math.abs((point.x - bounds.left) * rect.width)
+      const pxRight = Math.abs((bounds.right - point.x) * rect.width)
+      const pxTop = Math.abs((point.y - bounds.top) * rect.height)
+      const pxBottom = Math.abs((bounds.bottom - point.y) * rect.height)
       const edgeDistance = Math.min(pxLeft, pxRight, pxTop, pxBottom)
-      const areaPenalty = (right - left) * rect.width * (bottom - top) * rect.height * 0.0001
+      const areaPenalty = (bounds.right - bounds.left) * rect.width * (bounds.bottom - bounds.top) * rect.height * 0.0001
       return {
         hit: inside,
         handleIndex: null,
         score: edgeDistance + areaPenalty
       }
     }
-    const cx = (left + right) / 2
-    const cy = (top + bottom) / 2
-    const rx = Math.max((right - left) / 2, 1e-6)
-    const ry = Math.max((bottom - top) / 2, 1e-6)
+    const cx = (bounds.left + bounds.right) / 2
+    const cy = (bounds.top + bounds.bottom) / 2
+    const rx = Math.max((bounds.right - bounds.left) / 2, 1e-6)
+    const ry = Math.max((bounds.bottom - bounds.top) / 2, 1e-6)
     const nx = (point.x - cx) / rx
     const ny = (point.y - cy) / ry
     const ellipseValue = nx * nx + ny * ny
     const radiusDelta = Math.abs(ellipseValue - 1.0)
-    const areaPenalty = (right - left) * rect.width * (bottom - top) * rect.height * 0.0001
+    const areaPenalty = (bounds.right - bounds.left) * rect.width * (bounds.bottom - bounds.top) * rect.height * 0.0001
     return {
       hit: ellipseValue <= 1.0,
       handleIndex: null,
@@ -271,13 +270,7 @@ export function updateEditedMeasurementPoints(
     return points.map((point, index) => (index === selectedHandleIndex ? nextPoint : point))
   }
   if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {
-    const handles = getMeasurementHandlePoints(toolType, points)
-    const oppositeIndex = (selectedHandleIndex + 2) % 4
-    const opposite = handles[oppositeIndex]
-    return [
-      { x: Math.min(nextPoint.x, opposite.x), y: Math.min(nextPoint.y, opposite.y) },
-      { x: Math.max(nextPoint.x, opposite.x), y: Math.max(nextPoint.y, opposite.y) }
-    ]
+    return updateEditedRectRoiPoints(points, selectedHandleIndex, nextPoint)
   }
   return points
 }

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprCrosshairInfo, OrientationInfo } from '../../../types/viewer'
+import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprCrosshairInfo, OrientationInfo, ViewerMtfItem } from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
 import ViewportCornerOverlay from '../overlays/ViewportCornerOverlay.vue'
 import ViewportCrosshairOverlay from '../overlays/ViewportCrosshairOverlay.vue'
+import ViewportMtfOverlay from '../overlays/ViewportMtfOverlay.vue'
 import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.vue'
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
 
@@ -14,6 +15,9 @@ const props = withDefaults(
     cursorClass?: string
     draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
+    mtfDraft?: { mtfId?: string; points: { x: number; y: number }[] } | null
+    mtfItems?: ViewerMtfItem[]
+    selectedMtfId?: string | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
     imageSrc: string
@@ -46,9 +50,13 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   copySelectedMeasurement: [viewportKey: string]
+  copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string]
+  clearMtf: []
   clickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  openMtfCurve: []
+  selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -264,6 +272,16 @@ watch(
         :image-frame="imageFrame"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey)"
+      />
+      <ViewportMtfOverlay
+        :image-frame="imageFrame"
+        :mtf-draft="mtfDraft ?? null"
+        :mtf-items="mtfItems ?? []"
+        :selected-mtf-id="selectedMtfId ?? null"
+        @clear="emit('clearMtf')"
+        @copy="emit('copySelectedMtf', props.viewportKey)"
+        @open-curve="emit('openMtfCurve')"
+        @select="emit('selectMtf', $event)"
       />
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />

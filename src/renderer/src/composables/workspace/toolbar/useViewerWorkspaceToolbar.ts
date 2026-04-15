@@ -9,8 +9,8 @@ import {
 import type { ViewerTabItem, VolumeRenderConfig } from '../../../types/viewer'
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
-const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure'])
+const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'mtf'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'mtf'])
 
 const measureTool: StackTool = {
   key: 'measure',
@@ -26,6 +26,7 @@ const measureTool: StackTool = {
 }
 
 const stackTools: StackTool[] = [
+  { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
   { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
@@ -62,6 +63,7 @@ const stackTools: StackTool[] = [
 ]
 
 const genericTools: StackTool[] = [
+  { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
   { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },

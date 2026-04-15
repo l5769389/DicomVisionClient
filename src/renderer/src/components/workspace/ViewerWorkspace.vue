@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, useTemplateRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
@@ -12,6 +12,7 @@ import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
+import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 
 const props = defineProps<{
   activeOperation: string
@@ -36,6 +37,11 @@ const emit = defineEmits<{
     labelLines?: string[]
   }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
+  mtfClear: []
+  mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string }]
+  mtfCopy: [payload?: { mtfId?: string | null }]
+  mtfDelete: [payload?: { mtfId?: string | null }]
+  mtfSelect: [payload: { mtfId: string | null }]
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
@@ -59,6 +65,7 @@ const {
   copySelectedMeasurement,
   deleteSelectedMeasurement,
   draftMeasurements,
+  getMtfDraft,
   getDraftMeasurementMode,
   handleViewportPointerCancel,
   handleViewportPointerLeave,
@@ -77,9 +84,13 @@ const {
   emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
   emitMeasurementCreate: (payload) => emit('measurementCreate', payload),
   emitMeasurementDelete: (payload) => emit('measurementDelete', payload),
+  emitMtfCommit: (payload) => emit('mtfCommit', payload),
+  emitMtfDelete: (payload) => emit('mtfDelete', payload),
+  emitMtfSelect: (payload) => emit('mtfSelect', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
   emitViewportDrag: (payload) => emit('viewportDrag', payload),
-  getCommittedMeasurements: (viewportKey) => getCommittedMeasurements(viewportKey)
+  getCommittedMeasurements: (viewportKey) => getCommittedMeasurements(viewportKey),
+  getMtfItems: (viewportKey) => getMtfItems(viewportKey)
 })
 const {
   activeTools,
@@ -140,6 +151,16 @@ function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverla
   return committedMeasurements.filter((measurement) => measurement.measurementId !== editingMeasurementId)
 }
 
+function getMtfItems(viewportKey: string) {
+  const items = (props.activeTab?.mtfState?.items ?? []).filter((item) => item.viewportKey === viewportKey)
+  const draft = getMtfDraft(viewportKey)
+  if (!draft?.mtfId) {
+    return items
+  }
+
+  return items.filter((item) => item.mtfId !== draft.mtfId)
+}
+
 function getViewportCursorClass(viewportKey: string): string {
   return viewportCursorClasses.value[viewportKey] ?? ''
 }
@@ -155,6 +176,79 @@ function getMprCornerInfo(viewportKey: string) {
     }
   )
 }
+
+const isMtfCurveDialogOpen = ref(false)
+const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
+const selectedMtfItem = computed(() => {
+  const state = activeMtfState.value
+  if (!state?.selectedMtfId) {
+    return null
+  }
+
+  return state.items.find((item) => item.mtfId === state.selectedMtfId) ?? null
+})
+
+function handleOpenMtfCurve(): void {
+  if (selectedMtfItem.value?.status === 'ready') {
+    isMtfCurveDialogOpen.value = true
+  }
+}
+
+function handleCloseMtfCurve(): void {
+  isMtfCurveDialogOpen.value = false
+}
+
+function handleClearMtf(): void {
+  isMtfCurveDialogOpen.value = false
+  emit('mtfDelete', {
+    mtfId: selectedMtfItem.value?.mtfId ?? null
+  })
+}
+
+function handleCopySelectedMtf(): void {
+  if (!selectedMtfItem.value) {
+    return
+  }
+
+  emit('mtfCopy', {
+    mtfId: selectedMtfItem.value.mtfId
+  })
+}
+
+function handleDeleteSelectedMtf(): void {
+  handleClearMtf()
+}
+
+function handleSelectMtf(payload: { mtfId: string | null }): void {
+  emit('mtfSelect', payload)
+}
+
+function copySelectedMtfAction(): boolean {
+  if (!selectedMtfItem.value) {
+    return false
+  }
+
+  handleCopySelectedMtf()
+  return true
+}
+
+function deleteSelectedMtfAction(): boolean {
+  if (!selectedMtfItem.value) {
+    return false
+  }
+
+  handleDeleteSelectedMtf()
+  return true
+}
+
+watch(
+  () => activeMtfState.value,
+  (value) => {
+    if (!value?.items.length || !selectedMtfItem.value) {
+      isMtfCurveDialogOpen.value = false
+    }
+  }
+)
 
 const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, tabStripRef, updateTabScrollState } =
   useViewerWorkspaceShell({
@@ -176,15 +270,19 @@ function handleWorkspaceKeydown(event: KeyboardEvent): void {
     return
   }
 
+  const preferMtf = props.activeOperation === 'mtf'
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-    if (copySelectedMeasurement()) {
+    if ((preferMtf && copySelectedMtfAction()) || copySelectedMeasurement() || copySelectedMtfAction()) {
       event.preventDefault()
     }
     return
   }
 
-  if ((event.key === 'Delete' || event.key === 'Backspace') && deleteSelectedMeasurement()) {
-    event.preventDefault()
+  if (event.key === 'Delete' || event.key === 'Backspace') {
+    if ((preferMtf && deleteSelectedMtfAction()) || deleteSelectedMeasurement() || deleteSelectedMtfAction()) {
+      event.preventDefault()
+    }
   }
 }
 
@@ -276,9 +374,16 @@ onBeforeUnmount(() => {
           :draft-measurement-mode="getDraftMeasurementMode('single')"
           :draft-measurement="getDraftMeasurement('single')"
           :measurements="getVisibleCommittedMeasurements('single')"
+          :mtf-draft="getMtfDraft('single')"
+          :mtf-items="getMtfItems('single')"
+          :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
           @copy-selected-measurement="copySelectedMeasurement($event)"
           @delete-selected-measurement="deleteSelectedMeasurement($event)"
+          @clear-mtf="handleDeleteSelectedMtf"
+          @copy-selected-mtf="handleCopySelectedMtf"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
+          @open-mtf-curve="handleOpenMtfCurve"
+          @select-mtf="handleSelectMtf"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDown"
@@ -296,10 +401,17 @@ onBeforeUnmount(() => {
           :get-draft-measurement-mode="(viewportKey) => getDraftMeasurementMode(viewportKey)"
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
           :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
+          :get-mtf-draft="(viewportKey) => getMtfDraft(viewportKey)"
+          :get-mtf-items="(viewportKey) => getMtfItems(viewportKey)"
+          :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
           :get-corner-info="(viewportKey) => getMprCornerInfo(viewportKey)"
           @copy-selected-measurement="copySelectedMeasurement($event)"
           @delete-selected-measurement="deleteSelectedMeasurement($event)"
+          @clear-mtf="handleDeleteSelectedMtf"
+          @copy-selected-mtf="handleCopySelectedMtf"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
+          @open-mtf-curve="handleOpenMtfCurve"
+          @select-mtf="handleSelectMtf"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDown"
@@ -317,6 +429,13 @@ onBeforeUnmount(() => {
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"
+        />
+
+        <MtfCurveDialog
+          :is-open="isMtfCurveDialogOpen"
+          :mtf-item="selectedMtfItem"
+          @clear="handleClearMtf"
+          @close="handleCloseMtfCurve"
         />
       </div>
 

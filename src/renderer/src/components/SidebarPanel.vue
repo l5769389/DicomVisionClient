@@ -50,6 +50,10 @@ const connectionDotClass = computed(() => {
   return 'bg-rose-400 shadow-[0_0_0_5px_rgba(248,113,113,0.14)]'
 })
 
+function handleOpenSeriesView(seriesId: string, viewType: ViewType): void {
+  emit('openSeriesView', seriesId, viewType)
+}
+
 function openMenu(): void {
   isMenuOpen.value = true
 }
@@ -80,7 +84,7 @@ function hideSeriesHoverCard(): void {
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel />
         <SidebarQuickActions :has-selected-series="hasSelectedSeries" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder')" @open-view="emit('openView', $event)" />
-        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @open-series-view="emit('openSeriesView', $event, 'Stack')" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
+        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>
 

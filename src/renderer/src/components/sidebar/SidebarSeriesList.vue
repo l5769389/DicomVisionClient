@@ -1,19 +1,113 @@
 <script setup lang="ts">
-import { VBtn, VCard, VChip } from 'vuetify/components'
+import { computed, ref } from 'vue'
+import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
-import type { FolderSeriesItem } from '../../types/viewer'
+import type { FolderSeriesItem, ViewType } from '../../types/viewer'
 
-defineProps<{
+const props = defineProps<{
   isLoadingFolder: boolean
   selectedSeriesId: string
   seriesList: FolderSeriesItem[]
 }>()
 
 const emit = defineEmits<{
-  openSeriesView: [seriesId: string]
+  openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
   selectSeries: [seriesId: string]
 }>()
+
+type SeriesContextAction = 'Stack' | 'MPR' | '3D' | 'Tag' | 'delete'
+
+const isContextMenuOpen = ref(false)
+const contextMenuPosition = ref({
+  x: 0,
+  y: 0
+})
+const contextSeries = ref<FolderSeriesItem | null>(null)
+
+const contextMenuAnchorStyle = computed(() => ({
+  left: `${contextMenuPosition.value.x}px`,
+  top: `${contextMenuPosition.value.y}px`
+}))
+
+const contextMenuActions = computed(() => [
+  {
+    key: 'Stack' as const,
+    title: '快速浏览',
+    subtitle: '打开当前序列的 Stack 视图',
+    badge: '2D'
+  },
+  {
+    key: 'MPR' as const,
+    title: 'MPR',
+    subtitle: '打开多平面重建视图',
+    badge: 'MPR'
+  },
+  {
+    key: '3D' as const,
+    title: '3D',
+    subtitle: '打开体渲染视图',
+    badge: '3D'
+  },
+  {
+    key: 'Tag' as const,
+    title: 'TAG',
+    subtitle: '查看该序列的 DICOM Tags',
+    badge: 'TAG'
+  },
+  {
+    key: 'delete' as const,
+    title: '删除',
+    subtitle: '从当前工作区移除该序列',
+    badge: 'DEL',
+    danger: true
+  }
+])
+
+const contextSeriesPreview = computed(() => {
+  if (!contextSeries.value) {
+    return {
+      title: '',
+      meta: '',
+      id: ''
+    }
+  }
+
+  return {
+    title: contextSeries.value.seriesDescription || '未命名序列',
+    meta: `${contextSeries.value.modality || 'N/A'} · ${contextSeries.value.instanceCount} 帧`,
+    id: contextSeries.value.seriesId
+  }
+})
+
+function closeContextMenu(): void {
+  isContextMenuOpen.value = false
+}
+
+function handleSeriesContextMenu(event: MouseEvent, series: FolderSeriesItem): void {
+  event.preventDefault()
+  emit('selectSeries', series.seriesId)
+  contextSeries.value = series
+  contextMenuPosition.value = {
+    x: event.clientX,
+    y: event.clientY
+  }
+  isContextMenuOpen.value = true
+}
+
+function handleContextAction(action: SeriesContextAction): void {
+  if (!contextSeries.value) {
+    return
+  }
+
+  if (action === 'delete') {
+    emit('removeSeries', contextSeries.value.seriesId)
+  } else {
+    emit('openSeriesView', contextSeries.value.seriesId, action)
+  }
+
+  closeContextMenu()
+}
 </script>
 
 <template>
@@ -43,8 +137,9 @@ const emit = defineEmits<{
           :key="series.seriesId"
           class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-2xl! border! px-3! py-3! transition duration-150"
           :class="series.seriesId === selectedSeriesId ? 'border-sky-300/45! bg-[linear-gradient(135deg,rgba(36,110,177,0.34),rgba(217,112,54,0.18))]! shadow-[inset_0_1px_0_rgba(255,255,255,0.09),inset_0_-1px_0_rgba(255,255,255,0.03),0_14px_28px_rgba(17,76,130,0.18)]' : 'border-white/8! bg-[linear-gradient(180deg,rgba(17,28,42,0.74),rgba(10,18,30,0.88))]! shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_18px_rgba(0,0,0,0.16)] hover:border-sky-300/22! hover:bg-[linear-gradient(180deg,rgba(21,34,49,0.82),rgba(12,21,34,0.92))]! hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_24px_rgba(0,0,0,0.18)]'"
+          @contextmenu="handleSeriesContextMenu($event, series)"
         >
-          <button class="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left" type="button" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId)">
+          <button class="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left" type="button" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')">
             <span class="mt-0.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition" :class="series.seriesId === selectedSeriesId ? 'border-sky-300 bg-[linear-gradient(180deg,rgba(82,172,241,0.22),rgba(235,106,42,0.12))] shadow-[0_0_0_4px_rgba(125,211,252,0.14)]' : 'border-slate-300/45 bg-white/5'"><span class="h-2 w-2 rounded-full" :class="series.seriesId === selectedSeriesId ? 'bg-sky-200' : 'bg-transparent'"></span></span>
             <span class="col-start-2 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-white' : 'text-slate-100'">{{ series.seriesDescription || '未命名序列' }}</span>
             <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-sky-50/85' : 'text-slate-400'">{{ series.modality || 'N/A' }} · {{ series.instanceCount }} 帧<template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template></span>
@@ -57,5 +152,114 @@ const emit = defineEmits<{
       </div>
       <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-5 text-sm leading-6 text-slate-400">加载文件夹后，这里会显示 DICOM 序列列表。</div>
     </div>
+
+    <div v-if="contextSeries" class="fixed z-[2100] h-0 w-0" :style="contextMenuAnchorStyle">
+      <VMenu
+        v-model="isContextMenuOpen"
+        activator="parent"
+        location="bottom start"
+        :offset="8"
+        scroll-strategy="reposition"
+        :close-on-content-click="true"
+      >
+        <VCard class="series-context-menu min-w-[300px] overflow-hidden rounded-[24px]! border! border-sky-200/14! bg-[linear-gradient(180deg,rgba(9,19,33,0.995),rgba(6,13,24,0.995))]! text-slate-100! shadow-[0_28px_64px_rgba(0,0,0,0.5)]!">
+          <div class="series-context-menu__chrome"></div>
+          <div class="relative px-2.5 pb-2.5 pt-2.5">
+            <div class="rounded-[18px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-sky-200/72">Series Actions</div>
+                  <div class="mt-1 truncate text-[12px] font-medium text-white">{{ contextSeriesPreview.title }}</div>
+                  <div class="mt-0.5 truncate text-[11px] text-slate-400">{{ contextSeriesPreview.meta }}</div>
+                  <div class="mt-1 truncate font-mono text-[10px] text-slate-500">{{ contextSeriesPreview.id }}</div>
+                </div>
+                <div class="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+                  Open
+                </div>
+              </div>
+            </div>
+
+            <VDivider class="my-2.5 border-white/8 opacity-100" />
+
+            <VList class="bg-transparent! py-0!">
+              <VListItem
+                v-for="action in contextMenuActions"
+                :key="action.key"
+                class="series-context-menu__item rounded-[16px]! px-2.5! py-1.5!"
+                :class="{ 'series-context-menu__item--danger': action.danger }"
+                @click="handleContextAction(action.key)"
+              >
+                <div class="flex items-center gap-2.5">
+                  <div class="series-context-menu__badge" :class="{ 'series-context-menu__badge--danger': action.danger }">{{ action.badge }}</div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-[12px] font-medium" :class="action.danger ? 'text-rose-100' : 'text-white'">{{ action.title }}</div>
+                    <div class="truncate text-[11px]" :class="action.danger ? 'text-rose-200/60' : 'text-slate-400'">{{ action.subtitle }}</div>
+                  </div>
+                </div>
+              </VListItem>
+            </VList>
+          </div>
+        </VCard>
+      </VMenu>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.series-context-menu {
+  position: relative;
+  backdrop-filter: blur(16px);
+}
+
+.series-context-menu__chrome {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%);
+  pointer-events: none;
+}
+
+.series-context-menu__item {
+  min-height: 50px;
+  color: rgba(241, 245, 249, 1);
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.series-context-menu__item:hover {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(34, 211, 238, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 22px rgba(0, 0, 0, 0.18);
+  transform: translateY(-1px);
+}
+
+.series-context-menu__item--danger:hover {
+  background: linear-gradient(180deg, rgba(251, 113, 133, 0.14), rgba(225, 29, 72, 0.08));
+}
+
+.series-context-menu__badge {
+  display: inline-flex;
+  height: 24px;
+  min-width: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(103, 232, 249, 0.2);
+  border-radius: 9999px;
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.14), rgba(14, 116, 144, 0.16));
+  color: rgba(207, 250, 254, 0.95);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.series-context-menu__badge--danger {
+  border-color: rgba(251, 113, 133, 0.22);
+  background: linear-gradient(180deg, rgba(251, 113, 133, 0.16), rgba(159, 18, 57, 0.16));
+  color: rgba(255, 228, 230, 0.95);
+}
+</style>

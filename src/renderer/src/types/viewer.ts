@@ -177,6 +177,10 @@ export interface ViewTransformInfo {
   verFlip: boolean
 }
 
+export interface ViewColorInfo {
+  pseudocolorPreset: string
+}
+
 export interface ViewImageResponse {
   imageFormat?: 'png' | 'jpeg'
   viewId: string
@@ -195,6 +199,7 @@ export interface ViewImageResponse {
   volumePreset?: string
   volumeConfig?: VolumeRenderConfig | null
   transform?: ViewTransformInfo | null
+  color?: ViewColorInfo | null
 }
 
 export interface ViewHoverPayload {
@@ -231,6 +236,8 @@ export interface ViewerTabItem {
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
   transformState: ViewTransformInfo
   viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
+  pseudocolorPreset: string
+  viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
   mtfState?: ViewerMtfState | null

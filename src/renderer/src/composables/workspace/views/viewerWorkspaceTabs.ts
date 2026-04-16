@@ -8,6 +8,7 @@ import type {
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
+import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
@@ -75,6 +76,14 @@ export function createEmptyMprTransformStates(): Record<MprViewportKey, ViewTran
     'mpr-ax': createDefaultTransformInfo(),
     'mpr-cor': createDefaultTransformInfo(),
     'mpr-sag': createDefaultTransformInfo()
+  }
+}
+
+export function createEmptyMprPseudocolorPresets(): Record<MprViewportKey, string> {
+  return {
+    'mpr-ax': DEFAULT_PSEUDOCOLOR_PRESET,
+    'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
+    'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
   }
 }
 
@@ -262,6 +271,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportOrientations: createEmptyMprOrientations(),
     transformState: createDefaultTransformInfo(),
     viewportTransformStates: createEmptyMprTransformStates(),
+    pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
+    viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     volumePreset: 'volumePreset:aaa',
     volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
   }

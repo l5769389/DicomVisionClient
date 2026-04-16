@@ -5,6 +5,7 @@ export const VIEW_OPERATION_TYPES = {
   pan: 'pan',
   zoom: 'zoom',
   window: 'window',
+  pseudocolor: 'pseudocolor',
   transform2d: 'transform2d',
   rotate3d: 'rotate3d',
   reset: 'reset',

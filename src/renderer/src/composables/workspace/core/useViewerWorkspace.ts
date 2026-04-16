@@ -13,6 +13,7 @@ import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceCo
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
+import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
 import {
   createDefaultVolumeRenderConfig,
@@ -90,7 +91,7 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
-  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate'; value?: string }) => void
+  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor'; value?: string }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
@@ -263,7 +264,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate'; value?: string }): void {
+  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor'; value?: string }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -281,6 +282,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'pseudocolor' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+      return
+    }
+
     if (!tab.viewId && tab.viewType !== 'MPR') {
       return
     }
@@ -295,6 +300,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         item.key === tab.key
           ? {
               ...item,
+              pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: defaultConfig
             }
@@ -375,6 +381,43 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         rotationDegrees: nextTransform.rotationDegrees,
         hor_flip: nextTransform.horFlip,
         ver_flip: nextTransform.verFlip
+      })
+      return
+    }
+
+    if (payload.action === 'pseudocolor' && payload.value) {
+      const presetKey = normalizePseudocolorPresetKey(payload.value)
+      const viewId =
+        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      if (!viewId) {
+        return
+      }
+
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key) {
+          return item
+        }
+
+        if (item.viewType === 'MPR' && isMprViewportKey(activeViewportKey.value)) {
+          return {
+            ...item,
+            viewportPseudocolorPresets: {
+              ...(item.viewportPseudocolorPresets ?? {}),
+              [activeViewportKey.value]: presetKey
+            }
+          }
+        }
+
+        return {
+          ...item,
+          pseudocolorPreset: presetKey
+        }
+      })
+
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.pseudocolor,
+        pseudocolorPreset: presetKey
       })
       return
     }

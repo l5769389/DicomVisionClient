@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
+import { PSEUDOCOLOR_PRESET_OPTIONS, toPseudocolorSelectionValue } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import {
   createMenuController,
@@ -25,6 +26,20 @@ const measureTool: StackTool = {
   ]
 }
 
+const pseudocolorTool: StackTool = {
+  key: 'pseudocolor',
+  label: '伪彩',
+  icon: 'pseudocolor',
+  swatchKey: 'bw',
+  kind: 'action',
+  options: PSEUDOCOLOR_PRESET_OPTIONS.map((option) => ({
+    value: `pseudocolor:${option.key}`,
+    label: option.label,
+    icon: 'pseudocolor',
+    swatchKey: option.key
+  }))
+}
+
 const stackTools: StackTool[] = [
   { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
   { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
@@ -48,18 +63,7 @@ const stackTools: StackTool[] = [
   measureTool,
   { key: 'play', label: '播放', icon: 'play', kind: 'action' },
   { key: 'export', label: '导出', icon: 'export', kind: 'action' },
-  {
-    key: 'pseudocolor',
-    label: '伪彩',
-    icon: 'pseudocolor',
-    kind: 'action',
-    options: [
-      { value: 'pseudocolor:gray', label: '灰度', icon: 'pseudocolor-gray' },
-      { value: 'pseudocolor:hot', label: 'Hot', icon: 'pseudocolor-hot' },
-      { value: 'pseudocolor:pet', label: 'PET', icon: 'pseudocolor-pet' },
-      { value: 'pseudocolor:rainbow', label: '彩虹', icon: 'pseudocolor-rainbow' }
-    ]
-  }
+  pseudocolorTool
 ]
 
 const genericTools: StackTool[] = [
@@ -68,6 +72,7 @@ const genericTools: StackTool[] = [
   { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
   measureTool,
+  pseudocolorTool,
   { key: 'export', label: '导出', icon: 'export', kind: 'action' }
 ]
 
@@ -103,7 +108,7 @@ interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
-  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate'; value?: string }) => void
+  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor'; value?: string }) => void
   emitViewportWheel: (deltaY: number) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
@@ -124,6 +129,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
     measure: 'measure:line',
+    pseudocolor: toPseudocolorSelectionValue('bw'),
     volumePreset: 'volumePreset:aaa'
   })
   const pendingTransientCallback = ref<(() => void) | null>(null)
@@ -356,7 +362,18 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'measure' || tool.key === 'pseudocolor') {
+    if (tool.key === 'pseudocolor') {
+      const selectedOption = getSelectedOption(tool.key)
+      if (!selectedOption) {
+        return
+      }
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        options.emitTriggerViewAction({ action: 'pseudocolor', value: selectedOption.value })
+      })
+      return
+    }
+
+    if (tool.key === 'measure') {
       if (!getSelectedOption(tool.key)) {
         return
       }
@@ -391,7 +408,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'measure' || tool.key === 'pseudocolor') {
+    if (tool.key === 'pseudocolor') {
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        options.emitTriggerViewAction({ action: 'pseudocolor', value: optionValue })
+      })
+      return
+    }
+
+    if (tool.key === 'measure') {
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
       options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${optionValue}`)
@@ -487,6 +511,30 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       stackToolSelections.value = {
         ...stackToolSelections.value,
         volumePreset: value || 'volumePreset:aaa'
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => {
+      const tab = options.activeTab.value
+      if (!tab) {
+        return 'bw'
+      }
+      if (tab.viewType === 'MPR') {
+        return tab.viewportPseudocolorPresets?.[
+          (options.activeViewportKey.value === 'single' || options.activeViewportKey.value === 'volume'
+            ? 'mpr-ax'
+            : options.activeViewportKey.value) as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+        ] ?? tab.pseudocolorPreset
+      }
+      return tab.pseudocolorPreset
+    },
+    (value) => {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        pseudocolor: toPseudocolorSelectionValue(value)
       }
     },
     { immediate: true }

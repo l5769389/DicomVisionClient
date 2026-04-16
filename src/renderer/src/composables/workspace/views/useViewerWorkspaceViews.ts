@@ -9,6 +9,7 @@ import {
   createEmptyMprCrosshairs,
   createEmptyMprImages,
   createEmptyMprOrientations,
+  createEmptyMprPseudocolorPresets,
   createEmptyMprSliceLabels,
   createEmptyMprTransformStates,
   createEmptyMprViewIds,
@@ -19,6 +20,7 @@ import {
   normalizeCornerInfo,
   normalizeOrientationInfo
 } from './viewerWorkspaceTabs'
+import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
@@ -158,6 +160,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const sliceCornerInfo = options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo))
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
       const transformState = payload.transform ?? createDefaultTransformInfo()
+      const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -203,6 +206,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
             [viewportKey]: transformState
           },
+          viewportPseudocolorPresets: {
+            ...(item.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
+            [viewportKey]: pseudocolorPreset
+          },
           volumePreset,
           volumeRenderConfig
         }
@@ -222,6 +229,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
         orientation: orientationInfo,
         transformState,
+        pseudocolorPreset,
         volumePreset,
         volumeRenderConfig
       }
@@ -361,6 +369,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportOrientations: createEmptyMprOrientations(),
               transformState: createDefaultTransformInfo(),
               viewportTransformStates: createEmptyMprTransformStates(),
+              pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
+              viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
             }

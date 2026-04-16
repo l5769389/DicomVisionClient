@@ -17,6 +17,7 @@ export interface ViewOperationPayload {
   zoom?: number
   delta?: number
   rotationDegrees?: number
+  pseudocolorPreset?: string
   hor_flip?: boolean
   ver_flip?: boolean
   volumeConfig?: VolumeRenderConfig

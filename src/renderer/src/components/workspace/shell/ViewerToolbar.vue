@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
+import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
 
@@ -66,7 +67,16 @@ const emit = defineEmits<{
             :title="tool.label"
             @click.stop="emit('applyTool', tool)"
           >
-            <AppIcon :name="tool.options ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon" :size="toolbarIconSize" />
+            <PseudocolorBand
+              v-if="tool.key === 'pseudocolor'"
+              compact
+              :preset="tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.swatchKey ?? tool.swatchKey ?? 'bw'"
+            />
+            <AppIcon
+              v-else
+              :name="tool.options ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
+              :size="toolbarIconSize"
+            />
           </VBtn>
 
           <VMenu
@@ -100,7 +110,17 @@ const emit = defineEmits<{
                 @click="emit('selectToolOption', tool, option.value)"
               >
                 <div class="flex w-fit items-center">
-                  <AppIcon class="mr-[10px]" :name="option.icon" :size="menuIconSize + 6" />
+                  <PseudocolorBand
+                    v-if="tool.key === 'pseudocolor'"
+                    class="mr-[10px]"
+                    :preset="option.swatchKey ?? 'bw'"
+                  />
+                  <AppIcon
+                    v-else
+                    class="mr-[10px]"
+                    :name="option.icon"
+                    :size="menuIconSize + 6"
+                  />
                   <span class="whitespace-nowrap">{{ option.label }}</span>
                 </div>
               </div>

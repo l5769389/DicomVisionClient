@@ -25,6 +25,8 @@ const props = defineProps<{
   viewerTabs: ViewerTabItem[]
 }>()
 
+const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
+
 const emit = defineEmits<{
   activateTab: [tabKey: string]
   activeViewportChange: [viewportKey: string]
@@ -51,6 +53,7 @@ const emit = defineEmits<{
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
+  quickPreviewSeriesDrop: [seriesId: string]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
@@ -181,7 +184,10 @@ function getMprCornerInfo(viewportKey: string) {
 }
 
 const isMtfCurveDialogOpen = ref(false)
+const isQuickPreviewDropActive = ref(false)
 const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
+const canAcceptQuickPreviewDrop = computed(() => !props.isViewLoading && !props.activeTab)
+const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const selectedMtfItem = computed(() => {
   const state = activeMtfState.value
   if (!state?.selectedMtfId) {
@@ -206,6 +212,75 @@ function handleClearMtf(): void {
   emit('mtfDelete', {
     mtfId: selectedMtfItem.value?.mtfId ?? null
   })
+}
+
+function resolveDraggedSeriesId(event: DragEvent): string {
+  const transfer = event.dataTransfer
+  if (!transfer) {
+    return ''
+  }
+
+  return transfer.getData(SERIES_DRAG_TYPE) || transfer.getData('text/plain') || ''
+}
+
+function isSeriesDragEvent(event: DragEvent): boolean {
+  const transfer = event.dataTransfer
+  if (!transfer) {
+    return false
+  }
+
+  const types = Array.from(transfer.types ?? [])
+  return types.includes(SERIES_DRAG_TYPE) || types.includes('text/plain')
+}
+
+function handleQuickPreviewDragEnter(event: DragEvent): void {
+  if (!canAcceptQuickPreviewDrop.value || !isSeriesDragEvent(event)) {
+    return
+  }
+
+  event.preventDefault()
+  isQuickPreviewDropActive.value = true
+}
+
+function handleQuickPreviewDragOver(event: DragEvent): void {
+  if (!canAcceptQuickPreviewDrop.value || !isSeriesDragEvent(event)) {
+    return
+  }
+
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  isQuickPreviewDropActive.value = true
+}
+
+function handleQuickPreviewDragLeave(event: DragEvent): void {
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+    return
+  }
+
+  isQuickPreviewDropActive.value = false
+}
+
+function handleQuickPreviewDrop(event: DragEvent): void {
+  if (!canAcceptQuickPreviewDrop.value || !isSeriesDragEvent(event)) {
+    isQuickPreviewDropActive.value = false
+    return
+  }
+
+  event.preventDefault()
+  const seriesId = resolveDraggedSeriesId(event).trim()
+  isQuickPreviewDropActive.value = false
+  if (!seriesId) {
+    return
+  }
+
+  emit('quickPreviewSeriesDrop', seriesId)
+}
+
+function handleQuickPreviewDragEnd(): void {
+  isQuickPreviewDropActive.value = false
 }
 
 function handleCopySelectedMtf(): void {
@@ -295,6 +370,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWorkspaceKeydown)
+  isQuickPreviewDropActive.value = false
 })
 </script>
 
@@ -302,19 +378,29 @@ onBeforeUnmount(() => {
   <main
     class="min-h-0 min-w-0 overflow-hidden rounded-[26px] border border-sky-100/10 bg-[linear-gradient(180deg,rgba(6,13,24,0.97),rgba(7,14,27,0.99))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
   >
-    <div v-if="!hasSelectedSeries" class="grid h-full place-items-center rounded-[20px] border border-dashed border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))] p-8 text-center">
+    <div
+      v-if="!hasSelectedSeries"
+      class="grid h-full place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
+      :class="isQuickPreviewDropActive ? 'border-sky-300/45 bg-[linear-gradient(180deg,rgba(14,32,52,0.98),rgba(7,18,32,0.99))] shadow-[inset_0_0_0_1px_rgba(125,211,252,0.18)]' : 'border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))]'"
+      @dragenter="handleQuickPreviewDragEnter"
+      @dragover="handleQuickPreviewDragOver"
+      @dragleave="handleQuickPreviewDragLeave"
+      @drop="handleQuickPreviewDrop"
+      @dragend="handleQuickPreviewDragEnd"
+    >
       <div class="max-w-xl space-y-3">
         <div class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400/70">Viewer Workspace</div>
-        <div class="text-3xl font-semibold tracking-[0.08em] text-slate-50">等待载入序列</div>
+        <div class="text-3xl font-semibold tracking-[0.08em] text-slate-50">{{ isQuickPreviewDropActive ? '释放以快速浏览' : '等待载入序列' }}</div>
         <div class="mx-auto h-px w-24 bg-gradient-to-r from-transparent via-sky-300/45 to-transparent"></div>
         <p class="text-sm leading-7 text-slate-300">
-          {{ message || '请先在左侧序列列表中选择一个序列，然后打开对应视图。' }}
+          {{ isQuickPreviewDropActive ? '松开鼠标后将直接在右侧打开该序列的快速浏览。' : message || '请先在左侧序列列表中选择一个序列，然后打开对应视图。' }}
         </p>
       </div>
     </div>
 
     <div v-else class="flex h-full min-h-0 flex-col gap-3">
       <ViewerTabStrip
+        v-if="hasViewerTabs"
         v-model:tab-strip-ref="tabStripRef"
         :active-tab-key="activeTabKey"
         :can-scroll-tabs-left="canScrollTabsLeft"
@@ -449,11 +535,20 @@ onBeforeUnmount(() => {
       />
       </div>
 
-      <div v-else class="grid flex-1 place-items-center rounded-[20px] border border-dashed border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))] p-8 text-center">
+      <div
+        v-else
+        class="grid flex-1 place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
+        :class="isQuickPreviewDropActive ? 'border-sky-300/45 bg-[linear-gradient(180deg,rgba(14,32,52,0.98),rgba(7,18,32,0.99))] shadow-[inset_0_0_0_1px_rgba(125,211,252,0.18)]' : 'border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))]'"
+        @dragenter="handleQuickPreviewDragEnter"
+        @dragover="handleQuickPreviewDragOver"
+        @dragleave="handleQuickPreviewDragLeave"
+        @drop="handleQuickPreviewDrop"
+        @dragend="handleQuickPreviewDragEnd"
+      >
         <div class="max-w-lg space-y-3">
-          <div class="text-2xl font-semibold tracking-[0.06em] text-slate-50">打开一个视图</div>
+          <div class="text-2xl font-semibold tracking-[0.06em] text-slate-50">{{ isQuickPreviewDropActive ? '释放以快速浏览' : '打开一个视图' }}</div>
           <p class="text-sm leading-7 text-slate-300">
-            {{ message || '点击“快速浏览 / 3D / MPR”打开当前序列对应的视图。' }}
+            {{ isQuickPreviewDropActive ? '当前右侧为空白区域，松开后将直接打开该序列的 Stack 快速浏览。' : message || '点击“快速浏览 / 3D / MPR”打开当前序列对应的视图。' }}
           </p>
         </div>
       </div>

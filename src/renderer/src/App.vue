@@ -26,6 +26,10 @@ onBeforeUnmount(() => {
   document.removeEventListener('selectstart', preventSelection)
   window.removeEventListener('keydown', preventSelectAll)
 })
+
+const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
+  void viewer.openSeriesView(seriesId, 'Stack')
+}
 </script>
 
 <template>
@@ -67,6 +71,7 @@ onBeforeUnmount(() => {
           @hover-viewport-change="viewer.handleHoverViewportChange"
           @trigger-view-action="viewer.triggerViewAction"
           @active-viewport-change="viewer.setActiveViewportKey"
+          @quick-preview-series-drop="handleQuickPreviewSeriesDrop"
           @measurement-draft="viewer.handleMeasurementDraft"
           @measurement-create="viewer.handleMeasurementCreate"
           @measurement-delete="viewer.handleMeasurementDelete"

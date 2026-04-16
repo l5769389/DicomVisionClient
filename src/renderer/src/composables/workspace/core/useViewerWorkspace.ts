@@ -30,6 +30,7 @@ import type {
   MeasurementToolType,
   MprViewportKey,
   ViewImageResponse,
+  ViewTransformInfo,
   ViewerMtfItem,
   ViewerTabItem,
   ViewType,
@@ -89,7 +90,7 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
-  triggerViewAction: (payload: { action: 'reset' | 'volumePreset'; value?: string }) => void
+  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate'; value?: string }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
@@ -113,6 +114,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewportElements = ref<Partial<Record<MprViewportKey, HTMLElement | null>>>({})
   const seriesCornerInfoMap = ref<Record<string, CornerInfo>>({})
   const loadingSeriesCornerInfo = new Map<string, Promise<CornerInfo>>()
+  const DEFAULT_VIEW_TRANSFORM: ViewTransformInfo = {
+    rotationDegrees: 0,
+    horFlip: false,
+    verFlip: false
+  }
 
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
@@ -218,7 +224,46 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   })
 
-  function triggerViewAction(payload: { action: 'reset' | 'volumePreset'; value?: string }): void {
+  function normalizeQuarterTurnRotation(rotationDegrees: number): number {
+    const normalized = ((Math.round(rotationDegrees / 90) * 90) % 360 + 360) % 360
+    return normalized
+  }
+
+  function getCurrentViewportTransform(tab: ViewerTabItem, viewportKey: string): ViewTransformInfo {
+    if (tab.viewType === 'MPR') {
+      return tab.viewportTransformStates?.[viewportKey as MprViewportKey] ?? DEFAULT_VIEW_TRANSFORM
+    }
+    return tab.transformState ?? DEFAULT_VIEW_TRANSFORM
+  }
+
+  function updateTabTransformState(
+    tabKey: string,
+    transform: ViewTransformInfo,
+    viewportKey?: string
+  ): void {
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== tabKey) {
+        return item
+      }
+
+      if (item.viewType === 'MPR' && viewportKey && isMprViewportKey(viewportKey)) {
+        return {
+          ...item,
+          viewportTransformStates: {
+            ...(item.viewportTransformStates ?? {}),
+            [viewportKey]: transform
+          }
+        }
+      }
+
+      return {
+        ...item,
+        transformState: transform
+      }
+    })
+  }
+
+  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate'; value?: string }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -232,11 +277,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (!tab.viewId) {
+    if (payload.action === 'rotate' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
       return
     }
 
-    clearPendingVolumeConfig(tab.viewId)
+    if (!tab.viewId && tab.viewType !== 'MPR') {
+      return
+    }
+
+    if (tab.viewId) {
+      clearPendingVolumeConfig(tab.viewId)
+    }
 
     if (payload.action === 'reset' && tab.viewType === '3D') {
       const defaultConfig = createDefaultVolumeRenderConfig('aaa')
@@ -279,6 +330,51 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId: tab.viewId,
         opType: VIEW_OPERATION_TYPES.volumeConfig,
         volumeConfig: presetConfig
+      })
+      return
+    }
+
+    if (payload.action === 'rotate' && payload.value) {
+      const viewId =
+        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      if (!viewId) {
+        return
+      }
+
+      const currentTransform = getCurrentViewportTransform(tab, activeViewportKey.value)
+      let nextTransform: ViewTransformInfo = currentTransform
+
+      if (payload.value === 'rotate:cw90') {
+        nextTransform = {
+          ...currentTransform,
+          rotationDegrees: normalizeQuarterTurnRotation(currentTransform.rotationDegrees + 90)
+        }
+      } else if (payload.value === 'rotate:ccw90') {
+        nextTransform = {
+          ...currentTransform,
+          rotationDegrees: normalizeQuarterTurnRotation(currentTransform.rotationDegrees - 90)
+        }
+      } else if (payload.value === 'rotate:mirror-h') {
+        nextTransform = {
+          ...currentTransform,
+          horFlip: !currentTransform.horFlip
+        }
+      } else if (payload.value === 'rotate:mirror-v') {
+        nextTransform = {
+          ...currentTransform,
+          verFlip: !currentTransform.verFlip
+        }
+      } else {
+        return
+      }
+
+      updateTabTransformState(tab.key, nextTransform, activeViewportKey.value)
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.transform2d,
+        rotationDegrees: nextTransform.rotationDegrees,
+        hor_flip: nextTransform.horFlip,
+        ver_flip: nextTransform.verFlip
       })
       return
     }

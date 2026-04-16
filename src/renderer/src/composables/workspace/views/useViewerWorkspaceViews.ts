@@ -10,8 +10,10 @@ import {
   createEmptyMprImages,
   createEmptyMprOrientations,
   createEmptyMprSliceLabels,
+  createEmptyMprTransformStates,
   createEmptyMprViewIds,
   createEmptyOrientationInfo,
+  createDefaultTransformInfo,
   createTab,
   mergeCornerInfo,
   normalizeCornerInfo,
@@ -155,6 +157,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const seriesCornerInfo = options.seriesCornerInfoMap.value[item.seriesId] ?? createEmptyCornerInfo()
       const sliceCornerInfo = options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo))
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
+      const transformState = payload.transform ?? createDefaultTransformInfo()
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -196,6 +199,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
             [viewportKey]: orientationInfo
           },
+          viewportTransformStates: {
+            ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
+            [viewportKey]: transformState
+          },
           volumePreset,
           volumeRenderConfig
         }
@@ -214,6 +221,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         measurements: (payload.measurements ?? []) as MeasurementOverlay[],
         cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
         orientation: orientationInfo,
+        transformState,
         volumePreset,
         volumeRenderConfig
       }
@@ -351,6 +359,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                   : createEmptyMprCornerInfos(),
               viewportMeasurements: {},
               viewportOrientations: createEmptyMprOrientations(),
+              transformState: createDefaultTransformInfo(),
+              viewportTransformStates: createEmptyMprTransformStates(),
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
             }

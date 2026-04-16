@@ -103,7 +103,7 @@ interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
-  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset'; value?: string }) => void
+  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate'; value?: string }) => void
   emitViewportWheel: (deltaY: number) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
@@ -346,10 +346,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'rotate') {
-      if (!activateSelectedOption(tool.key)) {
+      const selectedOption = getSelectedOption(tool.key)
+      if (!selectedOption) {
         return
       }
-      setToolbarToolActive(tool.key)
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        options.emitTriggerViewAction({ action: 'rotate', value: selectedOption.value })
+      })
       return
     }
 
@@ -381,7 +384,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
     closeMenus()
 
-    if (tool.key === 'rotate' || tool.key === 'measure' || tool.key === 'pseudocolor') {
+    if (tool.key === 'rotate') {
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        options.emitTriggerViewAction({ action: 'rotate', value: optionValue })
+      })
+      return
+    }
+
+    if (tool.key === 'measure' || tool.key === 'pseudocolor') {
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
       options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${optionValue}`)

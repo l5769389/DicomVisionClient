@@ -4,6 +4,7 @@ import type {
   FolderSeriesItem,
   MprViewportKey,
   OrientationInfo,
+  ViewTransformInfo,
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
@@ -58,6 +59,22 @@ export function createEmptyMprOrientations(): Record<MprViewportKey, Orientation
     'mpr-ax': createEmptyOrientationInfo(),
     'mpr-cor': createEmptyOrientationInfo(),
     'mpr-sag': createEmptyOrientationInfo()
+  }
+}
+
+export function createDefaultTransformInfo(): ViewTransformInfo {
+  return {
+    rotationDegrees: 0,
+    horFlip: false,
+    verFlip: false
+  }
+}
+
+export function createEmptyMprTransformStates(): Record<MprViewportKey, ViewTransformInfo> {
+  return {
+    'mpr-ax': createDefaultTransformInfo(),
+    'mpr-cor': createDefaultTransformInfo(),
+    'mpr-sag': createDefaultTransformInfo()
   }
 }
 
@@ -243,6 +260,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportCornerInfos: createEmptyMprCornerInfos(),
     orientation: createEmptyOrientationInfo(),
     viewportOrientations: createEmptyMprOrientations(),
+    transformState: createDefaultTransformInfo(),
+    viewportTransformStates: createEmptyMprTransformStates(),
     volumePreset: 'volumePreset:aaa',
     volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
   }

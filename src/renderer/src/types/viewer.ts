@@ -171,6 +171,12 @@ export interface VolumeRenderConfig {
   lighting: VolumeLightingConfig
 }
 
+export interface ViewTransformInfo {
+  rotationDegrees: number
+  horFlip: boolean
+  verFlip: boolean
+}
+
 export interface ViewImageResponse {
   imageFormat?: 'png' | 'jpeg'
   viewId: string
@@ -188,6 +194,7 @@ export interface ViewImageResponse {
   orientation?: unknown
   volumePreset?: string
   volumeConfig?: VolumeRenderConfig | null
+  transform?: ViewTransformInfo | null
 }
 
 export interface ViewHoverPayload {
@@ -222,6 +229,8 @@ export interface ViewerTabItem {
   viewportMeasurements?: Partial<Record<MprViewportKey, MeasurementOverlay[]>>
   orientation: OrientationInfo
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
+  transformState: ViewTransformInfo
+  viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
   mtfState?: ViewerMtfState | null

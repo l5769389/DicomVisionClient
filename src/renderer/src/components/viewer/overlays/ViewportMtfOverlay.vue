@@ -19,7 +19,6 @@ interface RenderedMtfItem {
   handlePoints: OverlayScreenPoint[]
   metrics: ViewerMtfItem['metrics'] | null
   errorMessage: string | null
-  isPlaceholder: boolean
   mode: MtfRenderMode
 }
 
@@ -76,7 +75,6 @@ function buildRenderedMtfItem(
     handlePoints: getOverlayHandlePointsFromRectBounds(rect),
     metrics: source?.metrics ?? null,
     errorMessage: source?.errorMessage ?? null,
-    isPlaceholder: source?.isPlaceholder ?? false,
     mode
   }
 }
@@ -169,11 +167,12 @@ const metricRows = computed(() => {
   }
 
   const unit = metrics.unit || 'lp/mm'
+  const fwhmUnit = unit === 'lp/mm' ? 'mm' : 'px'
   return [
     { label: 'MTF50', value: metrics.mtf50 != null ? `${metrics.mtf50.toFixed(3)} ${unit}` : '-' },
     { label: 'MTF10', value: metrics.mtf10 != null ? `${metrics.mtf10.toFixed(3)} ${unit}` : '-' },
-    { label: 'Peak', value: metrics.peakValue != null ? metrics.peakValue.toFixed(3) : '-' },
-    { label: 'Samples', value: metrics.sampleCount != null ? String(metrics.sampleCount) : '-' }
+    { label: 'FWHM-W', value: metrics.fwhmW != null ? `${metrics.fwhmW.toFixed(3)} ${fwhmUnit}` : '-' },
+    { label: 'FWHM-H', value: metrics.fwhmH != null ? `${metrics.fwhmH.toFixed(3)} ${fwhmUnit}` : '-' }
   ]
 })
 
@@ -295,6 +294,15 @@ function getShapeFill(item: RenderedMtfItem): string {
         <div class="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/6 p-1">
           <button
             type="button"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-300/16 bg-cyan-300/10 text-cyan-50 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
+            :disabled="activeRenderedItem.status !== 'ready'"
+            aria-label="查看 MTF 曲线"
+            @click="emit('openCurve')"
+          >
+            <AppIcon name="mtf" :size="16" />
+          </button>
+          <button
+            type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45"
             :disabled="!activeRenderedItem.mtfId"
             aria-label="复制 MTF ROI"
@@ -333,23 +341,6 @@ function getShapeFill(item: RenderedMtfItem): string {
         拖拽一个矩形 ROI 开始分析。当前视口可以保留多个 MTF ROI。
       </div>
 
-      <div
-        v-if="activeRenderedItem.isPlaceholder"
-        class="mt-3 rounded-xl border border-amber-300/12 bg-amber-300/8 px-3 py-2 text-[11px] leading-5 text-amber-50/90"
-      >
-        当前展示的是链路占位结果，后续可替换为真实 MTF 算法。
-      </div>
-
-      <div class="mt-3 flex justify-end">
-        <button
-          type="button"
-          class="rounded-lg border border-cyan-300/22 bg-cyan-300/10 px-3 py-1.5 text-[12px] font-medium text-cyan-50 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
-          :disabled="activeRenderedItem.status !== 'ready'"
-          @click="emit('openCurve')"
-        >
-          查看曲线
-        </button>
-      </div>
     </div>
   </div>
 </template>

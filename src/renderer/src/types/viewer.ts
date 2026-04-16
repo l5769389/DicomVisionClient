@@ -81,6 +81,8 @@ export interface MeasurementOverlay {
 export interface MtfMetrics {
   mtf50: number | null
   mtf10: number | null
+  fwhmW: number | null
+  fwhmH: number | null
   peakValue: number | null
   sampleCount: number | null
   unit?: string | null

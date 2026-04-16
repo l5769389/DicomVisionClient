@@ -72,6 +72,7 @@ interface ViewerWorkspaceState {
     labelLines?: string[]
   }) => void
   handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
+  handleTagIndexChange: (payload: { tabKey: string; index: number }) => Promise<void>
   handleMtfClear: (payload?: { mtfId?: string | null }) => void
   handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
   handleMtfCopy: (payload?: { mtfId?: string | null }) => Promise<boolean>
@@ -1207,6 +1208,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     resizeObserver?.disconnect()
   })
 
+  async function handleTagIndexChange(payload: { tabKey: string; index: number }): Promise<void> {
+    await views.setTagTabIndex(payload.tabKey, payload.index)
+  }
+
   return {
     activeOperation,
     activeTab,
@@ -1219,6 +1224,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleMeasurementCreate,
     handleMeasurementDelete,
     handleMeasurementDraft,
+    handleTagIndexChange,
     handleMtfClear,
     handleMtfCommit,
     handleMtfCopy,

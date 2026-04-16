@@ -274,6 +274,14 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     volumePreset: 'volumePreset:aaa',
-    volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
+    volumeRenderConfig: createDefaultVolumeRenderConfig('aaa'),
+    tagIndex: 0,
+    tagTotal: 0,
+    tagItems: [],
+    tagFilePath: null,
+    tagSopInstanceUid: null,
+    tagInstanceNumber: null,
+    tagIsLoading: false,
+    tagLoadError: null
   }
 }

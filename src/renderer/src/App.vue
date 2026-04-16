@@ -70,6 +70,7 @@ onBeforeUnmount(() => {
           @measurement-draft="viewer.handleMeasurementDraft"
           @measurement-create="viewer.handleMeasurementCreate"
           @measurement-delete="viewer.handleMeasurementDelete"
+          @tag-index-change="viewer.handleTagIndexChange"
           @mtf-clear="viewer.handleMtfClear"
           @mtf-commit="viewer.handleMtfCommit"
           @mtf-copy="viewer.handleMtfCopy"

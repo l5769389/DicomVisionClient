@@ -6,6 +6,7 @@ import { useViewerWorkspacePointer } from '../../composables/measurements/useVie
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
+import DicomTagView from '../viewer/views/DicomTagView.vue'
 import VolumeView from '../viewer/views/VolumeView.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
@@ -37,6 +38,7 @@ const emit = defineEmits<{
     labelLines?: string[]
   }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
+  tagIndexChange: [payload: { tabKey: string; index: number }]
   mtfClear: []
   mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string }]
   mtfCopy: [payload?: { mtfId?: string | null }]
@@ -326,7 +328,7 @@ onBeforeUnmount(() => {
       />
 
       <ViewerToolbar
-        v-if="activeTab"
+        v-if="activeTab && activeTab.viewType !== 'Tag'"
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="areToolbarActionsDisabled"
@@ -425,13 +427,19 @@ onBeforeUnmount(() => {
         />
 
         <VolumeView
-          v-else
+          v-else-if="activeTab.viewType === '3D'"
           :active-tab="activeTab"
           @viewport-click="handleViewportClick"
           @pointer-down="handleViewportPointerDown"
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"
+        />
+
+        <DicomTagView
+          v-else
+          :active-tab="activeTab"
+          @index-change="emit('tagIndexChange', $event)"
         />
 
       <MtfCurveDialog

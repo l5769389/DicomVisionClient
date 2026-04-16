@@ -20,7 +20,7 @@ export interface ViewCreateResponse {
   viewId: string
 }
 
-export type BackendCreateViewType = ViewType | 'AX' | 'COR' | 'SAG'
+export type BackendCreateViewType = 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
 export type CornerPosition = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight'
 
 export interface CornerInfo {
@@ -214,6 +214,25 @@ export interface ViewHoverResponse {
   col: number
 }
 
+export interface DicomTagItem {
+  tag: string
+  keyword: string
+  name: string
+  vr: string
+  value: string
+  depth: number
+}
+
+export interface DicomTagsResponse {
+  seriesId: string
+  index: number
+  total: number
+  instanceNumber?: number | null
+  sopInstanceUid?: string | null
+  filePath?: string | null
+  items: DicomTagItem[]
+}
+
 export interface ViewerTabItem {
   key: string
   seriesId: string
@@ -241,6 +260,14 @@ export interface ViewerTabItem {
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
   mtfState?: ViewerMtfState | null
+  tagIndex?: number
+  tagTotal?: number
+  tagItems?: DicomTagItem[]
+  tagFilePath?: string | null
+  tagSopInstanceUid?: string | null
+  tagInstanceNumber?: number | null
+  tagIsLoading?: boolean
+  tagLoadError?: string | null
 }
 
 export interface ViewerOperationItem {
@@ -250,4 +277,4 @@ export interface ViewerOperationItem {
 }
 
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'MPR' | '3D'
+export type ViewType = 'Stack' | 'MPR' | '3D' | 'Tag'

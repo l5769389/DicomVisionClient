@@ -23,7 +23,7 @@ const emit = defineEmits<{
       </VChip>
     </div>
     <div class="grid grid-cols-2 gap-3">
-      <VBtn variant="flat" class="rounded-full! border! border-sky-200/20! bg-[linear-gradient(135deg,rgba(75,173,255,0.18),rgba(255,149,92,0.18))]! px-4! py-3! text-sm! font-semibold! text-slate-50! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_12px_24px_rgba(9,18,32,0.24)]" @click="emit('chooseFolder')">
+      <VBtn variant="flat" class="col-span-2 rounded-full! border! border-sky-200/20! bg-[linear-gradient(135deg,rgba(75,173,255,0.18),rgba(255,149,92,0.18))]! px-4! py-3! text-sm! font-semibold! text-slate-50! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_12px_24px_rgba(9,18,32,0.24)]" @click="emit('chooseFolder')">
         {{
           viewerFolderSourceMode === 'server-sample'
             ? '加载示例'
@@ -40,6 +40,9 @@ const emit = defineEmits<{
       </VBtn>
       <VBtn variant="flat" class="rounded-full! border! border-white/8! bg-white/7! px-4! py-3! text-sm! font-semibold! text-slate-100!" :disabled="!hasSelectedSeries" @click="emit('openView', 'MPR')">
         MPR
+      </VBtn>
+      <VBtn variant="flat" class="rounded-full! border! border-white/8! bg-white/7! px-4! py-3! text-sm! font-semibold! text-slate-100!" :disabled="!hasSelectedSeries" @click="emit('openView', 'Tag')">
+        Tag
       </VBtn>
     </div>
     <div v-if="viewerPlatform === 'web'" class="mt-3 text-[11px] leading-5 text-slate-400">

@@ -29,6 +29,7 @@ import {
 import type {
   BackendCreateViewType,
   CornerInfo,
+  DicomTagsResponse,
   FolderSeriesItem,
   MeasurementOverlay,
   MprViewportKey,
@@ -88,6 +89,90 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     options.viewerTabs.value = [...options.viewerTabs.value, tab]
     options.activeTabKey.value = tab.key
     return tab.key
+  }
+
+  function resolveInitialTagIndex(seriesId: string): number {
+    const stackTab =
+      options.viewerTabs.value.find((item) => item.key === options.activeTabKey.value && item.seriesId === seriesId && item.viewType === 'Stack') ??
+      options.viewerTabs.value.find((item) => item.seriesId === seriesId && item.viewType === 'Stack')
+    if (!stackTab?.sliceLabel) {
+      return 0
+    }
+
+    const [current] = stackTab.sliceLabel.split('/').map((item) => Number.parseInt(item.trim(), 10))
+    if (!Number.isFinite(current) || current <= 0) {
+      return 0
+    }
+    return current - 1
+  }
+
+  async function loadTagTab(tabKey: string, index: number): Promise<void> {
+    const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (!tab || tab.viewType !== 'Tag') {
+      return
+    }
+
+    options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+      item.key === tabKey
+        ? {
+            ...item,
+            tagIsLoading: true,
+            tagLoadError: null
+          }
+        : item
+    )
+
+    try {
+      const { data } = await api.post<DicomTagsResponse>('/dicom/tags', {
+        seriesId: tab.seriesId,
+        index
+      })
+
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              tagIndex: data.index,
+              tagTotal: data.total,
+              tagItems: data.items,
+              tagFilePath: data.filePath ?? null,
+              tagSopInstanceUid: data.sopInstanceUid ?? null,
+              tagInstanceNumber: data.instanceNumber ?? null,
+              tagIsLoading: false,
+              tagLoadError: null
+            }
+          : item
+      )
+      options.message.value = ''
+    } catch (error) {
+      const fallbackMessage =
+        typeof error === 'object' && error != null && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : 'DICOM Tag 加载失败。'
+
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              tagIsLoading: false,
+              tagLoadError: fallbackMessage
+            }
+          : item
+      )
+      options.message.value = fallbackMessage
+      console.error(error)
+    }
+  }
+
+  async function setTagTabIndex(tabKey: string, index: number): Promise<void> {
+    const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (!tab || tab.viewType !== 'Tag') {
+      return
+    }
+
+    const total = Math.max(1, tab.tagTotal ?? 1)
+    const nextIndex = Math.max(0, Math.min(index, total - 1))
+    await loadTagTab(tabKey, nextIndex)
   }
 
   function getCreateViewTypeForViewport(viewportKey: MprViewportKey): BackendCreateViewType {
@@ -242,6 +327,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    if (tab.viewType === 'Tag') {
+      return
+    }
+
     if (tab.viewType === 'MPR') {
       const entries = Object.entries(tab.viewportViewIds ?? {}) as [MprViewportKey, string][]
       const tasks = entries
@@ -294,11 +383,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const existingTab = findTab(seriesId, viewType)
     const hasExistingView =
+      viewType === 'Tag'
+        ? Boolean(existingTab)
+        :
       viewType === 'MPR'
         ? Object.values(existingTab?.viewportViewIds ?? {}).some(Boolean)
         : Boolean(existingTab?.viewId)
     if (hasExistingView && existingTab) {
       options.activeTabKey.value = existingTab.key
+      if (viewType === 'Tag' && !(existingTab.tagItems?.length) && !existingTab.tagIsLoading) {
+        await loadTagTab(existingTab.key, existingTab.tagIndex ?? resolveInitialTagIndex(seriesId))
+      }
       return
     }
 
@@ -310,6 +405,43 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     options.isViewLoading.value = true
 
     try {
+      if (viewType === 'Tag') {
+        const tabKey = existingTab?.key ?? ensureTab(seriesId, viewType)
+        if (!tabKey) {
+          return
+        }
+
+        const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
+        if (!series) {
+          return
+        }
+
+        const initialIndex = resolveInitialTagIndex(seriesId)
+        options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+          item.key === tabKey
+            ? {
+                ...item,
+                viewType,
+                title: buildTabTitle(options.selectedSeries.value, viewType, item.seriesId),
+                seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+                tagIndex: initialIndex,
+                tagTotal: Math.max(1, series.instanceCount),
+                tagItems: [],
+                tagFilePath: null,
+                tagSopInstanceUid: null,
+                tagInstanceNumber: null,
+                tagIsLoading: true,
+                tagLoadError: null
+              }
+            : item
+        )
+
+        options.activeViewportKey.value = 'single'
+        options.activeTabKey.value = tabKey
+        await loadTagTab(tabKey, initialIndex)
+        return
+      }
+
       const seriesCornerInfo = options.withHoverCornerInfo(await options.ensureSeriesCornerInfo(options.selectedSeriesId.value))
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
@@ -506,6 +638,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     rebindOpenViews,
     removeSeries,
     renderTab,
+    setTagTabIndex,
     selectSeries,
     updateTabImage
   }

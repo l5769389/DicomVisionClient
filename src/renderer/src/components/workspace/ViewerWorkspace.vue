@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
@@ -14,6 +14,7 @@ import ViewerToolbar from './shell/ViewerToolbar.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   activeOperation: string
@@ -63,6 +64,7 @@ const activeTabKeyRef = computed(() => props.activeTabKey)
 const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
 const viewerTabsRef = computed(() => props.viewerTabs)
+const { t } = useUiLocale()
 
 const {
   activeViewportKey,
@@ -98,6 +100,7 @@ const {
   getCommittedMeasurements: (viewportKey) => getCommittedMeasurements(viewportKey),
   getMtfItems: (viewportKey) => getMtfItems(viewportKey)
 })
+
 const {
   activeTools,
   activeVolumeRenderConfig,
@@ -389,11 +392,11 @@ onBeforeUnmount(() => {
       @dragend="handleQuickPreviewDragEnd"
     >
       <div class="max-w-xl space-y-3">
-        <div class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400/70">Viewer Workspace</div>
-        <div class="text-3xl font-semibold tracking-[0.08em] text-slate-50">{{ isQuickPreviewDropActive ? '释放以快速浏览' : '等待载入序列' }}</div>
+        <div class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400/70">{{ t('viewerWorkspace') }}</div>
+        <div class="text-3xl font-semibold tracking-[0.08em] text-slate-50">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('waitingSeries') }}</div>
         <div class="mx-auto h-px w-24 bg-gradient-to-r from-transparent via-sky-300/45 to-transparent"></div>
         <p class="text-sm leading-7 text-slate-300">
-          {{ isQuickPreviewDropActive ? '松开鼠标后将直接在右侧打开该序列的快速浏览。' : message || '请先在左侧序列列表中选择一个序列，然后打开对应视图。' }}
+          {{ isQuickPreviewDropActive ? t('dropQuickPreviewDesc') : message || t('waitingSeriesDesc') }}
         </p>
       </div>
     </div>
@@ -436,7 +439,7 @@ onBeforeUnmount(() => {
       <div v-if="isViewLoading" class="grid flex-1 place-items-center rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98))] p-8">
         <div class="flex items-center gap-3 text-sm text-slate-300">
           <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
-          <span>正在加载视图...</span>
+          <span>{{ t('loadingView') }}</span>
         </div>
       </div>
 
@@ -528,11 +531,11 @@ onBeforeUnmount(() => {
           @index-change="emit('tagIndexChange', $event)"
         />
 
-      <MtfCurveDialog
-        :is-open="isMtfCurveDialogOpen"
-        :mtf-item="selectedMtfItem"
-        @close="handleCloseMtfCurve"
-      />
+        <MtfCurveDialog
+          :is-open="isMtfCurveDialogOpen"
+          :mtf-item="selectedMtfItem"
+          @close="handleCloseMtfCurve"
+        />
       </div>
 
       <div
@@ -546,13 +549,12 @@ onBeforeUnmount(() => {
         @dragend="handleQuickPreviewDragEnd"
       >
         <div class="max-w-lg space-y-3">
-          <div class="text-2xl font-semibold tracking-[0.06em] text-slate-50">{{ isQuickPreviewDropActive ? '释放以快速浏览' : '打开一个视图' }}</div>
+          <div class="text-2xl font-semibold tracking-[0.06em] text-slate-50">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('openView') }}</div>
           <p class="text-sm leading-7 text-slate-300">
-            {{ isQuickPreviewDropActive ? '当前右侧为空白区域，松开后将直接打开该序列的 Stack 快速浏览。' : message || '点击“快速浏览 / 3D / MPR”打开当前序列对应的视图。' }}
+            {{ isQuickPreviewDropActive ? t('emptyDropQuickPreviewDesc') : message || t('openViewDesc') }}
           </p>
         </div>
       </div>
     </div>
   </main>
 </template>
-

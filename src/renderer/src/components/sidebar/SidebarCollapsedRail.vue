@@ -2,6 +2,7 @@
 import { VBtn, VChip } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { FolderSeriesItem } from '../../types/viewer'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 defineProps<{
   connectionDotClass: string
@@ -20,6 +21,8 @@ const emit = defineEmits<{
   hideSeriesHoverCard: []
   toggleSidebar: []
 }>()
+
+const { t } = useUiLocale()
 </script>
 
 <template>
@@ -33,7 +36,11 @@ const emit = defineEmits<{
     </div>
 
     <div class="min-h-0 flex flex-1 flex-col overflow-visible rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(10,20,34,0.94),rgba(8,15,27,0.98))] px-2 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div class="mb-3 flex items-center justify-center"><VChip size="x-small" class="rounded-full! border! border-sky-300/12! bg-sky-300/8! px-2! py-1! text-[9px]! font-semibold! uppercase! tracking-[0.18em]! text-sky-100/70!" variant="flat">{{ seriesList.length || 0 }}</VChip></div>
+      <div class="mb-3 flex items-center justify-center">
+        <VChip size="x-small" class="rounded-full! border! border-sky-300/12! bg-sky-300/8! px-2! py-1! text-[9px]! font-semibold! uppercase! tracking-[0.18em]! text-sky-100/70!" variant="flat">
+          {{ seriesList.length || 0 }}
+        </VChip>
+      </div>
       <div class="min-h-0 flex-1 overflow-y-auto overflow-x-visible">
         <div v-if="seriesList.length" class="flex flex-col items-center gap-2 pb-1">
           <button
@@ -41,8 +48,8 @@ const emit = defineEmits<{
             :key="series.seriesId"
             type="button"
             class="flex w-full justify-center"
-            :aria-label="series.seriesDescription || '未命名序列'"
-            :title="`${series.seriesDescription || '未命名序列'} | ${series.modality || 'N/A'} | ${series.instanceCount} 帧`"
+            :aria-label="series.seriesDescription || t('unnamedSeries')"
+            :title="`${series.seriesDescription || t('unnamedSeries')} | ${series.modality || 'N/A'} | ${series.instanceCount} ${t('frames')}`"
             @mouseenter="emit('showSeriesHoverCard', $event, series, index)"
             @mouseleave="emit('hideSeriesHoverCard')"
             @focus="emit('showSeriesHoverCard', $event, series, index)"
@@ -50,10 +57,15 @@ const emit = defineEmits<{
             @click="emit('selectSeries', series.seriesId)"
             @dblclick="emit('openSeriesView', series.seriesId)"
           >
-            <span class="flex h-11 w-11 items-center justify-center rounded-2xl border text-[11px] font-bold uppercase transition duration-150" :class="series.seriesId === selectedSeriesId ? 'border-sky-300/45 bg-[linear-gradient(180deg,rgba(67,158,229,0.32),rgba(235,106,42,0.16))] text-white shadow-[0_0_0_4px_rgba(125,211,252,0.12)]' : 'border-white/8 bg-white/5 text-slate-300 hover:border-sky-300/22 hover:bg-white/8 hover:text-white'">{{ String(index + 1).padStart(2, '0') }}</span>
+            <span class="flex h-11 w-11 items-center justify-center rounded-2xl border text-[11px] font-bold uppercase transition duration-150" :class="series.seriesId === selectedSeriesId ? 'border-sky-300/45 bg-[linear-gradient(180deg,rgba(67,158,229,0.32),rgba(235,106,42,0.16))] text-white shadow-[0_0_0_4px_rgba(125,211,252,0.12)]' : 'border-white/8 bg-white/5 text-slate-300 hover:border-sky-300/22 hover:bg-white/8 hover:text-white'">
+              {{ String(index + 1).padStart(2, '0') }}
+            </span>
           </button>
         </div>
-        <div v-else class="flex flex-col items-center gap-2 px-1 py-2 text-center text-[10px] text-slate-500"><div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/3">+</div><span class="leading-4">暂无序列</span></div>
+        <div v-else class="flex flex-col items-center gap-2 px-1 py-2 text-center text-[10px] text-slate-500">
+          <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/3">+</div>
+          <span class="leading-4">{{ t('noSeries') }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -64,8 +76,8 @@ const emit = defineEmits<{
         <AppIcon :name="connectionIcon" :size="18" />
         <span class="h-2.5 w-2.5 rounded-full" :class="connectionDotClass"></span>
       </div>
-      <VBtn variant="flat" class="h-10! w-10! min-w-0! rounded-2xl! border! border-white/8! bg-white/6! text-slate-100!" aria-label="打开设置" @click="emit('openMenu')"><AppIcon name="menu" :size="18" /></VBtn>
-      <VBtn variant="flat" class="h-10! w-10! min-w-0! rounded-2xl! border! border-white/8! bg-white/6! text-slate-100!" aria-label="展开侧栏" @click="emit('toggleSidebar')"><AppIcon name="chevron-right" :size="19" /></VBtn>
+      <VBtn variant="flat" class="h-10! w-10! min-w-0! rounded-2xl! border! border-white/8! bg-white/6! text-slate-100!" :aria-label="t('openSettings')" @click="emit('openMenu')"><AppIcon name="menu" :size="18" /></VBtn>
+      <VBtn variant="flat" class="h-10! w-10! min-w-0! rounded-2xl! border! border-white/8! bg-white/6! text-slate-100!" :aria-label="t('expandSidebar')" @click="emit('toggleSidebar')"><AppIcon name="chevron-right" :size="19" /></VBtn>
     </div>
   </div>
 </template>

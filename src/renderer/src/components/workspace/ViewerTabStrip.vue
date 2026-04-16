@@ -2,6 +2,7 @@
 import { VBtn, VCard, VChip } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { ViewerTabItem } from '../../types/viewer'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 defineProps<{
   activeTabKey: string
@@ -19,6 +20,7 @@ const emit = defineEmits<{
 }>()
 
 const tabStripRef = defineModel<HTMLElement | null>('tabStripRef', { required: true })
+const { t } = useUiLocale()
 </script>
 
 <template>
@@ -27,7 +29,7 @@ const tabStripRef = defineModel<HTMLElement | null>('tabStripRef', { required: t
       variant="flat"
       class="inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! border-white/8! bg-slate-900/88! text-slate-200! transition"
       :class="canScrollTabsLeft ? 'hover:border-sky-300/24 hover:text-white' : 'cursor-default border-white/6 bg-slate-900/46 text-slate-600'"
-      aria-label="向左滚动标签页"
+      :aria-label="t('scrollTabsLeft')"
       :disabled="!canScrollTabsLeft"
       @click="emit('scrollTabs', 'left')"
     >
@@ -58,7 +60,7 @@ const tabStripRef = defineModel<HTMLElement | null>('tabStripRef', { required: t
             {{ tab.viewType }}
           </VChip>
         </button>
-        <VBtn variant="flat" class="inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-xl! bg-white/12! text-white! transition hover:bg-white/18!" aria-label="关闭视图" @click.stop="emit('closeTab', tab.key)">
+        <VBtn variant="flat" class="inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-xl! bg-white/12! text-white! transition hover:bg-white/18!" :aria-label="t('closeView')" @click.stop="emit('closeTab', tab.key)">
           <AppIcon name="close" :size="15" :stroke-width="2.1" />
         </VBtn>
       </VCard>
@@ -68,7 +70,7 @@ const tabStripRef = defineModel<HTMLElement | null>('tabStripRef', { required: t
       variant="flat"
       class="inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! border-white/8! bg-slate-900/88! text-slate-200! transition"
       :class="canScrollTabsRight ? 'hover:border-sky-300/24 hover:text-white' : 'cursor-default border-white/6 bg-slate-900/46 text-slate-600'"
-      aria-label="向右滚动标签页"
+      :aria-label="t('scrollTabsRight')"
       :disabled="!canScrollTabsRight"
       @click="emit('scrollTabs', 'right')"
     >

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { FolderSeriesItem, ViewType } from '../../types/viewer'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   isLoadingFolder: boolean
@@ -20,11 +21,9 @@ const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
 
 type SeriesContextAction = 'Stack' | 'MPR' | '3D' | 'Tag' | 'delete'
 
+const { t } = useUiLocale()
 const isContextMenuOpen = ref(false)
-const contextMenuPosition = ref({
-  x: 0,
-  y: 0
-})
+const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
 
 const contextMenuAnchorStyle = computed(() => ({
@@ -35,32 +34,32 @@ const contextMenuAnchorStyle = computed(() => ({
 const contextMenuActions = computed(() => [
   {
     key: 'Stack' as const,
-    title: '快速浏览',
-    subtitle: '打开当前序列的 Stack 视图',
+    title: t('quickPreview'),
+    subtitle: 'Stack view',
     badge: '2D'
   },
   {
     key: 'MPR' as const,
     title: 'MPR',
-    subtitle: '打开多平面重建视图',
+    subtitle: 'Multi-planar reconstruction',
     badge: 'MPR'
   },
   {
     key: '3D' as const,
     title: '3D',
-    subtitle: '打开体渲染视图',
+    subtitle: 'Volume rendering',
     badge: '3D'
   },
   {
     key: 'Tag' as const,
     title: 'TAG',
-    subtitle: '查看该序列的 DICOM Tags',
+    subtitle: 'DICOM Tags',
     badge: 'TAG'
   },
   {
     key: 'delete' as const,
-    title: '删除',
-    subtitle: '从当前工作区移除该序列',
+    title: t('deleteSeries'),
+    subtitle: 'Remove this series from the workspace',
     badge: 'DEL',
     danger: true
   }
@@ -76,8 +75,8 @@ const contextSeriesPreview = computed(() => {
   }
 
   return {
-    title: contextSeries.value.seriesDescription || '未命名序列',
-    meta: `${contextSeries.value.modality || 'N/A'} · ${contextSeries.value.instanceCount} 帧`,
+    title: contextSeries.value.seriesDescription || t('unnamedSeries'),
+    meta: `${contextSeries.value.modality || 'N/A'} · ${contextSeries.value.instanceCount} ${t('frames')}`,
     id: contextSeries.value.seriesId
   }
 })
@@ -123,7 +122,7 @@ function handleSeriesDragStart(event: DragEvent, seriesId: string): void {
 }
 
 function handleSeriesDragEnd(): void {
-  // Placeholder to keep drag lifecycle explicit on the source side.
+  // Keep drag lifecycle explicit on the source side.
 }
 </script>
 
@@ -132,21 +131,21 @@ function handleSeriesDragEnd(): void {
     <div class="shrink-0">
       <div class="mb-4 flex items-center justify-between gap-2">
         <div>
-          <div class="text-sm font-semibold text-slate-50">序列列表</div>
-          <div class="mt-1 text-xs text-slate-400">当前已加载的可用 DICOM 序列</div>
+          <div class="text-sm font-semibold text-slate-50">{{ t('seriesList') }}</div>
+          <div class="mt-1 text-xs text-slate-400">{{ t('seriesListSubtitle') }}</div>
         </div>
         <VChip v-if="seriesList.length" size="small" class="rounded-full! border! border-sky-300/15! bg-sky-300/10! px-2.5! py-1! text-xs! font-semibold! text-sky-100/80!" variant="flat">{{ seriesList.length }}</VChip>
       </div>
       <div v-if="isLoadingFolder && seriesList.length" class="mb-4 flex items-center gap-3 rounded-2xl border border-sky-300/10 bg-sky-300/6 px-4 py-2.5 text-xs text-sky-100/75">
         <span class="h-2 w-2 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_5px_rgba(125,211,252,0.12)]" aria-hidden="true"></span>
-        <span>正在加载新序列...</span>
+        <span>{{ t('loadingMoreSeries') }}</span>
       </div>
     </div>
 
     <div class="series-list-scroll min-h-0 flex-1 overflow-auto pr-1">
       <div v-if="isLoadingFolder && !seriesList.length" class="flex items-center gap-3 rounded-2xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-slate-300">
         <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.12)]" aria-hidden="true"></span>
-        <span>正在加载序列...</span>
+        <span>{{ t('loadingSeries') }}</span>
       </div>
       <div v-else-if="seriesList.length" class="flex flex-col gap-3">
         <VCard
@@ -161,16 +160,19 @@ function handleSeriesDragEnd(): void {
         >
           <button class="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left" type="button" draggable="true" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')" @dragstart="handleSeriesDragStart($event, series.seriesId)" @dragend="handleSeriesDragEnd">
             <span class="mt-0.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition" :class="series.seriesId === selectedSeriesId ? 'border-sky-300 bg-[linear-gradient(180deg,rgba(82,172,241,0.22),rgba(235,106,42,0.12))] shadow-[0_0_0_4px_rgba(125,211,252,0.14)]' : 'border-slate-300/45 bg-white/5'"><span class="h-2 w-2 rounded-full" :class="series.seriesId === selectedSeriesId ? 'bg-sky-200' : 'bg-transparent'"></span></span>
-            <span class="col-start-2 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-white' : 'text-slate-100'">{{ series.seriesDescription || '未命名序列' }}</span>
-            <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-sky-50/85' : 'text-slate-400'">{{ series.modality || 'N/A' }} · {{ series.instanceCount }} 帧<template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template></span>
+            <span class="col-start-2 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-white' : 'text-slate-100'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
+            <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-sky-50/85' : 'text-slate-400'">
+              {{ series.modality || 'N/A' }} · {{ series.instanceCount }} {{ t('frames') }}
+              <template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template>
+            </span>
             <span class="col-start-2 break-all text-[11px] leading-5" :class="series.seriesId === selectedSeriesId ? 'text-sky-100/80' : 'text-slate-500'">{{ series.seriesId }}</span>
           </button>
-          <VBtn variant="flat" class="self-center h-10! w-10! min-w-0! rounded-xl! border! border-rose-300/14! bg-rose-400/8! text-rose-100!" aria-label="删除序列" title="删除序列" @click="emit('removeSeries', series.seriesId)">
+          <VBtn variant="flat" class="self-center h-10! w-10! min-w-0! rounded-xl! border! border-rose-300/14! bg-rose-400/8! text-rose-100!" :aria-label="t('deleteSeries')" :title="t('deleteSeries')" @click="emit('removeSeries', series.seriesId)">
             <AppIcon name="trash" :size="17" />
           </VBtn>
         </VCard>
       </div>
-      <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-5 text-sm leading-6 text-slate-400">加载文件夹后，这里会显示 DICOM 序列列表。</div>
+      <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-5 text-sm leading-6 text-slate-400">{{ t('noSeriesDesc') }}</div>
     </div>
 
     <div v-if="contextSeries" class="fixed z-[2100] h-0 w-0" :style="contextMenuAnchorStyle">
@@ -188,13 +190,13 @@ function handleSeriesDragEnd(): void {
             <div class="rounded-[18px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-sky-200/72">Series Actions</div>
+                  <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-sky-200/72">{{ t('seriesActions') }}</div>
                   <div class="mt-1 truncate text-[12px] font-medium text-white">{{ contextSeriesPreview.title }}</div>
                   <div class="mt-0.5 truncate text-[11px] text-slate-400">{{ contextSeriesPreview.meta }}</div>
                   <div class="mt-1 truncate font-mono text-[10px] text-slate-500">{{ contextSeriesPreview.id }}</div>
                 </div>
                 <div class="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-sky-100">
-                  Open
+                  {{ t('open') }}
                 </div>
               </div>
             </div>

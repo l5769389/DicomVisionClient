@@ -153,7 +153,7 @@ function handleSeriesDragEnd(): void {
           :key="series.seriesId"
           draggable="true"
           class="group grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-2xl! border! px-3! py-3! transition duration-150"
-          :class="series.seriesId === selectedSeriesId ? 'theme-active-surface' : 'border-[var(--theme-border-soft)]! bg-[var(--theme-surface-card-soft)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
+          :class="series.seriesId === selectedSeriesId ? 'theme-active-surface' : 'theme-card-soft border! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
           @contextmenu="handleSeriesContextMenu($event, series)"
           @dragstart="handleSeriesDragStart($event, series.seriesId)"
           @dragend="handleSeriesDragEnd"

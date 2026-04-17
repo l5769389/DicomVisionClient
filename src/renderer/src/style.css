@@ -34,6 +34,10 @@
       linear-gradient(180deg, rgba(8, 14, 24, 0.92), rgba(6, 11, 20, 0.98));
     --theme-surface-card: rgba(255, 255, 255, 0.04);
     --theme-surface-card-soft: rgba(255, 255, 255, 0.03);
+    --theme-surface-card-elevated:
+      linear-gradient(180deg, rgba(30, 47, 70, 0.9), rgba(22, 35, 53, 0.94));
+    --theme-surface-card-elevated-soft:
+      linear-gradient(180deg, rgba(24, 38, 57, 0.86), rgba(15, 26, 42, 0.92));
     --theme-accent: #66d0ff;
     --theme-accent-strong: #2a95e4;
     --theme-accent-contrast: #f5f7fb;
@@ -92,6 +96,10 @@
       linear-gradient(180deg, rgba(239, 245, 250, 0.96), rgba(228, 237, 244, 0.99));
     --theme-surface-card: rgba(228, 237, 244, 0.92);
     --theme-surface-card-soft: rgba(236, 243, 248, 0.96);
+    --theme-surface-card-elevated:
+      linear-gradient(180deg, rgba(232, 240, 246, 0.94), rgba(223, 233, 240, 0.98));
+    --theme-surface-card-elevated-soft:
+      linear-gradient(180deg, rgba(236, 243, 248, 0.96), rgba(228, 237, 244, 0.98));
     --theme-accent: #4f8fb8;
     --theme-accent-strong: #2f6f97;
     --theme-accent-contrast: #f5f7fb;
@@ -271,7 +279,7 @@
   }
 
   .theme-card-soft {
-    background: var(--theme-surface-card-soft) !important;
+    background: var(--theme-surface-card-elevated-soft) !important;
     border-color: var(--theme-border-soft) !important;
   }
 
@@ -284,7 +292,7 @@
 
   .theme-button-secondary {
     border-color: var(--theme-border-soft) !important;
-    background: linear-gradient(180deg, var(--theme-surface-card), var(--theme-surface-card-soft)) !important;
+    background: var(--theme-surface-card-elevated) !important;
     color: var(--theme-text-primary) !important;
   }
 

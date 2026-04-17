@@ -15,6 +15,7 @@ import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import { useUiPreferences } from '../../ui/useUiPreferences'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
 import {
   createDefaultVolumeRenderConfig,
@@ -122,6 +123,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     horFlip: false,
     verFlip: false
   }
+  const { selectedPseudocolorKey } = useUiPreferences()
 
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
@@ -306,7 +308,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         item.key === tab.key
           ? {
               ...item,
-              pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
+              pseudocolorPreset: selectedPseudocolorKey.value,
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: defaultConfig
             }
@@ -316,6 +318,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       emitViewOperation({
         viewId: tab.viewId,
         opType: VIEW_OPERATION_TYPES.reset
+      })
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.pseudocolor,
+        pseudocolorPreset: selectedPseudocolorKey.value
       })
       emitViewOperation({
         viewId: tab.viewId,
@@ -447,9 +454,56 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (tab.viewType === 'MPR') {
+      const viewportKey = activeViewportKey.value as MprViewportKey
+      const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
+      if (!viewId) {
+        return
+      }
+
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key) {
+          return item
+        }
+
+        return {
+          ...item,
+          viewportPseudocolorPresets: {
+            ...(item.viewportPseudocolorPresets ?? {}),
+            [viewportKey]: selectedPseudocolorKey.value
+          }
+        }
+      })
+
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.reset
+      })
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.pseudocolor,
+        pseudocolorPreset: selectedPseudocolorKey.value
+      })
+      return
+    }
+
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            pseudocolorPreset: selectedPseudocolorKey.value
+          }
+        : item
+    )
+
     emitViewOperation({
       viewId: tab.viewId,
       opType: VIEW_OPERATION_TYPES.reset
+    })
+    emitViewOperation({
+      viewId: tab.viewId,
+      opType: VIEW_OPERATION_TYPES.pseudocolor,
+      pseudocolorPreset: selectedPseudocolorKey.value
     })
   }
 

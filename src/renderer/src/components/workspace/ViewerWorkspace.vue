@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, ViewType, WorkspaceReadyPayload } from '../../types/viewer'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
+import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
@@ -15,6 +16,7 @@ import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 
 const props = defineProps<{
   activeOperation: string
@@ -69,6 +71,7 @@ const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t } = useUiLocale()
+const { roiStatOptions } = useUiPreferences()
 
 const {
   activeViewportKey,
@@ -141,7 +144,7 @@ const {
 
 function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
   const draft = draftMeasurements.value[viewportKey]
-  return draft ?? null
+  return filterMeasurementDraftByPreferences(draft ?? null, roiStatOptions.value)
 }
 
 function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
@@ -159,10 +162,12 @@ function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverla
   const draft = draftMeasurements.value[viewportKey]
   const editingMeasurementId = draft?.measurementId
   if (!editingMeasurementId) {
-    return committedMeasurements
+    return committedMeasurements.map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
   }
 
-  return committedMeasurements.filter((measurement) => measurement.measurementId !== editingMeasurementId)
+  return committedMeasurements
+    .filter((measurement) => measurement.measurementId !== editingMeasurementId)
+    .map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
 }
 
 function getMtfItems(viewportKey: string) {

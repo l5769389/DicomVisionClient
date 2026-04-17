@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useUiPreferences, type CrosshairViewportPreference } from '../../../composables/ui/useUiPreferences'
 import type { MprCrosshairInfo } from '../../../types/viewer'
+import type { MprViewportKey } from '../../../types/viewer'
 
 interface ImageFrame {
   left: number
@@ -25,22 +27,26 @@ const props = withDefaults(
 )
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-
-const lineThickness = computed(() => (Math.min(props.imageFrame.width, props.imageFrame.height) >= 700 ? 2 : 1))
+const { crosshairConfigs } = useUiPreferences()
 const gapRadius = computed(() => (props.isActive ? 6 : 5))
 
-function getHorizontalColor(): string {
-  if (props.viewportKey === 'mpr-cor' || props.viewportKey === 'mpr-sag') {
-    return 'rgba(255, 64, 64, 1)'
-  }
-  return 'rgba(39, 214, 112, 1)'
+function getCrosshairConfig(key: MprViewportKey): CrosshairViewportPreference {
+  return crosshairConfigs.value.find((item) => item.key === key) ?? crosshairConfigs.value[0]!
 }
 
-function getVerticalColor(): string {
-  if (props.viewportKey === 'mpr-sag') {
-    return 'rgba(39, 214, 112, 1)'
+function getViewportAxes(viewportKey: string): { vertical: CrosshairViewportPreference; horizontal: CrosshairViewportPreference } {
+  const axial = getCrosshairConfig('mpr-ax')
+  const coronal = getCrosshairConfig('mpr-cor')
+  const sagittal = getCrosshairConfig('mpr-sag')
+
+  if (viewportKey === 'mpr-ax') {
+    return { vertical: sagittal, horizontal: coronal }
   }
-  return 'rgba(46, 132, 255, 1)'
+  if (viewportKey === 'mpr-cor') {
+    return { vertical: sagittal, horizontal: axial }
+  }
+
+  return { vertical: coronal, horizontal: axial }
 }
 
 function drawStroke(
@@ -49,18 +55,19 @@ function drawStroke(
   fromY: number,
   toX: number,
   toY: number,
-  color: string
+  color: string,
+  thickness: number
 ): void {
   context.lineCap = 'butt'
   context.strokeStyle = 'rgba(4, 8, 14, 0.72)'
-  context.lineWidth = lineThickness.value + 2
+  context.lineWidth = thickness + 2
   context.beginPath()
   context.moveTo(fromX, fromY)
   context.lineTo(toX, toY)
   context.stroke()
 
   context.strokeStyle = color
-  context.lineWidth = lineThickness.value
+  context.lineWidth = thickness
   context.beginPath()
   context.moveTo(fromX, fromY)
   context.lineTo(toX, toY)
@@ -93,6 +100,7 @@ function drawCrosshair(): void {
   }
 
   const { left, top, width, height } = props.imageFrame
+  const axes = getViewportAxes(props.viewportKey)
   const horizontalYNorm = props.mprCrosshair.horizontalPosition
   const verticalXNorm = props.mprCrosshair.verticalPosition
   const centerX = left + (verticalXNorm ?? props.mprCrosshair.centerX) * width
@@ -104,10 +112,10 @@ function drawCrosshair(): void {
     const gapStart = Math.max(left, centerX - gapRadius.value)
     const gapEnd = Math.min(left + width, centerX + gapRadius.value)
     if (gapStart > left) {
-      drawStroke(context, left, horizontalY, gapStart, horizontalY, getHorizontalColor())
+      drawStroke(context, left, horizontalY, gapStart, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
     }
     if (gapEnd < left + width) {
-      drawStroke(context, gapEnd, horizontalY, left + width, horizontalY, getHorizontalColor())
+      drawStroke(context, gapEnd, horizontalY, left + width, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
     }
   }
 
@@ -115,16 +123,16 @@ function drawCrosshair(): void {
     const gapStart = Math.max(top, centerY - gapRadius.value)
     const gapEnd = Math.min(top + height, centerY + gapRadius.value)
     if (gapStart > top) {
-      drawStroke(context, verticalX, top, verticalX, gapStart, getVerticalColor())
+      drawStroke(context, verticalX, top, verticalX, gapStart, axes.vertical.color, axes.vertical.thickness)
     }
     if (gapEnd < top + height) {
-      drawStroke(context, verticalX, gapEnd, verticalX, top + height, getVerticalColor())
+      drawStroke(context, verticalX, gapEnd, verticalX, top + height, axes.vertical.color, axes.vertical.thickness)
     }
   }
 }
 
 watch(
-  () => [props.stageWidth, props.stageHeight, props.imageFrame, props.mprCrosshair, props.isActive, props.viewportKey] as const,
+  () => [props.stageWidth, props.stageHeight, props.imageFrame, props.mprCrosshair, props.isActive, props.viewportKey, crosshairConfigs.value] as const,
   () => {
     drawCrosshair()
   },

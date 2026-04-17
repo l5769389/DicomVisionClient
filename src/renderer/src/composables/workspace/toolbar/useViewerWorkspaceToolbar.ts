@@ -132,7 +132,7 @@ interface ViewerWorkspaceToolbarOptions {
 }
 
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
-  const { getWindowPresetLabel, locale, selectedWindowPresetId, windowPresets } = useUiPreferences()
+  const { getWindowPresetLabel, locale, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
   const playbackController = createPlaybackController()
   const menuController = createMenuController()
   const toolbarActivationController = createToolbarActivationController('window')
@@ -145,7 +145,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
     measure: 'measure:line',
-    pseudocolor: toPseudocolorSelectionValue('bw'),
+    pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     volumePreset: 'volumePreset:aaa'
   })
   const pendingTransientCallback = ref<(() => void) | null>(null)
@@ -643,7 +643,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     () => {
       const tab = options.activeTab.value
       if (!tab) {
-        return 'bw'
+        return selectedPseudocolorKey.value
       }
       if (tab.viewType === 'MPR') {
         return tab.viewportPseudocolorPresets?.[
@@ -655,6 +655,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return tab.pseudocolorPreset
     },
     (value) => {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        pseudocolor: toPseudocolorSelectionValue(value)
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => selectedPseudocolorKey.value,
+    (value) => {
+      if (options.activeTab.value) {
+        return
+      }
+
       stackToolSelections.value = {
         ...stackToolSelections.value,
         pseudocolor: toPseudocolorSelectionValue(value)

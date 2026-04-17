@@ -1,7 +1,7 @@
 import { nextTick, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { api } from '../../../services/api'
-import { bindView } from '../../../services/socket'
+import { bindView, emitViewOperation } from '../../../services/socket'
 import {
   buildTabTitle,
   createEmptyCornerInfo,
@@ -20,12 +20,13 @@ import {
   normalizeCornerInfo,
   normalizeOrientationInfo
 } from './viewerWorkspaceTabs'
-import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import { normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
 } from '../volume/volumeRenderConfig'
+import { useUiPreferences } from '../../ui/useUiPreferences'
 import type {
   BackendCreateViewType,
   CornerInfo,
@@ -60,6 +61,7 @@ interface ViewerWorkspaceViewsOptions {
 
 export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const viewSizeCache = new Map<string, string>()
+  const { selectedPseudocolorKey } = useUiPreferences()
 
   function findTab(seriesId: string, viewType?: ViewType): ViewerTabItem | undefined {
     return options.viewerTabs.value.find((item) =>
@@ -501,8 +503,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportOrientations: createEmptyMprOrientations(),
               transformState: createDefaultTransformInfo(),
               viewportTransformStates: createEmptyMprTransformStates(),
-              pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
-              viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
+              pseudocolorPreset: selectedPseudocolorKey.value,
+              viewportPseudocolorPresets:
+                viewType === 'MPR'
+                  ? {
+                      'mpr-ax': selectedPseudocolorKey.value,
+                      'mpr-cor': selectedPseudocolorKey.value,
+                      'mpr-sag': selectedPseudocolorKey.value
+                    }
+                  : createEmptyMprPseudocolorPresets(),
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
             }
@@ -513,10 +522,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         Object.values(nextViewportViewIds).forEach((viewId) => {
           if (viewId) {
             bindView(viewId)
+            emitViewOperation({
+              viewId,
+              opType: VIEW_OPERATION_TYPES.pseudocolor,
+              pseudocolorPreset: selectedPseudocolorKey.value
+            })
           }
         })
       } else if (nextViewId) {
         bindView(nextViewId)
+        emitViewOperation({
+          viewId: nextViewId,
+          opType: VIEW_OPERATION_TYPES.pseudocolor,
+          pseudocolorPreset: selectedPseudocolorKey.value
+        })
       }
 
       options.activeViewportKey.value = viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single'

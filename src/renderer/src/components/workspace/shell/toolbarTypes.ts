@@ -3,6 +3,8 @@ export interface StackToolOption {
   label: string
   icon: string
   swatchKey?: string
+  description?: string
+  badge?: string
 }
 
 export interface StackTool {
@@ -12,4 +14,5 @@ export interface StackTool {
   swatchKey?: string
   kind?: 'mode' | 'action'
   options?: StackToolOption[]
+  showSelectedOptionIcon?: boolean
 }

@@ -108,6 +108,7 @@ npm run dev
 ```
 
 This starts the Electron development environment through `electron-vite`.
+In desktop development mode, the client does not launch an embedded backend. Start the backend service separately and make sure `http://127.0.0.1:8000` is reachable before opening the app.
 
 ### Build for Production
 
@@ -199,3 +200,5 @@ Recommended startup order:
 1. Start the backend server.
 2. Start the Electron client.
 3. Load a DICOM folder and create viewports from the UI.
+
+Only packaged desktop builds attempt to use the bundled backend artifact under `resources/server`.

@@ -49,29 +49,19 @@ function resolveServerLaunchConfig():
       cwd: string
     }
   | null {
-  if (app.isPackaged) {
-    const executablePath = join(process.resourcesPath, 'server', 'DicomVisionServer.exe')
-    if (existsSync(executablePath)) {
-      return {
-        command: executablePath,
-        args: [],
-        cwd: join(process.resourcesPath, 'server')
-      }
-    }
+  if (!app.isPackaged) {
     return null
   }
 
-  const serverRoot = join(process.cwd(), '..', 'DicomVisionServer')
-  const pythonPath = join(serverRoot, '.venv', 'Scripts', 'python.exe')
-  const runPath = join(serverRoot, 'run.py')
-  if (!existsSync(serverRoot) || !existsSync(pythonPath) || !existsSync(runPath)) {
+  const executablePath = join(process.resourcesPath, 'server', 'DicomVisionServer.exe')
+  if (!existsSync(executablePath)) {
     return null
   }
 
   return {
-    command: pythonPath,
-    args: [runPath],
-    cwd: serverRoot
+    command: executablePath,
+    args: [],
+    cwd: join(process.resourcesPath, 'server')
   }
 }
 
@@ -183,6 +173,16 @@ async function waitForBackendReady(origin: string, timeoutMs: number): Promise<b
 }
 
 async function ensureBackendRunning(): Promise<void> {
+  if (!app.isPackaged) {
+    if (await isBackendReady(backendOrigin)) {
+      return
+    }
+
+    throw new Error(
+      `Desktop dev mode requires an external backend service. Start the backend separately and ensure ${backendOrigin} is reachable.`
+    )
+  }
+
   if (await isBackendReady(backendOrigin)) {
     return
   }
@@ -296,10 +296,15 @@ app.whenReady().then(() => {
 
   void ensureBackendRunning()
     .catch(async (error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Failed to start embedded backend service.'
+      const message =
+        error instanceof Error
+          ? error.message
+          : app.isPackaged
+            ? 'Failed to start embedded backend service.'
+            : 'Desktop dev mode requires a separately running backend service.'
       await dialog.showMessageBox({
         type: 'warning',
-        title: 'Backend Startup Failed',
+        title: app.isPackaged ? 'Backend Startup Failed' : 'Backend Connection Failed',
         message
       })
     })

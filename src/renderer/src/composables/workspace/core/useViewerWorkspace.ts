@@ -93,7 +93,7 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
-  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor'; value?: string }) => void
+  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
@@ -266,7 +266,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor'; value?: string }): void {
+  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -285,6 +285,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'pseudocolor' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+      return
+    }
+
+    if (payload.action === 'windowPreset' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
       return
     }
 
@@ -420,6 +424,25 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId,
         opType: VIEW_OPERATION_TYPES.pseudocolor,
         pseudocolorPreset: presetKey
+      })
+      return
+    }
+
+    if (payload.action === 'windowPreset' && payload.value) {
+      const [wwRaw, wlRaw] = payload.value.split('|')
+      const ww = Number.parseFloat(wwRaw)
+      const wl = Number.parseFloat(wlRaw)
+      const viewId =
+        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      if (!viewId || !Number.isFinite(ww) || !Number.isFinite(wl)) {
+        return
+      }
+
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.window,
+        ww,
+        wl
       })
       return
     }

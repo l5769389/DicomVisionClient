@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { PSEUDOCOLOR_PRESET_OPTIONS, toPseudocolorSelectionValue } from '../../../constants/pseudocolor'
+import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import {
   createMenuController,
@@ -108,7 +109,7 @@ interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
-  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor'; value?: string }) => void
+  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }) => void
   emitViewportWheel: (deltaY: number) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
@@ -117,6 +118,7 @@ interface ViewerWorkspaceToolbarOptions {
 }
 
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
+  const { getWindowPresetLabel, locale, selectedWindowPresetId, windowPresets } = useUiPreferences()
   const playbackController = createPlaybackController()
   const menuController = createMenuController()
   const toolbarActivationController = createToolbarActivationController('window')
@@ -140,20 +142,39 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   let playbackTimer: ReturnType<typeof window.setInterval> | null = null
 
+  function formatWindowPresetValue(ww: number, wl: number): string {
+    return `${ww}|${wl}`
+  }
+
   const isPlaying = computed(() => playbackSnapshot.value.matches('playing'))
   const isPlaybackPaused = computed(() => playbackSnapshot.value.matches('paused'))
   const openMenuKey = computed(() => menuSnapshot.value.context.openKey)
   const activeToolbarToolKey = computed(() => toolbarActivationSnapshot.value.context.activeKey)
   const transientActiveToolKey = computed(() => toolbarActivationSnapshot.value.context.transientKey)
 
+  const windowTool = computed<StackTool>(() => ({
+    key: 'window',
+    label: '璋冪獥',
+    icon: 'window',
+    kind: 'mode',
+    showSelectedOptionIcon: false,
+    options: windowPresets.value.map((preset) => ({
+      value: formatWindowPresetValue(preset.ww, preset.wl),
+      label: getWindowPresetLabel(preset),
+      icon: 'contrast',
+      description: `WW ${Math.round(preset.ww)} / WL ${Math.round(preset.wl)}`,
+      badge: preset.source === 'custom' ? (locale.value === 'zh-CN' ? '自定义' : 'Custom') : locale.value === 'zh-CN' ? '系统' : 'System'
+    }))
+  }))
+
   const activeTools = computed(() =>
     options.activeTab.value?.viewType === 'Stack'
-      ? stackTools
+      ? stackTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
       : options.activeTab.value?.viewType === 'MPR'
-        ? genericToolsWithCrosshair
-        : options.activeTab.value?.viewType === '3D'
+        ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+      : options.activeTab.value?.viewType === '3D'
           ? volumeTools
-          : genericTools
+          : genericTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
   )
 
   const areToolbarActionsDisabled = computed(
@@ -193,7 +214,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getSelectedOption(toolKey: string): StackToolOption | null {
-    const tool = stackTools.find((item) => item.key === toolKey) ?? volumeTools.find((item) => item.key === toolKey)
+    const tool =
+      activeTools.value.find((item) => item.key === toolKey) ??
+      stackTools.find((item) => item.key === toolKey) ??
+      genericTools.find((item) => item.key === toolKey) ??
+      volumeTools.find((item) => item.key === toolKey)
     const selectedValue = stackToolSelections.value[toolKey]
     if (!tool?.options || !selectedValue) {
       return null
@@ -415,6 +440,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
+    if (tool.key === 'window') {
+      const selectedPreset = windowPresets.value.find((preset) => formatWindowPresetValue(preset.ww, preset.wl) === optionValue)
+      if (selectedPreset) {
+        selectedWindowPresetId.value = selectedPreset.id
+      }
+      options.emitTriggerViewAction({ action: 'windowPreset', value: optionValue })
+      return
+    }
+
     if (tool.key === 'measure') {
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
@@ -497,6 +531,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       const matchedToolKey = normalizedOperation === VIEW_OPERATION_TYPES.scroll ? 'page' : normalizedOperation
       if (SELECTABLE_TOOL_KEYS.has(matchedToolKey)) {
         setToolbarToolActive(matchedToolKey)
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => selectedWindowPresetId.value,
+    (value) => {
+      const selectedPreset = windowPresets.value.find((preset) => preset.id === value) ?? windowPresets.value[0]
+      if (!selectedPreset) {
+        return
+      }
+
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        window: formatWindowPresetValue(selectedPreset.ww, selectedPreset.wl)
       }
     },
     { immediate: true }

@@ -74,7 +74,7 @@ const emit = defineEmits<{
             />
             <AppIcon
               v-else
-              :name="tool.options ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
+              :name="tool.options && tool.showSelectedOptionIcon !== false ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
               :size="toolbarIconSize"
             />
           </VBtn>
@@ -101,7 +101,7 @@ const emit = defineEmits<{
               </VBtn>
             </template>
 
-            <div data-tool-menu-root class="theme-shell-panel inline-flex min-w-[120px] flex-col rounded-[22px] border p-2 shadow-[0_20px_44px_rgba(2,8,18,0.36)] backdrop-blur">
+            <div data-tool-menu-root class="theme-shell-panel inline-flex min-w-[180px] flex-col rounded-[22px] border p-2 shadow-[0_20px_44px_rgba(2,8,18,0.36)] backdrop-blur">
               <div
                 v-for="option in tool.options"
                 :key="option.value"
@@ -109,7 +109,8 @@ const emit = defineEmits<{
                 :class="{ 'bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,transparent)]! text-[var(--theme-text-primary)]!': stackToolSelections[tool.key] === option.value }"
                 @click="emit('selectToolOption', tool, option.value)"
               >
-                <div class="flex w-fit items-center">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex min-w-0 items-center">
                   <PseudocolorBand
                     v-if="tool.key === 'pseudocolor'"
                     class="mr-[10px]"
@@ -121,7 +122,19 @@ const emit = defineEmits<{
                     :name="option.icon"
                     :size="menuIconSize + 6"
                   />
-                  <span class="whitespace-nowrap">{{ option.label }}</span>
+                    <div class="min-w-0">
+                      <div class="truncate whitespace-nowrap">{{ option.label }}</div>
+                      <div v-if="option.description" class="mt-0.5 text-[11px] text-[var(--theme-text-muted)]">
+                        {{ option.description }}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    v-if="option.badge"
+                    class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
+                  >
+                    {{ option.badge }}
+                  </span>
                 </div>
               </div>
             </div>

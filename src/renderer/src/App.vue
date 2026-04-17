@@ -30,6 +30,14 @@ onBeforeUnmount(() => {
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
   void viewer.openSeriesView(seriesId, 'Stack')
 }
+
+const handleQuickPreviewSelectedSeries = (): void => {
+  if (!viewer.selectedSeriesId.value) {
+    return
+  }
+
+  void viewer.openSeriesView(viewer.selectedSeriesId.value, 'Stack')
+}
 </script>
 
 <template>
@@ -64,6 +72,7 @@ const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
           :has-selected-series="viewer.hasSelectedSeries.value"
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
+          :selected-series-id="viewer.selectedSeriesId.value"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
@@ -72,6 +81,8 @@ const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
           @trigger-view-action="viewer.triggerViewAction"
           @active-viewport-change="viewer.setActiveViewportKey"
           @quick-preview-series-drop="handleQuickPreviewSeriesDrop"
+          @quick-preview-selected-series="handleQuickPreviewSelectedSeries"
+          @toggle-sidebar="viewer.toggleSidebar"
           @measurement-draft="viewer.handleMeasurementDraft"
           @measurement-create="viewer.handleMeasurementCreate"
           @measurement-delete="viewer.handleMeasurementDelete"

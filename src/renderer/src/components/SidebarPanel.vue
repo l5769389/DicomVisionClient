@@ -39,15 +39,19 @@ const connectionIcon = computed(() => {
 })
 
 const connectionToneClass = computed(() => {
-  if (props.connectionState === 'connected') return 'border-emerald-300/18 bg-emerald-400/10 text-emerald-100'
-  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') return 'border-amber-300/18 bg-amber-400/10 text-amber-50'
-  return 'border-rose-300/18 bg-rose-400/10 text-rose-100'
+  if (props.connectionState === 'connected') return 'theme-connection-tone theme-connection-tone--connected'
+  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') {
+    return 'theme-connection-tone theme-connection-tone--connecting'
+  }
+  return 'theme-connection-tone theme-connection-tone--disconnected'
 })
 
 const connectionDotClass = computed(() => {
-  if (props.connectionState === 'connected') return 'bg-emerald-400 shadow-[0_0_0_5px_rgba(74,222,128,0.14)]'
-  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') return 'bg-amber-400 shadow-[0_0_0_5px_rgba(251,191,36,0.14)]'
-  return 'bg-rose-400 shadow-[0_0_0_5px_rgba(248,113,113,0.14)]'
+  if (props.connectionState === 'connected') return 'theme-connection-dot theme-connection-dot--connected'
+  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') {
+    return 'theme-connection-dot theme-connection-dot--connecting'
+  }
+  return 'theme-connection-dot theme-connection-dot--disconnected'
 })
 
 function handleOpenSeriesView(seriesId: string, viewType: ViewType): void {

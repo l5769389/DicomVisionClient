@@ -23,6 +23,7 @@ const props = defineProps<{
   hasSelectedSeries: boolean
   isViewLoading: boolean
   message: string
+  selectedSeriesId: string
   viewerTabs: ViewerTabItem[]
 }>()
 
@@ -55,6 +56,8 @@ const emit = defineEmits<{
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
   quickPreviewSeriesDrop: [seriesId: string]
+  quickPreviewSelectedSeries: []
+  toggleSidebar: []
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
@@ -364,7 +367,145 @@ function handleWorkspaceKeydown(event: KeyboardEvent): void {
     if ((preferMtf && deleteSelectedMtfAction()) || deleteSelectedMeasurement() || deleteSelectedMtfAction()) {
       event.preventDefault()
     }
+    return
   }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
+    event.preventDefault()
+    if (props.activeTabKey) {
+      emit('closeTab', props.activeTabKey)
+    }
+    return
+  }
+
+  if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault()
+    emit('toggleSidebar')
+    return
+  }
+
+  if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && props.selectedSeriesId) {
+    event.preventDefault()
+    emit('quickPreviewSelectedSeries')
+    return
+  }
+
+  if (event.key === 'F10' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault()
+    exportActiveImage()
+    return
+  }
+
+  handleNavigationShortcut(event)
+}
+
+function getActiveSliceInfo(): { current: number; total: number } | null {
+  const tab = props.activeTab
+  if (!tab) {
+    return null
+  }
+
+  const raw =
+    tab.viewType === 'MPR'
+      ? tab.viewportSliceLabels?.[activeViewportKey.value as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? tab.sliceLabel
+      : tab.sliceLabel
+  const match = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
+  if (!match) {
+    return null
+  }
+
+  const current = Number(match[1])
+  const total = Number(match[2])
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
+    return null
+  }
+
+  return { current, total }
+}
+
+function exportActiveImage(): void {
+  const activeTab = props.activeTab
+  if (!activeTab) {
+    return
+  }
+
+  const imageSrc =
+    activeTab.viewType === 'MPR'
+      ? activeTab.viewportImages?.[
+          (activeViewportKey.value === 'single' || activeViewportKey.value === 'volume'
+            ? 'mpr-ax'
+            : activeViewportKey.value) as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+        ]
+      : activeTab.imageSrc
+  if (!imageSrc) {
+    return
+  }
+
+  const anchor = document.createElement('a')
+  const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
+  anchor.href = imageSrc
+  anchor.download = `${safeTitle}-${activeTab.viewType}.png`
+  anchor.click()
+}
+
+function handleNavigationShortcut(event: KeyboardEvent): void {
+  const tab = props.activeTab
+  if (!tab) {
+    return
+  }
+
+  if (tab.viewType === 'Tag') {
+    const currentIndex = tab.tagIndex ?? 0
+    const total = Math.max(1, tab.tagTotal ?? 1)
+    let nextIndex: number | null = null
+
+    if (event.key === 'Home') {
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      nextIndex = total - 1
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = Math.max(0, currentIndex - (event.shiftKey ? 10 : 1))
+    } else if (event.key === 'ArrowRight') {
+      nextIndex = Math.min(total - 1, currentIndex + (event.shiftKey ? 10 : 1))
+    }
+
+    if (nextIndex != null && nextIndex !== currentIndex) {
+      event.preventDefault()
+      emit('tagIndexChange', { tabKey: tab.key, index: nextIndex })
+    }
+    return
+  }
+
+  if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+    return
+  }
+
+  const sliceInfo = getActiveSliceInfo()
+  if (!sliceInfo) {
+    return
+  }
+
+  let delta: number | null = null
+  if (event.key === 'Home') {
+    delta = 1 - sliceInfo.current
+  } else if (event.key === 'End') {
+    delta = sliceInfo.total - sliceInfo.current
+  } else if (event.key === 'ArrowLeft') {
+    delta = event.shiftKey ? -10 : -1
+  } else if (event.key === 'ArrowRight') {
+    delta = event.shiftKey ? 10 : 1
+  }
+
+  if (!delta) {
+    return
+  }
+
+  event.preventDefault()
+  handleViewportWheel({
+    viewportKey: activeViewportKey.value,
+    deltaY: delta,
+    exact: true
+  })
 }
 
 onMounted(() => {

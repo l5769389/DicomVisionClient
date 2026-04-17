@@ -329,6 +329,61 @@
     color: var(--theme-text-primary) !important;
   }
 
+  .theme-connection-tone {
+    border-width: 1px;
+  }
+
+  .theme-connection-tone--connected {
+    border-color: rgba(110, 231, 183, 0.2) !important;
+    background: rgba(16, 185, 129, 0.12) !important;
+    color: #d1fae5 !important;
+  }
+
+  .theme-connection-tone--connecting {
+    border-color: rgba(252, 211, 77, 0.2) !important;
+    background: rgba(245, 158, 11, 0.12) !important;
+    color: #fef3c7 !important;
+  }
+
+  .theme-connection-tone--disconnected {
+    border-color: rgba(253, 164, 175, 0.22) !important;
+    background: rgba(244, 63, 94, 0.12) !important;
+    color: #ffe4e6 !important;
+  }
+
+  .theme-connection-dot--connected {
+    background: rgb(74 222 128) !important;
+    box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.14) !important;
+  }
+
+  .theme-connection-dot--connecting {
+    background: rgb(251 191 36) !important;
+    box-shadow: 0 0 0 5px rgba(251, 191, 36, 0.14) !important;
+  }
+
+  .theme-connection-dot--disconnected {
+    background: rgb(248 113 113) !important;
+    box-shadow: 0 0 0 5px rgba(248, 113, 113, 0.14) !important;
+  }
+
+  :root[data-theme="clinical-light"] .theme-connection-tone--connected {
+    border-color: rgba(16, 185, 129, 0.18) !important;
+    background: rgba(16, 185, 129, 0.12) !important;
+    color: #0f766e !important;
+  }
+
+  :root[data-theme="clinical-light"] .theme-connection-tone--connecting {
+    border-color: rgba(245, 158, 11, 0.2) !important;
+    background: rgba(245, 158, 11, 0.14) !important;
+    color: #9a3412 !important;
+  }
+
+  :root[data-theme="clinical-light"] .theme-connection-tone--disconnected {
+    border-color: rgba(244, 63, 94, 0.18) !important;
+    background: rgba(244, 63, 94, 0.12) !important;
+    color: #be123c !important;
+  }
+
   .toolbar-tool-button.v-btn--active:hover,
   .toolbar-tool-button.toolbar-tool-button--active:hover {
     border-color: var(--theme-active-border) !important;

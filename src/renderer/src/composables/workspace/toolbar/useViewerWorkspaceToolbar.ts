@@ -16,20 +16,20 @@ const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rot
 
 const measureTool: StackTool = {
   key: 'measure',
-  label: '测量',
+  label: 'Measure',
   icon: 'measure',
   kind: 'action',
   options: [
-    { value: 'measure:line', label: '线段', icon: 'measure-line' },
-    { value: 'measure:rect', label: '矩形', icon: 'measure-rect' },
-    { value: 'measure:ellipse', label: '椭圆', icon: 'measure-ellipse' },
-    { value: 'measure:angle', label: '角度', icon: 'measure-angle' }
+    { value: 'measure:line', label: 'Line', icon: 'measure-line' },
+    { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' },
+    { value: 'measure:ellipse', label: 'Ellipse', icon: 'measure-ellipse' },
+    { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' }
   ]
 }
 
 const pseudocolorTool: StackTool = {
   key: 'pseudocolor',
-  label: '伪彩',
+  label: 'Pseudocolor',
   icon: 'pseudocolor',
   swatchKey: 'bw',
   kind: 'action',
@@ -41,51 +41,61 @@ const pseudocolorTool: StackTool = {
   }))
 }
 
+const tagTool: StackTool = {
+  key: 'tag',
+  label: 'Tag',
+  icon: 'tag',
+  kind: 'action'
+}
+
 const stackTools: StackTool[] = [
   { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
-  { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
-  { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   {
     key: 'rotate',
-    label: '旋转',
+    label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
     options: [
-      { value: 'rotate:cw90', label: '顺时针 90', icon: 'rotate-cw90' },
-      { value: 'rotate:ccw90', label: '逆时针 90', icon: 'rotate-ccw90' },
-      { value: 'rotate:mirror-h', label: '水平镜像', icon: 'mirror-h' },
-      { value: 'rotate:mirror-v', label: '垂直镜像', icon: 'mirror-v' }
+      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
+      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
+      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
+      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
     ]
   },
-  { key: 'reset', label: '重置', icon: 'reset', kind: 'action' },
-  { key: 'page', label: '翻页', icon: 'page', kind: 'action' },
-  { key: 'annotate', label: '标注', icon: 'annotate', kind: 'action' },
+  { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
+  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  tagTool,
+  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'action' },
   measureTool,
-  { key: 'play', label: '播放', icon: 'play', kind: 'action' },
-  { key: 'export', label: '导出', icon: 'export', kind: 'action' },
+  { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
+  { key: 'export', label: 'Export', icon: 'export', kind: 'action' },
   pseudocolorTool
 ]
 
 const genericTools: StackTool[] = [
   { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
-  { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
-  { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  tagTool,
   measureTool,
   pseudocolorTool,
-  { key: 'export', label: '导出', icon: 'export', kind: 'action' }
+  { key: 'export', label: 'Export', icon: 'export', kind: 'action' }
 ]
 
 const volumeTools: StackTool[] = [
-  { key: 'rotate3d', label: '3D旋转', icon: 'rotate3d', kind: 'mode' },
-  { key: 'pan', label: '平移', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: '缩放', icon: 'zoom', kind: 'mode' },
-  { key: 'window', label: '调窗', icon: 'window', kind: 'mode' },
-  { key: 'volumeParams', label: '参数', icon: 'settings', kind: 'action' },
+  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  tagTool,
+  { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' },
   {
     key: 'volumePreset',
-    label: '模板',
+    label: 'Preset',
     icon: 'volumePreset',
     kind: 'action',
     options: [
@@ -96,12 +106,12 @@ const volumeTools: StackTool[] = [
       { value: 'volumePreset:mip', label: 'MIP', icon: 'volume-preset-mip' }
     ]
   },
-  { key: 'reset', label: '重置', icon: 'reset', kind: 'action' },
-  { key: 'export', label: '导出', icon: 'export', kind: 'action' }
+  { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
+  { key: 'export', label: 'Export', icon: 'export', kind: 'action' }
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
-  { key: 'crosshair', label: '十字线', icon: 'crosshair', kind: 'mode' },
+  { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
   ...genericTools
 ]
 
@@ -109,8 +119,12 @@ interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
-  emitTriggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }) => void
+  emitTriggerViewAction: (payload: {
+    action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'
+    value?: string
+  }) => void
   emitViewportWheel: (deltaY: number) => void
+  emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
   stopViewportDrag: () => void
@@ -154,7 +168,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const windowTool = computed<StackTool>(() => ({
     key: 'window',
-    label: '璋冪獥',
+    label: 'Window',
     icon: 'window',
     kind: 'mode',
     showSelectedOptionIcon: false,
@@ -172,7 +186,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       ? stackTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
       : options.activeTab.value?.viewType === 'MPR'
         ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-      : options.activeTab.value?.viewType === '3D'
+        : options.activeTab.value?.viewType === '3D'
           ? volumeTools
           : genericTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
   )
@@ -262,7 +276,49 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     playbackController.stop()
   }
 
+  function getCurrentStackSliceInfo(): { current: number; total: number } | null {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'Stack') {
+      return null
+    }
+
+    const match = activeTab.sliceLabel.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
+    if (!match) {
+      return null
+    }
+
+    const current = Number(match[1])
+    const total = Number(match[2])
+    if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 1) {
+      return null
+    }
+
+    return { current, total }
+  }
+
+  function tickPlayback(): void {
+    const sliceInfo = getCurrentStackSliceInfo()
+    if (!sliceInfo) {
+      stopPlayback()
+      return
+    }
+
+    if (sliceInfo.current >= sliceInfo.total) {
+      stopPlayback()
+      return
+    }
+
+    options.emitViewportWheel(1)
+  }
+
   function startPlayback(): void {
+    if (options.activeTab.value?.viewType !== 'Stack') {
+      return
+    }
+    if (!getCurrentStackSliceInfo()) {
+      return
+    }
+
     if (playbackTimer != null) {
       window.clearInterval(playbackTimer)
       playbackTimer = null
@@ -270,11 +326,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     closeMenus()
     playbackController.start()
     playbackTimer = window.setInterval(() => {
-      options.emitViewportWheel(1)
+      tickPlayback()
     }, 180)
   }
 
   function resumePlayback(): void {
+    if (options.activeTab.value?.viewType !== 'Stack') {
+      stopPlayback()
+      return
+    }
+    if (!getCurrentStackSliceInfo()) {
+      stopPlayback()
+      return
+    }
+
     if (playbackTimer != null) {
       window.clearInterval(playbackTimer)
       playbackTimer = null
@@ -282,7 +347,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     closeMenus()
     playbackController.resume()
     playbackTimer = window.setInterval(() => {
-      options.emitViewportWheel(1)
+      tickPlayback()
     }, 180)
   }
 
@@ -411,6 +476,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
     if (tool.key === 'play') {
       startPlayback()
+      return
+    }
+
+    if (tool.key === 'tag') {
+      const seriesId = options.activeTab.value?.seriesId?.trim() ?? ''
+      if (seriesId) {
+        options.emitOpenSeriesView(seriesId, 'Tag')
+      }
       return
     }
 

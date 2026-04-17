@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
-import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, ViewType, WorkspaceReadyPayload } from '../../types/viewer'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import MprView from '../viewer/views/MprView.vue'
@@ -57,6 +57,7 @@ const emit = defineEmits<{
   viewportWheel: [deltaY: number]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
+  openSeriesView: [seriesId: string, viewType: ViewType]
   toggleSidebar: []
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
@@ -131,6 +132,7 @@ const {
   emitSetActiveOperation: (value) => emit('setActiveOperation', value),
   emitTriggerViewAction: (payload) => emit('triggerViewAction', payload),
   emitViewportWheel: (deltaY) => emit('viewportWheel', deltaY),
+  emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
   activeViewportKey,
   cleanupPointerInteractions,
   stopViewportDrag: () => stopViewportDrag(),

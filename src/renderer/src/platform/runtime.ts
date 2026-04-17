@@ -1,3 +1,5 @@
+import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
+
 type ViewerPlatform = 'desktop' | 'web'
 type FolderSourceMode = 'desktop-picker' | 'web-prompt' | 'server-sample'
 
@@ -26,15 +28,10 @@ function normalizeOrigin(origin: string): string {
 
 function resolveWebBackendOrigin(): string {
   if (import.meta.env.DEV) {
-    return 'https://dicomvisionserver.onrender.com'
+    return APP_BACKEND_CONFIG.web.devOrigin
   }
 
-  const configuredOrigin = getTrimmedEnvValue(import.meta.env.VITE_BACKEND_ORIGIN)
-  if (configuredOrigin) {
-    return normalizeOrigin(configuredOrigin)
-  }
-
-  throw new Error('VITE_BACKEND_ORIGIN is required for web production builds')
+  return APP_BACKEND_CONFIG.web.prodOrigin
 }
 
 function resolveWebFolderPrompt(): string {
@@ -52,7 +49,7 @@ function createDesktopRuntime(): ViewerRuntimeApi {
     folderSourceMode: 'desktop-picker',
     chooseFolder: () => window.viewerApi?.chooseFolder?.() ?? Promise.resolve(null),
     getBackendOrigin: () =>
-      window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve('http://127.0.0.1:8000')
+      window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN)
   }
 }
 

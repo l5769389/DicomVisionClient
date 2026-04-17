@@ -6,6 +6,7 @@ import {
   type ViewOperationType,
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
+import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
 import { api } from '../../../services/api'
 import {emitViewOperation, ViewOperationInput} from '../../../services/socket'
 import { isMprViewportKey, normalizeCornerInfo } from '../views/viewerWorkspaceTabs'
@@ -101,7 +102,7 @@ interface ViewerWorkspaceState {
 
 export function useViewerWorkspace(): ViewerWorkspaceState {
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
-  const backendOrigin = ref('http://127.0.0.1:8000')
+  const backendOrigin = ref(DESKTOP_DEV_BACKEND_ORIGIN)
   const message = ref('')
   const isSidebarCollapsed = ref(false)
   const isLoadingFolder = ref(false)

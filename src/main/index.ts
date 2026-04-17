@@ -1,14 +1,16 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN, buildHttpOrigin } from '../shared/appConfig'
 
-const DEFAULT_BACKEND_HOST = '127.0.0.1'
-const DEFAULT_BACKEND_PORT = 8000
-const DEFAULT_BACKEND_ORIGIN = `http://${DEFAULT_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`
+const DEFAULT_BACKEND_HOST = APP_BACKEND_CONFIG.desktop.devHost
+const DEFAULT_BACKEND_PORT = APP_BACKEND_CONFIG.desktop.devPort
+const DEFAULT_BACKEND_ORIGIN = DESKTOP_DEV_BACKEND_ORIGIN
 const BACKEND_READY_TIMEOUT_MS = 20000
 const BACKEND_READY_POLL_INTERVAL_MS = 400
 
@@ -16,7 +18,7 @@ let backendOrigin = process.env.DICOM_VISION_SERVER_ORIGIN?.trim() || DEFAULT_BA
 let backendProcess: ChildProcessWithoutNullStreams | null = null
 
 function buildBackendOrigin(host: string, port: number): string {
-  return `http://${host}:${port}`
+  return buildHttpOrigin(host, port)
 }
 
 function resolvePreloadPath(): string {
@@ -77,6 +79,29 @@ function resolveBackendLogPath(): string {
   const logDir = join(app.getPath('userData'), 'logs')
   mkdirSync(logDir, { recursive: true })
   return join(logDir, 'backend.log')
+}
+
+function resolveUiPreferencesPath(): string {
+  const preferencesDir = join(app.getPath('userData'), 'preferences')
+  mkdirSync(preferencesDir, { recursive: true })
+  return join(preferencesDir, 'ui-preferences.json')
+}
+
+async function loadUiPreferences(): Promise<unknown | null> {
+  try {
+    const fileContent = await readFile(resolveUiPreferencesPath(), 'utf-8')
+    return JSON.parse(fileContent) as unknown
+  } catch (error) {
+    if (typeof error === 'object' && error && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+
+    throw error
+  }
+}
+
+async function saveUiPreferences(payload: unknown): Promise<void> {
+  await writeFile(resolveUiPreferencesPath(), JSON.stringify(payload, null, 2), 'utf-8')
 }
 
 function pipeBackendLogs(processHandle: ChildProcessWithoutNullStreams): void {
@@ -254,6 +279,8 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('viewer:get-backend-origin', () => backendOrigin)
+  ipcMain.handle('viewer:load-ui-preferences', () => loadUiPreferences())
+  ipcMain.handle('viewer:save-ui-preferences', (_, payload: unknown) => saveUiPreferences(payload))
 
   void ensureBackendRunning()
     .catch(async (error: unknown) => {

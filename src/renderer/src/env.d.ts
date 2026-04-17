@@ -15,6 +15,8 @@ declare global {
     viewerApi?: {
       chooseFolder: () => Promise<string | null>
       getBackendOrigin: () => Promise<string>
+      loadUiPreferences: () => Promise<unknown | null>
+      saveUiPreferences: (payload: unknown) => Promise<void>
     }
   }
 }

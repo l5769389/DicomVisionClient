@@ -102,7 +102,6 @@ interface SettingsCopy {
 
 const DEFAULT_THEME_ID = 'aurora'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
-const DEFAULT_WINDOW_PRESET_ID = 'lung'
 
 const themePresets: ThemePreset[] = [
   {
@@ -343,22 +342,24 @@ const {
   locale: globalLocale,
   setLocale,
   addCustomWindowPreset,
+  crosshairConfigs,
   getWindowPresetLabel,
   removeCustomWindowPreset,
+  roiStatOptions,
+  selectedPseudocolorKey,
+  selectedWindowPresetId,
+  setCrosshairConfigs,
   systemWindowPresets,
+  setRoiStatOptions,
+  themeId,
   windowPresets
 } = useUiPreferences()
 
 const activeSection = ref<SettingsSection>('language')
-const selectedWindowPresetId = ref(systemWindowPresets[0]?.id ?? DEFAULT_WINDOW_PRESET_ID)
-const selectedPseudocolorKey = ref(DEFAULT_PSEUDOCOLOR_KEY)
-const selectedThemeId = ref(DEFAULT_THEME_ID)
 const customPresetZhName = ref('')
 const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
-const roiStatOptions = ref<RoiStatOption[]>(createDefaultRoiStatOptions())
-const crosshairConfigs = ref<CrosshairViewportConfig[]>(createDefaultCrosshairConfigs())
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = computed(() => createCopy(isZh.value))
@@ -395,11 +396,11 @@ function getCrosshairPreviewAxes(viewportKey: MprViewportKey): { vertical: Cross
 
 function resetLanguageSection(): void {
   setLocale('zh-CN')
-  selectedThemeId.value = DEFAULT_THEME_ID
+  themeId.value = DEFAULT_THEME_ID
 }
 
 function resetWindowPresetSection(): void {
-  selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? DEFAULT_WINDOW_PRESET_ID
+  selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? 'lung'
   customPresetZhName.value = ''
   customPresetEnName.value = ''
   customPresetWw.value = '400'
@@ -408,8 +409,8 @@ function resetWindowPresetSection(): void {
 
 function resetDisplaySection(): void {
   selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
-  roiStatOptions.value = createDefaultRoiStatOptions()
-  crosshairConfigs.value = createDefaultCrosshairConfigs()
+  setRoiStatOptions(createDefaultRoiStatOptions())
+  setCrosshairConfigs(createDefaultCrosshairConfigs())
 }
 
 function resetCurrentSection(): void {
@@ -451,7 +452,7 @@ function handleRemoveSelectedCustomWindowPreset(): void {
   }
 
   removeCustomWindowPreset(selectedWindowPreset.value.id)
-  selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? DEFAULT_WINDOW_PRESET_ID
+  selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? 'lung'
 }
 </script>
 
@@ -562,8 +563,8 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                           :key="theme.id"
                           type="button"
                           class="flex items-center gap-4 rounded-[22px] border px-4 py-4 text-left transition duration-150"
-                          :class="selectedThemeId === theme.id ? 'border-sky-300/24 bg-[linear-gradient(135deg,rgba(32,104,174,0.24),rgba(255,138,91,0.12))]' : 'border-white/8 bg-white/[0.03] hover:bg-white/[0.05]'"
-                          @click="selectedThemeId = theme.id"
+                          :class="themeId === theme.id ? 'border-sky-300/24 bg-[linear-gradient(135deg,rgba(32,104,174,0.24),rgba(255,138,91,0.12))]' : 'border-white/8 bg-white/[0.03] hover:bg-white/[0.05]'"
+                          @click="themeId = theme.id"
                         >
                           <span class="h-12 w-20 shrink-0 rounded-2xl border border-white/10" :style="{ background: theme.preview }"></span>
                           <div class="min-w-0">

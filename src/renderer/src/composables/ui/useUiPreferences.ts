@@ -267,6 +267,18 @@ function serializeState(): UiPreferencesState {
   }
 }
 
+async function persistState(): Promise<void> {
+  if (!hasHydrated) {
+    return
+  }
+
+  try {
+    await saveUiPreferencesToStorage(serializeState())
+  } catch (error) {
+    console.error('Failed to save UI preferences.', error)
+  }
+}
+
 async function hydrateState(): Promise<void> {
   if (hasHydrated) {
     return
@@ -312,14 +324,8 @@ void hydrateState()
 
 watch(
   () => serializeState(),
-  (payload) => {
-    if (!hasHydrated) {
-      return
-    }
-
-    void saveUiPreferencesToStorage(payload).catch((error) => {
-      console.error('Failed to save UI preferences.', error)
-    })
+  () => {
+    void persistState()
   },
   { deep: true }
 )
@@ -338,23 +344,27 @@ export function useUiPreferences() {
     get: () => state.themeId,
     set: (value: string) => {
       state.themeId = normalizeThemeId(value)
+      void persistState()
     }
   })
   const selectedPseudocolorKey = computed({
     get: () => state.selectedPseudocolorKey,
     set: (value: string) => {
       state.selectedPseudocolorKey = normalizePseudocolorKey(value)
+      void persistState()
     }
   })
   const selectedWindowPresetId = computed({
     get: () => state.selectedWindowPresetId,
     set: (value: string) => {
       state.selectedWindowPresetId = normalizeWindowPresetId(value, state.customWindowPresets)
+      void persistState()
     }
   })
 
   function setLocale(locale: AppLocale): void {
     state.locale = locale
+    void persistState()
   }
 
   function addCustomWindowPreset(input: {
@@ -379,6 +389,7 @@ export function useUiPreferences() {
       }
     ]
     state.selectedWindowPresetId = presetId
+    void persistState()
     return presetId
   }
 
@@ -387,14 +398,17 @@ export function useUiPreferences() {
     if (state.selectedWindowPresetId === id) {
       state.selectedWindowPresetId = DEFAULT_WINDOW_PRESET_ID
     }
+    void persistState()
   }
 
   function setCrosshairConfigs(nextValue: CrosshairViewportPreference[]): void {
     state.crosshairConfigs = normalizeCrosshairConfigs(nextValue)
+    void persistState()
   }
 
   function setRoiStatOptions(nextValue: RoiStatPreference[]): void {
     state.roiStatOptions = normalizeRoiStatOptions(nextValue)
+    void persistState()
   }
 
   function getWindowPresetLabel(preset: WindowTemplatePreset): string {

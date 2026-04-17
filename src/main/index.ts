@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
@@ -82,9 +82,21 @@ function resolveBackendLogPath(): string {
 }
 
 function resolveUiPreferencesPath(): string {
-  const preferencesDir = join(app.getPath('userData'), 'preferences')
-  mkdirSync(preferencesDir, { recursive: true })
-  return join(preferencesDir, 'ui-preferences.json')
+  const userDataPath = app.getPath('userData')
+  const preferredDir = join(userDataPath, 'preferences')
+
+  if (existsSync(preferredDir)) {
+    if (statSync(preferredDir).isDirectory()) {
+      return join(preferredDir, 'ui-preferences.json')
+    }
+
+    const fallbackDir = join(userDataPath, 'preferences-store')
+    mkdirSync(fallbackDir, { recursive: true })
+    return join(fallbackDir, 'ui-preferences.json')
+  }
+
+  mkdirSync(preferredDir, { recursive: true })
+  return join(preferredDir, 'ui-preferences.json')
 }
 
 async function loadUiPreferences(): Promise<unknown | null> {

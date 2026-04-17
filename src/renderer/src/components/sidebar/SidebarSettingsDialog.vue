@@ -63,7 +63,6 @@ interface SettingsCopy {
   navGroup: string
   measureGroup: string
   workspaceGroup: string
-  modify: string
   items: string
   windowPresetsTitle: string
   windowPresetsDesc: string
@@ -106,24 +105,17 @@ const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const themePresets: ThemePreset[] = [
   {
     id: 'aurora',
-    label: 'Aurora',
-    summaryZh: '冷蓝高亮，暖橙点缀',
-    summaryEn: 'Cool blue highlights with warm orange accents',
-    preview: 'linear-gradient(135deg,#66d0ff,#ff8a5b)'
+    label: '默认主题',
+    summaryZh: '沿用当前项目的深蓝界面、冷蓝高亮与低亮背景层次',
+    summaryEn: 'Current project look with deep navy surfaces and cool blue highlights',
+    preview: 'linear-gradient(135deg,#07111d 0%,#0d1b2d 48%,#16324d 78%,#66d0ff 100%)'
   },
   {
-    id: 'emerald',
-    label: 'Emerald',
-    summaryZh: '青绿主体，金色强调',
-    summaryEn: 'Emerald base with golden emphasis',
-    preview: 'linear-gradient(135deg,#34d399,#fbbf24)'
-  },
-  {
-    id: 'steel',
-    label: 'Steel',
-    summaryZh: '灰蓝基调，冷紫点缀',
-    summaryEn: 'Steel blue base with cool violet accents',
-    preview: 'linear-gradient(135deg,#93c5fd,#c4b5fd)'
+    id: 'clinical-light',
+    label: 'Clinical Light',
+    summaryZh: '浅灰白底配冷蓝强调，更适合明亮环境和演示场景',
+    summaryEn: 'Soft light surfaces with restrained blue accents for bright rooms and demos',
+    preview: 'linear-gradient(135deg,#f7fbff 0%,#e8f1f8 42%,#d7e5f2 72%,#6aaed6 100%)'
   }
 ]
 
@@ -168,7 +160,6 @@ function createCopy(isZh: boolean): SettingsCopy {
       navGroup: '视图导航',
       measureGroup: '标注测量',
       workspaceGroup: '工作区',
-      modify: '修改',
       items: '项',
       windowPresetsTitle: '窗模板',
       windowPresetsDesc: '用于快速应用窗宽窗位，不包含颜色配置。',
@@ -189,7 +180,7 @@ function createCopy(isZh: boolean): SettingsCopy {
       displayDesc: '在这里统一设置十字线、ROI 统计项和默认伪彩。',
       roiStatsTitle: 'ROI 统计项',
       roiStatsDesc: '矩形、椭圆和自由选择 ROI 默认显示以下统计值。',
-      themeDesc: '从预设主题中选择一套，不支持自由混搭颜色。',
+      themeDesc: '当前提供两套预设主题，不支持自由混搭颜色。',
       pseudocolor: '默认伪彩',
       crosshairViewport: 'MPR 视口',
       crosshairColor: '颜色',
@@ -225,7 +216,6 @@ function createCopy(isZh: boolean): SettingsCopy {
     navGroup: 'Navigation',
     measureGroup: 'Measurement',
     workspaceGroup: 'Workspace',
-    modify: 'Edit',
     items: 'items',
     windowPresetsTitle: 'Window Templates',
     windowPresetsDesc: 'Used for quickly applying WW/WL without extra color settings.',
@@ -246,7 +236,7 @@ function createCopy(isZh: boolean): SettingsCopy {
     displayDesc: 'Manage crosshair, ROI stats, and pseudocolor in one place.',
     roiStatsTitle: 'ROI Statistics',
     roiStatsDesc: 'Rectangle, ellipse, and freehand ROI will show these statistics by default.',
-    themeDesc: 'Choose from a few preset themes instead of mixing colors freely.',
+    themeDesc: 'Choose between two preset themes instead of mixing colors freely.',
     pseudocolor: 'Default Pseudocolor',
     crosshairViewport: 'MPR Viewport',
     crosshairColor: 'Color',
@@ -272,12 +262,12 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
           { id: 'scroll-slice', action: '翻页', description: '鼠标滚轮上下翻动当前序列。', combo: 'Wheel' },
           { id: 'first-slice', action: '翻到首张图像', description: '直接跳到当前序列第一张图像。', combo: 'Home' },
           { id: 'last-slice', action: '翻到末张图像', description: '直接跳到当前序列最后一张图像。', combo: 'End' },
-          { id: 'prev-slice', action: '向前一张', description: '向前移动 1 张图像。', combo: 'Left' },
-          { id: 'next-slice', action: '向后一张', description: '向后移动 1 张图像。', combo: 'Right' },
-          { id: 'prev-ten-slices', action: '向前十张', description: '向前快速移动 10 张图像。', combo: 'Shift + Left' },
-          { id: 'next-ten-slices', action: '向后十张', description: '向后快速移动 10 张图像。', combo: 'Shift + Right' },
-          { id: 'pan-view', action: '平移', description: '按住后拖动当前图像。', combo: 'Space + Drag' },
-          { id: 'zoom-view', action: '缩放', description: '快速缩放当前视口。', combo: 'Ctrl + Wheel' }
+          { id: 'prev-slice', action: '向前一张', description: '向前移动 1 张图像。', combo: 'ArrowLeft' },
+          { id: 'next-slice', action: '向后一张', description: '向后移动 1 张图像。', combo: 'ArrowRight' },
+          { id: 'prev-ten-slices', action: '向前十张', description: '向前快速移动 10 张图像。', combo: 'Shift + ArrowLeft' },
+          { id: 'next-ten-slices', action: '向后十张', description: '向后快速移动 10 张图像。', combo: 'Shift + ArrowRight' },
+          { id: 'window-level', action: '调窗', description: '按下滚轮并滑动以调整窗宽窗位。', combo: 'Wheel + Drag' },
+          { id: 'zoom-view', action: '缩放', description: '按下右键并滑动以缩放当前视口。', combo: 'Right Click + Drag' }
         ]
       },
       {
@@ -292,8 +282,8 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
         title: copyValue.workspaceGroup,
         items: [
           { id: 'quick-preview', action: '快速预览', description: '打开当前序列的 Stack 视图。', combo: 'Enter' },
-          { id: 'screenshot-png', action: '屏幕截图保存为 PNG', description: '将当前视口截图保存为 PNG。', combo: 'Ctrl + Shift + P' },
-          { id: 'screenshot-dicom', action: '屏幕截图保存为 DICOM', description: '将当前视口截图保存为 DICOM。', combo: 'Ctrl + Shift + D' },
+          { id: 'screenshot-png', action: '屏幕截图保存为 PNG', description: '将当前视口截图保存为 PNG。', combo: 'F10' },
+          { id: 'screenshot-dicom', action: '屏幕截图保存为 DICOM', description: '将当前视口截图保存为 DICOM。', combo: 'F11' },
           { id: 'close-tab', action: '关闭标签页', description: '关闭当前活动标签页。', combo: 'Ctrl + W' },
           { id: 'toggle-sidebar', action: '收起侧栏', description: '切换左侧面板显示状态。', combo: 'Tab' }
         ]
@@ -308,12 +298,12 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
         { id: 'scroll-slice', action: 'Scroll Slice', description: 'Use the wheel to move through the current series.', combo: 'Wheel' },
         { id: 'first-slice', action: 'First Image', description: 'Jump to the first image in the current series.', combo: 'Home' },
         { id: 'last-slice', action: 'Last Image', description: 'Jump to the last image in the current series.', combo: 'End' },
-        { id: 'prev-slice', action: 'Previous Image', description: 'Move back by one image.', combo: 'Left' },
-        { id: 'next-slice', action: 'Next Image', description: 'Move forward by one image.', combo: 'Right' },
-        { id: 'prev-ten-slices', action: 'Previous 10 Images', description: 'Move back by ten images quickly.', combo: 'Shift + Left' },
-        { id: 'next-ten-slices', action: 'Next 10 Images', description: 'Move forward by ten images quickly.', combo: 'Shift + Right' },
-        { id: 'pan-view', action: 'Pan View', description: 'Hold and drag to move the active image.', combo: 'Space + Drag' },
-        { id: 'zoom-view', action: 'Zoom View', description: 'Quickly zoom the active viewport.', combo: 'Ctrl + Wheel' }
+        { id: 'prev-slice', action: 'Previous Image', description: 'Move back by one image.', combo: 'ArrowLeft' },
+        { id: 'next-slice', action: 'Next Image', description: 'Move forward by one image.', combo: 'ArrowRight' },
+        { id: 'prev-ten-slices', action: 'Previous 10 Images', description: 'Move back by ten images quickly.', combo: 'Shift + ArrowLeft' },
+        { id: 'next-ten-slices', action: 'Next 10 Images', description: 'Move forward by ten images quickly.', combo: 'Shift + ArrowRight' },
+        { id: 'window-level', action: 'Window Level', description: 'Hold the wheel button and drag to adjust WW/WL.', combo: 'Wheel + Drag' },
+        { id: 'zoom-view', action: 'Zoom View', description: 'Hold the right mouse button and drag to zoom the active viewport.', combo: 'Right Click + Drag' }
       ]
     },
     {
@@ -328,8 +318,8 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
       title: copyValue.workspaceGroup,
       items: [
         { id: 'quick-preview', action: 'Quick Preview', description: 'Open the current series in Stack view.', combo: 'Enter' },
-        { id: 'screenshot-png', action: 'Save Screenshot as PNG', description: 'Save the current viewport screenshot as PNG.', combo: 'Ctrl + Shift + P' },
-        { id: 'screenshot-dicom', action: 'Save Screenshot as DICOM', description: 'Save the current viewport screenshot as DICOM.', combo: 'Ctrl + Shift + D' },
+        { id: 'screenshot-png', action: 'Save Screenshot as PNG', description: 'Save the current viewport screenshot as PNG.', combo: 'F10' },
+        { id: 'screenshot-dicom', action: 'Save Screenshot as DICOM', description: 'Save the current viewport screenshot as DICOM.', combo: 'F11' },
         { id: 'close-tab', action: 'Close Tab', description: 'Close the active tab.', combo: 'Ctrl + W' },
         { id: 'toggle-sidebar', action: 'Toggle Sidebar', description: 'Show or hide the left panel.', combo: 'Tab' }
       ]
@@ -378,6 +368,20 @@ const displayCustomWindowPresets = computed(() => windowPresets.value.filter((pr
 
 function getThemeSummary(theme: ThemePreset): string {
   return isZh.value ? theme.summaryZh : theme.summaryEn
+}
+
+function getShortcutComboParts(combo: string): string[] {
+  return combo.split(' + ').map((item) => item.trim()).filter(Boolean)
+}
+
+function getShortcutComboLabel(part: string): string {
+  if (part === 'ArrowLeft') {
+    return '←'
+  }
+  if (part === 'ArrowRight') {
+    return '→'
+  }
+  return part
 }
 
 function getCrosshairPreviewAxes(viewportKey: MprViewportKey): { vertical: CrosshairViewportConfig; horizontal: CrosshairViewportConfig } {
@@ -600,8 +604,12 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                               <div class="mt-1 text-xs leading-5 text-slate-400">{{ item.description }}</div>
                             </div>
                             <div class="flex items-center gap-2">
-                              <span class="rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.06em] text-sky-100">{{ item.combo }}</span>
-                              <button type="button" class="rounded-xl border border-white/8 bg-white/6 px-3 py-2 text-[11px] font-medium text-slate-200 transition hover:bg-white/10">{{ copy.modify }}</button>
+                              <span class="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-2 text-[12px] font-semibold tracking-[0.06em] text-sky-100">
+                                <template v-for="(part, index) in getShortcutComboParts(item.combo)" :key="`${item.id}-${part}-${index}`">
+                                  <span class="rounded-lg border border-white/8 bg-white/[0.04] px-2 py-1 font-mono leading-none">{{ getShortcutComboLabel(part) }}</span>
+                                  <span v-if="index < getShortcutComboParts(item.combo).length - 1" class="text-slate-500">+</span>
+                                </template>
+                              </span>
                             </div>
                           </div>
                         </div>

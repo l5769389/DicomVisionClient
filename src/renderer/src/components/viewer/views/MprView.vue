@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprViewportKey, ViewerMtfItem, ViewerTabItem } from '../../../types/viewer'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  CornerInfo,
+  DraftMeasurementMode,
+  MeasurementDraft,
+  MeasurementOverlay,
+  MprViewportKey,
+  ViewerMtfItem,
+  ViewerTabItem
+} from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
   activeViewportKey: string
+  getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
   getCursorClass: (viewportKey: MprViewportKey) => string
+  getDraftAnnotation: (viewportKey: MprViewportKey) => AnnotationDraft | null
   getDraftMeasurementMode: (viewportKey: MprViewportKey) => DraftMeasurementMode | null
   getDraftMeasurement: (viewportKey: MprViewportKey) => MeasurementDraft | null
   getMeasurements: (viewportKey: MprViewportKey) => MeasurementOverlay[]
@@ -18,6 +30,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string]
@@ -30,6 +44,9 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
@@ -65,7 +82,9 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :viewport-key="item.key"
       :viewport-class="item.className"
       :is-active="activeViewportKey === item.key"
+      :annotations="props.getAnnotations(item.key)"
       :cursor-class="props.getCursorClass(item.key)"
+      :draft-annotation="props.getDraftAnnotation(item.key)"
       :render-surface-active="activeViewportKey === item.key"
       :image-src="getViewportImage(item.key)"
       :is-loading="isViewportLoading(item.key)"
@@ -85,6 +104,8 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
+      @copy-annotation="emit('copyAnnotation', $event)"
+      @delete-annotation="emit('deleteAnnotation', $event)"
       @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
@@ -96,6 +117,9 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"
       @pointer-cancel="emit('pointerCancel', $event)"
+      @update-annotation-color="emit('updateAnnotationColor', $event)"
+      @update-annotation-size="emit('updateAnnotationSize', $event)"
+      @update-annotation-text="emit('updateAnnotationText', $event)"
     />
   </div>
 </template>

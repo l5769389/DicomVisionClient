@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
-import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerTabItem, ViewType, WorkspaceReadyPayload } from '../../types/viewer'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  AnnotationSize,
+  DraftMeasurementMode,
+  MeasurementDraft,
+  MeasurementDraftPoint,
+  MeasurementOverlay,
+  ViewerTabItem,
+  ViewType,
+  WorkspaceReadyPayload
+} from '../../types/viewer'
+import { findArrowAnnotationAtPoint, isValidArrowAnnotation, translateAnnotationPoints, updateEditedArrowPoints } from '../../composables/annotations/annotationGeometry'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
@@ -72,6 +84,29 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t } = useUiLocale()
 const { roiStatOptions } = useUiPreferences()
+const DEFAULT_ANNOTATION_TEXT = ''
+const DEFAULT_ANNOTATION_COLOR = '#ffd166'
+const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
+const ANNOTATION_DRAG_START_THRESHOLD = 3
+
+type AnnotationInteractionState =
+  | { kind: 'idle' }
+  | { kind: 'creating'; viewportKey: string }
+  | {
+      kind: 'move_pending'
+      viewportKey: string
+      annotationId: string
+      startPoint: MeasurementDraftPoint
+      originalPoints: MeasurementDraftPoint[]
+    }
+  | {
+      kind: 'moving'
+      viewportKey: string
+      annotationId: string
+      startPoint: MeasurementDraftPoint
+      originalPoints: MeasurementDraftPoint[]
+    }
+  | { kind: 'editing_handle'; viewportKey: string; annotationId: string; handleIndex: number }
 
 const {
   activeViewportKey,
@@ -142,6 +177,106 @@ const {
   setActiveViewport
 })
 
+const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
+const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
+const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
+const annotationActivePointerId = ref<number | null>(null)
+
+function createAnnotationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function isAnnotationOperationEnabled(): boolean {
+  return (
+    (props.activeTab?.viewType === 'Stack' || props.activeTab?.viewType === 'MPR') &&
+    props.activeOperation.startsWith('stack:annotate')
+  )
+}
+
+function getDraftAnnotation(viewportKey: string): AnnotationDraft | null {
+  return draftAnnotations.value[viewportKey] ?? null
+}
+
+function getAnnotations(viewportKey: string): AnnotationOverlay[] {
+  const tabKey = props.activeTab?.key
+  if (!tabKey) {
+    return []
+  }
+
+  return annotationStore.value[tabKey]?.[viewportKey] ?? []
+}
+
+function setViewportAnnotations(viewportKey: string, annotations: AnnotationOverlay[]): void {
+  const tabKey = props.activeTab?.key
+  if (!tabKey) {
+    return
+  }
+
+  annotationStore.value = {
+    ...annotationStore.value,
+    [tabKey]: {
+      ...(annotationStore.value[tabKey] ?? {}),
+      [viewportKey]: annotations
+    }
+  }
+}
+
+function upsertAnnotation(viewportKey: string, annotation: AnnotationOverlay): void {
+  const current = getAnnotations(viewportKey)
+  const index = current.findIndex((item) => item.annotationId === annotation.annotationId)
+  setViewportAnnotations(
+    viewportKey,
+    index === -1 ? [...current, annotation] : current.map((item, currentIndex) => (currentIndex === index ? annotation : item))
+  )
+}
+
+function removeAnnotation(viewportKey: string, annotationId: string): void {
+  setViewportAnnotations(
+    viewportKey,
+    getAnnotations(viewportKey).filter((item) => item.annotationId !== annotationId)
+  )
+}
+
+function setDraftAnnotation(viewportKey: string, annotation: AnnotationDraft | null): void {
+  draftAnnotations.value = {
+    ...draftAnnotations.value,
+    [viewportKey]: annotation
+  }
+}
+
+function clearDraftAnnotations(): void {
+  draftAnnotations.value = {}
+}
+
+function findAnnotation(viewportKey: string, annotationId: string): AnnotationOverlay | null {
+  return getAnnotations(viewportKey).find((item) => item.annotationId === annotationId) ?? null
+}
+
+function selectAnnotation(viewportKey: string, annotation: AnnotationOverlay): void {
+  setDraftAnnotation(viewportKey, {
+    annotationId: annotation.annotationId,
+    toolType: annotation.toolType,
+    points: annotation.points,
+    text: annotation.text,
+    color: annotation.color,
+    size: annotation.size
+  })
+}
+
+function clearSelectedAnnotation(viewportKey?: string): void {
+  if (!viewportKey) {
+    clearDraftAnnotations()
+    annotationInteraction.value = { kind: 'idle' }
+    return
+  }
+
+  setDraftAnnotation(viewportKey, null)
+  annotationInteraction.value = { kind: 'idle' }
+}
+
 function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
   const draft = draftMeasurements.value[viewportKey]
   return filterMeasurementDraftByPreferences(draft ?? null, roiStatOptions.value)
@@ -181,6 +316,9 @@ function getMtfItems(viewportKey: string) {
 }
 
 function getViewportCursorClass(viewportKey: string): string {
+  if (isAnnotationOperationEnabled()) {
+    return viewportCursorClasses.value[viewportKey] ?? 'cursor-crosshair'
+  }
   return viewportCursorClasses.value[viewportKey] ?? ''
 }
 
@@ -194,6 +332,427 @@ function getMprCornerInfo(viewportKey: string) {
       bottomRight: []
     }
   )
+}
+
+function resolvePointerContainer(event: PointerEvent): HTMLElement | null {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return null
+  }
+
+  return target.closest('.viewer-viewport')
+}
+
+function resolveViewportImageElement(event: PointerEvent): HTMLImageElement | null {
+  const container = resolvePointerContainer(event)
+  if (!container) {
+    return null
+  }
+
+  const image = container.querySelector<HTMLImageElement>('.viewer-image')
+  return image instanceof HTMLImageElement ? image : null
+}
+
+function getRenderedImageRect(imageElement: HTMLImageElement): DOMRect {
+  const rect = imageElement.getBoundingClientRect()
+  const naturalWidth = imageElement.naturalWidth
+  const naturalHeight = imageElement.naturalHeight
+  if (!naturalWidth || !naturalHeight || !rect.width || !rect.height) {
+    return rect
+  }
+
+  const elementAspectRatio = rect.width / rect.height
+  const imageAspectRatio = naturalWidth / naturalHeight
+
+  if (elementAspectRatio > imageAspectRatio) {
+    const renderedWidth = rect.height * imageAspectRatio
+    const offsetX = (rect.width - renderedWidth) / 2
+    return new DOMRect(rect.left + offsetX, rect.top, renderedWidth, rect.height)
+  }
+
+  const renderedHeight = rect.width / imageAspectRatio
+  const offsetY = (rect.height - renderedHeight) / 2
+  return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
+}
+
+function getNormalizedViewportPoint(event: PointerEvent): MeasurementDraftPoint | null {
+  const imageElement = resolveViewportImageElement(event)
+  if (!imageElement) {
+    return null
+  }
+
+  const rect = getRenderedImageRect(imageElement)
+  if (!rect.width || !rect.height) {
+    return null
+  }
+
+  return {
+    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+  }
+}
+
+function setAnnotationPointerCapture(pointerTarget: HTMLElement, pointerId: number): void {
+  pointerTarget.setPointerCapture(pointerId)
+  annotationActivePointerId.value = pointerId
+}
+
+function releaseAnnotationPointerCapture(pointerTarget?: EventTarget | null): void {
+  if (!(pointerTarget instanceof HTMLElement) || annotationActivePointerId.value == null) {
+    annotationActivePointerId.value = null
+    return
+  }
+
+  if (pointerTarget.hasPointerCapture(annotationActivePointerId.value)) {
+    pointerTarget.releasePointerCapture(annotationActivePointerId.value)
+  }
+  annotationActivePointerId.value = null
+}
+
+function stopAnnotationInteraction(pointerTarget?: EventTarget | null): void {
+  releaseAnnotationPointerCapture(pointerTarget)
+  annotationInteraction.value = { kind: 'idle' }
+}
+
+function updateSelectedAnnotation(viewportKey: string, annotationId: string, updater: (current: AnnotationOverlay) => AnnotationOverlay): void {
+  const current = findAnnotation(viewportKey, annotationId)
+  if (!current) {
+    return
+  }
+
+  const nextAnnotation = updater(current)
+  upsertAnnotation(viewportKey, nextAnnotation)
+  selectAnnotation(viewportKey, nextAnnotation)
+}
+
+function offsetAnnotationPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
+  const shiftedPoints = points.map((point) => ({
+    x: Math.max(0, Math.min(1, point.x + delta)),
+    y: Math.max(0, Math.min(1, point.y + delta))
+  }))
+
+  const changed = shiftedPoints.some((point, index) => point.x !== points[index]?.x || point.y !== points[index]?.y)
+  if (changed) {
+    return shiftedPoints
+  }
+
+  return points.map((point) => ({
+    x: Math.max(0, Math.min(1, point.x - delta)),
+    y: Math.max(0, Math.min(1, point.y - delta))
+  }))
+}
+
+function areAnnotationPointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {
+  if (a.length !== b.length) {
+    return false
+  }
+
+  return a.every((point, index) => {
+    const other = b[index]
+    return other != null && Math.abs(point.x - other.x) < 0.0005 && Math.abs(point.y - other.y) < 0.0005
+  })
+}
+
+function handleAnnotationTextUpdate(payload: { viewportKey: string; annotationId: string; text: string }): void {
+  updateSelectedAnnotation(payload.viewportKey, payload.annotationId, (current) => ({
+    ...current,
+    text: payload.text
+  }))
+}
+
+function handleAnnotationColorUpdate(payload: { viewportKey: string; annotationId: string; color: string }): void {
+  updateSelectedAnnotation(payload.viewportKey, payload.annotationId, (current) => ({
+    ...current,
+    color: payload.color
+  }))
+}
+
+function handleAnnotationSizeUpdate(payload: { viewportKey: string; annotationId: string; size: AnnotationSize }): void {
+  updateSelectedAnnotation(payload.viewportKey, payload.annotationId, (current) => ({
+    ...current,
+    size: payload.size
+  }))
+}
+
+function copySelectedAnnotation(viewportKey?: string): boolean {
+  const resolvedViewportKey = viewportKey ?? activeViewportKey.value
+  const draft = getDraftAnnotation(resolvedViewportKey)
+  if (!draft?.annotationId) {
+    return false
+  }
+
+  const source = findAnnotation(resolvedViewportKey, draft.annotationId)
+  if (!source) {
+    return false
+  }
+
+  const occupiedPointSets = getAnnotations(resolvedViewportKey).map((annotation) => annotation.points)
+  let copiedPoints = source.points
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    const candidate = offsetAnnotationPoints(source.points, 0.01 * attempt)
+    if (!occupiedPointSets.some((points) => areAnnotationPointSetsClose(points, candidate))) {
+      copiedPoints = candidate
+      break
+    }
+    copiedPoints = candidate
+  }
+
+  const copiedAnnotation: AnnotationOverlay = {
+    ...source,
+    annotationId: createAnnotationId(),
+    points: copiedPoints
+  }
+
+  upsertAnnotation(resolvedViewportKey, copiedAnnotation)
+  selectAnnotation(resolvedViewportKey, copiedAnnotation)
+  annotationInteraction.value = { kind: 'idle' }
+  return true
+}
+
+function deleteSelectedAnnotation(viewportKey?: string): boolean {
+  const resolvedViewportKey = viewportKey ?? activeViewportKey.value
+  const draft = getDraftAnnotation(resolvedViewportKey)
+  if (!draft?.annotationId) {
+    return false
+  }
+
+  removeAnnotation(resolvedViewportKey, draft.annotationId)
+  setDraftAnnotation(resolvedViewportKey, null)
+  annotationInteraction.value = { kind: 'idle' }
+  return true
+}
+
+function handleAnnotationDelete(payload: { viewportKey: string; annotationId: string }): void {
+  removeAnnotation(payload.viewportKey, payload.annotationId)
+  const draft = getDraftAnnotation(payload.viewportKey)
+  if (draft?.annotationId === payload.annotationId) {
+    setDraftAnnotation(payload.viewportKey, null)
+  }
+  annotationInteraction.value = { kind: 'idle' }
+}
+
+function handleAnnotationCopy(payload: { viewportKey: string; annotationId: string }): void {
+  const annotation = findAnnotation(payload.viewportKey, payload.annotationId)
+  if (!annotation) {
+    return
+  }
+
+  selectAnnotation(payload.viewportKey, annotation)
+  void copySelectedAnnotation(payload.viewportKey)
+}
+
+function handleAnnotationPointerDown(event: PointerEvent, viewportKey: string): boolean {
+  if (!isAnnotationOperationEnabled()) {
+    return false
+  }
+
+  const pointerTarget = resolvePointerContainer(event)
+  const point = getNormalizedViewportPoint(event)
+  const imageElement = resolveViewportImageElement(event)
+  if (!(pointerTarget instanceof HTMLElement) || !point || !imageElement) {
+    return false
+  }
+
+  event.preventDefault()
+  setActiveViewport(viewportKey as never)
+  const rect = getRenderedImageRect(imageElement)
+  const annotations = getAnnotations(viewportKey)
+  const hit = findArrowAnnotationAtPoint(annotations, point, rect)
+
+  if (hit?.handleIndex != null) {
+    selectAnnotation(viewportKey, hit.annotation)
+    setAnnotationPointerCapture(pointerTarget, event.pointerId)
+    annotationInteraction.value = {
+      kind: 'editing_handle',
+      viewportKey,
+      annotationId: hit.annotation.annotationId,
+      handleIndex: hit.handleIndex
+    }
+    return true
+  }
+
+  if (hit) {
+    selectAnnotation(viewportKey, hit.annotation)
+    setAnnotationPointerCapture(pointerTarget, event.pointerId)
+    annotationInteraction.value = {
+      kind: 'move_pending',
+      viewportKey,
+      annotationId: hit.annotation.annotationId,
+      startPoint: point,
+      originalPoints: hit.annotation.points
+    }
+    return true
+  }
+
+  const nextDraft: AnnotationDraft = {
+    toolType: 'arrow',
+    points: [point, point],
+    text: DEFAULT_ANNOTATION_TEXT,
+    color: DEFAULT_ANNOTATION_COLOR,
+    size: DEFAULT_ANNOTATION_SIZE
+  }
+  setDraftAnnotation(viewportKey, nextDraft)
+  setAnnotationPointerCapture(pointerTarget, event.pointerId)
+  annotationInteraction.value = {
+    kind: 'creating',
+    viewportKey
+  }
+  return true
+}
+
+function handleAnnotationPointerMove(event: PointerEvent): boolean {
+  if (annotationActivePointerId.value !== event.pointerId) {
+    return false
+  }
+
+  const interaction = annotationInteraction.value
+  const point = getNormalizedViewportPoint(event)
+  if (!point) {
+    return true
+  }
+
+  if (interaction.kind === 'creating') {
+    const draft = getDraftAnnotation(interaction.viewportKey)
+    if (!draft) {
+      return true
+    }
+
+    setDraftAnnotation(interaction.viewportKey, {
+      ...draft,
+      points: [draft.points[0], point]
+    })
+    return true
+  }
+
+  if (interaction.kind === 'move_pending') {
+    const imageElement = resolveViewportImageElement(event)
+    if (!imageElement) {
+      return true
+    }
+
+    const rect = getRenderedImageRect(imageElement)
+    const deltaX = (point.x - interaction.startPoint.x) * rect.width
+    const deltaY = (point.y - interaction.startPoint.y) * rect.height
+    if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < ANNOTATION_DRAG_START_THRESHOLD) {
+      return true
+    }
+
+    annotationInteraction.value = {
+      ...interaction,
+      kind: 'moving'
+    }
+  }
+
+  const movingInteraction = annotationInteraction.value
+  if (movingInteraction.kind === 'moving') {
+    updateSelectedAnnotation(
+      movingInteraction.viewportKey,
+      movingInteraction.annotationId,
+      (current) => ({
+        ...current,
+        points: translateAnnotationPoints(
+          movingInteraction.originalPoints,
+          point.x - movingInteraction.startPoint.x,
+          point.y - movingInteraction.startPoint.y
+        )
+      })
+    )
+    return true
+  }
+
+  if (interaction.kind === 'editing_handle') {
+    updateSelectedAnnotation(interaction.viewportKey, interaction.annotationId, (current) => ({
+      ...current,
+      points: updateEditedArrowPoints(current.points, interaction.handleIndex, point)
+    }))
+    return true
+  }
+
+  return false
+}
+
+function handleAnnotationPointerUp(event: PointerEvent): boolean {
+  if (annotationActivePointerId.value !== event.pointerId) {
+    return false
+  }
+
+  const interaction = annotationInteraction.value
+  if (interaction.kind === 'creating') {
+    const draft = getDraftAnnotation(interaction.viewportKey)
+    if (draft && isValidArrowAnnotation(draft.points)) {
+      const annotation: AnnotationOverlay = {
+        annotationId: createAnnotationId(),
+        toolType: 'arrow',
+        points: draft.points,
+        text: draft.text,
+        color: draft.color,
+        size: draft.size
+      }
+      upsertAnnotation(interaction.viewportKey, annotation)
+      selectAnnotation(interaction.viewportKey, annotation)
+    } else {
+      setDraftAnnotation(interaction.viewportKey, null)
+    }
+
+    stopAnnotationInteraction(event.currentTarget)
+    return true
+  }
+
+  if (interaction.kind === 'move_pending' || interaction.kind === 'moving' || interaction.kind === 'editing_handle') {
+    stopAnnotationInteraction(event.currentTarget)
+    return true
+  }
+
+  return false
+}
+
+function handleAnnotationPointerCancel(event: PointerEvent): boolean {
+  if (annotationActivePointerId.value !== event.pointerId) {
+    return false
+  }
+
+  if (annotationInteraction.value.kind === 'creating') {
+    setDraftAnnotation(annotationInteraction.value.viewportKey, null)
+  }
+
+  stopAnnotationInteraction(event.currentTarget)
+  return true
+}
+
+function handleAnnotationPointerLeave(_viewportKey: string): void {
+}
+
+function handleViewportPointerDownWithAnnotations(event: PointerEvent, viewportKey: string): void {
+  if (handleAnnotationPointerDown(event, viewportKey)) {
+    return
+  }
+  handleViewportPointerDown(event, viewportKey)
+}
+
+function handleViewportPointerMoveWithAnnotations(event: PointerEvent): void {
+  if (handleAnnotationPointerMove(event)) {
+    return
+  }
+  handleViewportPointerMove(event)
+}
+
+function handleViewportPointerUpWithAnnotations(event: PointerEvent): void {
+  if (handleAnnotationPointerUp(event)) {
+    return
+  }
+  handleViewportPointerUp(event)
+}
+
+function handleViewportPointerCancelWithAnnotations(event: PointerEvent): void {
+  if (handleAnnotationPointerCancel(event)) {
+    return
+  }
+  handleViewportPointerCancel(event)
+}
+
+function handleViewportPointerLeaveWithAnnotations(viewportKey: string): void {
+  handleAnnotationPointerLeave(viewportKey)
+  handleViewportPointerLeave(viewportKey)
 }
 
 const isMtfCurveDialogOpen = ref(false)
@@ -341,6 +900,24 @@ watch(
   }
 )
 
+watch(
+  () => props.activeOperation,
+  (value) => {
+    if (!value.startsWith('stack:annotate')) {
+      clearDraftAnnotations()
+      annotationInteraction.value = { kind: 'idle' }
+    }
+  }
+)
+
+watch(
+  () => props.activeTabKey,
+  () => {
+    clearDraftAnnotations()
+    annotationInteraction.value = { kind: 'idle' }
+  }
+)
+
 const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, tabStripRef, updateTabScrollState } =
   useViewerWorkspaceShell({
     activeTab: activeTabRef,
@@ -362,16 +939,29 @@ function handleWorkspaceKeydown(event: KeyboardEvent): void {
   }
 
   const preferMtf = props.activeOperation === 'mtf'
+  const preferAnnotation = props.activeOperation.startsWith('stack:annotate')
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-    if ((preferMtf && copySelectedMtfAction()) || copySelectedMeasurement() || copySelectedMtfAction()) {
+    if (
+      (preferAnnotation && copySelectedAnnotation()) ||
+      (preferMtf && copySelectedMtfAction()) ||
+      copySelectedMeasurement() ||
+      copySelectedMtfAction() ||
+      copySelectedAnnotation()
+    ) {
       event.preventDefault()
     }
     return
   }
 
   if (event.key === 'Delete' || event.key === 'Backspace') {
-    if ((preferMtf && deleteSelectedMtfAction()) || deleteSelectedMeasurement() || deleteSelectedMtfAction()) {
+    if (
+      (preferAnnotation && deleteSelectedAnnotation()) ||
+      (preferMtf && deleteSelectedMtfAction()) ||
+      deleteSelectedMeasurement() ||
+      deleteSelectedMtfAction() ||
+      deleteSelectedAnnotation()
+    ) {
       event.preventDefault()
     }
     return
@@ -522,6 +1112,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWorkspaceKeydown)
   isQuickPreviewDropActive.value = false
+  stopAnnotationInteraction()
 })
 </script>
 
@@ -609,8 +1200,10 @@ onBeforeUnmount(() => {
         <StackView
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
+          :annotations="getAnnotations('single')"
           :corner-info="activeTab.cornerInfo"
           :cursor-class="getViewportCursorClass('single')"
+          :draft-annotation="getDraftAnnotation('single')"
           :draft-measurement-mode="getDraftMeasurementMode('single')"
           :draft-measurement="getDraftMeasurement('single')"
           :measurements="getVisibleCommittedMeasurements('single')"
@@ -618,6 +1211,8 @@ onBeforeUnmount(() => {
           :mtf-draft="getMtfDraft('single')"
           :mtf-items="getMtfItems('single')"
           :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="copySelectedMeasurement($event)"
           @delete-selected-measurement="deleteSelectedMeasurement($event)"
           @clear-mtf="handleDeleteSelectedMtf"
@@ -627,18 +1222,23 @@ onBeforeUnmount(() => {
           @select-mtf="handleSelectMtf"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
-          @pointer-down="handleViewportPointerDown"
-          @pointer-leave="handleViewportPointerLeave"
-          @pointer-move="handleViewportPointerMove"
-          @pointer-up="handleViewportPointerUp"
-          @pointer-cancel="handleViewportPointerCancel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
         />
 
         <MprView
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
+          :get-annotations="(viewportKey) => getAnnotations(viewportKey)"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="(viewportKey) => getDraftAnnotation(viewportKey)"
           :get-draft-measurement-mode="(viewportKey) => getDraftMeasurementMode(viewportKey)"
           :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
           :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
@@ -647,6 +1247,8 @@ onBeforeUnmount(() => {
           :get-mtf-items="(viewportKey) => getMtfItems(viewportKey)"
           :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
           :get-corner-info="(viewportKey) => getMprCornerInfo(viewportKey)"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="copySelectedMeasurement($event)"
           @delete-selected-measurement="deleteSelectedMeasurement($event)"
           @clear-mtf="handleDeleteSelectedMtf"
@@ -656,11 +1258,14 @@ onBeforeUnmount(() => {
           @select-mtf="handleSelectMtf"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
-          @pointer-down="handleViewportPointerDown"
-          @pointer-leave="handleViewportPointerLeave"
-          @pointer-move="handleViewportPointerMove"
-          @pointer-up="handleViewportPointerUp"
-          @pointer-cancel="handleViewportPointerCancel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
         />
 
         <VolumeView

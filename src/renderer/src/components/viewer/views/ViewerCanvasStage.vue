@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, MprCrosshairInfo, OrientationInfo, ViewerMtfItem } from '../../../types/viewer'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  CornerInfo,
+  DraftMeasurementMode,
+  MeasurementDraft,
+  MeasurementOverlay,
+  MprCrosshairInfo,
+  OrientationInfo,
+  ViewerMtfItem
+} from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
+import ViewportAnnotationOverlay from '../overlays/ViewportAnnotationOverlay.vue'
 import ViewportCornerOverlay from '../overlays/ViewportCornerOverlay.vue'
 import ViewportCrosshairOverlay from '../overlays/ViewportCrosshairOverlay.vue'
 import ViewportMtfOverlay from '../overlays/ViewportMtfOverlay.vue'
@@ -11,8 +22,10 @@ import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.v
 const props = withDefaults(
   defineProps<{
     alt: string
+    annotations?: AnnotationOverlay[]
     cornerInfo: CornerInfo
     cursorClass?: string
+    draftAnnotation?: AnnotationDraft | null
     draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
     mtfDraftMode?: DraftMeasurementMode | null
@@ -34,6 +47,8 @@ const props = withDefaults(
     viewportKey: string
   }>(),
   {
+    annotations: () => [],
+    draftAnnotation: null,
     draftMeasurement: null,
     measurements: () => [],
     cursorClass: '',
@@ -50,6 +65,8 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string]
@@ -63,6 +80,9 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   wheelViewport: [payload: { viewportKey: string; deltaY: number }]
 }>()
 
@@ -273,6 +293,17 @@ watch(
         :image-frame="imageFrame"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey)"
+      />
+      <ViewportAnnotationOverlay
+        :annotations="annotations"
+        :selected-annotation-id="draftAnnotation?.annotationId ?? null"
+        :draft-annotation="draftAnnotation && !draftAnnotation.annotationId ? draftAnnotation : null"
+        :image-frame="imageFrame"
+        @copy-annotation="emit('copyAnnotation', { viewportKey: props.viewportKey, annotationId: $event })"
+        @delete-annotation="emit('deleteAnnotation', { viewportKey: props.viewportKey, annotationId: $event })"
+        @update-annotation-color="emit('updateAnnotationColor', { viewportKey: props.viewportKey, ...$event })"
+        @update-annotation-size="emit('updateAnnotationSize', { viewportKey: props.viewportKey, ...$event })"
+        @update-annotation-text="emit('updateAnnotationText', { viewportKey: props.viewportKey, ...$event })"
       />
       <ViewportMtfOverlay
         :image-frame="imageFrame"

@@ -48,6 +48,8 @@ export interface WorkspaceReadyPayload {
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle'
+export type AnnotationToolType = 'arrow'
+export type AnnotationSize = 'sm' | 'md' | 'lg'
 
 export interface MeasurementDraftPoint {
   x: number
@@ -76,6 +78,24 @@ export interface MeasurementOverlay {
   toolType: MeasurementToolType
   points: MeasurementDraftPoint[]
   labelLines: string[]
+}
+
+export interface AnnotationDraft {
+  annotationId?: string
+  toolType: AnnotationToolType
+  points: MeasurementDraftPoint[]
+  text: string
+  color: string
+  size: AnnotationSize
+}
+
+export interface AnnotationOverlay {
+  annotationId: string
+  toolType: AnnotationToolType
+  points: MeasurementDraftPoint[]
+  text: string
+  color: string
+  size: AnnotationSize
 }
 
 export interface MtfMetrics {
@@ -248,9 +268,11 @@ export interface ViewerTabItem {
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
   measurements?: MeasurementOverlay[]
+  annotations?: AnnotationOverlay[]
   cornerInfo: CornerInfo
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
   viewportMeasurements?: Partial<Record<MprViewportKey, MeasurementOverlay[]>>
+  viewportAnnotations?: Partial<Record<MprViewportKey, AnnotationOverlay[]>>
   orientation: OrientationInfo
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
   transformState: ViewTransformInfo

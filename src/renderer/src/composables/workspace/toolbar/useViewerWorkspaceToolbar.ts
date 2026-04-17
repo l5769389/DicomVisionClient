@@ -11,8 +11,8 @@ import {
 import type { ViewerTabItem, VolumeRenderConfig } from '../../../types/viewer'
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
-const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'mtf'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'mtf'])
+const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'mtf', 'annotate'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'mtf', 'annotate'])
 
 const measureTool: StackTool = {
   key: 'measure',
@@ -68,7 +68,7 @@ const stackTools: StackTool[] = [
   { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   tagTool,
-  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'action' },
+  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
   measureTool,
   { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
   { key: 'export', label: 'Export', icon: 'export', kind: 'action' },
@@ -145,6 +145,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
     measure: 'measure:line',
+    annotate: 'annotate:arrow',
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     volumePreset: 'volumePreset:aaa'
   })
@@ -204,6 +205,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   function getModeOperationValue(toolKey: string): string {
     if (toolKey === 'page') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`
+    }
+    if (toolKey === 'annotate') {
+      return `${STACK_OPERATION_PREFIX}annotate:arrow`
     }
     return `${STACK_OPERATION_PREFIX}${toolKey}`
   }
@@ -405,7 +409,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
-      options.emitSetActiveOperation(getModeOperationValue(tool.key))
+      if (tool.key === 'measure' && getSelectedOption(tool.key)) {
+        activateSelectedOption(tool.key)
+      } else {
+        options.emitSetActiveOperation(getModeOperationValue(tool.key))
+      }
       return
     }
 

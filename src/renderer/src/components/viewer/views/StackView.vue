@@ -1,12 +1,23 @@
 ﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewerMtfItem, ViewerTabItem } from '../../../types/viewer'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  CornerInfo,
+  DraftMeasurementMode,
+  MeasurementDraft,
+  MeasurementOverlay,
+  ViewerMtfItem,
+  ViewerTabItem
+} from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
+  annotations?: AnnotationOverlay[]
   cornerInfo: CornerInfo
   cursorClass?: string
+  draftAnnotation?: AnnotationDraft | null
   draftMeasurementMode?: DraftMeasurementMode | null
   draftMeasurement?: MeasurementDraft | null
   measurements?: MeasurementOverlay[]
@@ -17,6 +28,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string]
@@ -29,6 +42,9 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
@@ -93,8 +109,10 @@ function handleSliceSliderInput(event: Event): void {
       loading-label="正在加载栈视图..."
       :alt="props.activeTab.viewType"
       placeholder="单视口预览"
+      :annotations="props.annotations ?? []"
       :corner-info="props.cornerInfo"
       :cursor-class="props.cursorClass ?? ''"
+      :draft-annotation="props.draftAnnotation ?? null"
       :draft-measurement-mode="props.draftMeasurementMode ?? null"
       :draft-measurement="props.draftMeasurement ?? null"
       :measurements="props.measurements ?? []"
@@ -106,6 +124,8 @@ function handleSliceSliderInput(event: Event): void {
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
+      @copy-annotation="emit('copyAnnotation', $event)"
+      @delete-annotation="emit('deleteAnnotation', $event)"
       @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
@@ -117,6 +137,9 @@ function handleSliceSliderInput(event: Event): void {
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"
       @pointer-cancel="emit('pointerCancel', $event)"
+      @update-annotation-color="emit('updateAnnotationColor', $event)"
+      @update-annotation-size="emit('updateAnnotationSize', $event)"
+      @update-annotation-text="emit('updateAnnotationText', $event)"
     />
 
     <div class="theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">

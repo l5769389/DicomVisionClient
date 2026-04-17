@@ -127,24 +127,24 @@ function handleSeriesDragEnd(): void {
 </script>
 
 <template>
-  <div class="min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(11,23,38,0.96),rgba(9,17,31,0.98))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+  <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
     <div class="shrink-0">
       <div class="mb-4 flex items-center justify-between gap-2">
         <div>
-          <div class="text-sm font-semibold text-slate-50">{{ t('seriesList') }}</div>
-          <div class="mt-1 text-xs text-slate-400">{{ t('seriesListSubtitle') }}</div>
+          <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ t('seriesList') }}</div>
+          <div class="mt-1 text-xs text-[var(--theme-text-muted)]">{{ t('seriesListSubtitle') }}</div>
         </div>
-        <VChip v-if="seriesList.length" size="small" class="rounded-full! border! border-sky-300/15! bg-sky-300/10! px-2.5! py-1! text-xs! font-semibold! text-sky-100/80!" variant="flat">{{ seriesList.length }}</VChip>
+        <VChip v-if="seriesList.length" size="small" class="theme-card-soft rounded-full! border! px-2.5! py-1! text-xs! font-semibold! text-[var(--theme-text-secondary)]!" variant="flat">{{ seriesList.length }}</VChip>
       </div>
-      <div v-if="isLoadingFolder && seriesList.length" class="mb-4 flex items-center gap-3 rounded-2xl border border-sky-300/10 bg-sky-300/6 px-4 py-2.5 text-xs text-sky-100/75">
-        <span class="h-2 w-2 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_5px_rgba(125,211,252,0.12)]" aria-hidden="true"></span>
+      <div v-if="isLoadingFolder && seriesList.length" class="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_8%,transparent)] px-4 py-2.5 text-xs text-[var(--theme-text-secondary)]">
+        <span class="h-2 w-2 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_5px_color-mix(in_srgb,var(--theme-accent)_12%,transparent)]" aria-hidden="true"></span>
         <span>{{ t('loadingMoreSeries') }}</span>
       </div>
     </div>
 
     <div class="series-list-scroll min-h-0 flex-1 overflow-auto pr-1">
-      <div v-if="isLoadingFolder && !seriesList.length" class="flex items-center gap-3 rounded-2xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-slate-300">
-        <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.12)]" aria-hidden="true"></span>
+      <div v-if="isLoadingFolder && !seriesList.length" class="theme-card-soft flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm text-[var(--theme-text-secondary)]">
+        <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_12%,transparent)]" aria-hidden="true"></span>
         <span>{{ t('loadingSeries') }}</span>
       </div>
       <div v-else-if="seriesList.length" class="flex flex-col gap-3">
@@ -152,27 +152,34 @@ function handleSeriesDragEnd(): void {
           v-for="series in seriesList"
           :key="series.seriesId"
           draggable="true"
-          class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-2xl! border! px-3! py-3! transition duration-150"
-          :class="series.seriesId === selectedSeriesId ? 'border-sky-300/45! bg-[linear-gradient(135deg,rgba(36,110,177,0.34),rgba(217,112,54,0.18))]! shadow-[inset_0_1px_0_rgba(255,255,255,0.09),inset_0_-1px_0_rgba(255,255,255,0.03),0_14px_28px_rgba(17,76,130,0.18)]' : 'border-white/8! bg-[linear-gradient(180deg,rgba(17,28,42,0.74),rgba(10,18,30,0.88))]! shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_18px_rgba(0,0,0,0.16)] hover:border-sky-300/22! hover:bg-[linear-gradient(180deg,rgba(21,34,49,0.82),rgba(12,21,34,0.92))]! hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_24px_rgba(0,0,0,0.18)]'"
+          class="group grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-2xl! border! px-3! py-3! transition duration-150"
+          :class="series.seriesId === selectedSeriesId ? 'theme-active-surface' : 'border-[var(--theme-border-soft)]! bg-[var(--theme-surface-card-soft)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
           @contextmenu="handleSeriesContextMenu($event, series)"
           @dragstart="handleSeriesDragStart($event, series.seriesId)"
           @dragend="handleSeriesDragEnd"
         >
           <button class="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left" type="button" draggable="true" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')" @dragstart="handleSeriesDragStart($event, series.seriesId)" @dragend="handleSeriesDragEnd">
-            <span class="mt-0.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition" :class="series.seriesId === selectedSeriesId ? 'border-sky-300 bg-[linear-gradient(180deg,rgba(82,172,241,0.22),rgba(235,106,42,0.12))] shadow-[0_0_0_4px_rgba(125,211,252,0.14)]' : 'border-slate-300/45 bg-white/5'"><span class="h-2 w-2 rounded-full" :class="series.seriesId === selectedSeriesId ? 'bg-sky-200' : 'bg-transparent'"></span></span>
-            <span class="col-start-2 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-white' : 'text-slate-100'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
-            <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-sky-50/85' : 'text-slate-400'">
+            <span class="mt-0.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition" :class="series.seriesId === selectedSeriesId ? 'theme-active-pill shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] group-hover:theme-hover-pill'"><span class="h-2 w-2 rounded-full" :class="series.seriesId === selectedSeriesId ? 'bg-[var(--theme-accent-strong)]' : 'bg-transparent group-hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_70%,transparent)]'"></span></span>
+            <span class="col-start-2 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
+            <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">
               {{ series.modality || 'N/A' }} · {{ series.instanceCount }} {{ t('frames') }}
               <template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template>
             </span>
-            <span class="col-start-2 break-all text-[11px] leading-5" :class="series.seriesId === selectedSeriesId ? 'text-sky-100/80' : 'text-slate-500'">{{ series.seriesId }}</span>
+            <span class="col-start-2 break-all text-[11px] leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
           </button>
-          <VBtn variant="flat" class="self-center h-10! w-10! min-w-0! rounded-xl! border! border-rose-300/14! bg-rose-400/8! text-rose-100!" :aria-label="t('deleteSeries')" :title="t('deleteSeries')" @click="emit('removeSeries', series.seriesId)">
+          <VBtn
+            variant="flat"
+            class="self-center h-10! w-10! min-w-0! rounded-xl! border!"
+            :class="series.seriesId === selectedSeriesId ? 'border-white/18! bg-white/12! text-white!' : 'border-rose-300/14! bg-rose-400/8! text-rose-100!'"
+            :aria-label="t('deleteSeries')"
+            :title="t('deleteSeries')"
+            @click="emit('removeSeries', series.seriesId)"
+          >
             <AppIcon name="trash" :size="17" />
           </VBtn>
         </VCard>
       </div>
-      <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-5 text-sm leading-6 text-slate-400">{{ t('noSeriesDesc') }}</div>
+      <div v-else class="theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm leading-6 text-[var(--theme-text-muted)]">{{ t('noSeriesDesc') }}</div>
     </div>
 
     <div v-if="contextSeries" class="fixed z-[2100] h-0 w-0" :style="contextMenuAnchorStyle">
@@ -184,24 +191,24 @@ function handleSeriesDragEnd(): void {
         scroll-strategy="reposition"
         :close-on-content-click="true"
       >
-        <VCard class="series-context-menu min-w-[300px] overflow-hidden rounded-[24px]! border! border-sky-200/14! bg-[linear-gradient(180deg,rgba(9,19,33,0.995),rgba(6,13,24,0.995))]! text-slate-100! shadow-[0_28px_64px_rgba(0,0,0,0.5)]!">
+        <VCard class="series-context-menu theme-shell-panel min-w-[300px] overflow-hidden rounded-[24px]! border! text-[var(--theme-text-primary)]! shadow-[0_28px_64px_rgba(0,0,0,0.5)]!">
           <div class="series-context-menu__chrome"></div>
           <div class="relative px-2.5 pb-2.5 pt-2.5">
-            <div class="rounded-[18px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <div class="rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-sky-200/72">{{ t('seriesActions') }}</div>
-                  <div class="mt-1 truncate text-[12px] font-medium text-white">{{ contextSeriesPreview.title }}</div>
-                  <div class="mt-0.5 truncate text-[11px] text-slate-400">{{ contextSeriesPreview.meta }}</div>
-                  <div class="mt-1 truncate font-mono text-[10px] text-slate-500">{{ contextSeriesPreview.id }}</div>
+                  <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-[color:color-mix(in_srgb,var(--theme-text-secondary)_68%,var(--theme-accent)_32%)]">{{ t('seriesActions') }}</div>
+                  <div class="mt-1 truncate text-[12px] font-medium text-[var(--theme-text-primary)]">{{ contextSeriesPreview.title }}</div>
+                  <div class="mt-0.5 truncate text-[11px] text-[var(--theme-text-secondary)]">{{ contextSeriesPreview.meta }}</div>
+                  <div class="mt-1 truncate font-mono text-[10px] text-[var(--theme-text-muted)]">{{ contextSeriesPreview.id }}</div>
                 </div>
-                <div class="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+                <div class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-primary)]">
                   {{ t('open') }}
                 </div>
               </div>
             </div>
 
-            <VDivider class="my-2.5 border-white/8 opacity-100" />
+            <VDivider class="my-2.5 border-[var(--theme-border-soft)] opacity-100" />
 
             <VList class="bg-transparent! py-0!">
               <VListItem
@@ -214,8 +221,8 @@ function handleSeriesDragEnd(): void {
                 <div class="flex items-center gap-2.5">
                   <div class="series-context-menu__badge" :class="{ 'series-context-menu__badge--danger': action.danger }">{{ action.badge }}</div>
                   <div class="min-w-0 flex-1">
-                    <div class="truncate text-[12px] font-medium" :class="action.danger ? 'text-rose-100' : 'text-white'">{{ action.title }}</div>
-                    <div class="truncate text-[11px]" :class="action.danger ? 'text-rose-200/60' : 'text-slate-400'">{{ action.subtitle }}</div>
+                    <div class="truncate text-[12px] font-medium" :class="action.danger ? 'text-rose-300' : 'text-[var(--theme-text-primary)]'">{{ action.title }}</div>
+                    <div class="truncate text-[11px]" :class="action.danger ? 'text-rose-300/70' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
                   </div>
                 </div>
               </VListItem>
@@ -238,7 +245,7 @@ function handleSeriesDragEnd(): void {
   inset: 0;
   background:
     radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 30%),
-    radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.12), transparent 34%),
+    radial-gradient(circle at bottom left, color-mix(in srgb, var(--theme-accent-warm) 18%, transparent), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%);
   pointer-events: none;
 }

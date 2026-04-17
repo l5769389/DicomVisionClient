@@ -33,8 +33,8 @@ const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
 </script>
 
 <template>
-  <VApp class="bg-transparent text-slate-50">
-    <VMain class="relative h-full overflow-hidden bg-transparent text-slate-50">
+  <VApp class="bg-transparent text-[var(--theme-text-primary)]">
+    <VMain class="relative h-full overflow-hidden bg-transparent text-[var(--theme-text-primary)]">
       <div class="window-drag-region" aria-hidden="true"></div>
       <div
         class="grid h-screen max-h-screen gap-4 overflow-hidden bg-transparent p-4 transition-[grid-template-columns] duration-200 ease-out max-[900px]:grid-cols-1"

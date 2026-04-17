@@ -138,6 +138,15 @@ const state = reactive<UiPreferencesState>(createDefaultState())
 let hasHydrated = false
 let hydrationPromise: Promise<void> | null = null
 
+function syncDocumentTheme(themeId: string): void {
+  if (typeof document === 'undefined') {
+    return
+  }
+
+  document.documentElement.dataset.theme = themeId
+  document.documentElement.style.colorScheme = themeId === 'clinical-light' ? 'light' : 'dark'
+}
+
 function createCustomPresetId(): string {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -243,6 +252,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.crosshairConfigs = nextState.crosshairConfigs
   state.roiStatOptions = nextState.roiStatOptions
   state.customWindowPresets = nextState.customWindowPresets
+  syncDocumentTheme(nextState.themeId)
 }
 
 function serializeState(): UiPreferencesState {
@@ -322,12 +332,22 @@ async function hydrateState(): Promise<void> {
 
 void hydrateState()
 
+syncDocumentTheme(state.themeId)
+
 watch(
   () => serializeState(),
   () => {
     void persistState()
   },
   { deep: true }
+)
+
+watch(
+  () => state.themeId,
+  (value) => {
+    syncDocumentTheme(value)
+  },
+  { immediate: true }
 )
 
 export function useUiPreferences() {

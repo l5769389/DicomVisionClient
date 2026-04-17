@@ -379,12 +379,12 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    class="min-h-0 min-w-0 overflow-hidden rounded-[26px] border border-sky-100/10 bg-[linear-gradient(180deg,rgba(6,13,24,0.97),rgba(7,14,27,0.99))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    class="theme-shell-panel min-h-0 min-w-0 overflow-hidden rounded-[26px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
   >
     <div
       v-if="!hasSelectedSeries"
       class="grid h-full place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
-      :class="isQuickPreviewDropActive ? 'border-sky-300/45 bg-[linear-gradient(180deg,rgba(14,32,52,0.98),rgba(7,18,32,0.99))] shadow-[inset_0_0_0_1px_rgba(125,211,252,0.18)]' : 'border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))]'"
+      :class="isQuickPreviewDropActive ? 'theme-drop-active' : 'theme-shell-panel-soft'"
       @dragenter="handleQuickPreviewDragEnter"
       @dragover="handleQuickPreviewDragOver"
       @dragleave="handleQuickPreviewDragLeave"
@@ -392,10 +392,10 @@ onBeforeUnmount(() => {
       @dragend="handleQuickPreviewDragEnd"
     >
       <div class="max-w-xl space-y-3">
-        <div class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400/70">{{ t('viewerWorkspace') }}</div>
-        <div class="text-3xl font-semibold tracking-[0.08em] text-slate-50">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('waitingSeries') }}</div>
-        <div class="mx-auto h-px w-24 bg-gradient-to-r from-transparent via-sky-300/45 to-transparent"></div>
-        <p class="text-sm leading-7 text-slate-300">
+        <div class="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--theme-text-muted)]">{{ t('viewerWorkspace') }}</div>
+        <div class="text-3xl font-semibold tracking-[0.08em] text-[var(--theme-text-primary)]">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('waitingSeries') }}</div>
+        <div class="mx-auto h-px w-24" :style="{ background: 'linear-gradient(to right, transparent, color-mix(in srgb, var(--theme-accent) 45%, transparent), transparent)' }"></div>
+        <p class="text-sm leading-7 text-[var(--theme-text-secondary)]">
           {{ isQuickPreviewDropActive ? t('dropQuickPreviewDesc') : message || t('waitingSeriesDesc') }}
         </p>
       </div>
@@ -436,9 +436,9 @@ onBeforeUnmount(() => {
         @set-menu-open="setMenuOpen"
       />
 
-      <div v-if="isViewLoading" class="grid flex-1 place-items-center rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98))] p-8">
-        <div class="flex items-center gap-3 text-sm text-slate-300">
-          <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
+      <div v-if="isViewLoading" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
+        <div class="flex items-center gap-3 text-sm text-[var(--theme-text-secondary)]">
+          <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]"></span>
           <span>{{ t('loadingView') }}</span>
         </div>
       </div>
@@ -446,7 +446,7 @@ onBeforeUnmount(() => {
       <div
         v-else-if="activeTab"
         ref="viewportHostRef"
-        class="relative flex-1 overflow-hidden rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,14,24,0.92),rgba(6,11,20,0.98)),repeating-linear-gradient(90deg,rgba(255,255,255,0.015)_0,rgba(255,255,255,0.015)_1px,transparent_1px,transparent_28px)] p-2.5"
+        class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2.5"
       >
         <div
           v-if="activeTab.viewType === '3D' && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
@@ -541,7 +541,7 @@ onBeforeUnmount(() => {
       <div
         v-else
         class="grid flex-1 place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
-        :class="isQuickPreviewDropActive ? 'border-sky-300/45 bg-[linear-gradient(180deg,rgba(14,32,52,0.98),rgba(7,18,32,0.99))] shadow-[inset_0_0_0_1px_rgba(125,211,252,0.18)]' : 'border-white/8 bg-[linear-gradient(180deg,rgba(7,14,25,0.94),rgba(4,9,18,0.98))]'"
+        :class="isQuickPreviewDropActive ? 'theme-drop-active' : 'theme-shell-panel-soft'"
         @dragenter="handleQuickPreviewDragEnter"
         @dragover="handleQuickPreviewDragOver"
         @dragleave="handleQuickPreviewDragLeave"
@@ -549,8 +549,8 @@ onBeforeUnmount(() => {
         @dragend="handleQuickPreviewDragEnd"
       >
         <div class="max-w-lg space-y-3">
-          <div class="text-2xl font-semibold tracking-[0.06em] text-slate-50">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('openView') }}</div>
-          <p class="text-sm leading-7 text-slate-300">
+          <div class="text-2xl font-semibold tracking-[0.06em] text-[var(--theme-text-primary)]">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('openView') }}</div>
+          <p class="text-sm leading-7 text-[var(--theme-text-secondary)]">
             {{ isQuickPreviewDropActive ? t('emptyDropQuickPreviewDesc') : message || t('openViewDesc') }}
           </p>
         </div>

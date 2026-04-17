@@ -79,7 +79,7 @@ function hideSeriesHoverCard(): void {
 </script>
 
 <template>
-  <aside class="min-h-0 min-w-0 rounded-[26px] border border-sky-100/10 bg-[linear-gradient(180deg,rgba(6,16,29,0.96),rgba(8,18,32,0.98))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_48px_rgba(0,0,0,0.28)] backdrop-blur max-[900px]:max-h-[460px]">
+  <aside class="theme-shell-panel min-h-0 min-w-0 rounded-[26px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_48px_rgba(0,0,0,0.28)] backdrop-blur max-[900px]:max-h-[460px]">
     <div class="flex h-full flex-col gap-3">
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel />
@@ -107,9 +107,16 @@ function hideSeriesHoverCard(): void {
   </aside>
 
   <Teleport to="body">
-    <div v-if="hoveredSeries && isSidebarCollapsed" class="pointer-events-none fixed z-[1200] w-60 -translate-y-1/2 rounded-2xl border border-sky-200/14 bg-[linear-gradient(180deg,rgba(9,19,33,0.98),rgba(8,15,27,0.98))] p-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.4)]" :style="hoveredSeriesCardStyle">
-      <div class="mb-2 flex items-center justify-between gap-2"><span class="truncate text-sm font-semibold text-white">{{ hoveredSeries.seriesDescription || '未命名序列' }}</span><span class="shrink-0 rounded-full border border-sky-300/14 bg-sky-300/8 px-2 py-0.5 text-[10px] font-semibold text-sky-100/80">#{{ hoveredSeries.index + 1 }}</span></div>
-      <div class="text-[11px] leading-5 text-slate-300"><div>{{ hoveredSeries.modality || 'N/A' }} · {{ hoveredSeries.instanceCount }} 帧</div><div v-if="hoveredSeries.width && hoveredSeries.height">{{ hoveredSeries.width }}×{{ hoveredSeries.height }}</div><div class="mt-1 break-all text-slate-400">{{ hoveredSeries.seriesId }}</div></div>
+    <div v-if="hoveredSeries && isSidebarCollapsed" class="theme-shell-panel fixed z-[1200] w-60 -translate-y-1/2 rounded-2xl border p-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.4)]" :style="hoveredSeriesCardStyle">
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <span class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ hoveredSeries.seriesDescription || 'Unnamed Series' }}</span>
+        <span class="theme-card-soft shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold text-[var(--theme-text-secondary)]">#{{ hoveredSeries.index + 1 }}</span>
+      </div>
+      <div class="text-[11px] leading-5 text-[var(--theme-text-secondary)]">
+        <div>{{ hoveredSeries.modality || 'N/A' }} / {{ hoveredSeries.instanceCount }} frames</div>
+        <div v-if="hoveredSeries.width && hoveredSeries.height">{{ hoveredSeries.width }}×{{ hoveredSeries.height }}</div>
+        <div class="mt-1 break-all text-[var(--theme-text-muted)]">{{ hoveredSeries.seriesId }}</div>
+      </div>
     </div>
   </Teleport>
 

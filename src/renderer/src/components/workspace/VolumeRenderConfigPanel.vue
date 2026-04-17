@@ -65,28 +65,24 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 </script>
 
 <template>
-  <div
-    class="w-[352px] max-w-[calc(100vw-2.5rem)] rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,24,37,0.96),rgba(10,18,29,0.98))] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_38px_rgba(0,0,0,0.34)] backdrop-blur"
-  >
+  <div class="theme-shell-panel w-[352px] max-w-[calc(100vw-2.5rem)] rounded-[20px] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_38px_rgba(0,0,0,0.34)] backdrop-blur">
     <div class="mb-3 flex items-center justify-between gap-3">
       <div>
-        <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400/75">3D Parameters</div>
-        <div class="mt-0.5 text-[13px] font-medium text-slate-200">{{ props.config.preset.toUpperCase() }}</div>
+        <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">3D Parameters</div>
+        <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">{{ props.config.preset.toUpperCase() }}</div>
       </div>
-      <div
-        class="rounded-full border border-sky-300/18 bg-sky-300/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100/78"
-      >
+      <div class="rounded-full border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]">
         {{ props.config.blendMode }}
       </div>
     </div>
 
-    <div class="mb-3 grid grid-cols-2 gap-1 rounded-[14px] border border-white/8 bg-white/[0.03] p-1">
+    <div class="mb-3 grid grid-cols-2 gap-1 rounded-[14px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] p-1">
       <button
         class="rounded-[10px] px-2 py-1.5 text-[11px] font-medium transition"
         :class="
           activeTab === 'tissue'
-            ? 'bg-sky-300/18 text-sky-100 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.16)]'
-            : 'text-slate-300 hover:bg-white/[0.04]'
+            ? 'bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-text-primary)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
+            : 'text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card)]'
         "
         type="button"
         @click="activeTab = 'tissue'"
@@ -97,8 +93,8 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         class="rounded-[10px] px-2 py-1.5 text-[11px] font-medium transition"
         :class="
           activeTab === 'lighting'
-            ? 'bg-sky-300/18 text-sky-100 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.16)]'
-            : 'text-slate-300 hover:bg-white/[0.04]'
+            ? 'bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-text-primary)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
+            : 'text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card)]'
         "
         type="button"
         @click="activeTab = 'lighting'"
@@ -114,17 +110,17 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         class="rounded-[16px] border px-3 py-2.5 transition"
         :class="
           layer.enabled
-            ? 'border-sky-300/28 bg-[linear-gradient(180deg,rgba(47,94,132,0.22),rgba(18,34,50,0.22))] shadow-[inset_0_0_0_1px_rgba(125,211,252,0.08)]'
-            : 'border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))]'
+            ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),var(--theme-surface-card-soft))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_8%,transparent)]'
+            : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]'
         "
       >
         <div class="flex items-center justify-between gap-2">
           <label
             class="flex items-center gap-2 text-[12px] font-medium"
-            :class="layer.enabled ? 'text-sky-50' : 'text-slate-100'"
+            :class="layer.enabled ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-primary)]'"
           >
             <input
-              class="h-4 w-4 rounded border-white/20 bg-slate-900/80 accent-sky-300"
+              class="h-4 w-4 rounded border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] accent-[var(--theme-accent)]"
               type="checkbox"
               :checked="layer.enabled"
               @change="updateLayer(layer.key, { enabled: ($event.target as HTMLInputElement).checked })"
@@ -133,13 +129,13 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
           </label>
           <div class="flex items-center gap-1.5">
             <input
-              class="h-6 w-8 rounded-md border border-white/10 bg-transparent p-0"
+              class="h-6 w-8 rounded-md border border-[var(--theme-border-soft)] bg-transparent p-0"
               type="color"
               :value="layer.colorStart"
               @input="updateLayer(layer.key, { colorStart: ($event.target as HTMLInputElement).value })"
             />
             <input
-              class="h-6 w-8 rounded-md border border-white/10 bg-transparent p-0"
+              class="h-6 w-8 rounded-md border border-[var(--theme-border-soft)] bg-transparent p-0"
               type="color"
               :value="layer.colorEnd"
               @input="updateLayer(layer.key, { colorEnd: ($event.target as HTMLInputElement).value })"
@@ -149,12 +145,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
         <div class="mt-2 space-y-2">
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>窗宽</span>
               <span>{{ Math.round(layer.ww) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="-4000"
               max="6000"
@@ -165,12 +161,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
           </div>
 
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>窗位</span>
               <span>{{ Math.round(layer.wl) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="-2000"
               max="6000"
@@ -181,12 +177,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
           </div>
 
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>透明度</span>
               <span>{{ layer.opacity.toFixed(2) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="0"
               max="1"
@@ -201,12 +197,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
     <div v-else class="max-h-[min(62vh,540px)] space-y-2 overflow-y-auto pr-1">
       <div
-        class="rounded-[16px] border border-sky-300/18 bg-[linear-gradient(180deg,rgba(32,55,77,0.24),rgba(15,25,36,0.2))] px-3 py-2.5"
+        class="rounded-[16px] border border-[var(--theme-border-strong)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,transparent),var(--theme-surface-card-soft))] px-3 py-2.5"
       >
-        <label class="flex items-center justify-between gap-3 text-[12px] font-medium text-slate-100">
+        <label class="flex items-center justify-between gap-3 text-[12px] font-medium text-[var(--theme-text-primary)]">
           <span>开启阴影</span>
           <input
-            class="h-4 w-4 rounded border-white/20 bg-slate-900/80 accent-sky-300"
+            class="h-4 w-4 rounded border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] accent-[var(--theme-accent)]"
             type="checkbox"
             :checked="props.config.lighting.shading"
             @change="updateLighting({ shading: ($event.target as HTMLInputElement).checked })"
@@ -215,9 +211,9 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
       </div>
 
       <div
-        class="rounded-[16px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] px-3 py-2.5"
+        class="rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5"
       >
-        <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">插值方式</div>
+        <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">插值方式</div>
         <div class="grid grid-cols-3 gap-1">
           <label
             v-for="option in interpolationOptions"
@@ -225,8 +221,8 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
             class="flex cursor-pointer items-center justify-center rounded-[10px] border px-2 py-1.5 text-[11px] font-medium transition"
             :class="
               props.config.lighting.interpolation === option.value
-                ? 'border-sky-300/28 bg-sky-300/16 text-sky-100'
-                : 'border-white/8 bg-white/[0.02] text-slate-300 hover:bg-white/[0.04]'
+                ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,transparent)] text-[var(--theme-text-primary)]'
+                : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card-soft)]'
             "
           >
             <input
@@ -243,16 +239,16 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
       </div>
 
       <div
-        class="rounded-[16px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))] px-3 py-2.5"
+        class="rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5"
       >
         <div class="space-y-2">
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>环境光</span>
               <span>{{ props.config.lighting.ambient.toFixed(2) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="0"
               max="1"
@@ -263,12 +259,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
           </div>
 
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>漫反射</span>
               <span>{{ props.config.lighting.diffuse.toFixed(2) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="0"
               max="1"
@@ -279,12 +275,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
           </div>
 
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>镜面反射</span>
               <span>{{ props.config.lighting.specular.toFixed(2) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="0"
               max="1"
@@ -295,12 +291,12 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
           </div>
 
           <div class="space-y-1">
-            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-slate-400">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
               <span>粗糙度</span>
               <span>{{ props.config.lighting.roughness.toFixed(2) }}</span>
             </div>
             <input
-              class="w-full accent-sky-300"
+              class="w-full accent-[var(--theme-accent)]"
               type="range"
               min="0"
               max="1"

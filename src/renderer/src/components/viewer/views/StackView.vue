@@ -119,12 +119,12 @@ function handleSliceSliderInput(event: Event): void {
       @pointer-cancel="emit('pointerCancel', $event)"
     />
 
-    <div class="flex min-h-0 flex-col items-center rounded-xl border border-white/8 bg-[linear-gradient(180deg,rgba(10,18,31,0.94),rgba(7,13,24,0.98))] px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <span class="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Slice</span>
-      <span class="mt-1 text-[10px] font-semibold text-slate-500">{{ sliderValue }}</span>
+    <div class="theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <span class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Slice</span>
+      <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliderValue }}</span>
       <div class="my-2 flex min-h-0 flex-1 items-center">
         <input
-          class="stack-slice-slider h-full w-3.5 cursor-pointer accent-sky-300"
+          class="stack-slice-slider h-full w-3.5 cursor-pointer"
           type="range"
           min="1"
           :max="sliceInfo.total"
@@ -134,7 +134,7 @@ function handleSliceSliderInput(event: Event): void {
           @input="handleSliceSliderInput"
         />
       </div>
-      <span class="text-[10px] font-semibold text-slate-500">{{ sliceInfo.total }}</span>
+      <span class="text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliceInfo.total }}</span>
     </div>
   </div>
 </template>
@@ -144,5 +144,6 @@ function handleSliceSliderInput(event: Event): void {
   appearance: slider-vertical;
   writing-mode: bt-lr;
   transform: rotate(180deg);
+  accent-color: var(--theme-accent);
 }
 </style>

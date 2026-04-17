@@ -27,8 +27,8 @@ const { t } = useUiLocale()
   <div class="flex min-w-0 items-center gap-2">
     <VBtn
       variant="flat"
-      class="inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! border-white/8! bg-slate-900/88! text-slate-200! transition"
-      :class="canScrollTabsLeft ? 'hover:border-sky-300/24 hover:text-white' : 'cursor-default border-white/6 bg-slate-900/46 text-slate-600'"
+      class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition"
+      :class="canScrollTabsLeft ? 'hover:border-[var(--theme-border-strong)]' : 'cursor-default opacity-50'"
       :aria-label="t('scrollTabsLeft')"
       :disabled="!canScrollTabsLeft"
       @click="emit('scrollTabs', 'left')"
@@ -46,21 +46,21 @@ const { t } = useUiLocale()
         v-for="tab in viewerTabs"
         :key="tab.key"
         :data-tab-key="tab.key"
-        class="group flex max-w-[320px] shrink-0 snap-start items-center gap-2 rounded-2xl! border! px-3! py-2! transition"
-        :class="tab.key === activeTabKey ? 'border-sky-300/35! bg-[linear-gradient(180deg,rgba(22,121,199,0.92),rgba(10,89,159,0.94))]! text-white shadow-[0_12px_28px_rgba(8,89,156,0.26)]' : 'border-white/8! bg-slate-900/80! text-slate-300 hover:border-sky-300/18! hover:bg-slate-800/90!'"
+        class="group flex max-w-[288px] shrink-0 snap-start items-center gap-2 rounded-2xl! border! px-3! py-2! transition"
+        :class="tab.key === activeTabKey ? 'theme-active-surface' : 'theme-card-soft border! text-[var(--theme-text-secondary)] hover:theme-hover-surface'"
       >
-        <button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" @click="emit('activateTab', tab.key)">
+        <button type="button" class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-left" @click="emit('activateTab', tab.key)">
           <span class="truncate text-sm font-semibold">{{ tab.seriesTitle }}</span>
           <VChip
             size="x-small"
             variant="flat"
-            class="tab-viewtype-chip rounded-full! border! px-2! py-0.5! text-[11px]! font-semibold! uppercase! tracking-[0.14em]!"
-            :class="tab.key === activeTabKey ? 'border-white/18! bg-white/12! text-white!' : 'border-slate-400/18! bg-white/6! text-slate-100!'"
+            class="tab-viewtype-chip min-w-[60px]! justify-center rounded-full! border! px-2.5! py-0.5! text-[11px]! font-semibold! uppercase! tracking-[0.14em]!"
+            :class="tab.key === activeTabKey ? 'theme-active-pill' : 'border-[var(--theme-border-soft)]! bg-[var(--theme-surface-card)]! text-[var(--theme-text-secondary)]! group-hover:theme-hover-pill'"
           >
             {{ tab.viewType }}
           </VChip>
         </button>
-        <VBtn variant="flat" class="inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-xl! bg-white/12! text-white! transition hover:bg-white/18!" :aria-label="t('closeView')" @click.stop="emit('closeTab', tab.key)">
+        <VBtn variant="flat" class="theme-button-secondary inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition hover:brightness-110" :aria-label="t('closeView')" @click.stop="emit('closeTab', tab.key)">
           <AppIcon name="close" :size="15" :stroke-width="2.1" />
         </VBtn>
       </VCard>
@@ -68,8 +68,8 @@ const { t } = useUiLocale()
 
     <VBtn
       variant="flat"
-      class="inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! border-white/8! bg-slate-900/88! text-slate-200! transition"
-      :class="canScrollTabsRight ? 'hover:border-sky-300/24 hover:text-white' : 'cursor-default border-white/6 bg-slate-900/46 text-slate-600'"
+      class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition"
+      :class="canScrollTabsRight ? 'hover:border-[var(--theme-border-strong)]' : 'cursor-default opacity-50'"
       :aria-label="t('scrollTabsRight')"
       :disabled="!canScrollTabsRight"
       @click="emit('scrollTabs', 'right')"

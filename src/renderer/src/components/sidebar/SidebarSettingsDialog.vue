@@ -30,6 +30,11 @@ interface CrosshairViewportConfig {
   thickness: number
 }
 
+interface ScaleBarConfig {
+  enabled: boolean
+  color: string
+}
+
 interface RoiStatOption {
   key: string
   label: string
@@ -42,6 +47,11 @@ interface ThemePreset {
   summaryZh: string
   summaryEn: string
   preview: string
+}
+
+interface ColorPreset {
+  value: string
+  label: string
 }
 
 interface SettingsCopy {
@@ -81,6 +91,13 @@ interface SettingsCopy {
   removeTemplate: string
   displayTitle: string
   displayDesc: string
+  scaleBarTitle: string
+  scaleBarDesc: string
+  scaleBarEnabled: string
+  scaleBarColor: string
+  enabledLabel: string
+  disabledLabel: string
+  scaleBarPreviewLabel: string
   roiStatsTitle: string
   roiStatsDesc: string
   themeDesc: string
@@ -119,6 +136,15 @@ const themePresets: ThemePreset[] = [
   }
 ]
 
+const scaleBarColorPresets: ColorPreset[] = [
+  { value: '#f8fafc', label: 'White' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#3b82f6', label: 'Blue' },
+  { value: '#ef4444', label: 'Red' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#a855f7', label: 'Violet' }
+]
+
 function createDefaultRoiStatOptions(): RoiStatOption[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -133,10 +159,17 @@ function createDefaultRoiStatOptions(): RoiStatOption[] {
 
 function createDefaultCrosshairConfigs(): CrosshairViewportConfig[] {
   return [
-    { key: 'mpr-ax', label: 'AX', color: '#ffd166', thickness: 2 },
-    { key: 'mpr-cor', label: 'COR', color: '#7dd3fc', thickness: 2 },
-    { key: 'mpr-sag', label: 'SAG', color: '#fda4af', thickness: 2 }
+    { key: 'mpr-ax', label: 'AX', color: '#22c55e', thickness: 2 },
+    { key: 'mpr-cor', label: 'COR', color: '#3b82f6', thickness: 2 },
+    { key: 'mpr-sag', label: 'SAG', color: '#ef4444', thickness: 2 }
   ]
+}
+
+function createDefaultScaleBarPreference(): ScaleBarConfig {
+  return {
+    enabled: true,
+    color: '#f8fafc'
+  }
 }
 
 function createCopy(isZh: boolean): SettingsCopy {
@@ -153,7 +186,7 @@ function createCopy(isZh: boolean): SettingsCopy {
       windowPresets: '窗模板',
       windowPresetsSub: '系统预设与自定义模板',
       display: '显示',
-      displaySub: '十字线、ROI 统计与伪彩',
+      displaySub: '十字线、比例尺、ROI 统计与伪彩',
       shortcutsTitle: '快捷键矩阵',
       shortcutsDesc: '当前展示推荐快捷键布局。',
       editable: 'Editable Layout',
@@ -177,7 +210,14 @@ function createCopy(isZh: boolean): SettingsCopy {
       addTemplate: '添加模板',
       removeTemplate: '删除选中模板',
       displayTitle: '显示样式',
-      displayDesc: '在这里统一设置十字线、ROI 统计项和默认伪彩。',
+      displayDesc: '在这里统一设置十字线、比例尺、ROI 统计项和默认伪彩。',
+      scaleBarTitle: '比例尺',
+      scaleBarDesc: '比例尺会跟随当前图像的 spacing、缩放和旋转实时更新。',
+      scaleBarEnabled: '启用比例尺',
+      scaleBarColor: '比例尺颜色',
+      enabledLabel: '已启用',
+      disabledLabel: '已关闭',
+      scaleBarPreviewLabel: '预览显示的是当前比例尺样式，不影响实际长度计算。',
       roiStatsTitle: 'ROI 统计项',
       roiStatsDesc: '矩形、椭圆和自由选择 ROI 默认显示以下统计值。',
       themeDesc: '当前提供两套预设主题，不支持自由混搭颜色。',
@@ -209,7 +249,7 @@ function createCopy(isZh: boolean): SettingsCopy {
     windowPresets: 'Window Templates',
     windowPresetsSub: 'Built-in and custom presets',
     display: 'Display',
-    displaySub: 'Crosshair, ROI stats, and pseudocolor',
+    displaySub: 'Crosshair, scale bar, ROI stats, and pseudocolor',
     shortcutsTitle: 'Shortcut Matrix',
     shortcutsDesc: 'Current recommended shortcut layout.',
     editable: 'Editable Layout',
@@ -233,7 +273,14 @@ function createCopy(isZh: boolean): SettingsCopy {
     addTemplate: 'Add Template',
     removeTemplate: 'Remove Selected',
     displayTitle: 'Display Style',
-    displayDesc: 'Manage crosshair, ROI stats, and pseudocolor in one place.',
+    displayDesc: 'Manage crosshair, scale bar, ROI stats, and pseudocolor in one place.',
+    scaleBarTitle: 'Scale Bar',
+    scaleBarDesc: 'The scale bar updates from the current spacing, zoom, and rotation.',
+    scaleBarEnabled: 'Enable Scale Bar',
+    scaleBarColor: 'Scale Bar Color',
+    enabledLabel: 'Enabled',
+    disabledLabel: 'Disabled',
+    scaleBarPreviewLabel: 'The preview only shows the visual style. The real length is computed from the current view.',
     roiStatsTitle: 'ROI Statistics',
     roiStatsDesc: 'Rectangle, ellipse, and freehand ROI will show these statistics by default.',
     themeDesc: 'Choose between two preset themes instead of mixing colors freely.',
@@ -336,9 +383,11 @@ const {
   getWindowPresetLabel,
   removeCustomWindowPreset,
   roiStatOptions,
+  scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
   setCrosshairConfigs,
+  setScaleBarPreference,
   systemWindowPresets,
   setRoiStatOptions,
   themeId,
@@ -415,6 +464,7 @@ function resetDisplaySection(): void {
   selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
   setRoiStatOptions(createDefaultRoiStatOptions())
   setCrosshairConfigs(createDefaultCrosshairConfigs())
+  setScaleBarPreference(createDefaultScaleBarPreference())
 }
 
 function resetCurrentSection(): void {
@@ -754,6 +804,92 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                                   </div>
                                 </div>
                               </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="theme-card-soft rounded-[24px] p-4">
+                        <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
+                          <AppIcon name="measure" :size="18" />
+                          <span class="text-sm font-semibold">{{ copy.scaleBarTitle }}</span>
+                        </div>
+                        <div class="mb-4 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
+
+                        <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.72fr)]">
+                          <label class="block">
+                            <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.scaleBarEnabled }}</span>
+                            <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
+                              <label class="flex cursor-pointer items-center justify-between gap-3">
+                                <div>
+                                  <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ copy.scaleBarEnabled }}</div>
+                                  <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">
+                                    {{ scaleBarPreference.enabled ? copy.enabledLabel : copy.disabledLabel }}
+                                  </div>
+                                </div>
+                                <input
+                                  v-model="scaleBarPreference.enabled"
+                                  type="checkbox"
+                                  class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                />
+                              </label>
+                            </div>
+                          </label>
+
+                          <label class="block">
+                            <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.scaleBarColor }}</span>
+                            <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                              <div class="flex items-center gap-3">
+                                <input v-model="scaleBarPreference.color" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                                <div class="min-w-0">
+                                  <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ scaleBarPreference.color }}</div>
+                                </div>
+                              </div>
+                              <div class="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  v-for="preset in scaleBarColorPresets"
+                                  :key="preset.value"
+                                  type="button"
+                                  class="flex h-8 w-8 items-center justify-center rounded-full border transition duration-150"
+                                  :class="scaleBarPreference.color.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                                  :style="{ backgroundColor: preset.value }"
+                                  :title="preset.label"
+                                  @click="scaleBarPreference.color = preset.value"
+                                >
+                                  <span
+                                    v-if="scaleBarPreference.color.toLowerCase() === preset.value.toLowerCase()"
+                                    class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                                  ></span>
+                                </button>
+                              </div>
+                            </div>
+                          </label>
+                        </div>
+
+                        <div class="mt-4 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.scaleBarPreviewLabel }}</div>
+                            <div class="relative h-20 overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                            <div
+                              v-if="scaleBarPreference.enabled"
+                              class="absolute bottom-3 left-1/2 -translate-x-1/2"
+                              :style="{ color: scaleBarPreference.color }"
+                            >
+                              <div class="mb-1 text-center text-[11px] font-semibold tracking-[0.12em]">10 cm</div>
+                              <div class="relative h-4 w-32">
+                                <div class="absolute inset-x-0 bottom-0 h-[2px] rounded-full" :style="{ backgroundColor: scaleBarPreference.color, boxShadow: `0 0 8px ${scaleBarPreference.color}55` }"></div>
+                                <div
+                                  v-for="tick in 11"
+                                  :key="tick"
+                                  class="absolute bottom-0 -translate-x-1/2"
+                                  :style="{
+                                    left: `${((tick - 1) / 10) * 128}px`,
+                                    width: tick === 1 || tick === 6 || tick === 11 ? '2px' : '1px',
+                                    height: tick === 1 || tick === 6 || tick === 11 ? '14px' : '7px',
+                                    backgroundColor: scaleBarPreference.color,
+                                    boxShadow: `0 0 8px ${scaleBarPreference.color}55`
+                                  }"
+                                ></div>
+                              </div>
                             </div>
                           </div>
                         </div>

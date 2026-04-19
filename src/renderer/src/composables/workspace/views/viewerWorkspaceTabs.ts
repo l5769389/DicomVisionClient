@@ -1,4 +1,14 @@
-import type { CornerInfo, CornerPosition, FolderSeriesItem, MprViewportKey, OrientationInfo, ViewTransformInfo, ViewerTabItem, ViewType } from '../../../types/viewer'
+import type {
+  CornerInfo,
+  CornerPosition,
+  FolderSeriesItem,
+  MprViewportKey,
+  OrientationInfo,
+  ScaleBarInfo,
+  ViewTransformInfo,
+  ViewerTabItem,
+  ViewType
+} from '../../../types/viewer'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
@@ -30,6 +40,14 @@ export function createEmptyMprViewIds(): Record<MprViewportKey, string> {
 }
 
 export function createEmptyMprCrosshairs(): Record<MprViewportKey, null> {
+  return {
+    'mpr-ax': null,
+    'mpr-cor': null,
+    'mpr-sag': null
+  }
+}
+
+export function createEmptyMprScaleBars(): Record<MprViewportKey, null> {
   return {
     'mpr-ax': null,
     'mpr-cor': null,
@@ -209,6 +227,30 @@ export function normalizeOrientationInfo(value: unknown): OrientationInfo {
   }
 }
 
+export function normalizeScaleBarInfo(value: unknown): ScaleBarInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const lengthNorm =
+    typeof record.lengthNorm === 'number'
+      ? record.lengthNorm
+      : typeof record.length_norm === 'number'
+        ? record.length_norm
+        : Number.NaN
+  const label = typeof record.label === 'string' ? record.label.trim() : ''
+
+  if (!Number.isFinite(lengthNorm) || lengthNorm <= 0 || !label) {
+    return null
+  }
+
+  return {
+    lengthNorm,
+    label
+  }
+}
+
 export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerInfo {
   return CORNER_POSITIONS.reduce(
     (accumulator, position) => {
@@ -257,12 +299,14 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportImages: createEmptyMprImages(),
     viewportSliceLabels: createEmptyMprSliceLabels(),
     viewportCrosshairs: createEmptyMprCrosshairs(),
+    viewportScaleBars: createEmptyMprScaleBars(),
     cornerInfo: createEmptyCornerInfo(),
     viewportCornerInfos: createEmptyMprCornerInfos(),
     orientation: createEmptyOrientationInfo(),
     viewportOrientations: createEmptyMprOrientations(),
     transformState: createDefaultTransformInfo(),
     viewportTransformStates: createEmptyMprTransformStates(),
+    scaleBar: null,
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),

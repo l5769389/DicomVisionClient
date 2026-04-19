@@ -9,6 +9,7 @@ import type {
   MeasurementDraft,
   MeasurementOverlay,
   MprViewportKey,
+  ScaleBarInfo,
   ViewerMtfItem,
   ViewerTabItem
 } from '../../../types/viewer'
@@ -69,6 +70,10 @@ function getViewportCrosshair(viewportKey: MprViewportKey) {
   return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
 }
 
+function getViewportScaleBar(viewportKey: MprViewportKey): ScaleBarInfo | null {
+  return props.activeTab.viewportScaleBars?.[viewportKey] ?? null
+}
+
 function isViewportLoading(viewportKey: MprViewportKey): boolean {
   return Boolean(props.activeTab.viewportViewIds?.[viewportKey]) && !getViewportImage(viewportKey)
 }
@@ -100,6 +105,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :mtf-items="props.getMtfItems(item.key)"
       :selected-mtf-id="props.selectedMtfId ?? null"
       :mpr-crosshair="getViewportCrosshair(item.key)"
+      :scale-bar="getViewportScaleBar(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"

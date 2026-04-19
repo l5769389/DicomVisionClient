@@ -10,6 +10,7 @@ import {
   createEmptyMprImages,
   createEmptyMprOrientations,
   createEmptyMprPseudocolorPresets,
+  createEmptyMprScaleBars,
   createEmptyMprSliceLabels,
   createEmptyMprTransformStates,
   createEmptyMprViewIds,
@@ -18,7 +19,8 @@ import {
   createTab,
   mergeCornerInfo,
   normalizeCornerInfo,
-  normalizeOrientationInfo
+  normalizeOrientationInfo,
+  normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
 import { normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
@@ -251,6 +253,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = payload.mprMipConfig ?? item.mprMipConfig ?? createDefaultMprMipConfig()
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
+      const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -279,6 +282,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportCrosshairs: {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
             [viewportKey]: mprCrosshair
+          },
+          viewportScaleBars: {
+            ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
+            [viewportKey]: scaleBar
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -317,6 +324,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         sliceLabel,
         windowLabel,
         measurements: (payload.measurements ?? []) as MeasurementOverlay[],
+        scaleBar,
         cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
         orientation: orientationInfo,
         transformState,
@@ -493,7 +501,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportImages: createEmptyMprImages(),
               viewportSliceLabels: createEmptyMprSliceLabels(),
               viewportCrosshairs: createEmptyMprCrosshairs(),
+              viewportScaleBars: createEmptyMprScaleBars(),
               measurements: [],
+              scaleBar: null,
               cornerInfo: seriesCornerInfo,
               orientation: createEmptyOrientationInfo(),
               viewportCornerInfos:

@@ -120,6 +120,7 @@ function handleSliceSliderInput(event: Event): void {
       :mtf-draft="props.mtfDraft ?? null"
       :mtf-items="props.mtfItems ?? []"
       :selected-mtf-id="props.selectedMtfId ?? null"
+      :scale-bar="props.activeTab.scaleBar ?? null"
       :orientation="props.activeTab.orientation"
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"

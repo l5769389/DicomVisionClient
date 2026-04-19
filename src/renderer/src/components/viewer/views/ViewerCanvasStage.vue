@@ -9,6 +9,7 @@ import type {
   MeasurementOverlay,
   MprCrosshairInfo,
   OrientationInfo,
+  ScaleBarInfo,
   ViewerMtfItem
 } from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
@@ -18,6 +19,7 @@ import ViewportCrosshairOverlay from '../overlays/ViewportCrosshairOverlay.vue'
 import ViewportMtfOverlay from '../overlays/ViewportMtfOverlay.vue'
 import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.vue'
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
+import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -42,6 +44,7 @@ const props = withDefaults(
     orientation: OrientationInfo
     placeholder: string
     renderSurfaceActive?: boolean
+    scaleBar?: ScaleBarInfo | null
     softImage?: boolean
     viewportClass?: string
     viewportKey: string
@@ -59,6 +62,7 @@ const props = withDefaults(
     loadingLabel: '正在加载视图...',
     mprCrosshair: null,
     renderSurfaceActive: false,
+    scaleBar: null,
     softImage: false,
     viewportClass: ''
   }
@@ -285,6 +289,12 @@ watch(
         :mpr-crosshair="mprCrosshair"
         :viewport-key="viewportKey"
         :is-active="isActive"
+      />
+      <ViewportScaleBarOverlay
+        :stage-width="stageSize.width"
+        :stage-height="stageSize.height"
+        :image-frame="imageFrame"
+        :scale-bar="scaleBar"
       />
       <ViewportMeasurementOverlay
         :draft-measurement-mode="draftMeasurementMode"

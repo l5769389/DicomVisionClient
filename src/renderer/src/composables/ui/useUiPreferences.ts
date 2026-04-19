@@ -23,6 +23,11 @@ export interface CrosshairViewportPreference {
   thickness: number
 }
 
+export interface ScaleBarPreference {
+  enabled: boolean
+  color: string
+}
+
 export interface RoiStatPreference {
   key: string
   label: string
@@ -44,14 +49,20 @@ interface UiPreferencesState {
   selectedPseudocolorKey: string
   selectedWindowPresetId: string
   crosshairConfigs: CrosshairViewportPreference[]
+  scaleBarPreference: ScaleBarPreference
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 1
+const CURRENT_PREFERENCES_VERSION = 2
 const DEFAULT_THEME_ID = 'aurora'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
+const LEGACY_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string> = {
+  'mpr-ax': '#ffd166',
+  'mpr-cor': '#7dd3fc',
+  'mpr-sag': '#fda4af'
+}
 
 const systemWindowPresets: WindowTemplatePreset[] = [
   {
@@ -102,10 +113,17 @@ const systemWindowPresets: WindowTemplatePreset[] = [
 
 function createDefaultCrosshairConfigs(): CrosshairViewportPreference[] {
   return [
-    { key: 'mpr-ax', label: 'AX', color: '#ffd166', thickness: 2 },
-    { key: 'mpr-cor', label: 'COR', color: '#7dd3fc', thickness: 2 },
-    { key: 'mpr-sag', label: 'SAG', color: '#fda4af', thickness: 2 }
+    { key: 'mpr-ax', label: 'AX', color: '#22c55e', thickness: 2 },
+    { key: 'mpr-cor', label: 'COR', color: '#3b82f6', thickness: 2 },
+    { key: 'mpr-sag', label: 'SAG', color: '#ef4444', thickness: 2 }
   ]
+}
+
+function createDefaultScaleBarPreference(): ScaleBarPreference {
+  return {
+    enabled: true,
+    color: '#f8fafc'
+  }
 }
 
 function createDefaultRoiStatOptions(): RoiStatPreference[] {
@@ -128,6 +146,7 @@ function createDefaultState(): UiPreferencesState {
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
     crosshairConfigs: createDefaultCrosshairConfigs(),
+    scaleBarPreference: createDefaultScaleBarPreference(),
     roiStatOptions: createDefaultRoiStatOptions(),
     customWindowPresets: []
   }
@@ -199,6 +218,32 @@ function normalizeCrosshairConfigs(value: unknown): CrosshairViewportPreference[
   })
 }
 
+function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
+  const defaults = createDefaultScaleBarPreference()
+  const record = value && typeof value === 'object' ? (value as Partial<ScaleBarPreference>) : null
+
+  return {
+    enabled: typeof record?.enabled === 'boolean' ? record.enabled : defaults.enabled,
+    color: typeof record?.color === 'string' && record.color.trim() ? record.color : defaults.color
+  }
+}
+
+function migrateCrosshairConfigs(version: number, value: CrosshairViewportPreference[]): CrosshairViewportPreference[] {
+  if (version >= CURRENT_PREFERENCES_VERSION) {
+    return value
+  }
+
+  const defaults = createDefaultCrosshairConfigs()
+  return value.map((item) => {
+    const defaultItem = defaults.find((candidate) => candidate.key === item.key) ?? item
+    const legacyColor = LEGACY_CROSSHAIR_COLORS[item.key]
+    return {
+      ...item,
+      color: item.color.toLowerCase() === legacyColor.toLowerCase() ? defaultItem.color : item.color
+    }
+  })
+}
+
 function normalizeRoiStatOptions(value: unknown): RoiStatPreference[] {
   const defaults = createDefaultRoiStatOptions()
   const parsed = Array.isArray(value) ? value : []
@@ -250,6 +295,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
   state.crosshairConfigs = nextState.crosshairConfigs
+  state.scaleBarPreference = nextState.scaleBarPreference
   state.roiStatOptions = nextState.roiStatOptions
   state.customWindowPresets = nextState.customWindowPresets
   syncDocumentTheme(nextState.themeId)
@@ -263,6 +309,10 @@ function serializeState(): UiPreferencesState {
     selectedPseudocolorKey: state.selectedPseudocolorKey,
     selectedWindowPresetId: state.selectedWindowPresetId,
     crosshairConfigs: state.crosshairConfigs.map((item) => ({ ...item })),
+    scaleBarPreference: {
+      enabled: state.scaleBarPreference.enabled,
+      color: state.scaleBarPreference.color
+    },
     roiStatOptions: state.roiStatOptions.map((item) => ({ ...item })),
     customWindowPresets: state.customWindowPresets.map((item) => ({
       id: item.id,
@@ -309,6 +359,7 @@ async function hydrateState(): Promise<void> {
         return
       }
 
+      const storedVersion = Math.floor(normalizeNumber(parsed.version, 0))
       const customWindowPresets = normalizeCustomWindowPresets(parsed.customWindowPresets)
       applyState({
         version: CURRENT_PREFERENCES_VERSION,
@@ -316,7 +367,8 @@ async function hydrateState(): Promise<void> {
         themeId: normalizeThemeId(parsed.themeId),
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
-        crosshairConfigs: normalizeCrosshairConfigs(parsed.crosshairConfigs),
+        crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
+        scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
         customWindowPresets
       })
@@ -426,6 +478,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setScaleBarPreference(nextValue: ScaleBarPreference): void {
+    state.scaleBarPreference = normalizeScaleBarPreference(nextValue)
+    void persistState()
+  }
+
   function setRoiStatOptions(nextValue: RoiStatPreference[]): void {
     state.roiStatOptions = normalizeRoiStatOptions(nextValue)
     void persistState()
@@ -441,10 +498,12 @@ export function useUiPreferences() {
     getWindowPresetLabel,
     locale,
     roiStatOptions: computed(() => state.roiStatOptions),
+    scaleBarPreference: computed(() => state.scaleBarPreference),
     selectedPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
     setLocale,
+    setScaleBarPreference,
     setRoiStatOptions,
     addCustomWindowPreset,
     removeCustomWindowPreset,

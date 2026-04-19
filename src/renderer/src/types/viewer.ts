@@ -175,6 +175,11 @@ export interface MprCrosshairInfo {
   verticalPosition: number | null
 }
 
+export interface ScaleBarInfo {
+  lengthNorm: number
+  label: string
+}
+
 export interface OrientationInfo {
   top: string | null
   right: string | null
@@ -236,6 +241,7 @@ export interface ViewImageResponse {
     wl?: number | null
   }
   mpr_crosshair?: MprCrosshairInfo | null
+  scaleBar?: ScaleBarInfo | null
   measurements?: MeasurementOverlay[]
   cornerInfo?: unknown
   orientation?: unknown
@@ -291,7 +297,9 @@ export interface ViewerTabItem {
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
+  viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
   measurements?: MeasurementOverlay[]
+  scaleBar?: ScaleBarInfo | null
   annotations?: AnnotationOverlay[]
   cornerInfo: CornerInfo
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>

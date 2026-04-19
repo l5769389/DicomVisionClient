@@ -31,6 +31,11 @@ export interface ScaleBarPreference {
 export interface ExportPreference {
   locationMode: 'default' | 'custom'
   desktopDirectory: string | null
+  includeDicomAnnotations: boolean
+  includeDicomMeasurements: boolean
+  includePngAnnotations: boolean
+  includePngMeasurements: boolean
+  useDefaultFileName: boolean
   webDirectoryName: string | null
 }
 
@@ -137,6 +142,11 @@ function createDefaultExportPreference(): ExportPreference {
   return {
     locationMode: 'default',
     desktopDirectory: null,
+    includeDicomAnnotations: true,
+    includeDicomMeasurements: true,
+    includePngAnnotations: true,
+    includePngMeasurements: true,
+    useDefaultFileName: true,
     webDirectoryName: null
   }
 }
@@ -246,12 +256,26 @@ function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
 
 function normalizeExportPreference(value: unknown): ExportPreference {
   const defaults = createDefaultExportPreference()
-  const record = value && typeof value === 'object' ? (value as Partial<ExportPreference>) : null
+  const record = value && typeof value === 'object'
+    ? (value as Partial<ExportPreference> & { includeDicomOverlays?: unknown; includePngOverlays?: unknown })
+    : null
+  const legacyDicomOverlays = typeof record?.includeDicomOverlays === 'boolean' ? record.includeDicomOverlays : defaults.includeDicomMeasurements
+  const legacyPngOverlays = typeof record?.includePngOverlays === 'boolean' ? record.includePngOverlays : defaults.includePngMeasurements
 
   return {
     locationMode: record?.locationMode === 'custom' ? 'custom' : defaults.locationMode,
     desktopDirectory:
       typeof record?.desktopDirectory === 'string' && record.desktopDirectory.trim() ? record.desktopDirectory.trim() : null,
+    includeDicomAnnotations:
+      typeof record?.includeDicomAnnotations === 'boolean' ? record.includeDicomAnnotations : legacyDicomOverlays,
+    includeDicomMeasurements:
+      typeof record?.includeDicomMeasurements === 'boolean' ? record.includeDicomMeasurements : legacyDicomOverlays,
+    includePngAnnotations:
+      typeof record?.includePngAnnotations === 'boolean' ? record.includePngAnnotations : legacyPngOverlays,
+    includePngMeasurements:
+      typeof record?.includePngMeasurements === 'boolean' ? record.includePngMeasurements : legacyPngOverlays,
+    useDefaultFileName:
+      typeof record?.useDefaultFileName === 'boolean' ? record.useDefaultFileName : defaults.useDefaultFileName,
     webDirectoryName:
       typeof record?.webDirectoryName === 'string' && record.webDirectoryName.trim() ? record.webDirectoryName.trim() : null
   }
@@ -346,6 +370,11 @@ function serializeState(): UiPreferencesState {
     exportPreference: {
       locationMode: state.exportPreference.locationMode,
       desktopDirectory: state.exportPreference.desktopDirectory,
+      includeDicomAnnotations: state.exportPreference.includeDicomAnnotations,
+      includeDicomMeasurements: state.exportPreference.includeDicomMeasurements,
+      includePngAnnotations: state.exportPreference.includePngAnnotations,
+      includePngMeasurements: state.exportPreference.includePngMeasurements,
+      useDefaultFileName: state.exportPreference.useDefaultFileName,
       webDirectoryName: state.exportPreference.webDirectoryName
     },
     roiStatOptions: state.roiStatOptions.map((item) => ({ ...item })),

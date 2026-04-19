@@ -18,7 +18,8 @@ declare global {
       getBackendOrigin: () => Promise<string>
       getDefaultExportDirectory: () => Promise<string>
       loadUiPreferences: () => Promise<unknown | null>
-      saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }) => Promise<string>
+      openExportLocation: (payload: { directoryPath?: string | null; filePath?: string | null }) => Promise<boolean>
+      saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }) => Promise<{ directoryPath: string; filePath: string }>
       saveUiPreferences: (payload: unknown) => Promise<void>
     }
   }

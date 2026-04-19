@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type {
   AnnotationDraft,
@@ -31,7 +31,9 @@ import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/u
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
-import { exportCurrentView, type ViewerExportFormat } from '../../composables/workspace/export/viewExport'
+import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
+import { openExportLocation, type ExportedFileResult } from '../../platform/exporting'
+import { viewerRuntime } from '../../platform/runtime'
 
 const props = defineProps<{
   activeOperation: string
@@ -80,12 +82,13 @@ const emit = defineEmits<{
 }>()
 
 const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
+const exportNameInputRef = useTemplateRef<HTMLInputElement>('exportNameInputRef')
 const activeTabRef = computed(() => props.activeTab)
 const activeTabKeyRef = computed(() => props.activeTabKey)
 const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
 const viewerTabsRef = computed(() => props.viewerTabs)
-const { t } = useUiLocale()
+const { locale, t } = useUiLocale()
 const { exportPreference, roiStatOptions } = useUiPreferences()
 const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
@@ -190,17 +193,387 @@ const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOver
 const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
 const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
 const annotationActivePointerId = ref<number | null>(null)
+const exportNotice = ref<{
+  canOpenLocation: boolean
+  directoryPath?: string | null
+  filePath?: string | null
+  message: string
+  title: string
+} | null>(null)
+let exportNoticeTimer: ReturnType<typeof setTimeout> | null = null
+const isExportNameDialogOpen = ref(false)
+const exportNameDialogFormat = ref<ViewerExportFormat>('png')
+const exportNameInput = ref('')
+const exportNameError = ref('')
+let resolveExportNameDialog: ((value: string | null) => void) | null = null
+const exportNameExtension = computed(() => (exportNameDialogFormat.value === 'png' ? 'png' : 'dcm'))
+
+function clearExportNoticeTimer(): void {
+  if (!exportNoticeTimer) {
+    return
+  }
+
+  clearTimeout(exportNoticeTimer)
+  exportNoticeTimer = null
+}
+
+function showExportNotice(result: ExportedFileResult | null, format: ViewerExportFormat): void {
+  clearExportNoticeTimer()
+
+  const isZh = locale.value === 'zh-CN'
+  if (!result) {
+    exportNotice.value = {
+      canOpenLocation: false,
+      message: isZh ? '当前视图无法导出，请先打开可导出的图像视图。' : 'The current view cannot be exported. Open an exportable image view first.',
+      title: isZh ? '导出未完成' : 'Export Not Completed'
+    }
+    return
+  }
+
+  const formatLabel = format === 'png' ? 'PNG' : 'DICOM'
+  exportNotice.value = {
+    canOpenLocation: viewerRuntime.platform === 'desktop' && Boolean(result.filePath || result.directoryPath),
+    directoryPath: result.directoryPath,
+    filePath: result.filePath,
+    message:
+      result.mode === 'download'
+        ? isZh
+          ? `${formatLabel} 已交给浏览器下载。`
+          : `${formatLabel} was sent to the browser downloads.`
+        : isZh
+          ? `已导出到 ${result.locationDescription ?? result.directoryPath ?? '选定位置'}`
+          : `Exported to ${result.locationDescription ?? result.directoryPath ?? 'the selected location'}`,
+    title: isZh ? '导出完成' : 'Export Complete'
+  }
+
+  exportNoticeTimer = setTimeout(() => {
+    exportNotice.value = null
+    exportNoticeTimer = null
+  }, 8000)
+}
+
+async function handleOpenExportLocation(): Promise<void> {
+  if (!exportNotice.value) {
+    return
+  }
+
+  const opened = await openExportLocation({
+    directoryPath: exportNotice.value.directoryPath,
+    filePath: exportNotice.value.filePath
+  })
+  if (!opened) {
+    exportNotice.value = {
+      ...exportNotice.value,
+      canOpenLocation: false,
+      message: locale.value === 'zh-CN' ? '无法打开导出位置，请手动前往上方显示的路径。' : 'Could not open the export location. Use the path shown above.'
+    }
+  }
+}
+
+function resolveActiveExportImageElement(viewportKey: string): HTMLImageElement | null {
+  const host = viewportHostRef.value
+  if (!host) {
+    return null
+  }
+
+  const surface = host.querySelector<HTMLElement>(`[data-active-render-surface="true"][data-viewport-key="${viewportKey}"]`)
+  const image = surface?.querySelector<HTMLImageElement>('.viewer-image') ?? null
+  return image instanceof HTMLImageElement ? image : null
+}
+
+function canvasPoint(point: MeasurementDraftPoint, width: number, height: number): { x: number; y: number } {
+  return {
+    x: point.x * width,
+    y: point.y * height
+  }
+}
+
+function drawLabel(context: CanvasRenderingContext2D, lines: string[], x: number, y: number, maxWidth: number): void {
+  const visibleLines = lines.map((line) => line.trim()).filter(Boolean)
+  if (!visibleLines.length) {
+    return
+  }
+
+  const lineHeight = 18
+  context.font = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+  const width = Math.min(
+    Math.max(...visibleLines.map((line) => context.measureText(line).width)) + 14,
+    Math.max(120, maxWidth - 16)
+  )
+  const height = visibleLines.length * lineHeight + 8
+  const left = Math.max(8, Math.min(maxWidth - width - 8, x))
+  const top = Math.max(8, y)
+
+  context.save()
+  context.fillStyle = 'rgba(7,16,28,0.92)'
+  context.strokeStyle = 'rgba(125,211,252,0.55)'
+  context.lineWidth = 1
+  context.beginPath()
+  context.roundRect(left, top, width, height, 8)
+  context.fill()
+  context.stroke()
+  context.fillStyle = '#f8fafc'
+  visibleLines.forEach((line, index) => {
+    context.fillText(line, left + 7, top + 18 + index * lineHeight)
+  })
+  context.restore()
+}
+
+function drawMeasurements(context: CanvasRenderingContext2D, measurements: MeasurementOverlay[], width: number, height: number): void {
+  measurements.forEach((measurement) => {
+    const points = measurement.points.map((point) => canvasPoint(point, width, height))
+    if (!points.length) {
+      return
+    }
+
+    context.save()
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.strokeStyle = 'rgba(3,15,24,0.92)'
+    context.lineWidth = 5
+
+    const drawShape = (): void => {
+      if (measurement.toolType === 'line' && points.length >= 2) {
+        context.beginPath()
+        context.moveTo(points[0].x, points[0].y)
+        context.lineTo(points[1].x, points[1].y)
+        context.stroke()
+      } else if ((measurement.toolType === 'rect' || measurement.toolType === 'ellipse') && points.length >= 2) {
+        const left = Math.min(points[0].x, points[1].x)
+        const top = Math.min(points[0].y, points[1].y)
+        const rectWidth = Math.abs(points[1].x - points[0].x)
+        const rectHeight = Math.abs(points[1].y - points[0].y)
+        context.beginPath()
+        if (measurement.toolType === 'ellipse') {
+          context.ellipse(left + rectWidth / 2, top + rectHeight / 2, rectWidth / 2, rectHeight / 2, 0, 0, Math.PI * 2)
+        } else {
+          context.rect(left, top, rectWidth, rectHeight)
+        }
+        context.stroke()
+      } else if (measurement.toolType === 'angle' && points.length >= 2) {
+        context.beginPath()
+        context.moveTo(points[0].x, points[0].y)
+        context.lineTo(points[1].x, points[1].y)
+        if (points[2]) {
+          context.lineTo(points[2].x, points[2].y)
+        }
+        context.stroke()
+      }
+    }
+
+    drawShape()
+    context.strokeStyle = 'rgba(85,231,255,0.98)'
+    context.lineWidth = 2.5
+    drawShape()
+
+    const anchor = points[1] ?? points[0]
+    drawLabel(context, measurement.labelLines ?? [], anchor.x + 12, anchor.y - 32, width)
+    context.restore()
+  })
+}
+
+function drawArrowHead(context: CanvasRenderingContext2D, start: { x: number; y: number }, end: { x: number; y: number }, size: number): void {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const length = Math.hypot(dx, dy)
+  if (length < 1e-6) {
+    return
+  }
+
+  const ux = dx / length
+  const uy = dy / length
+  const backX = end.x - ux * size * 2.8
+  const backY = end.y - uy * size * 2.8
+  const perpX = -uy * size
+  const perpY = ux * size
+  context.beginPath()
+  context.moveTo(end.x, end.y)
+  context.lineTo(backX + perpX, backY + perpY)
+  context.lineTo(backX - perpX, backY - perpY)
+  context.closePath()
+  context.fill()
+}
+
+function drawAnnotations(context: CanvasRenderingContext2D, annotations: AnnotationOverlay[], width: number, height: number): void {
+  annotations.forEach((annotation) => {
+    const points = annotation.points.map((point) => canvasPoint(point, width, height))
+    if (points.length < 2) {
+      return
+    }
+
+    const lineWidth = annotation.size === 'lg' ? 3 : annotation.size === 'sm' ? 2 : 2.5
+    const fontSize = annotation.size === 'lg' ? 16 : annotation.size === 'sm' ? 12 : 14
+    context.save()
+    context.strokeStyle = annotation.color
+    context.fillStyle = annotation.color
+    context.lineCap = 'round'
+    context.lineWidth = lineWidth
+    context.beginPath()
+    context.moveTo(points[0].x, points[0].y)
+    context.lineTo(points[1].x, points[1].y)
+    context.stroke()
+    drawArrowHead(context, points[0], points[1], lineWidth * 2.8)
+
+    const text = annotation.text.trim()
+    if (text) {
+      context.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+      const labelWidth = Math.min(Math.max(context.measureText(text).width + 14, 48), Math.max(48, width - 16))
+      const left = Math.max(8, Math.min(width - labelWidth - 8, points[0].x + 12))
+      const top = Math.max(8, Math.min(height - fontSize - 18, points[0].y - fontSize - 12))
+      context.fillStyle = 'rgba(7,14,24,0.92)'
+      context.strokeStyle = 'rgba(255,255,255,0.18)'
+      context.lineWidth = 1
+      context.beginPath()
+      context.roundRect(left, top, labelWidth, fontSize + 12, 8)
+      context.fill()
+      context.stroke()
+      context.fillStyle = annotation.color
+      context.fillText(text, left + 7, top + fontSize + 2)
+    }
+    context.restore()
+  })
+}
+
+async function buildAnnotatedPngData(viewportKey: string, overlays: ViewerExportOverlays): Promise<Uint8Array | null> {
+  await nextTick()
+  const image = resolveActiveExportImageElement(viewportKey)
+  if (!image?.src || !image.naturalWidth || !image.naturalHeight) {
+    return null
+  }
+
+  if (!image.complete && typeof image.decode === 'function') {
+    await image.decode()
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth
+  canvas.height = image.naturalHeight
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return null
+  }
+
+  try {
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    drawMeasurements(context, overlays.measurements, canvas.width, canvas.height)
+    drawAnnotations(context, overlays.annotations, canvas.width, canvas.height)
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) {
+      return null
+    }
+
+    return new Uint8Array(await blob.arrayBuffer())
+  } catch (error) {
+    console.error('Failed to compose annotated PNG locally.', error)
+    return null
+  }
+}
+
+function normalizeExportFileNameStem(value: string, format: ViewerExportFormat): string {
+  const extensionPattern = format === 'png' ? /\.png$/i : /\.(dcm|dicom)$/i
+  return value
+    .trim()
+    .replace(extensionPattern, '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\.+$/g, '')
+    .trim()
+}
+
+async function requestExportFileName(format: ViewerExportFormat, defaultFileNameStem: string): Promise<string | null> {
+  if (resolveExportNameDialog) {
+    resolveExportNameDialog(null)
+  }
+
+  exportNameDialogFormat.value = format
+  exportNameInput.value = defaultFileNameStem
+  exportNameError.value = ''
+  isExportNameDialogOpen.value = true
+
+  await nextTick()
+  exportNameInputRef.value?.focus()
+  exportNameInputRef.value?.select()
+
+  return new Promise((resolve) => {
+    resolveExportNameDialog = resolve
+  })
+}
+
+function closeExportNameDialog(value: string | null): void {
+  const resolve = resolveExportNameDialog
+  resolveExportNameDialog = null
+  isExportNameDialogOpen.value = false
+  exportNameError.value = ''
+  if (resolve) {
+    resolve(value)
+  }
+}
+
+function cancelExportNameDialog(): void {
+  closeExportNameDialog(null)
+}
+
+function confirmExportNameDialog(): void {
+  const normalizedName = normalizeExportFileNameStem(exportNameInput.value, exportNameDialogFormat.value)
+  if (!normalizedName) {
+    exportNameError.value = locale.value === 'zh-CN' ? '请输入有效的导出文件名。' : 'Enter a valid export file name.'
+    return
+  }
+
+  closeExportNameDialog(normalizedName)
+}
 
 async function handleExportCurrentView(format: ViewerExportFormat): Promise<void> {
   try {
-    await exportCurrentView({
+    if (!props.activeTab) {
+      showExportNotice(null, format)
+      return
+    }
+
+    const exportViewportKey = props.activeTab?.viewType === 'MPR' ? activeViewportKey.value : 'single'
+    const defaultFileNameStem = buildExportFileStem(props.activeTab, activeViewportKey.value)
+    let customFileNameStem: string | null = null
+    if (!exportPreference.value.useDefaultFileName) {
+      customFileNameStem = await requestExportFileName(format, defaultFileNameStem)
+      if (!customFileNameStem) {
+        return
+      }
+    }
+
+    const overlays: ViewerExportOverlays = {
+      annotations: getAnnotations(exportViewportKey),
+      measurements: getExportMeasurements(exportViewportKey)
+    }
+    const exportOverlays: ViewerExportOverlays =
+      format === 'png'
+        ? {
+            annotations: exportPreference.value.includePngAnnotations ? overlays.annotations : [],
+            measurements: exportPreference.value.includePngMeasurements ? overlays.measurements : []
+          }
+        : {
+            annotations: exportPreference.value.includeDicomAnnotations ? overlays.annotations : [],
+            measurements: exportPreference.value.includeDicomMeasurements ? overlays.measurements : []
+          }
+    const shouldComposePng = format === 'png' && (exportOverlays.annotations.length > 0 || exportOverlays.measurements.length > 0)
+    const pngData = shouldComposePng ? await buildAnnotatedPngData(exportViewportKey, exportOverlays) : null
+    const result = await exportCurrentView({
       activeTab: props.activeTab,
       activeViewportKey: activeViewportKey.value,
+      data: pngData,
       exportFormat: format,
-      exportPreference: exportPreference.value
+      exportPreference: exportPreference.value,
+      fileNameStem: customFileNameStem,
+      overlays: exportOverlays
     })
+    showExportNotice(result, format)
   } catch (error) {
     console.error('Failed to export current view.', error)
+    clearExportNoticeTimer()
+    exportNotice.value = {
+      canOpenLocation: false,
+      message: locale.value === 'zh-CN' ? '导出失败，请检查后端连接和导出目录权限。' : 'Export failed. Check the backend connection and export directory permissions.',
+      title: locale.value === 'zh-CN' ? '导出失败' : 'Export Failed'
+    }
   }
 }
 
@@ -325,6 +698,10 @@ function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverla
   return committedMeasurements
     .filter((measurement) => measurement.measurementId !== editingMeasurementId)
     .map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
+}
+
+function getExportMeasurements(viewportKey: string): MeasurementOverlay[] {
+  return getCommittedMeasurements(viewportKey).map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
 }
 
 function getMtfItems(viewportKey: string) {
@@ -1115,13 +1492,15 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWorkspaceKeydown)
   isQuickPreviewDropActive.value = false
+  clearExportNoticeTimer()
+  closeExportNameDialog(null)
   stopAnnotationInteraction()
 })
 </script>
 
 <template>
   <main
-    class="theme-shell-panel min-h-0 min-w-0 overflow-hidden rounded-[26px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    class="theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[26px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
   >
     <div
       v-if="!hasSelectedSeries"
@@ -1321,6 +1700,96 @@ onBeforeUnmount(() => {
             {{ isQuickPreviewDropActive ? t('emptyDropQuickPreviewDesc') : message || t('openViewDesc') }}
           </p>
         </div>
+      </div>
+    </div>
+
+    <div
+      v-if="isExportNameDialogOpen"
+      class="absolute inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="locale === 'zh-CN' ? '设置导出名称' : 'Set export name'"
+      @click.self="cancelExportNameDialog"
+    >
+      <form
+        class="w-[min(480px,100%)] rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-accent)_34%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_92%,#050914)] p-5 shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
+        @submit.prevent="confirmExportNameDialog"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-base font-semibold text-[var(--theme-text-primary)]">
+              {{ locale === 'zh-CN' ? '设置导出名称' : 'Set export name' }}
+            </div>
+            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
+              {{ locale === 'zh-CN' ? '名称可编辑，文件后缀由导出格式固定。' : 'Edit the name. The file extension is fixed by the export format.' }}
+            </div>
+          </div>
+          <div class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1 text-xs font-semibold uppercase text-[var(--theme-text-secondary)]">
+            {{ exportNameDialogFormat === 'png' ? 'PNG' : 'DICOM' }}
+          </div>
+        </div>
+
+        <label class="mt-5 block text-xs font-semibold text-[var(--theme-text-secondary)]" for="export-file-name-input">
+          {{ locale === 'zh-CN' ? '文件名称' : 'File name' }}
+        </label>
+        <div
+          class="mt-2 flex min-w-0 overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_82%,#0f172a)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_28px_rgba(0,0,0,0.2)] transition focus-within:border-[var(--theme-accent)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent),inset_0_1px_0_rgba(255,255,255,0.07)]"
+        >
+          <input
+            id="export-file-name-input"
+            ref="exportNameInputRef"
+            v-model="exportNameInput"
+            class="min-w-0 flex-1 bg-[color:color-mix(in_srgb,var(--theme-surface-card)_88%,#111827)] px-3 py-2.5 text-sm text-[var(--theme-text-primary)] outline-none"
+            type="text"
+            autocomplete="off"
+            @keydown.esc.prevent="cancelExportNameDialog"
+          />
+          <div class="flex shrink-0 items-center border-l border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,black)] px-3 text-sm font-semibold text-[var(--theme-text-secondary)]">
+            .{{ exportNameExtension }}
+          </div>
+        </div>
+        <div v-if="exportNameError" class="mt-2 text-xs leading-5 text-rose-300">{{ exportNameError }}</div>
+        <div class="mt-5 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-2.5 text-xs font-semibold text-[var(--theme-text-secondary)] transition hover:text-[var(--theme-text-primary)]"
+            @click="cancelExportNameDialog"
+          >
+            {{ locale === 'zh-CN' ? '取消' : 'Cancel' }}
+          </button>
+          <button type="submit" class="theme-button-primary rounded-2xl px-5 py-2.5 text-xs font-semibold">
+            {{ locale === 'zh-CN' ? '导出' : 'Export' }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div
+      v-if="exportNotice"
+      class="absolute bottom-5 right-5 z-[80] w-[min(420px,calc(100%-40px))] rounded-[20px] border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_94%,black)] p-4 shadow-[0_22px_44px_rgba(0,0,0,0.42)] backdrop-blur"
+    >
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ exportNotice.title }}</div>
+          <div class="mt-1 break-all text-xs leading-6 text-[var(--theme-text-secondary)]">{{ exportNotice.message }}</div>
+        </div>
+        <button
+          type="button"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-sm text-[var(--theme-text-secondary)] transition hover:text-[var(--theme-text-primary)]"
+          :aria-label="locale === 'zh-CN' ? '关闭导出提示' : 'Close export notification'"
+          @click="exportNotice = null"
+        >
+          x
+        </button>
+      </div>
+      <div v-if="exportNotice.canOpenLocation" class="mt-3 flex justify-end">
+        <button
+          type="button"
+          class="theme-button-primary rounded-2xl px-4 py-2 text-xs font-semibold"
+          @click="handleOpenExportLocation"
+        >
+          {{ locale === 'zh-CN' ? '打开文件位置' : 'Open File Location' }}
+        </button>
       </div>
     </div>
   </main>

@@ -4,7 +4,7 @@ import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { type AppLocale, useUiPreferences } from '../../composables/ui/useUiPreferences'
-import { clearStoredWebExportDirectory, canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel } from '../../platform/exporting'
+import { clearStoredWebExportDirectory, canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
 import { viewerRuntime } from '../../platform/runtime'
 
 defineProps<{
@@ -101,9 +101,28 @@ interface SettingsCopy {
   exportCurrentLocation?: string
   exportChooseLocation?: string
   exportClearLocation?: string
+  exportChooseFailed?: string
+  exportOpenLocation?: string
+  exportOpenLocationFailed?: string
+  exportCustomBadge?: string
+  exportDefaultBadge?: string
   exportDefaultHint?: string
+  exportCustomMissing?: string
+  exportDesktopMode?: string
+  exportFileNameTitle?: string
+  exportIncludeAnnotations?: string
+  exportIncludeDicomAnnotations?: string
+  exportIncludeDicomMeasurements?: string
+  exportIncludeMeasurements?: string
+  exportIncludeOverlaysHint?: string
+  exportIncludePngAnnotations?: string
+  exportIncludePngMeasurements?: string
+  exportUseDefaultFileName?: string
+  exportUseDefaultFileNameHint?: string
+  exportFormats?: string
   exportCustomHint?: string
   exportUnsupportedHint?: string
+  exportWebMode?: string
   displayTitle: string
   displayDesc: string
   scaleBarTitle: string
@@ -224,6 +243,38 @@ function createCopy(isZh: boolean): SettingsCopy {
       wl: '窗位 WL',
       addTemplate: '添加模板',
       removeTemplate: '删除选中模板',
+      exportSection: '导出',
+      exportSectionSub: '格式和默认保存位置',
+      exportTitle: '导出设置',
+      exportDesc: '设置当前视图导出为 PNG 或 DICOM 时的默认保存位置。',
+      exportMode: '导出方式',
+      exportDefault: '默认位置',
+      exportCustom: '自定义位置',
+      exportCurrentLocation: '当前位置',
+      exportChooseLocation: '选择位置',
+      exportClearLocation: '清除自定义位置',
+      exportChooseFailed: '无法打开位置选择器，请检查桌面端权限或重新启动应用后再试。',
+      exportOpenLocation: '打开位置',
+      exportOpenLocationFailed: '无法打开导出位置，请检查该路径是否存在。',
+      exportDefaultBadge: '默认',
+      exportCustomBadge: '自定义',
+      exportDefaultHint: '使用系统默认下载目录。',
+      exportCustomMissing: '尚未选择自定义导出位置。',
+      exportCustomHint: '导出文件会保存到选择的文件夹。',
+      exportUnsupportedHint: '当前环境不支持选择自定义目录，将使用默认下载方式。',
+      exportDesktopMode: '导出的文件会保存到下方显示的位置。',
+      exportFileNameTitle: '导出名称',
+      exportIncludeAnnotations: '标注',
+      exportIncludeDicomAnnotations: '导出标注',
+      exportIncludeDicomMeasurements: '导出测量',
+      exportIncludeMeasurements: '测量',
+      exportIncludeOverlaysHint: '开启后，导出的图像中会携带该内容。',
+      exportIncludePngAnnotations: '导出标注',
+      exportIncludePngMeasurements: '导出测量',
+      exportUseDefaultFileName: '使用默认名称',
+      exportUseDefaultFileNameHint: '关闭后，每次导出前都会提示输入文件名。',
+      exportFormats: '格式',
+      exportWebMode: '导出文件会按照浏览器下载设置保存。',
       displayTitle: '显示样式',
       displayDesc: '在这里统一设置十字线、比例尺、ROI 统计项和默认伪彩。',
       scaleBarTitle: '比例尺',
@@ -287,6 +338,38 @@ function createCopy(isZh: boolean): SettingsCopy {
     wl: 'Window Level WL',
     addTemplate: 'Add Template',
     removeTemplate: 'Remove Selected',
+    exportSection: 'Export',
+    exportSectionSub: 'Formats and default save location',
+    exportTitle: 'Export Settings',
+    exportDesc: 'Set the default save location for exporting the current view as PNG or DICOM.',
+    exportMode: 'Export Mode',
+    exportDefault: 'Default Location',
+    exportCustom: 'Custom Location',
+    exportCurrentLocation: 'Current Location',
+    exportChooseLocation: 'Choose Location',
+    exportClearLocation: 'Clear Custom Location',
+    exportChooseFailed: 'Could not open the location picker. Check desktop permissions or restart the app and try again.',
+    exportOpenLocation: 'Open Location',
+    exportOpenLocationFailed: 'Could not open the export location. Check whether the path exists.',
+    exportDefaultBadge: 'Default',
+    exportCustomBadge: 'Custom',
+    exportDefaultHint: 'Use the system default downloads location.',
+    exportCustomMissing: 'No custom export location selected.',
+    exportCustomHint: 'Save exported files to a selected folder.',
+    exportUnsupportedHint: 'This environment does not support picking a custom directory, so browser downloads will be used.',
+    exportDesktopMode: 'Exported files are saved to the location shown below.',
+    exportFileNameTitle: 'Export Name',
+    exportIncludeAnnotations: 'Annotations',
+    exportIncludeDicomAnnotations: 'Export annotations',
+    exportIncludeDicomMeasurements: 'Export measurements',
+    exportIncludeMeasurements: 'Measurements',
+    exportIncludeOverlaysHint: 'When enabled, the exported image includes this content.',
+    exportIncludePngAnnotations: 'Export annotations',
+    exportIncludePngMeasurements: 'Export measurements',
+    exportUseDefaultFileName: 'Use default name',
+    exportUseDefaultFileNameHint: 'When disabled, each export prompts for a file name.',
+    exportFormats: 'Formats',
+    exportWebMode: 'Exported files are saved according to the browser download settings.',
     displayTitle: 'Display Style',
     displayDesc: 'Manage crosshair, scale bar, ROI stats, and pseudocolor in one place.',
     scaleBarTitle: 'Scale Bar',
@@ -418,6 +501,8 @@ const customPresetWw = ref('400')
 const customPresetWl = ref('40')
 const defaultExportLocationLabel = ref('')
 const canPickCustomExportLocation = ref(canChooseCustomExportDirectory())
+const exportLocationError = ref('')
+const isChoosingExportLocation = ref(false)
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = computed(() => createCopy(isZh.value))
@@ -547,27 +632,98 @@ function handleRemoveSelectedCustomWindowPreset(): void {
 const exportLocationLabel = computed(() => {
   if (exportPreference.value.locationMode === 'custom') {
     return viewerRuntime.platform === 'desktop'
-      ? exportPreference.value.desktopDirectory || copy.value.exportCustomHint || 'Custom location'
-      : exportPreference.value.webDirectoryName || copy.value.exportCustomHint || 'Custom location'
+      ? exportPreference.value.desktopDirectory || copy.value.exportCustomMissing || 'No custom export location selected.'
+      : exportPreference.value.webDirectoryName || copy.value.exportCustomMissing || 'No custom export location selected.'
   }
 
   return defaultExportLocationLabel.value || copy.value.exportDefaultHint || 'Default downloads location'
 })
 
+const exportCustomLocationHint = computed(() => {
+  if (!canPickCustomExportLocation.value) {
+    return copy.value.exportUnsupportedHint ?? 'This environment does not support picking a custom directory, so browser downloads will be used.'
+  }
+
+  return copy.value.exportCustomHint ?? 'Save exported files to a selected folder.'
+})
+
+const exportLocationDescription = computed(() =>
+  viewerRuntime.platform === 'desktop'
+    ? copy.value.exportDesktopMode ?? 'Exported files are saved to the location shown below.'
+    : copy.value.exportWebMode ?? 'Exported files are saved according to the browser download settings.'
+)
+const canOpenDefaultExportLocation = computed(
+  () => viewerRuntime.platform === 'desktop' && exportPreference.value.locationMode === 'default' && Boolean(defaultExportLocationLabel.value)
+)
+
+function handleSelectCustomExportMode(): void {
+  exportLocationError.value = ''
+  setExportPreference({
+    ...exportPreference.value,
+    locationMode: 'custom'
+  })
+}
+
 async function handleChooseExportLocation(): Promise<void> {
-  const selectedDirectory = await chooseCustomExportDirectory()
-  if (!selectedDirectory) {
+  exportLocationError.value = ''
+  isChoosingExportLocation.value = true
+
+  try {
+    const selectedDirectory = await chooseCustomExportDirectory()
+    if (!selectedDirectory) {
+      return
+    }
+
+    setExportPreference({
+      locationMode: 'custom',
+      desktopDirectory: selectedDirectory.desktopDirectory ?? exportPreference.value.desktopDirectory,
+      webDirectoryName: selectedDirectory.webDirectoryName ?? exportPreference.value.webDirectoryName
+    })
+  } catch (error) {
+    console.error('Failed to choose export location.', error)
+    exportLocationError.value = copy.value.exportChooseFailed ?? 'Could not open the location picker. Check desktop permissions or restart the app and try again.'
+  } finally {
+    isChoosingExportLocation.value = false
+  }
+}
+
+async function handleOpenDefaultExportLocation(): Promise<void> {
+  if (!defaultExportLocationLabel.value) {
     return
   }
 
+  exportLocationError.value = ''
+  const opened = await openExportLocation({
+    directoryPath: defaultExportLocationLabel.value
+  })
+  if (!opened) {
+    exportLocationError.value = copy.value.exportOpenLocationFailed ?? 'Could not open the export location. Check whether the path exists.'
+  }
+}
+
+function updateExportOverlayPreference(format: 'png' | 'dicom', kind: 'measurements' | 'annotations', enabled: boolean): void {
   setExportPreference({
-    locationMode: 'custom',
-    desktopDirectory: selectedDirectory.desktopDirectory ?? exportPreference.value.desktopDirectory,
-    webDirectoryName: selectedDirectory.webDirectoryName ?? exportPreference.value.webDirectoryName
+    ...exportPreference.value,
+    includeDicomAnnotations:
+      format === 'dicom' && kind === 'annotations' ? enabled : exportPreference.value.includeDicomAnnotations,
+    includeDicomMeasurements:
+      format === 'dicom' && kind === 'measurements' ? enabled : exportPreference.value.includeDicomMeasurements,
+    includePngAnnotations:
+      format === 'png' && kind === 'annotations' ? enabled : exportPreference.value.includePngAnnotations,
+    includePngMeasurements:
+      format === 'png' && kind === 'measurements' ? enabled : exportPreference.value.includePngMeasurements
+  })
+}
+
+function updateUseDefaultFileName(enabled: boolean): void {
+  setExportPreference({
+    ...exportPreference.value,
+    useDefaultFileName: enabled
   })
 }
 
 async function handleClearExportLocation(): Promise<void> {
+  exportLocationError.value = ''
   if (viewerRuntime.platform === 'web') {
     await clearStoredWebExportDirectory()
   }
@@ -575,7 +731,12 @@ async function handleClearExportLocation(): Promise<void> {
 }
 
 onMounted(async () => {
-  defaultExportLocationLabel.value = await getDefaultExportLocationLabel()
+  try {
+    defaultExportLocationLabel.value = await getDefaultExportLocationLabel()
+  } catch (error) {
+    console.error('Failed to resolve default export location.', error)
+    defaultExportLocationLabel.value = ''
+  }
 })
 </script>
 
@@ -847,8 +1008,14 @@ onMounted(async () => {
                             <div>
                               <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportDefault ?? 'Default Location' }}</div>
                               <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ copy.exportDefaultHint ?? 'Use the system default downloads location.' }}</div>
+                              <div
+                                v-if="defaultExportLocationLabel"
+                                class="mt-2 break-all text-xs font-medium text-[var(--theme-text-primary)]"
+                              >
+                                {{ defaultExportLocationLabel }}
+                              </div>
                             </div>
-                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Default</span>
+                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ copy.exportDefaultBadge ?? 'Default' }}</span>
                           </div>
                         </button>
 
@@ -857,20 +1024,14 @@ onMounted(async () => {
                           class="w-full rounded-[22px] border px-4 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
                           :disabled="!canPickCustomExportLocation"
                           :class="exportPreference.locationMode === 'custom' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
-                          @click="setExportPreference({ ...exportPreference, locationMode: 'custom' })"
+                          @click="handleSelectCustomExportMode"
                         >
                           <div class="flex items-center justify-between gap-3">
                             <div>
                               <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportCustom ?? 'Custom Location' }}</div>
-                              <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">
-                                {{
-                                  canPickCustomExportLocation
-                                    ? copy.exportCustomHint ?? 'Desktop saves to the chosen folder; Web writes directly to the selected directory when supported.'
-                                    : copy.exportUnsupportedHint ?? 'This environment does not support picking a custom directory, so browser downloads will be used.'
-                                }}
-                              </div>
+                              <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ exportCustomLocationHint }}</div>
                             </div>
-                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Custom</span>
+                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ copy.exportCustomBadge ?? 'Custom' }}</span>
                           </div>
                         </button>
                       </div>
@@ -882,22 +1043,28 @@ onMounted(async () => {
                         <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
                           <div class="text-sm font-medium break-all text-[var(--theme-text-primary)]">{{ exportLocationLabel }}</div>
                           <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">
-                            {{
-                              viewerRuntime.platform === 'desktop'
-                                ? 'Desktop mode writes exported files directly to the selected folder.'
-                                : 'Web mode uses browser downloads by default. On supported browsers, a custom directory can be written directly.'
-                            }}
+                            {{ exportLocationDescription }}
                           </div>
                         </div>
 
-                        <div class="mt-4 flex flex-wrap gap-2">
+                        <div v-if="canOpenDefaultExportLocation" class="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold"
+                            @click="handleOpenDefaultExportLocation"
+                          >
+                            {{ copy.exportOpenLocation ?? 'Open Location' }}
+                          </button>
+                        </div>
+
+                        <div v-if="exportPreference.locationMode === 'custom'" class="mt-4 flex flex-wrap gap-2">
                           <button
                             type="button"
                             class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-                            :disabled="!canPickCustomExportLocation"
+                            :disabled="!canPickCustomExportLocation || isChoosingExportLocation"
                             @click="handleChooseExportLocation"
                           >
-                            {{ copy.exportChooseLocation ?? 'Choose Location' }}
+                            {{ isChoosingExportLocation ? (isZh ? '正在选择...' : 'Choosing...') : copy.exportChooseLocation ?? 'Choose Location' }}
                           </button>
                           <button
                             type="button"
@@ -907,18 +1074,88 @@ onMounted(async () => {
                             {{ copy.exportClearLocation ?? 'Clear Custom Location' }}
                           </button>
                         </div>
+                        <div
+                          v-if="exportLocationError"
+                          class="mt-3 rounded-[16px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-6 text-red-100"
+                        >
+                          {{ exportLocationError }}
+                        </div>
                       </div>
 
                       <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">Formats</div>
+                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportFileNameTitle ?? 'Export Name' }}</div>
+                        <label class="flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                          <input
+                            type="checkbox"
+                            class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                            :checked="exportPreference.useDefaultFileName"
+                            @change="updateUseDefaultFileName(($event.target as HTMLInputElement).checked)"
+                          />
+                          <span class="min-w-0">
+                            <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportUseDefaultFileName ?? 'Use default name' }}</span>
+                            <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportUseDefaultFileNameHint ?? 'When disabled, each export prompts for a file name.' }}</span>
+                          </span>
+                        </label>
+                      </div>
+
+                      <div class="theme-card-soft rounded-[24px] p-4">
+                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportFormats ?? 'Formats' }}</div>
                         <div class="grid gap-3 md:grid-cols-2">
                           <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4">
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">PNG</div>
                             <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">F10</div>
+                            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                              <input
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                :checked="exportPreference.includePngMeasurements"
+                                @change="updateExportOverlayPreference('png', 'measurements', ($event.target as HTMLInputElement).checked)"
+                              />
+                              <span class="min-w-0">
+                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngMeasurements ?? 'Export measurements' }}</span>
+                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
+                              </span>
+                            </label>
+                            <label class="mt-3 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                              <input
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                :checked="exportPreference.includePngAnnotations"
+                                @change="updateExportOverlayPreference('png', 'annotations', ($event.target as HTMLInputElement).checked)"
+                              />
+                              <span class="min-w-0">
+                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngAnnotations ?? 'Export annotations' }}</span>
+                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
+                              </span>
+                            </label>
                           </div>
                           <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4">
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">DICOM</div>
                             <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">F11</div>
+                            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                              <input
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                :checked="exportPreference.includeDicomMeasurements"
+                                @change="updateExportOverlayPreference('dicom', 'measurements', ($event.target as HTMLInputElement).checked)"
+                              />
+                              <span class="min-w-0">
+                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludeDicomMeasurements ?? 'Export measurements' }}</span>
+                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
+                              </span>
+                            </label>
+                            <label class="mt-3 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                              <input
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                :checked="exportPreference.includeDicomAnnotations"
+                                @change="updateExportOverlayPreference('dicom', 'annotations', ($event.target as HTMLInputElement).checked)"
+                              />
+                              <span class="min-w-0">
+                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludeDicomAnnotations ?? 'Export annotations' }}</span>
+                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
+                              </span>
+                            </label>
                           </div>
                         </div>
                       </div>

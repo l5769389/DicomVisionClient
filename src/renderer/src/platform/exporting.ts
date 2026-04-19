@@ -10,6 +10,13 @@ type WebDirectoryPickerWindow = Window &
     showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>
   }
 
+export interface ExportedFileResult {
+  directoryPath?: string | null
+  filePath?: string | null
+  locationDescription: string | null
+  mode: 'filesystem' | 'download'
+}
+
 function supportsWebDirectoryPicker(): boolean {
   return typeof window !== 'undefined' && typeof (window as WebDirectoryPickerWindow).showDirectoryPicker === 'function'
 }
@@ -86,20 +93,22 @@ export async function clearStoredWebExportDirectory(): Promise<void> {
 }
 
 export function canChooseCustomExportDirectory(): boolean {
-  return viewerRuntime.platform === 'desktop' || supportsWebDirectoryPicker()
+  return Boolean(window.viewerApi?.chooseExportDirectory || window.viewerApi?.chooseFolder) || viewerRuntime.platform === 'desktop' || supportsWebDirectoryPicker()
 }
 
 export async function getDefaultExportLocationLabel(): Promise<string> {
-  if (viewerRuntime.platform === 'desktop') {
-    return window.viewerApi?.getDefaultExportDirectory?.() ?? 'Downloads'
+  if (window.viewerApi?.getDefaultExportDirectory) {
+    return await window.viewerApi.getDefaultExportDirectory()
   }
 
   return 'Browser default downloads'
 }
 
 export async function chooseCustomExportDirectory(): Promise<{ desktopDirectory?: string | null; webDirectoryName?: string | null } | null> {
-  if (viewerRuntime.platform === 'desktop') {
-    const directory = await window.viewerApi?.chooseExportDirectory?.()
+  if (window.viewerApi?.chooseExportDirectory || window.viewerApi?.chooseFolder) {
+    const directory = window.viewerApi.chooseExportDirectory
+      ? await window.viewerApi.chooseExportDirectory()
+      : await window.viewerApi.chooseFolder?.()
     return directory ? { desktopDirectory: directory } : null
   }
 
@@ -135,21 +144,45 @@ async function ensureWebExportDirectoryPermission(handle: FileSystemDirectoryHan
   return requestedPermission === 'granted'
 }
 
+async function resolveUniqueWebFileName(directoryHandle: FileSystemDirectoryHandle, fileName: string): Promise<string> {
+  const dotIndex = fileName.lastIndexOf('.')
+  const stem = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName
+  const extension = dotIndex > 0 ? fileName.slice(dotIndex) : ''
+  let candidateName = fileName
+  let suffix = 1
+
+  while (true) {
+    try {
+      await directoryHandle.getFileHandle(candidateName, { create: false })
+      candidateName = `${stem}-${suffix}${extension}`
+      suffix += 1
+    } catch {
+      return candidateName
+    }
+  }
+}
+
 export async function saveExportedFile(params: {
   data: Uint8Array
   exportPreference: ExportPreference
   fileName: string
   mimeType: string
-}): Promise<{ locationDescription: string | null; mode: 'filesystem' | 'download' }> {
+}): Promise<ExportedFileResult> {
   if (viewerRuntime.platform === 'desktop') {
+    const directoryPath = params.exportPreference.locationMode === 'custom' ? params.exportPreference.desktopDirectory?.trim() : null
     const savedPath =
       (await window.viewerApi?.saveExportFile?.({
         fileName: params.fileName,
-        directoryPath: params.exportPreference.locationMode === 'custom' ? params.exportPreference.desktopDirectory : null,
+        directoryPath: directoryPath || null,
         data: params.data
       })) ?? null
+    if (!savedPath?.filePath) {
+      throw new Error('Desktop export did not return a saved file path.')
+    }
     return {
-      locationDescription: savedPath,
+      directoryPath: savedPath?.directoryPath ?? null,
+      filePath: savedPath?.filePath ?? null,
+      locationDescription: savedPath?.filePath ?? null,
       mode: 'filesystem'
     }
   }
@@ -157,12 +190,15 @@ export async function saveExportedFile(params: {
   if (params.exportPreference.locationMode === 'custom') {
     const directoryHandle = await readStoredWebExportDirectory()
     if (directoryHandle && (await ensureWebExportDirectoryPermission(directoryHandle))) {
-      const fileHandle = await directoryHandle.getFileHandle(params.fileName, { create: true })
+      const fileName = await resolveUniqueWebFileName(directoryHandle, params.fileName)
+      const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true })
       const writable = await fileHandle.createWritable()
       await writable.write(params.data)
       await writable.close()
       return {
-        locationDescription: `${directoryHandle.name}/${params.fileName}`,
+        directoryPath: directoryHandle.name,
+        filePath: `${directoryHandle.name}/${fileName}`,
+        locationDescription: `${directoryHandle.name}/${fileName}`,
         mode: 'filesystem'
       }
     }
@@ -173,4 +209,17 @@ export async function saveExportedFile(params: {
     locationDescription: null,
     mode: 'download'
   }
+}
+
+export async function openExportLocation(result: Pick<ExportedFileResult, 'directoryPath' | 'filePath'>): Promise<boolean> {
+  if (viewerRuntime.platform !== 'desktop') {
+    return false
+  }
+
+  return (
+    (await window.viewerApi?.openExportLocation?.({
+      directoryPath: result.directoryPath ?? null,
+      filePath: result.filePath ?? null
+    })) ?? false
+  )
 }

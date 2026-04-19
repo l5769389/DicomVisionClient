@@ -2,9 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { join } from 'node:path'
+import { dirname, extname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN, buildHttpOrigin } from '../shared/appConfig'
 
@@ -95,6 +95,20 @@ function resolveDefaultExportDirectory(): string {
   } catch {
     return app.getPath('documents')
   }
+}
+
+function resolveUniqueExportPath(directoryPath: string, fileName: string): string {
+  const extension = extname(fileName)
+  const stem = extension ? fileName.slice(0, -extension.length) : fileName
+  let candidatePath = join(directoryPath, fileName)
+  let suffix = 1
+
+  while (existsSync(candidatePath)) {
+    candidatePath = join(directoryPath, `${stem}-${suffix}${extension}`)
+    suffix += 1
+  }
+
+  return candidatePath
 }
 
 async function loadUiPreferences(): Promise<unknown | null> {
@@ -327,9 +341,37 @@ app.whenReady().then(() => {
       const safeFileName = (payload.fileName || 'dicomvision-export')
         .replace(/[\\/:*?"<>|]+/g, '-')
         .trim()
-      const targetPath = join(targetDirectory, safeFileName || 'dicomvision-export')
+      mkdirSync(targetDirectory, { recursive: true })
+      const targetPath = resolveUniqueExportPath(targetDirectory, safeFileName || 'dicomvision-export')
       await writeFile(targetPath, Buffer.from(payload.data))
-      return targetPath
+      return {
+        directoryPath: dirname(targetPath),
+        filePath: targetPath
+      }
+    }
+  )
+  ipcMain.handle(
+    'viewer:open-export-location',
+    async (
+      _,
+      payload: {
+        directoryPath?: string | null
+        filePath?: string | null
+      }
+    ) => {
+      const filePath = payload.filePath?.trim()
+      if (filePath) {
+        shell.showItemInFolder(filePath)
+        return true
+      }
+
+      const directoryPath = payload.directoryPath?.trim()
+      if (!directoryPath) {
+        return false
+      }
+
+      const result = await shell.openPath(directoryPath)
+      return result === ''
     }
   )
   ipcMain.handle('viewer:load-ui-preferences', () => loadUiPreferences())

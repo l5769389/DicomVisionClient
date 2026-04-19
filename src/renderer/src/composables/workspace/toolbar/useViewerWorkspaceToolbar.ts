@@ -8,7 +8,7 @@ import {
   createPlaybackController,
   createToolbarActivationController
 } from './toolbarStateMachines'
-import type { ViewerTabItem, VolumeRenderConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, type MprMipConfig, type ViewerTabItem, type VolumeRenderConfig } from '../../../types/viewer'
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'mtf', 'annotate'])
@@ -112,6 +112,7 @@ const volumeTools: StackTool[] = [
 
 const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
+  { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
   ...genericTools
 ]
 
@@ -120,8 +121,9 @@ interface ViewerWorkspaceToolbarOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
   emitTriggerViewAction: (payload: {
-    action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'
+    action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'
     value?: string
+    config?: MprMipConfig
   }) => void
   emitViewportWheel: (deltaY: number) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
@@ -142,6 +144,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const toolbarActivationSnapshot = ref(toolbarActivationController.getSnapshot())
 
   const isVolumeConfigPanelOpen = ref(false)
+  const isMprMipPanelOpen = ref(false)
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
     measure: 'measure:line',
@@ -201,6 +204,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       ? options.activeTab.value.volumeRenderConfig ?? createDefaultVolumeRenderConfig('aaa')
       : null
   )
+
+  const activeMprMipConfig = computed(() => {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'MPR') {
+      return null
+    }
+
+    return activeTab.mprMipConfig ?? createDefaultMprMipConfig()
+  })
 
   function getModeOperationValue(toolKey: string): string {
     if (toolKey === 'page') {
@@ -400,6 +412,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     anchor.click()
   }
 
+  function updateActiveMprMipConfig(config: MprMipConfig): void {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'MPR') {
+      return
+    }
+
+    options.emitTriggerViewAction({ action: 'mprMipConfig', config })
+  }
+
   function applyTool(tool: StackTool): void {
     if (areToolbarActionsDisabled.value && tool.key !== 'play') {
       return
@@ -435,6 +456,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
     if (tool.key === 'volumeParams') {
       isVolumeConfigPanelOpen.value = !isVolumeConfigPanelOpen.value
+      return
+    }
+
+    if (tool.key === 'mprMip') {
+      isMprMipPanelOpen.value = !isMprMipPanelOpen.value
       return
     }
 
@@ -572,6 +598,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       if (tabOrViewChanged) {
         stopPlayback()
         isVolumeConfigPanelOpen.value = false
+        isMprMipPanelOpen.value = false
         options.setActiveViewport(viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
         setToolbarToolActive(getDefaultToolbarToolKey(viewType))
         if (viewType === 'MPR') {
@@ -715,6 +742,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   return {
     activeTools,
     activeToolbarToolKey,
+    activeMprMipConfig,
     activeVolumeRenderConfig,
     applyTool,
     areToolbarActionsDisabled,
@@ -724,6 +752,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     handleViewportWheel,
     isPlaying,
     isPlaybackPaused,
+    isMprMipPanelOpen,
     isToolSelected,
     isVolumeConfigPanelOpen,
     menuIconSize,
@@ -733,6 +762,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     setMenuOpen,
     stackToolSelections,
     toolbarIconSize,
-    toggleIconSize
+    toggleIconSize,
+    updateActiveMprMipConfig
   }
 }

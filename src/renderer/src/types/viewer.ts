@@ -50,6 +50,7 @@ export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle'
 export type AnnotationToolType = 'arrow'
 export type AnnotationSize = 'sm' | 'md' | 'lg'
+export type MprMipAlgorithm = 'maximum' | 'minimum' | 'average' | 'sum'
 
 export interface MeasurementDraftPoint {
   x: number
@@ -96,6 +97,28 @@ export interface AnnotationOverlay {
   text: string
   color: string
   size: AnnotationSize
+}
+
+export interface MprMipViewportConfig {
+  thickness: number
+}
+
+export interface MprMipConfig {
+  enabled: boolean
+  algorithm: MprMipAlgorithm
+  viewports: Record<MprViewportKey, MprMipViewportConfig>
+}
+
+export function createDefaultMprMipConfig(): MprMipConfig {
+  return {
+    enabled: false,
+    algorithm: 'maximum',
+    viewports: {
+      'mpr-ax': { thickness: 12 },
+      'mpr-cor': { thickness: 12 },
+      'mpr-sag': { thickness: 12 }
+    }
+  }
 }
 
 export interface MtfMetrics {
@@ -220,6 +243,7 @@ export interface ViewImageResponse {
   volumeConfig?: VolumeRenderConfig | null
   transform?: ViewTransformInfo | null
   color?: ViewColorInfo | null
+  mprMipConfig?: MprMipConfig | null
 }
 
 export interface ViewHoverPayload {
@@ -279,6 +303,7 @@ export interface ViewerTabItem {
   viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
   pseudocolorPreset: string
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
+  mprMipConfig?: MprMipConfig | null
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
   mtfState?: ViewerMtfState | null

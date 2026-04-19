@@ -12,6 +12,7 @@ const mdiIconMap: Record<string, string> = {
   zoom: 'mdi-loupe',
   window: 'mdi-circle-half-full',
   crosshair: 'mdi-crosshairs-gps',
+  mip: 'mdi-layers-triple-outline',
   rotate: 'mdi-rotate-right',
   rotate3d: 'mdi-axis-arrow',
   volumePreset: 'mdi-tune-variant',

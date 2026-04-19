@@ -15,6 +15,7 @@ import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
 import {
@@ -31,6 +32,7 @@ import type {
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
+  MprMipConfig,
   MprViewportKey,
   ViewImageResponse,
   ViewTransformInfo,
@@ -94,7 +96,7 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
-  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }) => void
+  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
@@ -268,7 +270,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }): void {
+  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -294,12 +296,40 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'mprMipConfig' && tab.viewType !== 'MPR') {
+      return
+    }
+
     if (!tab.viewId && tab.viewType !== 'MPR') {
       return
     }
 
     if (tab.viewId) {
       clearPendingVolumeConfig(tab.viewId)
+    }
+
+    if (payload.action === 'mprMipConfig' && payload.config) {
+      const viewportKey = activeViewportKey.value as MprViewportKey
+      const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
+      if (!viewId) {
+        return
+      }
+
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              mprMipConfig: payload.config
+            }
+          : item
+      )
+
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.mprMipConfig,
+        mprMipConfig: payload.config
+      })
+      return
     }
 
     if (payload.action === 'reset' && tab.viewType === '3D') {
@@ -468,6 +498,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
         return {
           ...item,
+          mprMipConfig: createDefaultMprMipConfig(),
           viewportPseudocolorPresets: {
             ...(item.viewportPseudocolorPresets ?? {}),
             [viewportKey]: selectedPseudocolorKey.value

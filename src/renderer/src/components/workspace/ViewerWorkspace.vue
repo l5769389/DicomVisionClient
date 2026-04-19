@@ -9,6 +9,7 @@ import type {
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementOverlay,
+  MprMipConfig,
   ViewerTabItem,
   ViewType,
   WorkspaceReadyPayload
@@ -21,6 +22,7 @@ import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
 import DicomTagView from '../viewer/views/DicomTagView.vue'
 import VolumeView from '../viewer/views/VolumeView.vue'
+import MprMipConfigPanel from './MprMipConfigPanel.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
@@ -65,7 +67,7 @@ const emit = defineEmits<{
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
-  triggerViewAction: [payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset'; value?: string }]
+  triggerViewAction: [payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
@@ -145,6 +147,7 @@ const {
 
 const {
   activeTools,
+  activeMprMipConfig,
   activeVolumeRenderConfig,
   applyTool,
   areToolbarActionsDisabled,
@@ -154,6 +157,7 @@ const {
   handleViewportWheel,
   isPlaying,
   isPlaybackPaused,
+  isMprMipPanelOpen,
   isToolSelected,
   isVolumeConfigPanelOpen,
   menuIconSize,
@@ -163,7 +167,8 @@ const {
   setMenuOpen,
   stackToolSelections,
   toolbarIconSize,
-  toggleIconSize
+  toggleIconSize,
+  updateActiveMprMipConfig
 } = useViewerWorkspaceToolbar({
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
@@ -1194,6 +1199,17 @@ onBeforeUnmount(() => {
           <VolumeRenderConfigPanel
             :config="activeVolumeRenderConfig"
             @config-change="emit('volumeConfigChange', $event)"
+          />
+        </div>
+
+        <div
+          v-if="activeTab.viewType === 'MPR' && isMprMipPanelOpen && activeMprMipConfig"
+          class="pointer-events-none absolute inset-y-5 right-5 z-[20] flex items-start"
+        >
+          <MprMipConfigPanel
+            class="pointer-events-auto max-h-full"
+            :config="activeMprMipConfig"
+            @config-change="updateActiveMprMipConfig"
           />
         </div>
 

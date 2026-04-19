@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
-import type { MeasurementDraftPayload, MeasurementDraftPoint, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
+import type { MeasurementDraftPayload, MeasurementDraftPoint, MprMipConfig, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
 
 type ViewActionType = DragActionType | 'delete'
 
@@ -20,6 +20,7 @@ export interface ViewOperationPayload {
   ww?: number
   wl?: number
   pseudocolorPreset?: string
+  mprMipConfig?: MprMipConfig
   hor_flip?: boolean
   ver_flip?: boolean
   volumeConfig?: VolumeRenderConfig

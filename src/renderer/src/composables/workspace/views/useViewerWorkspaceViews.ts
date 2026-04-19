@@ -21,6 +21,7 @@ import {
   normalizeOrientationInfo
 } from './viewerWorkspaceTabs'
 import { normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import { createDefaultMprMipConfig } from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
@@ -248,6 +249,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
+      const mprMipConfig = payload.mprMipConfig ?? item.mprMipConfig ?? createDefaultMprMipConfig()
+      const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -275,7 +278,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportCrosshairs: {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
-            [viewportKey]: payload.mpr_crosshair ?? null
+            [viewportKey]: mprCrosshair
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -297,6 +300,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
             [viewportKey]: pseudocolorPreset
           },
+          mprMipConfig,
           volumePreset,
           volumeRenderConfig
         }
@@ -317,6 +321,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         orientation: orientationInfo,
         transformState,
         pseudocolorPreset,
+        mprMipConfig,
         volumePreset,
         volumeRenderConfig
       }
@@ -512,6 +517,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                       'mpr-sag': selectedPseudocolorKey.value
                     }
                   : createEmptyMprPseudocolorPresets(),
+              mprMipConfig: createDefaultMprMipConfig(),
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
             }

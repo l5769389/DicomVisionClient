@@ -1,13 +1,5 @@
-import type {
-  CornerInfo,
-  CornerPosition,
-  FolderSeriesItem,
-  MprViewportKey,
-  OrientationInfo,
-  ViewTransformInfo,
-  ViewerTabItem,
-  ViewType
-} from '../../../types/viewer'
+import type { CornerInfo, CornerPosition, FolderSeriesItem, MprViewportKey, OrientationInfo, ViewTransformInfo, ViewerTabItem, ViewType } from '../../../types/viewer'
+import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 
@@ -273,6 +265,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportTransformStates: createEmptyMprTransformStates(),
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
+    mprMipConfig: createDefaultMprMipConfig(),
     volumePreset: 'volumePreset:aaa',
     volumeRenderConfig: createDefaultVolumeRenderConfig('aaa'),
     tagIndex: 0,

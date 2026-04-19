@@ -95,39 +95,34 @@ function drawCrosshair(): void {
   context.clearRect(0, 0, canvas.width, canvas.height)
   context.scale(dpr, dpr)
 
-  if (!props.mprCrosshair || props.imageFrame.width <= 0 || props.imageFrame.height <= 0) {
+  if (!props.mprCrosshair || props.stageWidth <= 0 || props.stageHeight <= 0) {
     return
   }
 
-  const { left, top, width, height } = props.imageFrame
   const axes = getViewportAxes(props.viewportKey)
   const horizontalYNorm = props.mprCrosshair.horizontalPosition
   const verticalXNorm = props.mprCrosshair.verticalPosition
-  const centerX = left + (verticalXNorm ?? props.mprCrosshair.centerX) * width
-  const centerY = top + (horizontalYNorm ?? props.mprCrosshair.centerY) * height
-  const horizontalY = horizontalYNorm != null ? top + horizontalYNorm * height : null
-  const verticalX = verticalXNorm != null ? left + verticalXNorm * width : null
+  const centerX = props.mprCrosshair.centerX * props.stageWidth
+  const centerY = props.mprCrosshair.centerY * props.stageHeight
+  const horizontalY = (horizontalYNorm ?? props.mprCrosshair.centerY) * props.stageHeight
+  const verticalX = (verticalXNorm ?? props.mprCrosshair.centerX) * props.stageWidth
 
-  if (horizontalY != null) {
-    const gapStart = Math.max(left, centerX - gapRadius.value)
-    const gapEnd = Math.min(left + width, centerX + gapRadius.value)
-    if (gapStart > left) {
-      drawStroke(context, left, horizontalY, gapStart, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
-    }
-    if (gapEnd < left + width) {
-      drawStroke(context, gapEnd, horizontalY, left + width, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
-    }
+  const gapStartX = Math.max(0, centerX - gapRadius.value)
+  const gapEndX = Math.min(props.stageWidth, centerX + gapRadius.value)
+  if (gapStartX > 0) {
+    drawStroke(context, 0, horizontalY, gapStartX, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
+  }
+  if (gapEndX < props.stageWidth) {
+    drawStroke(context, gapEndX, horizontalY, props.stageWidth, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
   }
 
-  if (verticalX != null) {
-    const gapStart = Math.max(top, centerY - gapRadius.value)
-    const gapEnd = Math.min(top + height, centerY + gapRadius.value)
-    if (gapStart > top) {
-      drawStroke(context, verticalX, top, verticalX, gapStart, axes.vertical.color, axes.vertical.thickness)
-    }
-    if (gapEnd < top + height) {
-      drawStroke(context, verticalX, gapEnd, verticalX, top + height, axes.vertical.color, axes.vertical.thickness)
-    }
+  const gapStartY = Math.max(0, centerY - gapRadius.value)
+  const gapEndY = Math.min(props.stageHeight, centerY + gapRadius.value)
+  if (gapStartY > 0) {
+    drawStroke(context, verticalX, 0, verticalX, gapStartY, axes.vertical.color, axes.vertical.thickness)
+  }
+  if (gapEndY < props.stageHeight) {
+    drawStroke(context, verticalX, gapEndY, verticalX, props.stageHeight, axes.vertical.color, axes.vertical.thickness)
   }
 }
 

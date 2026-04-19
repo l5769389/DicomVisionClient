@@ -462,7 +462,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function emitCrosshairEvent(viewportKey: string, phase: 'start' | 'move' | 'end', event: PointerEvent): void {
-    const point = getNormalizedViewportPoint(event)
+    const point = getNormalizedContainerPoint(event)
     if (!point) {
       return
     }
@@ -489,12 +489,15 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return false
     }
 
-    const renderedImage = resolveViewportImageElement(event)
-    if (!renderedImage) {
+    const container = resolvePointerContainer(event)
+    if (!container) {
       return false
     }
 
-    const rect = getRenderedImageRect(renderedImage)
+    const rect = container.getBoundingClientRect()
+    if (!rect.width || !rect.height) {
+      return false
+    }
     const center = getCrosshairCenter(crosshairInfo)
     const hitRadius = crosshairInfo.hitRadius * Math.min(rect.width, rect.height)
     const deltaX = (point.x - center.x) * rect.width
@@ -1496,7 +1499,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
-    const point = getNormalizedViewportPoint(event)
+    const point = getNormalizedContainerPoint(event)
     if (!point || !isPointNearCrosshairCenter(event, viewportKey, point)) {
       return true
     }

@@ -11,6 +11,7 @@ export const VIEW_OPERATION_TYPES = {
   reset: 'reset',
   volumePreset: 'volumePreset',
   volumeConfig: 'volumeConfig',
+  mprMipConfig: 'mprMipConfig',
   measurement: 'measurement'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]

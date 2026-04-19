@@ -28,6 +28,12 @@ export interface ScaleBarPreference {
   color: string
 }
 
+export interface ExportPreference {
+  locationMode: 'default' | 'custom'
+  desktopDirectory: string | null
+  webDirectoryName: string | null
+}
+
 export interface RoiStatPreference {
   key: string
   label: string
@@ -50,11 +56,12 @@ interface UiPreferencesState {
   selectedWindowPresetId: string
   crosshairConfigs: CrosshairViewportPreference[]
   scaleBarPreference: ScaleBarPreference
+  exportPreference: ExportPreference
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 2
+const CURRENT_PREFERENCES_VERSION = 3
 const DEFAULT_THEME_ID = 'aurora'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
@@ -126,6 +133,14 @@ function createDefaultScaleBarPreference(): ScaleBarPreference {
   }
 }
 
+function createDefaultExportPreference(): ExportPreference {
+  return {
+    locationMode: 'default',
+    desktopDirectory: null,
+    webDirectoryName: null
+  }
+}
+
 function createDefaultRoiStatOptions(): RoiStatPreference[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -147,6 +162,7 @@ function createDefaultState(): UiPreferencesState {
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
     crosshairConfigs: createDefaultCrosshairConfigs(),
     scaleBarPreference: createDefaultScaleBarPreference(),
+    exportPreference: createDefaultExportPreference(),
     roiStatOptions: createDefaultRoiStatOptions(),
     customWindowPresets: []
   }
@@ -228,6 +244,19 @@ function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
   }
 }
 
+function normalizeExportPreference(value: unknown): ExportPreference {
+  const defaults = createDefaultExportPreference()
+  const record = value && typeof value === 'object' ? (value as Partial<ExportPreference>) : null
+
+  return {
+    locationMode: record?.locationMode === 'custom' ? 'custom' : defaults.locationMode,
+    desktopDirectory:
+      typeof record?.desktopDirectory === 'string' && record.desktopDirectory.trim() ? record.desktopDirectory.trim() : null,
+    webDirectoryName:
+      typeof record?.webDirectoryName === 'string' && record.webDirectoryName.trim() ? record.webDirectoryName.trim() : null
+  }
+}
+
 function migrateCrosshairConfigs(version: number, value: CrosshairViewportPreference[]): CrosshairViewportPreference[] {
   if (version >= CURRENT_PREFERENCES_VERSION) {
     return value
@@ -296,6 +325,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
   state.crosshairConfigs = nextState.crosshairConfigs
   state.scaleBarPreference = nextState.scaleBarPreference
+  state.exportPreference = nextState.exportPreference
   state.roiStatOptions = nextState.roiStatOptions
   state.customWindowPresets = nextState.customWindowPresets
   syncDocumentTheme(nextState.themeId)
@@ -312,6 +342,11 @@ function serializeState(): UiPreferencesState {
     scaleBarPreference: {
       enabled: state.scaleBarPreference.enabled,
       color: state.scaleBarPreference.color
+    },
+    exportPreference: {
+      locationMode: state.exportPreference.locationMode,
+      desktopDirectory: state.exportPreference.desktopDirectory,
+      webDirectoryName: state.exportPreference.webDirectoryName
     },
     roiStatOptions: state.roiStatOptions.map((item) => ({ ...item })),
     customWindowPresets: state.customWindowPresets.map((item) => ({
@@ -369,6 +404,7 @@ async function hydrateState(): Promise<void> {
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
+        exportPreference: normalizeExportPreference(parsed.exportPreference),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
         customWindowPresets
       })
@@ -483,6 +519,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setExportPreference(nextValue: ExportPreference): void {
+    state.exportPreference = normalizeExportPreference(nextValue)
+    void persistState()
+  }
+
   function setRoiStatOptions(nextValue: RoiStatPreference[]): void {
     state.roiStatOptions = normalizeRoiStatOptions(nextValue)
     void persistState()
@@ -497,11 +538,13 @@ export function useUiPreferences() {
     crosshairConfigs: computed(() => state.crosshairConfigs),
     getWindowPresetLabel,
     locale,
+    exportPreference: computed(() => state.exportPreference),
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
     selectedPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
+    setExportPreference,
     setLocale,
     setScaleBarPreference,
     setRoiStatOptions,

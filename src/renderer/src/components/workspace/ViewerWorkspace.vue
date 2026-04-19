@@ -31,6 +31,7 @@ import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/u
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { exportCurrentView, type ViewerExportFormat } from '../../composables/workspace/export/viewExport'
 
 const props = defineProps<{
   activeOperation: string
@@ -85,7 +86,7 @@ const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t } = useUiLocale()
-const { roiStatOptions } = useUiPreferences()
+const { exportPreference, roiStatOptions } = useUiPreferences()
 const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
 const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
@@ -176,6 +177,9 @@ const {
   emitTriggerViewAction: (payload) => emit('triggerViewAction', payload),
   emitViewportWheel: (deltaY) => emit('viewportWheel', deltaY),
   emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
+  exportCurrentView: (format) => {
+    void handleExportCurrentView(format)
+  },
   activeViewportKey,
   cleanupPointerInteractions,
   stopViewportDrag: () => stopViewportDrag(),
@@ -186,6 +190,19 @@ const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOver
 const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
 const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
 const annotationActivePointerId = ref<number | null>(null)
+
+async function handleExportCurrentView(format: ViewerExportFormat): Promise<void> {
+  try {
+    await exportCurrentView({
+      activeTab: props.activeTab,
+      activeViewportKey: activeViewportKey.value,
+      exportFormat: format,
+      exportPreference: exportPreference.value
+    })
+  } catch (error) {
+    console.error('Failed to export current view.', error)
+  }
+}
 
 function createAnnotationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -994,7 +1011,13 @@ function handleWorkspaceKeydown(event: KeyboardEvent): void {
 
   if (event.key === 'F10' && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault()
-    exportActiveImage()
+    void handleExportCurrentView('png')
+    return
+  }
+
+  if (event.key === 'F11' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault()
+    void handleExportCurrentView('dicom')
     return
   }
 
@@ -1023,31 +1046,6 @@ function getActiveSliceInfo(): { current: number; total: number } | null {
   }
 
   return { current, total }
-}
-
-function exportActiveImage(): void {
-  const activeTab = props.activeTab
-  if (!activeTab) {
-    return
-  }
-
-  const imageSrc =
-    activeTab.viewType === 'MPR'
-      ? activeTab.viewportImages?.[
-          (activeViewportKey.value === 'single' || activeViewportKey.value === 'volume'
-            ? 'mpr-ax'
-            : activeViewportKey.value) as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
-        ]
-      : activeTab.imageSrc
-  if (!imageSrc) {
-    return
-  }
-
-  const anchor = document.createElement('a')
-  const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
-  anchor.href = imageSrc
-  anchor.download = `${safeTitle}-${activeTab.viewType}.png`
-  anchor.click()
 }
 
 function handleNavigationShortcut(event: KeyboardEvent): void {

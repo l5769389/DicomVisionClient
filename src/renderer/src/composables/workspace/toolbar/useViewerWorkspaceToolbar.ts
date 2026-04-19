@@ -3,6 +3,7 @@ import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerCons
 import { PSEUDOCOLOR_PRESET_OPTIONS, toPseudocolorSelectionValue } from '../../../constants/pseudocolor'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
+import type { ViewerExportFormat } from '../export/viewExport'
 import {
   createMenuController,
   createPlaybackController,
@@ -48,6 +49,17 @@ const tagTool: StackTool = {
   kind: 'action'
 }
 
+const exportTool: StackTool = {
+  key: 'export',
+  label: 'Export',
+  icon: 'export',
+  kind: 'action',
+  options: [
+    { value: 'png', label: 'PNG', icon: 'export' },
+    { value: 'dicom', label: 'DICOM', icon: 'export' }
+  ]
+}
+
 const stackTools: StackTool[] = [
   { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -71,7 +83,7 @@ const stackTools: StackTool[] = [
   { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
   measureTool,
   { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
-  { key: 'export', label: 'Export', icon: 'export', kind: 'action' },
+  exportTool,
   pseudocolorTool
 ]
 
@@ -83,7 +95,7 @@ const genericTools: StackTool[] = [
   tagTool,
   measureTool,
   pseudocolorTool,
-  { key: 'export', label: 'Export', icon: 'export', kind: 'action' }
+  exportTool
 ]
 
 const volumeTools: StackTool[] = [
@@ -107,7 +119,7 @@ const volumeTools: StackTool[] = [
     ]
   },
   { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
-  { key: 'export', label: 'Export', icon: 'export', kind: 'action' }
+  exportTool
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
@@ -127,6 +139,7 @@ interface ViewerWorkspaceToolbarOptions {
   }) => void
   emitViewportWheel: (deltaY: number) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
+  exportCurrentView: (format: ViewerExportFormat) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
   stopViewportDrag: () => void
@@ -150,6 +163,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     measure: 'measure:line',
     annotate: 'annotate:arrow',
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
+    export: 'png',
     volumePreset: 'volumePreset:aaa'
   })
   const pendingTransientCallback = ref<(() => void) | null>(null)
@@ -387,31 +401,6 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     stopPlayback()
   }
 
-  function exportActiveImage(): void {
-    const activeTab = options.activeTab.value
-    if (!activeTab) {
-      return
-    }
-
-    const imageSrc =
-      activeTab.viewType === 'MPR'
-        ? activeTab.viewportImages?.[
-            (options.activeViewportKey.value === 'single' || options.activeViewportKey.value === 'volume'
-              ? 'mpr-ax'
-              : options.activeViewportKey.value) as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
-          ]
-        : activeTab.imageSrc
-    if (!imageSrc) {
-      return
-    }
-
-    const anchor = document.createElement('a')
-    const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
-    anchor.href = imageSrc
-    anchor.download = `${safeTitle}-${activeTab.viewType}.png`
-    anchor.click()
-  }
-
   function updateActiveMprMipConfig(config: MprMipConfig): void {
     const activeTab = options.activeTab.value
     if (!activeTab || activeTab.viewType !== 'MPR') {
@@ -522,7 +511,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'export') {
-      exportActiveImage()
+      options.exportCurrentView((stackToolSelections.value.export as ViewerExportFormat | undefined) ?? 'png')
     }
   }
 
@@ -566,6 +555,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (tool.key === 'volumePreset') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
         options.emitTriggerViewAction({ action: 'volumePreset', value: optionValue })
+      })
+      return
+    }
+
+    if (tool.key === 'export') {
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        options.exportCurrentView(optionValue as ViewerExportFormat)
       })
     }
   }

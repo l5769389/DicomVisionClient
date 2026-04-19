@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { type AppLocale, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { clearStoredWebExportDirectory, canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel } from '../../platform/exporting'
+import { viewerRuntime } from '../../platform/runtime'
 
 defineProps<{
   isOpen: boolean
@@ -13,7 +15,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'display'
+type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'export' | 'display'
 type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 
 interface ShortcutItem {
@@ -65,6 +67,8 @@ interface SettingsCopy {
   shortcutsSub: string
   windowPresets: string
   windowPresetsSub: string
+  exportSection?: string
+  exportSectionSub?: string
   display: string
   displaySub: string
   shortcutsTitle: string
@@ -89,6 +93,17 @@ interface SettingsCopy {
   wl: string
   addTemplate: string
   removeTemplate: string
+  exportTitle?: string
+  exportDesc?: string
+  exportMode?: string
+  exportDefault?: string
+  exportCustom?: string
+  exportCurrentLocation?: string
+  exportChooseLocation?: string
+  exportClearLocation?: string
+  exportDefaultHint?: string
+  exportCustomHint?: string
+  exportUnsupportedHint?: string
   displayTitle: string
   displayDesc: string
   scaleBarTitle: string
@@ -380,6 +395,7 @@ const {
   setLocale,
   addCustomWindowPreset,
   crosshairConfigs,
+  exportPreference,
   getWindowPresetLabel,
   removeCustomWindowPreset,
   roiStatOptions,
@@ -387,6 +403,7 @@ const {
   selectedPseudocolorKey,
   selectedWindowPresetId,
   setCrosshairConfigs,
+  setExportPreference,
   setScaleBarPreference,
   systemWindowPresets,
   setRoiStatOptions,
@@ -399,6 +416,8 @@ const customPresetZhName = ref('')
 const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
+const defaultExportLocationLabel = ref('')
+const canPickCustomExportLocation = ref(canChooseCustomExportDirectory())
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = computed(() => createCopy(isZh.value))
@@ -406,6 +425,7 @@ const sections = computed(() => [
   { key: 'language' as const, title: copy.value.language, subtitle: copy.value.languageSub, icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: copy.value.shortcutsSub, icon: 'keyboard' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: copy.value.windowPresetsSub, icon: 'contrast' },
+  { key: 'export' as const, title: copy.value.exportSection ?? 'Export', subtitle: copy.value.exportSectionSub ?? 'Formats and default save location', icon: 'export' },
   { key: 'display' as const, title: copy.value.display, subtitle: copy.value.displaySub, icon: 'crosshair' }
 ])
 const shortcutGroups = computed(() => createShortcutGroups(copy.value, isZh.value))
@@ -460,6 +480,17 @@ function resetWindowPresetSection(): void {
   customPresetWl.value = '40'
 }
 
+function resetExportSection(): void {
+  setExportPreference({
+    locationMode: 'default',
+    desktopDirectory: null,
+    webDirectoryName: null
+  })
+  if (viewerRuntime.platform === 'web') {
+    void clearStoredWebExportDirectory()
+  }
+}
+
 function resetDisplaySection(): void {
   selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
   setRoiStatOptions(createDefaultRoiStatOptions())
@@ -474,6 +505,10 @@ function resetCurrentSection(): void {
   }
   if (activeSection.value === 'windowPresets') {
     resetWindowPresetSection()
+    return
+  }
+  if (activeSection.value === 'export') {
+    resetExportSection()
     return
   }
   if (activeSection.value === 'display') {
@@ -508,6 +543,40 @@ function handleRemoveSelectedCustomWindowPreset(): void {
   removeCustomWindowPreset(selectedWindowPreset.value.id)
   selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? 'lung'
 }
+
+const exportLocationLabel = computed(() => {
+  if (exportPreference.value.locationMode === 'custom') {
+    return viewerRuntime.platform === 'desktop'
+      ? exportPreference.value.desktopDirectory || copy.value.exportCustomHint || 'Custom location'
+      : exportPreference.value.webDirectoryName || copy.value.exportCustomHint || 'Custom location'
+  }
+
+  return defaultExportLocationLabel.value || copy.value.exportDefaultHint || 'Default downloads location'
+})
+
+async function handleChooseExportLocation(): Promise<void> {
+  const selectedDirectory = await chooseCustomExportDirectory()
+  if (!selectedDirectory) {
+    return
+  }
+
+  setExportPreference({
+    locationMode: 'custom',
+    desktopDirectory: selectedDirectory.desktopDirectory ?? exportPreference.value.desktopDirectory,
+    webDirectoryName: selectedDirectory.webDirectoryName ?? exportPreference.value.webDirectoryName
+  })
+}
+
+async function handleClearExportLocation(): Promise<void> {
+  if (viewerRuntime.platform === 'web') {
+    await clearStoredWebExportDirectory()
+  }
+  resetExportSection()
+}
+
+onMounted(async () => {
+  defaultExportLocationLabel.value = await getDefaultExportLocationLabel()
+})
 </script>
 
 <template>
@@ -752,6 +821,105 @@ function handleRemoveSelectedCustomWindowPreset(): void {
 
                         <div class="mt-4 flex flex-wrap gap-2">
                           <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold" @click="handleAddCustomWindowPreset">{{ copy.addTemplate }}</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <template v-else-if="activeSection === 'export'">
+                  <div class="grid gap-5 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]">
+                    <div class="theme-card-soft rounded-[28px] p-5">
+                      <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
+                        <AppIcon name="export" :size="18" />
+                        <span class="text-lg font-semibold">{{ copy.exportTitle ?? 'Export Settings' }}</span>
+                      </div>
+                      <div class="mb-5 text-sm text-[var(--theme-text-secondary)]">{{ copy.exportDesc ?? 'Set the default save location for exporting the current view as PNG or DICOM.' }}</div>
+
+                      <div class="space-y-4">
+                        <button
+                          type="button"
+                          class="w-full rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                          :class="exportPreference.locationMode === 'default' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
+                          @click="setExportPreference({ ...exportPreference, locationMode: 'default' })"
+                        >
+                          <div class="flex items-center justify-between gap-3">
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportDefault ?? 'Default Location' }}</div>
+                              <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ copy.exportDefaultHint ?? 'Use the system default downloads location.' }}</div>
+                            </div>
+                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Default</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="w-full rounded-[22px] border px-4 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+                          :disabled="!canPickCustomExportLocation"
+                          :class="exportPreference.locationMode === 'custom' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
+                          @click="setExportPreference({ ...exportPreference, locationMode: 'custom' })"
+                        >
+                          <div class="flex items-center justify-between gap-3">
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportCustom ?? 'Custom Location' }}</div>
+                              <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">
+                                {{
+                                  canPickCustomExportLocation
+                                    ? copy.exportCustomHint ?? 'Desktop saves to the chosen folder; Web writes directly to the selected directory when supported.'
+                                    : copy.exportUnsupportedHint ?? 'This environment does not support picking a custom directory, so browser downloads will be used.'
+                                }}
+                              </div>
+                            </div>
+                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Custom</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="space-y-5">
+                      <div class="theme-card-soft rounded-[24px] p-4">
+                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportCurrentLocation ?? 'Current Location' }}</div>
+                        <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
+                          <div class="text-sm font-medium break-all text-[var(--theme-text-primary)]">{{ exportLocationLabel }}</div>
+                          <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                            {{
+                              viewerRuntime.platform === 'desktop'
+                                ? 'Desktop mode writes exported files directly to the selected folder.'
+                                : 'Web mode uses browser downloads by default. On supported browsers, a custom directory can be written directly.'
+                            }}
+                          </div>
+                        </div>
+
+                        <div class="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                            :disabled="!canPickCustomExportLocation"
+                            @click="handleChooseExportLocation"
+                          >
+                            {{ copy.exportChooseLocation ?? 'Choose Location' }}
+                          </button>
+                          <button
+                            type="button"
+                            class="theme-button-secondary rounded-2xl px-4 py-2 text-sm font-medium"
+                            @click="handleClearExportLocation"
+                          >
+                            {{ copy.exportClearLocation ?? 'Clear Custom Location' }}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="theme-card-soft rounded-[24px] p-4">
+                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">Formats</div>
+                        <div class="grid gap-3 md:grid-cols-2">
+                          <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4">
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">PNG</div>
+                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">F10</div>
+                          </div>
+                          <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4">
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">DICOM</div>
+                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">F11</div>
+                          </div>
                         </div>
                       </div>
                     </div>

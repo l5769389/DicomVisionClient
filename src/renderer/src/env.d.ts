@@ -14,8 +14,11 @@ declare global {
   interface Window {
     viewerApi?: {
       chooseFolder: () => Promise<string | null>
+      chooseExportDirectory: () => Promise<string | null>
       getBackendOrigin: () => Promise<string>
+      getDefaultExportDirectory: () => Promise<string>
       loadUiPreferences: () => Promise<unknown | null>
+      saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }) => Promise<string>
       saveUiPreferences: (payload: unknown) => Promise<void>
     }
   }

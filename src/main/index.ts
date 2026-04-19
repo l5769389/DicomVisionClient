@@ -89,6 +89,14 @@ function resolveUiPreferencesPath(): string {
   return join(preferredDir, 'ui-preferences.json')
 }
 
+function resolveDefaultExportDirectory(): string {
+  try {
+    return app.getPath('downloads')
+  } catch {
+    return app.getPath('documents')
+  }
+}
+
 async function loadUiPreferences(): Promise<unknown | null> {
   try {
     const fileContent = await readFile(resolveUiPreferencesPath(), 'utf-8')
@@ -290,7 +298,40 @@ app.whenReady().then(() => {
     return result.filePaths[0]
   })
 
+  ipcMain.handle('viewer:choose-export-directory', async () => {
+    const currentWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
+    const result = currentWindow
+      ? await dialog.showOpenDialog(currentWindow, { properties: ['openDirectory', 'createDirectory'] })
+      : await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    return result.filePaths[0]
+  })
+
   ipcMain.handle('viewer:get-backend-origin', () => backendOrigin)
+  ipcMain.handle('viewer:get-default-export-directory', () => resolveDefaultExportDirectory())
+  ipcMain.handle(
+    'viewer:save-export-file',
+    async (
+      _,
+      payload: {
+        data: Uint8Array | number[]
+        directoryPath?: string | null
+        fileName: string
+      }
+    ) => {
+      const targetDirectory = payload.directoryPath?.trim() || resolveDefaultExportDirectory()
+      const safeFileName = (payload.fileName || 'dicomvision-export')
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .trim()
+      const targetPath = join(targetDirectory, safeFileName || 'dicomvision-export')
+      await writeFile(targetPath, Buffer.from(payload.data))
+      return targetPath
+    }
+  )
   ipcMain.handle('viewer:load-ui-preferences', () => loadUiPreferences())
   ipcMain.handle('viewer:save-ui-preferences', (_, payload: unknown) => saveUiPreferences(payload))
 

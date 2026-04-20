@@ -22,6 +22,7 @@ import { useViewerWorkspacePointer } from '../../composables/measurements/useVie
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
+import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
 import DicomTagView from '../viewer/views/DicomTagView.vue'
@@ -51,8 +52,6 @@ const props = defineProps<{
   selectedSeriesId: string
   viewerTabs: ViewerTabItem[]
 }>()
-
-const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
 
 const emit = defineEmits<{
   activateTab: [tabKey: string]
@@ -1177,10 +1176,10 @@ function handleViewportPointerLeaveWithAnnotations(viewportKey: string): void {
 }
 
 const isMtfCurveDialogOpen = ref(false)
-const isQuickPreviewDropActive = ref(false)
 const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
 const canAcceptQuickPreviewDrop = computed(() => !props.isViewLoading && !props.activeTab)
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
+const selectedMtfId = computed(() => activeMtfState.value?.selectedMtfId ?? null)
 const selectedMtfItem = computed(() => {
   const state = activeMtfState.value
   if (!state?.selectedMtfId) {
@@ -1200,116 +1199,84 @@ function handleCloseMtfCurve(): void {
   isMtfCurveDialogOpen.value = false
 }
 
-function handleClearMtf(): void {
-  isMtfCurveDialogOpen.value = false
-  emit('mtfDelete', {
-    mtfId: selectedMtfItem.value?.mtfId ?? null
-  })
-}
-
-function resolveDraggedSeriesId(event: DragEvent): string {
-  const transfer = event.dataTransfer
-  if (!transfer) {
-    return ''
-  }
-
-  return transfer.getData(SERIES_DRAG_TYPE) || transfer.getData('text/plain') || ''
-}
-
-function isSeriesDragEvent(event: DragEvent): boolean {
-  const transfer = event.dataTransfer
-  if (!transfer) {
-    return false
-  }
-
-  const types = Array.from(transfer.types ?? [])
-  return types.includes(SERIES_DRAG_TYPE) || types.includes('text/plain')
-}
-
-function handleQuickPreviewDragEnter(event: DragEvent): void {
-  if (!canAcceptQuickPreviewDrop.value || !isSeriesDragEvent(event)) {
-    return
-  }
-
-  event.preventDefault()
-  isQuickPreviewDropActive.value = true
-}
-
-function handleQuickPreviewDragOver(event: DragEvent): void {
-  if (!canAcceptQuickPreviewDrop.value || !isSeriesDragEvent(event)) {
-    return
-  }
-
-  event.preventDefault()
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'copy'
-  }
-  isQuickPreviewDropActive.value = true
-}
-
-function handleQuickPreviewDragLeave(event: DragEvent): void {
-  const relatedTarget = event.relatedTarget
-  if (relatedTarget instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
-    return
-  }
-
-  isQuickPreviewDropActive.value = false
-}
-
-function handleQuickPreviewDrop(event: DragEvent): void {
-  if (!canAcceptQuickPreviewDrop.value || !isSeriesDragEvent(event)) {
-    isQuickPreviewDropActive.value = false
-    return
-  }
-
-  event.preventDefault()
-  const seriesId = resolveDraggedSeriesId(event).trim()
-  isQuickPreviewDropActive.value = false
-  if (!seriesId) {
-    return
-  }
-
-  emit('quickPreviewSeriesDrop', seriesId)
-}
-
-function handleQuickPreviewDragEnd(): void {
-  isQuickPreviewDropActive.value = false
-}
+const {
+  clearQuickPreviewDropState,
+  handleQuickPreviewDragEnter,
+  handleQuickPreviewDragLeave,
+  handleQuickPreviewDragOver,
+  handleQuickPreviewDrop,
+  isQuickPreviewDropActive,
+  quickPreviewDropClass
+} = useQuickPreviewDrop({
+  canAcceptDrop: canAcceptQuickPreviewDrop,
+  onDropSeries: (seriesId) => emit('quickPreviewSeriesDrop', seriesId)
+})
 
 function handleCopySelectedMtf(): void {
-  if (!selectedMtfItem.value) {
-    return
-  }
-
-  emit('mtfCopy', {
-    mtfId: selectedMtfItem.value.mtfId
+  runSelectedMtfAction((mtfId) => {
+    emit('mtfCopy', { mtfId })
   })
 }
 
-function handleDeleteSelectedMtf(): void {
-  handleClearMtf()
+function getViewportAnnotations(viewportKey: string): AnnotationOverlay[] {
+  return getAnnotations(viewportKey)
+}
+
+function getViewportDraftAnnotation(viewportKey: string): AnnotationDraft | null {
+  return getDraftAnnotation(viewportKey)
+}
+
+function getViewportDraftMeasurementMode(viewportKey: string): ReturnType<typeof getDraftMeasurementMode> {
+  return getDraftMeasurementMode(viewportKey)
+}
+
+function getViewportDraftMeasurement(viewportKey: string): MeasurementDraft | null {
+  return getDraftMeasurement(viewportKey)
+}
+
+function getViewportMeasurements(viewportKey: string): MeasurementOverlay[] {
+  return getVisibleCommittedMeasurements(viewportKey)
+}
+
+function getViewportMtfDraftMode(viewportKey: string): ReturnType<typeof getMtfDraftMode> {
+  return getMtfDraftMode(viewportKey)
+}
+
+function getViewportMtfDraft(viewportKey: string) {
+  return getMtfDraft(viewportKey)
+}
+
+function getViewportMtfItems(viewportKey: string) {
+  return getMtfItems(viewportKey)
+}
+
+function handleCopySelectedMeasurement(viewportKey: string): void {
+  void copySelectedMeasurement(viewportKey)
+}
+
+function handleDeleteSelectedMeasurement(viewportKey: string): void {
+  void deleteSelectedMeasurement(viewportKey)
 }
 
 function handleSelectMtf(payload: { mtfId: string | null }): void {
   emit('mtfSelect', payload)
 }
 
-function copySelectedMtfAction(): boolean {
-  if (!selectedMtfItem.value) {
+function runSelectedMtfAction(action: (mtfId: string) => void): boolean {
+  const mtfId = selectedMtfItem.value?.mtfId
+  if (!mtfId) {
     return false
   }
 
-  handleCopySelectedMtf()
+  action(mtfId)
   return true
 }
 
-function deleteSelectedMtfAction(): boolean {
-  if (!selectedMtfItem.value) {
-    return false
-  }
-
-  handleDeleteSelectedMtf()
-  return true
+function handleDeleteSelectedMtf(): void {
+  void runSelectedMtfAction((mtfId) => {
+    isMtfCurveDialogOpen.value = false
+    emit('mtfDelete', { mtfId })
+  })
 }
 
 watch(
@@ -1384,10 +1351,13 @@ useWorkspaceHotkeys({
   },
   copySelectedAnnotation,
   copySelectedMeasurement,
-  copySelectedMtf: copySelectedMtfAction,
+  copySelectedMtf: () => runSelectedMtfAction((mtfId) => emit('mtfCopy', { mtfId })),
   deleteSelectedAnnotation,
   deleteSelectedMeasurement,
-  deleteSelectedMtf: deleteSelectedMtfAction,
+  deleteSelectedMtf: () => runSelectedMtfAction((mtfId) => {
+    isMtfCurveDialogOpen.value = false
+    emit('mtfDelete', { mtfId })
+  }),
   exportCurrentView: (format) => {
     void handleExportCurrentView(format)
   },
@@ -1399,7 +1369,7 @@ useWorkspaceHotkeys({
 })
 
 onBeforeUnmount(() => {
-  isQuickPreviewDropActive.value = false
+  clearQuickPreviewDropState()
   cleanupExportUi()
   stopAnnotationInteraction()
 })
@@ -1412,12 +1382,11 @@ onBeforeUnmount(() => {
     <div
       v-if="!hasSelectedSeries"
       class="grid h-full place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
-      :class="isQuickPreviewDropActive ? 'theme-drop-active' : 'theme-shell-panel-soft'"
+      :class="quickPreviewDropClass"
       @dragenter="handleQuickPreviewDragEnter"
       @dragover="handleQuickPreviewDragOver"
       @dragleave="handleQuickPreviewDragLeave"
       @drop="handleQuickPreviewDrop"
-      @dragend="handleQuickPreviewDragEnd"
     >
       <div class="max-w-xl space-y-3">
         <div class="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--theme-text-muted)]">{{ t('viewerWorkspace') }}</div>
@@ -1500,22 +1469,22 @@ onBeforeUnmount(() => {
         <StackView
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
-          :annotations="getAnnotations('single')"
+          :annotations="getViewportAnnotations('single')"
           :corner-info="activeTab.cornerInfo"
           :cursor-class="getViewportCursorClass('single')"
-          :draft-annotation="getDraftAnnotation('single')"
-          :draft-measurement-mode="getDraftMeasurementMode('single')"
-          :draft-measurement="getDraftMeasurement('single')"
-          :measurements="getVisibleCommittedMeasurements('single')"
-          :mtf-draft-mode="getMtfDraftMode('single')"
-          :mtf-draft="getMtfDraft('single')"
-          :mtf-items="getMtfItems('single')"
+          :draft-annotation="getViewportDraftAnnotation('single')"
+          :draft-measurement-mode="getViewportDraftMeasurementMode('single')"
+          :draft-measurement="getViewportDraftMeasurement('single')"
+          :measurements="getViewportMeasurements('single')"
+          :mtf-draft-mode="getViewportMtfDraftMode('single')"
+          :mtf-draft="getViewportMtfDraft('single')"
+          :mtf-items="getViewportMtfItems('single')"
           :qa-water-analysis="qaWaterAnalysis"
-          :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
+          :selected-mtf-id="selectedMtfId"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
-          @copy-selected-measurement="copySelectedMeasurement($event)"
-          @delete-selected-measurement="deleteSelectedMeasurement($event)"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
           @clear-mtf="handleDeleteSelectedMtf"
           @copy-selected-mtf="handleCopySelectedMtf"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
@@ -1537,21 +1506,21 @@ onBeforeUnmount(() => {
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
           :active-viewport-key="activeViewportKey"
-          :get-annotations="(viewportKey) => getAnnotations(viewportKey)"
+          :get-annotations="getViewportAnnotations"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
-          :get-draft-annotation="(viewportKey) => getDraftAnnotation(viewportKey)"
-          :get-draft-measurement-mode="(viewportKey) => getDraftMeasurementMode(viewportKey)"
-          :get-draft-measurement="(viewportKey) => getDraftMeasurement(viewportKey)"
-          :get-measurements="(viewportKey) => getVisibleCommittedMeasurements(viewportKey)"
-          :get-mtf-draft-mode="(viewportKey) => getMtfDraftMode(viewportKey)"
-          :get-mtf-draft="(viewportKey) => getMtfDraft(viewportKey)"
-          :get-mtf-items="(viewportKey) => getMtfItems(viewportKey)"
-          :selected-mtf-id="activeMtfState?.selectedMtfId ?? null"
-          :get-corner-info="(viewportKey) => getMprCornerInfo(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          :get-mtf-draft-mode="getViewportMtfDraftMode"
+          :get-mtf-draft="getViewportMtfDraft"
+          :get-mtf-items="getViewportMtfItems"
+          :selected-mtf-id="selectedMtfId"
+          :get-corner-info="getMprCornerInfo"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
-          @copy-selected-measurement="copySelectedMeasurement($event)"
-          @delete-selected-measurement="deleteSelectedMeasurement($event)"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
           @clear-mtf="handleDeleteSelectedMtf"
           @copy-selected-mtf="handleCopySelectedMtf"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
@@ -1595,12 +1564,11 @@ onBeforeUnmount(() => {
       <div
         v-else
         class="grid flex-1 place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
-        :class="isQuickPreviewDropActive ? 'theme-drop-active' : 'theme-shell-panel-soft'"
+        :class="quickPreviewDropClass"
         @dragenter="handleQuickPreviewDragEnter"
         @dragover="handleQuickPreviewDragOver"
         @dragleave="handleQuickPreviewDragLeave"
         @drop="handleQuickPreviewDrop"
-        @dragend="handleQuickPreviewDragEnd"
       >
         <div class="max-w-lg space-y-3">
           <div class="text-2xl font-semibold tracking-[0.06em] text-[var(--theme-text-primary)]">{{ isQuickPreviewDropActive ? t('dropQuickPreview') : t('openView') }}</div>

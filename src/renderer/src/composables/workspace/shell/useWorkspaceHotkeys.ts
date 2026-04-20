@@ -50,6 +50,16 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
     return operation.startsWith('stack:') ? operation.slice('stack:'.length) : operation
   }
 
+  function runFirstAvailableAction(actions: Array<() => boolean>): boolean {
+    for (const action of actions) {
+      if (action()) {
+        return true
+      }
+    }
+
+    return false
+  }
+
   function isMtfOperation(operation: string): boolean {
     const normalized = normalizeOperation(operation)
     return normalized === 'mtf' || normalized === 'qa:mtf'
@@ -125,26 +135,28 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
     const preferAnnotation = options.activeOperation.value.startsWith('stack:annotate')
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-      if (
-        (preferAnnotation && options.copySelectedAnnotation()) ||
-        (preferMtf && options.copySelectedMtf()) ||
-        options.copySelectedMeasurement() ||
-        options.copySelectedMtf() ||
-        options.copySelectedAnnotation()
-      ) {
+      const handled = runFirstAvailableAction([
+        ...(preferAnnotation ? [options.copySelectedAnnotation] : []),
+        ...(preferMtf ? [options.copySelectedMtf] : []),
+        options.copySelectedMeasurement,
+        options.copySelectedMtf,
+        options.copySelectedAnnotation
+      ])
+      if (handled) {
         event.preventDefault()
       }
       return
     }
 
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (
-        (preferAnnotation && options.deleteSelectedAnnotation()) ||
-        (preferMtf && options.deleteSelectedMtf()) ||
-        options.deleteSelectedMeasurement() ||
-        options.deleteSelectedMtf() ||
-        options.deleteSelectedAnnotation()
-      ) {
+      const handled = runFirstAvailableAction([
+        ...(preferAnnotation ? [options.deleteSelectedAnnotation] : []),
+        ...(preferMtf ? [options.deleteSelectedMtf] : []),
+        options.deleteSelectedMeasurement,
+        options.deleteSelectedMtf,
+        options.deleteSelectedAnnotation
+      ])
+      if (handled) {
         event.preventDefault()
       }
       return

@@ -165,7 +165,7 @@ function handleSeriesDragEnd(): void {
               {{ series.modality || 'N/A' }} · {{ series.instanceCount }} {{ t('frames') }}
               <template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template>
             </span>
-            <span class="col-start-2 break-all text-[11px] leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
+            <span class="col-start-2 block truncate text-[11px] leading-5" :title="series.seriesId" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
           </button>
           <VBtn
             variant="flat"

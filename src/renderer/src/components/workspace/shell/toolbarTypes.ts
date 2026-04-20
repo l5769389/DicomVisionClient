@@ -5,6 +5,7 @@ export interface StackToolOption {
   swatchKey?: string
   description?: string
   badge?: string
+  group?: string
 }
 
 export interface StackTool {

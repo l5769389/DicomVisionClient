@@ -12,8 +12,10 @@ import {
 import { createDefaultMprMipConfig, type MprMipConfig, type ViewerTabItem, type VolumeRenderConfig } from '../../../types/viewer'
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
-const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'mtf', 'annotate'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'mtf', 'annotate'])
+const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate'])
+const DEFAULT_QA_OPERATION = 'qa:mtf'
+const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
 
 const measureTool: StackTool = {
   key: 'measure',
@@ -25,6 +27,32 @@ const measureTool: StackTool = {
     { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' },
     { value: 'measure:ellipse', label: 'Ellipse', icon: 'measure-ellipse' },
     { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' }
+  ]
+}
+
+const qaTool: StackTool = {
+  key: 'qa',
+  label: 'QA',
+  icon: 'qa',
+  kind: 'mode',
+  showSelectedOptionIcon: false,
+  options: [
+    {
+      value: DEFAULT_QA_OPERATION,
+      label: 'MTF',
+      icon: 'mtf',
+      description: 'Spatial resolution from a metal point ROI',
+      badge: 'Resolution',
+      group: 'Spatial Resolution'
+    },
+    {
+      value: WATER_PHANTOM_QA_OPERATION,
+      label: 'Water Phantom QA',
+      icon: 'water-phantom',
+      description: 'Auto-detect water phantom and report accuracy, uniformity, and noise',
+      badge: 'Water',
+      group: 'Water Phantom'
+    }
   ]
 }
 
@@ -61,7 +89,6 @@ const exportTool: StackTool = {
 }
 
 const stackTools: StackTool[] = [
-  { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
@@ -80,6 +107,7 @@ const stackTools: StackTool[] = [
   { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   tagTool,
+  qaTool,
   { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
   measureTool,
   { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
@@ -88,11 +116,11 @@ const stackTools: StackTool[] = [
 ]
 
 const genericTools: StackTool[] = [
-  { key: 'mtf', label: 'MTF', icon: 'mtf', kind: 'mode' },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   tagTool,
+  qaTool,
   measureTool,
   pseudocolorTool,
   exportTool
@@ -146,6 +174,12 @@ interface ViewerWorkspaceToolbarOptions {
   setActiveViewport: (viewportKey: 'single' | 'volume' | 'mpr-ax' | 'mpr-cor' | 'mpr-sag') => void
 }
 
+interface StoredToolbarState {
+  activeOperation: string
+  activeToolKey: string
+  selections: Partial<Record<string, string>>
+}
+
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
   const { getWindowPresetLabel, locale, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
   const playbackController = createPlaybackController()
@@ -162,10 +196,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     rotate: 'rotate:cw90',
     measure: 'measure:line',
     annotate: 'annotate:arrow',
+    qa: DEFAULT_QA_OPERATION,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     export: 'png',
     volumePreset: 'volumePreset:aaa'
   })
+  const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
 
   const toolbarIconSize = 20
@@ -235,6 +271,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (toolKey === 'annotate') {
       return `${STACK_OPERATION_PREFIX}annotate:arrow`
     }
+    if (toolKey === 'qa') {
+      return `${STACK_OPERATION_PREFIX}${normalizeQaOperation(stackToolSelections.value.qa ?? DEFAULT_QA_OPERATION)}`
+    }
     return `${STACK_OPERATION_PREFIX}${toolKey}`
   }
 
@@ -250,6 +289,42 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function setToolbarToolActive(toolKey: string): void {
     toolbarActivationController.setActive(toolKey)
+  }
+
+  function getDefaultOperationValue(viewType: ViewerTabItem['viewType'] | undefined): string {
+    if (viewType === 'MPR') {
+      return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`
+    }
+    return getModeOperationValue(getDefaultToolbarToolKey(viewType))
+  }
+
+  function captureToolbarState(tabKey: string | undefined): void {
+    if (!tabKey) {
+      return
+    }
+
+    toolbarStateByTabKey.set(tabKey, {
+      activeOperation: options.activeOperation.value,
+      activeToolKey: activeToolbarToolKey.value,
+      selections: { ...stackToolSelections.value }
+    })
+  }
+
+  function restoreToolbarState(tabKey: string | undefined, viewType: ViewerTabItem['viewType'] | undefined): void {
+    const savedState = tabKey ? toolbarStateByTabKey.get(tabKey) : null
+    if (savedState) {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        ...savedState.selections
+      }
+      setToolbarToolActive(savedState.activeToolKey)
+      options.emitSetActiveOperation(savedState.activeOperation || getDefaultOperationValue(viewType))
+      return
+    }
+
+    const defaultToolKey = getDefaultToolbarToolKey(viewType)
+    setToolbarToolActive(defaultToolKey)
+    options.emitSetActiveOperation(getDefaultOperationValue(viewType))
   }
 
   function flashToolActive(toolKey: string, nextToolKey: string, callback?: () => void): void {
@@ -277,6 +352,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
     options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${selectedOption.value}`)
     return selectedOption.value
+  }
+
+  function normalizeQaOperation(value: string): string {
+    if (value === 'qa:water-accuracy' || value === 'qa:water-uniformity') {
+      return WATER_PHANTOM_QA_OPERATION
+    }
+    if (value === 'qa:mtf' || value === WATER_PHANTOM_QA_OPERATION) {
+      return value
+    }
+    return DEFAULT_QA_OPERATION
   }
 
   function isToolSelected(tool: StackTool): boolean {
@@ -419,7 +504,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
-      if (tool.key === 'measure' && getSelectedOption(tool.key)) {
+      if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
         activateSelectedOption(tool.key)
       } else {
         options.emitSetActiveOperation(getModeOperationValue(tool.key))
@@ -486,7 +571,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'measure') {
+    if (tool.key === 'measure' || tool.key === 'qa') {
       if (!getSelectedOption(tool.key)) {
         return
       }
@@ -545,7 +630,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'measure') {
+    if (tool.key === 'measure' || tool.key === 'qa') {
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
       options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${optionValue}`)
@@ -581,7 +666,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   watch(
     () => [options.activeTab.value?.key, options.activeTab.value?.viewType] as const,
-    ([, viewType], previousValue) => {
+    ([tabKey, viewType], previousValue) => {
       const previousTabKey = previousValue?.[0]
       const previousViewType = previousValue?.[1]
       const tabOrViewChanged =
@@ -592,16 +677,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       }
 
       if (tabOrViewChanged) {
+        if (previousTabKey !== undefined && previousTabKey !== tabKey) {
+          captureToolbarState(previousTabKey)
+        }
         stopPlayback()
         isVolumeConfigPanelOpen.value = false
         isMprMipPanelOpen.value = false
         options.setActiveViewport(viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
-        setToolbarToolActive(getDefaultToolbarToolKey(viewType))
-        if (viewType === 'MPR') {
-          options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`)
-        } else {
-          options.emitSetActiveOperation(getModeOperationValue(getDefaultToolbarToolKey(viewType)))
-        }
+        restoreToolbarState(tabKey, viewType)
         closeMenus()
       }
     },
@@ -629,10 +712,23 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         return
       }
 
-      const normalizedOperation = value.startsWith(STACK_OPERATION_PREFIX)
-        ? value.slice(STACK_OPERATION_PREFIX.length).split(':')[0]
-        : value.split(':')[0]
-      const matchedToolKey = normalizedOperation === VIEW_OPERATION_TYPES.scroll ? 'page' : normalizedOperation
+      const operationWithoutPrefix = value.startsWith(STACK_OPERATION_PREFIX)
+        ? value.slice(STACK_OPERATION_PREFIX.length)
+        : value
+      if (operationWithoutPrefix.startsWith('qa:')) {
+        stackToolSelections.value = {
+          ...stackToolSelections.value,
+          qa: normalizeQaOperation(operationWithoutPrefix)
+        }
+      }
+
+      const normalizedOperation = operationWithoutPrefix.split(':')[0]
+      const matchedToolKey =
+        normalizedOperation === VIEW_OPERATION_TYPES.scroll
+          ? 'page'
+          : normalizedOperation === 'mtf'
+            ? 'qa'
+            : normalizedOperation
       if (SELECTABLE_TOOL_KEYS.has(matchedToolKey)) {
         setToolbarToolActive(matchedToolKey)
       }

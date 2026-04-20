@@ -46,6 +46,15 @@ function getActiveSliceInfo(tab: ViewerTabItem | null, activeViewportKey: string
 }
 
 export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
+  function normalizeOperation(operation: string): string {
+    return operation.startsWith('stack:') ? operation.slice('stack:'.length) : operation
+  }
+
+  function isMtfOperation(operation: string): boolean {
+    const normalized = normalizeOperation(operation)
+    return normalized === 'mtf' || normalized === 'qa:mtf'
+  }
+
   function handleNavigationShortcut(event: KeyboardEvent): void {
     const tab = options.activeTab.value
     if (!tab) {
@@ -112,7 +121,7 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    const preferMtf = options.activeOperation.value === 'mtf'
+    const preferMtf = isMtfOperation(options.activeOperation.value)
     const preferAnnotation = options.activeOperation.value.startsWith('stack:annotate')
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {

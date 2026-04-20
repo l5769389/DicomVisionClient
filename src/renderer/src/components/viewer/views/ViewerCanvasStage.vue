@@ -10,6 +10,7 @@ import type {
   MprCrosshairInfo,
   OrientationInfo,
   ScaleBarInfo,
+  QaWaterAnalysis,
   ViewerMtfItem
 } from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
@@ -19,6 +20,7 @@ import ViewportCrosshairOverlay from '../overlays/ViewportCrosshairOverlay.vue'
 import ViewportMtfOverlay from '../overlays/ViewportMtfOverlay.vue'
 import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.vue'
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
+import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 
 const props = withDefaults(
@@ -33,6 +35,7 @@ const props = withDefaults(
     mtfDraftMode?: DraftMeasurementMode | null
     mtfDraft?: { mtfId?: string; points: { x: number; y: number }[] } | null
     mtfItems?: ViewerMtfItem[]
+    qaWaterAnalysis?: QaWaterAnalysis | null
     selectedMtfId?: string | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
@@ -61,6 +64,7 @@ const props = withDefaults(
     isLoading: false,
     loadingLabel: '正在加载视图...',
     mprCrosshair: null,
+    qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
     softImage: false,
@@ -77,6 +81,7 @@ const emit = defineEmits<{
   clearMtf: []
   clickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  imageLoaded: [viewportKey: string]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
@@ -279,7 +284,7 @@ watch(
         :alt="alt"
         draggable="false"
         @dragstart.prevent
-        @load="updateStageMetrics"
+        @load="() => { updateStageMetrics(); emit('imageLoaded', viewportKey) }"
       />
       <ViewportCrosshairOverlay
         :corner-info="cornerInfo"
@@ -324,6 +329,10 @@ watch(
         @clear="emit('clearMtf')"
         @copy="emit('copySelectedMtf', props.viewportKey)"
         @open-curve="emit('openMtfCurve')"
+      />
+      <ViewportQaWaterOverlay
+        :analysis="qaWaterAnalysis ?? null"
+        :image-frame="imageFrame"
       />
       <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />

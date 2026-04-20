@@ -323,6 +323,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return null
   }
 
+  function getQaToolType(): string | null {
+    const normalized = options.activeOperation.value.startsWith('stack:')
+      ? options.activeOperation.value.slice('stack:'.length)
+      : options.activeOperation.value
+    const [toolKey, toolType] = normalized.split(':')
+    if (toolKey !== 'qa') {
+      return null
+    }
+    return toolType || null
+  }
+
   function isCrosshairOperationEnabled(): boolean {
     return options.activeTab.value?.viewType === 'MPR' && getNormalizedOperation() === VIEW_OPERATION_TYPES.crosshair
   }
@@ -332,7 +343,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function isMtfOperationEnabled(): boolean {
-    return (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') && getNormalizedOperation() === 'mtf'
+    return (
+      (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') &&
+      (getNormalizedOperation() === 'mtf' || getQaToolType() === 'mtf')
+    )
   }
 
   function isMouseDragOperationEnabled(): boolean {

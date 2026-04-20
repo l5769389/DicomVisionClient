@@ -152,10 +152,79 @@ export interface ViewerMtfState {
   selectedMtfId?: string | null
 }
 
+export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
+
+export interface QaWaterRoi {
+  id: string
+  label: string
+  kind: 'water' | 'air'
+  center: MeasurementDraftPoint
+  radius: number
+}
+
+export interface QaWaterMetrics {
+  accuracy?: {
+    centerMean: number
+    deviationHu: number
+    targetHu: number
+    unit: string
+  } | null
+  uniformity?: {
+    centerMean: number
+    maxDeviation: number
+    peripheralMeans: number[]
+    roiStats: Array<{
+      id: string
+      label: string
+      kind: 'water' | 'air'
+      area: number
+      width: number
+      height: number
+      mean: number
+      stdDev: number
+      sampleCount: number
+      deviationFromCenter: number | null
+      sizeUnit: string
+      areaUnit: string
+      unit: string
+    }>
+    unit: string
+  } | null
+  noise?: {
+    stdDev: number
+    unit: string
+  } | null
+}
+
+export interface QaWaterAnalysis {
+  viewId?: string
+  viewportKey: string
+  rois: QaWaterRoi[]
+  metrics?: QaWaterMetrics
+  status?: 'loading' | 'ready' | 'error'
+  message?: string
+}
+
+export interface QaWaterAnalyzeRequest {
+  viewId: string
+  viewportKey: string
+  metrics: QaWaterMetricKey[]
+}
+
+export interface QaWaterAnalyzeResponse {
+  viewId: string
+  viewportKey: string
+  rois: QaWaterRoi[]
+  metrics?: QaWaterMetrics
+  status?: 'ready' | 'error'
+  message?: string | null
+}
+
 export interface MtfAnalyzeRequest {
   viewId: string
   viewportKey: string
   points: MeasurementDraftPoint[]
+  qaTask?: 'mtf'
 }
 
 export interface MtfAnalyzeResponse {

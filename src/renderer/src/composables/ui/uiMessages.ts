@@ -11,6 +11,8 @@ export interface SettingsCopy {
   shortcutsSub: string
   windowPresets: string
   windowPresetsSub: string
+  qaSection: string
+  qaSectionSub: string
   exportSection: string
   exportSectionSub: string
   display: string
@@ -37,6 +39,17 @@ export interface SettingsCopy {
   wl: string
   addTemplate: string
   removeTemplate: string
+  qaTitle: string
+  qaDesc: string
+  qaWaterPhantomTitle: string
+  qaWaterPhantomDesc: string
+  qaWaterAccuracy: string
+  qaWaterAccuracyDesc: string
+  qaWaterUniformity: string
+  qaWaterUniformityDesc: string
+  qaWaterNoise: string
+  qaWaterNoiseDesc: string
+  qaWaterSelectedCount: (count: number) => string
   exportTitle: string
   exportDesc: string
   exportMode: string
@@ -181,6 +194,8 @@ export const uiMessages = {
       shortcutsSub: '图像浏览与工具操作',
       windowPresets: '窗模板',
       windowPresetsSub: '系统预设与自定义模板',
+      qaSection: 'QA 质控',
+      qaSectionSub: 'MTF 与水模质控指标',
       exportSection: '导出',
       exportSectionSub: '格式和默认保存位置',
       display: '显示',
@@ -207,6 +222,17 @@ export const uiMessages = {
       wl: '窗位 WL',
       addTemplate: '添加模板',
       removeTemplate: '删除选中模板',
+      qaTitle: 'QA 质控',
+      qaDesc: '配置质控工具的默认结果项。MTF 作为空间分辨率任务，水模 QA 会自动识别并生成所选指标。',
+      qaWaterPhantomTitle: '水模 QA 结果项',
+      qaWaterPhantomDesc: '选择水模 QA 自动分析后需要生成的结果。可同时包含准确性、均匀性和图像噪声。',
+      qaWaterAccuracy: '准确性',
+      qaWaterAccuracyDesc: '中心 ROI 的水 CT 值与目标 0 HU 的偏差。',
+      qaWaterUniformity: '均匀性',
+      qaWaterUniformityDesc: '中心与周边 ROI 的 CT 值一致性。',
+      qaWaterNoise: '图像噪声',
+      qaWaterNoiseDesc: '水模 ROI 内 HU 标准差等噪声指标。',
+      qaWaterSelectedCount: (count: number) => `已启用 ${count} 项`,
       exportTitle: '导出设置',
       exportDesc: '设置当前视图导出为 PNG 或 DICOM 时的默认保存位置。',
       exportMode: '导出方式',
@@ -348,6 +374,8 @@ export const uiMessages = {
       shortcutsSub: 'Image browsing and tool actions',
       windowPresets: 'Window Templates',
       windowPresetsSub: 'Built-in and custom presets',
+      qaSection: 'QA',
+      qaSectionSub: 'MTF and phantom quality metrics',
       exportSection: 'Export',
       exportSectionSub: 'Formats and default save location',
       display: 'Display',
@@ -374,6 +402,17 @@ export const uiMessages = {
       wl: 'Window Level WL',
       addTemplate: 'Add Template',
       removeTemplate: 'Remove Selected',
+      qaTitle: 'QA Tools',
+      qaDesc: 'Configure default result outputs for QA tools. MTF remains the spatial-resolution task; Water Phantom QA auto-detects and reports the selected metrics.',
+      qaWaterPhantomTitle: 'Water Phantom QA Metrics',
+      qaWaterPhantomDesc: 'Choose which metrics the automatic water phantom QA result should include. Accuracy, uniformity, and image noise can be enabled together.',
+      qaWaterAccuracy: 'Accuracy',
+      qaWaterAccuracyDesc: 'Center ROI water CT number deviation from the 0 HU target.',
+      qaWaterUniformity: 'Uniformity',
+      qaWaterUniformityDesc: 'CT number consistency between the center and peripheral ROIs.',
+      qaWaterNoise: 'Image Noise',
+      qaWaterNoiseDesc: 'Noise metrics such as HU standard deviation inside water phantom ROIs.',
+      qaWaterSelectedCount: (count: number) => `${count} enabled`,
       exportTitle: 'Export Settings',
       exportDesc: 'Set the default save location for exporting the current view as PNG or DICOM.',
       exportMode: 'Export Mode',

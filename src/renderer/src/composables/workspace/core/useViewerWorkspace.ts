@@ -28,6 +28,7 @@ import type {
   CornerInfoResponse,
   ConnectionState,
   FolderSeriesItem,
+  MtfAnalyzeRequest,
   MtfAnalyzeResponse,
   MeasurementDraftPoint,
   MeasurementOverlay,
@@ -755,11 +756,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     try {
-      const { data } = await api.post<MtfAnalyzeResponse>('/view/mtf/analyze', {
+      const requestPayload: MtfAnalyzeRequest = {
         viewId,
         viewportKey: payload.viewportKey,
-        points: payload.points
-      })
+        points: payload.points,
+        qaTask: 'mtf'
+      }
+      const { data } = await api.post<MtfAnalyzeResponse>('/view/mtf/analyze', requestPayload)
 
       updateActiveTabMtfState((item) =>
         updateMtfItemCollection(

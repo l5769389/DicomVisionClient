@@ -8,6 +8,7 @@ import type {
   DraftMeasurementMode,
   MeasurementDraft,
   MeasurementOverlay,
+  QaWaterAnalysis,
   ViewerMtfItem,
   ViewerTabItem
 } from '../../../types/viewer'
@@ -24,6 +25,7 @@ const props = defineProps<{
   mtfDraftMode?: DraftMeasurementMode | null
   mtfDraft?: { mtfId?: string; points: { x: number; y: number }[] } | null
   mtfItems?: ViewerMtfItem[]
+  qaWaterAnalysis?: QaWaterAnalysis | null
   selectedMtfId?: string | null
 }>()
 
@@ -35,6 +37,7 @@ const emit = defineEmits<{
   deleteSelectedMeasurement: [viewportKey: string]
   clearMtf: []
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  imageLoaded: [viewportKey: string]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
@@ -119,6 +122,7 @@ function handleSliceSliderInput(event: Event): void {
       :mtf-draft-mode="props.mtfDraftMode ?? null"
       :mtf-draft="props.mtfDraft ?? null"
       :mtf-items="props.mtfItems ?? []"
+      :qa-water-analysis="props.qaWaterAnalysis ?? null"
       :selected-mtf-id="props.selectedMtfId ?? null"
       :scale-bar="props.activeTab.scaleBar ?? null"
       :orientation="props.activeTab.orientation"
@@ -130,6 +134,7 @@ function handleSliceSliderInput(event: Event): void {
       @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
+      @image-loaded="emit('imageLoaded', $event)"
       @open-mtf-curve="emit('openMtfCurve')"
       @select-mtf="emit('selectMtf', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"

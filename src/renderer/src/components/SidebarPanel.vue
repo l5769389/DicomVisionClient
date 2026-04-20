@@ -119,7 +119,7 @@ function hideSeriesHoverCard(): void {
       <div class="text-[11px] leading-5 text-[var(--theme-text-secondary)]">
         <div>{{ hoveredSeries.modality || 'N/A' }} / {{ hoveredSeries.instanceCount }} frames</div>
         <div v-if="hoveredSeries.width && hoveredSeries.height">{{ hoveredSeries.width }}×{{ hoveredSeries.height }}</div>
-        <div class="mt-1 break-all text-[var(--theme-text-muted)]">{{ hoveredSeries.seriesId }}</div>
+        <div class="mt-1 truncate text-[var(--theme-text-muted)]" :title="hoveredSeries.seriesId">{{ hoveredSeries.seriesId }}</div>
       </div>
     </div>
   </Teleport>

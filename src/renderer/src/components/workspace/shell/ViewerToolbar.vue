@@ -102,41 +102,50 @@ const emit = defineEmits<{
             </template>
 
             <div data-tool-menu-root class="theme-shell-panel inline-flex min-w-[180px] flex-col rounded-[22px] border p-2 shadow-[0_20px_44px_rgba(2,8,18,0.36)] backdrop-blur">
-              <div
-                v-for="option in tool.options"
+              <template
+                v-for="(option, optionIndex) in tool.options"
                 :key="option.value"
-                class="rounded-xl! px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)]!"
-                :class="{ 'bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,transparent)]! text-[var(--theme-text-primary)]!': stackToolSelections[tool.key] === option.value }"
-                @click="emit('selectToolOption', tool, option.value)"
               >
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex min-w-0 items-center">
-                  <PseudocolorBand
-                    v-if="tool.key === 'pseudocolor'"
-                    class="mr-[10px]"
-                    :preset="option.swatchKey ?? 'bw'"
-                  />
-                  <AppIcon
-                    v-else
-                    class="mr-[10px]"
-                    :name="option.icon"
-                    :size="menuIconSize + 6"
-                  />
-                    <div class="min-w-0">
-                      <div class="truncate whitespace-nowrap">{{ option.label }}</div>
-                      <div v-if="option.description" class="mt-0.5 text-[11px] text-[var(--theme-text-muted)]">
-                        {{ option.description }}
+                <div
+                  v-if="option.group && option.group !== tool.options?.[optionIndex - 1]?.group"
+                  class="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]"
+                >
+                  {{ option.group }}
+                </div>
+                <div
+                  class="rounded-xl! px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)]!"
+                  :class="{ 'bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,transparent)]! text-[var(--theme-text-primary)]!': stackToolSelections[tool.key] === option.value }"
+                  @click="emit('selectToolOption', tool, option.value)"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex min-w-0 items-center">
+                    <PseudocolorBand
+                      v-if="tool.key === 'pseudocolor'"
+                      class="mr-[10px]"
+                      :preset="option.swatchKey ?? 'bw'"
+                    />
+                    <AppIcon
+                      v-else
+                      class="mr-[10px]"
+                      :name="option.icon"
+                      :size="menuIconSize + 6"
+                    />
+                      <div class="min-w-0">
+                        <div class="truncate whitespace-nowrap">{{ option.label }}</div>
+                        <div v-if="option.description" class="mt-0.5 text-[11px] text-[var(--theme-text-muted)]">
+                          {{ option.description }}
+                        </div>
                       </div>
                     </div>
+                    <span
+                      v-if="option.badge"
+                      class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
+                    >
+                      {{ option.badge }}
+                    </span>
                   </div>
-                  <span
-                    v-if="option.badge"
-                    class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
-                  >
-                    {{ option.badge }}
-                  </span>
                 </div>
-              </div>
+              </template>
             </div>
           </VMenu>
         </template>

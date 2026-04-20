@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { type AppLocale, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { type AppLocale, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
@@ -16,7 +16,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'export' | 'display'
+type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'qa' | 'export' | 'display'
 type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 
 interface ShortcutItem {
@@ -98,6 +98,14 @@ function createDefaultRoiStatOptions(): RoiStatOption[] {
     { key: 'stddev', label: 'StdDev', enabled: true },
     { key: 'width', label: 'Width', enabled: true },
     { key: 'height', label: 'Height', enabled: true }
+  ]
+}
+
+function createDefaultQaWaterMetrics(): QaWaterMetricPreference[] {
+  return [
+    { key: 'accuracy', label: 'Accuracy', enabled: true },
+    { key: 'uniformity', label: 'Uniformity', enabled: true },
+    { key: 'noise', label: 'Noise', enabled: true }
   ]
 }
 
@@ -197,12 +205,14 @@ const {
   addCustomWindowPreset,
   crosshairConfigs,
   getWindowPresetLabel,
+  qaWaterMetrics,
   removeCustomWindowPreset,
   roiStatOptions,
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
   setCrosshairConfigs,
+  setQaWaterMetrics,
   setScaleBarPreference,
   systemWindowPresets,
   setRoiStatOptions,
@@ -223,6 +233,7 @@ const sections = computed(() => [
   { key: 'language' as const, title: copy.value.language, subtitle: copy.value.languageSub, icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: copy.value.shortcutsSub, icon: 'keyboard' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: copy.value.windowPresetsSub, icon: 'contrast' },
+  { key: 'qa' as const, title: copy.value.qaSection, subtitle: copy.value.qaSectionSub, icon: 'qa' },
   { key: 'export' as const, title: copy.value.exportSection ?? 'Export', subtitle: copy.value.exportSectionSub ?? 'Formats and default save location', icon: 'export' },
   { key: 'display' as const, title: copy.value.display, subtitle: copy.value.displaySub, icon: 'crosshair' }
 ])
@@ -232,6 +243,7 @@ const currentSectionSubtitle = computed(() => sections.value.find((item) => item
 const selectedWindowPreset = computed(() => windowPresets.value.find((preset) => preset.id === selectedWindowPresetId.value) ?? windowPresets.value[0] ?? null)
 const canRemoveSelectedCustomPreset = computed(() => selectedWindowPreset.value?.source === 'custom')
 const displayCustomWindowPresets = computed(() => windowPresets.value.filter((preset) => preset.source === 'custom'))
+const enabledQaWaterMetricCount = computed(() => qaWaterMetrics.value.filter((item) => item.enabled).length)
 
 function getThemeSummary(theme: ThemePreset): string {
   return isZh.value ? theme.summaryZh : theme.summaryEn
@@ -269,6 +281,26 @@ function getCrosshairPreviewAxes(viewportKey: MprViewportKey): { vertical: Cross
   return { vertical: coronal, horizontal: axial }
 }
 
+function getQaWaterMetricLabel(metric: QaWaterMetricPreference): string {
+  if (metric.key === 'accuracy') {
+    return copy.value.qaWaterAccuracy
+  }
+  if (metric.key === 'uniformity') {
+    return copy.value.qaWaterUniformity
+  }
+  return copy.value.qaWaterNoise
+}
+
+function getQaWaterMetricDescription(metric: QaWaterMetricPreference): string {
+  if (metric.key === 'accuracy') {
+    return copy.value.qaWaterAccuracyDesc
+  }
+  if (metric.key === 'uniformity') {
+    return copy.value.qaWaterUniformityDesc
+  }
+  return copy.value.qaWaterNoiseDesc
+}
+
 function resetLanguageSection(): void {
   setLocale('zh-CN')
   themeId.value = DEFAULT_THEME_ID
@@ -289,6 +321,10 @@ function resetDisplaySection(): void {
   setScaleBarPreference(createDefaultScaleBarPreference())
 }
 
+function resetQaSection(): void {
+  setQaWaterMetrics(createDefaultQaWaterMetrics())
+}
+
 function resetCurrentSection(): void {
   if (activeSection.value === 'language') {
     resetLanguageSection()
@@ -300,6 +336,10 @@ function resetCurrentSection(): void {
   }
   if (activeSection.value === 'export') {
     resetExportSection()
+    return
+  }
+  if (activeSection.value === 'qa') {
+    resetQaSection()
     return
   }
   if (activeSection.value === 'display') {
@@ -587,6 +627,59 @@ function handleRemoveSelectedCustomWindowPreset(): void {
 
                 <template v-else-if="activeSection === 'export'">
                   <ExportSettingsPanel />
+                </template>
+
+                <template v-else-if="activeSection === 'qa'">
+                  <div class="space-y-5">
+                    <section class="theme-card-soft rounded-[28px] p-5">
+                      <div class="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_13%,transparent)] text-[var(--theme-accent)]">
+                              <AppIcon name="qa" :size="20" />
+                            </span>
+                            <div>
+                              <div class="text-lg font-semibold">{{ copy.qaTitle }}</div>
+                              <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">{{ copy.qaDesc }}</div>
+                            </div>
+                          </div>
+                        </div>
+                        <span class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                          {{ copy.qaWaterSelectedCount(enabledQaWaterMetricCount) }}
+                        </span>
+                      </div>
+
+                      <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                        <div class="mb-4 flex items-start gap-3">
+                          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_24%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-accent)]">
+                            <AppIcon name="water-phantom" :size="18" />
+                          </span>
+                          <div class="min-w-0">
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.qaWaterPhantomTitle }}</div>
+                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.qaWaterPhantomDesc }}</div>
+                          </div>
+                        </div>
+
+                        <div class="grid gap-3 md:grid-cols-3">
+                          <label
+                            v-for="metric in qaWaterMetrics"
+                            :key="metric.key"
+                            class="flex cursor-pointer flex-col gap-3 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-4 transition hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]"
+                          >
+                            <span class="flex items-center justify-between gap-3">
+                              <span class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ getQaWaterMetricLabel(metric) }}</span>
+                              <input
+                                v-model="metric.enabled"
+                                type="checkbox"
+                                class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                              />
+                            </span>
+                            <span class="text-xs leading-5 text-[var(--theme-text-secondary)]">{{ getQaWaterMetricDescription(metric) }}</span>
+                          </label>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
                 </template>
 
                 <template v-else>

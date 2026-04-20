@@ -46,6 +46,14 @@ export interface RoiStatPreference {
   enabled: boolean
 }
 
+export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
+
+export interface QaWaterMetricPreference {
+  key: QaWaterMetricKey
+  label: string
+  enabled: boolean
+}
+
 interface StoredCustomWindowPreset {
   id: string
   ww: number
@@ -63,11 +71,12 @@ interface UiPreferencesState {
   crosshairConfigs: CrosshairViewportPreference[]
   scaleBarPreference: ScaleBarPreference
   exportPreference: ExportPreference
+  qaWaterMetrics: QaWaterMetricPreference[]
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 3
+const CURRENT_PREFERENCES_VERSION = 4
 const DEFAULT_THEME_ID = 'aurora'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
@@ -165,6 +174,14 @@ function createDefaultRoiStatOptions(): RoiStatPreference[] {
   ]
 }
 
+function createDefaultQaWaterMetrics(): QaWaterMetricPreference[] {
+  return [
+    { key: 'accuracy', label: 'Accuracy', enabled: true },
+    { key: 'uniformity', label: 'Uniformity', enabled: true },
+    { key: 'noise', label: 'Noise', enabled: true }
+  ]
+}
+
 function createDefaultState(): UiPreferencesState {
   return {
     version: CURRENT_PREFERENCES_VERSION,
@@ -175,6 +192,7 @@ function createDefaultState(): UiPreferencesState {
     crosshairConfigs: createDefaultCrosshairConfigs(),
     scaleBarPreference: createDefaultScaleBarPreference(),
     exportPreference: createDefaultExportPreference(),
+    qaWaterMetrics: createDefaultQaWaterMetrics(),
     roiStatOptions: createDefaultRoiStatOptions(),
     customWindowPresets: []
   }
@@ -286,7 +304,7 @@ function normalizeExportPreference(value: unknown): ExportPreference {
 }
 
 function migrateCrosshairConfigs(version: number, value: CrosshairViewportPreference[]): CrosshairViewportPreference[] {
-  if (version >= CURRENT_PREFERENCES_VERSION) {
+  if (version >= 3) {
     return value
   }
 
@@ -308,6 +326,23 @@ function normalizeRoiStatOptions(value: unknown): RoiStatPreference[] {
   return defaults.map((defaultItem) => {
     const matched = parsed.find((item) => item && typeof item === 'object' && (item as { key?: unknown }).key === defaultItem.key) as
       | Partial<RoiStatPreference>
+      | undefined
+
+    return {
+      key: defaultItem.key,
+      label: defaultItem.label,
+      enabled: typeof matched?.enabled === 'boolean' ? matched.enabled : defaultItem.enabled
+    }
+  })
+}
+
+function normalizeQaWaterMetrics(value: unknown): QaWaterMetricPreference[] {
+  const defaults = createDefaultQaWaterMetrics()
+  const parsed = Array.isArray(value) ? value : []
+
+  return defaults.map((defaultItem) => {
+    const matched = parsed.find((item) => item && typeof item === 'object' && (item as { key?: unknown }).key === defaultItem.key) as
+      | Partial<QaWaterMetricPreference>
       | undefined
 
     return {
@@ -354,6 +389,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.crosshairConfigs = nextState.crosshairConfigs
   state.scaleBarPreference = nextState.scaleBarPreference
   state.exportPreference = nextState.exportPreference
+  state.qaWaterMetrics = nextState.qaWaterMetrics
   state.roiStatOptions = nextState.roiStatOptions
   state.customWindowPresets = nextState.customWindowPresets
   syncDocumentTheme(nextState.themeId)
@@ -382,6 +418,7 @@ function serializeState(): UiPreferencesState {
       useDefaultFileName: state.exportPreference.useDefaultFileName,
       webDirectoryName: state.exportPreference.webDirectoryName
     },
+    qaWaterMetrics: state.qaWaterMetrics.map((item) => ({ ...item })),
     roiStatOptions: state.roiStatOptions.map((item) => ({ ...item })),
     customWindowPresets: state.customWindowPresets.map((item) => ({
       id: item.id,
@@ -439,6 +476,7 @@ async function hydrateState(): Promise<void> {
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
         exportPreference: normalizeExportPreference(parsed.exportPreference),
+        qaWaterMetrics: normalizeQaWaterMetrics(parsed.qaWaterMetrics),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
         customWindowPresets
       })
@@ -563,6 +601,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setQaWaterMetrics(nextValue: QaWaterMetricPreference[]): void {
+    state.qaWaterMetrics = normalizeQaWaterMetrics(nextValue)
+    void persistState()
+  }
+
   function getWindowPresetLabel(preset: WindowTemplatePreset): string {
     return preset.labels[state.locale]
   }
@@ -573,6 +616,7 @@ export function useUiPreferences() {
     getWindowPresetLabel,
     locale,
     exportPreference: computed(() => state.exportPreference),
+    qaWaterMetrics: computed(() => state.qaWaterMetrics),
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
     selectedPseudocolorKey,
@@ -580,6 +624,7 @@ export function useUiPreferences() {
     setCrosshairConfigs,
     setExportPreference,
     setLocale,
+    setQaWaterMetrics,
     setScaleBarPreference,
     setRoiStatOptions,
     addCustomWindowPreset,

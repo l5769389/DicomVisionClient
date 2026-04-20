@@ -120,7 +120,6 @@ const genericTools: StackTool[] = [
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   tagTool,
-  qaTool,
   measureTool,
   pseudocolorTool,
   exportTool
@@ -291,6 +290,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     toolbarActivationController.setActive(toolKey)
   }
 
+  function isToolAvailable(toolKey: string): boolean {
+    return activeTools.value.some((tool) => tool.key === toolKey)
+  }
+
   function getDefaultOperationValue(viewType: ViewerTabItem['viewType'] | undefined): string {
     if (viewType === 'MPR') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`
@@ -313,12 +316,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   function restoreToolbarState(tabKey: string | undefined, viewType: ViewerTabItem['viewType'] | undefined): void {
     const savedState = tabKey ? toolbarStateByTabKey.get(tabKey) : null
     if (savedState) {
+      const defaultToolKey = getDefaultToolbarToolKey(viewType)
+      const activeToolKey = isToolAvailable(savedState.activeToolKey) ? savedState.activeToolKey : defaultToolKey
       stackToolSelections.value = {
         ...stackToolSelections.value,
         ...savedState.selections
       }
-      setToolbarToolActive(savedState.activeToolKey)
-      options.emitSetActiveOperation(savedState.activeOperation || getDefaultOperationValue(viewType))
+      setToolbarToolActive(activeToolKey)
+      options.emitSetActiveOperation(activeToolKey === savedState.activeToolKey && savedState.activeOperation ? savedState.activeOperation : getDefaultOperationValue(viewType))
       return
     }
 
@@ -730,6 +735,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
             ? 'qa'
             : normalizedOperation
       if (SELECTABLE_TOOL_KEYS.has(matchedToolKey)) {
+        if (!isToolAvailable(matchedToolKey)) {
+          return
+        }
         setToolbarToolActive(matchedToolKey)
       }
     },

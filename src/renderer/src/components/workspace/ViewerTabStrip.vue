@@ -46,10 +46,15 @@ const { t } = useUiLocale()
         v-for="tab in viewerTabs"
         :key="tab.key"
         :data-tab-key="tab.key"
+        role="button"
+        tabindex="0"
         class="group flex max-w-[288px] shrink-0 snap-start items-center gap-2 rounded-2xl! border! px-3! py-2! transition"
         :class="tab.key === activeTabKey ? 'theme-active-surface' : 'theme-card-soft border! text-[var(--theme-text-secondary)] hover:theme-hover-surface'"
+        @click="emit('activateTab', tab.key)"
+        @keydown.enter.prevent="emit('activateTab', tab.key)"
+        @keydown.space.prevent="emit('activateTab', tab.key)"
       >
-        <button type="button" class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-left" @click="emit('activateTab', tab.key)">
+        <button type="button" class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-left" tabindex="-1">
           <span class="truncate text-sm font-semibold">{{ tab.seriesTitle }}</span>
           <VChip
             size="x-small"

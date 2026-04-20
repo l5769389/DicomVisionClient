@@ -14,7 +14,7 @@ const emit = defineEmits<{
 
 type ContextAction = 'row' | 'tag' | 'name' | 'value'
 
-const { locale } = useUiLocale()
+const { tagViewCopy: copy } = useUiLocale()
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
 const searchQuery = ref('')
@@ -25,26 +25,6 @@ const contextMenuPosition = ref({
   y: 0
 })
 const contextMenuItem = ref<DicomTagItem | null>(null)
-const copy = computed(() => {
-  const isZh = locale.value === 'zh-CN'
-  return {
-    copy: isZh ? '复制' : 'Copy',
-    copyName: isZh ? '复制 Name' : 'Copy Name',
-    copyRow: isZh ? '复制本行' : 'Copy Row',
-    copyTagId: isZh ? '复制 Tag ID' : 'Copy Tag ID',
-    copyValue: isZh ? '复制 Value' : 'Copy Value',
-    empty: isZh ? '当前实例没有可展示的 DICOM Tags。' : 'No DICOM Tags available for this instance.',
-    filter: isZh ? '筛选' : 'Filter',
-    goTo: isZh ? '跳转' : 'Go',
-    instance: isZh ? '实例' : 'Instance',
-    instanceNavigation: isZh ? '实例导航' : 'Instance Navigation',
-    loading: isZh ? '正在读取 DICOM Tags...' : 'Loading DICOM Tags...',
-    noMatches: isZh ? '没有匹配的 Tag 结果。' : 'No matching Tag results.',
-    page: isZh ? '页码' : 'Page',
-    searchLabel: isZh ? '搜索 Tag / Name / Value' : 'Search Tag / Name / Value',
-    tagActions: isZh ? 'Tag 操作' : 'Tag Actions'
-  }
-})
 
 const filteredTagItems = computed(() => {
   const items = props.activeTab.tagItems ?? []

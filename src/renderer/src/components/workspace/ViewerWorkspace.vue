@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+﻿<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type {
   AnnotationDraft,
@@ -19,6 +19,7 @@ import { findArrowAnnotationAtPoint, isValidArrowAnnotation, translateAnnotation
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
+import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
 import DicomTagView from '../viewer/views/DicomTagView.vue'
@@ -33,8 +34,9 @@ import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
-import { openExportLocation, type ExportedFileResult } from '../../platform/exporting'
-import { viewerRuntime } from '../../platform/runtime'
+import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
+import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
+import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
 
 const props = defineProps<{
   activeOperation: string
@@ -83,13 +85,14 @@ const emit = defineEmits<{
 }>()
 
 const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
-const exportNameInputRef = useTemplateRef<HTMLInputElement>('exportNameInputRef')
+const exportNameInputRef = ref<HTMLInputElement | null>(null)
 const activeTabRef = computed(() => props.activeTab)
 const activeTabKeyRef = computed(() => props.activeTabKey)
 const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
+const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
-const { locale, t } = useUiLocale()
+const { t, workspaceExportCopy } = useUiLocale()
 const { exportPreference, roiStatOptions } = useUiPreferences()
 const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
@@ -194,82 +197,21 @@ const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOver
 const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
 const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
 const annotationActivePointerId = ref<number | null>(null)
-const exportNotice = ref<{
-  canOpenLocation: boolean
-  directoryPath?: string | null
-  filePath?: string | null
-  message: string
-  title: string
-} | null>(null)
-let exportNoticeTimer: ReturnType<typeof setTimeout> | null = null
-const isExportNameDialogOpen = ref(false)
-const exportNameDialogFormat = ref<ViewerExportFormat>('png')
-const exportNameInput = ref('')
-const exportNameError = ref('')
-let resolveExportNameDialog: ((value: string | null) => void) | null = null
-const exportNameExtension = computed(() => (exportNameDialogFormat.value === 'png' ? 'png' : 'dcm'))
-
-function clearExportNoticeTimer(): void {
-  if (!exportNoticeTimer) {
-    return
-  }
-
-  clearTimeout(exportNoticeTimer)
-  exportNoticeTimer = null
-}
-
-function showExportNotice(result: ExportedFileResult | null, format: ViewerExportFormat): void {
-  clearExportNoticeTimer()
-
-  const isZh = locale.value === 'zh-CN'
-  if (!result) {
-    exportNotice.value = {
-      canOpenLocation: false,
-      message: isZh ? '当前视图无法导出，请先打开可导出的图像视图。' : 'The current view cannot be exported. Open an exportable image view first.',
-      title: isZh ? '导出未完成' : 'Export Not Completed'
-    }
-    return
-  }
-
-  const formatLabel = format === 'png' ? 'PNG' : 'DICOM'
-  exportNotice.value = {
-    canOpenLocation: viewerRuntime.platform === 'desktop' && Boolean(result.filePath || result.directoryPath),
-    directoryPath: result.directoryPath,
-    filePath: result.filePath,
-    message:
-      result.mode === 'download'
-        ? isZh
-          ? `${formatLabel} 已交给浏览器下载。`
-          : `${formatLabel} was sent to the browser downloads.`
-        : isZh
-          ? `已导出到 ${result.locationDescription ?? result.directoryPath ?? '选定位置'}`
-          : `Exported to ${result.locationDescription ?? result.directoryPath ?? 'the selected location'}`,
-    title: isZh ? '导出完成' : 'Export Complete'
-  }
-
-  exportNoticeTimer = setTimeout(() => {
-    exportNotice.value = null
-    exportNoticeTimer = null
-  }, 8000)
-}
-
-async function handleOpenExportLocation(): Promise<void> {
-  if (!exportNotice.value) {
-    return
-  }
-
-  const opened = await openExportLocation({
-    directoryPath: exportNotice.value.directoryPath,
-    filePath: exportNotice.value.filePath
-  })
-  if (!opened) {
-    exportNotice.value = {
-      ...exportNotice.value,
-      canOpenLocation: false,
-      message: locale.value === 'zh-CN' ? '无法打开导出位置，请手动前往上方显示的路径。' : 'Could not open the export location. Use the path shown above.'
-    }
-  }
-}
+const {
+  cancelExportNameDialog,
+  cleanupExportUi,
+  confirmExportNameDialog,
+  exportNameDialogFormat,
+  exportNameError,
+  exportNameExtension,
+  exportNameInput,
+  exportNotice,
+  handleOpenExportLocation,
+  isExportNameDialogOpen,
+  requestExportFileName,
+  showExportFailureNotice,
+  showExportNotice
+} = useWorkspaceExportUi(workspaceExportCopy, exportNameInputRef)
 
 function resolveActiveExportImageElement(viewportKey: string): HTMLImageElement | null {
   const host = viewportHostRef.value
@@ -526,59 +468,6 @@ async function buildAnnotatedPngData(viewportKey: string, overlays: ViewerExport
   }
 }
 
-function normalizeExportFileNameStem(value: string, format: ViewerExportFormat): string {
-  const extensionPattern = format === 'png' ? /\.png$/i : /\.(dcm|dicom)$/i
-  return value
-    .trim()
-    .replace(extensionPattern, '')
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\.+$/g, '')
-    .trim()
-}
-
-async function requestExportFileName(format: ViewerExportFormat, defaultFileNameStem: string): Promise<string | null> {
-  if (resolveExportNameDialog) {
-    resolveExportNameDialog(null)
-  }
-
-  exportNameDialogFormat.value = format
-  exportNameInput.value = defaultFileNameStem
-  exportNameError.value = ''
-  isExportNameDialogOpen.value = true
-
-  await nextTick()
-  exportNameInputRef.value?.focus()
-  exportNameInputRef.value?.select()
-
-  return new Promise((resolve) => {
-    resolveExportNameDialog = resolve
-  })
-}
-
-function closeExportNameDialog(value: string | null): void {
-  const resolve = resolveExportNameDialog
-  resolveExportNameDialog = null
-  isExportNameDialogOpen.value = false
-  exportNameError.value = ''
-  if (resolve) {
-    resolve(value)
-  }
-}
-
-function cancelExportNameDialog(): void {
-  closeExportNameDialog(null)
-}
-
-function confirmExportNameDialog(): void {
-  const normalizedName = normalizeExportFileNameStem(exportNameInput.value, exportNameDialogFormat.value)
-  if (!normalizedName) {
-    exportNameError.value = locale.value === 'zh-CN' ? '请输入有效的导出文件名。' : 'Enter a valid export file name.'
-    return
-  }
-
-  closeExportNameDialog(normalizedName)
-}
-
 async function handleExportCurrentView(format: ViewerExportFormat): Promise<void> {
   try {
     if (!props.activeTab) {
@@ -629,12 +518,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
     showExportNotice(result, format)
   } catch (error) {
     console.error('Failed to export current view.', error)
-    clearExportNoticeTimer()
-    exportNotice.value = {
-      canOpenLocation: false,
-      message: locale.value === 'zh-CN' ? '导出失败，请检查后端连接和导出目录权限。' : 'Export failed. Check the backend connection and export directory permissions.',
-      title: locale.value === 'zh-CN' ? '导出失败' : 'Export Failed'
-    }
+    showExportFailureNotice()
   }
 }
 
@@ -1392,169 +1276,35 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
     viewportHostRef
   })
 
-function handleWorkspaceKeydown(event: KeyboardEvent): void {
-  const target = event.target
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-    return
-  }
-
-  const preferMtf = props.activeOperation === 'mtf'
-  const preferAnnotation = props.activeOperation.startsWith('stack:annotate')
-
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-    if (
-      (preferAnnotation && copySelectedAnnotation()) ||
-      (preferMtf && copySelectedMtfAction()) ||
-      copySelectedMeasurement() ||
-      copySelectedMtfAction() ||
-      copySelectedAnnotation()
-    ) {
-      event.preventDefault()
-    }
-    return
-  }
-
-  if (event.key === 'Delete' || event.key === 'Backspace') {
-    if (
-      (preferAnnotation && deleteSelectedAnnotation()) ||
-      (preferMtf && deleteSelectedMtfAction()) ||
-      deleteSelectedMeasurement() ||
-      deleteSelectedMtfAction() ||
-      deleteSelectedAnnotation()
-    ) {
-      event.preventDefault()
-    }
-    return
-  }
-
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
-    event.preventDefault()
+useWorkspaceHotkeys({
+  activeOperation: activeOperationRef,
+  activeTab: activeTabRef,
+  activeTabKey: activeTabKeyRef,
+  activeViewportKey,
+  closeActiveTab: () => {
     if (props.activeTabKey) {
       emit('closeTab', props.activeTabKey)
     }
-    return
-  }
-
-  if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    event.preventDefault()
-    emit('toggleSidebar')
-    return
-  }
-
-  if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && props.selectedSeriesId) {
-    event.preventDefault()
-    emit('quickPreviewSelectedSeries')
-    return
-  }
-
-  if (event.key === 'F10' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    event.preventDefault()
-    void handleExportCurrentView('png')
-    return
-  }
-
-  if (event.key === 'F11' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    event.preventDefault()
-    void handleExportCurrentView('dicom')
-    return
-  }
-
-  handleNavigationShortcut(event)
-}
-
-function getActiveSliceInfo(): { current: number; total: number } | null {
-  const tab = props.activeTab
-  if (!tab) {
-    return null
-  }
-
-  const raw =
-    tab.viewType === 'MPR'
-      ? tab.viewportSliceLabels?.[activeViewportKey.value as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? tab.sliceLabel
-      : tab.sliceLabel
-  const match = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
-  if (!match) {
-    return null
-  }
-
-  const current = Number(match[1])
-  const total = Number(match[2])
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
-    return null
-  }
-
-  return { current, total }
-}
-
-function handleNavigationShortcut(event: KeyboardEvent): void {
-  const tab = props.activeTab
-  if (!tab) {
-    return
-  }
-
-  if (tab.viewType === 'Tag') {
-    const currentIndex = tab.tagIndex ?? 0
-    const total = Math.max(1, tab.tagTotal ?? 1)
-    let nextIndex: number | null = null
-
-    if (event.key === 'Home') {
-      nextIndex = 0
-    } else if (event.key === 'End') {
-      nextIndex = total - 1
-    } else if (event.key === 'ArrowLeft') {
-      nextIndex = Math.max(0, currentIndex - (event.shiftKey ? 10 : 1))
-    } else if (event.key === 'ArrowRight') {
-      nextIndex = Math.min(total - 1, currentIndex + (event.shiftKey ? 10 : 1))
-    }
-
-    if (nextIndex != null && nextIndex !== currentIndex) {
-      event.preventDefault()
-      emit('tagIndexChange', { tabKey: tab.key, index: nextIndex })
-    }
-    return
-  }
-
-  if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
-    return
-  }
-
-  const sliceInfo = getActiveSliceInfo()
-  if (!sliceInfo) {
-    return
-  }
-
-  let delta: number | null = null
-  if (event.key === 'Home') {
-    delta = 1 - sliceInfo.current
-  } else if (event.key === 'End') {
-    delta = sliceInfo.total - sliceInfo.current
-  } else if (event.key === 'ArrowLeft') {
-    delta = event.shiftKey ? -10 : -1
-  } else if (event.key === 'ArrowRight') {
-    delta = event.shiftKey ? 10 : 1
-  }
-
-  if (!delta) {
-    return
-  }
-
-  event.preventDefault()
-  handleViewportWheel({
-    viewportKey: activeViewportKey.value,
-    deltaY: delta,
-    exact: true
-  })
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', handleWorkspaceKeydown)
+  },
+  copySelectedAnnotation,
+  copySelectedMeasurement,
+  copySelectedMtf: copySelectedMtfAction,
+  deleteSelectedAnnotation,
+  deleteSelectedMeasurement,
+  deleteSelectedMtf: deleteSelectedMtfAction,
+  exportCurrentView: (format) => {
+    void handleExportCurrentView(format)
+  },
+  quickPreviewSelectedSeries: () => emit('quickPreviewSelectedSeries'),
+  selectedSeriesId: selectedSeriesIdRef,
+  tagIndexChange: (payload) => emit('tagIndexChange', payload),
+  toggleSidebar: () => emit('toggleSidebar'),
+  viewportWheel: handleViewportWheel
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleWorkspaceKeydown)
   isQuickPreviewDropActive.value = false
-  clearExportNoticeTimer()
-  closeExportNameDialog(null)
+  cleanupExportUi()
   stopAnnotationInteraction()
 })
 </script>
@@ -1764,94 +1514,24 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div
+    <WorkspaceExportNameDialog
       v-if="isExportNameDialogOpen"
-      class="absolute inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-md"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="locale === 'zh-CN' ? '设置导出名称' : 'Set export name'"
-      @click.self="cancelExportNameDialog"
-    >
-      <form
-        class="w-[min(480px,100%)] rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-accent)_34%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_92%,#050914)] p-5 shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
-        @submit.prevent="confirmExportNameDialog"
-      >
-        <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <div class="text-base font-semibold text-[var(--theme-text-primary)]">
-              {{ locale === 'zh-CN' ? '设置导出名称' : 'Set export name' }}
-            </div>
-            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
-              {{ locale === 'zh-CN' ? '名称可编辑，文件后缀由导出格式固定。' : 'Edit the name. The file extension is fixed by the export format.' }}
-            </div>
-          </div>
-          <div class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1 text-xs font-semibold uppercase text-[var(--theme-text-secondary)]">
-            {{ exportNameDialogFormat === 'png' ? 'PNG' : 'DICOM' }}
-          </div>
-        </div>
+      v-model="exportNameInput"
+      v-model:input-ref="exportNameInputRef"
+      :copy="workspaceExportCopy"
+      :error="exportNameError"
+      :extension="exportNameExtension"
+      :format="exportNameDialogFormat"
+      @cancel="cancelExportNameDialog"
+      @confirm="confirmExportNameDialog"
+    />
 
-        <label class="mt-5 block text-xs font-semibold text-[var(--theme-text-secondary)]" for="export-file-name-input">
-          {{ locale === 'zh-CN' ? '文件名称' : 'File name' }}
-        </label>
-        <div
-          class="mt-2 flex min-w-0 overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_82%,#0f172a)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_28px_rgba(0,0,0,0.2)] transition focus-within:border-[var(--theme-accent)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent),inset_0_1px_0_rgba(255,255,255,0.07)]"
-        >
-          <input
-            id="export-file-name-input"
-            ref="exportNameInputRef"
-            v-model="exportNameInput"
-            class="min-w-0 flex-1 bg-[color:color-mix(in_srgb,var(--theme-surface-card)_88%,#111827)] px-3 py-2.5 text-sm text-[var(--theme-text-primary)] outline-none"
-            type="text"
-            autocomplete="off"
-            @keydown.esc.prevent="cancelExportNameDialog"
-          />
-          <div class="flex shrink-0 items-center border-l border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,black)] px-3 text-sm font-semibold text-[var(--theme-text-secondary)]">
-            .{{ exportNameExtension }}
-          </div>
-        </div>
-        <div v-if="exportNameError" class="mt-2 text-xs leading-5 text-rose-300">{{ exportNameError }}</div>
-        <div class="mt-5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-2.5 text-xs font-semibold text-[var(--theme-text-secondary)] transition hover:text-[var(--theme-text-primary)]"
-            @click="cancelExportNameDialog"
-          >
-            {{ locale === 'zh-CN' ? '取消' : 'Cancel' }}
-          </button>
-          <button type="submit" class="theme-button-primary rounded-2xl px-5 py-2.5 text-xs font-semibold">
-            {{ locale === 'zh-CN' ? '导出' : 'Export' }}
-          </button>
-        </div>
-      </form>
-    </div>
-
-    <div
+    <WorkspaceExportNotice
       v-if="exportNotice"
-      class="absolute bottom-5 right-5 z-[80] w-[min(420px,calc(100%-40px))] rounded-[20px] border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_94%,black)] p-4 shadow-[0_22px_44px_rgba(0,0,0,0.42)] backdrop-blur"
-    >
-      <div class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ exportNotice.title }}</div>
-          <div class="mt-1 break-all text-xs leading-6 text-[var(--theme-text-secondary)]">{{ exportNotice.message }}</div>
-        </div>
-        <button
-          type="button"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-sm text-[var(--theme-text-secondary)] transition hover:text-[var(--theme-text-primary)]"
-          :aria-label="locale === 'zh-CN' ? '关闭导出提示' : 'Close export notification'"
-          @click="exportNotice = null"
-        >
-          x
-        </button>
-      </div>
-      <div v-if="exportNotice.canOpenLocation" class="mt-3 flex justify-end">
-        <button
-          type="button"
-          class="theme-button-primary rounded-2xl px-4 py-2 text-xs font-semibold"
-          @click="handleOpenExportLocation"
-        >
-          {{ locale === 'zh-CN' ? '打开文件位置' : 'Open File Location' }}
-        </button>
-      </div>
-    </div>
+      :copy="workspaceExportCopy"
+      :notice="exportNotice"
+      @close="exportNotice = null"
+      @open-location="handleOpenExportLocation"
+    />
   </main>
 </template>

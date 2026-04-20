@@ -1,13 +1,27 @@
 import { api } from '../../../services/api'
 import { saveExportedFile, type ExportedFileResult } from '../../../platform/exporting'
 import type { ExportPreference } from '../../ui/useUiPreferences'
-import type { AnnotationOverlay, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import type { AnnotationOverlay, CornerInfo, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
 
 export type ViewerExportFormat = 'png' | 'dicom'
 
 export interface ViewerExportOverlays {
   annotations: AnnotationOverlay[]
+  cornerInfo: CornerInfo | null
   measurements: MeasurementOverlay[]
+}
+
+function cloneCornerInfo(cornerInfo: CornerInfo | null): CornerInfo | null {
+  if (!cornerInfo) {
+    return null
+  }
+
+  return {
+    topLeft: [...cornerInfo.topLeft],
+    topRight: [...cornerInfo.topRight],
+    bottomLeft: [...cornerInfo.bottomLeft],
+    bottomRight: [...cornerInfo.bottomRight]
+  }
 }
 
 function cloneMeasurements(measurements: MeasurementOverlay[]): MeasurementOverlay[] {
@@ -89,6 +103,7 @@ export async function exportCurrentView(params: {
             overlayMode: 'burned-in',
             overlays: {
               annotations: cloneAnnotations(overlays?.annotations ?? []),
+              cornerInfo: cloneCornerInfo(overlays?.cornerInfo ?? null),
               measurements: cloneMeasurements(overlays?.measurements ?? [])
             },
             preserveSourceDicom: true

@@ -34,6 +34,7 @@ export interface ExportPreference {
   includeDicomAnnotations: boolean
   includeDicomMeasurements: boolean
   includePngAnnotations: boolean
+  includePngCornerInfo: boolean
   includePngMeasurements: boolean
   useDefaultFileName: boolean
   webDirectoryName: string | null
@@ -145,6 +146,7 @@ function createDefaultExportPreference(): ExportPreference {
     includeDicomAnnotations: true,
     includeDicomMeasurements: true,
     includePngAnnotations: true,
+    includePngCornerInfo: true,
     includePngMeasurements: true,
     useDefaultFileName: true,
     webDirectoryName: null
@@ -272,6 +274,8 @@ function normalizeExportPreference(value: unknown): ExportPreference {
       typeof record?.includeDicomMeasurements === 'boolean' ? record.includeDicomMeasurements : legacyDicomOverlays,
     includePngAnnotations:
       typeof record?.includePngAnnotations === 'boolean' ? record.includePngAnnotations : legacyPngOverlays,
+    includePngCornerInfo:
+      typeof record?.includePngCornerInfo === 'boolean' ? record.includePngCornerInfo : defaults.includePngCornerInfo,
     includePngMeasurements:
       typeof record?.includePngMeasurements === 'boolean' ? record.includePngMeasurements : legacyPngOverlays,
     useDefaultFileName:
@@ -373,6 +377,7 @@ function serializeState(): UiPreferencesState {
       includeDicomAnnotations: state.exportPreference.includeDicomAnnotations,
       includeDicomMeasurements: state.exportPreference.includeDicomMeasurements,
       includePngAnnotations: state.exportPreference.includePngAnnotations,
+      includePngCornerInfo: state.exportPreference.includePngCornerInfo,
       includePngMeasurements: state.exportPreference.includePngMeasurements,
       useDefaultFileName: state.exportPreference.useDefaultFileName,
       webDirectoryName: state.exportPreference.webDirectoryName

@@ -5,6 +5,7 @@ import type {
   AnnotationDraft,
   AnnotationOverlay,
   AnnotationSize,
+  CornerInfo,
   DraftMeasurementMode,
   MeasurementDraft,
   MeasurementDraftPoint,
@@ -434,6 +435,58 @@ function drawAnnotations(context: CanvasRenderingContext2D, annotations: Annotat
   })
 }
 
+function hasCornerInfo(cornerInfo: CornerInfo | null | undefined): boolean {
+  if (!cornerInfo) {
+    return false
+  }
+
+  return [cornerInfo.topLeft, cornerInfo.topRight, cornerInfo.bottomLeft, cornerInfo.bottomRight].some((lines) =>
+    lines.some((line) => line.trim())
+  )
+}
+
+function drawCornerInfo(context: CanvasRenderingContext2D, cornerInfo: CornerInfo, width: number, height: number): void {
+  const blocks: Array<{
+    key: keyof CornerInfo
+    x: number
+    y: number
+    align: CanvasTextAlign
+    baseline: CanvasTextBaseline
+  }> = [
+    { key: 'topLeft', x: 18, y: 18, align: 'left', baseline: 'top' },
+    { key: 'topRight', x: width - 18, y: 18, align: 'right', baseline: 'top' },
+    { key: 'bottomLeft', x: 18, y: height - 18, align: 'left', baseline: 'bottom' },
+    { key: 'bottomRight', x: width - 18, y: height - 18, align: 'right', baseline: 'bottom' }
+  ]
+
+  context.save()
+  context.font = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+  context.fillStyle = '#eaf3fb'
+  context.strokeStyle = 'rgba(3, 15, 24, 0.92)'
+  context.lineJoin = 'round'
+  context.lineWidth = 3
+
+  blocks.forEach(({ key, x, y, align, baseline }) => {
+    const lines = cornerInfo[key].map((line) => line.trim()).filter(Boolean)
+    if (!lines.length) {
+      return
+    }
+
+    context.textAlign = align
+    context.textBaseline = baseline
+    lines.forEach((line, index) => {
+      const lineY =
+        baseline === 'top'
+          ? y + index * 16
+          : y - (lines.length - 1 - index) * 16
+      context.strokeText(line, x, lineY)
+      context.fillText(line, x, lineY)
+    })
+  })
+
+  context.restore()
+}
+
 async function buildAnnotatedPngData(viewportKey: string, overlays: ViewerExportOverlays): Promise<Uint8Array | null> {
   await nextTick()
   const image = resolveActiveExportImageElement(viewportKey)
@@ -455,6 +508,9 @@ async function buildAnnotatedPngData(viewportKey: string, overlays: ViewerExport
 
   try {
     context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    if (overlays.cornerInfo) {
+      drawCornerInfo(context, overlays.cornerInfo, canvas.width, canvas.height)
+    }
     drawMeasurements(context, overlays.measurements, canvas.width, canvas.height)
     drawAnnotations(context, overlays.annotations, canvas.width, canvas.height)
 
@@ -542,19 +598,24 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
 
     const overlays: ViewerExportOverlays = {
       annotations: getAnnotations(exportViewportKey),
+      cornerInfo: props.activeTab?.viewType === 'MPR' ? getMprCornerInfo(exportViewportKey) : props.activeTab.cornerInfo,
       measurements: getExportMeasurements(exportViewportKey)
     }
     const exportOverlays: ViewerExportOverlays =
       format === 'png'
         ? {
             annotations: exportPreference.value.includePngAnnotations ? overlays.annotations : [],
+            cornerInfo: exportPreference.value.includePngCornerInfo ? overlays.cornerInfo : null,
             measurements: exportPreference.value.includePngMeasurements ? overlays.measurements : []
           }
         : {
             annotations: exportPreference.value.includeDicomAnnotations ? overlays.annotations : [],
+            cornerInfo: null,
             measurements: exportPreference.value.includeDicomMeasurements ? overlays.measurements : []
           }
-    const shouldComposePng = format === 'png' && (exportOverlays.annotations.length > 0 || exportOverlays.measurements.length > 0)
+    const shouldComposePng =
+      format === 'png' &&
+      (exportOverlays.annotations.length > 0 || exportOverlays.measurements.length > 0 || hasCornerInfo(exportOverlays.cornerInfo))
     const pngData = shouldComposePng ? await buildAnnotatedPngData(exportViewportKey, exportOverlays) : null
     const result = await exportCurrentView({
       activeTab: props.activeTab,

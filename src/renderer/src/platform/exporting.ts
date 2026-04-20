@@ -10,6 +10,11 @@ type WebDirectoryPickerWindow = Window &
     showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>
   }
 
+type PermissionedFileSystemDirectoryHandle = FileSystemDirectoryHandle & {
+  queryPermission: (descriptor?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>
+  requestPermission: (descriptor?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>
+}
+
 export interface ExportedFileResult {
   directoryPath?: string | null
   filePath?: string | null
@@ -125,7 +130,7 @@ export async function chooseCustomExportDirectory(): Promise<{ desktopDirectory?
 }
 
 function triggerBrowserDownload(fileName: string, data: Uint8Array, mimeType: string): void {
-  const blob = new Blob([data], { type: mimeType })
+  const blob = new Blob([new Uint8Array(data)], { type: mimeType })
   const objectUrl = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = objectUrl
@@ -135,12 +140,13 @@ function triggerBrowserDownload(fileName: string, data: Uint8Array, mimeType: st
 }
 
 async function ensureWebExportDirectoryPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
-  const currentPermission = await handle.queryPermission({ mode: 'readwrite' })
+  const permissionedHandle = handle as PermissionedFileSystemDirectoryHandle
+  const currentPermission = await permissionedHandle.queryPermission({ mode: 'readwrite' })
   if (currentPermission === 'granted') {
     return true
   }
 
-  const requestedPermission = await handle.requestPermission({ mode: 'readwrite' })
+  const requestedPermission = await permissionedHandle.requestPermission({ mode: 'readwrite' })
   return requestedPermission === 'granted'
 }
 
@@ -193,7 +199,7 @@ export async function saveExportedFile(params: {
       const fileName = await resolveUniqueWebFileName(directoryHandle, params.fileName)
       const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true })
       const writable = await fileHandle.createWritable()
-      await writable.write(params.data)
+      await writable.write(new Uint8Array(params.data))
       await writable.close()
       return {
         directoryPath: directoryHandle.name,

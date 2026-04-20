@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu, VPagination, VTextField } from 'vuetify/components'
 import type { DicomTagItem, ViewerTabItem } from '../../../types/viewer'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -13,6 +14,7 @@ const emit = defineEmits<{
 
 type ContextAction = 'row' | 'tag' | 'name' | 'value'
 
+const { locale } = useUiLocale()
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
 const searchQuery = ref('')
@@ -23,6 +25,26 @@ const contextMenuPosition = ref({
   y: 0
 })
 const contextMenuItem = ref<DicomTagItem | null>(null)
+const copy = computed(() => {
+  const isZh = locale.value === 'zh-CN'
+  return {
+    copy: isZh ? '复制' : 'Copy',
+    copyName: isZh ? '复制 Name' : 'Copy Name',
+    copyRow: isZh ? '复制本行' : 'Copy Row',
+    copyTagId: isZh ? '复制 Tag ID' : 'Copy Tag ID',
+    copyValue: isZh ? '复制 Value' : 'Copy Value',
+    empty: isZh ? '当前实例没有可展示的 DICOM Tags。' : 'No DICOM Tags available for this instance.',
+    filter: isZh ? '筛选' : 'Filter',
+    goTo: isZh ? '跳转' : 'Go',
+    instance: isZh ? '实例' : 'Instance',
+    instanceNavigation: isZh ? '实例导航' : 'Instance Navigation',
+    loading: isZh ? '正在读取 DICOM Tags...' : 'Loading DICOM Tags...',
+    noMatches: isZh ? '没有匹配的 Tag 结果。' : 'No matching Tag results.',
+    page: isZh ? '页码' : 'Page',
+    searchLabel: isZh ? '搜索 Tag / Name / Value' : 'Search Tag / Name / Value',
+    tagActions: isZh ? 'Tag 操作' : 'Tag Actions'
+  }
+})
 
 const filteredTagItems = computed(() => {
   const items = props.activeTab.tagItems ?? []
@@ -58,25 +80,25 @@ const contextMenuPreview = computed(() => {
 const contextMenuActions = computed(() => [
   {
     key: 'row' as const,
-    title: '复制本行',
+    title: copy.value.copyRow,
     subtitle: 'Tag / Name / VR / Value',
     badge: 'ROW'
   },
   {
     key: 'tag' as const,
-    title: '复制 Tag ID',
+    title: copy.value.copyTagId,
     subtitle: contextMenuPreview.value.tag,
     badge: 'TAG'
   },
   {
     key: 'name' as const,
-    title: '复制 Name',
+    title: copy.value.copyName,
     subtitle: contextMenuPreview.value.name,
     badge: 'NAME'
   },
   {
     key: 'value' as const,
-    title: '复制 Value',
+    title: copy.value.copyValue,
     subtitle: contextMenuPreview.value.value,
     badge: 'VAL'
   }
@@ -193,8 +215,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-          <span class="rounded-full border border-white/8 bg-white/5 px-3 py-1.5">实例 {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
-          <span v-if="activeTab.tagInstanceNumber != null" class="rounded-full border border-white/8 bg-white/5 px-3 py-1.5">Instance {{ activeTab.tagInstanceNumber }}</span>
+          <span class="rounded-full border border-white/8 bg-white/5 px-3 py-1.5">{{ copy.instance }} {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
           <span v-if="activeTab.tagSopInstanceUid" class="max-w-full truncate rounded-full border border-white/8 bg-white/5 px-3 py-1.5">SOP {{ activeTab.tagSopInstanceUid }}</span>
           <span
             v-if="activeTab.tagFilePath"
@@ -209,7 +230,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
     <div class="border-b border-white/8 px-5 py-4">
       <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div class="rounded-[18px] border border-white/8 bg-white/4 p-3">
-          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Instance Navigation</div>
+          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.instanceNavigation }}</div>
           <div class="flex flex-wrap items-center gap-3">
             <VPagination
               :model-value="currentDisplayIndex"
@@ -227,7 +248,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                 class="tag-field w-[94px]"
                 density="compact"
                 hide-details
-                label="页码"
+                :label="copy.page"
                 variant="outlined"
                 bg-color="rgba(7,12,21,1)"
                 color="rgb(125,211,252)"
@@ -241,21 +262,21 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                 :disabled="activeTab.tagIsLoading"
                 @click="submitPageInput"
               >
-                跳转
+                {{ copy.goTo }}
               </VBtn>
             </div>
           </div>
         </div>
 
         <div class="rounded-[18px] border border-white/8 bg-white/4 p-3">
-          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Filter</div>
+          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.filter }}</div>
           <VTextField
             v-model="searchQuery"
             class="tag-field"
             clearable
             density="comfortable"
             hide-details
-            label="搜索 Tag / Name / Value"
+            :label="copy.searchLabel"
             variant="outlined"
             bg-color="rgba(7,12,21,1)"
             color="rgb(125,211,252)"
@@ -266,7 +287,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
     <div class="min-h-0 flex-1 px-5 py-5">
       <div v-if="activeTab.tagIsLoading" class="grid h-full min-h-[260px] place-items-center rounded-[18px] border border-white/8 bg-white/4 text-sm text-slate-300">
-        正在读取 DICOM Tags...
+        {{ copy.loading }}
       </div>
 
       <div v-else-if="activeTab.tagLoadError" class="grid h-full min-h-[260px] place-items-center rounded-[18px] border border-rose-300/18 bg-rose-400/8 px-6 text-center text-sm text-rose-100">
@@ -299,7 +320,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           </div>
 
           <div v-if="!filteredTagItems.length" class="grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
-            没有匹配的 Tag 结果。
+            {{ copy.noMatches }}
           </div>
         </div>
 
@@ -318,12 +339,12 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                 <div class="rounded-[16px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                   <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                      <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">Tag Actions</div>
+                      <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">{{ copy.tagActions }}</div>
                       <div class="mt-1 truncate font-mono text-[12px] text-cyan-100">{{ contextMenuPreview.tag }}</div>
                       <div class="mt-0.5 truncate text-[12px] font-medium text-white">{{ contextMenuPreview.name }}</div>
                     </div>
                     <div class="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
-                      Copy
+                      {{ copy.copy }}
                     </div>
                   </div>
                 </div>
@@ -353,7 +374,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       </div>
 
       <div v-else class="grid h-full min-h-[260px] place-items-center rounded-[18px] border border-dashed border-white/10 bg-white/3 text-sm text-slate-400">
-        当前实例没有可展示的 DICOM Tags。
+        {{ copy.empty }}
       </div>
     </div>
   </section>

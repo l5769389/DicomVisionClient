@@ -45,7 +45,8 @@ interface RoiStatOption {
 
 interface ThemePreset {
   id: string
-  label: string
+  labelZh: string
+  labelEn: string
   summaryZh: string
   summaryEn: string
   preview: string
@@ -116,6 +117,7 @@ interface SettingsCopy {
   exportIncludeMeasurements?: string
   exportIncludeOverlaysHint?: string
   exportIncludePngAnnotations?: string
+  exportIncludePngCornerInfo?: string
   exportIncludePngMeasurements?: string
   exportUseDefaultFileName?: string
   exportUseDefaultFileNameHint?: string
@@ -156,14 +158,16 @@ const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const themePresets: ThemePreset[] = [
   {
     id: 'aurora',
-    label: '默认主题',
+    labelZh: '默认主题',
+    labelEn: 'Default Theme',
     summaryZh: '沿用当前项目的深蓝界面、冷蓝高亮与低亮背景层次',
     summaryEn: 'Current project look with deep navy surfaces and cool blue highlights',
     preview: 'linear-gradient(135deg,#07111d 0%,#0d1b2d 48%,#16324d 78%,#66d0ff 100%)'
   },
   {
     id: 'clinical-light',
-    label: 'Clinical Light',
+    labelZh: 'Clinical Light',
+    labelEn: 'Clinical Light',
     summaryZh: '浅灰白底配冷蓝强调，更适合明亮环境和演示场景',
     summaryEn: 'Soft light surfaces with restrained blue accents for bright rooms and demos',
     preview: 'linear-gradient(135deg,#f7fbff 0%,#e8f1f8 42%,#d7e5f2 72%,#6aaed6 100%)'
@@ -270,6 +274,7 @@ function createCopy(isZh: boolean): SettingsCopy {
       exportIncludeMeasurements: '测量',
       exportIncludeOverlaysHint: '开启后，导出的图像中会携带该内容。',
       exportIncludePngAnnotations: '导出标注',
+      exportIncludePngCornerInfo: '导出四角信息',
       exportIncludePngMeasurements: '导出测量',
       exportUseDefaultFileName: '使用默认名称',
       exportUseDefaultFileNameHint: '关闭后，每次导出前都会提示输入文件名。',
@@ -365,6 +370,7 @@ function createCopy(isZh: boolean): SettingsCopy {
     exportIncludeMeasurements: 'Measurements',
     exportIncludeOverlaysHint: 'When enabled, the exported image includes this content.',
     exportIncludePngAnnotations: 'Export annotations',
+    exportIncludePngCornerInfo: 'Export corner info',
     exportIncludePngMeasurements: 'Export measurements',
     exportUseDefaultFileName: 'Use default name',
     exportUseDefaultFileNameHint: 'When disabled, each export prompts for a file name.',
@@ -524,6 +530,10 @@ function getThemeSummary(theme: ThemePreset): string {
   return isZh.value ? theme.summaryZh : theme.summaryEn
 }
 
+function getThemeLabel(theme: ThemePreset): string {
+  return isZh.value ? theme.labelZh : theme.labelEn
+}
+
 function getShortcutComboParts(combo: string): string[] {
   return combo.split(' + ').map((item) => item.trim()).filter(Boolean)
 }
@@ -567,6 +577,7 @@ function resetWindowPresetSection(): void {
 
 function resetExportSection(): void {
   setExportPreference({
+    ...exportPreference.value,
     locationMode: 'default',
     desktopDirectory: null,
     webDirectoryName: null
@@ -639,6 +650,12 @@ const exportLocationLabel = computed(() => {
   return defaultExportLocationLabel.value || copy.value.exportDefaultHint || 'Default downloads location'
 })
 
+const customExportLocationLabel = computed(() =>
+  viewerRuntime.platform === 'desktop'
+    ? exportPreference.value.desktopDirectory || copy.value.exportCustomMissing || 'No custom export location selected.'
+    : exportPreference.value.webDirectoryName || copy.value.exportCustomMissing || 'No custom export location selected.'
+)
+
 const exportCustomLocationHint = computed(() => {
   if (!canPickCustomExportLocation.value) {
     return copy.value.exportUnsupportedHint ?? 'This environment does not support picking a custom directory, so browser downloads will be used.'
@@ -675,6 +692,7 @@ async function handleChooseExportLocation(): Promise<void> {
     }
 
     setExportPreference({
+      ...exportPreference.value,
       locationMode: 'custom',
       desktopDirectory: selectedDirectory.desktopDirectory ?? exportPreference.value.desktopDirectory,
       webDirectoryName: selectedDirectory.webDirectoryName ?? exportPreference.value.webDirectoryName
@@ -701,7 +719,11 @@ async function handleOpenDefaultExportLocation(): Promise<void> {
   }
 }
 
-function updateExportOverlayPreference(format: 'png' | 'dicom', kind: 'measurements' | 'annotations', enabled: boolean): void {
+function updateExportOverlayPreference(
+  format: 'png' | 'dicom',
+  kind: 'measurements' | 'annotations' | 'cornerInfo',
+  enabled: boolean
+): void {
   setExportPreference({
     ...exportPreference.value,
     includeDicomAnnotations:
@@ -710,6 +732,8 @@ function updateExportOverlayPreference(format: 'png' | 'dicom', kind: 'measureme
       format === 'dicom' && kind === 'measurements' ? enabled : exportPreference.value.includeDicomMeasurements,
     includePngAnnotations:
       format === 'png' && kind === 'annotations' ? enabled : exportPreference.value.includePngAnnotations,
+    includePngCornerInfo:
+      format === 'png' && kind === 'cornerInfo' ? enabled : exportPreference.value.includePngCornerInfo,
     includePngMeasurements:
       format === 'png' && kind === 'measurements' ? enabled : exportPreference.value.includePngMeasurements
   })
@@ -852,7 +876,7 @@ onMounted(async () => {
                         >
                           <span class="h-12 w-20 shrink-0 rounded-2xl border border-[var(--theme-border-soft)]" :style="{ background: theme.preview }"></span>
                           <div class="min-w-0">
-                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ theme.label }}</div>
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ getThemeLabel(theme) }}</div>
                             <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ getThemeSummary(theme) }}</div>
                           </div>
                         </button>
@@ -989,177 +1013,234 @@ onMounted(async () => {
                 </template>
 
                 <template v-else-if="activeSection === 'export'">
-                  <div class="grid gap-5 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]">
-                    <div class="theme-card-soft rounded-[28px] p-5">
-                      <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
-                        <AppIcon name="export" :size="18" />
-                        <span class="text-lg font-semibold">{{ copy.exportTitle ?? 'Export Settings' }}</span>
-                      </div>
-                      <div class="mb-5 text-sm text-[var(--theme-text-secondary)]">{{ copy.exportDesc ?? 'Set the default save location for exporting the current view as PNG or DICOM.' }}</div>
-
-                      <div class="space-y-4">
-                        <button
-                          type="button"
-                          class="w-full rounded-[22px] border px-4 py-4 text-left transition duration-150"
-                          :class="exportPreference.locationMode === 'default' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
-                          @click="setExportPreference({ ...exportPreference, locationMode: 'default' })"
-                        >
-                          <div class="flex items-center justify-between gap-3">
+                  <div class="space-y-5">
+                    <section class="overflow-hidden rounded-[28px] border border-[var(--theme-border-soft)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-surface-panel-strong)_88%,black),color-mix(in_srgb,var(--theme-surface-card)_82%,black))]">
+                      <div class="flex flex-col gap-5 border-b border-[var(--theme-border-soft)] px-5 py-5 md:flex-row md:items-start md:justify-between">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_13%,transparent)] text-[var(--theme-accent)]">
+                              <AppIcon name="export" :size="20" />
+                            </span>
                             <div>
-                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportDefault ?? 'Default Location' }}</div>
-                              <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ copy.exportDefaultHint ?? 'Use the system default downloads location.' }}</div>
-                              <div
-                                v-if="defaultExportLocationLabel"
-                                class="mt-2 break-all text-xs font-medium text-[var(--theme-text-primary)]"
-                              >
-                                {{ defaultExportLocationLabel }}
+                              <div class="text-lg font-semibold">{{ copy.exportTitle ?? 'Export Settings' }}</div>
+                              <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportDesc ?? 'Set the default save location for exporting the current view as PNG or DICOM.' }}</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="flex shrink-0 rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] p-1">
+                          <button
+                            type="button"
+                            class="min-w-24 rounded-xl px-3 py-2 text-xs font-semibold transition"
+                            :class="exportPreference.locationMode === 'default' ? 'bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-primary)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                            @click="setExportPreference({ ...exportPreference, locationMode: 'default' })"
+                          >
+                            {{ copy.exportDefaultBadge ?? 'Default' }}
+                          </button>
+                          <button
+                            type="button"
+                            class="min-w-24 rounded-xl px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+                            :disabled="!canPickCustomExportLocation"
+                            :class="exportPreference.locationMode === 'custom' ? 'bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-primary)] shadow-[0_8px_18px_rgba(0,0,0,0.18)]' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                            @click="handleSelectCustomExportMode"
+                          >
+                            {{ copy.exportCustomBadge ?? 'Custom' }}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="grid gap-0 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                        <div class="space-y-4 border-b border-[var(--theme-border-soft)] p-5 xl:border-b-0 xl:border-r">
+                          <div class="grid gap-3 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              class="group min-h-[138px] rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                              :class="exportPreference.locationMode === 'default' ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                              @click="setExportPreference({ ...exportPreference, locationMode: 'default' })"
+                            >
+                              <div class="flex h-full flex-col justify-between gap-4">
+                                <div>
+                                  <div class="flex items-center justify-between gap-3">
+                                    <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportDefault ?? 'Default Location' }}</div>
+                                    <span
+                                      class="h-3 w-3 rounded-full border"
+                                      :class="exportPreference.locationMode === 'default' ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent'"
+                                    ></span>
+                                  </div>
+                                  <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportDefaultHint ?? 'Use the system default downloads location.' }}</div>
+                                </div>
+                                <div v-if="defaultExportLocationLabel" class="line-clamp-2 break-all text-[11px] font-medium text-[var(--theme-text-muted)]">
+                                  {{ defaultExportLocationLabel }}
+                                </div>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              class="group min-h-[138px] rounded-[22px] border px-4 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+                              :disabled="!canPickCustomExportLocation"
+                              :class="exportPreference.locationMode === 'custom' ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                              @click="handleSelectCustomExportMode"
+                            >
+                              <div class="flex h-full flex-col justify-between gap-4">
+                                <div>
+                                  <div class="flex items-center justify-between gap-3">
+                                    <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportCustom ?? 'Custom Location' }}</div>
+                                    <span
+                                      class="h-3 w-3 rounded-full border"
+                                      :class="exportPreference.locationMode === 'custom' ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent'"
+                                    ></span>
+                                  </div>
+                                  <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ exportCustomLocationHint }}</div>
+                                </div>
+                                <div class="line-clamp-2 break-all text-[11px] font-medium text-[var(--theme-text-muted)]">
+                                  {{ customExportLocationLabel }}
+                                </div>
+                              </div>
+                            </button>
+                          </div>
+
+                          <div class="rounded-[22px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-4">
+                            <div class="flex flex-col gap-4">
+                              <div class="min-w-0">
+                                <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ copy.exportCurrentLocation ?? 'Current Location' }}</div>
+                                <div class="mt-2 max-w-full break-words text-sm font-medium leading-6 text-[var(--theme-text-primary)] [overflow-wrap:anywhere]">{{ exportLocationLabel }}</div>
+                                <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ exportLocationDescription }}</div>
+                              </div>
+                              <div class="flex flex-wrap gap-2">
+                                <button
+                                  v-if="canOpenDefaultExportLocation"
+                                  type="button"
+                                  class="theme-button-primary min-w-[150px] rounded-2xl px-4 py-2 text-sm font-semibold"
+                                  @click="handleOpenDefaultExportLocation"
+                                >
+                                  {{ copy.exportOpenLocation ?? 'Open Location' }}
+                                </button>
+                                <template v-if="exportPreference.locationMode === 'custom'">
+                                  <button
+                                    type="button"
+                                    class="theme-button-primary min-w-[150px] rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                    :disabled="!canPickCustomExportLocation || isChoosingExportLocation"
+                                    @click="handleChooseExportLocation"
+                                  >
+                                    {{ isChoosingExportLocation ? (isZh ? '正在选择...' : 'Choosing...') : copy.exportChooseLocation ?? 'Choose Location' }}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="theme-button-secondary min-w-[170px] rounded-2xl px-4 py-2 text-sm font-medium"
+                                    @click="handleClearExportLocation"
+                                  >
+                                    {{ copy.exportClearLocation ?? 'Clear Custom Location' }}
+                                  </button>
+                                </template>
                               </div>
                             </div>
-                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ copy.exportDefaultBadge ?? 'Default' }}</span>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          class="w-full rounded-[22px] border px-4 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
-                          :disabled="!canPickCustomExportLocation"
-                          :class="exportPreference.locationMode === 'custom' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
-                          @click="handleSelectCustomExportMode"
-                        >
-                          <div class="flex items-center justify-between gap-3">
-                            <div>
-                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportCustom ?? 'Custom Location' }}</div>
-                              <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ exportCustomLocationHint }}</div>
+                            <div
+                              v-if="exportLocationError"
+                              class="mt-3 rounded-[16px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-6 text-red-100"
+                            >
+                              {{ exportLocationError }}
                             </div>
-                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ copy.exportCustomBadge ?? 'Custom' }}</span>
                           </div>
-                        </button>
-                      </div>
-                    </div>
 
-                    <div class="space-y-5">
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportCurrentLocation ?? 'Current Location' }}</div>
-                        <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
-                          <div class="text-sm font-medium break-all text-[var(--theme-text-primary)]">{{ exportLocationLabel }}</div>
-                          <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">
-                            {{ exportLocationDescription }}
+                          <label class="flex cursor-pointer items-center justify-between gap-4 rounded-[22px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4 transition hover:border-[var(--theme-border-strong)]">
+                            <span class="min-w-0">
+                              <span class="block text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportFileNameTitle ?? 'Export Name' }}</span>
+                              <span class="mt-1 block text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportUseDefaultFileNameHint ?? 'When disabled, each export prompts for a file name.' }}</span>
+                            </span>
+                            <span class="relative h-7 w-12 shrink-0 rounded-full border border-[var(--theme-border-soft)] transition" :class="exportPreference.useDefaultFileName ? 'bg-[var(--theme-accent)]' : 'bg-[var(--theme-surface-panel-strong)]'">
+                              <input
+                                type="checkbox"
+                                class="peer sr-only"
+                                :checked="exportPreference.useDefaultFileName"
+                                @change="updateUseDefaultFileName(($event.target as HTMLInputElement).checked)"
+                              />
+                              <span class="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5"></span>
+                            </span>
+                          </label>
+                        </div>
+
+                        <div class="p-5">
+                          <div class="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportFormats ?? 'Formats' }}</div>
+                              <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</div>
+                            </div>
                           </div>
-                        </div>
 
-                        <div v-if="canOpenDefaultExportLocation" class="mt-4 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold"
-                            @click="handleOpenDefaultExportLocation"
-                          >
-                            {{ copy.exportOpenLocation ?? 'Open Location' }}
-                          </button>
-                        </div>
+                          <div class="grid gap-4 md:grid-cols-2">
+                            <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                              <div class="mb-4 flex items-center justify-between gap-3">
+                                <div>
+                                  <div class="text-base font-semibold text-[var(--theme-text-primary)]">PNG</div>
+                                  <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F10</div>
+                                </div>
+                                <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_26%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">image</span>
+                              </div>
+                              <div class="space-y-2">
+                                <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">
+                                  <span class="text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngMeasurements ?? 'Export measurements' }}</span>
+                                  <input
+                                    type="checkbox"
+                                    class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                    :checked="exportPreference.includePngMeasurements"
+                                    @change="updateExportOverlayPreference('png', 'measurements', ($event.target as HTMLInputElement).checked)"
+                                  />
+                                </label>
+                                <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">
+                                  <span class="text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngAnnotations ?? 'Export annotations' }}</span>
+                                  <input
+                                    type="checkbox"
+                                    class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                    :checked="exportPreference.includePngAnnotations"
+                                    @change="updateExportOverlayPreference('png', 'annotations', ($event.target as HTMLInputElement).checked)"
+                                  />
+                                </label>
+                                <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">
+                                  <span class="text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngCornerInfo ?? 'Export corner info' }}</span>
+                                  <input
+                                    type="checkbox"
+                                    class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                    :checked="exportPreference.includePngCornerInfo"
+                                    @change="updateExportOverlayPreference('png', 'cornerInfo', ($event.target as HTMLInputElement).checked)"
+                                  />
+                                </label>
+                              </div>
+                            </div>
 
-                        <div v-if="exportPreference.locationMode === 'custom'" class="mt-4 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-                            :disabled="!canPickCustomExportLocation || isChoosingExportLocation"
-                            @click="handleChooseExportLocation"
-                          >
-                            {{ isChoosingExportLocation ? (isZh ? '正在选择...' : 'Choosing...') : copy.exportChooseLocation ?? 'Choose Location' }}
-                          </button>
-                          <button
-                            type="button"
-                            class="theme-button-secondary rounded-2xl px-4 py-2 text-sm font-medium"
-                            @click="handleClearExportLocation"
-                          >
-                            {{ copy.exportClearLocation ?? 'Clear Custom Location' }}
-                          </button>
-                        </div>
-                        <div
-                          v-if="exportLocationError"
-                          class="mt-3 rounded-[16px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-6 text-red-100"
-                        >
-                          {{ exportLocationError }}
-                        </div>
-                      </div>
-
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportFileNameTitle ?? 'Export Name' }}</div>
-                        <label class="flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                          <input
-                            type="checkbox"
-                            class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
-                            :checked="exportPreference.useDefaultFileName"
-                            @change="updateUseDefaultFileName(($event.target as HTMLInputElement).checked)"
-                          />
-                          <span class="min-w-0">
-                            <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportUseDefaultFileName ?? 'Use default name' }}</span>
-                            <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportUseDefaultFileNameHint ?? 'When disabled, each export prompts for a file name.' }}</span>
-                          </span>
-                        </label>
-                      </div>
-
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.exportFormats ?? 'Formats' }}</div>
-                        <div class="grid gap-3 md:grid-cols-2">
-                          <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4">
-                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">PNG</div>
-                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">F10</div>
-                            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                              <input
-                                type="checkbox"
-                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
-                                :checked="exportPreference.includePngMeasurements"
-                                @change="updateExportOverlayPreference('png', 'measurements', ($event.target as HTMLInputElement).checked)"
-                              />
-                              <span class="min-w-0">
-                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngMeasurements ?? 'Export measurements' }}</span>
-                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
-                              </span>
-                            </label>
-                            <label class="mt-3 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                              <input
-                                type="checkbox"
-                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
-                                :checked="exportPreference.includePngAnnotations"
-                                @change="updateExportOverlayPreference('png', 'annotations', ($event.target as HTMLInputElement).checked)"
-                              />
-                              <span class="min-w-0">
-                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludePngAnnotations ?? 'Export annotations' }}</span>
-                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
-                              </span>
-                            </label>
-                          </div>
-                          <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4">
-                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">DICOM</div>
-                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">F11</div>
-                            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                              <input
-                                type="checkbox"
-                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
-                                :checked="exportPreference.includeDicomMeasurements"
-                                @change="updateExportOverlayPreference('dicom', 'measurements', ($event.target as HTMLInputElement).checked)"
-                              />
-                              <span class="min-w-0">
-                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludeDicomMeasurements ?? 'Export measurements' }}</span>
-                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
-                              </span>
-                            </label>
-                            <label class="mt-3 flex cursor-pointer items-start gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                              <input
-                                type="checkbox"
-                                class="mt-0.5 h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
-                                :checked="exportPreference.includeDicomAnnotations"
-                                @change="updateExportOverlayPreference('dicom', 'annotations', ($event.target as HTMLInputElement).checked)"
-                              />
-                              <span class="min-w-0">
-                                <span class="block text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludeDicomAnnotations ?? 'Export annotations' }}</span>
-                                <span class="mt-1 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ copy.exportIncludeOverlaysHint ?? 'When enabled, the exported image includes this content.' }}</span>
-                              </span>
-                            </label>
+                            <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                              <div class="mb-4 flex items-center justify-between gap-3">
+                                <div>
+                                  <div class="text-base font-semibold text-[var(--theme-text-primary)]">DICOM</div>
+                                  <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F11</div>
+                                </div>
+                                <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent-warm)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">dataset</span>
+                              </div>
+                              <div class="space-y-2">
+                                <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">
+                                  <span class="text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludeDicomMeasurements ?? 'Export measurements' }}</span>
+                                  <input
+                                    type="checkbox"
+                                    class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                    :checked="exportPreference.includeDicomMeasurements"
+                                    @change="updateExportOverlayPreference('dicom', 'measurements', ($event.target as HTMLInputElement).checked)"
+                                  />
+                                </label>
+                                <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">
+                                  <span class="text-xs font-semibold text-[var(--theme-text-primary)]">{{ copy.exportIncludeDicomAnnotations ?? 'Export annotations' }}</span>
+                                  <input
+                                    type="checkbox"
+                                    class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
+                                    :checked="exportPreference.includeDicomAnnotations"
+                                    @change="updateExportOverlayPreference('dicom', 'annotations', ($event.target as HTMLInputElement).checked)"
+                                  />
+                                </label>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </section>
                   </div>
                 </template>
 

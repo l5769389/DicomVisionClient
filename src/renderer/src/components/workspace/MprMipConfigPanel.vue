@@ -3,9 +3,9 @@ defineOptions({
   inheritAttrs: false
 })
 
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppIcon from '../AppIcon.vue'
-import type { MprMipAlgorithm, MprMipConfig, MprViewportKey } from '../../types/viewer'
+import { normalizeMprMipConfig, type MprMipAlgorithm, type MprMipConfig, type MprViewportKey } from '../../types/viewer'
 
 const props = defineProps<{
   config: MprMipConfig
@@ -24,11 +24,13 @@ const algorithmOptions: Array<{ value: MprMipAlgorithm; label: string; descripti
   { value: 'sum', label: 'Sum', description: 'Accumulate voxel intensity through the slab.' }
 ]
 
-const viewportOptions: Array<{ key: MprViewportKey; label: string; description: string }> = [
-  { key: 'mpr-ax', label: 'AX', description: 'Axial slab thickness' },
-  { key: 'mpr-cor', label: 'COR', description: 'Coronal slab thickness' },
-  { key: 'mpr-sag', label: 'SAG', description: 'Sagittal slab thickness' }
+const viewportOptions: Array<{ key: MprViewportKey; label: string }> = [
+  { key: 'mpr-ax', label: 'AX' },
+  { key: 'mpr-cor', label: 'COR' },
+  { key: 'mpr-sag', label: 'SAG' }
 ]
+
+const normalizedConfig = computed(() => normalizeMprMipConfig(props.config))
 
 function updateConfig(patch: Partial<MprMipConfig>): void {
   emit('configChange', {
@@ -37,16 +39,25 @@ function updateConfig(patch: Partial<MprMipConfig>): void {
   })
 }
 
+function setMipEnabled(enabled: boolean): void {
+  updateConfig({ enabled })
+}
+
 function updateViewportThickness(viewportKey: MprViewportKey, thickness: number): void {
+  const normalizedThickness = Math.max(1, Math.min(80, Math.round(Number.isFinite(thickness) ? thickness : 1)))
   emit('configChange', {
     ...props.config,
     viewports: {
       ...props.config.viewports,
       [viewportKey]: {
-        thickness
+        thickness: normalizedThickness
       }
     }
   })
+}
+
+function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string): void {
+  updateViewportThickness(viewportKey, Number(value))
 }
 </script>
 
@@ -70,33 +81,59 @@ function updateViewportThickness(viewportKey: MprViewportKey, thickness: number)
         >
           <AppIcon :name="isCollapsed ? 'chevron-left' : 'chevron-right'" :size="16" />
         </button>
-        <div class="rounded-full border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]">
-          UI only
-        </div>
       </div>
     </div>
 
     <div
       v-if="!isCollapsed"
-      class="mb-3 rounded-[16px] border border-[var(--theme-border-strong)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,transparent),var(--theme-surface-card-soft))] px-3 py-2.5"
+      class="mb-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] p-1"
     >
-      <label class="flex items-center justify-between gap-3 text-[12px] font-medium text-[var(--theme-text-primary)]">
-        <span>Enable MIP</span>
-        <input
-          class="h-4 w-4 rounded border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] accent-[var(--theme-accent)]"
-          type="checkbox"
-          :checked="props.config.enabled"
-          @change="updateConfig({ enabled: ($event.target as HTMLInputElement).checked })"
-        />
-      </label>
-      <p class="mt-2 text-[11px] leading-5 text-[var(--theme-text-secondary)]">
-        Configure slab projection parameters now. Rendering can be wired to backend later.
-      </p>
+      <div class="grid grid-cols-2 gap-1">
+        <button
+          type="button"
+          class="rounded-[13px] border px-3 py-2.5 text-left transition"
+          :class="
+            !props.config.enabled
+              ? 'border-[color:color-mix(in_srgb,var(--theme-accent-warm)_48%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_12%,var(--theme-surface-card))] text-[var(--theme-text-primary)] shadow-[0_8px_18px_rgba(0,0,0,0.16)]'
+              : 'border-transparent text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card-soft)] hover:text-[var(--theme-text-primary)]'
+          "
+          @click="setMipEnabled(false)"
+        >
+          <span class="flex items-center justify-between gap-2">
+            <span class="text-[12px] font-semibold">Disabled</span>
+            <span
+              class="h-2.5 w-2.5 rounded-full border"
+              :class="!props.config.enabled ? 'border-[var(--theme-accent-warm)] bg-[var(--theme-accent-warm)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent-warm)_18%,transparent)]' : 'border-[var(--theme-border-strong)]'"
+            ></span>
+          </span>
+          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">Native MPR</span>
+        </button>
+        <button
+          type="button"
+          class="rounded-[13px] border px-3 py-2.5 text-left transition"
+          :class="
+            props.config.enabled
+              ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card))] text-[var(--theme-text-primary)] shadow-[0_8px_18px_rgba(0,0,0,0.16)]'
+              : 'border-transparent text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card-soft)] hover:text-[var(--theme-text-primary)]'
+          "
+          @click="setMipEnabled(true)"
+        >
+          <span class="flex items-center justify-between gap-2">
+            <span class="text-[12px] font-semibold">Enabled</span>
+            <span
+              class="h-2.5 w-2.5 rounded-full border"
+              :class="props.config.enabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)]'"
+            ></span>
+          </span>
+          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">Slab projection</span>
+        </button>
+      </div>
     </div>
 
     <div
       v-if="!isCollapsed"
-      class="mb-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5"
+      class="mb-3 rounded-[16px] border px-3 py-2.5 transition"
+      :class="props.config.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'"
     >
       <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">Algorithm</div>
       <div class="grid grid-cols-1 gap-1.5">
@@ -114,6 +151,7 @@ function updateViewportThickness(viewportKey: MprViewportKey, thickness: number)
             class="mt-0.5 h-4 w-4 accent-[var(--theme-accent)]"
             type="radio"
             name="mpr-mip-algorithm"
+            :disabled="!props.config.enabled"
             :value="option.value"
             :checked="props.config.algorithm === option.value"
             @change="updateConfig({ algorithm: option.value })"
@@ -130,8 +168,11 @@ function updateViewportThickness(viewportKey: MprViewportKey, thickness: number)
       <div
         v-for="viewport in viewportOptions"
         :key="viewport.key"
-        class="rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3"
-        :class="isCollapsed ? 'py-2' : 'py-2.5'"
+        class="rounded-[16px] border px-3 transition"
+        :class="[
+          isCollapsed ? 'py-2' : 'py-2.5',
+          props.config.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'
+        ]"
       >
         <div v-if="isCollapsed" class="flex items-center gap-2">
           <div class="w-8 shrink-0 text-[12px] font-medium text-[var(--theme-text-primary)]">
@@ -143,23 +184,43 @@ function updateViewportThickness(viewportKey: MprViewportKey, thickness: number)
             min="1"
             max="80"
             step="1"
-            :value="props.config.viewports[viewport.key].thickness"
+            :disabled="!props.config.enabled"
+            :value="normalizedConfig.viewports[viewport.key].thickness"
             @input="updateViewportThickness(viewport.key, Number(($event.target as HTMLInputElement).value))"
           />
-          <div class="w-[52px] text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">
-            {{ props.config.viewports[viewport.key].thickness }} mm
-          </div>
+          <label class="flex w-[72px] items-center justify-end gap-1 text-[10px] font-semibold uppercase text-[var(--theme-text-secondary)]">
+            <input
+              class="w-12 rounded-[10px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-1.5 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
+              type="number"
+              min="1"
+              max="80"
+              step="1"
+              :disabled="!props.config.enabled"
+              :value="normalizedConfig.viewports[viewport.key].thickness"
+              @input="updateViewportThicknessInput(viewport.key, ($event.target as HTMLInputElement).value)"
+            />
+            <span>mm</span>
+          </label>
         </div>
 
         <template v-else>
           <div class="mb-2 flex items-center justify-between gap-3">
             <div>
               <div class="text-[12px] font-medium text-[var(--theme-text-primary)]">{{ viewport.label }}</div>
-              <div class="text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">{{ viewport.description }}</div>
             </div>
-            <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">
-              {{ props.config.viewports[viewport.key].thickness }} mm
-            </div>
+            <label class="flex items-center gap-1 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2.5 py-1 text-[10px] font-semibold uppercase text-[var(--theme-text-secondary)]">
+              <input
+                class="w-12 bg-transparent text-right text-[12px] text-[var(--theme-text-primary)] outline-none"
+                type="number"
+                min="1"
+                max="80"
+                step="1"
+                :disabled="!props.config.enabled"
+                :value="normalizedConfig.viewports[viewport.key].thickness"
+                @input="updateViewportThicknessInput(viewport.key, ($event.target as HTMLInputElement).value)"
+              />
+              <span>mm</span>
+            </label>
           </div>
 
           <input
@@ -168,23 +229,11 @@ function updateViewportThickness(viewportKey: MprViewportKey, thickness: number)
             min="1"
             max="80"
             step="1"
-            :value="props.config.viewports[viewport.key].thickness"
+            :disabled="!props.config.enabled"
+            :value="normalizedConfig.viewports[viewport.key].thickness"
             @input="updateViewportThickness(viewport.key, Number(($event.target as HTMLInputElement).value))"
           />
         </template>
-
-        <div v-if="!isCollapsed" class="mt-2 flex items-center justify-between gap-3">
-          <span class="text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">Thickness</span>
-          <input
-            class="w-20 rounded-[10px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
-            type="number"
-            min="1"
-            max="80"
-            step="1"
-            :value="props.config.viewports[viewport.key].thickness"
-            @input="updateViewportThickness(viewport.key, Math.max(1, Math.min(80, Number(($event.target as HTMLInputElement).value) || 1)))"
-          />
-        </div>
       </div>
     </div>
   </div>

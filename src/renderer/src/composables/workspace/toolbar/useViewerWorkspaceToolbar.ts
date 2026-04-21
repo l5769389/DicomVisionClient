@@ -9,7 +9,7 @@ import {
   createPlaybackController,
   createToolbarActivationController
 } from './toolbarStateMachines'
-import { createDefaultMprMipConfig, type MprMipConfig, type ViewerTabItem, type VolumeRenderConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, normalizeMprMipConfig, type MprMipConfig, type ViewerTabItem, type VolumeRenderConfig } from '../../../types/viewer'
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
@@ -260,7 +260,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return null
     }
 
-    return activeTab.mprMipConfig ?? createDefaultMprMipConfig()
+    return normalizeMprMipConfig(activeTab.mprMipConfig, createDefaultMprMipConfig())
   })
 
   function getModeOperationValue(toolKey: string): string {

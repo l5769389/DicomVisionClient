@@ -1,9 +1,9 @@
 ﻿<script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { type AppLocale, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
@@ -206,7 +206,7 @@ const {
   crosshairConfigs,
   getWindowPresetLabel,
   qaWaterMetrics,
-  removeCustomWindowPreset,
+  removeCustomWindowPresets,
   roiStatOptions,
   scaleBarPreference,
   selectedPseudocolorKey,
@@ -225,6 +225,7 @@ const customPresetZhName = ref('')
 const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
+const selectedCustomPresetIds = ref<string[]>([])
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = settingsCopy
@@ -241,8 +242,15 @@ const shortcutGroups = computed(() => createShortcutGroups(copy.value, isZh.valu
 const currentSectionTitle = computed(() => sections.value.find((item) => item.key === activeSection.value)?.title ?? copy.value.title)
 const currentSectionSubtitle = computed(() => sections.value.find((item) => item.key === activeSection.value)?.subtitle ?? '')
 const selectedWindowPreset = computed(() => windowPresets.value.find((preset) => preset.id === selectedWindowPresetId.value) ?? windowPresets.value[0] ?? null)
-const canRemoveSelectedCustomPreset = computed(() => selectedWindowPreset.value?.source === 'custom')
 const displayCustomWindowPresets = computed(() => windowPresets.value.filter((preset) => preset.source === 'custom'))
+const selectedCustomPresetIdSet = computed(() => new Set(selectedCustomPresetIds.value))
+const hasSelectedCustomPresets = computed(() => selectedCustomPresetIds.value.length > 0)
+const areAllCustomPresetsSelected = computed(() => (
+  displayCustomWindowPresets.value.length > 0 &&
+  displayCustomWindowPresets.value.every((preset) => selectedCustomPresetIdSet.value.has(preset.id))
+))
+const canAddCustomWindowPreset = computed(() => displayCustomWindowPresets.value.length < MAX_CUSTOM_WINDOW_PRESETS)
+const customPresetLimitLabel = computed(() => `${displayCustomWindowPresets.value.length}/${MAX_CUSTOM_WINDOW_PRESETS}`)
 const enabledQaWaterMetricCount = computed(() => qaWaterMetrics.value.filter((item) => item.enabled).length)
 
 function getThemeSummary(theme: ThemePreset): string {
@@ -308,6 +316,7 @@ function resetLanguageSection(): void {
 
 function resetWindowPresetSection(): void {
   selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? 'lung'
+  selectedCustomPresetIds.value = []
   customPresetZhName.value = ''
   customPresetEnName.value = ''
   customPresetWw.value = '400'
@@ -352,6 +361,10 @@ function handleLocaleChange(nextLocale: AppLocale): void {
 }
 
 function handleAddCustomWindowPreset(): void {
+  if (!canAddCustomWindowPreset.value) {
+    return
+  }
+
   const nextId = addCustomWindowPreset({
     zhName: customPresetZhName.value,
     enName: customPresetEnName.value,
@@ -366,14 +379,42 @@ function handleAddCustomWindowPreset(): void {
   customPresetWl.value = '40'
 }
 
-function handleRemoveSelectedCustomWindowPreset(): void {
-  if (!selectedWindowPreset.value || selectedWindowPreset.value.source !== 'custom') {
+function syncSelectedCustomPresetIds(): void {
+  const availableIds = new Set(displayCustomWindowPresets.value.map((preset) => preset.id))
+  selectedCustomPresetIds.value = selectedCustomPresetIds.value.filter((id) => availableIds.has(id))
+}
+
+function toggleCustomPresetSelection(id: string): void {
+  if (selectedCustomPresetIdSet.value.has(id)) {
+    selectedCustomPresetIds.value = selectedCustomPresetIds.value.filter((item) => item !== id)
     return
   }
 
-  removeCustomWindowPreset(selectedWindowPreset.value.id)
-  selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? 'lung'
+  selectedCustomPresetIds.value = [...selectedCustomPresetIds.value, id]
 }
+
+function toggleAllCustomPresetSelection(): void {
+  if (areAllCustomPresetsSelected.value) {
+    selectedCustomPresetIds.value = []
+    return
+  }
+
+  selectedCustomPresetIds.value = displayCustomWindowPresets.value.map((preset) => preset.id)
+}
+
+function handleRemoveSelectedCustomWindowPresets(): void {
+  syncSelectedCustomPresetIds()
+  if (!selectedCustomPresetIds.value.length) {
+    return
+  }
+
+  removeCustomWindowPresets(selectedCustomPresetIds.value)
+  selectedCustomPresetIds.value = []
+}
+
+watch(displayCustomWindowPresets, () => {
+  syncSelectedCustomPresetIds()
+})
 
 </script>
 
@@ -570,24 +611,35 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                           <div class="mb-3 flex items-center justify-between gap-3">
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.customPresets }}</div>
                             <div class="flex items-center gap-2">
-                              <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ displayCustomWindowPresets.length }}</span>
-                              <button type="button" class="theme-button-secondary rounded-2xl px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50" :disabled="!canRemoveSelectedCustomPreset" @click="handleRemoveSelectedCustomWindowPreset">{{ copy.removeTemplate }}</button>
+                              <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ customPresetLimitLabel }}</span>
+                              <button type="button" class="theme-button-secondary rounded-2xl px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50" :disabled="!displayCustomWindowPresets.length" @click="toggleAllCustomPresetSelection">{{ areAllCustomPresetsSelected ? (isZh ? '取消全选' : 'Clear') : (isZh ? '全选' : 'Select All') }}</button>
+                              <button type="button" class="theme-button-secondary rounded-2xl px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50" :disabled="!hasSelectedCustomPresets" @click="handleRemoveSelectedCustomWindowPresets">{{ copy.removeTemplate }}</button>
                             </div>
                           </div>
                           <div v-if="displayCustomWindowPresets.length" class="space-y-2">
-                            <button
+                            <div
                               v-for="preset in displayCustomWindowPresets"
                               :key="preset.id"
-                              type="button"
-                              class="flex w-full items-center justify-between gap-3 rounded-[18px] border px-4 py-3 text-left transition duration-150"
-                              :class="selectedWindowPresetId === preset.id ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
-                              @click="selectedWindowPresetId = preset.id"
+                              class="flex w-full items-center gap-3 rounded-[18px] border px-3 py-3 text-left transition duration-150"
+                              :class="[
+                                selectedWindowPresetId === preset.id ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]',
+                                selectedCustomPresetIdSet.has(preset.id) ? 'ring-1 ring-[color:color-mix(in_srgb,var(--theme-accent)_55%,transparent)]' : ''
+                              ]"
                             >
-                              <div class="min-w-0">
+                              <button
+                                type="button"
+                                class="grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition"
+                                :class="selectedCustomPresetIdSet.has(preset.id) ? 'border-[var(--theme-accent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)] text-[var(--theme-accent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-transparent hover:border-[var(--theme-border-strong)]'"
+                                :aria-pressed="selectedCustomPresetIdSet.has(preset.id)"
+                                @click.stop="toggleCustomPresetSelection(preset.id)"
+                              >
+                                <AppIcon name="check" :size="16" />
+                              </button>
+                              <button type="button" class="min-w-0 flex-1 text-left" @click="selectedWindowPresetId = preset.id">
                                 <div class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ getWindowPresetLabel(preset) }}</div>
                                 <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">WW {{ preset.ww }} / WL {{ preset.wl }}</div>
-                              </div>
-                            </button>
+                              </button>
+                            </div>
                           </div>
                           <div v-else class="rounded-[20px] border border-dashed border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4 text-xs leading-6 text-[var(--theme-text-secondary)]">
                             <div class="font-medium text-[var(--theme-text-primary)]">{{ copy.emptyCustom }}</div>
@@ -597,28 +649,34 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                       </div>
 
                       <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.addCustom }}</div>
+                        <div class="mb-3 flex items-center justify-between gap-3">
+                          <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.addCustom }}</div>
+                          <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ customPresetLimitLabel }}</span>
+                        </div>
                         <div class="grid gap-3 md:grid-cols-2">
                           <label class="block">
                             <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ copy.zhName }}</span>
-                            <input v-model="customPresetZhName" type="text" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" :placeholder="copy.zhName" />
+                            <input v-model="customPresetZhName" type="text" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)] disabled:cursor-not-allowed disabled:opacity-50" :placeholder="copy.zhName" :disabled="!canAddCustomWindowPreset" />
                           </label>
                           <label class="block">
                             <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ copy.enName }}</span>
-                            <input v-model="customPresetEnName" type="text" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" :placeholder="copy.enName" />
+                            <input v-model="customPresetEnName" type="text" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)] disabled:cursor-not-allowed disabled:opacity-50" :placeholder="copy.enName" :disabled="!canAddCustomWindowPreset" />
                           </label>
                           <label class="block">
                             <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ copy.ww }}</span>
-                            <input v-model="customPresetWw" type="number" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" />
+                            <input v-model="customPresetWw" type="number" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="!canAddCustomWindowPreset" />
                           </label>
                           <label class="block">
                             <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ copy.wl }}</span>
-                            <input v-model="customPresetWl" type="number" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" />
+                            <input v-model="customPresetWl" type="number" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="!canAddCustomWindowPreset" />
                           </label>
                         </div>
 
+                        <div v-if="!canAddCustomWindowPreset" class="mt-3 rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent-warm)_30%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent)] px-4 py-3 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                          {{ isZh ? `最多只能保留 ${MAX_CUSTOM_WINDOW_PRESETS} 个自定义模板。` : `Up to ${MAX_CUSTOM_WINDOW_PRESETS} custom templates can be saved.` }}
+                        </div>
                         <div class="mt-4 flex flex-wrap gap-2">
-                          <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold" @click="handleAddCustomWindowPreset">{{ copy.addTemplate }}</button>
+                          <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50" :disabled="!canAddCustomWindowPreset" @click="handleAddCustomWindowPreset">{{ copy.addTemplate }}</button>
                         </div>
                       </div>
                     </div>
@@ -683,116 +741,140 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                 </template>
 
                 <template v-else>
-                  <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <div class="space-y-5">
-                      <div class="theme-card-soft rounded-[28px] p-5">
-                        <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
-                          <AppIcon name="crosshair" :size="18" />
-                          <span class="text-lg font-semibold">{{ copy.displayTitle }}</span>
+                  <div class="space-y-5">
+                    <div class="theme-card-soft rounded-[28px] p-5">
+                      <div class="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="crosshair" :size="18" />
+                            <span class="text-lg font-semibold">{{ isZh ? '十字线' : 'Crosshair' }}</span>
+                          </div>
+                          <div class="mt-2 text-sm text-[var(--theme-text-secondary)]">{{ isZh ? '设置 MPR 三个视图的十字线颜色和线宽，并在同一区域预览效果。' : 'Configure crosshair color and thickness for the three MPR views, with preview in the same area.' }}</div>
                         </div>
-                        <div class="mb-5 text-sm text-[var(--theme-text-secondary)]">{{ copy.displayDesc }}</div>
+                      </div>
 
-                        <div class="space-y-4">
-                          <div
-                            v-for="config in crosshairConfigs"
-                            :key="config.key"
-                            class="theme-card-soft rounded-[20px] p-4"
-                          >
-                            <div class="mb-3 flex items-center justify-between gap-3">
-                              <div>
-                                <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.crosshairViewport }} {{ config.label }}</div>
-                                <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ copy.crosshairNote }}</div>
+                      <div class="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
+                        <div class="min-w-0">
+                          <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '十字线样式' : 'Crosshair Style' }}</div>
+                          <div class="grid gap-4 xl:grid-cols-3 2xl:grid-cols-1">
+                            <div
+                              v-for="config in crosshairConfigs"
+                              :key="config.key"
+                              class="theme-card-soft rounded-[20px] p-4"
+                            >
+                              <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ config.label }}</div>
+
+                              <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                                <label class="block">
+                                  <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.crosshairColor }}</span>
+                                  <div class="flex items-center gap-3 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                                    <input v-model="config.color" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                                    <div class="min-w-0">
+                                      <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ config.color }}</div>
+                                    </div>
+                                  </div>
+                                </label>
+
+                                <label class="block">
+                                  <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.crosshairWidth }}</span>
+                                  <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
+                                    <input v-model="config.thickness" type="range" min="1" max="4" step="1" class="w-full accent-[var(--theme-accent)]" />
+                                    <div class="mt-2 flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
+                                      <span>{{ copy.thin }}</span>
+                                      <span>{{ config.thickness }} px</span>
+                                      <span>{{ copy.bold }}</span>
+                                    </div>
+                                  </div>
+                                </label>
                               </div>
-                              <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ config.label }}</span>
                             </div>
+                          </div>
+                        </div>
 
-                            <div class="grid gap-4 md:grid-cols-2">
-                              <label class="block">
-                                <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.crosshairColor }}</span>
-                                <div class="flex items-center gap-3 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                                  <input v-model="config.color" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
-                                  <div class="min-w-0">
-                                    <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ config.color }}</div>
-                                  </div>
-                                </div>
-                              </label>
-
-                              <label class="block">
-                                <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.crosshairWidth }}</span>
-                                <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
-                                  <input v-model="config.thickness" type="range" min="1" max="4" step="1" class="w-full accent-[var(--theme-accent)]" />
-                                  <div class="mt-2 flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
-                                    <span>{{ copy.thin }}</span>
-                                    <span>{{ config.thickness }} px</span>
-                                    <span>{{ copy.bold }}</span>
-                                  </div>
-                                </div>
-                              </label>
+                        <div class="min-w-0">
+                          <div class="mb-3 flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="palette" :size="18" />
+                            <span class="text-sm font-semibold">{{ copy.visualPreview }}</span>
+                          </div>
+                          <div class="mb-4 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.crosshairPreviewLabel }}</div>
+                          <div class="grid gap-4 md:grid-cols-3 2xl:grid-cols-1">
+                            <div
+                              v-for="config in crosshairConfigs"
+                              :key="`${config.key}-preview`"
+                              class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-3"
+                            >
+                              <div class="mb-2 flex items-center justify-between">
+                                <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ config.label }}</span>
+                              </div>
+                              <div class="relative h-[170px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                                <div class="absolute left-[16%] top-[18%] h-8 w-8 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_3%,transparent)] blur-[1px]"></div>
+                                <div class="absolute right-[14%] top-[26%] h-12 w-12 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_7%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[2px]"></div>
+                                <div class="absolute bottom-[16%] left-[22%] h-10 w-10 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_6%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[1px]"></div>
+                                <div class="absolute inset-y-0 left-1/2 -translate-x-1/2" :style="{ width: `${getCrosshairPreviewAxes(config.key).vertical.thickness}px`, backgroundColor: getCrosshairPreviewAxes(config.key).vertical.color, boxShadow: `0 0 14px ${getCrosshairPreviewAxes(config.key).vertical.color}88` }"></div>
+                                <div class="absolute inset-x-0 top-1/2 -translate-y-1/2" :style="{ height: `${getCrosshairPreviewAxes(config.key).horizontal.thickness}px`, backgroundColor: getCrosshairPreviewAxes(config.key).horizontal.color, boxShadow: `0 0 14px ${getCrosshairPreviewAxes(config.key).horizontal.color}88` }"></div>
+                                <div class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_12%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_78%,black)]"></div>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
+                    <div class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                           <AppIcon name="measure" :size="18" />
                           <span class="text-sm font-semibold">{{ copy.scaleBarTitle }}</span>
                         </div>
-                        <div class="mb-4 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
+                        <div class="max-w-2xl text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
+                      </div>
 
-                        <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.72fr)]">
-                          <label class="block">
-                            <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.scaleBarEnabled }}</span>
-                            <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-4">
-                              <label class="flex cursor-pointer items-center justify-between gap-3">
-                                <div>
-                                  <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ copy.scaleBarEnabled }}</div>
-                                  <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">
-                                    {{ scaleBarPreference.enabled ? copy.enabledLabel : copy.disabledLabel }}
-                                  </div>
-                                </div>
-                                <input
-                                  v-model="scaleBarPreference.enabled"
-                                  type="checkbox"
-                                  class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]"
-                                />
-                              </label>
-                            </div>
-                          </label>
-
-                          <label class="block">
-                            <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.scaleBarColor }}</span>
-                            <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
-                              <div class="flex items-center gap-3">
-                                <input v-model="scaleBarPreference.color" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
-                                <div class="min-w-0">
-                                  <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ scaleBarPreference.color }}</div>
-                                </div>
-                              </div>
-                              <div class="mt-3 flex flex-wrap gap-2">
-                                <button
-                                  v-for="preset in scaleBarColorPresets"
-                                  :key="preset.value"
-                                  type="button"
-                                  class="flex h-8 w-8 items-center justify-center rounded-full border transition duration-150"
-                                  :class="scaleBarPreference.color.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
-                                  :style="{ backgroundColor: preset.value }"
-                                  :title="preset.label"
-                                  @click="scaleBarPreference.color = preset.value"
-                                >
-                                  <span
-                                    v-if="scaleBarPreference.color.toLowerCase() === preset.value.toLowerCase()"
-                                    class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
-                                  ></span>
-                                </button>
+                      <div class="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,0.92fr)_minmax(0,1.15fr)]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-3">
+                          <label class="flex h-full cursor-pointer items-center justify-between gap-4">
+                            <div class="min-w-0">
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.scaleBarEnabled }}</div>
+                              <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                                {{ scaleBarPreference.enabled ? copy.enabledLabel : copy.disabledLabel }}
                               </div>
                             </div>
+                            <span class="relative h-6 w-11 shrink-0 rounded-full border transition" :class="scaleBarPreference.enabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]' : 'border-[var(--theme-border-strong)] bg-[var(--theme-surface-card)]'">
+                              <span class="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition" :class="scaleBarPreference.enabled ? 'left-6' : 'left-1'"></span>
+                            </span>
+                            <input v-model="scaleBarPreference.enabled" type="checkbox" class="sr-only" />
                           </label>
                         </div>
 
-                        <div class="mt-4 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
-                          <div class="mb-3 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.scaleBarPreviewLabel }}</div>
-                            <div class="relative h-20 overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                          <div class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.scaleBarColor }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="scaleBarPreference.color" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0">
+                              <div class="text-sm font-medium text-[var(--theme-text-primary)]">{{ scaleBarPreference.color }}</div>
+                            </div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in scaleBarColorPresets"
+                              :key="preset.value"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="scaleBarPreference.color.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="scaleBarPreference.color = preset.value"
+                            >
+                              <span
+                                v-if="scaleBarPreference.color.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarPreviewLabel }}</div>
+                          <div class="relative h-20 overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
                             <div
                               v-if="scaleBarPreference.enabled"
                               class="absolute bottom-3 left-1/2 -translate-x-1/2"
@@ -818,11 +900,36 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                           </div>
                         </div>
                       </div>
+                    </div>
+
+                    <div class="grid gap-5 xl:grid-cols-2">
+                      <div class="theme-card-soft rounded-[24px] p-4">
+                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.pseudocolor }}</div>
+                        <div class="space-y-3">
+                          <button
+                            v-for="option in PSEUDOCOLOR_PRESET_OPTIONS"
+                            :key="option.key"
+                            type="button"
+                            class="relative flex w-full items-center gap-3 rounded-[18px] border px-3 py-3 text-left transition duration-150"
+                            :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
+                            @click="selectedPseudocolorKey = option.key"
+                          >
+                            <span class="h-9 flex-1 rounded-2xl border shadow-inner" :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'" :style="{ background: option.gradient }"></span>
+                            <span class="w-24 shrink-0 text-sm font-semibold" :class="selectedPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
+                            <span
+                              class="grid h-7 w-7 shrink-0 place-items-center rounded-full border transition"
+                              :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_16px_color-mix(in_srgb,var(--theme-accent)_45%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] text-transparent'"
+                            >
+                              <AppIcon name="check" :size="15" />
+                            </span>
+                          </button>
+                        </div>
+                      </div>
 
                       <div class="theme-card-soft rounded-[24px] p-4">
                         <div class="mb-2 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.roiStatsTitle }}</div>
                         <div class="mb-4 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.roiStatsDesc }}</div>
-                        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        <div class="grid gap-3 sm:grid-cols-2">
                           <label
                             v-for="option in roiStatOptions"
                             :key="option.key"
@@ -831,52 +938,6 @@ function handleRemoveSelectedCustomWindowPreset(): void {
                             <input v-model="option.enabled" type="checkbox" class="h-4 w-4 rounded border-[var(--theme-border-soft)] accent-[var(--theme-accent)]" />
                             <span class="text-sm font-medium text-[var(--theme-text-primary)]">{{ option.label }}</span>
                           </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="space-y-5">
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 flex items-center gap-2 text-[var(--theme-text-primary)]">
-                          <AppIcon name="palette" :size="18" />
-                          <span class="text-sm font-semibold">{{ copy.visualPreview }}</span>
-                        </div>
-                        <div class="mb-4 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.crosshairPreviewLabel }}</div>
-                        <div class="grid gap-4 md:grid-cols-3">
-                          <div
-                            v-for="config in crosshairConfigs"
-                            :key="`${config.key}-preview`"
-                            class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-3"
-                          >
-                            <div class="mb-2 flex items-center justify-between">
-                              <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ config.label }}</span>
-                            </div>
-                            <div class="relative h-[170px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
-                              <div class="absolute left-[16%] top-[18%] h-8 w-8 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_3%,transparent)] blur-[1px]"></div>
-                              <div class="absolute right-[14%] top-[26%] h-12 w-12 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_7%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[2px]"></div>
-                              <div class="absolute bottom-[16%] left-[22%] h-10 w-10 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_6%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[1px]"></div>
-                              <div class="absolute inset-y-0 left-1/2 -translate-x-1/2" :style="{ width: `${getCrosshairPreviewAxes(config.key).vertical.thickness}px`, backgroundColor: getCrosshairPreviewAxes(config.key).vertical.color, boxShadow: `0 0 14px ${getCrosshairPreviewAxes(config.key).vertical.color}88` }"></div>
-                              <div class="absolute inset-x-0 top-1/2 -translate-y-1/2" :style="{ height: `${getCrosshairPreviewAxes(config.key).horizontal.thickness}px`, backgroundColor: getCrosshairPreviewAxes(config.key).horizontal.color, boxShadow: `0 0 14px ${getCrosshairPreviewAxes(config.key).horizontal.color}88` }"></div>
-                              <div class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_12%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_78%,black)]"></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.pseudocolor }}</div>
-                        <div class="space-y-3">
-                          <button
-                            v-for="option in PSEUDOCOLOR_PRESET_OPTIONS"
-                            :key="option.key"
-                            type="button"
-                            class="flex w-full items-center gap-3 rounded-[18px] border px-3 py-3 text-left transition duration-150"
-                            :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
-                            @click="selectedPseudocolorKey = option.key"
-                          >
-                            <span class="h-9 flex-1 rounded-2xl border border-[var(--theme-border-soft)]" :style="{ background: option.gradient }"></span>
-                            <span class="w-24 shrink-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ option.label }}</span>
-                          </button>
                         </div>
                       </div>
                     </div>

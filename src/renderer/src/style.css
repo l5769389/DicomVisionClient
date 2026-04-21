@@ -153,11 +153,6 @@
     overflow: hidden;
   }
 
-  html,
-  body {
-    scrollbar-gutter: stable;
-  }
-
   body {
     font-family: inherit;
     text-rendering: optimizeLegibility;

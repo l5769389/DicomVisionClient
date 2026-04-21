@@ -1457,10 +1457,10 @@ onBeforeUnmount(() => {
 
         <div
           v-if="activeTab.viewType === 'MPR' && isMprMipPanelOpen && activeMprMipConfig"
-          class="pointer-events-none absolute inset-y-5 right-5 z-[20] flex items-start"
+          class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
         >
           <MprMipConfigPanel
-            class="pointer-events-auto max-h-full"
+            class="pointer-events-auto max-h-full rounded-r-[18px]!"
             :config="activeMprMipConfig"
             @config-change="updateActiveMprMipConfig"
           />

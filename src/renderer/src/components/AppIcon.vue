@@ -12,7 +12,7 @@ const mdiIconMap: Record<string, string> = {
   zoom: 'mdi-loupe',
   window: 'mdi-circle-half-full',
   crosshair: 'mdi-crosshairs-gps',
-  mip: 'mdi-layers-triple-outline',
+  mip: 'mdi-layers-triple',
   rotate: 'mdi-rotate-right',
   rotate3d: 'mdi-axis-arrow',
   volumePreset: 'mdi-tune-variant',
@@ -62,6 +62,7 @@ const mdiIconMap: Record<string, string> = {
   shield: 'mdi-shield-check-outline',
   copy: 'mdi-content-copy',
   trash: 'mdi-trash-can-outline',
+  check: 'mdi-check-bold',
   close: 'mdi-close'
 }
 

@@ -256,7 +256,7 @@ watch(
       viewportClass,
       cursorClass,
       isActive
-        ? 'border-sky-300/40 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_0_0_1px_rgba(83,170,241,0.18),0_8px_16px_rgba(8,89,156,0.14)]'
+        ? 'border-[var(--theme-accent)] shadow-[inset_0_0_0_2px_var(--theme-accent),inset_0_0_28px_color-mix(in_srgb,var(--theme-accent)_18%,transparent),0_0_0_2px_color-mix(in_srgb,var(--theme-accent)_44%,transparent),0_0_28px_color-mix(in_srgb,var(--theme-accent)_32%,transparent)]'
         : ''
     ]"
     :data-active-viewport="isActive ? 'true' : 'false'"
@@ -351,6 +351,12 @@ watch(
         class="absolute left-3 top-3 rounded-full bg-slate-900/80 px-3 py-1 text-xs tracking-[0.14em] text-slate-400"
       >
         {{ placeholder }}
+      </span>
+      <span
+        v-if="isActive"
+        class="pointer-events-none absolute right-3 top-3 z-[6] rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_55%,white_10%)] bg-[color:color-mix(in_srgb,var(--theme-accent)_22%,rgba(4,8,14,0.88))] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-overlay-text)] shadow-[0_10px_24px_rgba(0,0,0,0.32)]"
+      >
+        Active
       </span>
     </div>
   </div>

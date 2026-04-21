@@ -34,6 +34,7 @@ import type {
   MeasurementOverlay,
   MeasurementToolType,
   MprMipConfig,
+  MprMipOperationConfig,
   MprViewportKey,
   ViewImageResponse,
   ViewTransformInfo,
@@ -106,6 +107,7 @@ interface ViewerWorkspaceState {
 
 export function useViewerWorkspace(): ViewerWorkspaceState {
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
+  const MPR_MIP_CONFIG_DEBOUNCE_MS = 120
   const backendOrigin = ref(DESKTOP_DEV_BACKEND_ORIGIN)
   const message = ref('')
   const isSidebarCollapsed = ref(false)
@@ -136,6 +138,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
+  let pendingMprMipConfigTimer: ReturnType<typeof window.setTimeout> | null = null
+  let pendingMprMipConfigPayload: { viewIds: string[]; config: MprMipConfig } | null = null
 
   function generateMtfId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -271,6 +275,52 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function createMprMipOperationConfig(config: MprMipConfig): MprMipOperationConfig {
+    if (!config.enabled) {
+      return { enabled: false }
+    }
+
+    return config
+  }
+
+  function emitMprMipConfig(viewIds: string[], config: MprMipConfig): void {
+    const mprMipConfig = createMprMipOperationConfig(config)
+    viewIds.forEach((viewId) => {
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.mprMipConfig,
+        mprMipConfig
+      })
+    })
+  }
+
+  function clearPendingMprMipConfig(): void {
+    if (pendingMprMipConfigTimer != null) {
+      window.clearTimeout(pendingMprMipConfigTimer)
+      pendingMprMipConfigTimer = null
+    }
+    pendingMprMipConfigPayload = null
+  }
+
+  function flushPendingMprMipConfig(): void {
+    if (!pendingMprMipConfigPayload) {
+      return
+    }
+    const { viewIds, config } = pendingMprMipConfigPayload
+    clearPendingMprMipConfig()
+    emitMprMipConfig(viewIds, config)
+  }
+
+  function scheduleMprMipConfigEmit(viewIds: string[], config: MprMipConfig): void {
+    pendingMprMipConfigPayload = { viewIds, config }
+    if (pendingMprMipConfigTimer != null) {
+      window.clearTimeout(pendingMprMipConfigTimer)
+    }
+    pendingMprMipConfigTimer = window.setTimeout(() => {
+      flushPendingMprMipConfig()
+    }, MPR_MIP_CONFIG_DEBOUNCE_MS)
+  }
+
   function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }): void {
     const tab = activeTab.value
     if (!tab) {
@@ -310,11 +360,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'mprMipConfig' && payload.config) {
-      const viewportKey = activeViewportKey.value as MprViewportKey
-      const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
-      if (!viewId) {
+      const viewIds = Object.values(tab.viewportViewIds ?? {}).filter((viewId): viewId is string => Boolean(viewId))
+      if (!viewIds.length) {
         return
       }
+      const previousConfig = tab.mprMipConfig ?? createDefaultMprMipConfig()
+      const shouldEmitDisabled = previousConfig.enabled && !payload.config.enabled
 
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
@@ -325,11 +376,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.mprMipConfig,
-        mprMipConfig: payload.config
-      })
+      if (!payload.config.enabled) {
+        if (shouldEmitDisabled) {
+          clearPendingMprMipConfig()
+          emitMprMipConfig(viewIds, payload.config)
+        }
+        return
+      }
+
+      scheduleMprMipConfigEmit(viewIds, payload.config)
       return
     }
 
@@ -491,6 +546,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (!viewId) {
         return
       }
+      clearPendingMprMipConfig()
 
       viewerTabs.value = viewerTabs.value.map((item) => {
         if (item.key !== tab.key) {
@@ -1312,6 +1368,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   onBeforeUnmount(() => {
     flushAllPendingVolumeConfig()
+    flushPendingMprMipConfig()
     cleanupHover()
     cleanupSocketListeners()
     if (resizeObserver && observedViewerStage) {

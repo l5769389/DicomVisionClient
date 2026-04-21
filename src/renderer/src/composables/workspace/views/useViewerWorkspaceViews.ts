@@ -23,7 +23,7 @@ import {
   normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
 import { normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
-import { createDefaultMprMipConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, normalizeMprMipConfig } from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
@@ -251,7 +251,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
-      const mprMipConfig = payload.mprMipConfig ?? item.mprMipConfig ?? createDefaultMprMipConfig()
+      const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset

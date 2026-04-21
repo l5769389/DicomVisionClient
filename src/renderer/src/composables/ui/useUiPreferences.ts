@@ -80,6 +80,7 @@ const CURRENT_PREFERENCES_VERSION = 4
 const DEFAULT_THEME_ID = 'aurora'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
+export const MAX_CUSTOM_WINDOW_PRESETS = 5
 const LEGACY_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string> = {
   'mpr-ax': '#ffd166',
   'mpr-cor': '#7dd3fc',
@@ -358,7 +359,7 @@ function normalizeCustomWindowPresets(value: unknown): StoredCustomWindowPreset[
     return []
   }
 
-  return value.map((item, index) => ({
+  return value.slice(0, MAX_CUSTOM_WINDOW_PRESETS).map((item, index) => ({
     id: typeof item?.id === 'string' && item.id.trim() ? item.id : `custom-loaded-${index}`,
     ww: normalizeNumber(item?.ww, 400),
     wl: normalizeNumber(item?.wl, 40),
@@ -554,6 +555,10 @@ export function useUiPreferences() {
     wl: number
     accent?: string
   }): string {
+    if (state.customWindowPresets.length >= MAX_CUSTOM_WINDOW_PRESETS) {
+      return state.customWindowPresets[state.customWindowPresets.length - 1]?.id ?? DEFAULT_WINDOW_PRESET_ID
+    }
+
     const presetId = createCustomPresetId()
     state.customWindowPresets = [
       ...state.customWindowPresets,
@@ -601,6 +606,19 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function removeCustomWindowPresets(ids: string[]): void {
+    const idSet = new Set(ids)
+    if (!idSet.size) {
+      return
+    }
+
+    state.customWindowPresets = state.customWindowPresets.filter((item) => !idSet.has(item.id))
+    if (idSet.has(state.selectedWindowPresetId)) {
+      state.selectedWindowPresetId = DEFAULT_WINDOW_PRESET_ID
+    }
+    void persistState()
+  }
+
   function setQaWaterMetrics(nextValue: QaWaterMetricPreference[]): void {
     state.qaWaterMetrics = normalizeQaWaterMetrics(nextValue)
     void persistState()
@@ -629,6 +647,7 @@ export function useUiPreferences() {
     setRoiStatOptions,
     addCustomWindowPreset,
     removeCustomWindowPreset,
+    removeCustomWindowPresets,
     systemWindowPresets,
     themeId,
     windowPresets

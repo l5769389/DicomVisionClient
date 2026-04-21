@@ -59,12 +59,14 @@ function drawStroke(
   thickness: number
 ): void {
   context.lineCap = 'butt'
-  context.strokeStyle = 'rgba(4, 8, 14, 0.72)'
-  context.lineWidth = thickness + 2
-  context.beginPath()
-  context.moveTo(fromX, fromY)
-  context.lineTo(toX, toY)
-  context.stroke()
+  if (thickness > 1) {
+    context.strokeStyle = 'rgba(4, 8, 14, 0.72)'
+    context.lineWidth = thickness + 1
+    context.beginPath()
+    context.moveTo(fromX, fromY)
+    context.lineTo(toX, toY)
+    context.stroke()
+  }
 
   context.strokeStyle = color
   context.lineWidth = thickness

@@ -109,6 +109,8 @@ export interface MprMipConfig {
   viewports: Record<MprViewportKey, MprMipViewportConfig>
 }
 
+export type MprMipOperationConfig = (Partial<Omit<MprMipConfig, 'enabled'>> & { enabled: boolean })
+
 export function createDefaultMprMipConfig(): MprMipConfig {
   return {
     enabled: false,
@@ -117,6 +119,37 @@ export function createDefaultMprMipConfig(): MprMipConfig {
       'mpr-ax': { thickness: 12 },
       'mpr-cor': { thickness: 12 },
       'mpr-sag': { thickness: 12 }
+    }
+  }
+}
+
+export function normalizeMprMipConfig(
+  value?: MprMipOperationConfig | MprMipConfig | null,
+  fallback: MprMipConfig = createDefaultMprMipConfig()
+): MprMipConfig {
+  const isAlgorithm = (algorithm: unknown): algorithm is MprMipAlgorithm =>
+    algorithm === 'maximum' || algorithm === 'minimum' || algorithm === 'average' || algorithm === 'sum'
+  const clampThickness = (thickness: unknown, fallbackThickness: number): number => {
+    const numericThickness = Number(thickness)
+    if (!Number.isFinite(numericThickness)) {
+      return fallbackThickness
+    }
+    return Math.max(1, Math.min(80, Math.round(numericThickness)))
+  }
+
+  return {
+    enabled: value?.enabled ?? fallback.enabled,
+    algorithm: isAlgorithm(value?.algorithm) ? value.algorithm : fallback.algorithm,
+    viewports: {
+      'mpr-ax': {
+        thickness: clampThickness(value?.viewports?.['mpr-ax']?.thickness, fallback.viewports['mpr-ax'].thickness)
+      },
+      'mpr-cor': {
+        thickness: clampThickness(value?.viewports?.['mpr-cor']?.thickness, fallback.viewports['mpr-cor'].thickness)
+      },
+      'mpr-sag': {
+        thickness: clampThickness(value?.viewports?.['mpr-sag']?.thickness, fallback.viewports['mpr-sag'].thickness)
+      }
     }
   }
 }
@@ -318,7 +351,7 @@ export interface ViewImageResponse {
   volumeConfig?: VolumeRenderConfig | null
   transform?: ViewTransformInfo | null
   color?: ViewColorInfo | null
-  mprMipConfig?: MprMipConfig | null
+  mprMipConfig?: MprMipOperationConfig | null
 }
 
 export interface ViewHoverPayload {

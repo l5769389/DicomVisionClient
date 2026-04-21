@@ -7,7 +7,6 @@ import type {
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
-  MprCrosshairInfo,
   MprViewportKey,
   ViewerMtfItem,
   ViewerTabItem
@@ -38,6 +37,11 @@ import {
   type MeasurementInteractionState
 } from './measurementInteractionMachine'
 import { resolveMtfDraftMode } from './mtfInteractionMachine'
+import {
+  getTabViewportCrosshairGeometry,
+  normalizeCrosshairAngle,
+  type CrosshairLineTarget
+} from '../workspace/views/mprFrameGeometry'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
@@ -109,32 +113,7 @@ interface MeasurementPointerContext extends BasicPointerContext {
 const DRAG_START_THRESHOLD = 3
 const CROSSHAIR_LINE_HIT_TOLERANCE_PX = 6
 const CROSSHAIR_ROTATION_DEAD_ZONE_PX = 18
-
-type CrosshairLineTarget = 'horizontal' | 'vertical'
 type CrosshairHitTarget = 'center' | CrosshairLineTarget | 'none'
-
-function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: number } {
-  return {
-    x: crosshairInfo.verticalPosition ?? crosshairInfo.centerX,
-    y: crosshairInfo.horizontalPosition ?? crosshairInfo.centerY
-  }
-}
-
-function normalizeCrosshairAngle(angleRad: number): number {
-  const halfTurn = Math.PI
-  let nextAngle = angleRad % halfTurn
-  if (nextAngle < 0) {
-    nextAngle += halfTurn
-  }
-  return nextAngle
-}
-
-function getCrosshairLineAngle(crosshairInfo: MprCrosshairInfo, line: CrosshairLineTarget): number {
-  if (line === 'vertical') {
-    return normalizeCrosshairAngle(crosshairInfo.verticalAngleRad ?? Math.PI / 2)
-  }
-  return normalizeCrosshairAngle(crosshairInfo.horizontalAngleRad ?? 0)
-}
 
 function generateMeasurementId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -513,11 +492,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!point) {
       return null
     }
-    const crosshairInfo =
-      viewportKey === 'single' || viewportKey === 'volume'
-        ? null
-        : options.activeTab.value?.viewportCrosshairs?.[viewportKey as MprViewportKey] ?? null
-    if (!crosshairInfo) {
+    if (viewportKey === 'single' || viewportKey === 'volume') {
+      return null
+    }
+    const geometry = getTabViewportCrosshairGeometry(options.activeTab.value, viewportKey as MprViewportKey)
+    if (!geometry) {
       return null
     }
     const container = resolvePointerContainer(event)
@@ -528,11 +507,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!rect.width || !rect.height) {
       return null
     }
-    const center = getCrosshairCenter(crosshairInfo)
     const pointerX = point.x * rect.width
     const pointerY = point.y * rect.height
-    const centerX = center.x * rect.width
-    const centerY = center.y * rect.height
+    const centerX = geometry.center.x * rect.width
+    const centerY = geometry.center.y * rect.height
     return {
       angleRad: normalizeCrosshairAngle(Math.atan2(pointerY - centerY, pointerX - centerX)),
       x: point.x,
@@ -569,12 +547,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     viewportKey: string,
     point: { x: number; y: number }
   ): CrosshairHitTarget {
-    const crosshairInfo =
-      viewportKey === 'single' || viewportKey === 'volume'
-        ? null
-        : options.activeTab.value?.viewportCrosshairs?.[viewportKey as MprViewportKey] ?? null
-
-    if (!crosshairInfo) {
+    if (viewportKey === 'single' || viewportKey === 'volume') {
+      return 'none'
+    }
+    const crosshairInfo = options.activeTab.value?.viewportCrosshairs?.[viewportKey as MprViewportKey] ?? null
+    const geometry = getTabViewportCrosshairGeometry(options.activeTab.value, viewportKey as MprViewportKey)
+    if (!crosshairInfo || !geometry) {
       return 'none'
     }
 
@@ -588,11 +566,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return 'none'
     }
 
-    const center = getCrosshairCenter(crosshairInfo)
     const minDimension = Math.min(rect.width, rect.height)
     const hitRadius = crosshairInfo.hitRadius * minDimension
-    const deltaX = (point.x - center.x) * rect.width
-    const deltaY = (point.y - center.y) * rect.height
+    const deltaX = (point.x - geometry.center.x) * rect.width
+    const deltaY = (point.y - geometry.center.y) * rect.height
     const distanceFromCenterSquared = deltaX * deltaX + deltaY * deltaY
     if (distanceFromCenterSquared <= hitRadius * hitRadius) {
       return 'center'
@@ -600,8 +577,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     const pointerX = point.x * rect.width
     const pointerY = point.y * rect.height
-    const centerX = center.x * rect.width
-    const centerY = center.y * rect.height
+    const centerX = geometry.center.x * rect.width
+    const centerY = geometry.center.y * rect.height
     const lineTolerance = Math.max(CROSSHAIR_LINE_HIT_TOLERANCE_PX, hitRadius * 0.45)
     const rotationDeadZone = Math.max(CROSSHAIR_ROTATION_DEAD_ZONE_PX, hitRadius + 4)
     const isOutsideCenterDeadZone = distanceFromCenterSquared > rotationDeadZone * rotationDeadZone
@@ -610,7 +587,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     const distanceToLine = (line: CrosshairLineTarget): number => {
-      const angle = getCrosshairLineAngle(crosshairInfo, line)
+      const angle = line === 'vertical' ? geometry.verticalAngleRad : geometry.horizontalAngleRad
       const dirX = Math.cos(angle)
       const dirY = Math.sin(angle)
       return Math.abs((pointerX - centerX) * dirY - (pointerY - centerY) * dirX)

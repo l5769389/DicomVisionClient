@@ -14,11 +14,13 @@ import {
   createEmptyMprSliceLabels,
   createEmptyMprTransformStates,
   createEmptyMprViewIds,
+  createDefaultMprFrameInfo,
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
   createTab,
   mergeCornerInfo,
   normalizeCornerInfo,
+  normalizeMprFrameInfo,
   normalizeOrientationInfo,
   normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
@@ -252,6 +254,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
@@ -271,6 +274,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return {
           ...item,
           windowLabel,
+          mprFrame: mprFrame ?? item.mprFrame ?? null,
           viewportImages: {
             ...(item.viewportImages ?? createEmptyMprImages()),
             [viewportKey]: imageSrc
@@ -497,6 +501,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
+              mprFrame: viewType === 'MPR' ? createDefaultMprFrameInfo() : null,
               viewportViewIds: nextViewportViewIds,
               viewportImages: createEmptyMprImages(),
               viewportSliceLabels: createEmptyMprSliceLabels(),

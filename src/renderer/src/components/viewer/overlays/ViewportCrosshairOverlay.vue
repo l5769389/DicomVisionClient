@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useUiPreferences, type CrosshairViewportPreference } from '../../../composables/ui/useUiPreferences'
-import type { MprCrosshairInfo } from '../../../types/viewer'
-import type { MprViewportKey } from '../../../types/viewer'
+import { getMprViewportDerivedCrosshairGeometry } from '../../../composables/workspace/views/mprFrameGeometry'
+import type { MprCrosshairInfo, MprFrameInfo, MprViewportKey } from '../../../types/viewer'
 
 interface ImageFrame {
   left: number
@@ -16,12 +16,14 @@ const props = withDefaults(
     imageFrame: ImageFrame
     isActive?: boolean
     mprCrosshair?: MprCrosshairInfo | null
+    mprFrame?: MprFrameInfo | null
     stageHeight: number
     stageWidth: number
     viewportKey: string
   }>(),
   {
     isActive: false,
+    mprFrame: null,
     mprCrosshair: null
   }
 )
@@ -109,15 +111,6 @@ function drawCrosshairLine(
   )
 }
 
-function normalizeAngle(angleRad: number): number {
-  const halfTurn = Math.PI
-  let normalized = angleRad % halfTurn
-  if (normalized < 0) {
-    normalized += halfTurn
-  }
-  return normalized
-}
-
 function drawCrosshair(): void {
   const canvas = canvasRef.value
   if (!canvas) {
@@ -144,17 +137,26 @@ function drawCrosshair(): void {
   }
 
   const axes = getViewportAxes(props.viewportKey)
-  const centerX = props.mprCrosshair.centerX * props.stageWidth
-  const centerY = props.mprCrosshair.centerY * props.stageHeight
-  const horizontalAngle = normalizeAngle(props.mprCrosshair.horizontalAngleRad ?? 0)
-  const verticalAngle = normalizeAngle(props.mprCrosshair.verticalAngleRad ?? horizontalAngle + Math.PI / 2)
+  const viewportKey = props.viewportKey === 'mpr-ax' || props.viewportKey === 'mpr-cor' || props.viewportKey === 'mpr-sag'
+    ? props.viewportKey
+    : null
+  const geometry = viewportKey
+    ? getMprViewportDerivedCrosshairGeometry(props.mprFrame, viewportKey, props.mprCrosshair)
+    : null
+  if (!geometry) {
+    return
+  }
+  const centerX = geometry.center.x * props.stageWidth
+  const centerY = geometry.center.y * props.stageHeight
+  const horizontalAngle = geometry.horizontalAngleRad
+  const verticalAngle = geometry.verticalAngleRad
 
   drawCrosshairLine(context, centerX, centerY, horizontalAngle, axes.horizontal.color, axes.horizontal.thickness)
   drawCrosshairLine(context, centerX, centerY, verticalAngle, axes.vertical.color, axes.vertical.thickness)
 }
 
 watch(
-  () => [props.stageWidth, props.stageHeight, props.imageFrame, props.mprCrosshair, props.isActive, props.viewportKey, crosshairConfigs.value] as const,
+  () => [props.stageWidth, props.stageHeight, props.imageFrame, props.mprCrosshair, props.mprFrame, props.isActive, props.viewportKey, crosshairConfigs.value] as const,
   () => {
     drawCrosshair()
   },

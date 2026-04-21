@@ -8,6 +8,7 @@ import type {
   MeasurementDraft,
   MeasurementOverlay,
   MprCrosshairInfo,
+  MprFrameInfo,
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
@@ -44,6 +45,7 @@ const props = withDefaults(
     isLoading?: boolean
     loadingLabel?: string
     mprCrosshair?: MprCrosshairInfo | null
+    mprFrame?: MprFrameInfo | null
     orientation: OrientationInfo
     placeholder: string
     renderSurfaceActive?: boolean
@@ -64,6 +66,7 @@ const props = withDefaults(
     isLoading: false,
     loadingLabel: '正在加载视图...',
     mprCrosshair: null,
+    mprFrame: null,
     qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
@@ -292,6 +295,7 @@ watch(
         :stage-height="stageSize.height"
         :image-frame="imageFrame"
         :mpr-crosshair="mprCrosshair"
+        :mpr-frame="mprFrame"
         :viewport-key="viewportKey"
         :is-active="isActive"
       />

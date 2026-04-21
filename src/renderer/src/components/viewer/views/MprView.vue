@@ -105,6 +105,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :mtf-items="props.getMtfItems(item.key)"
       :selected-mtf-id="props.selectedMtfId ?? null"
       :mpr-crosshair="getViewportCrosshair(item.key)"
+      :mpr-frame="props.activeTab.mprFrame ?? null"
       :scale-bar="getViewportScaleBar(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @clear-mtf="emit('clearMtf')"

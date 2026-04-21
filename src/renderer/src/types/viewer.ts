@@ -279,6 +279,13 @@ export interface MprCrosshairInfo {
   verticalAngleRad?: number | null
 }
 
+export interface MprFrameInfo {
+  center: [number, number, number]
+  axisSlice: [number, number, number]
+  axisRow: [number, number, number]
+  axisCol: [number, number, number]
+}
+
 export interface ScaleBarInfo {
   lengthNorm: number
   label: string
@@ -344,6 +351,7 @@ export interface ViewImageResponse {
     ww?: number | null
     wl?: number | null
   }
+  mprFrame?: MprFrameInfo | null
   mpr_crosshair?: MprCrosshairInfo | null
   scaleBar?: ScaleBarInfo | null
   measurements?: MeasurementOverlay[]
@@ -400,6 +408,7 @@ export interface ViewerTabItem {
   viewportViewIds?: Partial<Record<MprViewportKey, string>>
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
+  mprFrame?: MprFrameInfo | null
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
   viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
   measurements?: MeasurementOverlay[]

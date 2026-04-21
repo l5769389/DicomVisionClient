@@ -2,6 +2,7 @@ import type {
   CornerInfo,
   CornerPosition,
   FolderSeriesItem,
+  MprFrameInfo,
   MprViewportKey,
   OrientationInfo,
   ScaleBarInfo,
@@ -44,6 +45,15 @@ export function createEmptyMprCrosshairs(): Record<MprViewportKey, null> {
     'mpr-ax': null,
     'mpr-cor': null,
     'mpr-sag': null
+  }
+}
+
+export function createDefaultMprFrameInfo(): MprFrameInfo {
+  return {
+    center: [0, 0, 0],
+    axisSlice: [1, 0, 0],
+    axisRow: [0, 1, 0],
+    axisCol: [0, 0, 1]
   }
 }
 
@@ -251,6 +261,44 @@ export function normalizeScaleBarInfo(value: unknown): ScaleBarInfo | null {
   }
 }
 
+function normalizeMprFrameAxis(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return fallback
+  }
+
+  const numeric = value.map((item) => Number(item))
+  if (numeric.some((item) => !Number.isFinite(item))) {
+    return fallback
+  }
+
+  return [numeric[0]!, numeric[1]!, numeric[2]!]
+}
+
+export function normalizeMprFrameInfo(value: unknown): MprFrameInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const nestedFrame = (record.mprFrame ?? record.mpr_frame ?? record.frame) as unknown
+  if (nestedFrame && nestedFrame !== value) {
+    return normalizeMprFrameInfo(nestedFrame)
+  }
+
+  const fallback = createDefaultMprFrameInfo()
+  const center = normalizeMprFrameAxis(record.center, fallback.center)
+  const axisSlice = normalizeMprFrameAxis(record.axisSlice ?? record.axis_slice, fallback.axisSlice)
+  const axisRow = normalizeMprFrameAxis(record.axisRow ?? record.axis_row, fallback.axisRow)
+  const axisCol = normalizeMprFrameAxis(record.axisCol ?? record.axis_col, fallback.axisCol)
+
+  return {
+    center,
+    axisSlice,
+    axisRow,
+    axisCol
+  }
+}
+
 export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerInfo {
   return CORNER_POSITIONS.reduce(
     (accumulator, position) => {
@@ -298,6 +346,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportViewIds: createEmptyMprViewIds(),
     viewportImages: createEmptyMprImages(),
     viewportSliceLabels: createEmptyMprSliceLabels(),
+    mprFrame: null,
     viewportCrosshairs: createEmptyMprCrosshairs(),
     viewportScaleBars: createEmptyMprScaleBars(),
     cornerInfo: createEmptyCornerInfo(),

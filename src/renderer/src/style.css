@@ -584,3 +584,15 @@
   touch-action: none;
   overscroll-behavior: none;
 }
+
+.cursor-crosshair-move {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Cpath d='M6 5l14 11.8c.9.8.5 2.2-.7 2.4l-4.5.7 2.7 4.8-3 1.6-2.6-4.8-3.4 3c-.9.8-2.3.2-2.3-1.1L6 5z' fill='%23020617' opacity='.34' transform='translate(1.1 1.1)'/%3E%3Cpath d='M6 5l14 11.8c.9.8.5 2.2-.7 2.4l-4.5.7 2.7 4.8-3 1.6-2.6-4.8-3.4 3c-.9.8-2.3.2-2.3-1.1L6 5z' fill='%23f8fafc' stroke='%23020617' stroke-width='1.25' stroke-linejoin='round'/%3E%3Cpath d='M31 6.5l-4.2 4.2h2.6v4.4h3.2v-4.4h2.6L31 6.5zM31 28.5l4.2-4.2h-2.6v-4.4h-3.2v4.4h-2.6l4.2 4.2zM20 17.5l4.2 4.2v-2.6h4.4v-3.2h-4.4v-2.6L20 17.5zM42 17.5l-4.2-4.2v2.6h-4.4v3.2h4.4v2.6l4.2-4.2z' fill='%2338bdf8' stroke='%23020617' stroke-width='1.25' stroke-linejoin='round'/%3E%3Ccircle cx='31' cy='17.5' r='2.2' fill='%23e0f2fe' stroke='%23020617' stroke-width='1.05'/%3E%3C/svg%3E") 6 5,
+    move;
+}
+
+.cursor-crosshair-rotate {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Cpath d='M6 5l14 11.8c.9.8.5 2.2-.7 2.4l-4.5.7 2.7 4.8-3 1.6-2.6-4.8-3.4 3c-.9.8-2.3.2-2.3-1.1L6 5z' fill='%23020617' opacity='.34' transform='translate(1.1 1.1)'/%3E%3Cpath d='M6 5l14 11.8c.9.8.5 2.2-.7 2.4l-4.5.7 2.7 4.8-3 1.6-2.6-4.8-3.4 3c-.9.8-2.3.2-2.3-1.1L6 5z' fill='%23f8fafc' stroke='%23020617' stroke-width='1.25' stroke-linejoin='round'/%3E%3Cpath d='M30.2 6.8c5.8 1 9.6 6.5 8.6 12.3-.7 3.6-3.2 6.6-6.4 8.1' fill='none' stroke='%23020617' stroke-width='4.8' stroke-linecap='round'/%3E%3Cpath d='M30.2 6.8c5.8 1 9.6 6.5 8.6 12.3-.7 3.6-3.2 6.6-6.4 8.1' fill='none' stroke='%2338bdf8' stroke-width='2.9' stroke-linecap='round'/%3E%3Cpath d='M39.1 19.7l-1 7.4-6.1-4.2' fill='none' stroke='%23020617' stroke-width='4.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M39.1 19.7l-1 7.4-6.1-4.2' fill='none' stroke='%2338bdf8' stroke-width='2.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 6 5,
+    grab;
+}

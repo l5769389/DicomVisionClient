@@ -61,7 +61,7 @@ interface PointerComposableOptions {
   emitMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => void
   emitMtfDelete: (payload: { mtfId: string }) => void
   emitMtfSelect: (payload: { mtfId: string | null }) => void
-  emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
+  emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }) => void
   emitViewportDrag: (payload: {
     deltaX: number
     deltaY: number
@@ -107,12 +107,33 @@ interface MeasurementPointerContext extends BasicPointerContext {
 }
 
 const DRAG_START_THRESHOLD = 3
+const CROSSHAIR_LINE_HIT_TOLERANCE_PX = 6
+const CROSSHAIR_ROTATION_DEAD_ZONE_PX = 18
+
+type CrosshairLineTarget = 'horizontal' | 'vertical'
+type CrosshairHitTarget = 'center' | CrosshairLineTarget | 'none'
 
 function getCrosshairCenter(crosshairInfo: MprCrosshairInfo): { x: number; y: number } {
   return {
     x: crosshairInfo.verticalPosition ?? crosshairInfo.centerX,
     y: crosshairInfo.horizontalPosition ?? crosshairInfo.centerY
   }
+}
+
+function normalizeCrosshairAngle(angleRad: number): number {
+  const halfTurn = Math.PI
+  let nextAngle = angleRad % halfTurn
+  if (nextAngle < 0) {
+    nextAngle += halfTurn
+  }
+  return nextAngle
+}
+
+function getCrosshairLineAngle(crosshairInfo: MprCrosshairInfo, line: CrosshairLineTarget): number {
+  if (line === 'vertical') {
+    return normalizeCrosshairAngle(crosshairInfo.verticalAngleRad ?? Math.PI / 2)
+  }
+  return normalizeCrosshairAngle(crosshairInfo.horizontalAngleRad ?? 0)
 }
 
 function generateMeasurementId(): string {
@@ -205,6 +226,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   const measurementInteraction = ref<MeasurementInteractionState>(measurementInteractionController.getState())
   const mtfInteraction = ref<MtfInteractionState>(mtfInteractionController.getState())
   const isCrosshairDragging = ref(false)
+  const crosshairDragMode = ref<'move' | 'rotate'>('move')
+  const crosshairRotationLine = ref<CrosshairLineTarget | null>(null)
   const isViewportDragging = ref(false)
   const activePointerId = ref<number | null>(null)
 
@@ -231,12 +254,15 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   )
 
   const emitThrottledCrosshairMove = throttle(
-    (payload: { viewportKey: string; x: number; y: number }) => {
+    (payload: { viewportKey: string; x: number; y: number; mode?: 'move' | 'rotate'; line?: CrosshairLineTarget; angleRad?: number }) => {
       options.emitMprCrosshair({
         viewportKey: payload.viewportKey,
         phase: DRAG_ACTION_TYPES.move,
         x: payload.x,
-        y: payload.y
+        y: payload.y,
+        mode: payload.mode,
+        line: payload.line,
+        angleRad: payload.angleRad
       })
     },
     30,
@@ -475,48 +501,126 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
-  function emitCrosshairEvent(viewportKey: string, phase: 'start' | 'move' | 'end', event: PointerEvent): void {
+  function getCrosshairRotationPayload(
+    event: PointerEvent,
+    viewportKey: string,
+    line: CrosshairLineTarget | null
+  ): { angleRad: number; x: number; y: number } | null {
+    if (!line) {
+      return null
+    }
+    const point = getNormalizedContainerPoint(event)
+    if (!point) {
+      return null
+    }
+    const crosshairInfo =
+      viewportKey === 'single' || viewportKey === 'volume'
+        ? null
+        : options.activeTab.value?.viewportCrosshairs?.[viewportKey as MprViewportKey] ?? null
+    if (!crosshairInfo) {
+      return null
+    }
+    const container = resolvePointerContainer(event)
+    if (!container) {
+      return null
+    }
+    const rect = container.getBoundingClientRect()
+    if (!rect.width || !rect.height) {
+      return null
+    }
+    const center = getCrosshairCenter(crosshairInfo)
+    const pointerX = point.x * rect.width
+    const pointerY = point.y * rect.height
+    const centerX = center.x * rect.width
+    const centerY = center.y * rect.height
+    return {
+      angleRad: normalizeCrosshairAngle(Math.atan2(pointerY - centerY, pointerX - centerX)),
+      x: point.x,
+      y: point.y
+    }
+  }
+
+  function emitCrosshairEvent(
+    viewportKey: string,
+    phase: 'start' | 'move' | 'end',
+    event: PointerEvent,
+    mode: 'move' | 'rotate' = 'move',
+    line: CrosshairLineTarget | null = null
+  ): void {
     const point = getNormalizedContainerPoint(event)
     if (!point) {
       return
     }
 
+    const rotationPayload = mode === 'rotate' ? getCrosshairRotationPayload(event, viewportKey, line) : null
     options.emitMprCrosshair({
       viewportKey,
       phase,
       x: point.x,
-      y: point.y
+      y: point.y,
+      mode,
+      line: line ?? undefined,
+      angleRad: rotationPayload?.angleRad
     })
   }
 
-  function isPointNearCrosshairCenter(
+  function resolveCrosshairHitTarget(
     event: PointerEvent,
     viewportKey: string,
     point: { x: number; y: number }
-  ): boolean {
+  ): CrosshairHitTarget {
     const crosshairInfo =
       viewportKey === 'single' || viewportKey === 'volume'
         ? null
         : options.activeTab.value?.viewportCrosshairs?.[viewportKey as MprViewportKey] ?? null
 
     if (!crosshairInfo) {
-      return false
+      return 'none'
     }
 
     const container = resolvePointerContainer(event)
     if (!container) {
-      return false
+      return 'none'
     }
 
     const rect = container.getBoundingClientRect()
     if (!rect.width || !rect.height) {
-      return false
+      return 'none'
     }
+
     const center = getCrosshairCenter(crosshairInfo)
-    const hitRadius = crosshairInfo.hitRadius * Math.min(rect.width, rect.height)
+    const minDimension = Math.min(rect.width, rect.height)
+    const hitRadius = crosshairInfo.hitRadius * minDimension
     const deltaX = (point.x - center.x) * rect.width
     const deltaY = (point.y - center.y) * rect.height
-    return deltaX * deltaX + deltaY * deltaY <= hitRadius * hitRadius
+    const distanceFromCenterSquared = deltaX * deltaX + deltaY * deltaY
+    if (distanceFromCenterSquared <= hitRadius * hitRadius) {
+      return 'center'
+    }
+
+    const pointerX = point.x * rect.width
+    const pointerY = point.y * rect.height
+    const centerX = center.x * rect.width
+    const centerY = center.y * rect.height
+    const lineTolerance = Math.max(CROSSHAIR_LINE_HIT_TOLERANCE_PX, hitRadius * 0.45)
+    const rotationDeadZone = Math.max(CROSSHAIR_ROTATION_DEAD_ZONE_PX, hitRadius + 4)
+    const isOutsideCenterDeadZone = distanceFromCenterSquared > rotationDeadZone * rotationDeadZone
+    if (!isOutsideCenterDeadZone) {
+      return 'none'
+    }
+
+    const distanceToLine = (line: CrosshairLineTarget): number => {
+      const angle = getCrosshairLineAngle(crosshairInfo, line)
+      const dirX = Math.cos(angle)
+      const dirY = Math.sin(angle)
+      return Math.abs((pointerX - centerX) * dirY - (pointerY - centerY) * dirX)
+    }
+    const horizontalDistance = distanceToLine('horizontal')
+    const verticalDistance = distanceToLine('vertical')
+    const closestLine = horizontalDistance <= verticalDistance ? 'horizontal' : 'vertical'
+    const closestDistance = Math.min(horizontalDistance, verticalDistance)
+
+    return closestDistance <= lineTolerance ? closestLine : 'none'
   }
 
   function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
@@ -798,6 +902,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (isCrosshairDragging.value) {
       emitThrottledCrosshairMove.cancel()
       isCrosshairDragging.value = false
+      crosshairDragMode.value = 'move'
+      crosshairRotationLine.value = null
       crosshairPointerViewportKey.value = ''
       releasePointerCapture(pointerTarget)
     }
@@ -931,6 +1037,31 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     })
     if (hitItem.kind === 'move_selected' || hitItem.kind === 'select_item') {
       setViewportCursor(viewportKey, 'cursor-move')
+      return
+    }
+
+    clearViewportCursor(viewportKey)
+  }
+
+  function updateCrosshairHoverCursor(event: PointerEvent): void {
+    const viewportKey = resolveViewportKeyFromEvent(event)
+    if (!viewportKey || !isCrosshairOperationEnabled()) {
+      return
+    }
+
+    const point = getNormalizedContainerPoint(event)
+    if (!point) {
+      clearViewportCursor(viewportKey)
+      return
+    }
+
+    const hitTarget = resolveCrosshairHitTarget(event, viewportKey, point)
+    if (hitTarget === 'center') {
+      setViewportCursor(viewportKey, 'cursor-crosshair-move')
+      return
+    }
+    if (hitTarget === 'horizontal' || hitTarget === 'vertical') {
+      setViewportCursor(viewportKey, 'cursor-crosshair-rotate')
       return
     }
 
@@ -1333,7 +1464,23 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return false
     }
 
-    const point = getNormalizedViewportPoint(event)
+    if (crosshairDragMode.value === 'rotate') {
+      const rotationPayload = getCrosshairRotationPayload(event, crosshairPointerViewportKey.value, crosshairRotationLine.value)
+      if (!rotationPayload) {
+        return true
+      }
+      emitThrottledCrosshairMove({
+        viewportKey: crosshairPointerViewportKey.value,
+        x: rotationPayload.x,
+        y: rotationPayload.y,
+        mode: 'rotate',
+        line: crosshairRotationLine.value ?? undefined,
+        angleRad: rotationPayload.angleRad
+      })
+      return true
+    }
+
+    const point = getNormalizedContainerPoint(event)
     if (!point) {
       return true
     }
@@ -1341,7 +1488,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     emitThrottledCrosshairMove({
       viewportKey: crosshairPointerViewportKey.value,
       x: point.x,
-      y: point.y
+      y: point.y,
+      mode: 'move'
     })
     return true
   }
@@ -1514,7 +1662,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
     const point = getNormalizedContainerPoint(event)
-    if (!point || !isPointNearCrosshairCenter(event, viewportKey, point)) {
+    if (!point) {
+      return true
+    }
+    const hitTarget = resolveCrosshairHitTarget(event, viewportKey, point)
+    if (hitTarget === 'none') {
       return true
     }
 
@@ -1522,6 +1674,15 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     setPointerCapture(pointerTarget, event.pointerId)
     isCrosshairDragging.value = true
     crosshairPointerViewportKey.value = viewportKey
+    if (hitTarget === 'horizontal' || hitTarget === 'vertical') {
+      crosshairDragMode.value = 'rotate'
+      crosshairRotationLine.value = hitTarget
+      emitCrosshairEvent(viewportKey, DRAG_ACTION_TYPES.start, event, 'rotate', hitTarget)
+      return true
+    }
+
+    crosshairDragMode.value = 'move'
+    crosshairRotationLine.value = null
     emitCrosshairEvent(viewportKey, DRAG_ACTION_TYPES.start, event)
     return true
   }
@@ -1553,7 +1714,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function handleViewportPointerMove(event: PointerEvent): void {
     if (activePointerId.value !== event.pointerId) {
       if (event.buttons === 0) {
-        if (isMtfOperationEnabled()) {
+        if (isCrosshairOperationEnabled()) {
+          updateCrosshairHoverCursor(event)
+        } else if (isMtfOperationEnabled()) {
           updateMtfHoverCursor(event)
         } else {
           updateMeasurementHoverCursor(event)
@@ -1576,7 +1739,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     if (!handleViewportDragPointerMove(event)) {
       if (event.buttons === 0) {
-        if (isMtfOperationEnabled()) {
+        if (isCrosshairOperationEnabled()) {
+          updateCrosshairHoverCursor(event)
+        } else if (isMtfOperationEnabled()) {
           updateMtfHoverCursor(event)
         } else {
           updateMeasurementHoverCursor(event)
@@ -1608,7 +1773,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     if (isCrosshairDragging.value) {
       emitThrottledCrosshairMove.flush()
-      emitCrosshairEvent(crosshairPointerViewportKey.value, DRAG_ACTION_TYPES.end, event)
+      emitCrosshairEvent(
+        crosshairPointerViewportKey.value,
+        DRAG_ACTION_TYPES.end,
+        event,
+        crosshairDragMode.value,
+        crosshairRotationLine.value
+      )
     }
     stopViewportDrag(event.currentTarget)
   }

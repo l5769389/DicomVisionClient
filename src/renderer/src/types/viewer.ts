@@ -275,6 +275,8 @@ export interface MprCrosshairInfo {
   hitRadius: number
   horizontalPosition: number | null
   verticalPosition: number | null
+  horizontalAngleRad?: number | null
+  verticalAngleRad?: number | null
 }
 
 export interface ScaleBarInfo {

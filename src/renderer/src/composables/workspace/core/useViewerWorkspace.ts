@@ -69,7 +69,7 @@ interface ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
   }) => void
-  handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }) => void
+  handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }) => void
   handleMeasurementCreate: (payload: {
     viewportKey: string
     toolType: MeasurementToolType
@@ -327,7 +327,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'reset' && tab.viewType !== 'Stack' && tab.viewType !== '3D') {
+    if (payload.action === 'reset' && tab.viewType !== 'Stack' && tab.viewType !== '3D' && tab.viewType !== 'MPR') {
       return
     }
 
@@ -556,9 +556,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return {
           ...item,
           mprMipConfig: createDefaultMprMipConfig(),
+          viewportTransformStates: {
+            'mpr-ax': DEFAULT_VIEW_TRANSFORM,
+            'mpr-cor': DEFAULT_VIEW_TRANSFORM,
+            'mpr-sag': DEFAULT_VIEW_TRANSFORM
+          },
           viewportPseudocolorPresets: {
-            ...(item.viewportPseudocolorPresets ?? {}),
-            [viewportKey]: selectedPseudocolorKey.value
+            'mpr-ax': selectedPseudocolorKey.value,
+            'mpr-cor': selectedPseudocolorKey.value,
+            'mpr-sag': selectedPseudocolorKey.value
           }
         }
       })
@@ -1139,12 +1145,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function handleMprCrosshair(payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number }): void {
+  function handleMprCrosshair(payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }): void {
     emitMprViewOperation(payload.viewportKey, {
-      opType: VIEW_OPERATION_TYPES.crosshair,
+      opType: payload.mode === 'rotate' ? VIEW_OPERATION_TYPES.mprOblique : VIEW_OPERATION_TYPES.crosshair,
       actionType: payload.phase,
       x: payload.x,
-      y: payload.y
+      y: payload.y,
+      line: payload.line,
+      angleRad: payload.angleRad
     })
   }
 

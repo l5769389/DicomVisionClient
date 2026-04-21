@@ -76,6 +76,48 @@ function drawStroke(
   context.stroke()
 }
 
+function drawCrosshairLine(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  angleRad: number,
+  color: string,
+  thickness: number
+): void {
+  const dirX = Math.cos(angleRad)
+  const dirY = Math.sin(angleRad)
+  const lineLength = Math.hypot(props.stageWidth, props.stageHeight) + Math.max(props.stageWidth, props.stageHeight)
+  const gap = gapRadius.value
+
+  drawStroke(
+    context,
+    centerX - dirX * lineLength,
+    centerY - dirY * lineLength,
+    centerX - dirX * gap,
+    centerY - dirY * gap,
+    color,
+    thickness
+  )
+  drawStroke(
+    context,
+    centerX + dirX * gap,
+    centerY + dirY * gap,
+    centerX + dirX * lineLength,
+    centerY + dirY * lineLength,
+    color,
+    thickness
+  )
+}
+
+function normalizeAngle(angleRad: number): number {
+  const halfTurn = Math.PI
+  let normalized = angleRad % halfTurn
+  if (normalized < 0) {
+    normalized += halfTurn
+  }
+  return normalized
+}
+
 function drawCrosshair(): void {
   const canvas = canvasRef.value
   if (!canvas) {
@@ -102,30 +144,13 @@ function drawCrosshair(): void {
   }
 
   const axes = getViewportAxes(props.viewportKey)
-  const horizontalYNorm = props.mprCrosshair.horizontalPosition
-  const verticalXNorm = props.mprCrosshair.verticalPosition
   const centerX = props.mprCrosshair.centerX * props.stageWidth
   const centerY = props.mprCrosshair.centerY * props.stageHeight
-  const horizontalY = (horizontalYNorm ?? props.mprCrosshair.centerY) * props.stageHeight
-  const verticalX = (verticalXNorm ?? props.mprCrosshair.centerX) * props.stageWidth
+  const horizontalAngle = normalizeAngle(props.mprCrosshair.horizontalAngleRad ?? 0)
+  const verticalAngle = normalizeAngle(props.mprCrosshair.verticalAngleRad ?? horizontalAngle + Math.PI / 2)
 
-  const gapStartX = Math.max(0, centerX - gapRadius.value)
-  const gapEndX = Math.min(props.stageWidth, centerX + gapRadius.value)
-  if (gapStartX > 0) {
-    drawStroke(context, 0, horizontalY, gapStartX, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
-  }
-  if (gapEndX < props.stageWidth) {
-    drawStroke(context, gapEndX, horizontalY, props.stageWidth, horizontalY, axes.horizontal.color, axes.horizontal.thickness)
-  }
-
-  const gapStartY = Math.max(0, centerY - gapRadius.value)
-  const gapEndY = Math.min(props.stageHeight, centerY + gapRadius.value)
-  if (gapStartY > 0) {
-    drawStroke(context, verticalX, 0, verticalX, gapStartY, axes.vertical.color, axes.vertical.thickness)
-  }
-  if (gapEndY < props.stageHeight) {
-    drawStroke(context, verticalX, gapEndY, verticalX, props.stageHeight, axes.vertical.color, axes.vertical.thickness)
-  }
+  drawCrosshairLine(context, centerX, centerY, horizontalAngle, axes.horizontal.color, axes.horizontal.thickness)
+  drawCrosshairLine(context, centerX, centerY, verticalAngle, axes.vertical.color, axes.vertical.thickness)
 }
 
 watch(

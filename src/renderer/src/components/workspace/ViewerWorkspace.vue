@@ -75,7 +75,7 @@ const emit = defineEmits<{
   mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
-  triggerViewAction: [payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
+  triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [deltaY: number]
@@ -183,7 +183,7 @@ const {
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
   emitSetActiveOperation: (value) => emit('setActiveOperation', value),
-  emitTriggerViewAction: (payload) => emit('triggerViewAction', payload),
+  emitTriggerViewAction: (payload) => handleToolbarViewAction(payload),
   emitViewportWheel: (deltaY) => emit('viewportWheel', deltaY),
   emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
   exportCurrentView: (format) => {
@@ -638,6 +638,31 @@ function setViewportAnnotations(viewportKey: string, annotations: AnnotationOver
       [viewportKey]: annotations
     }
   }
+}
+
+function clearAllAnnotationsForActiveTab(): void {
+  const tabKey = props.activeTab?.key
+  if (!tabKey) {
+    return
+  }
+
+  annotationStore.value = {
+    ...annotationStore.value,
+    [tabKey]: {}
+  }
+  clearDraftAnnotations()
+  annotationInteraction.value = { kind: 'idle' }
+}
+
+function handleToolbarViewAction(payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }): void {
+  if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
+    clearAllAnnotationsForActiveTab()
+    if (payload.action === 'clearAnnotations') {
+      return
+    }
+  }
+
+  emit('triggerViewAction', payload)
 }
 
 function upsertAnnotation(viewportKey: string, annotation: AnnotationOverlay): void {

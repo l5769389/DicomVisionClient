@@ -105,7 +105,7 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   toggleSidebar: () => void
-  triggerViewAction: (payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }) => void
+  triggerViewAction: (payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
@@ -328,13 +328,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }, MPR_MIP_CONFIG_DEBOUNCE_MS)
   }
 
-  function triggerViewAction(payload: { action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }): void {
+  function triggerViewAction(payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }): void {
     const tab = activeTab.value
     if (!tab) {
       return
     }
 
-    if (payload.action === 'reset' && tab.viewType !== 'Stack' && tab.viewType !== '3D' && tab.viewType !== 'MPR') {
+    if ((payload.action === 'reset' || payload.action === 'resetAll') && tab.viewType !== 'Stack' && tab.viewType !== '3D' && tab.viewType !== 'MPR') {
       return
     }
 
@@ -358,12 +358,62 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && tab.viewType !== 'Stack' && tab.viewType !== 'MPR' && tab.viewType !== '3D') {
+      return
+    }
+
     if (!tab.viewId && tab.viewType !== 'MPR') {
       return
     }
 
     if (tab.viewId) {
       clearPendingVolumeConfig(tab.viewId)
+    }
+
+    if (payload.action === 'clearMtf' || payload.action === 'resetAll') {
+      clearActiveTabMtf()
+      if (payload.action === 'clearMtf') {
+        const viewId =
+          tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        if (!viewId) {
+          return
+        }
+        emitViewOperation({
+          viewId,
+          opType: VIEW_OPERATION_TYPES.reset,
+          subOpType: 'mtf'
+        })
+        return
+      }
+    }
+
+    if (payload.action === 'clearAnnotations') {
+      const viewId =
+        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      if (!viewId) {
+        return
+      }
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.reset,
+        subOpType: 'annotations'
+      })
+      return
+    }
+
+    if (payload.action === 'clearMeasurements') {
+      const viewId =
+        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      if (!viewId) {
+        return
+      }
+
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.reset,
+        subOpType: 'measurements'
+      })
+      return
     }
 
     if (payload.action === 'mprMipConfig' && payload.config) {
@@ -395,7 +445,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'reset' && tab.viewType === '3D') {
+    if ((payload.action === 'reset' || payload.action === 'resetAll') && tab.viewType === '3D') {
       const defaultConfig = createDefaultVolumeRenderConfig('aaa')
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
@@ -408,9 +458,18 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
+      if (payload.action === 'resetAll') {
+        emitViewOperation({
+          viewId: tab.viewId,
+          opType: VIEW_OPERATION_TYPES.reset,
+          subOpType: 'all'
+        })
+        return
+      }
       emitViewOperation({
         viewId: tab.viewId,
-        opType: VIEW_OPERATION_TYPES.reset
+        opType: VIEW_OPERATION_TYPES.reset,
+        subOpType: 'view'
       })
       emitViewOperation({
         viewId: tab.viewId,
@@ -542,6 +601,65 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'reset' || payload.action === 'resetAll') {
+      if (tab.viewType === 'MPR') {
+        const viewportKey = activeViewportKey.value as MprViewportKey
+        const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
+        if (!viewId) {
+          return
+        }
+        clearPendingMprMipConfig()
+
+        viewerTabs.value = viewerTabs.value.map((item) => {
+          if (item.key !== tab.key) {
+            return item
+          }
+
+          return {
+            ...item,
+            mprFrame: createDefaultMprFrameInfo(),
+            mprMipConfig: createDefaultMprMipConfig(),
+            viewportCrosshairs: createEmptyMprCrosshairs(),
+            viewportScaleBars: createEmptyMprScaleBars(),
+            viewportOrientations: createEmptyMprOrientations(),
+            viewportTransformStates: {
+              'mpr-ax': DEFAULT_VIEW_TRANSFORM,
+              'mpr-cor': DEFAULT_VIEW_TRANSFORM,
+              'mpr-sag': DEFAULT_VIEW_TRANSFORM
+            },
+            viewportPseudocolorPresets: {
+              'mpr-ax': DEFAULT_PSEUDOCOLOR_PRESET,
+              'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
+              'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
+            }
+          }
+        })
+
+        emitViewOperation({
+          viewId,
+          opType: VIEW_OPERATION_TYPES.reset,
+          subOpType: payload.action === 'resetAll' ? 'all' : 'view'
+        })
+        return
+      }
+
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET
+            }
+          : item
+      )
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.reset,
+        subOpType: payload.action === 'resetAll' ? 'all' : 'view'
+      })
+      return
+    }
+
     if (tab.viewType === 'MPR') {
       const viewportKey = activeViewportKey.value as MprViewportKey
       const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
@@ -581,20 +699,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       })
       return
     }
-
-    viewerTabs.value = viewerTabs.value.map((item) =>
-      item.key === tab.key
-        ? {
-            ...item,
-            pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET
-          }
-        : item
-    )
-
-    emitViewOperation({
-      viewId: tab.viewId,
-      opType: VIEW_OPERATION_TYPES.reset
-    })
   }
 
   function handleVolumeConfigChange(config: VolumeRenderConfig): void {
@@ -1279,6 +1383,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     points: MeasurementDraftPoint[]
   }): void {
     emitMeasurementOperation(payload)
+  }
+
+  function clearActiveTabMtf(): void {
+    updateActiveTabMtfState((item) => ({
+      ...item,
+      mtfState: null
+    }))
   }
 
   async function chooseFolder(): Promise<void> {

@@ -101,45 +101,60 @@ const emit = defineEmits<{
               </VBtn>
             </template>
 
-            <div data-tool-menu-root class="theme-shell-panel inline-flex min-w-[180px] flex-col rounded-[22px] border p-2 shadow-[0_20px_44px_rgba(2,8,18,0.36)] backdrop-blur">
+            <div
+              data-tool-menu-root
+              class="theme-shell-panel relative inline-flex min-w-[220px] max-w-[320px] flex-col overflow-hidden rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+            >
+              <div class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
               <template
                 v-for="(option, optionIndex) in tool.options"
                 :key="option.value"
               >
                 <div
                   v-if="option.group && option.group !== tool.options?.[optionIndex - 1]?.group"
-                  class="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]"
+                  class="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:color-mix(in_srgb,var(--theme-text-muted)_88%,white_10%)]"
                 >
                   {{ option.group }}
                 </div>
                 <div
-                  class="rounded-xl! px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)]!"
-                  :class="{ 'bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,transparent)]! text-[var(--theme-text-primary)]!': stackToolSelections[tool.key] === option.value }"
+                  class="group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+                  :class="{
+                    'border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
+                  }"
                   @click="emit('selectToolOption', tool, option.value)"
                 >
+                  <div
+                    class="pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
+                    :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
+                  />
                   <div class="flex items-center justify-between gap-3">
-                    <div class="flex min-w-0 items-center">
-                    <PseudocolorBand
-                      v-if="tool.key === 'pseudocolor'"
-                      class="mr-[10px]"
-                      :preset="option.swatchKey ?? 'bw'"
-                    />
-                    <AppIcon
-                      v-else
-                      class="mr-[10px]"
-                      :name="option.icon"
-                      :size="menuIconSize + 6"
-                    />
+                    <div class="flex min-w-0 items-center gap-3">
+                      <div
+                        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
+                        :class="{
+                          'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel)_90%))]': stackToolSelections[tool.key] === option.value
+                        }"
+                      >
+                        <PseudocolorBand
+                          v-if="tool.key === 'pseudocolor'"
+                          :preset="option.swatchKey ?? 'bw'"
+                        />
+                        <AppIcon
+                          v-else
+                          :name="option.icon"
+                          :size="menuIconSize + 4"
+                        />
+                      </div>
                       <div class="min-w-0">
-                        <div class="truncate whitespace-nowrap">{{ option.label }}</div>
-                        <div v-if="option.description" class="mt-0.5 text-[11px] text-[var(--theme-text-muted)]">
+                        <div class="truncate whitespace-nowrap font-medium text-[var(--theme-text-primary)]">{{ option.label }}</div>
+                        <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.35] text-[var(--theme-text-muted)]">
                           {{ option.description }}
                         </div>
                       </div>
                     </div>
                     <span
                       v-if="option.badge"
-                      class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
+                      class="shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
                     >
                       {{ option.badge }}
                     </span>

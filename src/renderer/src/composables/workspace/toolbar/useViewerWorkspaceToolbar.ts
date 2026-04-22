@@ -104,7 +104,6 @@ const stackTools: StackTool[] = [
       { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
     ]
   },
-  { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   tagTool,
   qaTool,
@@ -112,7 +111,21 @@ const stackTools: StackTool[] = [
   measureTool,
   { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
   exportTool,
-  pseudocolorTool
+  pseudocolorTool,
+  {
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
+      { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurement overlays in the current view.' },
+      { value: 'reset:mtf', label: 'Clear MTF', icon: 'mtf', description: 'Remove all MTF ROIs in the current view.' },
+      { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current view.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements, MTF, and annotations.' }
+    ]
+  }
 ]
 
 const genericTools: StackTool[] = [
@@ -145,15 +158,38 @@ const volumeTools: StackTool[] = [
       { value: 'volumePreset:mip', label: 'MIP', icon: 'volume-preset-mip' }
     ]
   },
-  { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
-  exportTool
+  exportTool,
+  {
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset 3D view parameters and rendering defaults.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear any local overlays.' }
+    ]
+  }
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
-  { key: 'reset', label: 'Reset', icon: 'reset', kind: 'action' },
-  ...genericTools
+  ...genericTools,
+  {
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset crosshair, MIP config, transforms, and pseudocolor.' },
+      { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurements in the current MPR study.' },
+      { value: 'reset:mtf', label: 'Clear MTF', icon: 'mtf', description: 'Remove all MTF ROIs in the current MPR study.' },
+      { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current MPR study.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements, MTF, and annotations.' }
+    ]
+  }
 ]
 
 interface ViewerWorkspaceToolbarOptions {
@@ -161,7 +197,7 @@ interface ViewerWorkspaceToolbarOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
   emitTriggerViewAction: (payload: {
-    action: 'reset' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'
+    action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'
     value?: string
     config?: MprMipConfig
   }) => void
@@ -640,6 +676,29 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
       options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${optionValue}`)
+      return
+    }
+
+    if (tool.key === 'reset') {
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        if (optionValue === 'reset:measurements') {
+          options.emitTriggerViewAction({ action: 'clearMeasurements' })
+          return
+        }
+        if (optionValue === 'reset:mtf') {
+          options.emitTriggerViewAction({ action: 'clearMtf' })
+          return
+        }
+        if (optionValue === 'reset:annotations') {
+          options.emitTriggerViewAction({ action: 'clearAnnotations' })
+          return
+        }
+        if (optionValue === 'reset:all') {
+          options.emitTriggerViewAction({ action: 'resetAll' })
+          return
+        }
+        options.emitTriggerViewAction({ action: 'reset' })
+      })
       return
     }
 

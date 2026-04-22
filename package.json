@@ -66,6 +66,7 @@
     "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",
     "preview": "electron-vite preview",
     "preview:web": "vite preview --config vite.web.config.ts",
+    "generate:api-types": "powershell -ExecutionPolicy Bypass -Command \"Push-Location ..\\DicomVisionServer; uv run python scripts\\generate_openapi_types.py --output ..\\DicomVisionClient\\src\\shared\\generated\\backendApi.ts; Pop-Location\"",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json"

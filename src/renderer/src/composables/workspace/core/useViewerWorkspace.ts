@@ -9,7 +9,14 @@ import {
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
 import { api } from '../../../services/api'
 import {emitViewOperation, ViewOperationInput} from '../../../services/socket'
-import { isMprViewportKey, normalizeCornerInfo } from '../views/viewerWorkspaceTabs'
+import {
+  createDefaultMprFrameInfo,
+  createEmptyMprCrosshairs,
+  createEmptyMprOrientations,
+  createEmptyMprScaleBars,
+  isMprViewportKey,
+  normalizeCornerInfo
+} from '../views/viewerWorkspaceTabs'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
@@ -394,7 +401,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         item.key === tab.key
           ? {
               ...item,
-              pseudocolorPreset: selectedPseudocolorKey.value,
+              pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
               volumePreset: 'volumePreset:aaa',
               volumeRenderConfig: defaultConfig
             }
@@ -404,11 +411,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       emitViewOperation({
         viewId: tab.viewId,
         opType: VIEW_OPERATION_TYPES.reset
-      })
-      emitViewOperation({
-        viewId: tab.viewId,
-        opType: VIEW_OPERATION_TYPES.pseudocolor,
-        pseudocolorPreset: selectedPseudocolorKey.value
       })
       emitViewOperation({
         viewId: tab.viewId,
@@ -555,16 +557,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
         return {
           ...item,
+          mprFrame: createDefaultMprFrameInfo(),
           mprMipConfig: createDefaultMprMipConfig(),
+          viewportCrosshairs: createEmptyMprCrosshairs(),
+          viewportScaleBars: createEmptyMprScaleBars(),
+          viewportOrientations: createEmptyMprOrientations(),
           viewportTransformStates: {
             'mpr-ax': DEFAULT_VIEW_TRANSFORM,
             'mpr-cor': DEFAULT_VIEW_TRANSFORM,
             'mpr-sag': DEFAULT_VIEW_TRANSFORM
           },
           viewportPseudocolorPresets: {
-            'mpr-ax': selectedPseudocolorKey.value,
-            'mpr-cor': selectedPseudocolorKey.value,
-            'mpr-sag': selectedPseudocolorKey.value
+            'mpr-ax': DEFAULT_PSEUDOCOLOR_PRESET,
+            'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
+            'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
           }
         }
       })
@@ -573,11 +579,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId,
         opType: VIEW_OPERATION_TYPES.reset
       })
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.pseudocolor,
-        pseudocolorPreset: selectedPseudocolorKey.value
-      })
       return
     }
 
@@ -585,7 +586,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       item.key === tab.key
         ? {
             ...item,
-            pseudocolorPreset: selectedPseudocolorKey.value
+            pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET
           }
         : item
     )
@@ -593,11 +594,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     emitViewOperation({
       viewId: tab.viewId,
       opType: VIEW_OPERATION_TYPES.reset
-    })
-    emitViewOperation({
-      viewId: tab.viewId,
-      opType: VIEW_OPERATION_TYPES.pseudocolor,
-      pseudocolorPreset: selectedPseudocolorKey.value
     })
   }
 

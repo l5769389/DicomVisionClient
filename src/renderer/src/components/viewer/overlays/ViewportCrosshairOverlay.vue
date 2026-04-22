@@ -135,6 +135,9 @@ function drawCrosshair(): void {
   if (!props.mprCrosshair || props.stageWidth <= 0 || props.stageHeight <= 0) {
     return
   }
+  if (props.imageFrame.width <= 0 || props.imageFrame.height <= 0) {
+    return
+  }
 
   const axes = getViewportAxes(props.viewportKey)
   const viewportKey = props.viewportKey === 'mpr-ax' || props.viewportKey === 'mpr-cor' || props.viewportKey === 'mpr-sag'
@@ -146,8 +149,8 @@ function drawCrosshair(): void {
   if (!geometry) {
     return
   }
-  const centerX = geometry.center.x * props.stageWidth
-  const centerY = geometry.center.y * props.stageHeight
+  const centerX = props.imageFrame.left + geometry.center.x * props.imageFrame.width
+  const centerY = props.imageFrame.top + geometry.center.y * props.imageFrame.height
   const horizontalAngle = geometry.horizontalAngleRad
   const verticalAngle = geometry.verticalAngleRad
 

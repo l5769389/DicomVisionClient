@@ -257,6 +257,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
+      const nextMprFrame = mprFrame ?? item.mprFrame ?? null
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -274,7 +275,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return {
           ...item,
           windowLabel,
-          mprFrame: mprFrame ?? item.mprFrame ?? null,
+          mprFrame: nextMprFrame,
           viewportImages: {
             ...(item.viewportImages ?? createEmptyMprImages()),
             [viewportKey]: imageSrc
@@ -603,6 +604,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function releaseBackendViews(viewIds: Array<string | null | undefined>): void {
+    const uniqueViewIds = Array.from(new Set(viewIds.filter((viewId): viewId is string => Boolean(viewId))))
+    uniqueViewIds.forEach((viewId) => {
+      void api.post<OperationAcceptedResponse>('/view/close', { viewId }).catch(() => {
+        viewSizeCache.delete(viewId)
+      })
+    })
+  }
+
   function closeTab(tabKey: string): void {
     const currentIndex = options.viewerTabs.value.findIndex((item) => item.key === tabKey)
     if (currentIndex < 0) {
@@ -610,6 +620,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     const closingTab = options.viewerTabs.value[currentIndex]
+    releaseBackendViews([closingTab.viewId, ...Object.values(closingTab.viewportViewIds ?? {})])
     if (closingTab.viewId) {
       options.clearPendingVolumeConfig(closingTab.viewId)
       viewSizeCache.delete(closingTab.viewId)

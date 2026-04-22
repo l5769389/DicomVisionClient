@@ -39,9 +39,13 @@ import {
 import { resolveMtfDraftMode } from './mtfInteractionMachine'
 import {
   getTabViewportCrosshairGeometry,
-  normalizeCrosshairAngle,
   type CrosshairLineTarget
 } from '../workspace/views/mprFrameGeometry'
+import {
+  resolveCrosshairHitTarget as resolveCrosshairHitTargetFromGeometry,
+  resolveCrosshairRotationPayload,
+  type CrosshairHitTarget
+} from './mprCrosshairPointerController'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
@@ -111,9 +115,6 @@ interface MeasurementPointerContext extends BasicPointerContext {
 }
 
 const DRAG_START_THRESHOLD = 3
-const CROSSHAIR_LINE_HIT_TOLERANCE_PX = 6
-const CROSSHAIR_ROTATION_DEAD_ZONE_PX = 18
-type CrosshairHitTarget = 'center' | CrosshairLineTarget | 'none'
 
 function generateMeasurementId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -488,8 +489,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!line) {
       return null
     }
-    const point = getNormalizedContainerPoint(event)
-    if (!point) {
+    const viewportPoint = getNormalizedViewportPoint(event)
+    if (!viewportPoint) {
       return null
     }
     if (viewportKey === 'single' || viewportKey === 'volume') {
@@ -503,19 +504,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (!container) {
       return null
     }
-    const rect = container.getBoundingClientRect()
-    if (!rect.width || !rect.height) {
+    const imageElement = resolveViewportImageElement(event)
+    if (!imageElement) {
       return null
     }
-    const pointerX = point.x * rect.width
-    const pointerY = point.y * rect.height
-    const centerX = geometry.center.x * rect.width
-    const centerY = geometry.center.y * rect.height
-    return {
-      angleRad: normalizeCrosshairAngle(Math.atan2(pointerY - centerY, pointerX - centerX)),
-      x: point.x,
-      y: point.y
-    }
+    const containerRect = container.getBoundingClientRect()
+    const imageRect = getRenderedImageRect(imageElement)
+    return resolveCrosshairRotationPayload(viewportPoint, {
+      containerRect,
+      imageRect,
+      geometry
+    })
   }
 
   function emitCrosshairEvent(
@@ -525,7 +524,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     mode: 'move' | 'rotate' = 'move',
     line: CrosshairLineTarget | null = null
   ): void {
-    const point = getNormalizedContainerPoint(event)
+    const point = getNormalizedViewportPoint(event)
     if (!point) {
       return
     }
@@ -561,43 +560,23 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return 'none'
     }
 
+    const imageElement = resolveViewportImageElement(event)
+    if (!imageElement) {
+      return 'none'
+    }
     const rect = container.getBoundingClientRect()
-    if (!rect.width || !rect.height) {
+    const imageRect = getRenderedImageRect(imageElement)
+    if (!rect.width || !rect.height || !imageRect.width || !imageRect.height) {
       return 'none'
     }
 
-    const minDimension = Math.min(rect.width, rect.height)
-    const hitRadius = crosshairInfo.hitRadius * minDimension
-    const deltaX = (point.x - geometry.center.x) * rect.width
-    const deltaY = (point.y - geometry.center.y) * rect.height
-    const distanceFromCenterSquared = deltaX * deltaX + deltaY * deltaY
-    if (distanceFromCenterSquared <= hitRadius * hitRadius) {
-      return 'center'
-    }
-
-    const pointerX = point.x * rect.width
-    const pointerY = point.y * rect.height
-    const centerX = geometry.center.x * rect.width
-    const centerY = geometry.center.y * rect.height
-    const lineTolerance = Math.max(CROSSHAIR_LINE_HIT_TOLERANCE_PX, hitRadius * 0.45)
-    const rotationDeadZone = Math.max(CROSSHAIR_ROTATION_DEAD_ZONE_PX, hitRadius + 4)
-    const isOutsideCenterDeadZone = distanceFromCenterSquared > rotationDeadZone * rotationDeadZone
-    if (!isOutsideCenterDeadZone) {
-      return 'none'
-    }
-
-    const distanceToLine = (line: CrosshairLineTarget): number => {
-      const angle = line === 'vertical' ? geometry.verticalAngleRad : geometry.horizontalAngleRad
-      const dirX = Math.cos(angle)
-      const dirY = Math.sin(angle)
-      return Math.abs((pointerX - centerX) * dirY - (pointerY - centerY) * dirX)
-    }
-    const horizontalDistance = distanceToLine('horizontal')
-    const verticalDistance = distanceToLine('vertical')
-    const closestLine = horizontalDistance <= verticalDistance ? 'horizontal' : 'vertical'
-    const closestDistance = Math.min(horizontalDistance, verticalDistance)
-
-    return closestDistance <= lineTolerance ? closestLine : 'none'
+    return resolveCrosshairHitTargetFromGeometry({
+      containerPoint: point,
+      crosshairInfo,
+      containerRect: rect,
+      imageRect,
+      geometry
+    })
   }
 
   function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
@@ -1457,7 +1436,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return true
     }
 
-    const point = getNormalizedContainerPoint(event)
+    const point = getNormalizedViewportPoint(event)
     if (!point) {
       return true
     }

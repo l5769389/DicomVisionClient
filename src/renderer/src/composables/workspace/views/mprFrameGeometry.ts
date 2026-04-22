@@ -53,25 +53,34 @@ export function normalizeCrosshairAngle(angleRad: number): number {
   return nextAngle
 }
 
+export function normalizeDirectedCrosshairAngle(angleRad: number): number {
+  const fullTurn = Math.PI * 2
+  let nextAngle = angleRad % fullTurn
+  if (nextAngle < 0) {
+    nextAngle += fullTurn
+  }
+  return nextAngle
+}
+
 function getDefaultViewportBasis(viewportKey: MprViewportKey): { row: Vec3; col: Vec3; normal: Vec3 } {
   if (viewportKey === 'mpr-cor') {
     return {
-      row: [-1, 0, 0],
-      col: [0, 0, 1],
+      row: [1, 0, 0],
+      col: [0, 0, -1],
       normal: [0, 1, 0]
     }
   }
   if (viewportKey === 'mpr-sag') {
     return {
-      row: [-1, 0, 0],
-      col: [0, 1, 0],
-      normal: [0, 0, 1]
+      row: [0, 1, 0],
+      col: [0, 0, -1],
+      normal: [-1, 0, 0]
     }
   }
   return {
-    row: [0, 1, 0],
-    col: [0, 0, 1],
-    normal: [1, 0, 0]
+    row: [1, 0, 0],
+    col: [0, 1, 0],
+    normal: [0, 0, 1]
   }
 }
 
@@ -97,13 +106,8 @@ export function getMprViewportDisplayBasis(frame: MprFrameInfo, viewportKey: Mpr
   if (Math.hypot(projectedCol[0], projectedCol[1], projectedCol[2]) <= 1e-6) {
     projectedCol = subtractProjection(normalizeVec3(canonical.row, canonical.row), normalizedNormal)
   }
-  let col = normalizeVec3(projectedCol, canonical.col)
-  let row = normalizeVec3(cross(col, normalizedNormal), canonical.row)
-  const projectedRow = normalizeVec3(subtractProjection(normalizeVec3(canonical.row, canonical.row), normalizedNormal), canonical.row)
-  if (dot(row, projectedRow) < 0) {
-    row = [-row[0], -row[1], -row[2]]
-    col = [-col[0], -col[1], -col[2]]
-  }
+  const col = normalizeVec3(projectedCol, canonical.col)
+  const row = normalizeVec3(cross(col, normalizedNormal), canonical.row)
   return { row, col, normal: normalizedNormal }
 }
 
@@ -147,12 +151,27 @@ export function getMprViewportDerivedCrosshairGeometry(
     y: crosshairInfo.horizontalPosition ?? crosshairInfo.centerY
   }
 
-  if (!frame) {
-    const horizontalAngleRad = normalizeCrosshairAngle(crosshairInfo.horizontalAngleRad ?? 0)
+  const explicitHorizontalAngle = Number.isFinite(crosshairInfo.horizontalAngleRad)
+    ? normalizeCrosshairAngle(crosshairInfo.horizontalAngleRad ?? 0)
+    : null
+  const explicitVerticalAngle = Number.isFinite(crosshairInfo.verticalAngleRad)
+    ? normalizeCrosshairAngle(crosshairInfo.verticalAngleRad ?? 0)
+    : null
+
+  if (explicitHorizontalAngle != null || explicitVerticalAngle != null) {
+    const horizontalAngleRad = explicitHorizontalAngle ?? normalizeCrosshairAngle((explicitVerticalAngle ?? 0) - Math.PI / 2)
     return {
       center,
       horizontalAngleRad,
-      verticalAngleRad: normalizeCrosshairAngle(crosshairInfo.verticalAngleRad ?? horizontalAngleRad + Math.PI / 2)
+      verticalAngleRad: explicitVerticalAngle ?? normalizeCrosshairAngle(horizontalAngleRad + Math.PI / 2)
+    }
+  }
+
+  if (!frame) {
+    return {
+      center,
+      horizontalAngleRad: 0,
+      verticalAngleRad: Math.PI / 2
     }
   }
 

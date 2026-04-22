@@ -1,24 +1,21 @@
-export interface FolderSeriesItem {
-  seriesId: string
-  seriesInstanceUid?: string | null
-  studyInstanceUid?: string | null
-  patientId?: string | null
-  modality?: string | null
-  seriesDescription?: string | null
-  instanceCount: number
-  width?: number | null
-  height?: number | null
-  folderPath: string
-}
+import type {
+  CornerInfoResponse as BackendCornerInfoResponse,
+  LoadFolderResponse as BackendLoadFolderResponse,
+  MeasurementPointPayload as BackendMeasurementPointPayload,
+  MprCrosshairInfo as BackendMprCrosshairInfo,
+  MprFrameInfo as BackendMprFrameInfo,
+  OperationAcceptedResponse as BackendOperationAcceptedResponse,
+  OrientationInfo as BackendOrientationInfo,
+  ScaleBarInfo as BackendScaleBarInfo,
+  SeriesSummary as BackendSeriesSummary,
+  ViewCreateResponse as BackendViewCreateResponse,
+  ViewHoverRequest as BackendViewHoverRequest,
+  ViewHoverResponse as BackendViewHoverResponse
+} from '@shared/generated/backendApi'
 
-export interface LoadFolderResponse {
-  seriesId?: string | null
-  seriesList?: FolderSeriesItem[]
-}
-
-export interface ViewCreateResponse {
-  viewId: string
-}
+export type FolderSeriesItem = BackendSeriesSummary
+export type LoadFolderResponse = BackendLoadFolderResponse
+export type ViewCreateResponse = BackendViewCreateResponse
 
 export type BackendCreateViewType = 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
 export type CornerPosition = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight'
@@ -30,15 +27,8 @@ export interface CornerInfo {
   bottomRight: string[]
 }
 
-export interface CornerInfoResponse {
-  cornerInfo?: unknown
-}
-
-export interface OperationAcceptedResponse {
-  success: boolean
-  message: string
-  viewId: string
-}
+export type CornerInfoResponse = BackendCornerInfoResponse
+export type OperationAcceptedResponse = BackendOperationAcceptedResponse
 
 export interface WorkspaceReadyPayload {
   element: HTMLElement | null
@@ -52,10 +42,7 @@ export type AnnotationToolType = 'arrow'
 export type AnnotationSize = 'sm' | 'md' | 'lg'
 export type MprMipAlgorithm = 'maximum' | 'minimum' | 'average' | 'sum'
 
-export interface MeasurementDraftPoint {
-  x: number
-  y: number
-}
+export type MeasurementDraftPoint = BackendMeasurementPointPayload
 
 export interface MeasurementDraft {
   measurementId?: string
@@ -269,35 +256,10 @@ export interface MtfAnalyzeResponse {
   isPlaceholder?: boolean
 }
 
-export interface MprCrosshairInfo {
-  centerX: number
-  centerY: number
-  hitRadius: number
-  horizontalPosition: number | null
-  verticalPosition: number | null
-  horizontalAngleRad?: number | null
-  verticalAngleRad?: number | null
-}
-
-export interface MprFrameInfo {
-  center: [number, number, number]
-  axisSlice: [number, number, number]
-  axisRow: [number, number, number]
-  axisCol: [number, number, number]
-}
-
-export interface ScaleBarInfo {
-  lengthNorm: number
-  label: string
-}
-
-export interface OrientationInfo {
-  top: string | null
-  right: string | null
-  bottom: string | null
-  left: string | null
-  volumeQuaternion?: [number, number, number, number] | null
-}
+export type MprCrosshairInfo = BackendMprCrosshairInfo
+export type MprFrameInfo = BackendMprFrameInfo
+export type ScaleBarInfo = BackendScaleBarInfo
+export type OrientationInfo = BackendOrientationInfo
 
 export type VolumeBlendMode = 'composite' | 'mip'
 
@@ -363,18 +325,8 @@ export interface ViewImageResponse {
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
 }
-
-export interface ViewHoverPayload {
-  viewId: string
-  x: number
-  y: number
-}
-
-export interface ViewHoverResponse {
-  viewId: string
-  row: number
-  col: number
-}
+export type ViewHoverPayload = BackendViewHoverRequest
+export type ViewHoverResponse = BackendViewHoverResponse
 
 export interface DicomTagItem {
   tag: string

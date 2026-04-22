@@ -15,6 +15,7 @@ import type {
 
 const props = defineProps<{
   activeTab: ViewerTabItem
+  activeOperation: string
   annotations?: AnnotationOverlay[]
   cornerInfo: CornerInfo
   cursorClass?: string
@@ -111,6 +112,7 @@ function handleSliceSliderInput(event: Event): void {
       :is-loading="Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc"
       loading-label="正在加载栈视图..."
       :alt="props.activeTab.viewType"
+      :active-operation="props.activeOperation"
       placeholder="单视口预览"
       :annotations="props.annotations ?? []"
       :corner-info="props.cornerInfo"

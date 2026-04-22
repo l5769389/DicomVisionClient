@@ -43,12 +43,13 @@ const CARD_WIDTH = 228
 const CARD_HEIGHT = 176
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
-const committedStrokeInner = 'rgba(85,231,255,0.98)'
-const draftStrokeOuter = 'rgba(56,22,4,0.92)'
-const draftStrokeInner = 'rgba(255,184,77,0.98)'
+const committedStrokeInner = 'rgba(244,114,182,0.98)'
+const draftStrokeOuter = 'rgba(56,18,32,0.92)'
+const draftStrokeInner = 'rgba(251,146,190,0.98)'
 
 const props = withDefaults(
   defineProps<{
+    focusState?: 'focus' | 'context' | 'neutral'
     imageFrame: {
       left: number
       top: number
@@ -61,6 +62,7 @@ const props = withDefaults(
     selectedMtfId?: string | null
   }>(),
   {
+    focusState: 'neutral',
     mtfDraftMode: null,
     mtfDraft: null,
     mtfItems: () => [],
@@ -270,7 +272,10 @@ function getShapeFill(item: RenderedMtfItem): string {
 </script>
 
 <template>
-  <div class="pointer-events-none absolute inset-0 z-[8]">
+  <div
+    class="pointer-events-none absolute inset-0 transition-opacity duration-150"
+    :class="props.focusState === 'focus' ? 'z-[11] opacity-100' : props.focusState === 'context' ? 'z-[8] opacity-[0.48]' : 'z-[8] opacity-100'"
+  >
     <svg class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" shape-rendering="geometricPrecision">
       <g v-for="item in allRenderedItems" :key="item.key">
         <rect
@@ -314,13 +319,16 @@ function getShapeFill(item: RenderedMtfItem): string {
     <div
       v-for="card in renderedMetricCards"
       :key="`${card.key}-metrics`"
-      class="absolute z-[6] w-[228px] rounded-2xl border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(5,16,28,0.96),rgba(5,12,20,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
-      :class="card.isActive ? 'z-[13] border-cyan-200/35 shadow-[0_20px_38px_rgba(0,0,0,0.44)]' : ''"
+      class="absolute z-[6] w-[228px] rounded-2xl border border-pink-300/20 bg-[linear-gradient(180deg,rgba(28,9,21,0.96),rgba(19,7,15,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
+      :class="[
+        card.isActive ? 'z-[13] border-pink-200/38 shadow-[0_20px_38px_rgba(0,0,0,0.44)]' : '',
+        props.focusState === 'focus' ? 'ring-1 ring-pink-200/18' : ''
+      ]"
       :style="card.style"
     >
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">MTF Metric</div>
+          <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-pink-200/72">MTF Metric</div>
           <div v-if="card.statusLabel" class="mt-1 text-sm font-semibold text-white">{{ card.statusLabel }}</div>
         </div>
         <div
@@ -330,7 +338,7 @@ function getShapeFill(item: RenderedMtfItem): string {
         >
           <button
             type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-300/16 bg-cyan-300/10 text-cyan-50 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-pink-300/16 bg-pink-300/10 text-pink-50 transition hover:bg-pink-300/18 disabled:cursor-not-allowed disabled:opacity-45"
             :disabled="card.status !== 'ready'"
             aria-label="查看 MTF 曲线"
             @click="emit('openCurve')"

@@ -16,6 +16,7 @@ import type {
 
 const props = defineProps<{
   activeTab: ViewerTabItem
+  activeOperation: string
   activeViewportKey: string
   getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
   getCursorClass: (viewportKey: MprViewportKey) => string
@@ -92,6 +93,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :draft-annotation="props.getDraftAnnotation(item.key)"
       :render-surface-active="activeViewportKey === item.key"
       :image-src="getViewportImage(item.key)"
+      :active-operation="props.activeOperation"
       :is-loading="isViewportLoading(item.key)"
       loading-label="正在加载 MPR 视图..."
       :alt="item.label"

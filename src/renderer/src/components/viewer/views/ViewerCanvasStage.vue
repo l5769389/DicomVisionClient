@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -27,6 +27,7 @@ import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 const props = withDefaults(
   defineProps<{
     alt: string
+    activeOperation?: string
     annotations?: AnnotationOverlay[]
     cornerInfo: CornerInfo
     cursorClass?: string
@@ -75,6 +76,8 @@ const props = withDefaults(
   }
 )
 
+type OverlayFocusState = 'focus' | 'context' | 'neutral'
+
 const emit = defineEmits<{
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
@@ -116,6 +119,31 @@ function toStablePixel(value: number): number {
 }
 
 let resizeObserver: ResizeObserver | null = null
+
+const normalizedActiveOperation = computed(() =>
+  props.activeOperation?.startsWith('stack:') ? props.activeOperation.slice('stack:'.length) : (props.activeOperation ?? '')
+)
+
+const activeOverlayKind = computed<'measurement' | 'annotation' | 'mtf' | null>(() => {
+  const operation = normalizedActiveOperation.value
+  if (operation.startsWith('measure:')) {
+    return 'measurement'
+  }
+  if (operation.startsWith('annotate:')) {
+    return 'annotation'
+  }
+  if (operation === 'qa:mtf' || operation.startsWith('qa:mtf') || operation === 'mtf' || operation.startsWith('mtf:')) {
+    return 'mtf'
+  }
+  return null
+})
+
+function getOverlayFocusState(kind: 'measurement' | 'annotation' | 'mtf'): OverlayFocusState {
+  if (activeOverlayKind.value == null) {
+    return 'neutral'
+  }
+  return activeOverlayKind.value === kind ? 'focus' : 'context'
+}
 
 function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
   const image = imageRef.value
@@ -309,6 +337,7 @@ watch(
         :scale-bar="scaleBar"
       />
       <ViewportMeasurementOverlay
+        :focus-state="getOverlayFocusState('measurement')"
         :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
@@ -317,6 +346,7 @@ watch(
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey)"
       />
       <ViewportAnnotationOverlay
+        :focus-state="getOverlayFocusState('annotation')"
         :annotations="annotations"
         :selected-annotation-id="draftAnnotation?.annotationId ?? null"
         :draft-annotation="draftAnnotation && !draftAnnotation.annotationId ? draftAnnotation : null"
@@ -328,6 +358,7 @@ watch(
         @update-annotation-text="emit('updateAnnotationText', { viewportKey: props.viewportKey, ...$event })"
       />
       <ViewportMtfOverlay
+        :focus-state="getOverlayFocusState('mtf')"
         :image-frame="imageFrame"
         :mtf-draft-mode="mtfDraftMode ?? null"
         :mtf-draft="mtfDraft ?? null"

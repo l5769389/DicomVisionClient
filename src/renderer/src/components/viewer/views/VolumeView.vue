@@ -4,6 +4,7 @@ import type { ViewerTabItem } from '../../../types/viewer'
 
 defineProps<{
   activeTab: ViewerTabItem
+  activeOperation: string
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +24,7 @@ const emit = defineEmits<{
       :is-active="true"
       :render-surface-active="true"
       :image-src="activeTab.imageSrc"
+      :active-operation="activeOperation"
       :is-loading="Boolean(activeTab.viewId) && !activeTab.imageSrc"
       loading-label="正在加载 3D 视图..."
       :alt="activeTab.viewType"

@@ -31,6 +31,7 @@ interface RenderedAnnotation {
 const props = withDefaults(
   defineProps<{
     annotations?: AnnotationOverlay[]
+    focusState?: 'focus' | 'context' | 'neutral'
     selectedAnnotationId?: string | null
     draftAnnotation?: AnnotationDraft | null
     imageFrame: {
@@ -42,6 +43,7 @@ const props = withDefaults(
   }>(),
   {
     annotations: () => [],
+    focusState: 'neutral',
     selectedAnnotationId: null,
     draftAnnotation: null
   }
@@ -170,7 +172,10 @@ watch(
 </script>
 
 <template>
-  <div class="pointer-events-none absolute inset-0 z-[4]">
+  <div
+    class="pointer-events-none absolute inset-0 transition-opacity duration-150"
+    :class="props.focusState === 'focus' ? 'z-[11] opacity-100' : props.focusState === 'context' ? 'z-[5] opacity-[0.5]' : 'z-[4] opacity-100'"
+  >
     <svg class="absolute inset-0" aria-hidden="true" width="100%" height="100%" preserveAspectRatio="none">
       <template v-for="annotation in renderedAnnotations" :key="annotation.annotationId">
         <line
@@ -234,6 +239,7 @@ watch(
         v-if="props.selectedAnnotationId === annotation.annotationId"
         data-annotation-ui-root
         class="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 bg-[rgba(7,14,24,0.98)] px-2 py-2 shadow-[0_18px_36px_rgba(0,0,0,0.42)] backdrop-blur"
+        :class="props.focusState === 'focus' ? 'ring-1 ring-amber-200/24 shadow-[0_22px_40px_rgba(0,0,0,0.48)]' : ''"
         @pointerdown.stop
       >
         <input
@@ -300,6 +306,7 @@ watch(
       <div
         v-else
         class="rounded-lg border border-white/10 bg-[rgba(7,14,24,0.92)] px-2 py-1 text-slate-50 shadow-[0_10px_24px_rgba(0,0,0,0.28)]"
+        :class="props.focusState === 'focus' ? 'border-amber-200/26 shadow-[0_14px_28px_rgba(0,0,0,0.34)]' : ''"
         :style="{ color: annotation.color, fontSize: `${annotation.fontSize}px` }"
       >
         {{ annotation.text }}

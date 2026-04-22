@@ -1494,6 +1494,7 @@ onBeforeUnmount(() => {
         <StackView
           v-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
+          :active-operation="props.activeOperation"
           :annotations="getViewportAnnotations('single')"
           :corner-info="activeTab.cornerInfo"
           :cursor-class="getViewportCursorClass('single')"
@@ -1530,6 +1531,7 @@ onBeforeUnmount(() => {
         <MprView
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
+          :active-operation="props.activeOperation"
           :active-viewport-key="activeViewportKey"
           :get-annotations="getViewportAnnotations"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
@@ -1566,6 +1568,7 @@ onBeforeUnmount(() => {
         <VolumeView
           v-else-if="activeTab.viewType === '3D'"
           :active-tab="activeTab"
+          :active-operation="props.activeOperation"
           @viewport-click="handleViewportClick"
           @pointer-down="handleViewportPointerDown"
           @pointer-move="handleViewportPointerMove"

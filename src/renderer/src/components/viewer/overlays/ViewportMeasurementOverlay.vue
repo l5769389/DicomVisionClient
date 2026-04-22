@@ -35,6 +35,7 @@ const props = withDefaults(
   defineProps<{
     draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
+    focusState?: 'focus' | 'context' | 'neutral'
     measurements?: MeasurementOverlay[]
     imageFrame: {
       left: number
@@ -46,6 +47,7 @@ const props = withDefaults(
   {
     draftMeasurementMode: null,
     draftMeasurement: null,
+    focusState: 'neutral',
     measurements: () => []
   }
 )
@@ -212,12 +214,18 @@ function getInnerStroke(measurement: RenderedMeasurement): string {
 }
 
 function getLabelClass(measurement: RenderedMeasurement): string {
+  const focusClass =
+    props.focusState === 'focus'
+      ? 'ring-1 ring-cyan-200/22 shadow-[0_18px_34px_rgba(0,0,0,0.4)]'
+      : props.focusState === 'context'
+        ? 'border-slate-600/35 bg-[rgba(7,12,18,0.72)] text-slate-300 shadow-[0_8px_18px_rgba(0,0,0,0.18)]'
+        : ''
   if (measurement.mode === 'selected' || measurement.mode === 'moving') {
-    return 'z-[12] border-amber-300/60 bg-[rgba(40,20,6,0.97)] text-amber-50 shadow-[0_16px_32px_rgba(0,0,0,0.4)]'
+    return `z-[12] border-amber-300/60 bg-[rgba(40,20,6,0.97)] text-amber-50 shadow-[0_16px_32px_rgba(0,0,0,0.4)] ${focusClass}`
   }
   return measurement.mode !== 'committed'
-    ? 'border-amber-300/60 bg-[rgba(40,20,6,0.94)] text-amber-50'
-    : 'border-sky-300/50 bg-[rgba(7,16,28,0.92)] text-slate-50'
+    ? `border-amber-300/60 bg-[rgba(40,20,6,0.94)] text-amber-50 ${focusClass}`
+    : `border-sky-300/50 bg-[rgba(7,16,28,0.92)] text-slate-50 ${focusClass}`
 }
 
 function getOuterStrokeDasharray(measurement: RenderedMeasurement): string | undefined {
@@ -272,7 +280,10 @@ function isKeyValueLabelLine(line: string): boolean {
 </script>
 
 <template>
-  <div class="pointer-events-none absolute inset-0 z-[4]">
+  <div
+    class="pointer-events-none absolute inset-0 transition-opacity duration-150"
+    :class="props.focusState === 'focus' ? 'z-[11] opacity-100' : props.focusState === 'context' ? 'z-[4] opacity-[0.48]' : 'z-[4] opacity-100'"
+  >
     <svg
       class="absolute inset-0"
       aria-hidden="true"
@@ -450,6 +461,7 @@ function isKeyValueLabelLine(line: string): boolean {
     <div
       v-if="selectedDraftActionStyle"
       class="pointer-events-auto absolute z-[13] inline-flex items-center gap-1 rounded-xl border border-amber-300/45 bg-[rgba(23,14,7,0.97)] px-1.5 py-1 shadow-[0_18px_34px_rgba(0,0,0,0.42)] backdrop-blur"
+      :class="props.focusState === 'focus' ? 'ring-1 ring-amber-200/24' : ''"
       :style="selectedDraftActionStyle"
       @pointerdown.stop.prevent
     >

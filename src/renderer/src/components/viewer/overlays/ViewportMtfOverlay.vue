@@ -22,7 +22,25 @@ interface RenderedMtfItem {
   mode: MtfRenderMode
 }
 
+interface MtfMetricRow {
+  label: string
+  value: string
+}
+
+interface RenderedMetricCard {
+  key: string
+  mtfId: string | null
+  status: ViewerMtfItem['status'] | null
+  errorMessage: string | null
+  rows: MtfMetricRow[]
+  style: { left: string; top: string }
+  statusLabel: string
+  isActive: boolean
+}
+
 const MIN_POPUP_RECT_SIZE_PX = 6
+const CARD_WIDTH = 228
+const CARD_HEIGHT = 176
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
 const committedStrokeInner = 'rgba(85,231,255,0.98)'
@@ -89,6 +107,66 @@ function toMtfRenderMode(mode: DraftMeasurementMode | null | undefined): MtfRend
   return 'draft'
 }
 
+function canShowMetricCardForItem(item: RenderedMtfItem | null): boolean {
+  if (!item) {
+    return false
+  }
+
+  if (item.mode !== 'draft') {
+    return true
+  }
+
+  return item.rect.width >= MIN_POPUP_RECT_SIZE_PX && item.rect.height >= MIN_POPUP_RECT_SIZE_PX
+}
+
+function buildMetricRows(metrics: ViewerMtfItem['metrics'] | null | undefined): MtfMetricRow[] {
+  if (!metrics) {
+    return []
+  }
+
+  const unit = metrics.unit || 'lp/mm'
+  const fwhmUnit = unit === 'lp/mm' ? 'mm' : 'px'
+  return [
+    { label: 'MTF50', value: metrics.mtf50 != null ? `${metrics.mtf50.toFixed(3)} ${unit}` : '-' },
+    { label: 'MTF10', value: metrics.mtf10 != null ? `${metrics.mtf10.toFixed(3)} ${unit}` : '-' },
+    { label: 'FWHM-W', value: metrics.fwhmW != null ? `${metrics.fwhmW.toFixed(3)} ${fwhmUnit}` : '-' },
+    { label: 'FWHM-H', value: metrics.fwhmH != null ? `${metrics.fwhmH.toFixed(3)} ${fwhmUnit}` : '-' }
+  ]
+}
+
+function getStatusLabel(item: RenderedMtfItem | null): string {
+  if (!item) {
+    return '绘制 ROI'
+  }
+
+  if (item.mode === 'draft' && !item.mtfId) {
+    return '绘制 ROI'
+  }
+
+  switch (item.status) {
+    case 'calculating':
+      return '计算中'
+    case 'error':
+      return '分析失败'
+    case 'ready':
+      return item.mode === 'selected' ? '已选中 ROI' : ''
+    default:
+      return item.mode === 'selected' ? '已选中 ROI' : 'MTF ROI'
+  }
+}
+
+function getMetricCardStyle(rect: OverlayRectBounds): { left: string; top: string } {
+  const minLeft = props.imageFrame.left + 12
+  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - CARD_WIDTH, minLeft)
+  const minTop = props.imageFrame.top + 12
+  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - CARD_HEIGHT, minTop)
+
+  return {
+    left: `${Math.round(Math.max(minLeft, Math.min(maxLeft, rect.left + rect.width + 12)))}px`,
+    top: `${Math.round(Math.max(minTop, Math.min(maxTop, rect.top + 4)))}px`
+  }
+}
+
 const renderedCommittedItems = computed(() =>
   props.mtfItems
     .map((item) =>
@@ -115,18 +193,6 @@ const renderedDraftItem = computed(() => {
   return buildRenderedMtfItem('draft', props.mtfDraft.points, toMtfRenderMode(props.mtfDraftMode), sourceItem)
 })
 
-function canShowMetricCardForItem(item: RenderedMtfItem | null): boolean {
-  if (!item) {
-    return false
-  }
-
-  if (item.mode !== 'draft') {
-    return true
-  }
-
-  return item.rect.width >= MIN_POPUP_RECT_SIZE_PX && item.rect.height >= MIN_POPUP_RECT_SIZE_PX
-}
-
 const allRenderedItems = computed(() =>
   renderedDraftItem.value ? [...renderedCommittedItems.value, renderedDraftItem.value] : renderedCommittedItems.value
 )
@@ -143,55 +209,20 @@ const activeRenderedItem = computed(() => {
   return renderedCommittedItems.value.find((item) => item.mtfId === props.selectedMtfId) ?? null
 })
 
-const metricCardStyle = computed(() => {
-  const rect = activeRenderedItem.value?.rect
-  if (!rect) {
-    return null
-  }
-
-  const minLeft = props.imageFrame.left + 12
-  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - 244, minLeft)
-  const minTop = props.imageFrame.top + 12
-  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - 176, minTop)
-
-  return {
-    left: `${Math.round(Math.max(minLeft, Math.min(maxLeft, rect.left + rect.width + 12)))}px`,
-    top: `${Math.round(Math.max(minTop, Math.min(maxTop, rect.top + 4)))}px`
-  }
-})
-
-const metricRows = computed(() => {
-  const metrics = activeRenderedItem.value?.metrics
-  if (!metrics) {
-    return []
-  }
-
-  const unit = metrics.unit || 'lp/mm'
-  const fwhmUnit = unit === 'lp/mm' ? 'mm' : 'px'
-  return [
-    { label: 'MTF50', value: metrics.mtf50 != null ? `${metrics.mtf50.toFixed(3)} ${unit}` : '-' },
-    { label: 'MTF10', value: metrics.mtf10 != null ? `${metrics.mtf10.toFixed(3)} ${unit}` : '-' },
-    { label: 'FWHM-W', value: metrics.fwhmW != null ? `${metrics.fwhmW.toFixed(3)} ${fwhmUnit}` : '-' },
-    { label: 'FWHM-H', value: metrics.fwhmH != null ? `${metrics.fwhmH.toFixed(3)} ${fwhmUnit}` : '-' }
-  ]
-})
-
-const selectedStatusLabel = computed(() => {
-  if (renderedDraftItem.value?.mode === 'draft' && !renderedDraftItem.value?.mtfId) {
-    return '绘制 ROI'
-  }
-
-  switch (activeRenderedItem.value?.status) {
-    case 'calculating':
-      return '计算中'
-    case 'error':
-      return '分析失败'
-    case 'ready':
-      return '分析完成'
-    default:
-      return activeRenderedItem.value ? '已选中 ROI' : '绘制 ROI'
-  }
-})
+const renderedMetricCards = computed<RenderedMetricCard[]>(() =>
+  allRenderedItems.value
+    .filter((item) => canShowMetricCardForItem(item))
+    .map((item) => ({
+      key: item.key,
+      mtfId: item.mtfId,
+      status: item.status,
+      errorMessage: item.errorMessage,
+      rows: buildMetricRows(item.metrics),
+      style: getMetricCardStyle(item.rect),
+      statusLabel: getStatusLabel(item),
+      isActive: item.mtfId != null && item.mtfId === activeRenderedItem.value?.mtfId
+    }))
+)
 
 function getOuterStroke(item: RenderedMtfItem): string {
   return item.mode === 'committed' ? committedStrokeOuter : draftStrokeOuter
@@ -281,21 +312,26 @@ function getShapeFill(item: RenderedMtfItem): string {
     </svg>
 
     <div
-      v-if="metricCardStyle && activeRenderedItem"
-      class="pointer-events-auto absolute w-[228px] rounded-2xl border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(5,16,28,0.96),rgba(5,12,20,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
-      :style="metricCardStyle"
-      @pointerdown.stop.prevent
+      v-for="card in renderedMetricCards"
+      :key="`${card.key}-metrics`"
+      class="absolute z-[6] w-[228px] rounded-2xl border border-cyan-300/20 bg-[linear-gradient(180deg,rgba(5,16,28,0.96),rgba(5,12,20,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
+      :class="card.isActive ? 'z-[13] border-cyan-200/35 shadow-[0_20px_38px_rgba(0,0,0,0.44)]' : ''"
+      :style="card.style"
     >
       <div class="flex items-start justify-between gap-3">
         <div>
           <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">MTF Metric</div>
-          <div class="mt-1 text-sm font-semibold text-white">{{ selectedStatusLabel }}</div>
+          <div v-if="card.statusLabel" class="mt-1 text-sm font-semibold text-white">{{ card.statusLabel }}</div>
         </div>
-        <div class="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/6 p-1">
+        <div
+          v-if="card.isActive"
+          class="pointer-events-auto inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/6 p-1"
+          @pointerdown.stop.prevent
+        >
           <button
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-300/16 bg-cyan-300/10 text-cyan-50 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="activeRenderedItem.status !== 'ready'"
+            :disabled="card.status !== 'ready'"
             aria-label="查看 MTF 曲线"
             @click="emit('openCurve')"
           >
@@ -304,7 +340,7 @@ function getShapeFill(item: RenderedMtfItem): string {
           <button
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="!activeRenderedItem.mtfId"
+            :disabled="!card.mtfId"
             aria-label="复制 MTF ROI"
             @click="emit('copy')"
           >
@@ -313,7 +349,7 @@ function getShapeFill(item: RenderedMtfItem): string {
           <button
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/16 bg-red-400/10 text-red-100 transition hover:bg-red-400/18 disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="!activeRenderedItem.mtfId"
+            :disabled="!card.mtfId"
             aria-label="删除 MTF ROI"
             @click="emit('clear')"
           >
@@ -322,25 +358,24 @@ function getShapeFill(item: RenderedMtfItem): string {
         </div>
       </div>
 
-      <div v-if="activeRenderedItem.status === 'ready'" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[12px] leading-5">
-        <template v-for="row in metricRows" :key="row.label">
+      <div v-if="card.status === 'ready'" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[12px] leading-5">
+        <template v-for="row in card.rows" :key="row.label">
           <div class="text-slate-400">{{ row.label }}</div>
           <div class="text-right font-medium text-slate-50">{{ row.value }}</div>
         </template>
       </div>
 
-      <div v-else-if="activeRenderedItem.status === 'error'" class="mt-3 text-[12px] leading-5 text-red-100/90">
-        {{ activeRenderedItem.errorMessage || '当前 ROI 的 MTF 分析未完成。' }}
+      <div v-else-if="card.status === 'error'" class="mt-3 text-[12px] leading-5 text-red-100/90">
+        {{ card.errorMessage || '当前 ROI 的 MTF 分析未完成。' }}
       </div>
 
-      <div v-else-if="activeRenderedItem.status === 'calculating'" class="mt-3 text-[12px] leading-5 text-slate-300">
-        正在将当前 ROI 发送到后端，并等待返回 MTF 指标。
+      <div v-else-if="card.status === 'calculating'" class="mt-3 text-[12px] leading-5 text-slate-300">
+        正在提交当前 ROI，并等待返回 MTF 指标。
       </div>
 
       <div v-else class="mt-3 text-[12px] leading-5 text-slate-300">
         拖拽一个矩形 ROI 开始分析。当前视口可以保留多个 MTF ROI。
       </div>
-
     </div>
   </div>
 </template>

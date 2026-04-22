@@ -12,6 +12,7 @@ interface ViewerWorkspaceHoverOptions {
 export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   const HOVER_EMIT_THROTTLE_MS = 30
   const hoveredViewIds = new Set<string>()
+  const lastHoverPixelsByViewId = new Map<string, { row: number; col: number }>()
   const hoverCornerPattern = /^X:\s*-?\d+\s+Y:\s*-?\d+$/i
 
   const emitThrottledViewHover = throttle(
@@ -47,6 +48,12 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     if (!payload?.viewId || !hoveredViewIds.has(payload.viewId)) {
       return
     }
+    if (payload.row != null && payload.col != null) {
+      lastHoverPixelsByViewId.set(payload.viewId, {
+        row: payload.row,
+        col: payload.col
+      })
+    }
     options.updateHoverCornerInfoByViewId(payload.viewId, payload.row, payload.col)
   }
 
@@ -66,7 +73,8 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     if (payload.x == null || payload.y == null) {
       emitThrottledViewHover.cancel()
       hoveredViewIds.delete(viewId)
-      options.updateHoverCornerInfoByViewId(viewId)
+      const lastHover = lastHoverPixelsByViewId.get(viewId)
+      options.updateHoverCornerInfoByViewId(viewId, lastHover?.row ?? null, lastHover?.col ?? null)
       return
     }
 
@@ -81,6 +89,7 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   function cleanupHover(): void {
     emitThrottledViewHover.cancel()
     hoveredViewIds.clear()
+    lastHoverPixelsByViewId.clear()
   }
 
   return {

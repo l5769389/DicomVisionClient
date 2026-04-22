@@ -212,6 +212,9 @@ function getInnerStroke(measurement: RenderedMeasurement): string {
 }
 
 function getLabelClass(measurement: RenderedMeasurement): string {
+  if (measurement.mode === 'selected' || measurement.mode === 'moving') {
+    return 'z-[12] border-amber-300/60 bg-[rgba(40,20,6,0.97)] text-amber-50 shadow-[0_16px_32px_rgba(0,0,0,0.4)]'
+  }
   return measurement.mode !== 'committed'
     ? 'border-amber-300/60 bg-[rgba(40,20,6,0.94)] text-amber-50'
     : 'border-sky-300/50 bg-[rgba(7,16,28,0.92)] text-slate-50'
@@ -422,7 +425,7 @@ function isKeyValueLabelLine(line: string): boolean {
       v-for="measurement in allRenderedMeasurements"
       :key="`${measurement.key}-label`"
       v-show="measurement.labelLines.length && measurement.labelStyle"
-      class="absolute rounded-lg border px-2 py-1 text-[12px] leading-4 shadow-[0_10px_24px_rgba(0,0,0,0.28)] [text-rendering:geometricPrecision] [transform:translateZ(0)]"
+      class="absolute z-[5] rounded-lg border px-2 py-1 text-[12px] leading-4 shadow-[0_10px_24px_rgba(0,0,0,0.28)] [text-rendering:geometricPrecision] [transform:translateZ(0)]"
       :class="getLabelClass(measurement)"
       :style="measurement.labelStyle ?? undefined"
     >
@@ -446,7 +449,7 @@ function isKeyValueLabelLine(line: string): boolean {
 
     <div
       v-if="selectedDraftActionStyle"
-      class="pointer-events-auto absolute z-[5] inline-flex items-center gap-1 rounded-xl border border-amber-300/45 bg-[rgba(23,14,7,0.94)] px-1.5 py-1 shadow-[0_14px_28px_rgba(0,0,0,0.34)] backdrop-blur"
+      class="pointer-events-auto absolute z-[13] inline-flex items-center gap-1 rounded-xl border border-amber-300/45 bg-[rgba(23,14,7,0.97)] px-1.5 py-1 shadow-[0_18px_34px_rgba(0,0,0,0.42)] backdrop-blur"
       :style="selectedDraftActionStyle"
       @pointerdown.stop.prevent
     >

@@ -111,6 +111,10 @@ const imageFrame = ref({
   height: 0
 })
 
+function toStablePixel(value: number): number {
+  return Number.isFinite(value) ? Math.round(value) : 0
+}
+
 let resizeObserver: ResizeObserver | null = null
 
 function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
@@ -141,7 +145,6 @@ function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
 }
 
 function handlePointerDown(event: PointerEvent): void {
-  emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
   emit('pointerDown', event, props.viewportKey)
 }
 
@@ -205,10 +208,10 @@ function updateStageMetrics(): void {
 
   const imageRect = getRenderedImageRect(image)
   imageFrame.value = {
-    left: imageRect.left - stageRect.left,
-    top: imageRect.top - stageRect.top,
-    width: imageRect.width,
-    height: imageRect.height
+    left: toStablePixel(imageRect.left - stageRect.left),
+    top: toStablePixel(imageRect.top - stageRect.top),
+    width: toStablePixel(imageRect.width),
+    height: toStablePixel(imageRect.height)
   }
 }
 

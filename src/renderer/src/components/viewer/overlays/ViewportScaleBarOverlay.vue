@@ -29,25 +29,29 @@ const metrics = computed(() => {
     return null
   }
 
-  const rawLengthPx = props.scaleBar.lengthNorm * props.stageWidth
+  const roundedStageWidth = Math.round(props.stageWidth)
+  const roundedStageHeight = Math.round(props.stageHeight)
+  const rawLengthPx = props.scaleBar.lengthNorm * roundedStageWidth
   if (!Number.isFinite(rawLengthPx) || rawLengthPx < 8) {
     return null
   }
 
   const hasFrame = props.imageFrame.width > 0 && props.imageFrame.height > 0
-  const frameLeft = hasFrame ? props.imageFrame.left : 0
-  const frameTop = hasFrame ? props.imageFrame.top : 0
-  const frameWidth = hasFrame ? props.imageFrame.width : props.stageWidth
-  const frameHeight = hasFrame ? props.imageFrame.height : props.stageHeight
+  const frameLeft = Math.round(hasFrame ? props.imageFrame.left : 0)
+  const frameTop = Math.round(hasFrame ? props.imageFrame.top : 0)
+  const frameWidth = Math.round(hasFrame ? props.imageFrame.width : roundedStageWidth)
+  const frameHeight = Math.round(hasFrame ? props.imageFrame.height : roundedStageHeight)
   const maxWidth = Math.max(0, frameWidth - 32)
   if (rawLengthPx > maxWidth) {
     return null
   }
-  const lengthPx = rawLengthPx
+  const lengthPx = Math.round(rawLengthPx)
   const totalHeight = 34
   const bottomPadding = 10
-  const left = frameLeft + Math.max(0, (frameWidth - lengthPx) / 2)
-  const top = Math.max(12, Math.min(frameTop + frameHeight - totalHeight - bottomPadding, props.stageHeight - totalHeight - 8))
+  const left = Math.round(frameLeft + Math.max(0, (frameWidth - lengthPx) / 2))
+  const top = Math.round(
+    Math.max(12, Math.min(frameTop + frameHeight - totalHeight - bottomPadding, roundedStageHeight - totalHeight - 8))
+  )
 
   return {
     color: scaleBarPreference.value.color,

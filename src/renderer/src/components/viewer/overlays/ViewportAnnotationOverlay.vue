@@ -226,13 +226,14 @@ watch(
       v-for="annotation in renderedAnnotations"
       :key="`${annotation.annotationId}-label`"
       v-show="annotation.labelStyle && (props.selectedAnnotationId === annotation.annotationId || annotation.text.trim())"
-      class="absolute max-w-[240px]"
+      class="absolute z-[5] max-w-[240px]"
+      :class="props.selectedAnnotationId === annotation.annotationId ? 'z-[13]' : ''"
       :style="(props.selectedAnnotationId === annotation.annotationId ? annotation.editorStyle : annotation.labelStyle) ?? undefined"
     >
       <div
         v-if="props.selectedAnnotationId === annotation.annotationId"
         data-annotation-ui-root
-        class="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 bg-[rgba(7,14,24,0.96)] px-2 py-2 shadow-[0_14px_28px_rgba(0,0,0,0.34)] backdrop-blur"
+        class="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 bg-[rgba(7,14,24,0.98)] px-2 py-2 shadow-[0_18px_36px_rgba(0,0,0,0.42)] backdrop-blur"
         @pointerdown.stop
       >
         <input
@@ -266,7 +267,7 @@ watch(
 
         <div
           v-if="openStyleMenuAnnotationId === annotation.annotationId"
-          class="absolute right-0 top-[calc(100%+8px)] z-[6] w-[220px] rounded-xl border border-white/10 bg-[rgba(7,14,24,0.98)] p-3 shadow-[0_18px_36px_rgba(0,0,0,0.38)]"
+          class="absolute right-0 top-[calc(100%+8px)] z-[14] w-[220px] rounded-xl border border-white/10 bg-[rgba(7,14,24,0.98)] p-3 shadow-[0_18px_36px_rgba(0,0,0,0.38)]"
         >
           <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Color</div>
           <div class="mb-3 flex flex-wrap gap-2">
@@ -307,7 +308,7 @@ watch(
 
     <div
       v-if="renderedDraftAnnotation?.labelStyle && renderedDraftAnnotation.text.trim()"
-      class="absolute rounded-lg border border-white/10 bg-[rgba(7,14,24,0.82)] px-2 py-1 text-slate-400 shadow-[0_10px_24px_rgba(0,0,0,0.22)]"
+      class="absolute z-[5] rounded-lg border border-white/10 bg-[rgba(7,14,24,0.82)] px-2 py-1 text-slate-400 shadow-[0_10px_24px_rgba(0,0,0,0.22)]"
       :style="{
         ...(renderedDraftAnnotation.labelStyle ?? {}),
         fontSize: `${renderedDraftAnnotation.fontSize}px`

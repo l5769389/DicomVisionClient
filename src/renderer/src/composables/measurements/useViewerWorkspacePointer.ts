@@ -1310,10 +1310,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
           mtfId: draft.mtfId
         })
         if (draft.mtfId) {
+          clearMtfDraft(viewportKey)
           mtfInteractionController.select(viewportKey, draft.mtfId)
           options.emitMtfSelect({ mtfId: draft.mtfId })
         }
       } else if (draft.mtfId) {
+        clearMtfDraft(viewportKey)
         mtfInteractionController.select(viewportKey, draft.mtfId)
         options.emitMtfSelect({ mtfId: draft.mtfId })
       } else {

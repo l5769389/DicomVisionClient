@@ -1,5 +1,5 @@
 import type { MprCrosshairInfo } from '../../types/viewer'
-import { normalizeDirectedCrosshairAngle, type CrosshairLineTarget, type MprViewportCrosshairGeometry } from '../workspace/views/mprFrameGeometry'
+import type { CrosshairLineTarget, MprViewportCrosshairGeometry } from '../workspace/views/mprFrameGeometry'
 
 const CROSSHAIR_LINE_HIT_TOLERANCE_PX = 6
 const CROSSHAIR_ROTATION_DEAD_ZONE_PX = 18
@@ -19,7 +19,7 @@ interface CrosshairPointerGeometryInput {
 
 export function resolveCrosshairRotationPayload(
   viewportPoint: NormalizedPoint,
-  input: CrosshairPointerGeometryInput
+  input: CrosshairPointerGeometryInput & { line: CrosshairLineTarget }
 ): { angleRad: number; x: number; y: number } | null {
   const { containerRect, imageRect, geometry } = input
   if (!containerRect.width || !containerRect.height || !imageRect.width || !imageRect.height) {
@@ -29,11 +29,33 @@ export function resolveCrosshairRotationPayload(
   const pointerY = imageRect.top - containerRect.top + viewportPoint.y * imageRect.height
   const centerX = imageRect.left - containerRect.left + geometry.center.x * imageRect.width
   const centerY = imageRect.top - containerRect.top + geometry.center.y * imageRect.height
+  const screenLineAngle = input.line === 'vertical' ? geometry.verticalAngleRad : geometry.horizontalAngleRad
+  const rawGeometryAngle = Math.atan2(centerY - pointerY, pointerX - centerX)
+  const referenceGeometryAngle = resolveNearestUndirectedLineAngle(rawGeometryAngle, -screenLineAngle)
   return {
-    angleRad: normalizeDirectedCrosshairAngle(Math.atan2(pointerY - centerY, pointerX - centerX)),
+    angleRad: unwrapAngleAround(rawGeometryAngle, referenceGeometryAngle),
     x: viewportPoint.x,
     y: viewportPoint.y
   }
+}
+
+function unwrapAngleAround(angleRad: number, referenceRad: number): number {
+  const fullTurn = Math.PI * 2
+  let nextAngle = angleRad
+  while (nextAngle - referenceRad > Math.PI) {
+    nextAngle -= fullTurn
+  }
+  while (nextAngle - referenceRad <= -Math.PI) {
+    nextAngle += fullTurn
+  }
+  return nextAngle
+}
+
+function resolveNearestUndirectedLineAngle(angleRad: number, lineAngleRad: number): number {
+  const candidates = [lineAngleRad - Math.PI, lineAngleRad, lineAngleRad + Math.PI]
+  return candidates.reduce((nearest, candidate) =>
+    Math.abs(angleRad - candidate) < Math.abs(angleRad - nearest) ? candidate : nearest
+  )
 }
 
 export function resolveCrosshairHitTarget(input: {

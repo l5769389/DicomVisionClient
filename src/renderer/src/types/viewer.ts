@@ -3,7 +3,9 @@ import type {
   LoadFolderResponse as BackendLoadFolderResponse,
   MeasurementPointPayload as BackendMeasurementPointPayload,
   MprCrosshairInfo as BackendMprCrosshairInfo,
+  MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
+  MprPlaneInfo as BackendMprPlaneInfo,
   OperationAcceptedResponse as BackendOperationAcceptedResponse,
   OrientationInfo as BackendOrientationInfo,
   ScaleBarInfo as BackendScaleBarInfo,
@@ -257,13 +259,9 @@ export interface MtfAnalyzeResponse {
 }
 
 export type MprCrosshairInfo = BackendMprCrosshairInfo
+export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
-export interface MprPlaneInfo {
-  row: [number, number, number]
-  col: [number, number, number]
-  normal: [number, number, number]
-  isOblique: boolean
-}
+export type MprPlaneInfo = BackendMprPlaneInfo
 export type ScaleBarInfo = BackendScaleBarInfo
 export type OrientationInfo = BackendOrientationInfo
 
@@ -321,6 +319,7 @@ export interface ViewImageResponse {
   }
   mprFrame?: MprFrameInfo | null
   mprPlane?: MprPlaneInfo | null
+  mprCursor?: MprCursorInfo | null
   mpr_crosshair?: MprCrosshairInfo | null
   scaleBar?: ScaleBarInfo | null
   measurements?: MeasurementOverlay[]
@@ -367,6 +366,7 @@ export interface ViewerTabItem {
   viewportViewIds?: Partial<Record<MprViewportKey, string>>
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
+  mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
   viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>

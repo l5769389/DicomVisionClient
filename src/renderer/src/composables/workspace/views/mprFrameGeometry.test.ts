@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { getMprViewportDerivedCrosshairGeometry } from './mprFrameGeometry'
+import {
+  getMprViewportCrosshairAngles,
+  getMprViewportDerivedCrosshairGeometry,
+  resolveMprViewportPose
+} from './mprFrameGeometry'
 
 describe('mprFrameGeometry', () => {
   it('maps default axial geometry to horizontal and vertical screen axes correctly', () => {
@@ -25,7 +29,27 @@ describe('mprFrameGeometry', () => {
     expect(geometry?.verticalAngleRad).toBeCloseTo(Math.PI / 2, 6)
   })
 
-  it('prefers shared mprFrame geometry over explicit cached line angles', () => {
+  it('builds a viewport pose from frame axes and derives line angles from that pose', () => {
+    const pose = resolveMprViewportPose(
+      {
+        center: [0, 0, 0],
+        axisSlice: [1, 0, 0],
+        axisRow: [0, 1, 0],
+        axisCol: [0, 0, 1]
+      },
+      'mpr-ax'
+    )
+    const angles = getMprViewportCrosshairAngles(pose)
+
+    expect(pose.viewportKey).toBe('mpr-ax')
+    expect(pose.basis.normal).toEqual([1, 0, 0])
+    expect(pose.targetNormals.horizontal).toEqual([0, 1, 0])
+    expect(pose.targetNormals.vertical).toEqual([0, 0, 1])
+    expect(angles.horizontalAngleRad).toBeCloseTo(0, 6)
+    expect(angles.verticalAngleRad).toBeCloseTo(Math.PI / 2, 6)
+  })
+
+  it('uses backend crosshair angles when the response provides them', () => {
     const frame = {
       center: [2, 3, 3] as [number, number, number],
       axisSlice: [1, 0, 0] as [number, number, number],
@@ -59,10 +83,10 @@ describe('mprFrameGeometry', () => {
 
     expect(geometry).not.toBeNull()
     expect(derivedOnly).not.toBeNull()
-    expect(geometry?.horizontalAngleRad).toBeCloseTo(derivedOnly?.horizontalAngleRad ?? 0, 6)
-    expect(geometry?.verticalAngleRad).toBeCloseTo(derivedOnly?.verticalAngleRad ?? 0, 6)
-    expect(geometry?.horizontalAngleRad).not.toBeCloseTo(0, 6)
-    expect(geometry?.verticalAngleRad).not.toBeCloseTo(Math.PI / 2, 6)
+    expect(geometry?.horizontalAngleRad).toBeCloseTo(0, 6)
+    expect(geometry?.verticalAngleRad).toBeCloseTo(Math.PI / 2, 6)
+    expect(derivedOnly?.horizontalAngleRad).not.toBeCloseTo(0, 6)
+    expect(derivedOnly?.verticalAngleRad).not.toBeCloseTo(Math.PI / 2, 6)
   })
 
   it('prefers resolved viewport plane basis over frame-only basis when they diverge', () => {
@@ -73,6 +97,15 @@ describe('mprFrameGeometry', () => {
       axisCol: [-0.4975710478917269, -0.29743752219212377, -0.8148337086130757] as [number, number, number]
     }
     const plane = {
+      viewport: 'mpr-ax',
+      centerWorld: [0, 0, 0] as [number, number, number],
+      cursorCenterWorld: [0, 0, 0] as [number, number, number],
+      rowWorld: [0, -0.9393727128473789, 0.34289780745545134] as [number, number, number],
+      colWorld: [0.49757104789172696, 0.29743752219212377, 0.8148337086130757] as [number, number, number],
+      normalWorld: [-0.867423225594017, 0.17061602137538454, 0.4674046650923646] as [number, number, number],
+      pixelSpacingRowMm: 1,
+      pixelSpacingColMm: 1,
+      outputShape: [5, 5] as [number, number],
       row: [0, -0.9393727128473789, 0.34289780745545134] as [number, number, number],
       col: [0.49757104789172696, 0.29743752219212377, 0.8148337086130757] as [number, number, number],
       normal: [-0.867423225594017, 0.17061602137538454, 0.4674046650923646] as [number, number, number],

@@ -513,7 +513,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return resolveCrosshairRotationPayload(viewportPoint, {
       containerRect,
       imageRect,
-      geometry
+      geometry,
+      line
     })
   }
 

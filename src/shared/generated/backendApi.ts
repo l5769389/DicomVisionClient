@@ -83,6 +83,13 @@ export interface MprCrosshairInfo {
   verticalAngleRad?: number | null
 }
 
+export interface MprCursorInfo {
+  centerWorld: [number, number, number]
+  referenceCenterWorld: [number, number, number]
+  orientationWorld: [[number, number, number], [number, number, number], [number, number, number]]
+  linkedToVolumeRotation?: boolean
+}
+
 export interface MprFrameInfo {
   center: [number, number, number]
   axisSlice: [number, number, number]
@@ -98,6 +105,22 @@ export interface MprMipConfig {
 
 export interface MprMipViewportConfig {
   thickness?: number
+}
+
+export interface MprPlaneInfo {
+  viewport: string
+  centerWorld: [number, number, number]
+  cursorCenterWorld: [number, number, number]
+  rowWorld: [number, number, number]
+  colWorld: [number, number, number]
+  normalWorld: [number, number, number]
+  pixelSpacingRowMm: number
+  pixelSpacingColMm: number
+  outputShape: [number, number]
+  row: [number, number, number]
+  col: [number, number, number]
+  normal: [number, number, number]
+  isOblique: boolean
 }
 
 export interface MtfCurvePointPayload {
@@ -279,7 +302,9 @@ export interface ViewImageResponse {
   imageFormat: 'png' | 'jpeg'
   viewId: string
   mpr_crosshair?: MprCrosshairInfo | null
+  mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
+  mprPlane?: MprPlaneInfo | null
   scaleBar?: ScaleBarInfo | null
   cornerInfo?: CornerInfoPayload | null
   measurements?: MeasurementOverlayPayload[]

@@ -15,12 +15,12 @@ import {
   createEmptyMprSliceLabels,
   createEmptyMprTransformStates,
   createEmptyMprViewIds,
-  createDefaultMprFrameInfo,
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
   createTab,
   mergeCornerInfo,
   normalizeCornerInfo,
+  normalizeMprCursorInfo,
   normalizeMprFrameInfo,
   normalizeMprPlaneInfo,
   normalizeOrientationInfo,
@@ -256,11 +256,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
       const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
-      const nextMprFrame = mprFrame ?? item.mprFrame ?? null
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -278,7 +278,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return {
           ...item,
           windowLabel,
-          mprFrame: nextMprFrame,
+          mprCursor: mprCursor ?? item.mprCursor ?? null,
+          mprFrame,
           viewportImages: {
             ...(item.viewportImages ?? createEmptyMprImages()),
             [viewportKey]: imageSrc
@@ -509,7 +510,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
-              mprFrame: viewType === 'MPR' ? createDefaultMprFrameInfo() : null,
+              mprFrame: null,
+              mprCursor: null,
               viewportViewIds: nextViewportViewIds,
               viewportImages: createEmptyMprImages(),
               viewportSliceLabels: createEmptyMprSliceLabels(),

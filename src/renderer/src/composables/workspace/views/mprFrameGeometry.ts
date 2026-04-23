@@ -4,6 +4,18 @@ export type CrosshairLineTarget = 'horizontal' | 'vertical'
 
 type Vec3 = [number, number, number]
 
+export interface MprViewportBasis {
+  row: Vec3
+  col: Vec3
+  normal: Vec3
+}
+
+export interface MprViewportPose {
+  viewportKey: MprViewportKey
+  basis: MprViewportBasis
+  targetNormals: Record<CrosshairLineTarget, Vec3>
+}
+
 export interface MprViewportCrosshairGeometry {
   center: { x: number; y: number }
   horizontalAngleRad: number
@@ -69,16 +81,7 @@ export function normalizeCrosshairAngle(angleRad: number): number {
   return nextAngle
 }
 
-export function normalizeDirectedCrosshairAngle(angleRad: number): number {
-  const fullTurn = Math.PI * 2
-  let nextAngle = angleRad % fullTurn
-  if (nextAngle < 0) {
-    nextAngle += fullTurn
-  }
-  return nextAngle
-}
-
-function getDefaultViewportBasis(viewportKey: MprViewportKey): { row: Vec3; col: Vec3; normal: Vec3 } {
+function getDefaultViewportBasis(viewportKey: MprViewportKey): MprViewportBasis {
   if (viewportKey === 'mpr-cor') {
     return {
       row: [1, 0, 0],
@@ -100,7 +103,7 @@ function getDefaultViewportBasis(viewportKey: MprViewportKey): { row: Vec3; col:
   }
 }
 
-export function projectMprFrameToViewportBasis(frame: MprFrameInfo, viewportKey: MprViewportKey): { row: Vec3; col: Vec3; normal: Vec3 } {
+export function projectMprFrameToViewportBasis(frame: MprFrameInfo, viewportKey: MprViewportKey): MprViewportBasis {
   const axisSlice = normalizeVec3(frame.axisSlice, [1, 0, 0])
   const axisRow = normalizeVec3(frame.axisRow, [0, 1, 0])
   const axisCol = normalizeVec3(frame.axisCol, [0, 0, 1])
@@ -114,7 +117,7 @@ export function projectMprFrameToViewportBasis(frame: MprFrameInfo, viewportKey:
   return { row: axisRow, col: axisCol, normal: axisSlice }
 }
 
-export function getMprViewportDisplayBasis(frame: MprFrameInfo, viewportKey: MprViewportKey): { row: Vec3; col: Vec3; normal: Vec3 } {
+export function getMprViewportDisplayBasis(frame: MprFrameInfo, viewportKey: MprViewportKey): MprViewportBasis {
   const projected = projectMprFrameToViewportBasis(frame, viewportKey)
   const canonical = getDefaultViewportBasis(viewportKey)
   const normalizedNormal = normalizeVec3(projected.normal, canonical.normal)
@@ -127,19 +130,41 @@ export function getMprViewportDisplayBasis(frame: MprFrameInfo, viewportKey: Mpr
   return { row, col, normal: normalizedNormal }
 }
 
-function getMprViewportPlaneBasis(plane: MprPlaneInfo, viewportKey: MprViewportKey): { row: Vec3; col: Vec3; normal: Vec3 } {
+function getMprViewportPlaneBasis(plane: MprPlaneInfo, viewportKey: MprViewportKey): MprViewportBasis {
   const canonical = getDefaultViewportBasis(viewportKey)
-  const normalizedNormal = normalizeVec3(plane.normal, canonical.normal)
+  const normalizedNormal = normalizeVec3(plane.normalWorld ?? plane.normal, canonical.normal)
   const { row, col } = orthogonalizeBasis(
-    normalizeVec3(plane.row, canonical.row),
-    normalizeVec3(plane.col, canonical.col),
+    normalizeVec3(plane.rowWorld ?? plane.row, canonical.row),
+    normalizeVec3(plane.colWorld ?? plane.col, canonical.col),
     normalizedNormal,
     canonical
   )
   return { row, col, normal: normalizedNormal }
 }
 
-function angleFromLineDirection(lineDir: Vec3, displayBasis: { row: Vec3; col: Vec3 }): number {
+function getExplicitCrosshairAngles(crosshairInfo: MprCrosshairInfo): {
+  horizontalAngleRad: number
+  verticalAngleRad: number
+} | null {
+  const explicitHorizontalAngle = Number.isFinite(crosshairInfo.horizontalAngleRad)
+    ? normalizeCrosshairAngle(crosshairInfo.horizontalAngleRad ?? 0)
+    : null
+  const explicitVerticalAngle = Number.isFinite(crosshairInfo.verticalAngleRad)
+    ? normalizeCrosshairAngle(crosshairInfo.verticalAngleRad ?? 0)
+    : null
+
+  if (explicitHorizontalAngle == null && explicitVerticalAngle == null) {
+    return null
+  }
+
+  const horizontalAngleRad = explicitHorizontalAngle ?? normalizeCrosshairAngle((explicitVerticalAngle ?? 0) - Math.PI / 2)
+  return {
+    horizontalAngleRad,
+    verticalAngleRad: explicitVerticalAngle ?? normalizeCrosshairAngle(horizontalAngleRad + Math.PI / 2)
+  }
+}
+
+function angleFromLineDirection(lineDir: Vec3, displayBasis: Pick<MprViewportBasis, 'row' | 'col'>): number {
   const colComponent = dot(lineDir, displayBasis.col)
   const rowComponent = dot(lineDir, displayBasis.row)
   const magnitude = Math.hypot(colComponent, rowComponent)
@@ -159,18 +184,39 @@ function resolveTargetViewport(viewportKey: MprViewportKey, line: CrosshairLineT
   return line === 'horizontal' ? 'mpr-cor' : 'mpr-sag'
 }
 
-function getFrameCrosshairLineDirection(frame: MprFrameInfo, viewportKey: MprViewportKey, line: CrosshairLineTarget): Vec3 {
-  const currentPlane = projectMprFrameToViewportBasis(frame, viewportKey)
-  const targetPlane = projectMprFrameToViewportBasis(frame, resolveTargetViewport(viewportKey, line))
-  return normalizeVec3(cross(currentPlane.normal, targetPlane.normal), line === 'horizontal' ? currentPlane.col : currentPlane.row)
+function getTargetViewportNormals(frame: MprFrameInfo, viewportKey: MprViewportKey): Record<CrosshairLineTarget, Vec3> {
+  return {
+    horizontal: projectMprFrameToViewportBasis(frame, resolveTargetViewport(viewportKey, 'horizontal')).normal,
+    vertical: projectMprFrameToViewportBasis(frame, resolveTargetViewport(viewportKey, 'vertical')).normal
+  }
 }
 
-function getPlaneCrosshairLineDirection(
-  currentPlane: { row: Vec3; col: Vec3; normal: Vec3 },
-  targetNormal: Vec3,
-  line: CrosshairLineTarget
-): Vec3 {
-  return normalizeVec3(cross(currentPlane.normal, targetNormal), line === 'horizontal' ? currentPlane.col : currentPlane.row)
+export function resolveMprViewportPose(
+  frame: MprFrameInfo,
+  viewportKey: MprViewportKey,
+  plane: MprPlaneInfo | null | undefined = null
+): MprViewportPose {
+  return {
+    viewportKey,
+    basis: plane ? getMprViewportPlaneBasis(plane, viewportKey) : getMprViewportDisplayBasis(frame, viewportKey),
+    targetNormals: getTargetViewportNormals(frame, viewportKey)
+  }
+}
+
+export function getMprViewportCrosshairLineDirection(pose: MprViewportPose, line: CrosshairLineTarget): Vec3 {
+  const basis = pose.basis
+  const targetNormal = pose.targetNormals[line]
+  return normalizeVec3(cross(basis.normal, targetNormal), line === 'horizontal' ? basis.col : basis.row)
+}
+
+export function getMprViewportCrosshairAngles(pose: MprViewportPose): {
+  horizontalAngleRad: number
+  verticalAngleRad: number
+} {
+  return {
+    horizontalAngleRad: angleFromLineDirection(getMprViewportCrosshairLineDirection(pose, 'horizontal'), pose.basis),
+    verticalAngleRad: angleFromLineDirection(getMprViewportCrosshairLineDirection(pose, 'vertical'), pose.basis)
+  }
 }
 
 export function getMprViewportDerivedCrosshairGeometry(
@@ -188,42 +234,21 @@ export function getMprViewportDerivedCrosshairGeometry(
     y: crosshairInfo.horizontalPosition ?? crosshairInfo.centerY
   }
 
+  const explicitAngles = getExplicitCrosshairAngles(crosshairInfo)
+  if (explicitAngles) {
+    return {
+      center,
+      ...explicitAngles
+    }
+  }
+
   if (frame) {
-    const currentPlane = plane ? getMprViewportPlaneBasis(plane, viewportKey) : getMprViewportDisplayBasis(frame, viewportKey)
-    const horizontalTargetNormal = projectMprFrameToViewportBasis(frame, resolveTargetViewport(viewportKey, 'horizontal')).normal
-    const verticalTargetNormal = projectMprFrameToViewportBasis(frame, resolveTargetViewport(viewportKey, 'vertical')).normal
-    const horizontalAngleRad = angleFromLineDirection(
-      plane
-        ? getPlaneCrosshairLineDirection(currentPlane, horizontalTargetNormal, 'horizontal')
-        : getFrameCrosshairLineDirection(frame, viewportKey, 'horizontal'),
-      currentPlane
-    )
-    const verticalAngleRad = angleFromLineDirection(
-      plane
-        ? getPlaneCrosshairLineDirection(currentPlane, verticalTargetNormal, 'vertical')
-        : getFrameCrosshairLineDirection(frame, viewportKey, 'vertical'),
-      currentPlane
-    )
+    const pose = resolveMprViewportPose(frame, viewportKey, plane)
+    const { horizontalAngleRad, verticalAngleRad } = getMprViewportCrosshairAngles(pose)
     return {
       center,
       horizontalAngleRad,
       verticalAngleRad
-    }
-  }
-
-  const explicitHorizontalAngle = Number.isFinite(crosshairInfo.horizontalAngleRad)
-    ? normalizeCrosshairAngle(crosshairInfo.horizontalAngleRad ?? 0)
-    : null
-  const explicitVerticalAngle = Number.isFinite(crosshairInfo.verticalAngleRad)
-    ? normalizeCrosshairAngle(crosshairInfo.verticalAngleRad ?? 0)
-    : null
-
-  if (explicitHorizontalAngle != null || explicitVerticalAngle != null) {
-    const horizontalAngleRad = explicitHorizontalAngle ?? normalizeCrosshairAngle((explicitVerticalAngle ?? 0) - Math.PI / 2)
-    return {
-      center,
-      horizontalAngleRad,
-      verticalAngleRad: explicitVerticalAngle ?? normalizeCrosshairAngle(horizontalAngleRad + Math.PI / 2)
     }
   }
 
@@ -242,7 +267,7 @@ export function getTabViewportCrosshairGeometry(
     return null
   }
   return getMprViewportDerivedCrosshairGeometry(
-    tab.mprFrame,
+    null,
     viewportKey,
     tab.viewportCrosshairs?.[viewportKey] ?? null,
     tab.viewportPlanes?.[viewportKey] ?? null

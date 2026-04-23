@@ -10,7 +10,6 @@ import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
 import { api } from '../../../services/api'
 import {emitViewOperation, ViewOperationInput} from '../../../services/socket'
 import {
-  createDefaultMprFrameInfo,
   createEmptyMprCrosshairs,
   createEmptyMprOrientations,
   createEmptyMprScaleBars,
@@ -617,7 +616,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
           return {
             ...item,
-            mprFrame: createDefaultMprFrameInfo(),
+            mprCursor: null,
+            mprFrame: null,
             mprMipConfig: createDefaultMprMipConfig(),
             viewportCrosshairs: createEmptyMprCrosshairs(),
             viewportScaleBars: createEmptyMprScaleBars(),
@@ -675,7 +675,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
         return {
           ...item,
-          mprFrame: createDefaultMprFrameInfo(),
+          mprCursor: null,
+          mprFrame: null,
           mprMipConfig: createDefaultMprMipConfig(),
           viewportCrosshairs: createEmptyMprCrosshairs(),
           viewportScaleBars: createEmptyMprScaleBars(),

@@ -146,7 +146,7 @@ function drawCrosshair(): void {
     ? props.viewportKey
     : null
   const geometry = viewportKey
-    ? getMprViewportDerivedCrosshairGeometry(props.mprFrame, viewportKey, props.mprCrosshair, props.mprPlane)
+    ? getMprViewportDerivedCrosshairGeometry(null, viewportKey, props.mprCrosshair, props.mprPlane)
     : null
   if (!geometry) {
     return
@@ -166,7 +166,6 @@ watch(
     props.stageHeight,
     props.imageFrame,
     props.mprCrosshair,
-    props.mprFrame,
     props.mprPlane,
     props.isActive,
     props.viewportKey,

@@ -9,6 +9,7 @@ import {
   createEmptyMprCrosshairs,
   createEmptyMprImages,
   createEmptyMprOrientations,
+  createEmptyMprPlanes,
   createEmptyMprPseudocolorPresets,
   createEmptyMprScaleBars,
   createEmptyMprSliceLabels,
@@ -21,6 +22,7 @@ import {
   mergeCornerInfo,
   normalizeCornerInfo,
   normalizeMprFrameInfo,
+  normalizeMprPlaneInfo,
   normalizeOrientationInfo,
   normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
@@ -255,6 +257,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
+      const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
       const nextMprFrame = mprFrame ?? item.mprFrame ?? null
@@ -283,6 +286,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportSliceLabels: {
             ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
             [viewportKey]: sliceLabel
+          },
+          viewportPlanes: {
+            ...(item.viewportPlanes ?? createEmptyMprPlanes()),
+            [viewportKey]: mprPlane
           },
           viewportCrosshairs: {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -506,6 +513,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportViewIds: nextViewportViewIds,
               viewportImages: createEmptyMprImages(),
               viewportSliceLabels: createEmptyMprSliceLabels(),
+              viewportPlanes: createEmptyMprPlanes(),
               viewportCrosshairs: createEmptyMprCrosshairs(),
               viewportScaleBars: createEmptyMprScaleBars(),
               measurements: [],

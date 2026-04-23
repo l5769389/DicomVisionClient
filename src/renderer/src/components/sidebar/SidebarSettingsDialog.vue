@@ -111,9 +111,9 @@ function createDefaultQaWaterMetrics(): QaWaterMetricPreference[] {
 
 function createDefaultCrosshairConfigs(): CrosshairViewportConfig[] {
   return [
-    { key: 'mpr-ax', label: 'AX', color: '#22c55e', thickness: 2 },
-    { key: 'mpr-cor', label: 'COR', color: '#3b82f6', thickness: 2 },
-    { key: 'mpr-sag', label: 'SAG', color: '#ef4444', thickness: 2 }
+    { key: 'mpr-ax', label: 'AX', color: '#ef4444', thickness: 2 },
+    { key: 'mpr-cor', label: 'COR', color: '#22c55e', thickness: 2 },
+    { key: 'mpr-sag', label: 'SAG', color: '#3b82f6', thickness: 2 }
   ]
 }
 

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useUiPreferences, type CrosshairViewportPreference } from '../../../composables/ui/useUiPreferences'
 import { getMprViewportDerivedCrosshairGeometry } from '../../../composables/workspace/views/mprFrameGeometry'
-import type { MprCrosshairInfo, MprFrameInfo, MprViewportKey } from '../../../types/viewer'
+import type { MprCrosshairInfo, MprFrameInfo, MprPlaneInfo, MprViewportKey } from '../../../types/viewer'
 
 interface ImageFrame {
   left: number
@@ -17,6 +17,7 @@ const props = withDefaults(
     isActive?: boolean
     mprCrosshair?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
+    mprPlane?: MprPlaneInfo | null
     stageHeight: number
     stageWidth: number
     viewportKey: string
@@ -24,6 +25,7 @@ const props = withDefaults(
   {
     isActive: false,
     mprFrame: null,
+    mprPlane: null,
     mprCrosshair: null
   }
 )
@@ -144,7 +146,7 @@ function drawCrosshair(): void {
     ? props.viewportKey
     : null
   const geometry = viewportKey
-    ? getMprViewportDerivedCrosshairGeometry(props.mprFrame, viewportKey, props.mprCrosshair)
+    ? getMprViewportDerivedCrosshairGeometry(props.mprFrame, viewportKey, props.mprCrosshair, props.mprPlane)
     : null
   if (!geometry) {
     return
@@ -159,7 +161,17 @@ function drawCrosshair(): void {
 }
 
 watch(
-  () => [props.stageWidth, props.stageHeight, props.imageFrame, props.mprCrosshair, props.mprFrame, props.isActive, props.viewportKey, crosshairConfigs.value] as const,
+  () => [
+    props.stageWidth,
+    props.stageHeight,
+    props.imageFrame,
+    props.mprCrosshair,
+    props.mprFrame,
+    props.mprPlane,
+    props.isActive,
+    props.viewportKey,
+    crosshairConfigs.value
+  ] as const,
   () => {
     drawCrosshair()
   },

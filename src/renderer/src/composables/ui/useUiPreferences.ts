@@ -76,7 +76,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 4
+const CURRENT_PREFERENCES_VERSION = 5
 const DEFAULT_THEME_ID = 'aurora'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
@@ -85,6 +85,11 @@ const LEGACY_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string
   'mpr-ax': '#ffd166',
   'mpr-cor': '#7dd3fc',
   'mpr-sag': '#fda4af'
+}
+const PREVIOUS_DEFAULT_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string> = {
+  'mpr-ax': '#22c55e',
+  'mpr-cor': '#3b82f6',
+  'mpr-sag': '#ef4444'
 }
 
 const systemWindowPresets: WindowTemplatePreset[] = [
@@ -136,9 +141,9 @@ const systemWindowPresets: WindowTemplatePreset[] = [
 
 function createDefaultCrosshairConfigs(): CrosshairViewportPreference[] {
   return [
-    { key: 'mpr-ax', label: 'AX', color: '#22c55e', thickness: 2 },
-    { key: 'mpr-cor', label: 'COR', color: '#3b82f6', thickness: 2 },
-    { key: 'mpr-sag', label: 'SAG', color: '#ef4444', thickness: 2 }
+    { key: 'mpr-ax', label: 'AX', color: '#ef4444', thickness: 2 },
+    { key: 'mpr-cor', label: 'COR', color: '#22c55e', thickness: 2 },
+    { key: 'mpr-sag', label: 'SAG', color: '#3b82f6', thickness: 2 }
   ]
 }
 
@@ -305,19 +310,33 @@ function normalizeExportPreference(value: unknown): ExportPreference {
 }
 
 function migrateCrosshairConfigs(version: number, value: CrosshairViewportPreference[]): CrosshairViewportPreference[] {
-  if (version >= 3) {
-    return value
+  let nextValue = value
+
+  if (version < 3) {
+    const defaults = createDefaultCrosshairConfigs()
+    nextValue = nextValue.map((item) => {
+      const defaultItem = defaults.find((candidate) => candidate.key === item.key) ?? item
+      const legacyColor = LEGACY_CROSSHAIR_COLORS[item.key]
+      return {
+        ...item,
+        color: item.color.toLowerCase() === legacyColor.toLowerCase() ? defaultItem.color : item.color
+      }
+    })
   }
 
-  const defaults = createDefaultCrosshairConfigs()
-  return value.map((item) => {
-    const defaultItem = defaults.find((candidate) => candidate.key === item.key) ?? item
-    const legacyColor = LEGACY_CROSSHAIR_COLORS[item.key]
-    return {
-      ...item,
-      color: item.color.toLowerCase() === legacyColor.toLowerCase() ? defaultItem.color : item.color
-    }
-  })
+  if (version < 5) {
+    const defaults = createDefaultCrosshairConfigs()
+    nextValue = nextValue.map((item) => {
+      const defaultItem = defaults.find((candidate) => candidate.key === item.key) ?? item
+      const previousColor = PREVIOUS_DEFAULT_CROSSHAIR_COLORS[item.key]
+      return {
+        ...item,
+        color: item.color.toLowerCase() === previousColor.toLowerCase() ? defaultItem.color : item.color
+      }
+    })
+  }
+
+  return nextValue
 }
 
 function normalizeRoiStatOptions(value: unknown): RoiStatPreference[] {

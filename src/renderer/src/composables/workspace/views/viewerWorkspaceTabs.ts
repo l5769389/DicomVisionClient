@@ -3,6 +3,7 @@ import type {
   CornerPosition,
   FolderSeriesItem,
   MprFrameInfo,
+  MprPlaneInfo,
   MprViewportKey,
   OrientationInfo,
   ScaleBarInfo,
@@ -41,6 +42,14 @@ export function createEmptyMprViewIds(): Record<MprViewportKey, string> {
 }
 
 export function createEmptyMprCrosshairs(): Record<MprViewportKey, null> {
+  return {
+    'mpr-ax': null,
+    'mpr-cor': null,
+    'mpr-sag': null
+  }
+}
+
+export function createEmptyMprPlanes(): Record<MprViewportKey, null> {
   return {
     'mpr-ax': null,
     'mpr-cor': null,
@@ -299,6 +308,25 @@ export function normalizeMprFrameInfo(value: unknown): MprFrameInfo | null {
   }
 }
 
+export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const nestedPlane = (record.mprPlane ?? record.mpr_plane ?? record.plane) as unknown
+  if (nestedPlane && nestedPlane !== value) {
+    return normalizeMprPlaneInfo(nestedPlane)
+  }
+
+  return {
+    row: normalizeMprFrameAxis(record.row, [0, 1, 0]),
+    col: normalizeMprFrameAxis(record.col, [0, 0, 1]),
+    normal: normalizeMprFrameAxis(record.normal, [1, 0, 0]),
+    isOblique: Boolean(record.isOblique ?? record.is_oblique ?? false)
+  }
+}
+
 export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerInfo {
   return CORNER_POSITIONS.reduce(
     (accumulator, position) => {
@@ -347,6 +375,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportImages: createEmptyMprImages(),
     viewportSliceLabels: createEmptyMprSliceLabels(),
     mprFrame: null,
+    viewportPlanes: createEmptyMprPlanes(),
     viewportCrosshairs: createEmptyMprCrosshairs(),
     viewportScaleBars: createEmptyMprScaleBars(),
     cornerInfo: createEmptyCornerInfo(),

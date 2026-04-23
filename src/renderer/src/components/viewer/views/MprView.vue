@@ -71,6 +71,10 @@ function getViewportCrosshair(viewportKey: MprViewportKey) {
   return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
 }
 
+function getViewportPlane(viewportKey: MprViewportKey) {
+  return props.activeTab.viewportPlanes?.[viewportKey] ?? null
+}
+
 function getViewportScaleBar(viewportKey: MprViewportKey): ScaleBarInfo | null {
   return props.activeTab.viewportScaleBars?.[viewportKey] ?? null
 }
@@ -108,6 +112,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :selected-mtf-id="props.selectedMtfId ?? null"
       :mpr-crosshair="getViewportCrosshair(item.key)"
       :mpr-frame="props.activeTab.mprFrame ?? null"
+      :mpr-plane="getViewportPlane(item.key)"
       :scale-bar="getViewportScaleBar(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @clear-mtf="emit('clearMtf')"

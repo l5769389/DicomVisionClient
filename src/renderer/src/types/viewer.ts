@@ -258,6 +258,12 @@ export interface MtfAnalyzeResponse {
 
 export type MprCrosshairInfo = BackendMprCrosshairInfo
 export type MprFrameInfo = BackendMprFrameInfo
+export interface MprPlaneInfo {
+  row: [number, number, number]
+  col: [number, number, number]
+  normal: [number, number, number]
+  isOblique: boolean
+}
 export type ScaleBarInfo = BackendScaleBarInfo
 export type OrientationInfo = BackendOrientationInfo
 
@@ -314,6 +320,7 @@ export interface ViewImageResponse {
     wl?: number | null
   }
   mprFrame?: MprFrameInfo | null
+  mprPlane?: MprPlaneInfo | null
   mpr_crosshair?: MprCrosshairInfo | null
   scaleBar?: ScaleBarInfo | null
   measurements?: MeasurementOverlay[]
@@ -361,6 +368,7 @@ export interface ViewerTabItem {
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
   mprFrame?: MprFrameInfo | null
+  viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
   viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
   measurements?: MeasurementOverlay[]

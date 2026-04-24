@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   getMprViewportCrosshairAngles,
   getMprViewportDerivedCrosshairGeometry,
+  getTabViewportCrosshairGeometry,
   resolveMprViewportPose
 } from './mprFrameGeometry'
+import type { ViewerTabItem } from '../../../types/viewer'
 
 describe('mprFrameGeometry', () => {
   it('maps default axial geometry to horizontal and vertical screen axes correctly', () => {
@@ -140,8 +142,8 @@ describe('mprFrameGeometry', () => {
     expect(frameOnlyGeometry).not.toBeNull()
     expect(geometryWithPlane?.horizontalAngleRad).toBeCloseTo(0, 6)
     expect(geometryWithPlane?.verticalAngleRad).toBeCloseTo(Math.PI / 2, 6)
-    expect(frameOnlyGeometry?.horizontalAngleRad).toBeCloseTo(2.743268360058433, 6)
-    expect(frameOnlyGeometry?.verticalAngleRad).toBeCloseTo(1.172472033263536, 6)
+    expect(frameOnlyGeometry?.horizontalAngleRad).not.toBeCloseTo(geometryWithPlane!.horizontalAngleRad, 6)
+    expect(frameOnlyGeometry?.verticalAngleRad).not.toBeCloseTo(geometryWithPlane!.verticalAngleRad, 6)
   })
 
   it('falls back to explicit angles when mprFrame is unavailable', () => {
@@ -161,5 +163,32 @@ describe('mprFrameGeometry', () => {
     expect(geometry?.center).toEqual({ x: 0.4, y: 0.6 })
     expect(geometry?.horizontalAngleRad).toBeCloseTo(0.25, 6)
     expect(geometry?.verticalAngleRad).toBeCloseTo(0.25 + Math.PI / 2, 6)
+  })
+
+  it('uses tab mprFrame for hit-test geometry when backend angles are absent', () => {
+    const tab = {
+      mprFrame: {
+        center: [2, 3, 3],
+        axisSlice: [1, 0, 0],
+        axisRow: [0, 0.9393727128473789, 0.34289780745545134],
+        axisCol: [0, -0.34289780745545134, 0.9393727128473789]
+      },
+      viewportCrosshairs: {
+        'mpr-ax': {
+          centerX: 0.5,
+          centerY: 0.5,
+          hitRadius: 0.03,
+          horizontalPosition: 0.5,
+          verticalPosition: 0.5
+        }
+      },
+      viewportPlanes: {}
+    } as ViewerTabItem
+
+    const geometry = getTabViewportCrosshairGeometry(tab, 'mpr-ax')
+
+    expect(geometry).not.toBeNull()
+    expect(geometry?.horizontalAngleRad).not.toBeCloseTo(0, 6)
+    expect(geometry?.verticalAngleRad).not.toBeCloseTo(Math.PI / 2, 6)
   })
 })

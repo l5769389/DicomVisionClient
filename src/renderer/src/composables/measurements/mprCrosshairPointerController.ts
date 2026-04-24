@@ -11,32 +11,90 @@ interface NormalizedPoint {
   y: number
 }
 
-interface CrosshairPointerGeometryInput {
-  containerRect: DOMRect
-  imageRect: DOMRect
-  geometry: MprViewportCrosshairGeometry
+export interface CrosshairRotationDragState {
+  centerX: number
+  centerY: number
+  startPointerAngleRad: number
+  lastPointerAngleRad: number
 }
 
-export function resolveCrosshairRotationPayload(
+interface CrosshairRotationDragInput {
+  containerRect: DOMRect
+  imageRect: DOMRect
+  geometry: Pick<MprViewportCrosshairGeometry, 'center'>
+}
+
+function resolveViewportPixelPoint(
   viewportPoint: NormalizedPoint,
-  input: CrosshairPointerGeometryInput & { line: CrosshairLineTarget }
-): { angleRad: number; x: number; y: number } | null {
-  const { containerRect, imageRect, geometry } = input
+  input: { containerRect: DOMRect; imageRect: DOMRect }
+): { pointerX: number; pointerY: number } | null {
+  const { containerRect, imageRect } = input
   if (!containerRect.width || !containerRect.height || !imageRect.width || !imageRect.height) {
     return null
   }
-  const pointerX = imageRect.left - containerRect.left + viewportPoint.x * imageRect.width
-  const pointerY = imageRect.top - containerRect.top + viewportPoint.y * imageRect.height
+  return {
+    pointerX: imageRect.left - containerRect.left + viewportPoint.x * imageRect.width,
+    pointerY: imageRect.top - containerRect.top + viewportPoint.y * imageRect.height
+  }
+}
+
+function resolvePointerAngleRad(pointerX: number, pointerY: number, centerX: number, centerY: number): number {
+  // Keep drag deltas in the same screen-space convention as the rendered
+  // crosshair angles: +Y points downward in canvas coordinates.
+  return Math.atan2(pointerY - centerY, pointerX - centerX)
+}
+
+export function createCrosshairRotationDragState(
+  viewportPoint: NormalizedPoint,
+  input: CrosshairRotationDragInput
+): { dragState: CrosshairRotationDragState; x: number; y: number } | null {
+  const pixelPoint = resolveViewportPixelPoint(viewportPoint, input)
+  if (!pixelPoint) {
+    return null
+  }
+  const { containerRect, imageRect, geometry } = input
   const centerX = imageRect.left - containerRect.left + geometry.center.x * imageRect.width
   const centerY = imageRect.top - containerRect.top + geometry.center.y * imageRect.height
-  const screenLineAngle = input.line === 'vertical' ? geometry.verticalAngleRad : geometry.horizontalAngleRad
-  const rawGeometryAngle = Math.atan2(centerY - pointerY, pointerX - centerX)
-  const referenceGeometryAngle = resolveNearestUndirectedLineAngle(rawGeometryAngle, -screenLineAngle)
+  const pointerAngleRad = resolvePointerAngleRad(pixelPoint.pointerX, pixelPoint.pointerY, centerX, centerY)
   return {
-    angleRad: unwrapAngleAround(rawGeometryAngle, referenceGeometryAngle),
+    dragState: {
+      centerX,
+      centerY,
+      startPointerAngleRad: pointerAngleRad,
+      lastPointerAngleRad: pointerAngleRad
+    },
     x: viewportPoint.x,
     y: viewportPoint.y
   }
+}
+
+export function resolveCrosshairRotationDeltaPayload(
+  viewportPoint: NormalizedPoint,
+  input: { containerRect: DOMRect; imageRect: DOMRect; dragState: CrosshairRotationDragState }
+): { deltaAngleRad: number; x: number; y: number; lastPointerAngleRad: number } | null {
+  const pixelPoint = resolveViewportPixelPoint(viewportPoint, input)
+  if (!pixelPoint) {
+    return null
+  }
+  const currentPointerAngleRad = resolvePointerAngleRad(
+    pixelPoint.pointerX,
+    pixelPoint.pointerY,
+    input.dragState.centerX,
+    input.dragState.centerY
+  )
+  const unwrappedPointerAngleRad = unwrapAngleAround(currentPointerAngleRad, input.dragState.lastPointerAngleRad)
+  return {
+    deltaAngleRad: unwrappedPointerAngleRad - input.dragState.startPointerAngleRad,
+    lastPointerAngleRad: unwrappedPointerAngleRad,
+    x: viewportPoint.x,
+    y: viewportPoint.y
+  }
+}
+
+export function toMprObliqueDeltaAngleRad(screenDeltaAngleRad: number): number {
+  // Protocol contract: deltaAngleRad is cumulative from drag start in the
+  // same screen-space convention used by the rendered crosshair angles.
+  return screenDeltaAngleRad
 }
 
 function unwrapAngleAround(angleRad: number, referenceRad: number): number {
@@ -49,13 +107,6 @@ function unwrapAngleAround(angleRad: number, referenceRad: number): number {
     nextAngle += fullTurn
   }
   return nextAngle
-}
-
-function resolveNearestUndirectedLineAngle(angleRad: number, lineAngleRad: number): number {
-  const candidates = [lineAngleRad - Math.PI, lineAngleRad, lineAngleRad + Math.PI]
-  return candidates.reduce((nearest, candidate) =>
-    Math.abs(angleRad - candidate) < Math.abs(angleRad - nearest) ? candidate : nearest
-  )
 }
 
 export function resolveCrosshairHitTarget(input: {

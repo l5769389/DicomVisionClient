@@ -342,6 +342,7 @@ export interface ViewOperationRequest {
   y?: number | null
   line?: 'horizontal' | 'vertical' | null
   angleRad?: number | null
+  deltaAngleRad?: number | null
   points?: MeasurementPointPayload[] | null
   zoom?: number | null
   delta?: number | null

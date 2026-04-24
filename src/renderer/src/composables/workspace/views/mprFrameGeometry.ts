@@ -84,14 +84,14 @@ export function normalizeCrosshairAngle(angleRad: number): number {
 function getDefaultViewportBasis(viewportKey: MprViewportKey): MprViewportBasis {
   if (viewportKey === 'mpr-cor') {
     return {
-      row: [1, 0, 0],
-      col: [0, 0, -1],
+      row: [-1, 0, 0],
+      col: [0, 0, 1],
       normal: [0, 1, 0]
     }
   }
   if (viewportKey === 'mpr-sag') {
     return {
-      row: [1, 0, 0],
+      row: [-1, 0, 0],
       col: [0, 1, 0],
       normal: [0, 0, 1]
     }
@@ -121,10 +121,13 @@ export function getMprViewportDisplayBasis(frame: MprFrameInfo, viewportKey: Mpr
   const projected = projectMprFrameToViewportBasis(frame, viewportKey)
   const canonical = getDefaultViewportBasis(viewportKey)
   const normalizedNormal = normalizeVec3(projected.normal, canonical.normal)
-  let projectedCol = subtractProjection(normalizeVec3(canonical.col, canonical.col), normalizedNormal)
-  if (Math.hypot(projectedCol[0], projectedCol[1], projectedCol[2]) <= 1e-6) {
-    projectedCol = subtractProjection(normalizeVec3(canonical.row, canonical.row), normalizedNormal)
+  const projectedRow = subtractProjection(normalizeVec3(canonical.row, canonical.row), normalizedNormal)
+  if (Math.hypot(projectedRow[0], projectedRow[1], projectedRow[2]) > 1e-6) {
+    const row = normalizeVec3(projectedRow, canonical.row)
+    const col = normalizeVec3(cross(normalizedNormal, row), canonical.col)
+    return { row, col, normal: normalizedNormal }
   }
+  const projectedCol = subtractProjection(normalizeVec3(canonical.col, canonical.col), normalizedNormal)
   const col = normalizeVec3(projectedCol, canonical.col)
   const row = normalizeVec3(cross(col, normalizedNormal), canonical.row)
   return { row, col, normal: normalizedNormal }
@@ -267,7 +270,7 @@ export function getTabViewportCrosshairGeometry(
     return null
   }
   return getMprViewportDerivedCrosshairGeometry(
-    null,
+    tab.mprFrame,
     viewportKey,
     tab.viewportCrosshairs?.[viewportKey] ?? null,
     tab.viewportPlanes?.[viewportKey] ?? null

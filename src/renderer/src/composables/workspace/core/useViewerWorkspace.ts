@@ -39,6 +39,7 @@ import type {
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
+  MprCrosshairInteractionPayload,
   MprMipConfig,
   MprMipOperationConfig,
   MprViewportKey,
@@ -75,7 +76,7 @@ interface ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
   }) => void
-  handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }) => void
+  handleMprCrosshair: (payload: MprCrosshairInteractionPayload) => void
   handleMeasurementCreate: (payload: {
     viewportKey: string
     toolType: MeasurementToolType
@@ -1246,14 +1247,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function handleMprCrosshair(payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }): void {
+  function handleMprCrosshair(payload: MprCrosshairInteractionPayload): void {
     emitMprViewOperation(payload.viewportKey, {
       opType: payload.mode === 'rotate' ? VIEW_OPERATION_TYPES.mprOblique : VIEW_OPERATION_TYPES.crosshair,
       actionType: payload.phase,
       x: payload.x,
       y: payload.y,
       line: payload.line,
-      angleRad: payload.angleRad
+      deltaAngleRad: payload.deltaAngleRad
     })
   }
 

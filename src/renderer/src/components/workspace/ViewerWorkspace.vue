@@ -10,6 +10,7 @@ import type {
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementOverlay,
+  MprCrosshairInteractionPayload,
   MprMipConfig,
   QaWaterAnalysis,
   QaWaterMetricKey,
@@ -72,7 +73,7 @@ const emit = defineEmits<{
   mtfCopy: [payload?: { mtfId?: string | null }]
   mtfDelete: [payload?: { mtfId?: string | null }]
   mtfSelect: [payload: { mtfId: string | null }]
-  mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }]
+  mprCrosshair: [payload: MprCrosshairInteractionPayload]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]

@@ -7,6 +7,7 @@ import type {
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
+  MprCrosshairInteractionPayload,
   MprViewportKey,
   ViewerMtfItem,
   ViewerTabItem
@@ -43,7 +44,10 @@ import {
 } from '../workspace/views/mprFrameGeometry'
 import {
   resolveCrosshairHitTarget as resolveCrosshairHitTargetFromGeometry,
-  resolveCrosshairRotationPayload,
+  createCrosshairRotationDragState,
+  resolveCrosshairRotationDeltaPayload as resolveCrosshairRotationDragDelta,
+  toMprObliqueDeltaAngleRad,
+  type CrosshairRotationDragState,
   type CrosshairHitTarget
 } from './mprCrosshairPointerController'
 
@@ -69,7 +73,7 @@ interface PointerComposableOptions {
   emitMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => void
   emitMtfDelete: (payload: { mtfId: string }) => void
   emitMtfSelect: (payload: { mtfId: string | null }) => void
-  emitMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }) => void
+  emitMprCrosshair: (payload: MprCrosshairInteractionPayload) => void
   emitViewportDrag: (payload: {
     deltaX: number
     deltaY: number
@@ -208,6 +212,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   const isCrosshairDragging = ref(false)
   const crosshairDragMode = ref<'move' | 'rotate'>('move')
   const crosshairRotationLine = ref<CrosshairLineTarget | null>(null)
+  const crosshairRotationDragState = ref<CrosshairRotationDragState | null>(null)
   const isViewportDragging = ref(false)
   const activePointerId = ref<number | null>(null)
 
@@ -234,7 +239,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   )
 
   const emitThrottledCrosshairMove = throttle(
-    (payload: { viewportKey: string; x: number; y: number; mode?: 'move' | 'rotate'; line?: CrosshairLineTarget; angleRad?: number }) => {
+    (payload: { viewportKey: string; x: number; y: number; mode?: 'move' | 'rotate'; line?: CrosshairLineTarget; deltaAngleRad?: number }) => {
       options.emitMprCrosshair({
         viewportKey: payload.viewportKey,
         phase: DRAG_ACTION_TYPES.move,
@@ -242,7 +247,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         y: payload.y,
         mode: payload.mode,
         line: payload.line,
-        angleRad: payload.angleRad
+        deltaAngleRad: payload.deltaAngleRad
       })
     },
     30,
@@ -481,11 +486,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
-  function getCrosshairRotationPayload(
+  function createCrosshairRotationStartPayload(
     event: PointerEvent,
     viewportKey: string,
     line: CrosshairLineTarget | null
-  ): { angleRad: number; x: number; y: number } | null {
+  ): { dragState: CrosshairRotationDragState; x: number; y: number } | null {
     if (!line) {
       return null
     }
@@ -510,12 +515,49 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
     const containerRect = container.getBoundingClientRect()
     const imageRect = getRenderedImageRect(imageElement)
-    return resolveCrosshairRotationPayload(viewportPoint, {
+    return createCrosshairRotationDragState(viewportPoint, {
       containerRect,
       imageRect,
-      geometry,
-      line
+      geometry
     })
+  }
+
+  function getCrosshairRotationDeltaPayload(
+    event: PointerEvent
+  ): { deltaAngleRad: number; x: number; y: number } | null {
+    const dragState = crosshairRotationDragState.value
+    if (!dragState) {
+      return null
+    }
+    const viewportPoint = getNormalizedViewportPoint(event)
+    if (!viewportPoint) {
+      return null
+    }
+    const container = resolvePointerContainer(event)
+    if (!container) {
+      return null
+    }
+    const imageElement = resolveViewportImageElement(event)
+    if (!imageElement) {
+      return null
+    }
+    const payload = resolveCrosshairRotationDragDelta(viewportPoint, {
+      containerRect: container.getBoundingClientRect(),
+      imageRect: getRenderedImageRect(imageElement),
+      dragState
+    })
+    if (!payload) {
+      return null
+    }
+    crosshairRotationDragState.value = {
+      ...dragState,
+      lastPointerAngleRad: payload.lastPointerAngleRad
+    }
+    return {
+      deltaAngleRad: toMprObliqueDeltaAngleRad(payload.deltaAngleRad),
+      x: payload.x,
+      y: payload.y
+    }
   }
 
   function emitCrosshairEvent(
@@ -530,7 +572,21 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    const rotationPayload = mode === 'rotate' ? getCrosshairRotationPayload(event, viewportKey, line) : null
+    const rotationStartPayload = mode === 'rotate' && phase === DRAG_ACTION_TYPES.start
+      ? createCrosshairRotationStartPayload(event, viewportKey, line)
+      : null
+    if (mode === 'rotate' && phase === DRAG_ACTION_TYPES.start && !rotationStartPayload) {
+      return
+    }
+    if (rotationStartPayload) {
+      crosshairRotationDragState.value = rotationStartPayload.dragState
+    }
+    const rotationPayload = mode === 'rotate' && phase !== DRAG_ACTION_TYPES.start
+      ? getCrosshairRotationDeltaPayload(event)
+      : null
+    if (mode === 'rotate' && phase !== DRAG_ACTION_TYPES.start && !rotationPayload) {
+      return
+    }
     options.emitMprCrosshair({
       viewportKey,
       phase,
@@ -538,7 +594,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       y: point.y,
       mode,
       line: line ?? undefined,
-      angleRad: rotationPayload?.angleRad
+      deltaAngleRad: mode === 'rotate'
+        ? (
+          phase === DRAG_ACTION_TYPES.start
+            ? 0
+            : rotationPayload?.deltaAngleRad
+        )
+        : undefined
     })
   }
 
@@ -861,6 +923,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       isCrosshairDragging.value = false
       crosshairDragMode.value = 'move'
       crosshairRotationLine.value = null
+      crosshairRotationDragState.value = null
       crosshairPointerViewportKey.value = ''
       releasePointerCapture(pointerTarget)
     }
@@ -1424,7 +1487,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (crosshairDragMode.value === 'rotate') {
-      const rotationPayload = getCrosshairRotationPayload(event, crosshairPointerViewportKey.value, crosshairRotationLine.value)
+      const rotationPayload = getCrosshairRotationDeltaPayload(event)
       if (!rotationPayload) {
         return true
       }
@@ -1434,7 +1497,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         y: rotationPayload.y,
         mode: 'rotate',
         line: crosshairRotationLine.value ?? undefined,
-        angleRad: rotationPayload.angleRad
+        deltaAngleRad: rotationPayload.deltaAngleRad
       })
       return true
     }
@@ -1626,6 +1689,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
     const hitTarget = resolveCrosshairHitTarget(event, viewportKey, point)
     if (hitTarget === 'none') {
+      return true
+    }
+    if ((hitTarget === 'horizontal' || hitTarget === 'vertical') && !createCrosshairRotationStartPayload(event, viewportKey, hitTarget)) {
       return true
     }
 

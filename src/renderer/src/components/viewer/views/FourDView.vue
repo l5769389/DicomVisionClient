@@ -10,6 +10,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   openSeriesView: [seriesId: string, viewType: Extract<ViewType, 'Stack' | 'MPR' | '3D'>]
+  phaseChange: [phaseIndex: number]
+  fpsChange: [fps: number]
 }>()
 
 const phaseIndex = ref(props.activeTab.fourDPhaseIndex ?? 0)
@@ -48,8 +50,9 @@ const activePhaseNumber = computed(() => normalizedPhaseIndex.value + 1)
 const phaseCount = computed(() => Math.max(1, phaseItems.value.length))
 const playbackProgress = computed(() => `${(activePhaseNumber.value / phaseCount.value) * 100}%`)
 const activePhaseSeriesId = computed(() => activePhase.value?.seriesId || props.activeTab.seriesId)
+const canPlay = computed(() => phaseCount.value > 1)
 
-function stopPlayback(): void {
+function pausePlayback(): void {
   if (playbackTimer) {
     window.clearInterval(playbackTimer)
     playbackTimer = null
@@ -58,23 +61,34 @@ function stopPlayback(): void {
 }
 
 function startPlayback(): void {
-  stopPlayback()
+  if (!canPlay.value) {
+    return
+  }
+  pausePlayback()
   isPlaying.value = true
   playbackTimer = window.setInterval(() => {
-    phaseIndex.value = (normalizedPhaseIndex.value + 1) % phaseCount.value
+    selectPhase((normalizedPhaseIndex.value + 1) % phaseCount.value)
   }, Math.max(120, 1000 / fps.value))
 }
 
 function togglePlayback(): void {
   if (isPlaying.value) {
-    stopPlayback()
+    pausePlayback()
     return
   }
   startPlayback()
 }
 
+function stopPlayback(): void {
+  pausePlayback()
+  selectPhase(0)
+}
+
 function selectPhase(index: number): void {
-  phaseIndex.value = index
+  const maxIndex = Math.max(0, phaseItems.value.length - 1)
+  const nextIndex = Math.min(Math.max(index, 0), maxIndex)
+  phaseIndex.value = nextIndex
+  emit('phaseChange', nextIndex)
 }
 
 function getViewportImage(viewportKey: MprViewportKey): string {
@@ -98,13 +112,14 @@ watch(
   () => {
     phaseIndex.value = props.activeTab.fourDPhaseIndex ?? 0
     fps.value = props.activeTab.fourDPlaybackFps ?? 2
-    stopPlayback()
+    pausePlayback()
   }
 )
 
 watch(
   fps,
   () => {
+    emit('fpsChange', fps.value)
     if (isPlaying.value) {
       startPlayback()
     }
@@ -112,13 +127,22 @@ watch(
 )
 
 watch(
-  phaseItems,
-  () => {
-    phaseIndex.value = normalizedPhaseIndex.value
+  () => props.activeTab.fourDPhaseIndex,
+  (value) => {
+    if (typeof value === 'number' && Number.isFinite(value) && value !== phaseIndex.value) {
+      phaseIndex.value = value
+    }
   }
 )
 
-onBeforeUnmount(stopPlayback)
+watch(
+  phaseItems,
+  () => {
+    selectPhase(normalizedPhaseIndex.value)
+  }
+)
+
+onBeforeUnmount(pausePlayback)
 </script>
 
 <template>
@@ -149,7 +173,7 @@ onBeforeUnmount(stopPlayback)
             <option :value="10">10</option>
           </select>
         </label>
-        <button class="four-d-icon-button" type="button" :aria-label="isPlaying ? 'Pause 4D playback' : 'Play 4D playback'" :title="isPlaying ? 'Pause' : 'Play'" @click="togglePlayback">
+        <button class="four-d-icon-button" type="button" :disabled="!canPlay" :aria-label="isPlaying ? 'Pause 4D playback' : 'Play 4D playback'" :title="isPlaying ? 'Pause' : 'Play'" @click="togglePlayback">
           <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
         </button>
         <button class="four-d-icon-button" type="button" aria-label="Stop 4D playback" title="Stop" @click="stopPlayback">
@@ -246,6 +270,11 @@ onBeforeUnmount(stopPlayback)
 .four-d-phase-button:hover {
   border-color: var(--theme-hover-border);
   background: var(--theme-hover-surface);
+}
+
+.four-d-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .four-d-action-button {

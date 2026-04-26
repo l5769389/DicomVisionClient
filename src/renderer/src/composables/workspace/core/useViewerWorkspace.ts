@@ -90,6 +90,8 @@ interface ViewerWorkspaceState {
   handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
   handleMtfCopy: (payload?: { mtfId?: string | null }) => Promise<boolean>
   handleMtfSelect: (payload: { mtfId: string | null }) => void
+  handleFourDPhaseChange: (payload: { tabKey: string; phaseIndex: number }) => void
+  handleFourDFpsChange: (payload: { tabKey: string; fps: number }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -996,6 +998,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function handleFourDPhaseChange(payload: { tabKey: string; phaseIndex: number }): void {
+    const phaseIndex = Number.isFinite(payload.phaseIndex) ? Math.max(0, Math.trunc(payload.phaseIndex)) : 0
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === payload.tabKey && item.viewType === '4D'
+        ? {
+            ...item,
+            fourDPhaseIndex: phaseIndex
+          }
+        : item
+    )
+  }
+
+  function handleFourDFpsChange(payload: { tabKey: string; fps: number }): void {
+    const fps = Number.isFinite(payload.fps) ? Math.max(1, Math.min(30, Math.trunc(payload.fps))) : 2
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === payload.tabKey && item.viewType === '4D'
+        ? {
+            ...item,
+            fourDPlaybackFps: fps
+          }
+        : item
+    )
+  }
+
   function handleMtfClear(payload?: { mtfId?: string | null }): void {
     updateActiveTabMtfState((item) => {
       const targetMtfId = payload?.mtfId ?? item.mtfState?.selectedMtfId ?? null
@@ -1514,6 +1540,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleMtfCommit,
     handleMtfCopy,
     handleMtfSelect,
+    handleFourDPhaseChange,
+    handleFourDFpsChange,
     handleMprCrosshair,
     handleVolumeConfigChange,
     handleViewportDrag,

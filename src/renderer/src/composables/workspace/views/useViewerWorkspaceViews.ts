@@ -40,6 +40,8 @@ import type {
   CornerInfo,
   DicomTagsResponse,
   FolderSeriesItem,
+  FourDPhaseItem,
+  FourDPhasesResponse,
   MeasurementOverlay,
   MprViewportKey,
   OperationAcceptedResponse,
@@ -238,6 +240,132 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
+  function hasFourDPhaseImage(phase: FourDPhaseItem): boolean {
+    return Boolean(
+      phase.imageSrc ||
+        phase.viewportImages?.['mpr-ax'] ||
+        phase.viewportImages?.['mpr-cor'] ||
+        phase.viewportImages?.['mpr-sag']
+    )
+  }
+
+  function normalizeFourDPhaseItems(phases: FourDPhaseItem[] | undefined | null): FourDPhaseItem[] {
+    return (phases ?? []).map((phase, index) => {
+      const viewportImages = phase.viewportImages ?? {}
+      const imageSrc = phase.imageSrc || viewportImages['mpr-ax'] || ''
+      const normalizedPhase: FourDPhaseItem = {
+        phaseIndex: index,
+        label: phase.label || `Phase ${String(index + 1).padStart(2, '0')}`,
+        seriesId: phase.seriesId ?? null,
+        imageSrc,
+        viewportImages,
+        status: phase.status ?? (imageSrc || Object.values(viewportImages).some(Boolean) ? 'ready' : 'pending')
+      }
+      return normalizedPhase
+    })
+  }
+
+  function applyFourDManifestToSeriesList(seriesId: string, manifest: FourDPhasesResponse): void {
+    const normalizedPhases = normalizeFourDPhaseItems(manifest.fourDPhases)
+    const phaseSeriesIds = new Set<string>([seriesId])
+    normalizedPhases.forEach((phase) => {
+      if (phase.seriesId) {
+        phaseSeriesIds.add(phase.seriesId)
+      }
+    })
+
+    options.seriesList.value = options.seriesList.value.map((item) =>
+      phaseSeriesIds.has(item.seriesId)
+        ? {
+            ...item,
+            isFourDSeries: manifest.isFourDSeries,
+            fourDPhaseCount: manifest.fourDPhaseCount || normalizedPhases.length || (item.fourDPhaseCount ?? null),
+            fourDPhases: normalizedPhases.length ? normalizedPhases : item.fourDPhases
+          }
+        : item
+    )
+  }
+
+  async function loadFourDManifest(seriesId: string): Promise<FourDPhasesResponse | null> {
+    try {
+      const { data } = await api.post<FourDPhasesResponse>('/dicom/fourD/phases', { seriesId })
+      const manifest: FourDPhasesResponse = {
+        seriesId: data.seriesId || seriesId,
+        isFourDSeries: Boolean(data.isFourDSeries),
+        fourDPhaseCount: Math.max(0, Number(data.fourDPhaseCount ?? data.fourDPhases?.length ?? 0)),
+        fourDPhases: normalizeFourDPhaseItems(data.fourDPhases)
+      }
+      applyFourDManifestToSeriesList(seriesId, manifest)
+      return manifest
+    } catch (error) {
+      console.error(error)
+      return null
+    }
+  }
+
+  async function resolveFourDPhaseItems(seriesId: string): Promise<{
+    phaseCount: number
+    phaseItems: FourDPhaseItem[]
+    hasBackendManifest: boolean
+  }> {
+    const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
+    const manifest = await loadFourDManifest(seriesId)
+    const backendPhaseItems = normalizeFourDPhaseItems(manifest?.fourDPhases)
+    if (manifest?.isFourDSeries && backendPhaseItems.length) {
+      return {
+        phaseCount: Math.max(1, manifest.fourDPhaseCount || backendPhaseItems.length),
+        phaseItems: backendPhaseItems,
+        hasBackendManifest: true
+      }
+    }
+
+    const seriesPhaseItems = normalizeFourDPhaseItems(series?.fourDPhases)
+    if (seriesPhaseItems.length) {
+      return {
+        phaseCount: Math.max(1, series?.fourDPhaseCount ?? seriesPhaseItems.length),
+        phaseItems: seriesPhaseItems,
+        hasBackendManifest: false
+      }
+    }
+
+    const fallbackCount = Math.max(1, series?.fourDPhaseCount ?? 10)
+    return {
+      phaseCount: fallbackCount,
+      phaseItems: createDefaultFourDPhaseItems(fallbackCount),
+      hasBackendManifest: false
+    }
+  }
+
+  function updateFourDTab(
+    tabKey: string,
+    series: FolderSeriesItem,
+    phaseCount: number,
+    phaseItems: FourDPhaseItem[]
+  ): void {
+    const hasPreviewImage = phaseItems.some(hasFourDPhaseImage)
+    options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+      item.key === tabKey
+        ? {
+            ...item,
+            viewType: '4D',
+            title: buildTabTitle(series, '4D', item.seriesId),
+            seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+            viewId: '',
+            imageSrc: '',
+            sliceLabel: '',
+            windowLabel: '',
+            cornerInfo: options.seriesCornerInfoMap.value[series.seriesId] ?? createEmptyCornerInfo(),
+            orientation: createEmptyOrientationInfo(),
+            fourDPhaseIndex: 0,
+            fourDPhaseCount: phaseCount,
+            fourDPhaseItems: phaseItems,
+            fourDPlaybackFps: item.fourDPlaybackFps ?? 2
+          }
+        : item
+    )
+    options.message.value = hasPreviewImage ? '' : '4D phase preview is not available for this series.'
+  }
+
   function updateTabImage(tabKey: string, payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array): void {
     options.viewerTabs.value = options.viewerTabs.value.map((item) => {
       if (item.key !== tabKey) {
@@ -421,7 +549,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       options.activeTabKey.value = existingTab.key
       if (viewType === '4D') {
         options.activeViewportKey.value = 'single'
-        options.isViewLoading.value = false
+        options.isViewLoading.value = true
+        try {
+          const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
+          if (series) {
+            const { phaseCount, phaseItems } = await resolveFourDPhaseItems(seriesId)
+            updateFourDTab(existingTab.key, series, phaseCount, phaseItems)
+          }
+        } finally {
+          options.isViewLoading.value = false
+        }
       }
       if (viewType === 'Tag' && !(existingTab.tagItems?.length) && !existingTab.tagIsLoading) {
         await loadTagTab(existingTab.key, existingTab.tagIndex ?? resolveInitialTagIndex(seriesId))
@@ -440,34 +577,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return
       }
 
-      const fourDPhaseCount = Math.max(1, series.fourDPhaseCount ?? series.fourDPhases?.length ?? 10)
-      const fourDPhaseItems = series.fourDPhases?.length
-        ? series.fourDPhases
-        : createDefaultFourDPhaseItems(fourDPhaseCount)
-      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
-        item.key === tabKey
-          ? {
-              ...item,
-              viewType,
-              title: buildTabTitle(series, viewType, item.seriesId),
-              seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
-              viewId: '',
-              imageSrc: '',
-              sliceLabel: '',
-              windowLabel: '',
-              cornerInfo: options.seriesCornerInfoMap.value[seriesId] ?? createEmptyCornerInfo(),
-              orientation: createEmptyOrientationInfo(),
-              fourDPhaseIndex: 0,
-              fourDPhaseCount,
-              fourDPhaseItems,
-              fourDPlaybackFps: 2
-            }
-          : item
-      )
-      options.activeViewportKey.value = 'single'
-      options.activeTabKey.value = tabKey
-      options.isViewLoading.value = false
-      options.message.value = ''
+      options.isViewLoading.value = true
+      try {
+        const { phaseCount, phaseItems } = await resolveFourDPhaseItems(seriesId)
+        const updatedSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? series
+        updateFourDTab(tabKey, updatedSeries, phaseCount, phaseItems)
+        options.activeViewportKey.value = 'single'
+        options.activeTabKey.value = tabKey
+      } finally {
+        options.isViewLoading.value = false
+      }
       return
     }
 

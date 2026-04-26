@@ -198,6 +198,13 @@ export interface FourDPhaseItem {
   status?: 'pending' | 'ready' | 'error'
 }
 
+export interface FourDPhasesResponse {
+  seriesId: string
+  isFourDSeries: boolean
+  fourDPhaseCount: number
+  fourDPhases: FourDPhaseItem[]
+}
+
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
 
 export interface QaWaterRoi {

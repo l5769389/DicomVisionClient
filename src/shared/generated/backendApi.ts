@@ -42,6 +42,26 @@ export interface DicomTagsResponse {
   items?: DicomTagItem[]
 }
 
+export interface FourDPhaseItem {
+  phaseIndex: number
+  label: string
+  seriesId?: string | null
+  imageSrc?: string
+  viewportImages?: Record<string, string>
+  status?: 'pending' | 'ready' | 'error'
+}
+
+export interface FourDPhasesRequest {
+  seriesId: string
+}
+
+export interface FourDPhasesResponse {
+  seriesId: string
+  isFourDSeries?: boolean
+  fourDPhaseCount?: number
+  fourDPhases?: FourDPhaseItem[]
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[]
 }
@@ -218,6 +238,9 @@ export interface SeriesSummary {
   width?: number | null
   height?: number | null
   folderPath: string
+  isFourDSeries?: boolean
+  fourDPhaseCount?: number | null
+  fourDPhases?: FourDPhaseItem[] | null
 }
 
 export interface SliceInfo {
@@ -420,6 +443,7 @@ export interface WindowInfo {
 
 export interface ApiOperations {
   GetCornerInfoApiV1DicomCornerInfoPost: { method: 'POST'; path: '/api/v1/dicom/cornerInfo'; request: CornerInfoRequest; response: CornerInfoResponse }
+  GetFourDPhasesApiV1DicomFourDPhasesPost: { method: 'POST'; path: '/api/v1/dicom/fourD/phases'; request: FourDPhasesRequest; response: FourDPhasesResponse }
   LoadFolderApiV1DicomLoadFolderPost: { method: 'POST'; path: '/api/v1/dicom/loadFolder'; request: LoadFolderRequest; response: LoadFolderResponse }
   LoadSampleFolderApiV1DicomLoadSamplePost: { method: 'POST'; path: '/api/v1/dicom/loadSample'; request: never; response: LoadSampleResponse }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }

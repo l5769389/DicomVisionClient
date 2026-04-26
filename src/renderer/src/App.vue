@@ -94,6 +94,8 @@ const handleQuickPreviewSelectedSeries = (): void => {
           @mtf-delete="viewer.handleMtfClear"
           @mtf-select="viewer.handleMtfSelect"
           @mpr-crosshair="viewer.handleMprCrosshair"
+          @four-d-phase-change="viewer.handleFourDPhaseChange"
+          @four-d-fps-change="viewer.handleFourDFpsChange"
           @volume-config-change="viewer.handleVolumeConfigChange"
           @viewport-drag="viewer.handleViewportDrag"
           @viewport-wheel="viewer.handleViewportWheel"

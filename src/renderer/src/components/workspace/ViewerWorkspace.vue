@@ -75,6 +75,8 @@ const emit = defineEmits<{
   mtfDelete: [payload?: { mtfId?: string | null }]
   mtfSelect: [payload: { mtfId: string | null }]
   mprCrosshair: [payload: MprCrosshairInteractionPayload]
+  fourDPhaseChange: [payload: { tabKey: string; phaseIndex: number }]
+  fourDFpsChange: [payload: { tabKey: string; fps: number }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
@@ -1582,6 +1584,8 @@ onBeforeUnmount(() => {
           v-else-if="activeTab.viewType === '4D'"
           :active-tab="activeTab"
           @open-series-view="(seriesId, viewType) => emit('openSeriesView', seriesId, viewType)"
+          @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
+          @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
         />
 
         <DicomTagView

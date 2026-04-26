@@ -14,7 +14,7 @@ const mdiIconMap: Record<string, string> = {
   crosshair: 'mdi-crosshairs-gps',
   mip: 'mdi-layers-triple',
   rotate: 'mdi-rotate-right',
-  rotate3d: 'mdi-axis-arrow',
+  rotate3d: 'mdi-rotate-3d-variant',
   volumePreset: 'mdi-tune-variant',
   'volume-preset-aaa': 'mdi-rocket-launch-outline',
   'volume-preset-red': 'mdi-water-outline',

@@ -358,6 +358,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return STACK_DRAG_OPERATIONS.includes(getNormalizedOperation() as (typeof STACK_DRAG_OPERATIONS)[number])
   }
 
+  function isRotate3dDragOperation(): boolean {
+    return dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d
+  }
+
   function resolvePointerContainer(event: PointerEvent): HTMLElement | null {
     const target = event.target
     if (!(target instanceof Element)) {
@@ -832,11 +836,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     emitThrottledViewportDrag.flush()
 
     if (hasSentDragStart) {
-      if (dragOperationType.value && dragViewportKey.value === 'volume' && dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d && lastDragNormalizedPoint) {
+      if (dragOperationType.value && isRotate3dDragOperation() && lastDragNormalizedPoint) {
         options.emitViewportDrag({
           deltaX: lastDragNormalizedPoint.x,
           deltaY: lastDragNormalizedPoint.y,
-          opType: dragOperationType.value,
+          opType: VIEW_OPERATION_TYPES.rotate3d,
           phase: DRAG_ACTION_TYPES.end,
           viewportKey: dragViewportKey.value
         })
@@ -1437,14 +1441,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
       hasSentDragStart = true
       if (
-        dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d &&
-        dragViewportKey.value === 'volume' &&
+        isRotate3dDragOperation() &&
         dragStartNormalizedPoint
       ) {
         options.emitViewportDrag({
           deltaX: dragStartNormalizedPoint.x,
           deltaY: dragStartNormalizedPoint.y,
-          opType: dragOperationType.value,
+          opType: VIEW_OPERATION_TYPES.rotate3d,
           phase: DRAG_ACTION_TYPES.start,
           viewportKey: dragViewportKey.value
         })
@@ -1459,7 +1462,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       }
     }
 
-    if (dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d && dragViewportKey.value === 'volume') {
+    if (isRotate3dDragOperation()) {
       const point = getNormalizedContainerPoint(event)
       if (!point) {
         return true
@@ -1468,7 +1471,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       emitThrottledViewportDrag({
         deltaX: point.x,
         deltaY: point.y,
-        opType: dragOperationType.value,
+        opType: VIEW_OPERATION_TYPES.rotate3d,
         phase: DRAG_ACTION_TYPES.move,
         viewportKey: dragViewportKey.value
       })
@@ -1620,10 +1623,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     totalDeltaX = 0
     totalDeltaY = 0
     hasSentDragStart = false
-    dragStartNormalizedPoint =
-      viewportKey === 'volume' && dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d
-        ? getNormalizedContainerPoint(event)
-        : null
+    dragStartNormalizedPoint = isRotate3dDragOperation() ? getNormalizedContainerPoint(event) : null
     lastDragNormalizedPoint = dragStartNormalizedPoint
     return true
   }

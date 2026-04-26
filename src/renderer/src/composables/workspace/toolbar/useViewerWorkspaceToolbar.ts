@@ -174,6 +174,7 @@ const volumeTools: StackTool[] = [
 
 const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
+  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
   ...genericTools,
   {

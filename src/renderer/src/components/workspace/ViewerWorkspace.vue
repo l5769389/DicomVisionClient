@@ -24,6 +24,7 @@ import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferen
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
+import FourDView from '../viewer/views/FourDView.vue'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
 import DicomTagView from '../viewer/views/DicomTagView.vue'
@@ -1440,7 +1441,7 @@ onBeforeUnmount(() => {
       />
 
       <ViewerToolbar
-        v-if="activeTab && activeTab.viewType !== 'Tag'"
+        v-if="activeTab && activeTab.viewType !== 'Tag' && activeTab.viewType !== '4D'"
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="areToolbarActionsDisabled"
@@ -1575,6 +1576,12 @@ onBeforeUnmount(() => {
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"
+        />
+
+        <FourDView
+          v-else-if="activeTab.viewType === '4D'"
+          :active-tab="activeTab"
+          @open-series-view="(seriesId, viewType) => emit('openSeriesView', seriesId, viewType)"
         />
 
         <DicomTagView

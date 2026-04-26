@@ -82,7 +82,7 @@ export async function exportCurrentView(params: {
   overlays?: ViewerExportOverlays
 }): Promise<ExportedFileResult | null> {
   const { activeTab, activeViewportKey, data, exportFormat, exportPreference, fileNameStem, overlays } = params
-  if (!activeTab || activeTab.viewType === 'Tag') {
+  if (!activeTab || activeTab.viewType === 'Tag' || activeTab.viewType === '4D') {
     return null
   }
 

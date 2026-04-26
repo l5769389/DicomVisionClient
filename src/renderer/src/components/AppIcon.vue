@@ -39,6 +39,7 @@ const mdiIconMap: Record<string, string> = {
   play: 'mdi-play',
   pause: 'mdi-pause',
   stop: 'mdi-stop',
+  'four-d': 'mdi-timeline-clock-outline',
   tag: 'mdi-tag-text-outline',
   export: 'mdi-export-variant',
   pseudocolor: 'mdi-palette-outline',

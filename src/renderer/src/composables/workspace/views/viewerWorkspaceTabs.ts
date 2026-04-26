@@ -1,6 +1,7 @@
 import type {
   CornerInfo,
   CornerPosition,
+  FourDPhaseItem,
   FolderSeriesItem,
   MprCursorInfo,
   MprFrameInfo,
@@ -106,6 +107,16 @@ export function createEmptyMprPseudocolorPresets(): Record<MprViewportKey, strin
     'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
     'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
   }
+}
+
+export function createDefaultFourDPhaseItems(phaseCount = 10): FourDPhaseItem[] {
+  return Array.from({ length: Math.max(1, phaseCount) }, (_, index) => ({
+    phaseIndex: index,
+    label: `Phase ${String(index + 1).padStart(2, '0')}`,
+    seriesId: null,
+    imageSrc: '',
+    status: 'pending'
+  }))
 }
 
 export function createEmptyCornerInfo(): CornerInfo {
@@ -454,6 +465,10 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     tagSopInstanceUid: null,
     tagInstanceNumber: null,
     tagIsLoading: false,
-    tagLoadError: null
+    tagLoadError: null,
+    fourDPhaseIndex: 0,
+    fourDPhaseCount: 10,
+    fourDPhaseItems: createDefaultFourDPhaseItems(10),
+    fourDPlaybackFps: 2
   }
 }

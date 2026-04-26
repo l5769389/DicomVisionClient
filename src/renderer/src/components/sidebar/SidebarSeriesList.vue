@@ -19,7 +19,7 @@ const emit = defineEmits<{
 
 const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
 
-type SeriesContextAction = 'Stack' | 'MPR' | '3D' | 'Tag' | 'delete'
+type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'delete'
 
 const { t } = useUiLocale()
 const isContextMenuOpen = ref(false)
@@ -51,6 +51,12 @@ const contextMenuActions = computed(() => [
     badge: '3D'
   },
   {
+    key: '4D' as const,
+    title: '4D',
+    subtitle: 'Respiratory phase playback',
+    badge: '4D'
+  },
+  {
     key: 'Tag' as const,
     title: 'TAG',
     subtitle: 'DICOM Tags',
@@ -80,6 +86,14 @@ const contextSeriesPreview = computed(() => {
     id: contextSeries.value.seriesId
   }
 })
+
+function isFourDSeries(series: FolderSeriesItem): boolean {
+  return Boolean(series.isFourDSeries || series.fourDPhaseCount || series.fourDPhases?.length)
+}
+
+function getFourDPhaseCount(series: FolderSeriesItem): number {
+  return Math.max(1, series.fourDPhaseCount ?? series.fourDPhases?.length ?? 10)
+}
 
 function closeContextMenu(): void {
   isContextMenuOpen.value = false
@@ -164,6 +178,13 @@ function handleSeriesDragEnd(): void {
             <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">
               {{ series.modality || 'N/A' }} · {{ series.instanceCount }} {{ t('frames') }}
               <template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template>
+            </span>
+            <span
+              v-if="isFourDSeries(series)"
+              class="col-start-2 w-max rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
+              :class="series.seriesId === selectedSeriesId ? 'border-white/24 bg-white/14 text-white' : 'border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-secondary)]'"
+            >
+              4D / {{ getFourDPhaseCount(series) }} phases
             </span>
             <span class="col-start-2 block truncate text-[11px] leading-5" :title="series.seriesId" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
           </button>

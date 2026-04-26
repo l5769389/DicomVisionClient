@@ -15,7 +15,11 @@ import type {
   ViewHoverResponse as BackendViewHoverResponse
 } from '@shared/generated/backendApi'
 
-export type FolderSeriesItem = BackendSeriesSummary
+export type FolderSeriesItem = BackendSeriesSummary & {
+  isFourDSeries?: boolean
+  fourDPhaseCount?: number | null
+  fourDPhases?: FourDPhaseItem[] | null
+}
 export type LoadFolderResponse = BackendLoadFolderResponse
 export type ViewCreateResponse = BackendViewCreateResponse
 
@@ -183,6 +187,15 @@ export interface ViewerMtfItem {
 export interface ViewerMtfState {
   items: ViewerMtfItem[]
   selectedMtfId?: string | null
+}
+
+export interface FourDPhaseItem {
+  phaseIndex: number
+  label: string
+  seriesId?: string | null
+  imageSrc?: string
+  viewportImages?: Partial<Record<MprViewportKey, string>>
+  status?: 'pending' | 'ready' | 'error'
 }
 
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
@@ -407,6 +420,10 @@ export interface ViewerTabItem {
   tagInstanceNumber?: number | null
   tagIsLoading?: boolean
   tagLoadError?: string | null
+  fourDPhaseIndex?: number
+  fourDPhaseCount?: number
+  fourDPhaseItems?: FourDPhaseItem[]
+  fourDPlaybackFps?: number
 }
 
 export interface ViewerOperationItem {
@@ -416,4 +433,4 @@ export interface ViewerOperationItem {
 }
 
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'MPR' | '3D' | 'Tag'
+export type ViewType = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag'

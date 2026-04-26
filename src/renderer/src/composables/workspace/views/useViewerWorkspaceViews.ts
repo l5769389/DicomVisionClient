@@ -4,6 +4,7 @@ import { api } from '../../../services/api'
 import { bindView, emitViewOperation } from '../../../services/socket'
 import {
   buildTabTitle,
+  createDefaultFourDPhaseItems,
   createEmptyCornerInfo,
   createEmptyMprCornerInfos,
   createEmptyMprCrosshairs,
@@ -355,7 +356,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
-    if (tab.viewType === 'Tag') {
+    if (tab.viewType === 'Tag' || tab.viewType === '4D') {
       return
     }
 
@@ -411,14 +412,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const existingTab = findTab(seriesId, viewType)
     const hasExistingView =
-      viewType === 'Tag'
+      viewType === 'Tag' || viewType === '4D'
         ? Boolean(existingTab)
-        :
-      viewType === 'MPR'
-        ? Object.values(existingTab?.viewportViewIds ?? {}).some(Boolean)
-        : Boolean(existingTab?.viewId)
+        : viewType === 'MPR'
+          ? Object.values(existingTab?.viewportViewIds ?? {}).some(Boolean)
+          : Boolean(existingTab?.viewId)
     if (hasExistingView && existingTab) {
       options.activeTabKey.value = existingTab.key
+      if (viewType === '4D') {
+        options.activeViewportKey.value = 'single'
+        options.isViewLoading.value = false
+      }
       if (viewType === 'Tag' && !(existingTab.tagItems?.length) && !existingTab.tagIsLoading) {
         await loadTagTab(existingTab.key, existingTab.tagIndex ?? resolveInitialTagIndex(seriesId))
       }
@@ -427,6 +431,43 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const tabKey = existingTab?.key ?? ensureTab(seriesId, viewType)
     if (!tabKey) {
+      return
+    }
+
+    if (viewType === '4D') {
+      const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
+      if (!series) {
+        return
+      }
+
+      const fourDPhaseCount = Math.max(1, series.fourDPhaseCount ?? series.fourDPhases?.length ?? 10)
+      const fourDPhaseItems = series.fourDPhases?.length
+        ? series.fourDPhases
+        : createDefaultFourDPhaseItems(fourDPhaseCount)
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              viewType,
+              title: buildTabTitle(series, viewType, item.seriesId),
+              seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+              viewId: '',
+              imageSrc: '',
+              sliceLabel: '',
+              windowLabel: '',
+              cornerInfo: options.seriesCornerInfoMap.value[seriesId] ?? createEmptyCornerInfo(),
+              orientation: createEmptyOrientationInfo(),
+              fourDPhaseIndex: 0,
+              fourDPhaseCount,
+              fourDPhaseItems,
+              fourDPlaybackFps: 2
+            }
+          : item
+      )
+      options.activeViewportKey.value = 'single'
+      options.activeTabKey.value = tabKey
+      options.isViewLoading.value = false
+      options.message.value = ''
       return
     }
 

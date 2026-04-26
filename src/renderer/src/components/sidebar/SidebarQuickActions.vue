@@ -39,6 +39,9 @@ const { t } = useUiLocale()
       <VBtn variant="flat" class="theme-button-secondary rounded-full! border! px-4! py-3! text-sm! font-semibold!" :disabled="!hasSelectedSeries" @click="emit('openView', 'Stack')">
         {{ t('quickPreview') }}
       </VBtn>
+      <VBtn variant="flat" class="theme-button-secondary rounded-full! border! px-4! py-3! text-sm! font-semibold!" :disabled="!hasSelectedSeries" @click="emit('openView', '4D')">
+        4D
+      </VBtn>
       <VBtn variant="flat" class="theme-button-secondary rounded-full! border! px-4! py-3! text-sm! font-semibold!" :disabled="!hasSelectedSeries" @click="emit('openView', '3D')">
         3D
       </VBtn>

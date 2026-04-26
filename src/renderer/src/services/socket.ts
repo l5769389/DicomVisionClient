@@ -13,8 +13,6 @@ export interface ViewOperationPayload {
   x?: number
   y?: number
   line?: 'horizontal' | 'vertical'
-  angleRad?: number
-  deltaAngleRad?: number
   points?: MeasurementDraftPoint[]
   viewportKey?: string
   zoom?: number

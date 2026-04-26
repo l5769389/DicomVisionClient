@@ -1,53 +1,47 @@
 # MPR Crosshair Rotation Contract
 
-This document is the source of truth for MPR/oblique crosshair rotation direction.
+This document is the frontend-facing contract for MPR crosshair rotation.
 
-## Coordinate Terms
+## Contract
 
-- Screen coordinates are DOM/canvas coordinates: `x` grows right, `y` grows down.
-- A rendered crosshair angle is measured with `atan2(y - centerY, x - centerX)`.
-- In screen coordinates, a positive angle delta is clockwise.
-- Crosshair lines are undirected. Angle comparisons must be normalized to a half turn with the range `(-pi / 2, pi / 2]` for deltas.
+- The frontend does not calculate MPR rotation angles.
+- The frontend does not send `angleRad` or `deltaAngleRad`.
+- The frontend only sends interaction facts:
+  - `opType: "mprOblique"` for line rotation;
+  - `actionType: "start" | "move" | "end"`;
+  - `line: "horizontal" | "vertical"`;
+  - `x` and `y`, normalized to the rendered image/canvas.
+- The backend owns all MPR geometry:
+  - drag-start cursor snapshot;
+  - pointer angle resolution;
+  - paired target plane normal updates;
+  - derived `mprPlane`, `mprFrame`, and `mpr_crosshair` payloads.
 
-## Frontend Contract
+## Frontend Boundary
 
-- The frontend stores rotation drag state at pointer down.
-- During a drag, `deltaAngleRad` is cumulative from drag start, not frame-to-frame.
-- The frontend sends `deltaAngleRad` unchanged in screen-space convention.
-- The frontend must not apply viewport-specific sign fixes.
-- The frontend must not convert the delta into patient or volume coordinates.
-
-Relevant frontend boundary:
+Relevant files:
 
 - `src/renderer/src/composables/measurements/mprCrosshairPointerController.ts`
-- `toMprObliqueDeltaAngleRad(screenDeltaAngleRad)` must return the same value.
+- `src/renderer/src/composables/measurements/useViewerWorkspacePointer.ts`
+- `src/renderer/src/composables/workspace/core/useViewerWorkspace.ts`
+- `src/renderer/src/services/socket.ts`
 
-## Backend Contract
+Frontend responsibilities:
 
-- The backend receives `deltaAngleRad` in screen-space convention.
-- `_apply_mpr_rotation_drag` is the only backend place that maps screen delta to world cursor rotation.
-- Backend tests assert that a positive wire delta produces a positive rendered crosshair angle delta in AX, COR, and SAG.
-- The default SAG plane is the only non-oblique active plane whose world rotation sign already matches screen delta. Once SAG becomes oblique, it uses the same opposite-handed world rotation mapping as AX/COR.
-- Display row/col basis must be derived from the plane normal and the viewport default basis.
-- Display basis must not follow cursor in-plane rotation.
-- Display basis must use a stable primary axis and must not switch between row and col based on small projection-length differences.
-- Frontend fallback display-basis derivation must use the same stable primary-axis rule as the backend: project default row first, and fall back to default col only when row projection degenerates.
+- Hit-test crosshair center vs. crosshair lines.
+- Enter move mode when the center is hit.
+- Enter rotate mode when a horizontal/vertical line is hit.
+- Send pointer `x/y` for every drag phase.
+- Draw the backend-returned crosshair and planes.
 
-Relevant backend boundary:
+Frontend non-responsibilities:
 
-- `app/services/viewer_service.py::_apply_mpr_rotation_drag`
-- `app/services/mpr/planes.py::derive_plane_pose`
+- No screen-angle unwrapping.
+- No viewport-specific sign correction.
+- No patient/world/plane calculation.
 
-## Regression Rules
+## Backend Boundary
 
-These behaviors must stay covered by tests:
+The companion backend document is:
 
-- Initial AX, COR, and SAG mouse rotation direction matches the actual rendered crosshair direction.
-- AX small rotation does not mirror COR.
-- AX rotation followed by COR rotation keeps COR line direction consistent.
-- AX rotation followed by SAG rotation keeps SAG line direction consistent.
-- AX rotation followed by COR rotation does not flip top/bottom orientation labels.
-- AX rotation followed by SAG rotation does not flip top/bottom orientation labels.
-- Crossing 90/270 degrees does not flip row/col display basis.
-
-When adding a fix, prefer adding one test at the API boundary and one test at the user-visible behavior boundary. Avoid tests that only verify an internal implementation detail.
+- `DicomVisionServer/docs/mpr-crosshair-rotation-reimplementation.zh-CN.md`

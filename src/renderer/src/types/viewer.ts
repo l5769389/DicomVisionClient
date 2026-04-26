@@ -53,7 +53,6 @@ export interface MprCrosshairInteractionPayload {
   y: number
   mode?: MprCrosshairInteractionMode
   line?: MprCrosshairLineTarget
-  deltaAngleRad?: number
 }
 
 export type MeasurementDraftPoint = BackendMeasurementPointPayload

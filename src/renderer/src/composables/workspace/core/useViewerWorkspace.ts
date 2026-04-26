@@ -1253,8 +1253,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       actionType: payload.phase,
       x: payload.x,
       y: payload.y,
-      line: payload.line,
-      deltaAngleRad: payload.deltaAngleRad
+      line: payload.line
     })
   }
 

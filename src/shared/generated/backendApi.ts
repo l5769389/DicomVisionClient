@@ -267,6 +267,7 @@ export interface ViewColorInfo {
 export interface ViewCreateRequest {
   seriesId: string
   viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
+  viewGroupKey?: string | null
 }
 
 export interface ViewCreateResponse {
@@ -356,7 +357,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'mprMipConfig' | 'mprOblique' | 'measurement'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'mprMipConfig' | 'mprOblique' | 'mprStateSync' | 'measurement'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -371,6 +372,7 @@ export interface ViewOperationRequest {
   wl?: number | null
   pseudocolorPreset?: string | null
   mprMipConfig?: MprMipConfig | null
+  sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null
   ver_flip?: boolean | null

@@ -21,11 +21,12 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
   const canScrollTabsRight = ref(false)
 
   function notifyWorkspaceReady(): void {
+    const isMprLikeView = options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
     const activeViewport = options.viewportHostRef.value?.querySelector<HTMLElement>('[data-active-render-surface="true"]')
     const stageElement =
-      options.activeTab.value?.viewType === 'MPR' ? options.viewportHostRef.value ?? null : activeViewport ?? null
+      isMprLikeView ? options.viewportHostRef.value ?? null : activeViewport ?? null
     const viewportElements = Object.fromEntries(
-      Array.from(options.viewportHostRef.value?.querySelectorAll<HTMLElement>('[data-viewport-key]') ?? []).map((element) => [
+      Array.from(options.viewportHostRef.value?.querySelectorAll<HTMLElement>('[data-active-render-surface][data-viewport-key]') ?? []).map((element) => [
         element.dataset.viewportKey ?? '',
         element
       ])

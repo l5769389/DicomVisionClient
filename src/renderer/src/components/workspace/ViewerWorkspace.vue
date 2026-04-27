@@ -77,6 +77,7 @@ const emit = defineEmits<{
   mprCrosshair: [payload: MprCrosshairInteractionPayload]
   fourDPhaseChange: [payload: { tabKey: string; phaseIndex: number }]
   fourDFpsChange: [payload: { tabKey: string; fps: number }]
+  fourDPlaybackChange: [payload: { tabKey: string; isPlaying: boolean }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
@@ -467,6 +468,10 @@ function hasCornerInfo(cornerInfo: CornerInfo | null | undefined): boolean {
   )
 }
 
+function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | null | undefined): boolean {
+  return viewType === 'MPR' || viewType === '4D'
+}
+
 function drawCornerInfo(context: CanvasRenderingContext2D, cornerInfo: CornerInfo, width: number, height: number): void {
   const blocks: Array<{
     key: keyof CornerInfo
@@ -555,7 +560,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
       return
     }
 
-    const exportViewportKey = props.activeTab?.viewType === 'MPR' ? activeViewportKey.value : 'single'
+    const exportViewportKey = isMprLikeViewType(props.activeTab?.viewType) ? activeViewportKey.value : 'single'
     const defaultFileNameStem = buildExportFileStem(props.activeTab, activeViewportKey.value)
     let customFileNameStem: string | null = null
     if (!exportPreference.value.useDefaultFileName) {
@@ -567,7 +572,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
 
     const overlays: ViewerExportOverlays = {
       annotations: getAnnotations(exportViewportKey),
-      cornerInfo: props.activeTab?.viewType === 'MPR' ? getMprCornerInfo(exportViewportKey) : props.activeTab.cornerInfo,
+      cornerInfo: isMprLikeViewType(props.activeTab?.viewType) ? getMprCornerInfo(exportViewportKey) : props.activeTab.cornerInfo,
       measurements: getExportMeasurements(exportViewportKey)
     }
     const exportOverlays: ViewerExportOverlays =
@@ -611,7 +616,7 @@ function createAnnotationId(): string {
 
 function isAnnotationOperationEnabled(): boolean {
   return (
-    (props.activeTab?.viewType === 'Stack' || props.activeTab?.viewType === 'MPR') &&
+    (props.activeTab?.viewType === 'Stack' || isMprLikeViewType(props.activeTab?.viewType)) &&
     props.activeOperation.startsWith('stack:annotate')
   )
 }
@@ -731,7 +736,7 @@ function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
   if (!props.activeTab) {
     return []
   }
-  if (props.activeTab.viewType === 'MPR') {
+  if (isMprLikeViewType(props.activeTab.viewType)) {
     return props.activeTab.viewportMeasurements?.[viewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? []
   }
   return props.activeTab.measurements ?? []
@@ -1485,7 +1490,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="activeTab.viewType === 'MPR' && isMprMipPanelOpen && activeMprMipConfig"
+          v-if="(activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
           class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
         >
           <MprMipConfigPanel
@@ -1583,9 +1588,52 @@ onBeforeUnmount(() => {
         <FourDView
           v-else-if="activeTab.viewType === '4D'"
           :active-tab="activeTab"
-          @open-series-view="(seriesId, viewType) => emit('openSeriesView', seriesId, viewType)"
+          :active-operation="props.activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :active-tools="activeTools"
+          :are-toolbar-actions-disabled="areToolbarActionsDisabled"
+          :get-annotations="getViewportAnnotations"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          :get-mtf-draft-mode="getViewportMtfDraftMode"
+          :get-mtf-draft="getViewportMtfDraft"
+          :get-mtf-items="getViewportMtfItems"
+          :selected-mtf-id="selectedMtfId"
+          :get-corner-info="getMprCornerInfo"
+          :is-tool-selected="isToolSelected"
+          :menu-icon-size="menuIconSize"
+          :open-menu-key="openMenuKey"
+          :stack-tool-selections="stackToolSelections"
+          :toggle-icon-size="toggleIconSize"
+          :toolbar-icon-size="toolbarIconSize"
+          @apply-tool="applyTool"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
+          @clear-mtf="handleDeleteSelectedMtf"
+          @copy-selected-mtf="handleCopySelectedMtf"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
+          @open-mtf-curve="handleOpenMtfCurve"
+          @select-mtf="handleSelectMtf"
+          @viewport-click="handleViewportClick"
+          @viewport-wheel="handleViewportWheel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
+          @select-tool-option="selectToolOption"
+          @set-menu-open="setMenuOpen"
           @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
           @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
+          @playback-change="emit('fourDPlaybackChange', { tabKey: activeTab.key, isPlaying: $event })"
         />
 
         <DicomTagView

@@ -339,17 +339,27 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return toolType || null
   }
 
+  function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'MPR' || viewType === '4D'
+  }
+
   function isCrosshairOperationEnabled(): boolean {
-    return options.activeTab.value?.viewType === 'MPR' && getNormalizedOperation() === VIEW_OPERATION_TYPES.crosshair
+    return isMprLikeViewType(options.activeTab.value?.viewType) && getNormalizedOperation() === VIEW_OPERATION_TYPES.crosshair
+  }
+
+  function isFourDDirectCrosshairEnabled(): boolean {
+    return options.activeTab.value?.viewType === '4D'
   }
 
   function isMeasurementOperationEnabled(): boolean {
-    return (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') && getMeasurementToolType() != null
+    const viewType = options.activeTab.value?.viewType
+    return (viewType === 'Stack' || isMprLikeViewType(viewType)) && getMeasurementToolType() != null
   }
 
   function isMtfOperationEnabled(): boolean {
+    const viewType = options.activeTab.value?.viewType
     return (
-      (options.activeTab.value?.viewType === 'Stack' || options.activeTab.value?.viewType === 'MPR') &&
+      (viewType === 'Stack' || isMprLikeViewType(viewType)) &&
       (getNormalizedOperation() === 'mtf' || getQaToolType() === 'mtf')
     )
   }
@@ -1577,7 +1587,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function handleCrosshairPointerDown(event: PointerEvent, viewportKey: string, pointerTarget: HTMLElement): boolean {
-    if (!isCrosshairOperationEnabled()) {
+    const isCrosshairToolActive = isCrosshairOperationEnabled()
+    const isDirectFourDHitEnabled = isFourDDirectCrosshairEnabled()
+    if (!isCrosshairToolActive && !isDirectFourDHitEnabled) {
       return false
     }
 
@@ -1588,7 +1600,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
     const hitTarget = resolveCrosshairHitTarget(event, viewportKey, point)
     if (hitTarget === 'none') {
-      return true
+      return isCrosshairToolActive
     }
     event.preventDefault()
     setPointerCapture(pointerTarget, event.pointerId)

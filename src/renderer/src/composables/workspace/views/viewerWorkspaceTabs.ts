@@ -469,6 +469,10 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fourDPhaseIndex: 0,
     fourDPhaseCount: 10,
     fourDPhaseItems: createDefaultFourDPhaseItems(10),
-    fourDPlaybackFps: 2
+    fourDPlaybackFps: 2,
+    fourDPhaseViewIds: {},
+    fourDPhaseCache: {},
+    fourDIsPlaying: false,
+    fourDIsPreloading: false
   }
 }

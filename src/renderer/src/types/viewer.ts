@@ -198,6 +198,25 @@ export interface FourDPhaseItem {
   status?: 'pending' | 'ready' | 'error'
 }
 
+export type FourDPhaseLoadStatus = 'pending' | 'preview' | 'loading' | 'ready' | 'error'
+
+export interface FourDPhaseCacheItem {
+  status: FourDPhaseLoadStatus
+  viewportImages?: Partial<Record<MprViewportKey, string>>
+  viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
+  viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
+  viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
+  viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
+  viewportMeasurements?: Partial<Record<MprViewportKey, MeasurementOverlay[]>>
+  viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
+  viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
+  viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
+  viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
+  mprCursor?: MprCursorInfo | null
+  mprFrame?: MprFrameInfo | null
+  windowLabel?: string
+}
+
 export interface FourDPhasesResponse {
   seriesId: string
   isFourDSeries: boolean
@@ -431,6 +450,10 @@ export interface ViewerTabItem {
   fourDPhaseCount?: number
   fourDPhaseItems?: FourDPhaseItem[]
   fourDPlaybackFps?: number
+  fourDPhaseViewIds?: Record<string, Partial<Record<MprViewportKey, string>>>
+  fourDPhaseCache?: Record<string, FourDPhaseCacheItem>
+  fourDIsPlaying?: boolean
+  fourDIsPreloading?: boolean
 }
 
 export interface ViewerOperationItem {

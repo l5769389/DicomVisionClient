@@ -1,29 +1,82 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
-import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { FourDPhaseItem, MprViewportKey, ViewerTabItem, ViewType } from '../../../types/viewer'
+import ViewerToolbar from '../../workspace/shell/ViewerToolbar.vue'
+import MprView from './MprView.vue'
+import type { StackTool } from '../../workspace/shell/toolbarTypes'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  CornerInfo,
+  DraftMeasurementMode,
+  FourDPhaseItem,
+  MeasurementDraft,
+  MeasurementOverlay,
+  MprViewportKey,
+  ViewerMtfItem,
+  ViewerTabItem
+} from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
+  activeOperation: string
+  activeViewportKey: string
+  activeTools: StackTool[]
+  areToolbarActionsDisabled: boolean
+  getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
+  getCursorClass: (viewportKey: MprViewportKey) => string
+  getDraftAnnotation: (viewportKey: MprViewportKey) => AnnotationDraft | null
+  getDraftMeasurementMode: (viewportKey: MprViewportKey) => DraftMeasurementMode | null
+  getDraftMeasurement: (viewportKey: MprViewportKey) => MeasurementDraft | null
+  getMeasurements: (viewportKey: MprViewportKey) => MeasurementOverlay[]
+  getMtfDraftMode: (viewportKey: MprViewportKey) => DraftMeasurementMode | null
+  getMtfDraft: (viewportKey: MprViewportKey) => { mtfId?: string; points: { x: number; y: number }[] } | null
+  getMtfItems: (viewportKey: MprViewportKey) => ViewerMtfItem[]
+  selectedMtfId?: string | null
+  getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
+  isToolSelected: (tool: StackTool) => boolean
+  menuIconSize: number
+  openMenuKey: string | null
+  stackToolSelections: Partial<Record<string, string>>
+  toolbarIconSize: number
+  toggleIconSize: number
 }>()
 
 const emit = defineEmits<{
-  openSeriesView: [seriesId: string, viewType: Extract<ViewType, 'Stack' | 'MPR' | '3D'>]
+  applyTool: [tool: StackTool]
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  copySelectedMeasurement: [viewportKey: string]
+  copySelectedMtf: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string]
+  clearMtf: []
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  openMtfCurve: []
   phaseChange: [phaseIndex: number]
   fpsChange: [fps: number]
+  playbackChange: [isPlaying: boolean]
+  selectMtf: [payload: { mtfId: string | null }]
+  selectToolOption: [tool: StackTool, optionValue: string]
+  setMenuOpen: [toolKey: string | null]
+  pointerCancel: [event: PointerEvent]
+  pointerDown: [event: PointerEvent, viewportKey: string]
+  pointerLeave: [viewportKey: string]
+  pointerMove: [event: PointerEvent]
+  pointerUp: [event: PointerEvent]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
+  viewportClick: [viewportKey: string]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
+
+const FPS_MIN = 1
+const FPS_MAX = 30
 
 const phaseIndex = ref(props.activeTab.fourDPhaseIndex ?? 0)
 const fps = ref(props.activeTab.fourDPlaybackFps ?? 2)
 const isPlaying = ref(false)
 let playbackTimer: ReturnType<typeof window.setInterval> | null = null
-
-const viewportItems = [
-  { key: 'mpr-ax' as const, label: 'AX', className: 'col-start-1 row-start-1' },
-  { key: 'mpr-sag' as const, label: 'SAG', className: 'col-start-1 row-start-2' },
-  { key: 'mpr-cor' as const, label: 'COR', className: 'col-start-2 row-span-2 row-start-1' }
-]
 
 const phaseItems = computed<FourDPhaseItem[]>(() => {
   if (props.activeTab.fourDPhaseItems?.length) {
@@ -44,44 +97,60 @@ const normalizedPhaseIndex = computed(() => {
   const maxIndex = Math.max(0, phaseItems.value.length - 1)
   return Math.min(Math.max(phaseIndex.value, 0), maxIndex)
 })
-
-const activePhase = computed(() => phaseItems.value[normalizedPhaseIndex.value] ?? phaseItems.value[0])
 const activePhaseNumber = computed(() => normalizedPhaseIndex.value + 1)
 const phaseCount = computed(() => Math.max(1, phaseItems.value.length))
 const playbackProgress = computed(() => `${(activePhaseNumber.value / phaseCount.value) * 100}%`)
-const activePhaseSeriesId = computed(() => activePhase.value?.seriesId || props.activeTab.seriesId)
 const canPlay = computed(() => phaseCount.value > 1)
+const normalizedFps = computed(() => normalizeFpsValue(fps.value))
+const interactionLocked = computed(() => isPlaying.value || Boolean(props.activeTab.fourDIsPlaying))
+const toolbarLocked = computed(() => interactionLocked.value || props.areToolbarActionsDisabled)
 
-function pausePlayback(): void {
+function normalizeFpsValue(value: number): number {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) {
+    return 2
+  }
+  return Math.max(FPS_MIN, Math.min(FPS_MAX, Math.trunc(numericValue)))
+}
+
+function setPlaybackState(value: boolean): void {
+  if (isPlaying.value === value) {
+    return
+  }
+  isPlaying.value = value
+  emit('playbackChange', value)
+}
+
+function clearPlaybackTimer(): void {
   if (playbackTimer) {
     window.clearInterval(playbackTimer)
     playbackTimer = null
   }
-  isPlaying.value = false
+}
+
+function pausePlayback(): void {
+  clearPlaybackTimer()
+  setPlaybackState(false)
 }
 
 function startPlayback(): void {
   if (!canPlay.value) {
     return
   }
-  pausePlayback()
-  isPlaying.value = true
+  clearPlaybackTimer()
+  setPlaybackState(true)
   playbackTimer = window.setInterval(() => {
     selectPhase((normalizedPhaseIndex.value + 1) % phaseCount.value)
-  }, Math.max(120, 1000 / fps.value))
+  }, 1000 / normalizedFps.value)
 }
 
 function togglePlayback(): void {
   if (isPlaying.value) {
     pausePlayback()
+    selectPhase(normalizedPhaseIndex.value)
     return
   }
   startPlayback()
-}
-
-function stopPlayback(): void {
-  pausePlayback()
-  selectPhase(0)
 }
 
 function selectPhase(index: number): void {
@@ -91,20 +160,11 @@ function selectPhase(index: number): void {
   emit('phaseChange', nextIndex)
 }
 
-function getViewportImage(viewportKey: MprViewportKey): string {
-  const phase = activePhase.value
-  if (!phase) {
-    return ''
-  }
-  return phase.viewportImages?.[viewportKey] ?? (viewportKey === 'mpr-ax' ? phase.imageSrc ?? '' : '')
-}
-
-function openPhaseView(viewType: Extract<ViewType, 'Stack' | 'MPR' | '3D'>): void {
-  const seriesId = activePhaseSeriesId.value
-  if (!seriesId) {
+function emitWhenIdle(callback: () => void): void {
+  if (interactionLocked.value) {
     return
   }
-  emit('openSeriesView', seriesId, viewType)
+  callback()
 }
 
 watch(
@@ -119,7 +179,12 @@ watch(
 watch(
   fps,
   () => {
-    emit('fpsChange', fps.value)
+    const nextFps = normalizedFps.value
+    if (nextFps !== fps.value) {
+      fps.value = nextFps
+      return
+    }
+    emit('fpsChange', nextFps)
     if (isPlaying.value) {
       startPlayback()
     }
@@ -138,114 +203,141 @@ watch(
 watch(
   phaseItems,
   () => {
-    selectPhase(normalizedPhaseIndex.value)
+    if (phaseIndex.value !== normalizedPhaseIndex.value) {
+      selectPhase(normalizedPhaseIndex.value)
+    }
   }
 )
 
-onBeforeUnmount(pausePlayback)
+watch(
+  canPlay,
+  (value) => {
+    if (!value) {
+      pausePlayback()
+    }
+  }
+)
+
+onBeforeUnmount(() => {
+  pausePlayback()
+})
 </script>
 
 <template>
-  <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 text-[var(--theme-text-primary)]">
-    <div class="flex min-h-[56px] flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3 py-2">
-      <div class="min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="grid h-8 w-8 place-items-center rounded-xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]">
-            <AppIcon name="four-d" :size="18" />
-          </span>
-          <div class="min-w-0">
-            <div class="truncate text-sm font-semibold">4D Respiratory Series</div>
-            <div class="truncate text-[11px] text-[var(--theme-text-muted)]">{{ activeTab.seriesTitle }}</div>
-          </div>
-        </div>
+  <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] gap-2 text-[var(--theme-text-primary)]">
+    <div class="flex min-h-[52px] flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3 py-2">
+      <div class="min-w-0 flex-1">
+        <ViewerToolbar
+          class="four-d-viewer-toolbar"
+          :active-tab="activeTab"
+          :active-tools="activeTools"
+          :are-toolbar-actions-disabled="toolbarLocked"
+          :is-playing="false"
+          :is-playback-paused="false"
+          :is-tool-selected="isToolSelected"
+          :menu-icon-size="menuIconSize"
+          :open-menu-key="openMenuKey"
+          :stack-tool-selections="stackToolSelections"
+          :toggle-icon-size="toggleIconSize"
+          :toolbar-icon-size="toolbarIconSize"
+          @apply-tool="emitWhenIdle(() => emit('applyTool', $event))"
+          @end-playback="() => undefined"
+          @pause-playback="() => undefined"
+          @select-tool-option="(tool, optionValue) => emitWhenIdle(() => emit('selectToolOption', tool, optionValue))"
+          @set-menu-open="emit('setMenuOpen', $event)"
+        />
       </div>
 
       <div class="flex flex-wrap items-center justify-end gap-2">
-        <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
-          Phase {{ String(activePhaseNumber).padStart(2, '0') }} / {{ phaseCount }}
-        </div>
         <label class="flex items-center gap-2 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-xs text-[var(--theme-text-secondary)]">
           <span>FPS</span>
-          <select v-model.number="fps" class="four-d-select h-7 rounded-full px-2 text-xs font-semibold">
+          <select v-model.number="fps" class="four-d-select h-7 rounded-full px-2 text-xs font-semibold" :disabled="interactionLocked">
             <option :value="1">1</option>
             <option :value="2">2</option>
             <option :value="5">5</option>
             <option :value="10">10</option>
+            <option :value="15">15</option>
+            <option :value="30">30</option>
           </select>
         </label>
         <button class="four-d-icon-button" type="button" :disabled="!canPlay" :aria-label="isPlaying ? 'Pause 4D playback' : 'Play 4D playback'" :title="isPlaying ? 'Pause' : 'Play'" @click="togglePlayback">
           <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
         </button>
-        <button class="four-d-icon-button" type="button" aria-label="Stop 4D playback" title="Stop" @click="stopPlayback">
-          <AppIcon name="stop" :size="18" />
-        </button>
       </div>
     </div>
 
-    <div class="grid min-h-0 grid-cols-[minmax(0,1fr)_240px] gap-2 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,1fr)_auto]">
-      <div class="grid min-h-0 grid-cols-2 grid-rows-2 gap-2">
-        <ViewerCanvasStage
-          v-for="item in viewportItems"
-          :key="item.key"
-          :viewport-key="item.key"
-          :viewport-class="item.className"
-          :is-active="item.key === 'mpr-ax'"
-          :render-surface-active="item.key === 'mpr-ax'"
-          :image-src="getViewportImage(item.key)"
-          :alt="`${item.label} phase preview`"
-          :placeholder="`${item.label} Phase ${String(activePhaseNumber).padStart(2, '0')}`"
-          :corner-info="activeTab.cornerInfo"
-          :orientation="activeTab.orientation"
+    <div class="grid min-h-0 grid-cols-[minmax(0,1fr)_104px] gap-2 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,1fr)_auto]">
+      <div class="relative min-h-0">
+        <MprView
+          :active-tab="activeTab"
+          :active-operation="interactionLocked ? '' : activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :get-annotations="getAnnotations"
+          :get-cursor-class="getCursorClass"
+          :get-draft-annotation="getDraftAnnotation"
+          :get-draft-measurement-mode="getDraftMeasurementMode"
+          :get-draft-measurement="getDraftMeasurement"
+          :get-measurements="getMeasurements"
+          :get-mtf-draft-mode="getMtfDraftMode"
+          :get-mtf-draft="getMtfDraft"
+          :get-mtf-items="getMtfItems"
+          :selected-mtf-id="selectedMtfId ?? null"
+          :get-corner-info="getCornerInfo"
+          @copy-annotation="emitWhenIdle(() => emit('copyAnnotation', $event))"
+          @delete-annotation="emitWhenIdle(() => emit('deleteAnnotation', $event))"
+          @copy-selected-measurement="emitWhenIdle(() => emit('copySelectedMeasurement', $event))"
+          @delete-selected-measurement="emitWhenIdle(() => emit('deleteSelectedMeasurement', $event))"
+          @clear-mtf="emitWhenIdle(() => emit('clearMtf'))"
+          @copy-selected-mtf="emitWhenIdle(() => emit('copySelectedMtf', $event))"
+          @hover-viewport-change="emitWhenIdle(() => emit('hoverViewportChange', $event))"
+          @open-mtf-curve="emitWhenIdle(() => emit('openMtfCurve'))"
+          @select-mtf="emitWhenIdle(() => emit('selectMtf', $event))"
+          @viewport-click="emitWhenIdle(() => emit('viewportClick', $event))"
+          @viewport-wheel="emitWhenIdle(() => emit('viewportWheel', $event))"
+          @pointer-down="(event, viewportKey) => emitWhenIdle(() => emit('pointerDown', event, viewportKey))"
+          @pointer-leave="emitWhenIdle(() => emit('pointerLeave', $event))"
+          @pointer-move="emitWhenIdle(() => emit('pointerMove', $event))"
+          @pointer-up="emitWhenIdle(() => emit('pointerUp', $event))"
+          @pointer-cancel="emitWhenIdle(() => emit('pointerCancel', $event))"
+          @update-annotation-color="emitWhenIdle(() => emit('updateAnnotationColor', $event))"
+          @update-annotation-size="emitWhenIdle(() => emit('updateAnnotationSize', $event))"
+          @update-annotation-text="emitWhenIdle(() => emit('updateAnnotationText', $event))"
         />
+        <div
+          v-if="interactionLocked"
+          class="pointer-events-none absolute inset-0 z-[12] grid place-items-start justify-items-end rounded-2xl bg-[color:color-mix(in_srgb,black_8%,transparent)] p-3"
+        >
+          <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_30%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_82%,transparent)] px-3 py-1.5 text-[11px] font-semibold text-[var(--theme-text-secondary)] shadow-[0_12px_24px_rgba(0,0,0,0.22)]">
+            Playing - MPR tools disabled
+          </span>
+        </div>
       </div>
 
-      <aside class="flex min-h-0 flex-col gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_66%,transparent)] p-3 max-xl:grid max-xl:grid-cols-[minmax(0,1fr)_auto] max-xl:items-start">
-        <div class="min-w-0">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">Phase Control</div>
-          <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[color:color-mix(in_srgb,var(--theme-text-primary)_10%,transparent)]">
-            <div class="h-full rounded-full bg-[var(--theme-accent)] transition-[width] duration-150" :style="{ width: playbackProgress }"></div>
-          </div>
-          <div class="mt-3 grid grid-cols-2 gap-2">
-            <button
-              v-for="phase in phaseItems"
-              :key="phase.phaseIndex"
-              class="four-d-phase-button"
-              :class="{ 'four-d-phase-button--active': phase.phaseIndex === normalizedPhaseIndex }"
-              type="button"
-              @click="selectPhase(phase.phaseIndex)"
-            >
-              <span>{{ String(phase.phaseIndex + 1).padStart(2, '0') }}</span>
-              <span>{{ phase.status === 'ready' ? 'Ready' : 'Pending' }}</span>
-            </button>
-          </div>
+      <aside class="grid min-h-0 content-start gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_66%,transparent)] p-2">
+        <div class="h-1.5 overflow-hidden rounded-full bg-[color:color-mix(in_srgb,var(--theme-text-primary)_10%,transparent)]">
+          <div class="h-full rounded-full bg-[var(--theme-accent)] transition-[width] duration-150" :style="{ width: playbackProgress }"></div>
         </div>
-
-        <div class="mt-auto grid gap-2 max-xl:mt-0 max-xl:w-[180px]">
-          <button class="four-d-action-button" type="button" @click="openPhaseView('Stack')">
-            <AppIcon name="page" :size="17" />
-            <span>Stack</span>
-          </button>
-          <button class="four-d-action-button" type="button" @click="openPhaseView('MPR')">
-            <AppIcon name="crosshair" :size="17" />
-            <span>MPR</span>
-          </button>
-          <button class="four-d-action-button" type="button" @click="openPhaseView('3D')">
-            <AppIcon name="rotate3d" :size="17" />
-            <span>3D</span>
+        <div class="grid grid-cols-2 gap-2 max-xl:grid-cols-10 max-md:grid-cols-5">
+          <button
+            v-for="phase in phaseItems"
+            :key="phase.phaseIndex"
+            class="four-d-phase-button"
+            :class="{ 'four-d-phase-button--active': phase.phaseIndex === normalizedPhaseIndex }"
+            type="button"
+            :disabled="interactionLocked"
+            :aria-label="`Select 4D frame ${phase.phaseIndex + 1}`"
+            @click="selectPhase(phase.phaseIndex)"
+          >
+            <span>{{ String(phase.phaseIndex + 1).padStart(2, '0') }}</span>
           </button>
         </div>
       </aside>
-    </div>
-
-    <div class="h-2 overflow-hidden rounded-full bg-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)]">
-      <div class="h-full rounded-full bg-[linear-gradient(90deg,var(--theme-accent),var(--theme-accent-warm))] transition-[width] duration-150" :style="{ width: playbackProgress }"></div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .four-d-icon-button,
-.four-d-action-button,
 .four-d-phase-button {
   border: 1px solid var(--theme-border-soft);
   background: var(--theme-surface-card-soft);
@@ -266,50 +358,31 @@ onBeforeUnmount(pausePlayback)
 }
 
 .four-d-icon-button:hover,
-.four-d-action-button:hover,
 .four-d-phase-button:hover {
   border-color: var(--theme-hover-border);
   background: var(--theme-hover-surface);
 }
 
-.four-d-icon-button:disabled {
+.four-d-icon-button:disabled,
+.four-d-phase-button:disabled,
+.four-d-select:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.four-d-action-button {
-  display: grid;
-  min-height: 40px;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  border-radius: 14px;
-  padding: 0 12px;
-  text-align: left;
+.four-d-phase-button {
+  display: inline-grid;
+  min-height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  padding: 0;
+  text-align: center;
   font-size: 12px;
   font-weight: 700;
 }
 
-.four-d-phase-button {
-  display: grid;
-  min-height: 42px;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  border-radius: 12px;
-  padding: 0 8px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.four-d-phase-button span:last-child {
-  overflow: hidden;
-  color: var(--theme-text-muted);
-  font-size: 10px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.four-d-phase-button span {
+  line-height: 1;
 }
 
 .four-d-phase-button--active {
@@ -322,5 +395,13 @@ onBeforeUnmount(pausePlayback)
   border: 1px solid var(--theme-border-soft);
   background: var(--theme-surface-card);
   color: var(--theme-text-primary);
+}
+
+.four-d-viewer-toolbar {
+  min-height: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
 </style>

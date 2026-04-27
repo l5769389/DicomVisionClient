@@ -27,8 +27,9 @@ function getActiveSliceInfo(tab: ViewerTabItem | null, activeViewportKey: string
     return null
   }
 
+  const isMprLikeView = tab.viewType === 'MPR' || tab.viewType === '4D'
   const raw =
-    tab.viewType === 'MPR'
+    isMprLikeView
       ? tab.viewportSliceLabels?.[activeViewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? tab.sliceLabel
       : tab.sliceLabel
   const match = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
@@ -93,7 +94,7 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+    if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
       return
     }
 

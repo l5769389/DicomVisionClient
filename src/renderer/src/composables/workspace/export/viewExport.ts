@@ -51,9 +51,13 @@ function resolveExportViewportKey(activeViewportKey: string): MprViewportKey {
   return 'mpr-ax'
 }
 
+function isMprLikeViewType(viewType: ViewerTabItem['viewType']): boolean {
+  return viewType === 'MPR' || viewType === '4D'
+}
+
 export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey: string): string {
   const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
-  if (activeTab.viewType !== 'MPR') {
+  if (!isMprLikeViewType(activeTab.viewType)) {
     return `${safeTitle}-${activeTab.viewType.toLowerCase()}`
   }
 
@@ -64,7 +68,7 @@ export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey:
 }
 
 function resolveExportViewId(activeTab: ViewerTabItem, activeViewportKey: string): string | null {
-  if (activeTab.viewType !== 'MPR') {
+  if (!isMprLikeViewType(activeTab.viewType)) {
     return activeTab.viewId || null
   }
 
@@ -82,7 +86,7 @@ export async function exportCurrentView(params: {
   overlays?: ViewerExportOverlays
 }): Promise<ExportedFileResult | null> {
   const { activeTab, activeViewportKey, data, exportFormat, exportPreference, fileNameStem, overlays } = params
-  if (!activeTab || activeTab.viewType === 'Tag' || activeTab.viewType === '4D') {
+  if (!activeTab || activeTab.viewType === 'Tag') {
     return null
   }
 

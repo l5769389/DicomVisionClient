@@ -22,6 +22,7 @@ export interface ViewOperationPayload {
   wl?: number
   pseudocolorPreset?: string
   mprMipConfig?: MprMipOperationConfig
+  sourceViewId?: string
   hor_flip?: boolean
   ver_flip?: boolean
   volumeConfig?: VolumeRenderConfig

@@ -96,6 +96,7 @@ const handleQuickPreviewSelectedSeries = (): void => {
           @mpr-crosshair="viewer.handleMprCrosshair"
           @four-d-phase-change="viewer.handleFourDPhaseChange"
           @four-d-fps-change="viewer.handleFourDFpsChange"
+          @four-d-playback-change="viewer.handleFourDPlaybackChange"
           @volume-config-change="viewer.handleVolumeConfigChange"
           @viewport-drag="viewer.handleViewportDrag"
           @viewport-wheel="viewer.handleViewportWheel"

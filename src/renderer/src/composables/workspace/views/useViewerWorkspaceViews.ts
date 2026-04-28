@@ -1,6 +1,6 @@
 import { nextTick, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import { api } from '../../../services/api'
+import { postApi } from '../../../services/typedApi'
 import {
   bindView,
   bindViewSilently,
@@ -72,15 +72,13 @@ import { useUiPreferences } from '../../ui/useUiPreferences'
 import type {
   BackendCreateViewType,
   CornerInfo,
-  DicomTagsResponse,
+  DicomTagItem,
   FolderSeriesItem,
   FourDPhaseCacheItem,
   FourDPhaseItem,
   FourDPhasesResponse,
   MeasurementOverlay,
   MprViewportKey,
-  OperationAcceptedResponse,
-  ViewCreateResponse,
   ViewImageResponse,
   ViewerTabItem,
   ViewType
@@ -126,6 +124,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const fourDPhaseSwitchInFlightTabKeys = new Set<string>()
   const queuedFourDPhaseSwitches = new Map<string, { phaseIndex: number; phaseOptions: SetFourDPhaseOptions }>()
   const fourDManifestRequests = new Map<string, Promise<FourDPhasesResponse | null>>()
+  const tagRequestVersions = new Map<string, number>()
   const fourDPhaseRenderTracker = new FourDPhaseRenderTracker()
   const { selectedPseudocolorKey } = useUiPreferences()
 
@@ -183,6 +182,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    const requestVersion = (tagRequestVersions.get(tabKey) ?? 0) + 1
+    tagRequestVersions.set(tabKey, requestVersion)
+
     options.viewerTabs.value = options.viewerTabs.value.map((item) =>
       item.key === tabKey
         ? {
@@ -194,10 +196,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
 
     try {
-      const { data } = await api.post<DicomTagsResponse>('/dicom/tags', {
+      const data = await postApi('GetDicomTagsApiV1DicomTagsPost', {
         seriesId: tab.seriesId,
         index
       })
+      if (tagRequestVersions.get(tabKey) !== requestVersion) {
+        return
+      }
 
       options.viewerTabs.value = options.viewerTabs.value.map((item) =>
         item.key === tabKey
@@ -205,7 +210,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               ...item,
               tagIndex: data.index,
               tagTotal: data.total,
-              tagItems: data.items,
+              tagItems: (data.items ?? []) as DicomTagItem[],
               tagFilePath: data.filePath ?? null,
               tagSopInstanceUid: data.sopInstanceUid ?? null,
               tagInstanceNumber: data.instanceNumber ?? null,
@@ -214,8 +219,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
           : item
       )
+      tagRequestVersions.delete(tabKey)
       options.message.value = ''
     } catch (error) {
+      if (tagRequestVersions.get(tabKey) !== requestVersion) {
+        return
+      }
       const fallbackMessage =
         typeof error === 'object' && error != null && 'message' in error && typeof error.message === 'string'
           ? error.message
@@ -230,6 +239,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
           : item
       )
+      tagRequestVersions.delete(tabKey)
       options.message.value = fallbackMessage
       console.error(error)
     }
@@ -259,7 +269,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   async function createMprViewportViews(seriesId: string, viewGroupKey?: string): Promise<Record<MprViewportKey, string>> {
     const responses = await Promise.all(
       MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
-        const { data } = await api.post<ViewCreateResponse>('/view/create', {
+        const data = await postApi('CreateViewApiV1ViewCreatePost', {
           seriesId,
           viewType: getCreateViewTypeForViewport(viewportKey),
           ...(viewGroupKey ? { viewGroupKey } : {})
@@ -440,7 +450,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const request = (async () => {
       try {
-        const { data } = await api.post<FourDPhasesResponse>('/dicom/fourD/phases', { seriesId })
+        const data = await postApi('GetFourDPhasesApiV1DicomFourDPhasesPost', { seriesId })
         const manifest = normalizeFourDManifestResponse(data, seriesId)
         if (!manifest) {
           return null
@@ -1129,7 +1139,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         } else {
           await bindViewSilentlyWithAck(viewId)
         }
-        await api.post<OperationAcceptedResponse>('/view/setSize', {
+        await postApi('SetViewSizeApiV1ViewSetSizePost', {
           opType: VIEW_OPERATION_TYPES.setSize,
           size,
           viewId
@@ -1193,7 +1203,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     if (!force && !sizeChanged) {
       return
     }
-    await api.post<OperationAcceptedResponse>('/view/setSize', {
+    await postApi('SetViewSizeApiV1ViewSetSizePost', {
       opType: VIEW_OPERATION_TYPES.setSize,
       size,
       viewId: tab.viewId
@@ -1321,7 +1331,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       if (viewType === 'MPR') {
         const responses = await Promise.all(
           MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
-            const { data } = await api.post<ViewCreateResponse>('/view/create', {
+            const data = await postApi('CreateViewApiV1ViewCreatePost', {
               seriesId,
               viewType: getCreateViewTypeForViewport(viewportKey)
             })
@@ -1336,7 +1346,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           createEmptyMprViewIds()
         )
       } else {
-        const { data } = await api.post<ViewCreateResponse>('/view/create', {
+        const data = await postApi('CreateViewApiV1ViewCreatePost', {
           seriesId,
           viewType
         })
@@ -1460,7 +1470,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   function releaseBackendViews(viewIds: Array<string | null | undefined>): void {
     const uniqueViewIds = Array.from(new Set(viewIds.filter((viewId): viewId is string => Boolean(viewId))))
     uniqueViewIds.forEach((viewId) => {
-      void api.post<OperationAcceptedResponse>('/view/close', { viewId }).catch(() => {
+      void postApi('CloseViewApiV1ViewClosePost', { viewId }).catch(() => {
         viewSizeCache.delete(viewId)
       })
     })
@@ -1476,6 +1486,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     options.onBeforeCloseTab?.(closingTab)
 
     fourDPhaseRenderTracker.clearTab(tabKey)
+    tagRequestVersions.delete(tabKey)
     queuedFourDPhaseSwitches.delete(tabKey)
     fourDPhaseSwitchInFlightTabKeys.delete(tabKey)
     queuedFourDPreloadTabKeys.delete(tabKey)

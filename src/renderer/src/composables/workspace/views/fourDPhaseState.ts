@@ -1,4 +1,5 @@
 import type { CornerInfo, FourDPhaseCacheItem, FourDPhaseItem, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import { resolveBackendAssetUrl } from '../../../services/api'
 import {
   createDefaultFourDPhaseItems,
   createEmptyCornerInfo,
@@ -168,9 +169,9 @@ export function hasCompleteMprViewportViewIds(
 export function createFourDPhasePreviewImages(phase: FourDPhaseItem | undefined): Record<MprViewportKey, string> {
   const viewportImages = phase?.viewportImages ?? {}
   return {
-    'mpr-ax': viewportImages['mpr-ax'] || phase?.imageSrc || '',
-    'mpr-cor': viewportImages['mpr-cor'] || '',
-    'mpr-sag': viewportImages['mpr-sag'] || ''
+    'mpr-ax': resolveBackendAssetUrl(viewportImages['mpr-ax'] || phase?.imageSrc || ''),
+    'mpr-cor': resolveBackendAssetUrl(viewportImages['mpr-cor'] || ''),
+    'mpr-sag': resolveBackendAssetUrl(viewportImages['mpr-sag'] || '')
   }
 }
 
@@ -341,9 +342,14 @@ export function normalizeFourDPhaseItems(phases: FourDPhaseItem[] | undefined | 
       return leftSort - rightSort
     })
     .map(({ phase }, index) => {
-      const viewportImages = { ...(phase.viewportImages ?? {}) }
+      const viewportImages = Object.fromEntries(
+        Object.entries(phase.viewportImages ?? {}).map(([viewportKey, imageSrc]) => [
+          viewportKey,
+          resolveBackendAssetUrl(imageSrc)
+        ])
+      ) as Partial<Record<MprViewportKey, string>>
       const imageSrc =
-        phase.imageSrc ||
+        resolveBackendAssetUrl(phase.imageSrc) ||
         viewportImages['mpr-ax'] ||
         viewportImages['mpr-cor'] ||
         viewportImages['mpr-sag'] ||

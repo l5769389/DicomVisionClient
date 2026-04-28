@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu, VPagination, VTextField } from 'vuetify/components'
 import type { DicomTagItem, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
@@ -13,12 +13,17 @@ const emit = defineEmits<{
 }>()
 
 type ContextAction = 'row' | 'tag' | 'name' | 'value'
+const TAG_ROW_HEIGHT = 76
+const TAG_OVERSCAN_ROWS = 8
 
 const { tagViewCopy: copy } = useUiLocale()
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
 const searchQuery = ref('')
 const pageInput = ref('1')
+const tagListScroller = ref<HTMLElement | null>(null)
+const tagListScrollTop = ref(0)
+const tagListViewportHeight = ref(0)
 const isContextMenuOpen = ref(false)
 const contextMenuPosition = ref({
   x: 0,
@@ -38,6 +43,30 @@ const filteredTagItems = computed(() => {
     return fields.some((field) => (field ?? '').toLowerCase().includes(query))
   })
 })
+
+const virtualTagStartIndex = computed(() =>
+  Math.max(0, Math.floor(tagListScrollTop.value / TAG_ROW_HEIGHT) - TAG_OVERSCAN_ROWS)
+)
+
+const virtualTagEndIndex = computed(() =>
+  Math.min(
+    filteredTagItems.value.length,
+    Math.ceil((tagListScrollTop.value + Math.max(tagListViewportHeight.value, TAG_ROW_HEIGHT)) / TAG_ROW_HEIGHT) +
+      TAG_OVERSCAN_ROWS
+  )
+)
+
+const visibleTagRows = computed(() =>
+  filteredTagItems.value.slice(virtualTagStartIndex.value, virtualTagEndIndex.value).map((item, offset) => ({
+    item,
+    index: virtualTagStartIndex.value + offset
+  }))
+)
+
+const virtualTopSpacerHeight = computed(() => virtualTagStartIndex.value * TAG_ROW_HEIGHT)
+const virtualBottomSpacerHeight = computed(() =>
+  Math.max(0, (filteredTagItems.value.length - virtualTagEndIndex.value) * TAG_ROW_HEIGHT)
+)
 
 const contextMenuAnchorStyle = computed(() => ({
   left: `${contextMenuPosition.value.x}px`,
@@ -99,6 +128,53 @@ watch(
     contextMenuItem.value = null
   }
 )
+
+watch(
+  tagListScroller,
+  (element, _previousElement, onCleanup) => {
+    if (!element) {
+      return
+    }
+
+    updateTagListViewport(element)
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(() => updateTagListViewport(element))
+    resizeObserver.observe(element)
+    onCleanup(() => resizeObserver.disconnect())
+  },
+  { flush: 'post' }
+)
+
+watch(
+  () => [props.activeTab.key, props.activeTab.tagIndex, searchQuery.value] as const,
+  async () => {
+    closeContextMenu()
+    await nextTick()
+    if (!tagListScroller.value) {
+      return
+    }
+    tagListScroller.value.scrollTop = 0
+    updateTagListViewport(tagListScroller.value)
+  }
+)
+
+function updateTagListViewport(element = tagListScroller.value): void {
+  if (!element) {
+    tagListScrollTop.value = 0
+    tagListViewportHeight.value = 0
+    return
+  }
+
+  tagListScrollTop.value = element.scrollTop
+  tagListViewportHeight.value = element.clientHeight
+}
+
+function handleTagListScroll(event: Event): void {
+  updateTagListViewport(event.currentTarget as HTMLElement)
+}
 
 function goToPage(page: number): void {
   const nextPage = Math.max(1, Math.min(page, totalDisplayCount.value))
@@ -282,12 +358,14 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           <span>Value</span>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-auto">
+        <div ref="tagListScroller" class="min-h-0 flex-1 overflow-auto" @scroll="handleTagListScroll">
+          <div v-if="filteredTagItems.length" :style="{ height: `${virtualTopSpacerHeight}px` }"></div>
           <div
-            v-for="(item, index) in filteredTagItems"
+            v-for="{ item, index } in visibleTagRows"
             :key="`${item.tag}-${item.keyword}-${index}`"
-            class="grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/6 px-6 py-4 text-sm text-slate-200 transition-colors duration-150 hover:bg-white/3 last:border-b-0"
+            class="tag-row grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/6 px-6 text-sm text-slate-200 transition-colors duration-150 hover:bg-white/3 last:border-b-0"
             :class="{ 'tag-row--menu-open': isContextMenuOpen && contextMenuItem === item }"
+            :style="{ height: `${TAG_ROW_HEIGHT}px` }"
             @contextmenu="handleRowContextMenu($event, item)"
           >
             <span class="font-mono text-[13px] text-sky-200/85">{{ item.tag || '--' }}</span>
@@ -296,8 +374,9 @@ async function handleContextAction(action: ContextAction): Promise<void> {
               <div v-if="item.keyword" class="mt-1 truncate font-mono text-[11px] text-slate-500">{{ item.keyword }}</div>
             </div>
             <span class="font-mono text-[13px] font-semibold text-amber-200/85">{{ item.vr || '--' }}</span>
-            <span class="whitespace-pre-wrap break-all font-mono text-[13px] leading-6 text-slate-300">{{ item.value || '--' }}</span>
+            <span class="tag-row__value font-mono text-[13px] leading-6 text-slate-300" :title="item.value || '--'">{{ item.value || '--' }}</span>
           </div>
+          <div v-if="filteredTagItems.length" :style="{ height: `${virtualBottomSpacerHeight}px` }"></div>
 
           <div v-if="!filteredTagItems.length" class="grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
             {{ copy.noMatches }}
@@ -397,6 +476,19 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
 :deep(.tag-field .v-field--focused .v-field__outline) {
   color: rgba(125, 211, 252, 0.86);
+}
+
+.tag-row {
+  align-items: center;
+}
+
+.tag-row__value {
+  display: -webkit-box;
+  overflow: hidden;
+  word-break: break-all;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .tag-row--menu-open {

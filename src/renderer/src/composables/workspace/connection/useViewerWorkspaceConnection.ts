@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue'
-import { connectSocket, getSocket } from '../../../services/socket'
+import { connectSocket, getSocket, type ServerToClientEvents } from '../../../services/socket'
 import { setApiBaseURL } from '../../../services/api'
 import type { ConnectionState, FourDPlaybackPhaseEvent, FourDPlaybackStateEvent, ViewHoverResponse } from '../../../types/viewer'
 
@@ -8,7 +8,7 @@ interface ViewerWorkspaceConnectionOptions {
   onConnected: () => void
   onDisconnected: () => void
   onReconnecting: () => void
-  onImageUpdate: (...args: unknown[]) => void
+  onImageUpdate: ServerToClientEvents['image_update']
   onHoverInfo: (payload: ViewHoverResponse | undefined) => void
   onImageError: (error: { message?: string } | undefined) => void
   onFourDPhaseIndex: (payload: FourDPlaybackPhaseEvent | undefined) => void

@@ -117,7 +117,7 @@ function hideSeriesHoverCard(): void {
     <div v-if="hoveredSeries && isSidebarCollapsed" class="theme-shell-panel fixed z-[1200] w-64 -translate-y-1/2 rounded-2xl border p-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.4)]" :style="hoveredSeriesCardStyle">
       <div class="mb-2 flex items-start justify-between gap-2">
         <div class="hover-series-thumbnail">
-          <img v-if="getSeriesThumbnailSrc(hoveredSeries)" :src="getSeriesThumbnailSrc(hoveredSeries)" :alt="hoveredSeries.seriesDescription || 'Unnamed Series'" draggable="false" />
+          <img v-if="getSeriesThumbnailSrc(hoveredSeries)" :src="getSeriesThumbnailSrc(hoveredSeries)" :alt="hoveredSeries.seriesDescription || 'Unnamed Series'" loading="lazy" decoding="async" draggable="false" />
           <span v-else>{{ getSeriesFallbackLabel(hoveredSeries) }}</span>
         </div>
         <span class="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ hoveredSeries.seriesDescription || 'Unnamed Series' }}</span>

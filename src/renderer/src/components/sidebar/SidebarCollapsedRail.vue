@@ -60,7 +60,7 @@ const { t } = useUiLocale()
             @dblclick="emit('openSeriesView', series.seriesId)"
           >
             <span class="rail-series-thumbnail" :class="{ 'rail-series-thumbnail--active': series.seriesId === selectedSeriesId }">
-              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" draggable="false" />
+              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
               <span v-else>{{ getSeriesFallbackLabel(series, String(index + 1).padStart(2, '0')) }}</span>
             </span>
           </button>

@@ -1,0 +1,36 @@
+import type { AxiosRequestConfig } from 'axios'
+import type { ApiOperations } from '@shared/generated/backendApi'
+import { api } from './api'
+
+type ApiOperationKey = keyof ApiOperations
+type SupportedOperationPaths = Partial<{ [K in ApiOperationKey]: ApiOperations[K]['path'] }>
+
+const operationPaths = {
+  AnalyzeMtfApiV1ViewMtfAnalyzePost: '/api/v1/view/mtf/analyze',
+  AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost: '/api/v1/view/qa/water/analyze',
+  CloseViewApiV1ViewClosePost: '/api/v1/view/close',
+  CreateViewApiV1ViewCreatePost: '/api/v1/view/create',
+  GetCornerInfoApiV1DicomCornerInfoPost: '/api/v1/dicom/cornerInfo',
+  GetDicomTagsApiV1DicomTagsPost: '/api/v1/dicom/tags',
+  GetFourDPhasesApiV1DicomFourDPhasesPost: '/api/v1/dicom/fourD/phases',
+  LoadFolderApiV1DicomLoadFolderPost: '/api/v1/dicom/loadFolder',
+  LoadSampleFolderApiV1DicomLoadSamplePost: '/api/v1/dicom/loadSample',
+  SetViewSizeApiV1ViewSetSizePost: '/api/v1/view/setSize'
+} satisfies SupportedOperationPaths
+
+type SupportedOperationKey = keyof typeof operationPaths & ApiOperationKey
+type OperationRequest<K extends SupportedOperationKey> = ApiOperations[K]['request']
+type OperationResponse<K extends SupportedOperationKey> = ApiOperations[K]['response']
+
+function toApiBaseRelativePath(path: string): string {
+  return path.replace(/^\/api\/v1(?=\/)/, '')
+}
+
+export async function postApi<K extends SupportedOperationKey>(
+  operation: K,
+  data?: OperationRequest<K>,
+  config?: AxiosRequestConfig
+): Promise<OperationResponse<K>> {
+  const response = await api.post<OperationResponse<K>>(toApiBaseRelativePath(operationPaths[operation]), data, config)
+  return response.data
+}

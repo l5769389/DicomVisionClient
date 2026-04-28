@@ -180,7 +180,7 @@ function handleSeriesDragEnd(): void {
         >
           <button class="grid min-w-0 w-full grid-cols-[64px_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-1 text-left" type="button" draggable="true" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')" @dragstart="handleSeriesDragStart($event, series.seriesId)" @dragend="handleSeriesDragEnd">
             <span class="series-thumbnail col-start-1 row-span-3" :class="{ 'series-thumbnail--active': series.seriesId === selectedSeriesId }">
-              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" draggable="false" />
+              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
               <span v-else class="series-thumbnail__fallback">{{ getSeriesFallbackLabel(series) }}</span>
               <span class="series-thumbnail__scanline" aria-hidden="true"></span>
               <span class="series-thumbnail__dot" :class="{ 'series-thumbnail__dot--active': series.seriesId === selectedSeriesId }" aria-hidden="true"></span>
@@ -223,7 +223,7 @@ function handleSeriesDragEnd(): void {
             <div class="rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <div class="flex items-start justify-between gap-3">
                 <div class="series-context-menu__thumb">
-                  <img v-if="contextSeriesPreview.thumbnailSrc" :src="contextSeriesPreview.thumbnailSrc" :alt="contextSeriesPreview.title" draggable="false" />
+                  <img v-if="contextSeriesPreview.thumbnailSrc" :src="contextSeriesPreview.thumbnailSrc" :alt="contextSeriesPreview.title" loading="lazy" decoding="async" draggable="false" />
                   <span v-else>{{ contextSeriesPreview.fallbackLabel }}</span>
                 </div>
                 <div class="min-w-0 flex-1">

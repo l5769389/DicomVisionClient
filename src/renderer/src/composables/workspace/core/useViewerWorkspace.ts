@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { api } from '../../../services/api'
+import { postApi } from '../../../services/typedApi'
 import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
@@ -42,13 +42,12 @@ import {
 } from '../volume/volumeRenderConfig'
 import type {
   CornerInfo,
-  CornerInfoResponse,
   ConnectionState,
   FolderSeriesItem,
   FourDPlaybackPhaseEvent,
   FourDPlaybackStateEvent,
-  MtfAnalyzeRequest,
-  MtfAnalyzeResponse,
+  MtfCurvePoint,
+  MtfMetrics,
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
@@ -164,6 +163,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let pendingMprMipConfigTimer: ReturnType<typeof window.setTimeout> | null = null
   let pendingMprMipConfigPayload: { viewIds: string[]; config: MprMipConfig } | null = null
   let activeMprCrosshairDragLockTimer: ReturnType<typeof window.setTimeout> | null = null
+  let folderLoadRequestVersion = 0
   const fourDPlaybackStartTokens = new Map<string, number>()
   const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
   const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
@@ -1039,13 +1039,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     try {
-      const requestPayload: MtfAnalyzeRequest = {
+      const data = await postApi('AnalyzeMtfApiV1ViewMtfAnalyzePost', {
         viewId,
         viewportKey: payload.viewportKey,
-        points: payload.points,
-        qaTask: 'mtf'
-      }
-      const { data } = await api.post<MtfAnalyzeResponse>('/view/mtf/analyze', requestPayload)
+        points: payload.points
+      })
 
       updateActiveTabMtfState((item) =>
         updateMtfItemCollection(
@@ -1055,8 +1053,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             viewportKey: data.viewportKey,
             points: data.points,
             status: 'ready',
-            metrics: data.metrics,
-            curve: data.curve,
+            metrics: data.metrics as MtfMetrics,
+            curve: data.curve as MtfCurvePoint[],
             errorMessage: null,
             isPlaceholder: data.isPlaceholder ?? false
           },
@@ -1298,9 +1296,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return pending
     }
 
-    const request = api
-      .post<CornerInfoResponse>('/dicom/cornerInfo', { seriesId })
-      .then(({ data }) => {
+    const request = postApi('GetCornerInfoApiV1DicomCornerInfoPost', { seriesId })
+      .then((data) => {
         const normalized = normalizeCornerInfo(data)
         seriesCornerInfoMap.value = {
           ...seriesCornerInfoMap.value,
@@ -1732,17 +1729,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function loadFolderSeries(path: string): Promise<void> {
+    const requestVersion = folderLoadRequestVersion + 1
+    folderLoadRequestVersion = requestVersion
     isLoadingFolder.value = true
 
     try {
-      const { data } =
+      const data =
         path === WEB_SAMPLE_FOLDER_SENTINEL
-          ? await api.post<{ seriesList?: FolderSeriesItem[]; samplePath?: string }>('/dicom/loadSample')
-          : await api.post<{ seriesList?: FolderSeriesItem[] }>('/dicom/loadFolder', {
+          ? await postApi('LoadSampleFolderApiV1DicomLoadSamplePost')
+          : await postApi('LoadFolderApiV1DicomLoadFolderPost', {
               folderPath: path
             })
 
-      const incomingSeries = data.seriesList ?? []
+      if (folderLoadRequestVersion !== requestVersion) {
+        return
+      }
+
+      const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
       if (!incomingSeries.length) {
         message.value = '所选文件夹中未找到可用序列。'
         return
@@ -1771,10 +1774,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       message.value = ''
     } catch (error) {
+      if (folderLoadRequestVersion !== requestVersion) {
+        return
+      }
       message.value = '加载文件夹失败。'
       console.error(error)
     } finally {
-      isLoadingFolder.value = false
+      if (folderLoadRequestVersion === requestVersion) {
+        isLoadingFolder.value = false
+      }
     }
   }
 

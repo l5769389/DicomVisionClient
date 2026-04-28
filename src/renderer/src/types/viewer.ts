@@ -16,6 +16,7 @@ import type {
 } from '@shared/generated/backendApi'
 
 export type FolderSeriesItem = BackendSeriesSummary & {
+  thumbnailUrl?: string
   isFourDSeries?: boolean
   fourDPhaseCount?: number | null
   fourDPhases?: FourDPhaseItem[] | null

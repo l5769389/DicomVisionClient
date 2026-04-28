@@ -20,6 +20,13 @@ export type FolderSeriesItem = BackendSeriesSummary & {
   fourDPhaseCount?: number | null
   fourDPhases?: FourDPhaseItem[] | null
 }
+
+export function isFourDSeriesItem(
+  series: Pick<FolderSeriesItem, 'isFourDSeries' | 'fourDPhaseCount' | 'fourDPhases'> | null | undefined
+): boolean {
+  return Boolean(series?.isFourDSeries || series?.fourDPhaseCount || series?.fourDPhases?.length)
+}
+
 export type LoadFolderResponse = BackendLoadFolderResponse
 export type ViewCreateResponse = BackendViewCreateResponse
 
@@ -222,6 +229,34 @@ export interface FourDPhasesResponse {
   isFourDSeries: boolean
   fourDPhaseCount: number
   fourDPhases: FourDPhaseItem[]
+}
+
+export interface FourDPlaybackStartRequest {
+  tabKey: string
+  phaseIndex: number
+  phaseCount: number
+  fps: number
+}
+
+export interface FourDPlaybackStopRequest {
+  tabKey: string
+}
+
+export interface FourDPlaybackFpsRequest {
+  tabKey: string
+  fps: number
+}
+
+export interface FourDPlaybackPhaseEvent {
+  tabKey: string
+  phaseIndex: number
+}
+
+export interface FourDPlaybackStateEvent {
+  tabKey: string
+  isPlaying: boolean
+  fps?: number | null
+  phaseIndex?: number | null
 }
 
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'

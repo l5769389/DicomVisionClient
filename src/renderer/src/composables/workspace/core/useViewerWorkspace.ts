@@ -8,7 +8,13 @@ import {
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
 import { api } from '../../../services/api'
-import {emitViewOperation, ViewOperationInput} from '../../../services/socket'
+import {
+  emitFourDPlaybackFps,
+  emitFourDPlaybackStart,
+  emitFourDPlaybackStop,
+  emitViewOperation,
+  ViewOperationInput
+} from '../../../services/socket'
 import {
   createEmptyMprCrosshairs,
   createEmptyMprOrientations,
@@ -18,6 +24,11 @@ import {
 } from '../views/viewerWorkspaceTabs'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
+import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
+import {
+  resolveOptimisticMprCrosshairCenter,
+  type ActiveMprCrosshairDragLock
+} from '../views/mprInteractionGuard'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
@@ -34,6 +45,8 @@ import type {
   CornerInfoResponse,
   ConnectionState,
   FolderSeriesItem,
+  FourDPlaybackPhaseEvent,
+  FourDPlaybackStateEvent,
   MtfAnalyzeRequest,
   MtfAnalyzeResponse,
   MeasurementDraftPoint,
@@ -150,7 +163,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let observedViewerStage: HTMLElement | null = null
   let pendingMprMipConfigTimer: ReturnType<typeof window.setTimeout> | null = null
   let pendingMprMipConfigPayload: { viewIds: string[]; config: MprMipConfig } | null = null
+  let activeMprCrosshairDragLockTimer: ReturnType<typeof window.setTimeout> | null = null
+  const fourDPlaybackStartTokens = new Map<string, number>()
   const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
+  const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
 
   function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
     return viewType === 'MPR' || viewType === '4D'
@@ -158,6 +174,78 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function isFourDPlaybackLocked(tab: ViewerTabItem | null | undefined): boolean {
     return Boolean(tab?.viewType === '4D' && tab.fourDIsPlaying)
+  }
+
+  function clearActiveMprCrosshairDragLock(): void {
+    if (activeMprCrosshairDragLockTimer != null) {
+      window.clearTimeout(activeMprCrosshairDragLockTimer)
+      activeMprCrosshairDragLockTimer = null
+    }
+    activeMprCrosshairDragLock.value = null
+  }
+
+  function getCurrentMprCrosshairPhaseKey(tab: ViewerTabItem): string | null {
+    return tab.viewType === '4D' ? String(Math.max(0, Math.trunc(tab.fourDPhaseIndex ?? 0))) : null
+  }
+
+  function refreshActiveMprCrosshairDragLock(payload: MprCrosshairInteractionPayload): void {
+    const tab = activeTab.value
+    if (!tab || !isMprLikeViewType(tab.viewType) || !isMprViewportKey(payload.viewportKey)) {
+      clearActiveMprCrosshairDragLock()
+      return
+    }
+
+    if (payload.phase === DRAG_ACTION_TYPES.end) {
+      clearActiveMprCrosshairDragLock()
+      return
+    }
+
+    const phaseKey = getCurrentMprCrosshairPhaseKey(tab)
+    const mode = payload.mode === 'rotate' ? 'rotate' : 'move'
+    const previousLock = activeMprCrosshairDragLock.value
+    const shouldReusePreviousOffsets =
+      payload.phase !== DRAG_ACTION_TYPES.start &&
+      previousLock?.tabKey === tab.key &&
+      previousLock?.viewportKey === payload.viewportKey &&
+      previousLock?.phaseKey === phaseKey &&
+      previousLock?.mode === mode
+
+    const nextLock: ActiveMprCrosshairDragLock = shouldReusePreviousOffsets
+      ? previousLock
+      : {
+          tabKey: tab.key,
+          viewportKey: payload.viewportKey,
+          phaseKey,
+          mode,
+          ...(mode === 'move'
+            ? (() => {
+                const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
+                return {
+                  pointerOffsetX: (geometry?.center.x ?? payload.x) - payload.x,
+                  pointerOffsetY: (geometry?.center.y ?? payload.y) - payload.y
+                }
+              })()
+            : {})
+        }
+    activeMprCrosshairDragLock.value = nextLock
+    if (activeMprCrosshairDragLockTimer != null) {
+      window.clearTimeout(activeMprCrosshairDragLockTimer)
+    }
+    activeMprCrosshairDragLockTimer = window.setTimeout(() => {
+      activeMprCrosshairDragLockTimer = null
+      activeMprCrosshairDragLock.value = null
+    }, 240)
+  }
+
+  function findFourDTab(tabKey: string): ViewerTabItem | null {
+    const tab = viewerTabs.value.find((item) => item.key === tabKey)
+    return tab?.viewType === '4D' ? tab : null
+  }
+
+  function getFourDPhaseCount(tab: ViewerTabItem): number {
+    const phaseItemsCount = tab.fourDPhaseItems?.length ?? 0
+    const phaseCount = phaseItemsCount || tab.fourDPhaseCount || 1
+    return Math.max(1, Math.trunc(Number(phaseCount) || 1))
   }
 
   function generateMtfId(): string {
@@ -1028,6 +1116,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function handleFourDPhaseChange(payload: { tabKey: string; phaseIndex: number }): void {
+    const tab = findFourDTab(payload.tabKey)
+    if (!tab || tab.fourDIsPlaying) {
+      return
+    }
     const phaseIndex = Number.isFinite(payload.phaseIndex) ? Math.max(0, Math.trunc(payload.phaseIndex)) : 0
     void views.setFourDPhase(payload.tabKey, phaseIndex)
   }
@@ -1042,19 +1134,97 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           }
         : item
     )
+
+    const tab = findFourDTab(payload.tabKey)
+    if (tab?.fourDIsPlaying) {
+      emitFourDPlaybackFps({
+        tabKey: payload.tabKey,
+        fps
+      })
+    }
+  }
+
+  function nextFourDPlaybackStartToken(tabKey: string): number {
+    const token = (fourDPlaybackStartTokens.get(tabKey) ?? 0) + 1
+    fourDPlaybackStartTokens.set(tabKey, token)
+    return token
+  }
+
+  async function startFourDPlaybackAfterPreload(tabKey: string): Promise<void> {
+    const token = nextFourDPlaybackStartToken(tabKey)
+    try {
+      await views.preloadFourDPhases(tabKey)
+    } catch (error) {
+      console.error(error)
+      return
+    }
+    if (fourDPlaybackStartTokens.get(tabKey) !== token) {
+      return
+    }
+
+    const refreshedTab = findFourDTab(tabKey)
+    if (!refreshedTab || refreshedTab.fourDIsPlaying) {
+      return
+    }
+
+    emitFourDPlaybackStart({
+      tabKey,
+      phaseIndex: Math.max(0, Math.trunc(refreshedTab.fourDPhaseIndex ?? 0)),
+      phaseCount: getFourDPhaseCount(refreshedTab),
+      fps: Math.max(1, Math.min(30, Math.trunc(refreshedTab.fourDPlaybackFps ?? 2)))
+    })
   }
 
   function handleFourDPlaybackChange(payload: { tabKey: string; isPlaying: boolean }): void {
+    const tab = findFourDTab(payload.tabKey)
+    if (!tab) {
+      return
+    }
+    if (payload.isPlaying) {
+      void startFourDPlaybackAfterPreload(payload.tabKey)
+      return
+    }
+    nextFourDPlaybackStartToken(payload.tabKey)
+    emitFourDPlaybackStop({ tabKey: payload.tabKey })
+  }
+
+  function handleFourDPhaseIndex(payload: FourDPlaybackPhaseEvent | undefined): void {
+    if (!payload?.tabKey) {
+      return
+    }
+    const tab = findFourDTab(payload.tabKey)
+    if (!tab) {
+      return
+    }
+    const phaseIndex = Number.isFinite(payload.phaseIndex) ? Math.max(0, Math.trunc(payload.phaseIndex)) : 0
+    void views.setFourDPhase(payload.tabKey, phaseIndex)
+  }
+
+  function handleFourDPlaybackState(payload: FourDPlaybackStateEvent | undefined): void {
+    if (!payload?.tabKey) {
+      return
+    }
+
+    const normalizedPhaseIndex =
+      typeof payload.phaseIndex === 'number' && Number.isFinite(payload.phaseIndex)
+        ? Math.max(0, Math.trunc(payload.phaseIndex))
+        : null
+
     viewerTabs.value = viewerTabs.value.map((item) =>
       item.key === payload.tabKey && item.viewType === '4D'
         ? {
             ...item,
-            fourDIsPlaying: payload.isPlaying
+            fourDIsPlaying: Boolean(payload.isPlaying),
+            fourDPlaybackFps:
+              typeof payload.fps === 'number' && Number.isFinite(payload.fps)
+                ? Math.max(1, Math.min(30, Math.trunc(payload.fps)))
+                : item.fourDPlaybackFps
           }
         : item
     )
-    if (payload.isPlaying) {
-      void views.preloadFourDPhases(payload.tabKey)
+
+    if (normalizedPhaseIndex !== null) {
+      void views.setFourDPhase(payload.tabKey, normalizedPhaseIndex)
     }
   }
 
@@ -1156,10 +1326,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const views = useViewerWorkspaceViews({
     activeTabKey,
     activeViewportKey,
+    activeMprCrosshairDragLock,
     clearPendingVolumeConfig,
     ensureSeriesCornerInfo,
     isViewLoading,
     message,
+    onBeforeCloseTab: (tab) => {
+      if (tab.viewType === '4D') {
+        emitFourDPlaybackStop({ tabKey: tab.key })
+      }
+    },
     selectedSeries,
     selectedSeriesId,
     seriesCornerInfoMap,
@@ -1228,8 +1404,28 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const { cleanupSocketListeners, connectBackend, connectionState } = useViewerWorkspaceConnection({
     backendOrigin,
     onConnected: views.rebindOpenViews,
-    onDisconnected: () => {},
-    onReconnecting: () => {},
+    onDisconnected: () => {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.viewType === '4D'
+          ? {
+              ...item,
+              fourDIsPlaying: false
+            }
+          : item
+      )
+    },
+    onReconnecting: () => {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.viewType === '4D'
+          ? {
+              ...item,
+              fourDIsPlaying: false
+            }
+          : item
+      )
+    },
+    onFourDPhaseIndex: handleFourDPhaseIndex,
+    onFourDPlaybackState: handleFourDPlaybackState,
     onHoverInfo: handleHoverInfo,
     onImageError: handleImageError,
     onImageUpdate: handleImageUpdate
@@ -1309,7 +1505,75 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {
+    if (payload.phase !== DRAG_ACTION_TYPES.move || payload.mode === 'rotate' || !isMprViewportKey(payload.viewportKey)) {
+      return
+    }
+
+    const viewportKey = payload.viewportKey
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== activeTabKey.value || !isMprLikeViewType(item.viewType)) {
+        return item
+      }
+
+      const optimisticCenter = resolveOptimisticMprCrosshairCenter({
+        lock: activeMprCrosshairDragLock.value,
+        pointerX: payload.x,
+        pointerY: payload.y,
+        update: {
+          tabKey: item.key,
+          viewportKey,
+          phaseKey: getCurrentMprCrosshairPhaseKey(item)
+        }
+      })
+
+      const previousCrosshair = item.viewportCrosshairs?.[viewportKey] ?? null
+      const nextCrosshair = {
+        centerX: optimisticCenter.x,
+        centerY: optimisticCenter.y,
+        hitRadius: previousCrosshair?.hitRadius ?? 0.025,
+        horizontalPosition: optimisticCenter.y,
+        verticalPosition: optimisticCenter.x,
+        horizontalAngleRad: previousCrosshair?.horizontalAngleRad ?? null,
+        verticalAngleRad: previousCrosshair?.verticalAngleRad ?? null
+      }
+      const viewportCrosshairs = {
+        ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+        [viewportKey]: nextCrosshair
+      }
+
+      if (item.viewType !== '4D') {
+        return {
+          ...item,
+          viewportCrosshairs
+        }
+      }
+
+      const phaseKey = String(Math.max(0, Math.trunc(item.fourDPhaseIndex ?? 0)))
+      const phaseCache = item.fourDPhaseCache?.[phaseKey]
+      return {
+        ...item,
+        viewportCrosshairs,
+        fourDPhaseCache: phaseCache
+          ? {
+              ...(item.fourDPhaseCache ?? {}),
+              [phaseKey]: {
+                ...phaseCache,
+                viewportCrosshairs: {
+                  ...(phaseCache.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+                  [viewportKey]: nextCrosshair
+                }
+              }
+            }
+          : item.fourDPhaseCache
+      }
+    })
+  }
+
   function handleMprCrosshair(payload: MprCrosshairInteractionPayload): void {
+    const tab = activeTab.value
+    refreshActiveMprCrosshairDragLock(payload)
+    applyOptimisticMprCrosshair(payload)
     emitMprViewOperation(payload.viewportKey, {
       opType: payload.mode === 'rotate' ? VIEW_OPERATION_TYPES.mprOblique : VIEW_OPERATION_TYPES.crosshair,
       actionType: payload.phase,
@@ -1317,6 +1581,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       y: payload.y,
       line: payload.line
     })
+    if (tab?.viewType === '4D' && !isFourDPlaybackLocked(tab) && payload.phase === DRAG_ACTION_TYPES.end) {
+      views.invalidateFourDMprState(tab.key)
+    }
   }
 
   function upsertMeasurementOverlay(
@@ -1547,6 +1814,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   onBeforeUnmount(() => {
     flushAllPendingVolumeConfig()
     flushPendingMprMipConfig()
+    clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()
     if (resizeObserver && observedViewerStage) {

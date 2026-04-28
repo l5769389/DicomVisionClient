@@ -1,6 +1,15 @@
 import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
-import type { MeasurementDraftPayload, MeasurementDraftPoint, MprMipOperationConfig, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
+import type {
+  FourDPlaybackFpsRequest,
+  FourDPlaybackStartRequest,
+  FourDPlaybackStopRequest,
+  MeasurementDraftPayload,
+  MeasurementDraftPoint,
+  MprMipOperationConfig,
+  ViewHoverPayload,
+  VolumeRenderConfig
+} from '../types/viewer'
 
 type ViewActionType = DragActionType | 'delete'
 
@@ -61,6 +70,28 @@ export function bindView(viewId: string): void {
   socket.emit('bind_view', { viewId })
 }
 
+export function bindViewSilently(viewId: string): void {
+  if (!socket || !viewId) {
+    return
+  }
+
+  socket.emit('bind_view', { viewId, render: false })
+}
+
+export function bindViewSilentlyWithAck(viewId: string, timeoutMs = 3000): Promise<boolean> {
+  if (!socket || !viewId) {
+    return Promise.resolve(false)
+  }
+
+  return new Promise((resolve) => {
+    socket
+      ?.timeout(timeoutMs)
+      .emit('bind_view', { viewId, render: false }, (error: Error | null, response?: { ok?: boolean }) => {
+        resolve(!error && response?.ok !== false)
+      })
+  })
+}
+
 export function emitViewOperation(payload: ViewOperationPayload): void {
   if (!socket || !payload.viewId) {
     return
@@ -68,11 +99,46 @@ export function emitViewOperation(payload: ViewOperationPayload): void {
   socket.emit('view_operation', payload)
 }
 
+export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutMs = 8000): Promise<boolean> {
+  if (!socket || !payload.viewId) {
+    return Promise.resolve(false)
+  }
+
+  return new Promise((resolve) => {
+    socket
+      ?.timeout(timeoutMs)
+      .emit('view_operation', payload, (error: Error | null, response?: { ok?: boolean }) => {
+        resolve(!error && response?.ok !== false)
+      })
+  })
+}
+
 export function emitViewHover(payload: ViewHoverPayload): void {
   if (!socket || !payload.viewId) {
     return
   }
   socket.emit('view_hover', payload)
+}
+
+export function emitFourDPlaybackStart(payload: FourDPlaybackStartRequest): void {
+  if (!socket || !payload.tabKey) {
+    return
+  }
+  socket.emit('four_d_playback_start', payload)
+}
+
+export function emitFourDPlaybackStop(payload: FourDPlaybackStopRequest): void {
+  if (!socket || !payload.tabKey) {
+    return
+  }
+  socket.emit('four_d_playback_stop', payload)
+}
+
+export function emitFourDPlaybackFps(payload: FourDPlaybackFpsRequest): void {
+  if (!socket || !payload.tabKey) {
+    return
+  }
+  socket.emit('four_d_playback_fps', payload)
 }
 
 export function onMeasurementDraft(handler: (payload: MeasurementDraftPayload) => void): void {

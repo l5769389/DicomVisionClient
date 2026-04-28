@@ -1,6 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick } from 'vue'
+import { describe, expect, it, vi } from 'vitest'
 import FourDView from './FourDView.vue'
 import type { FourDPhaseItem, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from '../../workspace/shell/toolbarTypes'
@@ -107,6 +106,16 @@ const globalStubs = {
   AppIcon: {
     template: '<span />'
   },
+  VMenu: {
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    template: `
+      <div class="v-menu-stub">
+        <slot name="activator" :props="{}" />
+        <slot />
+      </div>
+    `
+  },
   ViewerCanvasStage: {
     props: ['viewportKey', 'imageSrc', 'placeholder'],
     template: '<div class="viewer-stage-stub" :data-viewport-key="viewportKey">{{ imageSrc || placeholder }}</div>'
@@ -156,16 +165,7 @@ function createFourDProps(overrides: Partial<InstanceType<typeof FourDView>['$pr
 }
 
 describe('FourDView', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.clearAllTimers()
-    vi.useRealTimers()
-  })
-
-  it('plays respiratory phases at the selected frame rate and loops', async () => {
+  it('requests backend playback start when play is toggled on', async () => {
     const wrapper = mount(FourDView, {
       props: {
         ...createFourDProps()
@@ -177,18 +177,79 @@ describe('FourDView', () => {
 
     await wrapper.find('button[aria-label="Play 4D playback"]').trigger('click')
 
-    vi.advanceTimersByTime(500)
-    await nextTick()
-    vi.advanceTimersByTime(500)
-    await nextTick()
-    vi.advanceTimersByTime(500)
-    await nextTick()
-
-    expect(wrapper.emitted('phaseChange')).toEqual([[1], [2], [0]])
+    expect(wrapper.emitted('playbackChange')).toEqual([[true]])
     wrapper.unmount()
   })
 
-  it('emits the current phase again when playback is paused', async () => {
+  it('keeps playback controls locked while phases are preloading', async () => {
+    const wrapper = mount(FourDView, {
+      props: {
+        ...createFourDProps({
+          activeTab: createFourDTab({
+            fourDIsPreloading: true
+          })
+        })
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    const playButton = wrapper.find('button[aria-label="Loading 4D playback"]')
+    expect(playButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.four-d-state-overlay').exists()).toBe(true)
+    await playButton.trigger('click')
+
+    expect(wrapper.emitted('playbackChange')).toBeUndefined()
+    expect(wrapper.text()).toContain('Loading 4D phases')
+    expect(wrapper.text()).toContain('Loading phases')
+    wrapper.unmount()
+  })
+
+  it('requests backend playback stop when play is toggled off', async () => {
+    const wrapper = mount(FourDView, {
+      props: {
+        ...createFourDProps({
+          activeTab: createFourDTab({
+            fourDIsPlaying: true
+          })
+        })
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    await wrapper.find('button[aria-label="Pause 4D playback"]').trigger('click')
+
+    expect(wrapper.emitted('playbackChange')).toEqual([[false]])
+    wrapper.unmount()
+  })
+
+  it('shows playback state in the phase footer without covering the viewport', () => {
+    const wrapper = mount(FourDView, {
+      props: {
+        ...createFourDProps({
+          activeTab: createFourDTab({
+            fourDIsPlaying: true,
+            fourDPhaseIndex: 1,
+            fourDPlaybackFps: 5
+          })
+        })
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.find('.four-d-state-overlay').exists()).toBe(false)
+    expect(wrapper.find('.four-d-phase-runtime__dot--playing').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Playing 5 FPS')
+    expect(wrapper.text()).not.toContain('02 / 03')
+    wrapper.unmount()
+  })
+
+  it('emits phase change when a phase selector is clicked', async () => {
     const wrapper = mount(FourDView, {
       props: {
         ...createFourDProps()
@@ -198,12 +259,9 @@ describe('FourDView', () => {
       }
     })
 
-    await wrapper.find('button[aria-label="Play 4D playback"]').trigger('click')
-    vi.advanceTimersByTime(500)
-    await nextTick()
-    await wrapper.find('button[aria-label="Pause 4D playback"]').trigger('click')
+    await wrapper.findAll('.four-d-phase-button')[1]!.trigger('click')
 
-    expect(wrapper.emitted('phaseChange')).toEqual([[1], [1]])
+    expect(wrapper.emitted('phaseChange')).toEqual([[1]])
     wrapper.unmount()
   })
 
@@ -230,14 +288,14 @@ describe('FourDView', () => {
     wrapper.unmount()
   })
 
-  it('renders compact frame selectors without phase or cache status text', () => {
+  it('renders compact frame selectors with pending and loaded phase states', () => {
     const wrapper = mount(FourDView, {
       props: {
         ...createFourDProps({
           activeTab: createFourDTab({
-            fourDPhaseItems: phaseItems.map((phase) => ({
+            fourDPhaseItems: phaseItems.map((phase, index) => ({
               ...phase,
-              status: 'pending'
+              status: index === 0 ? 'ready' : 'pending'
             }))
           })
         })
@@ -247,7 +305,10 @@ describe('FourDView', () => {
       }
     })
 
-    expect(wrapper.findAll('.four-d-phase-button')[0]!.text()).toBe('01')
+    expect(wrapper.findAll('.four-d-phase-button')[0]!.text()).toContain('01')
+    expect(wrapper.findAll('.four-d-phase-button--pending').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.four-d-phase-button--loaded').length).toBeGreaterThan(0)
+    expect(wrapper.find('.four-d-phase-legend').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Preview')
     expect(wrapper.text()).not.toContain('Cached')
     expect(wrapper.text()).not.toContain('Caching')

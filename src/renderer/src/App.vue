@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { VApp, VMain } from 'vuetify/components'
 import SidebarPanel from './components/SidebarPanel.vue'
 import ViewerWorkspace from './components/workspace/ViewerWorkspace.vue'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
+import { isFourDSeriesItem } from './types/viewer'
 
 const viewer = useViewerWorkspace()
+const isSelectedSeriesFourD = computed(() =>
+  isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
+)
 
 const preventSelection = (event: Event): void => {
   event.preventDefault()
@@ -54,6 +58,7 @@ const handleQuickPreviewSelectedSeries = (): void => {
           :connection-state="viewer.connectionState.value"
           :has-selected-series="viewer.hasSelectedSeries.value"
           :is-loading-folder="viewer.isLoadingFolder.value"
+          :is-selected-series-four-d="isSelectedSeriesFourD"
           :is-sidebar-collapsed="viewer.isSidebarCollapsed.value"
           :selected-series-id="viewer.selectedSeriesId.value"
           :series-list="viewer.seriesList.value"

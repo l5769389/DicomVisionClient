@@ -2,8 +2,10 @@
 import { computed, ref } from 'vue'
 import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
-import type { FolderSeriesItem, ViewType } from '../../types/viewer'
+import { isFourDSeriesItem, type FolderSeriesItem, type ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import { getSeriesMetaLabel, getSeriesValueMetaLabel } from './seriesMetadata'
+import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
 const props = defineProps<{
   isLoadingFolder: boolean
@@ -54,7 +56,8 @@ const contextMenuActions = computed(() => [
     key: '4D' as const,
     title: '4D',
     subtitle: 'Respiratory phase playback',
-    badge: '4D'
+    badge: '4D',
+    disabled: !isFourDSeriesItem(contextSeries.value)
   },
   {
     key: 'Tag' as const,
@@ -76,23 +79,23 @@ const contextSeriesPreview = computed(() => {
     return {
       title: '',
       meta: '',
-      id: ''
+      id: '',
+      thumbnailSrc: '',
+      fallbackLabel: ''
     }
   }
 
   return {
     title: contextSeries.value.seriesDescription || t('unnamedSeries'),
-    meta: `${contextSeries.value.modality || 'N/A'} · ${contextSeries.value.instanceCount} ${t('frames')}`,
-    id: contextSeries.value.seriesId
+    meta: getSeriesMetaLabel(contextSeries.value),
+    id: contextSeries.value.seriesId,
+    thumbnailSrc: getSeriesThumbnailSrc(contextSeries.value),
+    fallbackLabel: getSeriesFallbackLabel(contextSeries.value)
   }
 })
 
 function isFourDSeries(series: FolderSeriesItem): boolean {
-  return Boolean(series.isFourDSeries || series.fourDPhaseCount || series.fourDPhases?.length)
-}
-
-function getFourDPhaseCount(series: FolderSeriesItem): number {
-  return Math.max(1, series.fourDPhaseCount ?? series.fourDPhases?.length ?? 10)
+  return isFourDSeriesItem(series)
 }
 
 function closeContextMenu(): void {
@@ -112,6 +115,9 @@ function handleSeriesContextMenu(event: MouseEvent, series: FolderSeriesItem): v
 
 function handleContextAction(action: SeriesContextAction): void {
   if (!contextSeries.value) {
+    return
+  }
+  if (action === '4D' && !isFourDSeries(contextSeries.value)) {
     return
   }
 
@@ -166,37 +172,36 @@ function handleSeriesDragEnd(): void {
           v-for="series in seriesList"
           :key="series.seriesId"
           draggable="true"
-          class="group grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-2xl! border! px-3! py-3! transition duration-150"
+          class="group relative rounded-2xl! border! px-3! py-3! transition duration-150"
           :class="series.seriesId === selectedSeriesId ? 'theme-active-surface' : 'theme-card-soft border! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
           @contextmenu="handleSeriesContextMenu($event, series)"
           @dragstart="handleSeriesDragStart($event, series.seriesId)"
           @dragend="handleSeriesDragEnd"
         >
-          <button class="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left" type="button" draggable="true" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')" @dragstart="handleSeriesDragStart($event, series.seriesId)" @dragend="handleSeriesDragEnd">
-            <span class="mt-0.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border transition" :class="series.seriesId === selectedSeriesId ? 'theme-active-pill shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] group-hover:theme-hover-pill'"><span class="h-2 w-2 rounded-full" :class="series.seriesId === selectedSeriesId ? 'bg-[var(--theme-accent-strong)]' : 'bg-transparent group-hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_70%,transparent)]'"></span></span>
-            <span class="col-start-2 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
-            <span class="col-start-2 text-xs leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">
-              {{ series.modality || 'N/A' }} · {{ series.instanceCount }} {{ t('frames') }}
-              <template v-if="series.width && series.height"> · {{ series.width }}×{{ series.height }}</template>
+          <button class="grid min-w-0 w-full grid-cols-[64px_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-1 text-left" type="button" draggable="true" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')" @dragstart="handleSeriesDragStart($event, series.seriesId)" @dragend="handleSeriesDragEnd">
+            <span class="series-thumbnail col-start-1 row-span-3" :class="{ 'series-thumbnail--active': series.seriesId === selectedSeriesId }">
+              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" draggable="false" />
+              <span v-else class="series-thumbnail__fallback">{{ getSeriesFallbackLabel(series) }}</span>
+              <span class="series-thumbnail__scanline" aria-hidden="true"></span>
+              <span class="series-thumbnail__dot" :class="{ 'series-thumbnail__dot--active': series.seriesId === selectedSeriesId }" aria-hidden="true"></span>
             </span>
-            <span
-              v-if="isFourDSeries(series)"
-              class="col-start-2 w-max rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
-              :class="series.seriesId === selectedSeriesId ? 'border-white/24 bg-white/14 text-white' : 'border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-secondary)]'"
-            >
-              4D / {{ getFourDPhaseCount(series) }} phases
+            <span class="col-start-2 flex min-w-0 items-center gap-2">
+              <span class="min-w-0 flex-1 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
+              <span class="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-secondary)]'">{{ series.modality || 'N/A' }}</span>
+              <span v-if="isFourDSeries(series)" class="series-four-d-chip" :class="{ 'series-four-d-chip--active': series.seriesId === selectedSeriesId }">4D</span>
             </span>
-            <span class="col-start-2 block truncate text-[11px] leading-5" :title="series.seriesId" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
+            <span class="col-start-2 block truncate pr-10 text-[11px] leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ getSeriesValueMetaLabel(series) }}</span>
+            <span class="col-start-2 block truncate pr-10 text-[11px] leading-5" :title="series.seriesId" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
           </button>
           <VBtn
             variant="flat"
-            class="self-center h-10! w-10! min-w-0! rounded-xl! border!"
+            class="absolute bottom-3 right-3 h-8! w-8! min-w-0! rounded-lg! border!"
             :class="series.seriesId === selectedSeriesId ? 'border-white/18! bg-white/12! text-white!' : 'border-rose-300/14! bg-rose-400/8! text-rose-100!'"
             :aria-label="t('deleteSeries')"
             :title="t('deleteSeries')"
             @click="emit('removeSeries', series.seriesId)"
           >
-            <AppIcon name="trash" :size="17" />
+            <AppIcon name="trash" :size="14" />
           </VBtn>
         </VCard>
       </div>
@@ -217,7 +222,11 @@ function handleSeriesDragEnd(): void {
           <div class="relative px-2.5 pb-2.5 pt-2.5">
             <div class="rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
+                <div class="series-context-menu__thumb">
+                  <img v-if="contextSeriesPreview.thumbnailSrc" :src="contextSeriesPreview.thumbnailSrc" :alt="contextSeriesPreview.title" draggable="false" />
+                  <span v-else>{{ contextSeriesPreview.fallbackLabel }}</span>
+                </div>
+                <div class="min-w-0 flex-1">
                   <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-[color:color-mix(in_srgb,var(--theme-text-secondary)_68%,var(--theme-accent)_32%)]">{{ t('seriesActions') }}</div>
                   <div class="mt-1 truncate text-[12px] font-medium text-[var(--theme-text-primary)]">{{ contextSeriesPreview.title }}</div>
                   <div class="mt-0.5 truncate text-[11px] text-[var(--theme-text-secondary)]">{{ contextSeriesPreview.meta }}</div>
@@ -236,14 +245,14 @@ function handleSeriesDragEnd(): void {
                 v-for="action in contextMenuActions"
                 :key="action.key"
                 class="series-context-menu__item rounded-[16px]! px-2.5! py-1.5!"
-                :class="{ 'series-context-menu__item--danger': action.danger }"
-                @click="handleContextAction(action.key)"
+                :class="{ 'series-context-menu__item--danger': action.danger, 'series-context-menu__item--disabled': action.disabled }"
+                @click="!action.disabled && handleContextAction(action.key)"
               >
                 <div class="flex items-center gap-2.5">
-                  <div class="series-context-menu__badge" :class="{ 'series-context-menu__badge--danger': action.danger }">{{ action.badge }}</div>
+                  <div class="series-context-menu__badge" :class="{ 'series-context-menu__badge--danger': action.danger, 'series-context-menu__badge--disabled': action.disabled }">{{ action.badge }}</div>
                   <div class="min-w-0 flex-1">
-                    <div class="truncate text-[12px] font-medium" :class="action.danger ? 'text-rose-300' : 'text-[var(--theme-text-primary)]'">{{ action.title }}</div>
-                    <div class="truncate text-[11px]" :class="action.danger ? 'text-rose-300/70' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
+                    <div class="truncate text-[12px] font-medium" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300' : 'text-[var(--theme-text-primary)]'">{{ action.title }}</div>
+                    <div class="truncate text-[11px]" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300/70' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
                   </div>
                 </div>
               </VListItem>
@@ -256,6 +265,88 @@ function handleSeriesDragEnd(): void {
 </template>
 
 <style scoped>
+.series-thumbnail {
+  position: relative;
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--theme-accent) 16%, transparent), transparent 46%),
+    linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.series-thumbnail--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, white 8%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 42%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+}
+
+.series-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.series-thumbnail__fallback {
+  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.series-thumbnail__scanline {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(180deg, transparent 0, transparent 5px, rgba(255, 255, 255, 0.035) 6px);
+  pointer-events: none;
+}
+
+.series-thumbnail__dot {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-muted) 46%, transparent);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.24);
+}
+
+.series-thumbnail__dot--active {
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+}
+
+.series-four-d-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  padding: 0 8px;
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.series-four-d-chip--active {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+}
+
 .series-context-menu {
   position: relative;
   backdrop-filter: blur(16px);
@@ -292,6 +383,39 @@ function handleSeriesDragEnd(): void {
   background: linear-gradient(180deg, rgba(251, 113, 133, 0.14), rgba(225, 29, 72, 0.08));
 }
 
+.series-context-menu__item--disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.series-context-menu__item--disabled:hover {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.series-context-menu__thumb {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
+  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.series-context-menu__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .series-context-menu__badge {
   display: inline-flex;
   height: 24px;
@@ -311,5 +435,11 @@ function handleSeriesDragEnd(): void {
   border-color: rgba(251, 113, 133, 0.22);
   background: linear-gradient(180deg, rgba(251, 113, 133, 0.16), rgba(159, 18, 57, 0.16));
   color: rgba(255, 228, 230, 0.95);
+}
+
+.series-context-menu__badge--disabled {
+  border-color: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
+  color: var(--theme-text-muted);
 }
 </style>

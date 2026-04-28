@@ -244,7 +244,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         line: payload.line
       })
     },
-    30,
+    16,
     { leading: true, trailing: true }
   )
 
@@ -1716,6 +1716,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function handleViewportPointerCancel(event: PointerEvent): void {
     if (activePointerId.value !== event.pointerId) {
       return
+    }
+
+    if (isCrosshairDragging.value) {
+      emitThrottledCrosshairMove.cancel()
+      emitCrosshairEvent(
+        crosshairPointerViewportKey.value,
+        DRAG_ACTION_TYPES.end,
+        event,
+        crosshairDragMode.value,
+        crosshairRotationLine.value
+      )
     }
 
     if (isCapturedMtfInteraction(mtfInteraction.value)) {

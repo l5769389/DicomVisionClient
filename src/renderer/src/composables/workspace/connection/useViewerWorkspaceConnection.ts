@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { connectSocket, getSocket } from '../../../services/socket'
 import { setApiBaseURL } from '../../../services/api'
-import type { ConnectionState, ViewHoverResponse } from '../../../types/viewer'
+import type { ConnectionState, FourDPlaybackPhaseEvent, FourDPlaybackStateEvent, ViewHoverResponse } from '../../../types/viewer'
 
 interface ViewerWorkspaceConnectionOptions {
   backendOrigin: Ref<string>
@@ -11,6 +11,8 @@ interface ViewerWorkspaceConnectionOptions {
   onImageUpdate: (...args: unknown[]) => void
   onHoverInfo: (payload: ViewHoverResponse | undefined) => void
   onImageError: (error: { message?: string } | undefined) => void
+  onFourDPhaseIndex: (payload: FourDPlaybackPhaseEvent | undefined) => void
+  onFourDPlaybackState: (payload: FourDPlaybackStateEvent | undefined) => void
 }
 
 export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionOptions) {
@@ -66,6 +68,8 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
     socket.off('hover_info', options.onHoverInfo)
     socket.off('image_error', options.onImageError)
     socket.off('render_error', options.onImageError)
+    socket.off('four_d_phase_index', options.onFourDPhaseIndex)
+    socket.off('four_d_playback_state', options.onFourDPlaybackState)
   }
 
   function connectBackend(): void {
@@ -84,6 +88,8 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
     socket.on('hover_info', options.onHoverInfo)
     socket.on('image_error', options.onImageError)
     socket.on('render_error', options.onImageError)
+    socket.on('four_d_phase_index', options.onFourDPhaseIndex)
+    socket.on('four_d_playback_state', options.onFourDPlaybackState)
   }
 
   return {

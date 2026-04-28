@@ -53,6 +53,8 @@ export interface FourDPhaseItem {
 
 export interface FourDPhasesRequest {
   seriesId: string
+  includePreviewImages?: boolean
+  previewPhaseIndex?: number | null
 }
 
 export interface FourDPhasesResponse {
@@ -60,6 +62,34 @@ export interface FourDPhasesResponse {
   isFourDSeries?: boolean
   fourDPhaseCount?: number
   fourDPhases?: FourDPhaseItem[]
+}
+
+export interface FourDPlaybackFpsRequest {
+  tabKey: string
+  fps: number
+}
+
+export interface FourDPlaybackPhaseEvent {
+  tabKey: string
+  phaseIndex: number
+}
+
+export interface FourDPlaybackStartRequest {
+  tabKey: string
+  phaseIndex: number
+  phaseCount: number
+  fps: number
+}
+
+export interface FourDPlaybackStateEvent {
+  tabKey: string
+  isPlaying: boolean
+  fps?: number | null
+  phaseIndex?: number | null
+}
+
+export interface FourDPlaybackStopRequest {
+  tabKey: string
 }
 
 export interface HTTPValidationError {
@@ -237,6 +267,7 @@ export interface SeriesSummary {
   instanceCount: number
   width?: number | null
   height?: number | null
+  thumbnailSrc?: string
   folderPath: string
   isFourDSeries?: boolean
   fourDPhaseCount?: number | null
@@ -268,6 +299,7 @@ export interface ViewCreateRequest {
   seriesId: string
   viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
   viewGroupKey?: string | null
+  fourDPhaseIndex?: number | null
 }
 
 export interface ViewCreateResponse {

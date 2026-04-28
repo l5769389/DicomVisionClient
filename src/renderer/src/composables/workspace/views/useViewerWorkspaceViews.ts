@@ -1,10 +1,15 @@
 import { nextTick, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { api } from '../../../services/api'
-import { bindView, emitViewOperation } from '../../../services/socket'
+import {
+  bindView,
+  bindViewSilently,
+  bindViewSilentlyWithAck,
+  emitViewOperation,
+  emitViewOperationWithAck
+} from '../../../services/socket'
 import {
   buildTabTitle,
-  createDefaultFourDPhaseItems,
   createEmptyCornerInfo,
   createEmptyMprCornerInfos,
   createEmptyMprCrosshairs,
@@ -28,13 +33,41 @@ import {
   normalizeOrientationInfo,
   normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
+import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
+import {
+  FourDPhaseRenderTracker,
+  MPR_VIEWPORT_KEYS,
+  clampFourDPhaseIndex,
+  countDistinctFourDPhaseSeriesIds,
+  createFourDPhaseCache,
+  createFourDPhaseCacheSeed,
+  findFourDPhaseViewportByViewId,
+  getFourDPhaseBackendViewIds,
+  getFourDPhaseByKey,
+  getFourDPhaseDisplayState,
+  getFourDPhaseItems,
+  getFourDPhaseKey,
+  getFourDPhaseSeriesId,
+  hasCompleteMprViewportImages,
+  hasCompleteMprViewportViewIds,
+  hasFourDPhaseImage,
+  hasReadyFourDPhaseCache,
+  isFourDPhaseDisplayed,
+  resolveFourDInitialPhaseIndex
+} from './fourDPhaseState'
+import {
+  mergeFourDManifestIntoSeriesList,
+  normalizeFourDManifestResponse,
+  resolveFourDPhasePlan
+} from './fourDPhaseManifest'
 import { normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
-import { createDefaultMprMipConfig, normalizeMprMipConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, isFourDSeriesItem, normalizeMprMipConfig } from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
 } from '../volume/volumeRenderConfig'
+import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import type {
   BackendCreateViewType,
@@ -56,8 +89,10 @@ import type {
 interface ViewerWorkspaceViewsOptions {
   activeTabKey: Ref<string>
   activeViewportKey: Ref<string>
+  activeMprCrosshairDragLock: Ref<ActiveMprCrosshairDragLock | null>
   isViewLoading: Ref<boolean>
   message: Ref<string>
+  onBeforeCloseTab?: (tab: ViewerTabItem) => void
   selectedSeries: ComputedRef<FolderSeriesItem | null>
   selectedSeriesId: Ref<string>
   seriesCornerInfoMap: Ref<Record<string, CornerInfo>>
@@ -75,12 +110,24 @@ interface SetFourDPhaseOptions {
   interactive?: boolean
 }
 
+interface MprViewSizeUpdate {
+  viewportKey: MprViewportKey
+  viewId: string
+  size: {
+    width: number
+    height: number
+  }
+}
+
 export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const viewSizeCache = new Map<string, string>()
-  const fourDPhaseSwitchRequestIds = new Map<string, number>()
   const queuedFourDPreloadTabKeys = new Set<string>()
+  const fourDPreloadRequests = new Map<string, Promise<void>>()
+  const fourDPhaseSwitchInFlightTabKeys = new Set<string>()
+  const queuedFourDPhaseSwitches = new Map<string, { phaseIndex: number; phaseOptions: SetFourDPhaseOptions }>()
+  const fourDManifestRequests = new Map<string, Promise<FourDPhasesResponse | null>>()
+  const fourDPhaseRenderTracker = new FourDPhaseRenderTracker()
   const { selectedPseudocolorKey } = useUiPreferences()
-  const MPR_VIEWPORT_KEYS: MprViewportKey[] = ['mpr-ax', 'mpr-cor', 'mpr-sag']
 
   function findTab(seriesId: string, viewType?: ViewType): ViewerTabItem | undefined {
     return options.viewerTabs.value.find((item) =>
@@ -230,121 +277,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
-  function hasCompleteMprViewportViewIds(value: Partial<Record<MprViewportKey, string>> | null | undefined): value is Record<MprViewportKey, string> {
-    return MPR_VIEWPORT_KEYS.every((viewportKey) => Boolean(value?.[viewportKey]))
-  }
-
-  function getFourDPhaseKey(phaseIndex: number): string {
-    return String(Math.max(0, Math.trunc(phaseIndex)))
-  }
-
-  function getFourDPhaseItems(tab: ViewerTabItem): FourDPhaseItem[] {
-    return tab.fourDPhaseItems?.length
-      ? tab.fourDPhaseItems
-      : createDefaultFourDPhaseItems(Math.max(1, tab.fourDPhaseCount ?? 1))
-  }
-
-  function clampFourDPhaseIndex(tab: ViewerTabItem, phaseIndex: number): number {
-    const maxIndex = Math.max(0, getFourDPhaseItems(tab).length - 1)
-    const normalizedIndex = Number.isFinite(phaseIndex) ? Math.trunc(phaseIndex) : 0
-    return Math.max(0, Math.min(normalizedIndex, maxIndex))
-  }
-
-  function getFourDPhaseSeriesId(tab: ViewerTabItem, phaseIndex: number): string {
-    const phase = getFourDPhaseItems(tab)[phaseIndex]
-    return phase?.seriesId || tab.seriesId
-  }
-
-  function createFourDPhasePreviewImages(phase: FourDPhaseItem | undefined): Record<MprViewportKey, string> {
-    const viewportImages = phase?.viewportImages ?? {}
-    return {
-      'mpr-ax': viewportImages['mpr-ax'] || phase?.imageSrc || '',
-      'mpr-cor': viewportImages['mpr-cor'] || '',
-      'mpr-sag': viewportImages['mpr-sag'] || ''
-    }
-  }
-
-  function hasAnyMprViewportImage(images: Partial<Record<MprViewportKey, string>> | undefined | null): boolean {
-    return MPR_VIEWPORT_KEYS.some((viewportKey) => Boolean(images?.[viewportKey]))
-  }
-
-  function hasCompleteMprViewportImages(
-    images: Partial<Record<MprViewportKey, string>> | undefined | null
-  ): images is Record<MprViewportKey, string> {
-    return MPR_VIEWPORT_KEYS.every((viewportKey) => Boolean(images?.[viewportKey]))
-  }
-
-  function mergeFourDPhaseImages(
-    phase: FourDPhaseItem | undefined,
-    cachedImages: Partial<Record<MprViewportKey, string>> | undefined
-  ): Record<MprViewportKey, string> {
-    const previewImages = createFourDPhasePreviewImages(phase)
-    return {
-      'mpr-ax': cachedImages?.['mpr-ax'] || previewImages['mpr-ax'],
-      'mpr-cor': cachedImages?.['mpr-cor'] || previewImages['mpr-cor'],
-      'mpr-sag': cachedImages?.['mpr-sag'] || previewImages['mpr-sag']
-    }
-  }
-
-  function createFourDPhaseCacheSeed(
-    phase: FourDPhaseItem | undefined,
-    existingCache?: FourDPhaseCacheItem
-  ): FourDPhaseCacheItem {
-    const viewportImages = mergeFourDPhaseImages(phase, existingCache?.viewportImages)
-    const status = existingCache?.status
-      ? existingCache.status
-      : phase?.status === 'error'
-        ? 'error'
-        : hasAnyMprViewportImage(viewportImages)
-          ? 'preview'
-          : 'pending'
-
-    return {
-      ...existingCache,
-      status,
-      viewportImages
-    }
-  }
-
-  function createFourDPhaseCache(
-    phaseItems: FourDPhaseItem[],
-    existingCache: Record<string, FourDPhaseCacheItem> | undefined
-  ): Record<string, FourDPhaseCacheItem> {
-    return phaseItems.reduce<Record<string, FourDPhaseCacheItem>>((accumulator, phase, index) => {
-      const phaseKey = getFourDPhaseKey(phase.phaseIndex ?? index)
-      accumulator[phaseKey] = createFourDPhaseCacheSeed(phase, existingCache?.[phaseKey])
-      return accumulator
-    }, {})
-  }
-
   function createFourDViewGroupKey(tab: ViewerTabItem, phaseIndex: number): string {
     return `4d:${tab.key}:${getFourDPhaseKey(phaseIndex)}`
-  }
-
-  function findFourDPhaseViewportByViewId(
-    tab: ViewerTabItem,
-    viewId: string | undefined | null
-  ): { phaseKey: string; viewportKey: MprViewportKey } | null {
-    if (!viewId || tab.viewType !== '4D') {
-      return null
-    }
-
-    for (const [phaseKey, viewIds] of Object.entries(tab.fourDPhaseViewIds ?? {})) {
-      const viewportKey = MPR_VIEWPORT_KEYS.find((candidate) => viewIds?.[candidate] === viewId)
-      if (viewportKey) {
-        return { phaseKey, viewportKey }
-      }
-    }
-
-    return null
-  }
-
-  function getFourDPhaseByKey(tab: ViewerTabItem, phaseKey: string): FourDPhaseItem | undefined {
-    const phaseIndex = Number.parseInt(phaseKey, 10)
-    if (!Number.isFinite(phaseIndex)) {
-      return undefined
-    }
-    return getFourDPhaseItems(tab)[phaseIndex]
   }
 
   function getFourDMprStateSourceViewId(tab: ViewerTabItem): string {
@@ -352,92 +286,75 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return tab.viewportViewIds?.[activeViewport] || MPR_VIEWPORT_KEYS.map((viewportKey) => tab.viewportViewIds?.[viewportKey] ?? '').find(Boolean) || ''
   }
 
-  function emitFourDMprStateSync(viewIds: Partial<Record<MprViewportKey, string>>, sourceViewId: string): void {
+  function resolveFourDMprStateSyncTargetViewId(
+    viewIds: Partial<Record<MprViewportKey, string>>,
+    sourceViewId: string
+  ): string {
     const targetViewId = viewIds['mpr-ax'] || MPR_VIEWPORT_KEYS.map((viewportKey) => viewIds[viewportKey] ?? '').find(Boolean) || ''
     if (!targetViewId || !sourceViewId || Object.values(viewIds).includes(sourceViewId)) {
-      return
+      return ''
     }
-    emitViewOperation({
+    return targetViewId
+  }
+
+  async function emitFourDMprStateSync(
+    viewIds: Partial<Record<MprViewportKey, string>>,
+    sourceViewId: string
+  ): Promise<boolean> {
+    const targetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
+    if (!targetViewId) {
+      return false
+    }
+    return emitViewOperationWithAck({
       viewId: targetViewId,
       opType: VIEW_OPERATION_TYPES.mprStateSync,
       sourceViewId
     })
   }
 
-  function bindMprViewIds(viewIds: Partial<Record<MprViewportKey, string>>): void {
+  function bindMprViewIds(viewIds: Partial<Record<MprViewportKey, string>>, render = true): void {
     Object.values(viewIds).forEach((viewId) => {
       if (viewId) {
-        bindView(viewId)
+        if (render) {
+          bindView(viewId)
+        } else {
+          bindViewSilently(viewId)
+        }
       }
     })
+  }
+
+  async function bindMprViewIdsSilentlyWithAck(viewIds: Partial<Record<MprViewportKey, string>>): Promise<void> {
+    await Promise.all(
+      Object.values(viewIds).map(async (viewId) => {
+        if (viewId) {
+          await bindViewSilentlyWithAck(viewId)
+        }
+      })
+    )
   }
 
   function getTabViewportPseudocolorPreset(tab: ViewerTabItem, viewportKey: MprViewportKey): string {
     return normalizePseudocolorPresetKey(tab.viewportPseudocolorPresets?.[viewportKey] ?? tab.pseudocolorPreset)
   }
 
-  function emitMprPseudocolorOperations(
+  async function emitMprPseudocolorOperations(
     viewIds: Partial<Record<MprViewportKey, string>>,
     tab: ViewerTabItem
-  ): void {
+  ): Promise<void> {
     const entries = Object.entries(viewIds) as [MprViewportKey, string][]
-    entries.forEach(([viewportKey, viewId]) => {
-      if (!viewId) {
-        return
-      }
-      bindView(viewId)
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.pseudocolor,
-        pseudocolorPreset: getTabViewportPseudocolorPreset(tab, viewportKey)
+    await Promise.all(
+      entries.map(async ([viewportKey, viewId]) => {
+        if (!viewId) {
+          return
+        }
+        await emitViewOperationWithAck({
+          viewId,
+          opType: VIEW_OPERATION_TYPES.pseudocolor,
+          pseudocolorPreset: getTabViewportPseudocolorPreset(tab, viewportKey)
+        })
       })
-    })
-  }
-
-  function getFourDPhaseDisplayState(tab: ViewerTabItem, phaseIndex: number) {
-    const phaseKey = getFourDPhaseKey(phaseIndex)
-    const phase = getFourDPhaseItems(tab)[phaseIndex]
-    const cache = tab.fourDPhaseCache?.[phaseKey]
-
-    return {
-      viewportImages: mergeFourDPhaseImages(phase, cache?.viewportImages),
-      viewportSliceLabels: {
-        ...createEmptyMprSliceLabels(),
-        ...(cache?.viewportSliceLabels ?? {})
-      },
-      viewportPlanes: {
-        ...createEmptyMprPlanes(),
-        ...(cache?.viewportPlanes ?? {})
-      },
-      viewportCrosshairs: {
-        ...createEmptyMprCrosshairs(),
-        ...(cache?.viewportCrosshairs ?? {})
-      },
-      viewportScaleBars: {
-        ...createEmptyMprScaleBars(),
-        ...(cache?.viewportScaleBars ?? {})
-      },
-      viewportMeasurements: cache?.viewportMeasurements ?? {},
-      viewportCornerInfos: {
-        ...createEmptyMprCornerInfos(),
-        ...(cache?.viewportCornerInfos ?? {})
-      },
-      viewportOrientations: {
-        ...createEmptyMprOrientations(),
-        ...(cache?.viewportOrientations ?? {})
-      },
-      viewportTransformStates: {
-        ...createEmptyMprTransformStates(),
-        ...(cache?.viewportTransformStates ?? {})
-      },
-      viewportPseudocolorPresets: {
-        ...createEmptyMprPseudocolorPresets(),
-        ...(cache?.viewportPseudocolorPresets ?? {})
-      },
-      mprCursor: cache?.mprCursor ?? null,
-      mprFrame: cache?.mprFrame ?? null,
-      windowLabel: cache?.windowLabel ?? ''
-    }
+    )
   }
 
   function resolveMprViewportElement(viewportKey: MprViewportKey): HTMLElement | null {
@@ -499,93 +416,48 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
-  function hasFourDPhaseImage(phase: FourDPhaseItem): boolean {
-    return Boolean(
-      phase.imageSrc ||
-        phase.viewportImages?.['mpr-ax'] ||
-        phase.viewportImages?.['mpr-cor'] ||
-        phase.viewportImages?.['mpr-sag']
-    )
-  }
-
-  function normalizeFourDPhaseItems(phases: FourDPhaseItem[] | undefined | null): FourDPhaseItem[] {
-    return (phases ?? [])
-      .map((phase, sourceIndex) => ({ phase, sourceIndex }))
-      .sort((left, right) => {
-        const leftIndex = Number(left.phase.phaseIndex)
-        const rightIndex = Number(right.phase.phaseIndex)
-        const leftSort = Number.isFinite(leftIndex) ? leftIndex : left.sourceIndex
-        const rightSort = Number.isFinite(rightIndex) ? rightIndex : right.sourceIndex
-        return leftSort - rightSort
-      })
-      .map(({ phase }, index) => {
-        const viewportImages = phase.viewportImages ?? {}
-        const imageSrc =
-          phase.imageSrc ||
-          viewportImages['mpr-ax'] ||
-          viewportImages['mpr-cor'] ||
-          viewportImages['mpr-sag'] ||
-          ''
-        const hasImage = Boolean(imageSrc || Object.values(viewportImages).some(Boolean))
-        const status = phase.status === 'error'
-          ? 'error'
-          : hasImage || phase.status === 'ready'
-            ? 'ready'
-            : 'pending'
-        const normalizedPhase: FourDPhaseItem = {
-          phaseIndex: index,
-          label: phase.label || `Phase ${String(index + 1).padStart(2, '0')}`,
-          seriesId: phase.seriesId ?? null,
-          imageSrc,
-          viewportImages,
-          status
-        }
-        return normalizedPhase
-      })
-  }
-
-  function applyFourDManifestToSeriesList(seriesId: string, manifest: FourDPhasesResponse): void {
-    const normalizedPhases = normalizeFourDPhaseItems(manifest.fourDPhases)
-    const phaseSeriesIds = new Set<string>([seriesId])
-    normalizedPhases.forEach((phase) => {
-      if (phase.seriesId) {
-        phaseSeriesIds.add(phase.seriesId)
+  async function ensureFourDPhaseCornerInfos(
+    phaseItems: FourDPhaseItem[],
+    fallbackSeriesId?: string | null
+  ): Promise<void> {
+    const seriesIds = getDistinctFourDPhaseSeriesIds(phaseItems, fallbackSeriesId)
+    if (!seriesIds.length) {
+      return
+    }
+    const results = await Promise.allSettled(seriesIds.map(async (seriesId) => options.ensureSeriesCornerInfo(seriesId)))
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error(result.reason)
       }
     })
-
-    options.seriesList.value = options.seriesList.value.map((item) =>
-      phaseSeriesIds.has(item.seriesId)
-        ? manifest.isFourDSeries || normalizedPhases.length
-          ? {
-              ...item,
-              isFourDSeries: manifest.isFourDSeries,
-              fourDPhaseCount: manifest.fourDPhaseCount || normalizedPhases.length || (item.fourDPhaseCount ?? null),
-              fourDPhases: normalizedPhases.length ? normalizedPhases : item.fourDPhases
-            }
-          : {
-              ...item,
-              isFourDSeries: false,
-              fourDPhaseCount: null,
-              fourDPhases: null
-            }
-        : item
-    )
   }
 
   async function loadFourDManifest(seriesId: string): Promise<FourDPhasesResponse | null> {
-    try {
-      const { data } = await api.post<FourDPhasesResponse>('/dicom/fourD/phases', { seriesId })
-      const manifest: FourDPhasesResponse = {
-        seriesId: data.seriesId || seriesId,
-        isFourDSeries: Boolean(data.isFourDSeries),
-        fourDPhaseCount: Math.max(0, Number(data.fourDPhaseCount ?? data.fourDPhases?.length ?? 0)),
-        fourDPhases: normalizeFourDPhaseItems(data.fourDPhases)
+    const existingRequest = fourDManifestRequests.get(seriesId)
+    if (existingRequest) {
+      return existingRequest
+    }
+
+    const request = (async () => {
+      try {
+        const { data } = await api.post<FourDPhasesResponse>('/dicom/fourD/phases', { seriesId })
+        const manifest = normalizeFourDManifestResponse(data, seriesId)
+        if (!manifest) {
+          return null
+        }
+        options.seriesList.value = mergeFourDManifestIntoSeriesList(options.seriesList.value, seriesId, manifest)
+        return manifest
+      } catch (error) {
+        console.error(error)
+        return null
       }
-      applyFourDManifestToSeriesList(seriesId, manifest)
-      return manifest
-    } catch (error) {
-      console.error(error)
-      return null
+    })()
+
+    fourDManifestRequests.set(seriesId, request)
+    try {
+      return await request
+    } finally {
+      fourDManifestRequests.delete(seriesId)
     }
   }
 
@@ -596,37 +468,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }> {
     const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
     const manifest = await loadFourDManifest(seriesId)
-    const backendPhaseItems = normalizeFourDPhaseItems(manifest?.fourDPhases)
-    if (manifest?.isFourDSeries && backendPhaseItems.length) {
-      return {
-        phaseCount: Math.max(1, manifest.fourDPhaseCount || backendPhaseItems.length),
-        phaseItems: backendPhaseItems,
-        hasBackendManifest: true
-      }
-    }
-
-    const seriesPhaseItems = normalizeFourDPhaseItems(series?.fourDPhases)
-    if (seriesPhaseItems.length) {
-      return {
-        phaseCount: Math.max(1, series?.fourDPhaseCount ?? seriesPhaseItems.length),
-        phaseItems: seriesPhaseItems,
-        hasBackendManifest: false
-      }
-    }
-
-    const fallbackCount = Math.max(1, series?.fourDPhaseCount ?? 10)
-    return {
-      phaseCount: fallbackCount,
-      phaseItems: createDefaultFourDPhaseItems(fallbackCount),
-      hasBackendManifest: false
-    }
+    const refreshedSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? series
+    return resolveFourDPhasePlan(refreshedSeries, manifest)
   }
 
   function updateFourDTab(
     tabKey: string,
     series: FolderSeriesItem,
     phaseCount: number,
-    phaseItems: FourDPhaseItem[]
+    phaseItems: FourDPhaseItem[],
+    preferredPhaseIndex?: number
   ): void {
     const hasPreviewImage = phaseItems.some(hasFourDPhaseImage)
     options.viewerTabs.value = options.viewerTabs.value.map((item) => {
@@ -635,9 +486,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
 
       const maxPhaseIndex = Math.max(0, phaseItems.length - 1)
-      const currentPhaseIndex = Number.isFinite(item.fourDPhaseIndex)
+      const existingPhaseIndex = Number.isFinite(item.fourDPhaseIndex)
         ? Math.trunc(item.fourDPhaseIndex ?? 0)
         : 0
+      const currentPhaseIndex = Number.isFinite(preferredPhaseIndex)
+        ? Math.trunc(preferredPhaseIndex ?? 0)
+        : existingPhaseIndex
+      const nextPhaseIndex = Math.max(0, Math.min(currentPhaseIndex, maxPhaseIndex))
+      const activePhaseSeriesId = phaseItems[nextPhaseIndex]?.seriesId ?? series.seriesId
 
       return {
         ...item,
@@ -648,9 +504,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         imageSrc: '',
         sliceLabel: '',
         windowLabel: '',
-        cornerInfo: options.seriesCornerInfoMap.value[series.seriesId] ?? createEmptyCornerInfo(),
+        cornerInfo: options.seriesCornerInfoMap.value[activePhaseSeriesId] ?? createEmptyCornerInfo(),
         orientation: createEmptyOrientationInfo(),
-        fourDPhaseIndex: Math.max(0, Math.min(currentPhaseIndex, maxPhaseIndex)),
+        fourDPhaseIndex: nextPhaseIndex,
         fourDPhaseCount: phaseCount,
         fourDPhaseItems: phaseItems,
         fourDPlaybackFps: item.fourDPlaybackFps ?? 2,
@@ -660,16 +516,32 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         fourDIsPreloading: item.fourDIsPreloading ?? false
       }
     })
-    options.message.value = hasPreviewImage ? '' : '4D phase preview is not available for this series.'
+    options.message.value = phaseItems.length > 0 || hasPreviewImage ? '' : '4D phase metadata is not available for this series.'
   }
 
   async function ensureFourDPhaseViewIds(tabKey: string, phaseIndex: number): Promise<Record<MprViewportKey, string> | null> {
-    const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    let tab = options.viewerTabs.value.find((item) => item.key === tabKey)
     if (!tab || tab.viewType !== '4D') {
       return null
     }
 
-    const normalizedPhaseIndex = clampFourDPhaseIndex(tab, phaseIndex)
+    let normalizedPhaseIndex = clampFourDPhaseIndex(tab, phaseIndex)
+    const currentPhaseItems = getFourDPhaseItems(tab)
+    if (currentPhaseItems.length > 1 && countDistinctFourDPhaseSeriesIds(currentPhaseItems) <= 1) {
+      const tabSeriesId = tab.seriesId
+      const series = options.seriesList.value.find((item) => item.seriesId === tabSeriesId)
+      if (series) {
+        const activePhaseIndex = clampFourDPhaseIndex(tab, tab.fourDPhaseIndex ?? 0)
+        const { phaseCount, phaseItems } = await resolveFourDPhaseItems(tabSeriesId)
+        updateFourDTab(tabKey, series, phaseCount, phaseItems, activePhaseIndex)
+        tab = options.viewerTabs.value.find((item) => item.key === tabKey)
+        if (!tab || tab.viewType !== '4D') {
+          return null
+        }
+        normalizedPhaseIndex = clampFourDPhaseIndex(tab, phaseIndex)
+      }
+    }
+
     const phaseKey = getFourDPhaseKey(normalizedPhaseIndex)
     const existingViewIds = tab.fourDPhaseViewIds?.[phaseKey]
     if (hasCompleteMprViewportViewIds(existingViewIds)) {
@@ -696,7 +568,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return viewIds
   }
 
-  async function setFourDPhase(tabKey: string, phaseIndex: number, phaseOptions: SetFourDPhaseOptions = {}): Promise<void> {
+  async function applyFourDPhase(tabKey: string, phaseIndex: number, phaseOptions: SetFourDPhaseOptions = {}): Promise<void> {
     const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
     if (!tab || tab.viewType !== '4D') {
       return
@@ -704,23 +576,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const interactive = phaseOptions.interactive ?? true
     const normalizedPhaseIndex = clampFourDPhaseIndex(tab, phaseIndex)
-    const nextRequestId = (fourDPhaseSwitchRequestIds.get(tabKey) ?? 0) + 1
-    fourDPhaseSwitchRequestIds.set(tabKey, nextRequestId)
+    await options.ensureSeriesCornerInfo(getFourDPhaseSeriesId(tab, normalizedPhaseIndex)).catch((error) => {
+      console.error(error)
+      return createEmptyCornerInfo()
+    })
     const sourceViewId = getFourDMprStateSourceViewId(tab)
     const phaseKey = getFourDPhaseKey(normalizedPhaseIndex)
     const existingViewIds = tab.fourDPhaseViewIds?.[phaseKey]
-    const displayViewIds = hasCompleteMprViewportViewIds(existingViewIds)
+    const hasExistingViewIds = hasCompleteMprViewportViewIds(existingViewIds)
+    const hasReadyPhaseDisplay = hasReadyFourDPhaseCache(tab.fourDPhaseCache?.[phaseKey])
+    const shouldDeferDisplaySwitch = interactive && (!hasExistingViewIds || !hasReadyPhaseDisplay)
+    if (shouldDeferDisplaySwitch) {
+      markFourDPhaseLoading(tabKey, normalizedPhaseIndex)
+    }
+
+    const displayViewIds = hasExistingViewIds
       ? existingViewIds
       : createEmptyMprViewIds()
-    const displayState = getFourDPhaseDisplayState(tab, normalizedPhaseIndex)
+    const displayState = getFourDPhaseDisplayState(tab, normalizedPhaseIndex, options.seriesCornerInfoMap.value)
 
     options.viewerTabs.value = options.viewerTabs.value.map((item) =>
       item.key === tabKey && item.viewType === '4D'
         ? {
             ...item,
             fourDPhaseIndex: normalizedPhaseIndex,
-            viewportViewIds: displayViewIds,
-            ...displayState
+            ...(shouldDeferDisplaySwitch
+              ? {}
+              : {
+                  viewportViewIds: displayViewIds,
+                  ...displayState
+                })
           }
         : item
     )
@@ -730,20 +615,59 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    if (hasExistingViewIds && hasReadyPhaseDisplay) {
+      bindMprViewIds(displayViewIds, false)
+      if (!isMprViewportKey(options.activeViewportKey.value)) {
+        options.activeViewportKey.value = 'mpr-ax'
+      }
+      return
+    }
+
     const viewIds = await ensureFourDPhaseViewIds(tabKey, normalizedPhaseIndex)
-    if (!viewIds || fourDPhaseSwitchRequestIds.get(tabKey) !== nextRequestId) {
+    if (!viewIds) {
       return
     }
 
     const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
     const refreshedDisplayState =
       refreshedTab?.viewType === '4D'
-        ? getFourDPhaseDisplayState(refreshedTab, normalizedPhaseIndex)
+        ? getFourDPhaseDisplayState(refreshedTab, normalizedPhaseIndex, options.seriesCornerInfoMap.value)
         : displayState
     const pseudocolorSourceTab =
       refreshedTab?.viewType === '4D'
         ? ({ ...refreshedTab, ...refreshedDisplayState } as ViewerTabItem)
         : tab
+
+    if (!isMprViewportKey(options.activeViewportKey.value)) {
+      options.activeViewportKey.value = 'mpr-ax'
+    }
+
+    await nextTick()
+    await bindMprViewIdsSilentlyWithAck(viewIds)
+    await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds)
+    await emitMprPseudocolorOperations(viewIds, pseudocolorSourceTab)
+    const syncTargetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
+    const syncRenderWait = syncTargetViewId
+      ? fourDPhaseRenderTracker.waitForRender(tabKey, phaseKey, viewIds)
+      : Promise.resolve()
+    const didSyncState = await emitFourDMprStateSync(viewIds, sourceViewId)
+    if (didSyncState) {
+      await syncRenderWait
+    }
+
+    const renderedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (renderedTab?.viewType === '4D') {
+      const renderedCache = renderedTab.fourDPhaseCache?.[phaseKey]
+      if (!hasExistingViewIds && !hasCompleteMprViewportImages(renderedCache?.viewportImages)) {
+        await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds, true)
+      }
+    }
+
+    const finalRenderedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    const renderedDisplayState =
+      finalRenderedTab?.viewType === '4D'
+        ? getFourDPhaseDisplayState(finalRenderedTab, normalizedPhaseIndex, options.seriesCornerInfoMap.value)
+        : refreshedDisplayState
 
     options.viewerTabs.value = options.viewerTabs.value.map((item) =>
       item.key === tabKey && item.viewType === '4D'
@@ -751,20 +675,35 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...item,
             fourDPhaseIndex: normalizedPhaseIndex,
             viewportViewIds: viewIds,
-            ...refreshedDisplayState
+            ...renderedDisplayState
           }
         : item
     )
+  }
 
-    emitMprPseudocolorOperations(viewIds, pseudocolorSourceTab)
+  async function setFourDPhase(tabKey: string, phaseIndex: number, phaseOptions: SetFourDPhaseOptions = {}): Promise<void> {
+    queuedFourDPhaseSwitches.set(tabKey, {
+      phaseIndex,
+      phaseOptions
+    })
 
-    if (!isMprViewportKey(options.activeViewportKey.value)) {
-      options.activeViewportKey.value = 'mpr-ax'
+    if (fourDPhaseSwitchInFlightTabKeys.has(tabKey)) {
+      return
     }
 
-    await nextTick()
-    await renderTab(tabKey, true)
-    emitFourDMprStateSync(viewIds, sourceViewId)
+    fourDPhaseSwitchInFlightTabKeys.add(tabKey)
+    try {
+      while (true) {
+        const nextSwitch = queuedFourDPhaseSwitches.get(tabKey)
+        if (!nextSwitch) {
+          return
+        }
+        queuedFourDPhaseSwitches.delete(tabKey)
+        await applyFourDPhase(tabKey, nextSwitch.phaseIndex, nextSwitch.phaseOptions)
+      }
+    } finally {
+      fourDPhaseSwitchInFlightTabKeys.delete(tabKey)
+    }
   }
 
   function markFourDPhaseLoading(tabKey: string, phaseIndex: number): void {
@@ -791,13 +730,37 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
-  async function preloadFourDPhases(tabKey: string): Promise<void> {
+  function invalidateFourDMprState(tabKey: string): void {
+    options.viewerTabs.value = options.viewerTabs.value.map((item) => {
+      if (item.key !== tabKey || item.viewType !== '4D') {
+        return item
+      }
+
+      const activePhaseKey = getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0))
+      const nextCache = Object.entries(item.fourDPhaseCache ?? {}).reduce<Record<string, FourDPhaseCacheItem>>(
+        (accumulator, [phaseKey, cache]) => {
+          accumulator[phaseKey] =
+            phaseKey === activePhaseKey || cache.status === 'error'
+              ? cache
+              : {
+                  ...cache,
+                  status: 'pending'
+                }
+          return accumulator
+        },
+        {}
+      )
+
+      return {
+        ...item,
+        fourDPhaseCache: nextCache
+      }
+    })
+  }
+
+  async function runPreloadFourDPhases(tabKey: string): Promise<void> {
     const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
     if (!tab || tab.viewType !== '4D') {
-      return
-    }
-    if (tab.fourDIsPreloading) {
-      queuedFourDPreloadTabKeys.add(tabKey)
       return
     }
 
@@ -814,6 +777,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
 
     try {
+      await ensureFourDPhaseCornerInfos(phaseItems, tab.seriesId)
       for (let phaseIndex = 0; phaseIndex < phaseItems.length; phaseIndex += 1) {
         const currentTab = options.viewerTabs.value.find((item) => item.key === tabKey)
         if (!currentTab || currentTab.viewType !== '4D') {
@@ -823,7 +787,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const sourceViewId = getFourDMprStateSourceViewId(currentTab) || preloadSourceViewId
         const phaseKey = getFourDPhaseKey(phaseIndex)
         const currentCache = currentTab.fourDPhaseCache?.[phaseKey]
-        if (currentCache?.status !== 'ready' || !hasCompleteMprViewportImages(currentCache.viewportImages)) {
+        const existingViewIds = currentTab.fourDPhaseViewIds?.[phaseKey]
+        const hasExistingViewIds = hasCompleteMprViewportViewIds(existingViewIds)
+        const hasReadyPhaseDisplay = hasReadyFourDPhaseCache(currentCache)
+
+        if (hasExistingViewIds && hasReadyPhaseDisplay) {
+          await bindMprViewIdsSilentlyWithAck(existingViewIds)
+          continue
+        }
+
+        if (!hasReadyPhaseDisplay) {
           markFourDPhaseLoading(tabKey, phaseIndex)
         }
 
@@ -832,9 +805,24 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           continue
         }
 
-        emitMprPseudocolorOperations(viewIds, currentTab)
-        await renderMprViewIds(viewIds)
-        emitFourDMprStateSync(viewIds, sourceViewId)
+        await nextTick()
+        await bindMprViewIdsSilentlyWithAck(viewIds)
+        await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds)
+        await emitMprPseudocolorOperations(viewIds, currentTab)
+        const syncTargetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
+        const syncRenderWait = syncTargetViewId
+          ? fourDPhaseRenderTracker.waitForRender(tabKey, phaseKey, viewIds)
+          : Promise.resolve()
+        const didSyncState = await emitFourDMprStateSync(viewIds, sourceViewId)
+        if (didSyncState) {
+          await syncRenderWait
+        }
+
+        const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+        const refreshedCache = refreshedTab?.viewType === '4D' ? refreshedTab.fourDPhaseCache?.[phaseKey] : null
+        if (!hasCompleteMprViewportImages(refreshedCache?.viewportImages)) {
+          await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds, true)
+        }
       }
     } finally {
       options.viewerTabs.value = options.viewerTabs.value.map((item) =>
@@ -845,9 +833,27 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
           : item
       )
-      if (queuedFourDPreloadTabKeys.delete(tabKey)) {
-        void preloadFourDPhases(tabKey)
-      }
+    }
+  }
+
+  async function preloadFourDPhases(tabKey: string): Promise<void> {
+    const existingRequest = fourDPreloadRequests.get(tabKey)
+    if (existingRequest) {
+      queuedFourDPreloadTabKeys.add(tabKey)
+      await existingRequest
+      return
+    }
+
+    const request = runPreloadFourDPhases(tabKey)
+    fourDPreloadRequests.set(tabKey, request)
+    try {
+      await request
+    } finally {
+      fourDPreloadRequests.delete(tabKey)
+    }
+
+    if (queuedFourDPreloadTabKeys.delete(tabKey)) {
+      await preloadFourDPhases(tabKey)
     }
   }
 
@@ -864,7 +870,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const imageSrc = URL.createObjectURL(new Blob([bytes], { type: mimeType }))
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
-      const seriesCornerInfo = options.seriesCornerInfoMap.value[item.seriesId] ?? createEmptyCornerInfo()
+      const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
+      const metadataSeriesId =
+        item.viewType === '4D' && fourDViewportMatch
+          ? resolveFourDPhaseSeriesId(item, fourDViewportMatch.phaseKey)
+          : item.seriesId
+      const seriesCornerInfo =
+        options.seriesCornerInfoMap.value[metadataSeriesId] ??
+        options.seriesCornerInfoMap.value[item.seriesId] ??
+        createEmptyCornerInfo()
       const sliceCornerInfo = options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo))
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
       const transformState = payload.transform ?? createDefaultTransformInfo()
@@ -883,7 +897,6 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const currentViewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
         | MprViewportKey
         | undefined
-      const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
       const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
       if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
         const currentViewportImage = item.viewportImages?.[viewportKey]
@@ -893,6 +906,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
         let nextFourDPhaseCache = item.fourDPhaseCache
         if (item.viewType === '4D' && fourDViewportMatch) {
+          fourDPhaseRenderTracker.notifyRendered(tabKey, fourDViewportMatch.phaseKey, payload.viewId ?? '')
           const phase = getFourDPhaseByKey(item, fourDViewportMatch.phaseKey)
           const existingPhaseCache = item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]
           const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
@@ -905,6 +919,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(phaseCacheSeed.viewportImages ?? createEmptyMprImages()),
             [viewportKey]: imageSrc
           }
+          const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
+            incomingCrosshair: mprCrosshair,
+            currentCrosshair: phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null,
+            lock: options.activeMprCrosshairDragLock.value,
+            update: {
+              tabKey,
+              viewportKey,
+              phaseKey: fourDViewportMatch.phaseKey
+            }
+          })
           nextFourDPhaseCache = {
             ...(item.fourDPhaseCache ?? {}),
             [fourDViewportMatch.phaseKey]: {
@@ -924,7 +948,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportCrosshairs: {
                 ...(phaseCacheSeed.viewportCrosshairs ?? createEmptyMprCrosshairs()),
-                [viewportKey]: mprCrosshair
+                [viewportKey]: nextViewportCrosshair
               },
               viewportScaleBars: {
                 ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
@@ -956,14 +980,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
         if (item.viewType === '4D' && !currentViewportKey) {
           const activePhaseIndex = clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)
-          if (fourDViewportMatch?.phaseKey === getFourDPhaseKey(activePhaseIndex)) {
+          if (
+            fourDViewportMatch?.phaseKey === getFourDPhaseKey(activePhaseIndex) &&
+            isFourDPhaseDisplayed(item, fourDViewportMatch.phaseKey)
+          ) {
             const nextItem = {
               ...item,
               fourDPhaseCache: nextFourDPhaseCache
             }
             return {
               ...nextItem,
-              ...getFourDPhaseDisplayState(nextItem, activePhaseIndex)
+              ...getFourDPhaseDisplayState(nextItem, activePhaseIndex, options.seriesCornerInfoMap.value)
             }
           }
           return {
@@ -971,6 +998,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             fourDPhaseCache: nextFourDPhaseCache
           }
         }
+
+        const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
+          incomingCrosshair: mprCrosshair,
+          currentCrosshair: item.viewportCrosshairs?.[viewportKey] ?? null,
+          lock: options.activeMprCrosshairDragLock.value,
+          update: {
+            tabKey,
+            viewportKey,
+            phaseKey:
+              item.viewType === '4D'
+                ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0))
+                : null
+          }
+        })
 
         return {
           ...item,
@@ -991,7 +1032,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportCrosshairs: {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
-            [viewportKey]: mprCrosshair
+            [viewportKey]: nextViewportCrosshair
           },
           viewportScaleBars: {
             ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
@@ -1052,22 +1093,41 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
-  async function renderMprViewIds(
+  function collectMprViewSizeUpdates(
     viewportViewIds: Partial<Record<MprViewportKey, string>> | undefined,
     force = false
-  ): Promise<void> {
+  ): MprViewSizeUpdate[] {
     const entries = Object.entries(viewportViewIds ?? {}) as [MprViewportKey, string][]
-    const tasks = entries
+    return entries
       .filter(([, viewId]) => Boolean(viewId))
-      .map(async ([viewportKey, viewId]) => {
+      .map(([viewportKey, viewId]) => {
         const size = getViewportSize(resolveMprViewportElement(viewportKey))
         if (!size) {
-          return
+          return null
         }
-        bindView(viewId)
         const sizeChanged = hasViewSizeChanged(viewId, size)
         if (!force && !sizeChanged) {
-          return
+          return null
+        }
+        return { viewportKey, viewId, size }
+      })
+      .filter((item): item is MprViewSizeUpdate => Boolean(item))
+  }
+
+  function viewSizeUpdatesToViewIds(updates: MprViewSizeUpdate[]): Partial<Record<MprViewportKey, string>> {
+    return updates.reduce<Partial<Record<MprViewportKey, string>>>((accumulator, update) => {
+      accumulator[update.viewportKey] = update.viewId
+      return accumulator
+    }, {})
+  }
+
+  async function postMprViewSizeUpdates(updates: MprViewSizeUpdate[], renderOnBind = true): Promise<void> {
+    await Promise.all(
+      updates.map(async ({ viewId, size }) => {
+        if (renderOnBind) {
+          bindView(viewId)
+        } else {
+          await bindViewSilentlyWithAck(viewId)
         }
         await api.post<OperationAcceptedResponse>('/view/setSize', {
           opType: VIEW_OPERATION_TYPES.setSize,
@@ -1075,7 +1135,33 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewId
         })
       })
-    await Promise.all(tasks)
+    )
+  }
+
+  async function renderMprViewIds(
+    viewportViewIds: Partial<Record<MprViewportKey, string>> | undefined,
+    force = false,
+    renderOnBind = true
+  ): Promise<Partial<Record<MprViewportKey, string>>> {
+    const updates = collectMprViewSizeUpdates(viewportViewIds, force)
+    await postMprViewSizeUpdates(updates, renderOnBind)
+    return viewSizeUpdatesToViewIds(updates)
+  }
+
+  async function renderFourDPhaseSizeUpdatesAndWait(
+    tabKey: string,
+    phaseKey: string,
+    viewportViewIds: Partial<Record<MprViewportKey, string>>,
+    force = false
+  ): Promise<Partial<Record<MprViewportKey, string>>> {
+    const updates = collectMprViewSizeUpdates(viewportViewIds, force)
+    const updatedViewIds = viewSizeUpdatesToViewIds(updates)
+    const renderWait = updates.length
+      ? fourDPhaseRenderTracker.waitForRender(tabKey, phaseKey, updatedViewIds)
+      : Promise.resolve()
+    await postMprViewSizeUpdates(updates, false)
+    await renderWait
+    return updatedViewIds
   }
 
   async function renderTab(tabKey: string, force = false): Promise<void> {
@@ -1120,6 +1206,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     options.selectedSeriesId.value = seriesId
+    const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    if (viewType === '4D' && !isFourDSeriesItem(targetSeries)) {
+      options.message.value = '当前序列不是 4D 序列。'
+      return
+    }
 
     const existingTab = findTab(seriesId, viewType)
     const hasExistingView =
@@ -1137,14 +1228,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
           if (series) {
             const { phaseCount, phaseItems } = await resolveFourDPhaseItems(seriesId)
-            updateFourDTab(existingTab.key, series, phaseCount, phaseItems)
+            await ensureFourDPhaseCornerInfos(phaseItems, seriesId)
+            const initialPhaseIndex = resolveFourDInitialPhaseIndex(seriesId, phaseItems, existingTab.fourDPhaseIndex ?? 0)
+            updateFourDTab(existingTab.key, series, phaseCount, phaseItems, initialPhaseIndex)
           }
         } finally {
           options.isViewLoading.value = false
         }
         await nextTick()
-        await setFourDPhase(existingTab.key, existingTab.fourDPhaseIndex ?? 0)
-        void preloadFourDPhases(existingTab.key)
+        const refreshedTab = options.viewerTabs.value.find((item) => item.key === existingTab.key)
+        await setFourDPhase(existingTab.key, refreshedTab?.fourDPhaseIndex ?? existingTab.fourDPhaseIndex ?? 0)
       }
       if (viewType === 'Tag' && !(existingTab.tagItems?.length) && !existingTab.tagIsLoading) {
         await loadTagTab(existingTab.key, existingTab.tagIndex ?? resolveInitialTagIndex(seriesId))
@@ -1158,7 +1251,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     if (viewType === '4D') {
-      const series = options.seriesList.value.find((item) => item.seriesId === seriesId)
+      const series = targetSeries
       if (!series) {
         return
       }
@@ -1166,16 +1259,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       options.isViewLoading.value = true
       try {
         const { phaseCount, phaseItems } = await resolveFourDPhaseItems(seriesId)
+        await ensureFourDPhaseCornerInfos(phaseItems, seriesId)
         const updatedSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? series
-        updateFourDTab(tabKey, updatedSeries, phaseCount, phaseItems)
+        const initialPhaseIndex = resolveFourDInitialPhaseIndex(seriesId, phaseItems, 0)
+        updateFourDTab(tabKey, updatedSeries, phaseCount, phaseItems, initialPhaseIndex)
         options.activeViewportKey.value = 'mpr-ax'
         options.activeTabKey.value = tabKey
       } finally {
         options.isViewLoading.value = false
       }
       await nextTick()
-      await setFourDPhase(tabKey, 0)
-      void preloadFourDPhases(tabKey)
+      const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+      await setFourDPhase(tabKey, refreshedTab?.fourDPhaseIndex ?? 0)
       return
     }
 
@@ -1371,12 +1466,6 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
-  function getFourDPhaseBackendViewIds(tab: ViewerTabItem): string[] {
-    return Object.values(tab.fourDPhaseViewIds ?? {})
-      .flatMap((phaseViewIds) => Object.values(phaseViewIds ?? {}))
-      .filter((viewId): viewId is string => Boolean(viewId))
-  }
-
   function closeTab(tabKey: string): void {
     const currentIndex = options.viewerTabs.value.findIndex((item) => item.key === tabKey)
     if (currentIndex < 0) {
@@ -1384,6 +1473,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     const closingTab = options.viewerTabs.value[currentIndex]
+    options.onBeforeCloseTab?.(closingTab)
+
+    fourDPhaseRenderTracker.clearTab(tabKey)
+    queuedFourDPhaseSwitches.delete(tabKey)
+    fourDPhaseSwitchInFlightTabKeys.delete(tabKey)
+    queuedFourDPreloadTabKeys.delete(tabKey)
+    fourDPreloadRequests.delete(tabKey)
     releaseBackendViews([closingTab.viewId, ...Object.values(closingTab.viewportViewIds ?? {}), ...getFourDPhaseBackendViewIds(closingTab)])
     if (closingTab.viewId) {
       options.clearPendingVolumeConfig(closingTab.viewId)
@@ -1458,6 +1554,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     activateTab,
     closeTab,
     findTabByViewId,
+    invalidateFourDMprState,
     openSeriesView,
     openView,
     preloadFourDPhases,

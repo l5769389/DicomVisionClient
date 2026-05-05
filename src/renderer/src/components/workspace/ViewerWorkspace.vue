@@ -59,10 +59,10 @@ const emit = defineEmits<{
   activateTab: [tabKey: string]
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
-  measurementDraft: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
+  measurementDraft: [payload: { viewportKey: string; toolType: MeasurementDraft['toolType']; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
   measurementCreate: [payload: {
     viewportKey: string
-    toolType: 'line' | 'rect' | 'ellipse' | 'angle'
+    toolType: MeasurementDraft['toolType']
     points: { x: number; y: number }[]
     measurementId?: string
     labelLines?: string[]
@@ -382,6 +382,21 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
           context.lineTo(points[2].x, points[2].y)
         }
         context.stroke()
+      } else if (measurement.toolType === 'curve' && points.length >= 2) {
+        context.beginPath()
+        context.moveTo(points[0].x, points[0].y)
+        points.slice(1).forEach((point) => {
+          context.lineTo(point.x, point.y)
+        })
+        context.stroke()
+      } else if (measurement.toolType === 'freeform' && points.length >= 3) {
+        context.beginPath()
+        context.moveTo(points[0].x, points[0].y)
+        points.slice(1).forEach((point) => {
+          context.lineTo(point.x, point.y)
+        })
+        context.closePath()
+        context.stroke()
       }
     }
 
@@ -390,7 +405,9 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
     context.lineWidth = 2.5
     drawShape()
 
-    const anchor = points[1] ?? points[0]
+    const anchor = measurement.toolType === 'curve'
+      ? points[points.length - 1] ?? points[0]
+      : points[1] ?? points[0]
     drawLabel(context, measurement.labelLines ?? [], anchor.x + 12, anchor.y - 32, width)
     context.restore()
   })

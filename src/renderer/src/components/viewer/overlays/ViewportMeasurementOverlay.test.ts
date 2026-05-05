@@ -135,4 +135,45 @@ describe('ViewportMeasurementOverlay', () => {
     expect(wrapper.text()).toContain('Area')
     expect(wrapper.text()).toContain('2400.0 mm2')
   })
+
+  it('renders curve and freeform measurements', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 320,
+          height: 240
+        },
+        measurements: [
+          {
+            measurementId: 'curve-1',
+            toolType: 'curve',
+            points: [
+              { x: 0.1, y: 0.1 },
+              { x: 0.35, y: 0.4 },
+              { x: 0.7, y: 0.2 }
+            ],
+            labelLines: ['42.0 mm']
+          },
+          {
+            measurementId: 'freeform-1',
+            toolType: 'freeform',
+            points: [
+              { x: 0.2, y: 0.2 },
+              { x: 0.6, y: 0.2 },
+              { x: 0.5, y: 0.6 },
+              { x: 0.2, y: 0.5 }
+            ],
+            labelLines: ['Area 1200.0 px2']
+          }
+        ]
+      }
+    })
+
+    expect(wrapper.findAll('polyline')).toHaveLength(2)
+    expect(wrapper.findAll('polygon')).toHaveLength(2)
+    expect(wrapper.text()).toContain('42.0 mm')
+    expect(wrapper.text()).toContain('Area')
+  })
 })

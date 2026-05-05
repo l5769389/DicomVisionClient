@@ -115,6 +115,7 @@ interface MeasurementPointerContext extends BasicPointerContext {
 }
 
 const DRAG_START_THRESHOLD = 3
+const FREEHAND_POINT_SPACING = 0.004
 
 function generateMeasurementId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -164,6 +165,14 @@ function arePointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[
       Math.abs(point.y - otherPoint.y) < 0.0005
     )
   })
+}
+
+function shouldAppendFreehandPoint(points: MeasurementDraftPoint[], point: MeasurementDraftPoint): boolean {
+  const lastPoint = points[points.length - 1]
+  if (!lastPoint) {
+    return true
+  }
+  return Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) >= FREEHAND_POINT_SPACING
 }
 
 function isCapturedMeasurementInteraction(
@@ -322,7 +331,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (toolKey !== 'measure') {
       return null
     }
-    if (toolType === 'line' || toolType === 'rect' || toolType === 'ellipse' || toolType === 'angle') {
+    if (toolType === 'line' || toolType === 'rect' || toolType === 'ellipse' || toolType === 'angle' || toolType === 'curve' || toolType === 'freeform') {
       return toolType
     }
     return null
@@ -1057,7 +1066,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    const nextDraft = createMeasurementDraft(toolType, [point, point])
+    const nextDraft = createMeasurementDraft(
+      toolType,
+      toolType === 'curve' || toolType === 'freeform' ? [point] : [point, point]
+    )
     updateDraftMeasurement(viewportKey, nextDraft)
     emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.start, nextDraft.points)
   }
@@ -1149,6 +1161,23 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (toolType === 'rect' || toolType === 'ellipse') {
       const nextDraft = createMeasurementDraft(toolType, buildRectRoiDraftPoints(currentDraft.points[0], point))
       updateDraftMeasurement(state.viewportKey, nextDraft)
+      emitThrottledMeasurementDraft({
+        viewportKey: state.viewportKey,
+        toolType,
+        points: nextDraft.points
+      })
+      return true
+    }
+
+    if (toolType === 'curve' || toolType === 'freeform') {
+      if (!shouldAppendFreehandPoint(currentDraft.points, point)) {
+        return true
+      }
+      const nextDraft = createMeasurementDraft(toolType, [...currentDraft.points, point], currentDraft.measurementId)
+      updateDraftMeasurement(state.viewportKey, {
+        ...nextDraft,
+        labelLines: currentDraft.labelLines
+      })
       emitThrottledMeasurementDraft({
         viewportKey: state.viewportKey,
         toolType,

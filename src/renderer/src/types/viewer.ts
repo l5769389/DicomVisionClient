@@ -53,7 +53,7 @@ export interface WorkspaceReadyPayload {
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
 export type MprCrosshairInteractionMode = 'move' | 'rotate'
-export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle'
+export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
 export type AnnotationToolType = 'arrow'
 export type AnnotationSize = 'sm' | 'md' | 'lg'
 export type MprMipAlgorithm = 'maximum' | 'minimum' | 'average' | 'sum'

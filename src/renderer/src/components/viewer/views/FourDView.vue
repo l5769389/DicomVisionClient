@@ -264,7 +264,7 @@ watch(
 
 <template>
   <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] gap-2 text-[var(--theme-text-primary)]">
-    <div class="flex min-h-[52px] flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3 py-2">
+    <div class="theme-shell-panel flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-2xl border px-3 py-2">
       <div class="min-w-0 flex-1">
         <ViewerToolbar
           class="four-d-viewer-toolbar"

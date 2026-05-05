@@ -22,6 +22,16 @@ describe('measurementLabelPreferences', () => {
     ).toEqual(['Width 120.0 mm', 'Area 2400.0 mm2', 'Mean 42.0'])
   })
 
+  it('filters freeform roi stats like other roi measurements', () => {
+    expect(
+      filterMeasurementLabelLines(
+        'freeform',
+        ['Size 90.0 * 75.0 px', 'Area 2300.0 px2', 'Mean 12.0', 'Max 80.0'],
+        roiStatOptions
+      )
+    ).toEqual(['Width 90.0 px', 'Area 2300.0 px2', 'Mean 12.0'])
+  })
+
   it('leaves non-roi measurement labels unchanged', () => {
     expect(filterMeasurementLabelLines('line', ['12.4 mm'], roiStatOptions)).toEqual(['12.4 mm'])
   })

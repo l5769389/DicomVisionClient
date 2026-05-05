@@ -83,14 +83,15 @@ function getLabelPosition(
   const minY = props.imageFrame.top + 8
   const maxY = Math.max(props.imageFrame.top + props.imageFrame.height - 16, minY)
 
-  if (toolType === 'line' && screenPoints.length >= 2) {
+  if ((toolType === 'line' || toolType === 'curve') && screenPoints.length >= 2) {
+    const anchor = screenPoints[screenPoints.length - 1]
     return {
-      x: clamp(screenPoints[1].x + 12, minX, maxX),
-      y: clamp(screenPoints[1].y - 28, minY, maxY)
+      x: clamp(anchor.x + 12, minX, maxX),
+      y: clamp(anchor.y - 28, minY, maxY)
     }
   }
 
-  if ((toolType === 'rect' || toolType === 'ellipse') && rectBounds) {
+  if ((toolType === 'rect' || toolType === 'ellipse' || toolType === 'freeform') && rectBounds) {
     return {
       x: clamp(rectBounds.left + rectBounds.width + 12, minX, maxX),
       y: clamp(rectBounds.top - 24, minY, maxY)
@@ -111,6 +112,29 @@ function getLabelPosition(
   }
 }
 
+function getScreenBounds(screenPoints: OverlayScreenPoint[]): { left: number; top: number; width: number; height: number } | null {
+  if (!screenPoints.length) {
+    return null
+  }
+  const xs = screenPoints.map((point) => point.x)
+  const ys = screenPoints.map((point) => point.y)
+  const left = Math.min(...xs)
+  const right = Math.max(...xs)
+  const top = Math.min(...ys)
+  const bottom = Math.max(...ys)
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top
+  }
+}
+
+function getPolylinePoints(screenPoints: OverlayScreenPoint[], closePath = false): string {
+  const points = closePath && screenPoints.length > 2 ? [...screenPoints, screenPoints[0]] : screenPoints
+  return points.map((point) => `${point.x},${point.y}`).join(' ')
+}
+
 function buildRenderedMeasurement(
   key: string,
   toolType: MeasurementToolType,
@@ -123,7 +147,7 @@ function buildRenderedMeasurement(
   }
 
   const screenPoints = points.map((point) => toOverlayScreenPoint(props.imageFrame, point))
-  const rectBounds = getOverlayRectBoundsFromScreenPoints(screenPoints)
+  const rectBounds = toolType === 'freeform' ? getScreenBounds(screenPoints) : getOverlayRectBoundsFromScreenPoints(screenPoints)
   const handlePoints = getHandlePoints(toolType, screenPoints, rectBounds)
   const labelPosition = getLabelPosition(toolType, screenPoints, rectBounds)
 
@@ -412,6 +436,46 @@ function isKeyValueLabelLine(line: string): boolean {
             :stroke="getInnerStroke(measurement)"
             stroke-width="2.5"
             stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getInnerStrokeDasharray(measurement)"
+          />
+        </g>
+
+        <g v-else-if="measurement.toolType === 'curve' && measurement.screenPoints.length >= 2">
+          <polyline
+            :points="getPolylinePoints(measurement.screenPoints)"
+            fill="none"
+            :stroke="getOuterStroke(measurement)"
+            stroke-width="5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getOuterStrokeDasharray(measurement)"
+          />
+          <polyline
+            :points="getPolylinePoints(measurement.screenPoints)"
+            fill="none"
+            :stroke="getInnerStroke(measurement)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getInnerStrokeDasharray(measurement)"
+          />
+        </g>
+
+        <g v-else-if="measurement.toolType === 'freeform' && measurement.screenPoints.length >= 3">
+          <polygon
+            :points="getPolylinePoints(measurement.screenPoints)"
+            :fill="getShapeFill(measurement)"
+            :stroke="getOuterStroke(measurement)"
+            stroke-width="5"
+            stroke-linejoin="round"
+            :stroke-dasharray="getOuterStrokeDasharray(measurement)"
+          />
+          <polygon
+            :points="getPolylinePoints(measurement.screenPoints)"
+            :fill="getShapeFill(measurement)"
+            :stroke="getInnerStroke(measurement)"
+            stroke-width="2.5"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
           />

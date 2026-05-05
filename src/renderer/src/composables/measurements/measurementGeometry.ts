@@ -9,6 +9,7 @@ import {
 
 const DISTINCT_POINT_EPSILON = 0.001
 const MEASUREMENT_HIT_RADIUS_PX = 14
+const FREEHAND_MIN_POINTS = 3
 
 export interface MeasurementHitResult {
   hit: boolean
@@ -46,6 +47,12 @@ export function getMeasurementHandlePoints(
 }
 
 export function isValidMeasurement(toolType: MeasurementToolType, points: MeasurementDraftPoint[]): boolean {
+  if (toolType === 'curve') {
+    return points.length >= FREEHAND_MIN_POINTS && getPolylineLengthSquared(points) > DISTINCT_POINT_EPSILON ** 2
+  }
+  if (toolType === 'freeform') {
+    return points.length >= FREEHAND_MIN_POINTS && Math.abs(getPolygonSignedArea(points)) > DISTINCT_POINT_EPSILON ** 2
+  }
   if (toolType === 'angle') {
     if (points.length < 3) {
       return false
@@ -56,6 +63,26 @@ export function isValidMeasurement(toolType: MeasurementToolType, points: Measur
     return false
   }
   return isDistinctPoint(points[0], points[1])
+}
+
+function getPolylineLengthSquared(points: MeasurementDraftPoint[]): number {
+  let length = 0
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]
+    const current = points[index]
+    length += Math.hypot(current.x - previous.x, current.y - previous.y)
+  }
+  return length * length
+}
+
+function getPolygonSignedArea(points: MeasurementDraftPoint[]): number {
+  let area = 0
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]
+    const next = points[(index + 1) % points.length]
+    area += current.x * next.y - next.x * current.y
+  }
+  return area / 2
 }
 
 function isDistinctPoint(a: MeasurementDraftPoint, b: MeasurementDraftPoint): boolean {
@@ -85,6 +112,43 @@ export function findHandleIndexAtPoint(
     }
   }
   return bestIndex
+}
+
+function isFreeformPointInsidePolygon(points: MeasurementDraftPoint[], point: MeasurementDraftPoint): boolean {
+  let inside = false
+  for (let index = 0, previousIndex = points.length - 1; index < points.length; previousIndex = index, index += 1) {
+    const current = points[index]
+    const previous = points[previousIndex]
+    const intersects =
+      current.y > point.y !== previous.y > point.y &&
+      point.x < ((previous.x - current.x) * (point.y - current.y)) / ((previous.y - current.y) || 1e-9) + current.x
+    if (intersects) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+function getPolylineHitResult(
+  points: MeasurementDraftPoint[],
+  point: MeasurementDraftPoint,
+  rect: DOMRect,
+  closePath = false
+): MeasurementHitResult {
+  let bestDistance = Number.POSITIVE_INFINITY
+  const segmentCount = closePath ? points.length : points.length - 1
+  for (let index = 0; index < segmentCount; index += 1) {
+    const start = points[index]
+    const end = points[(index + 1) % points.length]
+    bestDistance = Math.min(bestDistance, pointToSegmentDistanceSquared(point, start, end, rect))
+  }
+
+  const hitRadius = MEASUREMENT_HIT_RADIUS_PX * 1.25
+  return {
+    hit: bestDistance <= hitRadius ** 2,
+    handleIndex: null,
+    score: bestDistance
+  }
 }
 
 function pointToSegmentDistanceSquared(
@@ -131,6 +195,23 @@ export function isMeasurementHit(
       hit: distance <= hitRadius ** 2,
       handleIndex: null,
       score: distance
+    }
+  }
+
+  if (measurement.toolType === 'curve' && measurement.points.length >= 2) {
+    return getPolylineHitResult(measurement.points, point, rect)
+  }
+
+  if (measurement.toolType === 'freeform' && measurement.points.length >= 3) {
+    const edgeHit = getPolylineHitResult(measurement.points, point, rect, true)
+    if (edgeHit.hit) {
+      return edgeHit
+    }
+    const inside = isFreeformPointInsidePolygon(measurement.points, point)
+    return {
+      hit: inside,
+      handleIndex: null,
+      score: inside ? MEASUREMENT_HIT_RADIUS_PX ** 2 : Number.POSITIVE_INFINITY
     }
   }
 
@@ -266,7 +347,7 @@ export function updateEditedMeasurementPoints(
   selectedHandleIndex: number,
   nextPoint: MeasurementDraftPoint
 ): MeasurementDraftPoint[] {
-  if (toolType === 'line' || toolType === 'angle') {
+  if (toolType === 'line' || toolType === 'angle' || toolType === 'curve' || toolType === 'freeform') {
     return points.map((point, index) => (index === selectedHandleIndex ? nextPoint : point))
   }
   if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {

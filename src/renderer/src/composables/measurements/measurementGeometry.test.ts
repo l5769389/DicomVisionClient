@@ -12,7 +12,17 @@ import {
 } from './measurementGeometry'
 
 function createRect(left = 0, top = 0, width = 200, height = 100): DOMRect {
-  return new DOMRect(left, top, width, height)
+  return {
+    left,
+    top,
+    width,
+    height,
+    x: left,
+    y: top,
+    right: left + width,
+    bottom: top + height,
+    toJSON: () => ({})
+  } as DOMRect
 }
 
 describe('measurementGeometry', () => {
@@ -44,6 +54,32 @@ describe('measurementGeometry', () => {
         { x: 0.2, y: 0.2 },
         { x: 0.4, y: 0.4 },
         { x: 0.6, y: 0.5 }
+      ])
+    ).toBe(true)
+  })
+
+  it('validates freehand curve and freeform measurements', () => {
+    expect(
+      isValidMeasurement('curve', [
+        { x: 0.1, y: 0.1 },
+        { x: 0.12, y: 0.12 }
+      ])
+    ).toBe(false)
+
+    expect(
+      isValidMeasurement('curve', [
+        { x: 0.1, y: 0.1 },
+        { x: 0.2, y: 0.2 },
+        { x: 0.4, y: 0.25 }
+      ])
+    ).toBe(true)
+
+    expect(
+      isValidMeasurement('freeform', [
+        { x: 0.1, y: 0.1 },
+        { x: 0.4, y: 0.1 },
+        { x: 0.4, y: 0.5 },
+        { x: 0.1, y: 0.5 }
       ])
     ).toBe(true)
   })
@@ -95,6 +131,35 @@ describe('measurementGeometry', () => {
     const match = findMeasurementAtPoint(measurements, { x: 0.5, y: 0.5 }, rect)
 
     expect(match?.measurement.measurementId).toBe('inner')
+  })
+
+  it('hits freehand curve segments and freeform polygon interiors', () => {
+    const rect = createRect(0, 0, 300, 300)
+    const curve: MeasurementOverlay = {
+      measurementId: 'curve-1',
+      toolType: 'curve',
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.45, y: 0.45 },
+        { x: 0.8, y: 0.2 }
+      ],
+      labelLines: []
+    }
+    const freeform: MeasurementOverlay = {
+      measurementId: 'freeform-1',
+      toolType: 'freeform',
+      points: [
+        { x: 0.2, y: 0.2 },
+        { x: 0.7, y: 0.2 },
+        { x: 0.65, y: 0.7 },
+        { x: 0.2, y: 0.65 }
+      ],
+      labelLines: []
+    }
+
+    expect(isMeasurementHit(curve, { x: 0.46, y: 0.44 }, rect).hit).toBe(true)
+    expect(isMeasurementHit(freeform, { x: 0.4, y: 0.4 }, rect).hit).toBe(true)
+    expect(isMeasurementHit(freeform, { x: 0.9, y: 0.9 }, rect).hit).toBe(false)
   })
 
   it('prefers the later measurement when overlapping hits have the same score', () => {

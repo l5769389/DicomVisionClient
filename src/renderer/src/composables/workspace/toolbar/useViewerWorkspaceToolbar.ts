@@ -26,7 +26,9 @@ const measureTool: StackTool = {
     { value: 'measure:line', label: 'Line', icon: 'measure-line' },
     { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' },
     { value: 'measure:ellipse', label: 'Ellipse', icon: 'measure-ellipse' },
-    { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' }
+    { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' },
+    { value: 'measure:curve', label: 'Curve', icon: 'measure-curve' },
+    { value: 'measure:freeform', label: 'Freeform', icon: 'measure-freeform' }
   ]
 }
 
@@ -236,7 +238,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     qa: DEFAULT_QA_OPERATION,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     export: 'png',
-    volumePreset: 'volumePreset:aaa'
+    volumePreset: 'volumePreset:aaa',
+    reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
@@ -559,6 +562,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
     if (tool.key === 'reset') {
       options.stopViewportDrag()
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        reset: 'reset:view'
+      }
       if (options.activeTab.value?.viewType === '3D') {
         stackToolSelections.value = {
           ...stackToolSelections.value,
@@ -683,6 +690,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'reset') {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        reset: 'reset:view'
+      }
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
         if (optionValue === 'reset:measurements') {
           options.emitTriggerViewAction({ action: 'clearMeasurements' })

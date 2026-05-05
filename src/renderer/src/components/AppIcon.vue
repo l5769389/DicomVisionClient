@@ -33,6 +33,8 @@ const mdiIconMap: Record<string, string> = {
   'measure-rect': 'mdi-rectangle-outline',
   'measure-ellipse': 'mdi-ellipse-outline',
   'measure-angle': 'mdi-angle-acute',
+  'measure-curve': 'mdi-vector-polyline',
+  'measure-freeform': 'mdi-shape-polygon-plus',
   qa: 'mdi-clipboard-pulse-outline',
   mtf: 'mdi-chart-bell-curve-cumulative',
   'water-phantom': 'mdi-water-circle',

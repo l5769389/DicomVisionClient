@@ -125,11 +125,9 @@ const interactionLockMeta = computed(() =>
     ? `${phaseCount.value} phases queued`
     : `${String(activePhaseNumber.value).padStart(2, '0')} / ${String(phaseCount.value).padStart(2, '0')}`
 )
-const footerPlaybackStatus = computed(() =>
-  isPreloading.value ? 'Loading phases' : isPlaying.value ? `Playing ${normalizedFps.value} FPS` : ''
-)
 
-type FourDPhaseVisualState = 'loaded' | 'pending' | 'loading' | 'error'
+type FourDPhaseVisualState = 'loaded' | 'unloaded' | 'loading' | 'error'
+type FourDPhaseRuntimeKind = 'idle' | 'ready' | 'loading' | 'playing' | 'error'
 
 function resolvePhaseVisualState(phase: FourDPhaseItem, phaseIndex: number): FourDPhaseVisualState {
   const phaseKey = String(phase.phaseIndex ?? phaseIndex)
@@ -144,7 +142,7 @@ function resolvePhaseVisualState(phase: FourDPhaseItem, phaseIndex: number): Fou
   if (cache?.status === 'loading') {
     return 'loading'
   }
-  return 'pending'
+  return 'unloaded'
 }
 
 const phaseVisualStates = computed<Record<number, FourDPhaseVisualState>>(() =>
@@ -153,6 +151,53 @@ const phaseVisualStates = computed<Record<number, FourDPhaseVisualState>>(() =>
     return accumulator
   }, {})
 )
+
+const phaseVisualStateCounts = computed(() =>
+  Object.values(phaseVisualStates.value).reduce<Record<FourDPhaseVisualState, number>>(
+    (accumulator, state) => {
+      accumulator[state] += 1
+      return accumulator
+    },
+    {
+      error: 0,
+      loaded: 0,
+      loading: 0,
+      unloaded: 0
+    }
+  )
+)
+
+const phaseCountDigits = computed(() => Math.max(2, String(phaseCount.value).length))
+const phaseRuntimeKind = computed<FourDPhaseRuntimeKind>(() => {
+  const counts = phaseVisualStateCounts.value
+
+  if (counts.error) {
+    return 'error'
+  }
+  if (isPreloading.value || counts.loading) {
+    return 'loading'
+  }
+  if (isPlaying.value) {
+    return 'playing'
+  }
+  return counts.unloaded ? 'idle' : 'ready'
+})
+const phaseRuntimeStateLabel = computed(() => {
+  if (isPreloading.value) {
+    return 'Loading 4D phases'
+  }
+  if (isPlaying.value) {
+    return `Playing ${normalizedFps.value} FPS`
+  }
+  return '4D playback idle'
+})
+const phaseLoadProgressLabel = computed(
+  () => `${formatPhaseStatusCount(phaseVisualStateCounts.value.loaded)}/${formatPhaseStatusCount(phaseCount.value)}`
+)
+const phaseStatusAriaLabel = computed(() => {
+  const counts = phaseVisualStateCounts.value
+  return `${phaseRuntimeStateLabel.value}. Phase load status: ${counts.loaded} loaded, ${counts.loading} loading, ${counts.unloaded} not loaded, ${counts.error} failed.`
+})
 const phasePanelStatusLabel = computed(() => (isPreloading.value ? 'Loading' : isPlaying.value ? 'Playing' : 'Ready'))
 const phasePanelStatusDetail = computed(() => {
   const phasePosition = `${String(activePhaseNumber.value).padStart(2, '0')} / ${String(phaseCount.value).padStart(2, '0')}`
@@ -164,6 +209,11 @@ const phasePanelStatusDetail = computed(() => {
   }
   return phasePosition
 })
+
+function formatPhaseStatusCount(value: number): string {
+  const normalizedValue = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+  return String(normalizedValue).padStart(phaseCountDigits.value, '0')
+}
 
 function normalizeFpsValue(value: number): number {
   const numericValue = Number(value)
@@ -402,7 +452,7 @@ watch(
             class="four-d-phase-button"
             :class="[
               { 'four-d-phase-button--active': phase.phaseIndex === normalizedPhaseIndex },
-              `four-d-phase-button--${phaseVisualStates[phase.phaseIndex] ?? 'pending'}`
+              `four-d-phase-button--${phaseVisualStates[phase.phaseIndex] ?? 'unloaded'}`
             ]"
             type="button"
             :disabled="interactionLocked"
@@ -412,7 +462,7 @@ watch(
             <span>{{ String(phase.phaseIndex + 1).padStart(2, '0') }}</span>
             <span
               class="four-d-phase-button__status"
-              :class="`four-d-phase-button__status--${phaseVisualStates[phase.phaseIndex] ?? 'pending'}`"
+              :class="`four-d-phase-button__status--${phaseVisualStates[phase.phaseIndex] ?? 'unloaded'}`"
               aria-hidden="true"
             ></span>
           </button>
@@ -424,20 +474,23 @@ watch(
               <span>Loaded</span>
             </span>
             <span class="four-d-phase-legend">
-              <span class="four-d-phase-legend__dot four-d-phase-legend__dot--pending" aria-hidden="true"></span>
-              <span>Pending</span>
+              <span class="four-d-phase-legend__dot four-d-phase-legend__dot--loading" aria-hidden="true"></span>
+              <span>Loading</span>
+            </span>
+            <span class="four-d-phase-legend">
+              <span class="four-d-phase-legend__dot four-d-phase-legend__dot--unloaded" aria-hidden="true"></span>
+              <span>Not loaded</span>
             </span>
           </div>
-          <div v-if="footerPlaybackStatus" class="four-d-phase-runtime">
-            <span
-              class="four-d-phase-runtime__dot"
-              :class="{
-                'four-d-phase-runtime__dot--loading': isPreloading,
-                'four-d-phase-runtime__dot--playing': isPlaying
-              }"
-              aria-hidden="true"
-            ></span>
-            <span>{{ footerPlaybackStatus }}</span>
+          <div
+            class="four-d-phase-runtime"
+            :class="`four-d-phase-runtime--${phaseRuntimeKind}`"
+            role="status"
+            :aria-label="phaseStatusAriaLabel"
+            :title="phaseStatusAriaLabel"
+          >
+            <span class="four-d-phase-runtime__dot" :class="`four-d-phase-runtime__dot--${phaseRuntimeKind}`" aria-hidden="true"></span>
+            <span class="four-d-phase-runtime__count">{{ phaseLoadProgressLabel }}</span>
           </div>
         </div>
       </aside>
@@ -508,7 +561,7 @@ watch(
   line-height: 1;
 }
 
-.four-d-phase-button--pending {
+.four-d-phase-button--unloaded {
   border-style: dashed;
   opacity: 0.68;
 }
@@ -543,7 +596,7 @@ watch(
   border-radius: 999px;
 }
 
-.four-d-phase-button__status--pending {
+.four-d-phase-button__status--unloaded {
   background: color-mix(in srgb, var(--theme-text-primary) 24%, transparent);
 }
 
@@ -653,14 +706,55 @@ watch(
   padding-top: 8px;
 }
 
-.four-d-phase-legend,
-.four-d-phase-runtime {
+.four-d-phase-legend {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--theme-text-muted);
   font-size: 10px;
   font-weight: 600;
+}
+
+.four-d-phase-runtime {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  width: 100%;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
+  padding: 4px 7px;
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.four-d-phase-runtime--loading {
+  border-color: color-mix(in srgb, var(--theme-accent-warm) 22%, transparent);
+  background: color-mix(in srgb, var(--theme-accent-warm) 8%, transparent);
+}
+
+.four-d-phase-runtime--playing {
+  border-color: color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 8%, transparent);
+}
+
+.four-d-phase-runtime--error {
+  border-color: color-mix(in srgb, #fb7185 28%, transparent);
+  background: color-mix(in srgb, #fb7185 8%, transparent);
+}
+
+.four-d-phase-runtime__count {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .four-d-phase-legend__dot,
@@ -675,9 +769,23 @@ watch(
   background: #34d399;
 }
 
-.four-d-phase-legend__dot--pending {
+.four-d-phase-legend__dot--loading {
+  background: var(--theme-accent-warm);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-accent-warm) 14%, transparent);
+}
+
+.four-d-phase-legend__dot--unloaded {
   background: color-mix(in srgb, var(--theme-text-primary) 24%, transparent);
   border: 1px dashed color-mix(in srgb, var(--theme-text-primary) 32%, transparent);
+}
+
+.four-d-phase-runtime__dot--idle {
+  background: color-mix(in srgb, var(--theme-text-primary) 24%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--theme-text-primary) 32%, transparent);
+}
+
+.four-d-phase-runtime__dot--ready {
+  background: #34d399;
 }
 
 .four-d-phase-runtime__dot--loading {
@@ -688,6 +796,11 @@ watch(
 .four-d-phase-runtime__dot--playing {
   background: var(--theme-accent);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+}
+
+.four-d-phase-runtime__dot--error {
+  background: #fb7185;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #fb7185 14%, transparent);
 }
 
 .four-d-viewer-toolbar {

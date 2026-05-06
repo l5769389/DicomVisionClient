@@ -1,13 +1,21 @@
 import axios from 'axios'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
 
+function normalizeApiBaseURL(baseURL: string): string {
+  return baseURL.trim().replace(/\/+$/, '')
+}
+
+function isAbsoluteAssetUrl(value: string): boolean {
+  return /^(?:data:|blob:|https?:\/\/|\/\/)/i.test(value)
+}
+
 export const api = axios.create({
-  baseURL: `${DESKTOP_DEV_BACKEND_ORIGIN}/api/v1`,
+  baseURL: normalizeApiBaseURL(`${DESKTOP_DEV_BACKEND_ORIGIN}/api/v1`),
   timeout: 15000
 })
 
 export function setApiBaseURL(baseURL: string): void {
-  api.defaults.baseURL = baseURL
+  api.defaults.baseURL = normalizeApiBaseURL(baseURL)
 }
 
 export function getApiBaseURL(): string {
@@ -15,7 +23,7 @@ export function getApiBaseURL(): string {
 }
 
 export function getBackendOrigin(): string {
-  return getApiBaseURL().replace(/\/api\/v1\/?$/i, '')
+  return getApiBaseURL().replace(/\/api\/v1(?:\/+)?$/i, '')
 }
 
 export function resolveBackendAssetUrl(value?: string | null): string {
@@ -23,7 +31,7 @@ export function resolveBackendAssetUrl(value?: string | null): string {
   if (!rawValue) {
     return ''
   }
-  if (/^(?:data:|blob:|https?:\/\/)/i.test(rawValue)) {
+  if (isAbsoluteAssetUrl(rawValue)) {
     return rawValue
   }
   if (!rawValue.startsWith('/') && !rawValue.startsWith('api/')) {

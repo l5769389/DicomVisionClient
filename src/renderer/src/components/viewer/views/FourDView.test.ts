@@ -202,7 +202,9 @@ describe('FourDView', () => {
 
     expect(wrapper.emitted('playbackChange')).toBeUndefined()
     expect(wrapper.text()).toContain('Loading 4D phases')
-    expect(wrapper.text()).toContain('Loading phases')
+    expect(wrapper.find('.four-d-phase-runtime__dot--loading').exists()).toBe(true)
+    expect(wrapper.find('.four-d-phase-runtime__count').text()).toBe('03/03')
+    expect(wrapper.find('.four-d-phase-runtime').attributes('aria-label')).toContain('Loading 4D phases')
     wrapper.unmount()
   })
 
@@ -244,7 +246,8 @@ describe('FourDView', () => {
 
     expect(wrapper.find('.four-d-state-overlay').exists()).toBe(false)
     expect(wrapper.find('.four-d-phase-runtime__dot--playing').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Playing 5 FPS')
+    expect(wrapper.find('.four-d-phase-runtime__count').text()).toBe('03/03')
+    expect(wrapper.find('.four-d-phase-runtime').attributes('aria-label')).toContain('Playing 5 FPS')
     expect(wrapper.text()).not.toContain('02 / 03')
     wrapper.unmount()
   })
@@ -288,7 +291,7 @@ describe('FourDView', () => {
     wrapper.unmount()
   })
 
-  it('renders compact frame selectors with pending and loaded phase states', () => {
+  it('renders compact frame selectors with not-loaded and loaded phase states', () => {
     const wrapper = mount(FourDView, {
       props: {
         ...createFourDProps({
@@ -306,9 +309,11 @@ describe('FourDView', () => {
     })
 
     expect(wrapper.findAll('.four-d-phase-button')[0]!.text()).toContain('01')
-    expect(wrapper.findAll('.four-d-phase-button--pending').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.four-d-phase-button--unloaded').length).toBeGreaterThan(0)
     expect(wrapper.findAll('.four-d-phase-button--loaded').length).toBeGreaterThan(0)
     expect(wrapper.find('.four-d-phase-legend').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Not loaded')
+    expect(wrapper.text()).not.toContain('Pending')
     expect(wrapper.text()).not.toContain('Preview')
     expect(wrapper.text()).not.toContain('Cached')
     expect(wrapper.text()).not.toContain('Caching')
@@ -317,6 +322,32 @@ describe('FourDView', () => {
     expect(wrapper.text()).not.toContain('Stack')
     expect(wrapper.text()).not.toContain('MPR')
     expect(wrapper.text()).not.toContain('3D')
+    wrapper.unmount()
+  })
+
+  it('keeps phase load progress compact while playback is running', () => {
+    const wrapper = mount(FourDView, {
+      props: {
+        ...createFourDProps({
+          activeTab: createFourDTab({
+            fourDIsPlaying: true,
+            fourDPhaseIndex: 1,
+            fourDPlaybackFps: 5,
+            fourDPhaseItems: phaseItems.map((phase, index) => ({
+              ...phase,
+              status: index === 0 ? 'ready' : 'pending'
+            }))
+          })
+        })
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.find('.four-d-phase-runtime__count').text()).toBe('01/03')
+    expect(wrapper.find('.four-d-phase-runtime').attributes('aria-label')).toContain('1 loaded, 0 loading, 2 not loaded')
+    expect(wrapper.text()).not.toContain('Pending')
     wrapper.unmount()
   })
 })

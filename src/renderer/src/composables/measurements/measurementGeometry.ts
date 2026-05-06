@@ -6,15 +6,23 @@ import {
   isPointInsideRectRoi,
   updateEditedRectRoiPoints
 } from './rectRoiGeometry'
+import { hasRequiredMeasurementPoints } from './measurementToolRules'
 
 const DISTINCT_POINT_EPSILON = 0.001
 const MEASUREMENT_HIT_RADIUS_PX = 14
-const FREEHAND_MIN_POINTS = 3
+const SMOOTH_CURVE_HIT_SAMPLES_PER_SEGMENT = 12
 
 export interface MeasurementHitResult {
   hit: boolean
   handleIndex: number | null
   score: number
+}
+
+export interface SmoothCurveSegment {
+  start: MeasurementDraftPoint
+  controlPoint1: MeasurementDraftPoint
+  controlPoint2: MeasurementDraftPoint
+  end: MeasurementDraftPoint
 }
 
 export type MeasurementPointerDownIntent =
@@ -47,22 +55,90 @@ export function getMeasurementHandlePoints(
 }
 
 export function isValidMeasurement(toolType: MeasurementToolType, points: MeasurementDraftPoint[]): boolean {
-  if (toolType === 'curve') {
-    return points.length >= FREEHAND_MIN_POINTS && getPolylineLengthSquared(points) > DISTINCT_POINT_EPSILON ** 2
-  }
-  if (toolType === 'freeform') {
-    return points.length >= FREEHAND_MIN_POINTS && Math.abs(getPolygonSignedArea(points)) > DISTINCT_POINT_EPSILON ** 2
-  }
-  if (toolType === 'angle') {
-    if (points.length < 3) {
-      return false
-    }
-    return isDistinctPoint(points[1], points[0]) && isDistinctPoint(points[1], points[2])
-  }
-  if (points.length < 2) {
+  if (!hasRequiredMeasurementPoints(toolType, points.length)) {
     return false
   }
+  if (toolType === 'curve') {
+    return getPolylineLengthSquared(points) > DISTINCT_POINT_EPSILON ** 2
+  }
+  if (toolType === 'freeform') {
+    return Math.abs(getPolygonSignedArea(points)) > DISTINCT_POINT_EPSILON ** 2
+  }
+  if (toolType === 'angle') {
+    return isDistinctPoint(points[1], points[0]) && isDistinctPoint(points[1], points[2])
+  }
   return isDistinctPoint(points[0], points[1])
+}
+
+export function getSmoothCurveSegments(points: MeasurementDraftPoint[], closePath = false): SmoothCurveSegment[] {
+  if (points.length < 2) {
+    return []
+  }
+
+  const segmentCount = closePath && points.length > 2 ? points.length : points.length - 1
+  return Array.from({ length: segmentCount }, (_, index) => {
+    const start = points[index]
+    const end = points[(index + 1) % points.length]
+    const previous = closePath && points.length > 2
+      ? points[(index - 1 + points.length) % points.length]
+      : points[Math.max(0, index - 1)]
+    const next = closePath && points.length > 2
+      ? points[(index + 2) % points.length]
+      : points[Math.min(points.length - 1, index + 2)]
+
+    return {
+      start,
+      controlPoint1: {
+        x: start.x + (end.x - previous.x) / 6,
+        y: start.y + (end.y - previous.y) / 6
+      },
+      controlPoint2: {
+        x: end.x - (next.x - start.x) / 6,
+        y: end.y - (next.y - start.y) / 6
+      },
+      end
+    }
+  })
+}
+
+export function sampleSmoothCurvePoints(
+  points: MeasurementDraftPoint[],
+  closePath = false,
+  samplesPerSegment = SMOOTH_CURVE_HIT_SAMPLES_PER_SEGMENT
+): MeasurementDraftPoint[] {
+  if (points.length < 2) {
+    return [...points]
+  }
+
+  const sampleCount = Math.max(1, Math.trunc(samplesPerSegment))
+  const segments = getSmoothCurveSegments(points, closePath)
+  const sampledPoints: MeasurementDraftPoint[] = [points[0]]
+
+  for (const segment of segments) {
+    for (let step = 1; step <= sampleCount; step += 1) {
+      sampledPoints.push(getCubicBezierPoint(segment, step / sampleCount))
+    }
+  }
+
+  return sampledPoints
+}
+
+function getCubicBezierPoint(segment: SmoothCurveSegment, t: number): MeasurementDraftPoint {
+  const mt = 1 - t
+  const mt2 = mt * mt
+  const t2 = t * t
+  return {
+    x:
+      mt2 * mt * segment.start.x +
+      3 * mt2 * t * segment.controlPoint1.x +
+      3 * mt * t2 * segment.controlPoint2.x +
+      t2 * t * segment.end.x,
+    y:
+      mt2 * mt * segment.start.y +
+      3 * mt2 * t * segment.controlPoint1.y +
+      3 * mt * t2 * segment.controlPoint2.y +
+      t2 * t * segment.end.y
+  }
 }
 
 function getPolylineLengthSquared(points: MeasurementDraftPoint[]): number {
@@ -151,6 +227,15 @@ function getPolylineHitResult(
   }
 }
 
+function getSmoothCurveHitResult(
+  points: MeasurementDraftPoint[],
+  point: MeasurementDraftPoint,
+  rect: DOMRect,
+  closePath = false
+): MeasurementHitResult {
+  return getPolylineHitResult(sampleSmoothCurvePoints(points, closePath), point, rect)
+}
+
 function pointToSegmentDistanceSquared(
   point: MeasurementDraftPoint,
   start: MeasurementDraftPoint,
@@ -199,15 +284,16 @@ export function isMeasurementHit(
   }
 
   if (measurement.toolType === 'curve' && measurement.points.length >= 2) {
-    return getPolylineHitResult(measurement.points, point, rect)
+    return getSmoothCurveHitResult(measurement.points, point, rect)
   }
 
   if (measurement.toolType === 'freeform' && measurement.points.length >= 3) {
-    const edgeHit = getPolylineHitResult(measurement.points, point, rect, true)
+    const sampledFreeformPoints = sampleSmoothCurvePoints(measurement.points, true)
+    const edgeHit = getPolylineHitResult(sampledFreeformPoints, point, rect)
     if (edgeHit.hit) {
       return edgeHit
     }
-    const inside = isFreeformPointInsidePolygon(measurement.points, point)
+    const inside = isFreeformPointInsidePolygon(sampledFreeformPoints, point)
     return {
       hit: inside,
       handleIndex: null,

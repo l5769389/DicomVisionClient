@@ -49,7 +49,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
-  deleteSelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   openMtfCurve: []
@@ -264,13 +264,14 @@ watch(
 
 <template>
   <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] gap-2 text-[var(--theme-text-primary)]">
-    <div class="theme-shell-panel flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-2xl border px-3 py-2">
+    <div class="four-d-toolbar-shell flex min-h-10 flex-wrap items-center justify-between gap-2 px-3 py-2">
       <div class="min-w-0 flex-1">
         <ViewerToolbar
           class="four-d-viewer-toolbar"
           :active-tab="activeTab"
           :active-tools="activeTools"
           :are-toolbar-actions-disabled="toolbarLocked"
+          embedded
           :is-playing="false"
           :is-playback-paused="false"
           :is-tool-selected="isToolSelected"
@@ -287,7 +288,7 @@ watch(
         />
       </div>
 
-      <div class="flex flex-wrap items-center justify-end gap-2">
+      <div class="four-d-playback-controls flex flex-wrap items-center justify-end gap-2">
         <VMenu
           :model-value="fpsMenuOpen"
           location="bottom end"
@@ -353,7 +354,7 @@ watch(
           @copy-annotation="emitWhenIdle(() => emit('copyAnnotation', $event))"
           @delete-annotation="emitWhenIdle(() => emit('deleteAnnotation', $event))"
           @copy-selected-measurement="emitWhenIdle(() => emit('copySelectedMeasurement', $event))"
-          @delete-selected-measurement="emitWhenIdle(() => emit('deleteSelectedMeasurement', $event))"
+          @delete-selected-measurement="(viewportKey, measurementId) => emitWhenIdle(() => emit('deleteSelectedMeasurement', viewportKey, measurementId))"
           @clear-mtf="emitWhenIdle(() => emit('clearMtf'))"
           @copy-selected-mtf="emitWhenIdle(() => emit('copySelectedMtf', $event))"
           @hover-viewport-change="emitWhenIdle(() => emit('hoverViewportChange', $event))"
@@ -455,6 +456,19 @@ watch(
     background 150ms ease,
     color 150ms ease,
     box-shadow 150ms ease;
+}
+
+.four-d-toolbar-shell {
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-surface-panel) 78%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.four-d-playback-controls {
+  min-height: 36px;
 }
 
 .four-d-icon-button {

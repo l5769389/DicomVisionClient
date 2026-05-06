@@ -1606,7 +1606,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const index = list.findIndex((measurement) => measurement.measurementId === nextMeasurementId)
     if (index === -1) {
-      return [...list, nextOverlay]
+      return [
+        ...list.filter(
+          (measurement) =>
+            measurement.toolType !== nextOverlay.toolType ||
+            !arePointSetsClose(measurement.points, nextOverlay.points)
+        ),
+        nextOverlay
+      ]
     }
 
     return list.map((measurement, currentIndex) => (currentIndex === index ? nextOverlay : measurement))

@@ -72,10 +72,11 @@ describe('ViewportMeasurementOverlay', () => {
     expect(buttons[1]?.attributes('aria-label')).toBe('删除测量')
 
     await buttons[0]!.trigger('click')
-    await buttons[1]!.trigger('click')
+    await buttons[1]!.trigger('pointerdown')
 
     expect(wrapper.emitted('copySelectedMeasurement')).toHaveLength(1)
     expect(wrapper.emitted('deleteSelectedMeasurement')).toHaveLength(1)
+    expect(wrapper.emitted('deleteSelectedMeasurement')?.[0]).toEqual(['m-selected'])
   })
 
   it('shows handles for a moving draft measurement', () => {
@@ -171,9 +172,145 @@ describe('ViewportMeasurementOverlay', () => {
       }
     })
 
-    expect(wrapper.findAll('polyline')).toHaveLength(2)
-    expect(wrapper.findAll('polygon')).toHaveLength(2)
+    expect(wrapper.findAll('polyline')).toHaveLength(0)
+    expect(wrapper.findAll('polygon')).toHaveLength(0)
+    expect(wrapper.findAll('path')).toHaveLength(4)
     expect(wrapper.text()).toContain('42.0 mm')
     expect(wrapper.text()).toContain('Area')
+  })
+
+  it('replaces a committed measurement with its active draft', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 320,
+          height: 240
+        },
+        measurements: [
+          {
+            measurementId: 'curve-1',
+            toolType: 'curve',
+            points: [
+              { x: 0.1, y: 0.1 },
+              { x: 0.35, y: 0.4 },
+              { x: 0.7, y: 0.2 }
+            ],
+            labelLines: ['Committed']
+          }
+        ],
+        draftMeasurement: {
+          measurementId: 'curve-1',
+          toolType: 'curve',
+          points: [
+            { x: 0.1, y: 0.1 },
+            { x: 0.4, y: 0.45 },
+            { x: 0.75, y: 0.25 }
+          ],
+          labelLines: ['Draft']
+        },
+        draftMeasurementMode: 'selected'
+      }
+    })
+
+    expect(wrapper.findAll('path')).toHaveLength(2)
+    expect(wrapper.text()).toContain('Draft')
+    expect(wrapper.text()).not.toContain('Committed')
+  })
+
+  it('keeps freeform drafts open until the third confirmed point', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 320,
+          height: 240
+        },
+        measurements: [],
+        draftMeasurement: {
+          toolType: 'freeform',
+          points: [
+            { x: 0.2, y: 0.2 },
+            { x: 0.6, y: 0.2 },
+            { x: 0.6, y: 0.2 }
+          ],
+          labelLines: ['Area 1200.0 px2']
+        },
+        draftMeasurementMode: 'draft'
+      }
+    })
+
+    expect(wrapper.find('path').attributes('d')).not.toContain(' Z')
+    expect(wrapper.text()).toContain('Area')
+  })
+
+  it('closes freeform drafts after the third confirmed point', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 320,
+          height: 240
+        },
+        measurements: [],
+        draftMeasurement: {
+          toolType: 'freeform',
+          points: [
+            { x: 0.2, y: 0.2 },
+            { x: 0.6, y: 0.2 },
+            { x: 0.5, y: 0.6 },
+            { x: 0.5, y: 0.6 }
+          ],
+          labelLines: ['Area 1200.0 px2']
+        },
+        draftMeasurementMode: 'draft'
+      }
+    })
+
+    expect(wrapper.find('path').attributes('d')).toContain(' Z')
+    expect(wrapper.text()).toContain('Area')
+  })
+
+  it('hides matching committed point-sequence overlays while the draft is unfinished', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 320,
+          height: 240
+        },
+        measurements: [
+          {
+            measurementId: 'premature-curve',
+            toolType: 'curve',
+            points: [
+              { x: 0.1, y: 0.1 },
+              { x: 0.35, y: 0.4 },
+              { x: 0.7, y: 0.2 }
+            ],
+            labelLines: ['Committed']
+          }
+        ],
+        draftMeasurement: {
+          toolType: 'curve',
+          points: [
+            { x: 0.1, y: 0.1 },
+            { x: 0.35, y: 0.4 },
+            { x: 0.7, y: 0.2 },
+            { x: 0.7, y: 0.2 }
+          ],
+          labelLines: ['Draft']
+        },
+        draftMeasurementMode: 'draft'
+      }
+    })
+
+    expect(wrapper.findAll('path')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('Committed')
+    expect(wrapper.text()).toContain('Draft')
   })
 })

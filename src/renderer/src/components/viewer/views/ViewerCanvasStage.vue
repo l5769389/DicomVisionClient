@@ -86,7 +86,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
-  deleteSelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
   clickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
@@ -116,6 +116,13 @@ const imageFrame = ref({
   width: 0,
   height: 0
 })
+
+const measurementFrame = computed(() => ({
+  left: 0,
+  top: 0,
+  width: toStablePixel(stageSize.value.width),
+  height: toStablePixel(stageSize.value.height)
+}))
 
 function toStablePixel(value: number): number {
   return Number.isFinite(value) ? Math.round(value) : 0
@@ -345,9 +352,9 @@ watch(
         :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
-        :image-frame="imageFrame"
+        :image-frame="measurementFrame"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
-        @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey)"
+        @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"
       />
       <ViewportAnnotationOverlay
         :focus-state="getOverlayFocusState('annotation')"

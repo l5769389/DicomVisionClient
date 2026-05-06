@@ -15,6 +15,7 @@ export interface WorkspaceHotkeyOptions {
   deleteSelectedMeasurement: () => boolean
   deleteSelectedMtf: () => boolean
   exportCurrentView: (format: ViewerExportFormat) => void
+  finishPointSequenceMeasurement: () => boolean
   quickPreviewSelectedSeries: () => void
   selectedSeriesId: Ref<string>
   tagIndexChange: (payload: { tabKey: string; index: number }) => void
@@ -134,6 +135,13 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
 
     const preferMtf = isMtfOperation(options.activeOperation.value)
     const preferAnnotation = options.activeOperation.value.startsWith('stack:annotate')
+
+    if (event.key === 'Escape') {
+      if (options.finishPointSequenceMeasurement()) {
+        event.preventDefault()
+      }
+      return
+    }
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
       const handled = runFirstAvailableAction([

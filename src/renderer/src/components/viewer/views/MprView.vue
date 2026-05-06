@@ -36,7 +36,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
-  deleteSelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   openMtfCurve: []
@@ -120,7 +120,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
       @copy-annotation="emit('copyAnnotation', $event)"
       @delete-annotation="emit('deleteAnnotation', $event)"
-      @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
+      @delete-selected-measurement="(viewportKey, measurementId) => emit('deleteSelectedMeasurement', viewportKey, measurementId)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @open-mtf-curve="emit('openMtfCurve')"

@@ -4,9 +4,11 @@ import {
   createMeasurementDraft,
   findHandleIndexAtPoint,
   findMeasurementAtPoint,
+  getSmoothCurveSegments,
   isMeasurementHit,
   isValidMeasurement,
   resolveMeasurementPointerDownIntent,
+  sampleSmoothCurvePoints,
   translateMeasurementPoints,
   updateEditedMeasurementPoints
 } from './measurementGeometry'
@@ -64,7 +66,7 @@ describe('measurementGeometry', () => {
         { x: 0.1, y: 0.1 },
         { x: 0.12, y: 0.12 }
       ])
-    ).toBe(false)
+    ).toBe(true)
 
     expect(
       isValidMeasurement('curve', [
@@ -82,6 +84,35 @@ describe('measurementGeometry', () => {
         { x: 0.1, y: 0.5 }
       ])
     ).toBe(true)
+  })
+
+  it('builds bezier segments through curve control points', () => {
+    const segments = getSmoothCurveSegments([
+      { x: 0.1, y: 0.1 },
+      { x: 0.3, y: 0.4 },
+      { x: 0.7, y: 0.2 }
+    ])
+
+    expect(segments).toHaveLength(2)
+    expect(segments[0]?.start).toEqual({ x: 0.1, y: 0.1 })
+    expect(segments[0]?.end).toEqual({ x: 0.3, y: 0.4 })
+    expect(segments[1]?.end).toEqual({ x: 0.7, y: 0.2 })
+  })
+
+  it('samples smooth curve paths for render-aligned hit testing', () => {
+    const sampledPoints = sampleSmoothCurvePoints(
+      [
+        { x: 0.1, y: 0.8 },
+        { x: 0.5, y: 0.1 },
+        { x: 0.9, y: 0.8 }
+      ],
+      false,
+      2
+    )
+
+    expect(sampledPoints).toHaveLength(5)
+    expect(sampledPoints[1]?.x).toBeCloseTo(0.275)
+    expect(sampledPoints[1]?.y).toBeCloseTo(0.40625)
   })
 
   it('finds handle hits before body hits', () => {
@@ -160,6 +191,50 @@ describe('measurementGeometry', () => {
     expect(isMeasurementHit(curve, { x: 0.46, y: 0.44 }, rect).hit).toBe(true)
     expect(isMeasurementHit(freeform, { x: 0.4, y: 0.4 }, rect).hit).toBe(true)
     expect(isMeasurementHit(freeform, { x: 0.9, y: 0.9 }, rect).hit).toBe(false)
+  })
+
+  it('hits the visible smooth curve path instead of only control-point chords', () => {
+    const rect = createRect(0, 0, 300, 300)
+    const curve: MeasurementOverlay = {
+      measurementId: 'smooth-curve',
+      toolType: 'curve',
+      points: [
+        { x: 0.1, y: 0.8 },
+        { x: 0.5, y: 0.1 },
+        { x: 0.9, y: 0.8 }
+      ],
+      labelLines: []
+    }
+
+    const hit = isMeasurementHit(curve, { x: 0.275, y: 0.40625 }, rect)
+
+    expect(hit.hit).toBe(true)
+  })
+
+  it('selects committed smooth curves from the visible path', () => {
+    const rect = createRect(0, 0, 300, 300)
+    const curve: MeasurementOverlay = {
+      measurementId: 'smooth-curve',
+      toolType: 'curve',
+      points: [
+        { x: 0.1, y: 0.8 },
+        { x: 0.5, y: 0.1 },
+        { x: 0.9, y: 0.8 }
+      ],
+      labelLines: []
+    }
+
+    expect(
+      resolveMeasurementPointerDownIntent({
+        committedMeasurements: [curve],
+        existingDraft: null,
+        point: { x: 0.275, y: 0.40625 },
+        rect
+      })
+    ).toEqual({
+      kind: 'select_committed',
+      measurement: curve
+    })
   })
 
   it('prefers the later measurement when overlapping hits have the same score', () => {

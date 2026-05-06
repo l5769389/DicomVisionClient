@@ -9,6 +9,7 @@ defineProps<{
   activeTab: ViewerTabItem
   activeTools: StackTool[]
   areToolbarActionsDisabled: boolean
+  embedded?: boolean
   isPlaying: boolean
   isPlaybackPaused: boolean
   isToolSelected: (tool: StackTool) => boolean
@@ -29,7 +30,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <VCard class="theme-shell-panel flex min-h-10 shrink-0 items-center justify-start overflow-visible rounded-2xl! border! px-3! py-2!">
+  <VCard
+    class="flex min-h-10 shrink-0 items-center justify-start overflow-visible rounded-2xl!"
+    :class="embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'theme-shell-panel border! px-3! py-2!'"
+  >
     <div class="flex flex-1 flex-wrap items-center justify-start gap-2 overflow-visible">
       <div
         v-for="tool in activeTools"

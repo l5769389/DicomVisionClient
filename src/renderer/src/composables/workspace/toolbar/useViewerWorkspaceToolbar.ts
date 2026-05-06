@@ -26,7 +26,9 @@ const measureTool: StackTool = {
     { value: 'measure:line', label: 'Line', icon: 'measure-line' },
     { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' },
     { value: 'measure:ellipse', label: 'Ellipse', icon: 'measure-ellipse' },
-    { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' }
+    { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' },
+    { value: 'measure:curve', label: 'Curve', icon: 'measure-curve' },
+    { value: 'measure:freeform', label: 'Freeform', icon: 'measure-freeform' }
   ]
 }
 
@@ -174,6 +176,7 @@ const volumeTools: StackTool[] = [
 
 const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
+  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
   ...genericTools,
   {
@@ -235,7 +238,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     qa: DEFAULT_QA_OPERATION,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     export: 'png',
-    volumePreset: 'volumePreset:aaa'
+    volumePreset: 'volumePreset:aaa',
+    reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
@@ -274,7 +278,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const activeTools = computed(() =>
     options.activeTab.value?.viewType === 'Stack'
       ? stackTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-      : options.activeTab.value?.viewType === 'MPR'
+      : options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
         ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
         : options.activeTab.value?.viewType === '3D'
           ? volumeTools
@@ -282,7 +286,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   )
 
   const areToolbarActionsDisabled = computed(
-    () => options.activeTab.value?.viewType === 'Stack' && (isPlaying.value || isPlaybackPaused.value)
+    () =>
+      (options.activeTab.value?.viewType === 'Stack' && (isPlaying.value || isPlaybackPaused.value)) ||
+      Boolean(options.activeTab.value?.viewType === '4D' && options.activeTab.value.fourDIsPlaying)
   )
 
   const activeVolumeRenderConfig = computed(() =>
@@ -293,7 +299,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeMprMipConfig = computed(() => {
     const activeTab = options.activeTab.value
-    if (!activeTab || activeTab.viewType !== 'MPR') {
+    if (!activeTab || (activeTab.viewType !== 'MPR' && activeTab.viewType !== '4D')) {
       return null
     }
 
@@ -314,7 +320,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getDefaultToolbarToolKey(viewType: ViewerTabItem['viewType'] | undefined): string {
-    if (viewType === 'MPR') {
+    if (viewType === 'MPR' || viewType === '4D') {
       return 'crosshair'
     }
     if (viewType === '3D') {
@@ -332,7 +338,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getDefaultOperationValue(viewType: ViewerTabItem['viewType'] | undefined): string {
-    if (viewType === 'MPR') {
+    if (viewType === 'MPR' || viewType === '4D') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`
     }
     return getModeOperationValue(getDefaultToolbarToolKey(viewType))
@@ -530,7 +536,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function updateActiveMprMipConfig(config: MprMipConfig): void {
     const activeTab = options.activeTab.value
-    if (!activeTab || activeTab.viewType !== 'MPR') {
+    if (!activeTab || (activeTab.viewType !== 'MPR' && activeTab.viewType !== '4D')) {
       return
     }
 
@@ -556,6 +562,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
     if (tool.key === 'reset') {
       options.stopViewportDrag()
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        reset: 'reset:view'
+      }
       if (options.activeTab.value?.viewType === '3D') {
         stackToolSelections.value = {
           ...stackToolSelections.value,
@@ -680,6 +690,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'reset') {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        reset: 'reset:view'
+      }
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
         if (optionValue === 'reset:measurements') {
           options.emitTriggerViewAction({ action: 'clearMeasurements' })
@@ -748,7 +762,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         stopPlayback()
         isVolumeConfigPanelOpen.value = false
         isMprMipPanelOpen.value = false
-        options.setActiveViewport(viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
+        options.setActiveViewport(viewType === 'MPR' || viewType === '4D' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
         restoreToolbarState(tabKey, viewType)
         closeMenus()
       }
@@ -840,7 +854,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       if (!tab) {
         return selectedPseudocolorKey.value
       }
-      if (tab.viewType === 'MPR') {
+      if (tab.viewType === 'MPR' || tab.viewType === '4D') {
         return tab.viewportPseudocolorPresets?.[
           (options.activeViewportKey.value === 'single' || options.activeViewportKey.value === 'volume'
             ? 'mpr-ax'

@@ -7,10 +7,15 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { api } from '../../../services/api'
-import {emitViewOperation, ViewOperationInput} from '../../../services/socket'
+import { postApi } from '../../../services/typedApi'
 import {
-  createDefaultMprFrameInfo,
+  emitFourDPlaybackFps,
+  emitFourDPlaybackStart,
+  emitFourDPlaybackStop,
+  emitViewOperation,
+  ViewOperationInput
+} from '../../../services/socket'
+import {
   createEmptyMprCrosshairs,
   createEmptyMprOrientations,
   createEmptyMprScaleBars,
@@ -19,6 +24,11 @@ import {
 } from '../views/viewerWorkspaceTabs'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
+import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
+import {
+  resolveOptimisticMprCrosshairCenter,
+  type ActiveMprCrosshairDragLock
+} from '../views/mprInteractionGuard'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
@@ -32,14 +42,16 @@ import {
 } from '../volume/volumeRenderConfig'
 import type {
   CornerInfo,
-  CornerInfoResponse,
   ConnectionState,
   FolderSeriesItem,
-  MtfAnalyzeRequest,
-  MtfAnalyzeResponse,
+  FourDPlaybackPhaseEvent,
+  FourDPlaybackStateEvent,
+  MtfCurvePoint,
+  MtfMetrics,
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
+  MprCrosshairInteractionPayload,
   MprMipConfig,
   MprMipOperationConfig,
   MprViewportKey,
@@ -76,7 +88,7 @@ interface ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
   }) => void
-  handleMprCrosshair: (payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }) => void
+  handleMprCrosshair: (payload: MprCrosshairInteractionPayload) => void
   handleMeasurementCreate: (payload: {
     viewportKey: string
     toolType: MeasurementToolType
@@ -90,6 +102,9 @@ interface ViewerWorkspaceState {
   handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
   handleMtfCopy: (payload?: { mtfId?: string | null }) => Promise<boolean>
   handleMtfSelect: (payload: { mtfId: string | null }) => void
+  handleFourDPhaseChange: (payload: { tabKey: string; phaseIndex: number }) => void
+  handleFourDFpsChange: (payload: { tabKey: string; fps: number }) => void
+  handleFourDPlaybackChange: (payload: { tabKey: string; isPlaying: boolean }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -147,6 +162,91 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let observedViewerStage: HTMLElement | null = null
   let pendingMprMipConfigTimer: ReturnType<typeof window.setTimeout> | null = null
   let pendingMprMipConfigPayload: { viewIds: string[]; config: MprMipConfig } | null = null
+  let activeMprCrosshairDragLockTimer: ReturnType<typeof window.setTimeout> | null = null
+  let folderLoadRequestVersion = 0
+  const fourDPlaybackStartTokens = new Map<string, number>()
+  const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
+  const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
+
+  function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'MPR' || viewType === '4D'
+  }
+
+  function isFourDPlaybackLocked(tab: ViewerTabItem | null | undefined): boolean {
+    return Boolean(tab?.viewType === '4D' && tab.fourDIsPlaying)
+  }
+
+  function clearActiveMprCrosshairDragLock(): void {
+    if (activeMprCrosshairDragLockTimer != null) {
+      window.clearTimeout(activeMprCrosshairDragLockTimer)
+      activeMprCrosshairDragLockTimer = null
+    }
+    activeMprCrosshairDragLock.value = null
+  }
+
+  function getCurrentMprCrosshairPhaseKey(tab: ViewerTabItem): string | null {
+    return tab.viewType === '4D' ? String(Math.max(0, Math.trunc(tab.fourDPhaseIndex ?? 0))) : null
+  }
+
+  function refreshActiveMprCrosshairDragLock(payload: MprCrosshairInteractionPayload): void {
+    const tab = activeTab.value
+    if (!tab || !isMprLikeViewType(tab.viewType) || !isMprViewportKey(payload.viewportKey)) {
+      clearActiveMprCrosshairDragLock()
+      return
+    }
+
+    if (payload.phase === DRAG_ACTION_TYPES.end) {
+      clearActiveMprCrosshairDragLock()
+      return
+    }
+
+    const phaseKey = getCurrentMprCrosshairPhaseKey(tab)
+    const mode = payload.mode === 'rotate' ? 'rotate' : 'move'
+    const previousLock = activeMprCrosshairDragLock.value
+    const shouldReusePreviousOffsets =
+      payload.phase !== DRAG_ACTION_TYPES.start &&
+      previousLock?.tabKey === tab.key &&
+      previousLock?.viewportKey === payload.viewportKey &&
+      previousLock?.phaseKey === phaseKey &&
+      previousLock?.mode === mode
+
+    const nextLock: ActiveMprCrosshairDragLock = shouldReusePreviousOffsets
+      ? previousLock
+      : {
+          tabKey: tab.key,
+          viewportKey: payload.viewportKey,
+          phaseKey,
+          mode,
+          ...(mode === 'move'
+            ? (() => {
+                const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
+                return {
+                  pointerOffsetX: (geometry?.center.x ?? payload.x) - payload.x,
+                  pointerOffsetY: (geometry?.center.y ?? payload.y) - payload.y
+                }
+              })()
+            : {})
+        }
+    activeMprCrosshairDragLock.value = nextLock
+    if (activeMprCrosshairDragLockTimer != null) {
+      window.clearTimeout(activeMprCrosshairDragLockTimer)
+    }
+    activeMprCrosshairDragLockTimer = window.setTimeout(() => {
+      activeMprCrosshairDragLockTimer = null
+      activeMprCrosshairDragLock.value = null
+    }, 240)
+  }
+
+  function findFourDTab(tabKey: string): ViewerTabItem | null {
+    const tab = viewerTabs.value.find((item) => item.key === tabKey)
+    return tab?.viewType === '4D' ? tab : null
+  }
+
+  function getFourDPhaseCount(tab: ViewerTabItem): number {
+    const phaseItemsCount = tab.fourDPhaseItems?.length ?? 0
+    const phaseCount = phaseItemsCount || tab.fourDPhaseCount || 1
+    return Math.max(1, Math.trunc(Number(phaseCount) || 1))
+  }
 
   function generateMtfId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -210,7 +310,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0] as
         | MprViewportKey
         | undefined
-      if (!viewportKey || item.viewType !== 'MPR') {
+      if (!viewportKey || !isMprLikeViewType(item.viewType)) {
         return item
       }
 
@@ -249,7 +349,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function getCurrentViewportTransform(tab: ViewerTabItem, viewportKey: string): ViewTransformInfo {
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       return tab.viewportTransformStates?.[viewportKey as MprViewportKey] ?? DEFAULT_VIEW_TRANSFORM
     }
     return tab.transformState ?? DEFAULT_VIEW_TRANSFORM
@@ -265,7 +365,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return item
       }
 
-      if (item.viewType === 'MPR' && viewportKey && isMprViewportKey(viewportKey)) {
+      if (isMprLikeViewType(item.viewType) && viewportKey && isMprViewportKey(viewportKey)) {
         return {
           ...item,
           viewportTransformStates: {
@@ -334,7 +434,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'reset' || payload.action === 'resetAll') && tab.viewType !== 'Stack' && tab.viewType !== '3D' && tab.viewType !== 'MPR') {
+    if (isFourDPlaybackLocked(tab)) {
+      return
+    }
+
+    if ((payload.action === 'reset' || payload.action === 'resetAll') && tab.viewType !== 'Stack' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -342,27 +446,27 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'rotate' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+    if (payload.action === 'rotate' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if (payload.action === 'pseudocolor' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+    if (payload.action === 'pseudocolor' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if (payload.action === 'windowPreset' && tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+    if (payload.action === 'windowPreset' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if (payload.action === 'mprMipConfig' && tab.viewType !== 'MPR') {
+    if (payload.action === 'mprMipConfig' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && tab.viewType !== 'Stack' && tab.viewType !== 'MPR' && tab.viewType !== '3D') {
+    if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType) && tab.viewType !== '3D') {
       return
     }
 
-    if (!tab.viewId && tab.viewType !== 'MPR') {
+    if (!tab.viewId && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -374,7 +478,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       clearActiveTabMtf()
       if (payload.action === 'clearMtf') {
         const viewId =
-          tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+          isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
         if (!viewId) {
           return
         }
@@ -389,7 +493,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'clearAnnotations') {
       const viewId =
-        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
       if (!viewId) {
         return
       }
@@ -403,7 +507,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'clearMeasurements') {
       const viewId =
-        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
       if (!viewId) {
         return
       }
@@ -502,7 +606,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'rotate' && payload.value) {
       const viewId =
-        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
       if (!viewId) {
         return
       }
@@ -548,7 +652,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (payload.action === 'pseudocolor' && payload.value) {
       const presetKey = normalizePseudocolorPresetKey(payload.value)
       const viewId =
-        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
       if (!viewId) {
         return
       }
@@ -558,7 +662,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           return item
         }
 
-        if (item.viewType === 'MPR' && isMprViewportKey(activeViewportKey.value)) {
+        if (isMprLikeViewType(item.viewType) && isMprViewportKey(activeViewportKey.value)) {
           return {
             ...item,
             viewportPseudocolorPresets: {
@@ -587,7 +691,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const ww = Number.parseFloat(wwRaw)
       const wl = Number.parseFloat(wlRaw)
       const viewId =
-        tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
       if (!viewId || !Number.isFinite(ww) || !Number.isFinite(wl)) {
         return
       }
@@ -602,7 +706,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'reset' || payload.action === 'resetAll') {
-      if (tab.viewType === 'MPR') {
+      if (isMprLikeViewType(tab.viewType)) {
         const viewportKey = activeViewportKey.value as MprViewportKey
         const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
         if (!viewId) {
@@ -617,7 +721,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
           return {
             ...item,
-            mprFrame: createDefaultMprFrameInfo(),
+            mprCursor: null,
+            mprFrame: null,
             mprMipConfig: createDefaultMprMipConfig(),
             viewportCrosshairs: createEmptyMprCrosshairs(),
             viewportScaleBars: createEmptyMprScaleBars(),
@@ -660,7 +765,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       const viewportKey = activeViewportKey.value as MprViewportKey
       const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
       if (!viewId) {
@@ -675,7 +780,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
         return {
           ...item,
-          mprFrame: createDefaultMprFrameInfo(),
+          mprCursor: null,
+          mprFrame: null,
           mprMipConfig: createDefaultMprMipConfig(),
           viewportCrosshairs: createEmptyMprCrosshairs(),
           viewportScaleBars: createEmptyMprScaleBars(),
@@ -731,7 +837,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     viewportKey: MprViewportKey
   } | null {
     const tab = activeTab.value
-    if (!tab || tab.viewType !== 'MPR' || !isMprViewportKey(viewportKey)) {
+    if (!tab || !isMprLikeViewType(tab.viewType) || !isMprViewportKey(viewportKey) || isFourDPlaybackLocked(tab)) {
       return null
     }
 
@@ -747,6 +853,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  function getFourDSharedMprViewIds(tab: ViewerTabItem, viewportKey: MprViewportKey, fallbackViewId: string): string[] {
+    const viewIds = [
+      fallbackViewId,
+      ...Object.values(tab.fourDPhaseViewIds ?? {}).map((phaseViewIds) => phaseViewIds?.[viewportKey] ?? '')
+    ]
+    return Array.from(new Set(viewIds.filter(Boolean)))
+  }
+
   function emitMprViewOperation(
     viewportKey: string,
     payload: ViewOperationInput
@@ -756,9 +870,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    emitViewOperation({
-      ...payload,
-      viewId: context.viewId
+    const viewIds =
+      context.tab.viewType === '4D' && FOUR_D_SHARED_MPR_OPERATION_TYPES.has(payload.opType)
+        ? getFourDSharedMprViewIds(context.tab, context.viewportKey, context.viewId)
+        : [context.viewId]
+
+    viewIds.forEach((viewId) => {
+      emitViewOperation({
+        ...payload,
+        viewId
+      })
     })
   }
 
@@ -770,7 +891,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     measurementId?: string
   }): void {
     const tab = activeTab.value
-    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') || !payload.points.length) {
+    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) || !payload.points.length) {
       return
     }
 
@@ -783,7 +904,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       points: payload.points
     }
 
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       emitMprViewOperation(payload.viewportKey, operationPayload)
       return
     }
@@ -804,7 +925,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return null
     }
 
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       if (!isMprViewportKey(viewportKey)) {
         return null
       }
@@ -888,7 +1009,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     mtfId?: string
   }): Promise<void> {
     const tab = activeTab.value
-    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR')) {
+    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType))) {
       return
     }
 
@@ -918,13 +1039,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     try {
-      const requestPayload: MtfAnalyzeRequest = {
+      const data = await postApi('AnalyzeMtfApiV1ViewMtfAnalyzePost', {
         viewId,
         viewportKey: payload.viewportKey,
-        points: payload.points,
-        qaTask: 'mtf'
-      }
-      const { data } = await api.post<MtfAnalyzeResponse>('/view/mtf/analyze', requestPayload)
+        points: payload.points
+      })
 
       updateActiveTabMtfState((item) =>
         updateMtfItemCollection(
@@ -934,8 +1053,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             viewportKey: data.viewportKey,
             points: data.points,
             status: 'ready',
-            metrics: data.metrics,
-            curve: data.curve,
+            metrics: data.metrics as MtfMetrics,
+            curve: data.curve as MtfCurvePoint[],
             errorMessage: null,
             isPlaceholder: data.isPlaceholder ?? false
           },
@@ -992,6 +1111,119 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         }
       }
     })
+  }
+
+  function handleFourDPhaseChange(payload: { tabKey: string; phaseIndex: number }): void {
+    const tab = findFourDTab(payload.tabKey)
+    if (!tab || tab.fourDIsPlaying) {
+      return
+    }
+    const phaseIndex = Number.isFinite(payload.phaseIndex) ? Math.max(0, Math.trunc(payload.phaseIndex)) : 0
+    void views.setFourDPhase(payload.tabKey, phaseIndex)
+  }
+
+  function handleFourDFpsChange(payload: { tabKey: string; fps: number }): void {
+    const fps = Number.isFinite(payload.fps) ? Math.max(1, Math.min(30, Math.trunc(payload.fps))) : 2
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === payload.tabKey && item.viewType === '4D'
+        ? {
+            ...item,
+            fourDPlaybackFps: fps
+          }
+        : item
+    )
+
+    const tab = findFourDTab(payload.tabKey)
+    if (tab?.fourDIsPlaying) {
+      emitFourDPlaybackFps({
+        tabKey: payload.tabKey,
+        fps
+      })
+    }
+  }
+
+  function nextFourDPlaybackStartToken(tabKey: string): number {
+    const token = (fourDPlaybackStartTokens.get(tabKey) ?? 0) + 1
+    fourDPlaybackStartTokens.set(tabKey, token)
+    return token
+  }
+
+  async function startFourDPlaybackAfterPreload(tabKey: string): Promise<void> {
+    const token = nextFourDPlaybackStartToken(tabKey)
+    try {
+      await views.preloadFourDPhases(tabKey)
+    } catch (error) {
+      console.error(error)
+      return
+    }
+    if (fourDPlaybackStartTokens.get(tabKey) !== token) {
+      return
+    }
+
+    const refreshedTab = findFourDTab(tabKey)
+    if (!refreshedTab || refreshedTab.fourDIsPlaying) {
+      return
+    }
+
+    emitFourDPlaybackStart({
+      tabKey,
+      phaseIndex: Math.max(0, Math.trunc(refreshedTab.fourDPhaseIndex ?? 0)),
+      phaseCount: getFourDPhaseCount(refreshedTab),
+      fps: Math.max(1, Math.min(30, Math.trunc(refreshedTab.fourDPlaybackFps ?? 2)))
+    })
+  }
+
+  function handleFourDPlaybackChange(payload: { tabKey: string; isPlaying: boolean }): void {
+    const tab = findFourDTab(payload.tabKey)
+    if (!tab) {
+      return
+    }
+    if (payload.isPlaying) {
+      void startFourDPlaybackAfterPreload(payload.tabKey)
+      return
+    }
+    nextFourDPlaybackStartToken(payload.tabKey)
+    emitFourDPlaybackStop({ tabKey: payload.tabKey })
+  }
+
+  function handleFourDPhaseIndex(payload: FourDPlaybackPhaseEvent | undefined): void {
+    if (!payload?.tabKey) {
+      return
+    }
+    const tab = findFourDTab(payload.tabKey)
+    if (!tab) {
+      return
+    }
+    const phaseIndex = Number.isFinite(payload.phaseIndex) ? Math.max(0, Math.trunc(payload.phaseIndex)) : 0
+    void views.setFourDPhase(payload.tabKey, phaseIndex)
+  }
+
+  function handleFourDPlaybackState(payload: FourDPlaybackStateEvent | undefined): void {
+    if (!payload?.tabKey) {
+      return
+    }
+
+    const normalizedPhaseIndex =
+      typeof payload.phaseIndex === 'number' && Number.isFinite(payload.phaseIndex)
+        ? Math.max(0, Math.trunc(payload.phaseIndex))
+        : null
+
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === payload.tabKey && item.viewType === '4D'
+        ? {
+            ...item,
+            fourDIsPlaying: Boolean(payload.isPlaying),
+            fourDPlaybackFps:
+              typeof payload.fps === 'number' && Number.isFinite(payload.fps)
+                ? Math.max(1, Math.min(30, Math.trunc(payload.fps)))
+                : item.fourDPlaybackFps
+          }
+        : item
+    )
+
+    if (normalizedPhaseIndex !== null) {
+      void views.setFourDPhase(payload.tabKey, normalizedPhaseIndex)
+    }
   }
 
   function handleMtfClear(payload?: { mtfId?: string | null }): void {
@@ -1064,9 +1296,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return pending
     }
 
-    const request = api
-      .post<CornerInfoResponse>('/dicom/cornerInfo', { seriesId })
-      .then(({ data }) => {
+    const request = postApi('GetCornerInfoApiV1DicomCornerInfoPost', { seriesId })
+      .then((data) => {
         const normalized = normalizeCornerInfo(data)
         seriesCornerInfoMap.value = {
           ...seriesCornerInfoMap.value,
@@ -1092,10 +1323,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const views = useViewerWorkspaceViews({
     activeTabKey,
     activeViewportKey,
+    activeMprCrosshairDragLock,
     clearPendingVolumeConfig,
     ensureSeriesCornerInfo,
     isViewLoading,
     message,
+    onBeforeCloseTab: (tab) => {
+      if (tab.viewType === '4D') {
+        emitFourDPlaybackStop({ tabKey: tab.key })
+      }
+    },
     selectedSeries,
     selectedSeriesId,
     seriesCornerInfoMap,
@@ -1164,8 +1401,28 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const { cleanupSocketListeners, connectBackend, connectionState } = useViewerWorkspaceConnection({
     backendOrigin,
     onConnected: views.rebindOpenViews,
-    onDisconnected: () => {},
-    onReconnecting: () => {},
+    onDisconnected: () => {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.viewType === '4D'
+          ? {
+              ...item,
+              fourDIsPlaying: false
+            }
+          : item
+      )
+    },
+    onReconnecting: () => {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.viewType === '4D'
+          ? {
+              ...item,
+              fourDIsPlaying: false
+            }
+          : item
+      )
+    },
+    onFourDPhaseIndex: handleFourDPhaseIndex,
+    onFourDPlaybackState: handleFourDPlaybackState,
     onHoverInfo: handleHoverInfo,
     onImageError: handleImageError,
     onImageUpdate: handleImageUpdate
@@ -1178,8 +1435,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     const viewId =
-      tab.viewType === 'MPR' ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
-    if (!viewId || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR')) {
+      isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+    if (!viewId || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType))) {
       return
     }
 
@@ -1189,7 +1446,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       emitMprViewOperation(activeViewportKey.value, {
         opType: VIEW_OPERATION_TYPES.scroll,
         delta: scroll
@@ -1212,12 +1469,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     viewportKey: string
   }): void {
     const tab = activeTab.value
-    if (!tab || !STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])) {
+    if (!tab || isFourDPlaybackLocked(tab) || !STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])) {
       return
     }
 
     const viewId =
-      tab.viewType === 'MPR' ? tab.viewportViewIds?.[payload.viewportKey as MprViewportKey] ?? '' : tab.viewId
+      isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[payload.viewportKey as MprViewportKey] ?? '' : tab.viewId
     if (!viewId) {
       return
     }
@@ -1226,7 +1483,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       emitMprViewOperation(payload.viewportKey, {
         opType: payload.opType,
         actionType: payload.phase,
@@ -1245,15 +1502,85 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function handleMprCrosshair(payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }): void {
+  function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {
+    if (payload.phase !== DRAG_ACTION_TYPES.move || payload.mode === 'rotate' || !isMprViewportKey(payload.viewportKey)) {
+      return
+    }
+
+    const viewportKey = payload.viewportKey
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== activeTabKey.value || !isMprLikeViewType(item.viewType)) {
+        return item
+      }
+
+      const optimisticCenter = resolveOptimisticMprCrosshairCenter({
+        lock: activeMprCrosshairDragLock.value,
+        pointerX: payload.x,
+        pointerY: payload.y,
+        update: {
+          tabKey: item.key,
+          viewportKey,
+          phaseKey: getCurrentMprCrosshairPhaseKey(item)
+        }
+      })
+
+      const previousCrosshair = item.viewportCrosshairs?.[viewportKey] ?? null
+      const nextCrosshair = {
+        centerX: optimisticCenter.x,
+        centerY: optimisticCenter.y,
+        hitRadius: previousCrosshair?.hitRadius ?? 0.025,
+        horizontalPosition: optimisticCenter.y,
+        verticalPosition: optimisticCenter.x,
+        horizontalAngleRad: previousCrosshair?.horizontalAngleRad ?? null,
+        verticalAngleRad: previousCrosshair?.verticalAngleRad ?? null
+      }
+      const viewportCrosshairs = {
+        ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+        [viewportKey]: nextCrosshair
+      }
+
+      if (item.viewType !== '4D') {
+        return {
+          ...item,
+          viewportCrosshairs
+        }
+      }
+
+      const phaseKey = String(Math.max(0, Math.trunc(item.fourDPhaseIndex ?? 0)))
+      const phaseCache = item.fourDPhaseCache?.[phaseKey]
+      return {
+        ...item,
+        viewportCrosshairs,
+        fourDPhaseCache: phaseCache
+          ? {
+              ...(item.fourDPhaseCache ?? {}),
+              [phaseKey]: {
+                ...phaseCache,
+                viewportCrosshairs: {
+                  ...(phaseCache.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+                  [viewportKey]: nextCrosshair
+                }
+              }
+            }
+          : item.fourDPhaseCache
+      }
+    })
+  }
+
+  function handleMprCrosshair(payload: MprCrosshairInteractionPayload): void {
+    const tab = activeTab.value
+    refreshActiveMprCrosshairDragLock(payload)
+    applyOptimisticMprCrosshair(payload)
     emitMprViewOperation(payload.viewportKey, {
       opType: payload.mode === 'rotate' ? VIEW_OPERATION_TYPES.mprOblique : VIEW_OPERATION_TYPES.crosshair,
       actionType: payload.phase,
       x: payload.x,
       y: payload.y,
-      line: payload.line,
-      angleRad: payload.angleRad
+      line: payload.line
     })
+    if (tab?.viewType === '4D' && !isFourDPlaybackLocked(tab) && payload.phase === DRAG_ACTION_TYPES.end) {
+      views.invalidateFourDMprState(tab.key)
+    }
   }
 
   function upsertMeasurementOverlay(
@@ -1279,7 +1606,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const index = list.findIndex((measurement) => measurement.measurementId === nextMeasurementId)
     if (index === -1) {
-      return [...list, nextOverlay]
+      return [
+        ...list.filter(
+          (measurement) =>
+            measurement.toolType !== nextOverlay.toolType ||
+            !arePointSetsClose(measurement.points, nextOverlay.points)
+        ),
+        nextOverlay
+      ]
     }
 
     return list.map((measurement, currentIndex) => (currentIndex === index ? nextOverlay : measurement))
@@ -1293,13 +1627,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     labelLines?: string[]
   }): void {
     const tab = activeTab.value
-    if (tab && (tab.viewType === 'Stack' || tab.viewType === 'MPR') && payload.measurementId?.trim()) {
+    if (tab && !isFourDPlaybackLocked(tab) && (tab.viewType === 'Stack' || isMprLikeViewType(tab.viewType)) && payload.measurementId?.trim()) {
       viewerTabs.value = viewerTabs.value.map((item) => {
         if (item.key !== tab.key) {
           return item
         }
 
-        if (item.viewType === 'MPR') {
+        if (isMprLikeViewType(item.viewType)) {
           return {
             ...item,
             viewportMeasurements: {
@@ -1327,7 +1661,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function handleMeasurementDelete(payload: { viewportKey: string; measurementId: string }): void {
     const tab = activeTab.value
-    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') || !payload.measurementId) {
+    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) || !payload.measurementId) {
       return
     }
 
@@ -1336,7 +1670,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return item
       }
 
-      if (item.viewType === 'MPR') {
+      if (isMprLikeViewType(item.viewType)) {
         return {
           ...item,
           viewportMeasurements: {
@@ -1361,7 +1695,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       viewportKey: payload.viewportKey
     }
 
-    if (tab.viewType === 'MPR') {
+    if (isMprLikeViewType(tab.viewType)) {
       emitMprViewOperation(payload.viewportKey, operationPayload)
       return
     }
@@ -1402,17 +1736,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function loadFolderSeries(path: string): Promise<void> {
+    const requestVersion = folderLoadRequestVersion + 1
+    folderLoadRequestVersion = requestVersion
     isLoadingFolder.value = true
 
     try {
-      const { data } =
+      const data =
         path === WEB_SAMPLE_FOLDER_SENTINEL
-          ? await api.post<{ seriesList?: FolderSeriesItem[]; samplePath?: string }>('/dicom/loadSample')
-          : await api.post<{ seriesList?: FolderSeriesItem[] }>('/dicom/loadFolder', {
+          ? await postApi('LoadSampleFolderApiV1DicomLoadSamplePost')
+          : await postApi('LoadFolderApiV1DicomLoadFolderPost', {
               folderPath: path
             })
 
-      const incomingSeries = data.seriesList ?? []
+      if (folderLoadRequestVersion !== requestVersion) {
+        return
+      }
+
+      const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
       if (!incomingSeries.length) {
         message.value = '所选文件夹中未找到可用序列。'
         return
@@ -1441,10 +1781,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       message.value = ''
     } catch (error) {
+      if (folderLoadRequestVersion !== requestVersion) {
+        return
+      }
       message.value = '加载文件夹失败。'
       console.error(error)
     } finally {
-      isLoadingFolder.value = false
+      if (folderLoadRequestVersion === requestVersion) {
+        isLoadingFolder.value = false
+      }
     }
   }
 
@@ -1484,6 +1829,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   onBeforeUnmount(() => {
     flushAllPendingVolumeConfig()
     flushPendingMprMipConfig()
+    clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()
     if (resizeObserver && observedViewerStage) {
@@ -1513,6 +1859,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleMtfCommit,
     handleMtfCopy,
     handleMtfSelect,
+    handleFourDPhaseChange,
+    handleFourDFpsChange,
+    handleFourDPlaybackChange,
     handleMprCrosshair,
     handleVolumeConfigChange,
     handleViewportDrag,

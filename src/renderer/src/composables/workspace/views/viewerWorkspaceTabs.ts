@@ -1,8 +1,11 @@
 import type {
   CornerInfo,
   CornerPosition,
+  FourDPhaseItem,
   FolderSeriesItem,
+  MprCursorInfo,
   MprFrameInfo,
+  MprPlaneInfo,
   MprViewportKey,
   OrientationInfo,
   ScaleBarInfo,
@@ -48,12 +51,11 @@ export function createEmptyMprCrosshairs(): Record<MprViewportKey, null> {
   }
 }
 
-export function createDefaultMprFrameInfo(): MprFrameInfo {
+export function createEmptyMprPlanes(): Record<MprViewportKey, null> {
   return {
-    center: [0, 0, 0],
-    axisSlice: [1, 0, 0],
-    axisRow: [0, 1, 0],
-    axisCol: [0, 0, 1]
+    'mpr-ax': null,
+    'mpr-cor': null,
+    'mpr-sag': null
   }
 }
 
@@ -105,6 +107,16 @@ export function createEmptyMprPseudocolorPresets(): Record<MprViewportKey, strin
     'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
     'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
   }
+}
+
+export function createDefaultFourDPhaseItems(phaseCount = 10): FourDPhaseItem[] {
+  return Array.from({ length: Math.max(1, phaseCount) }, (_, index) => ({
+    phaseIndex: index,
+    label: `Phase ${String(index + 1).padStart(2, '0')}`,
+    seriesId: null,
+    imageSrc: '',
+    status: 'pending'
+  }))
 }
 
 export function createEmptyCornerInfo(): CornerInfo {
@@ -261,17 +273,21 @@ export function normalizeScaleBarInfo(value: unknown): ScaleBarInfo | null {
   }
 }
 
-function normalizeMprFrameAxis(value: unknown, fallback: [number, number, number]): [number, number, number] {
+function normalizeMprFrameAxis(value: unknown): [number, number, number] | null {
   if (!Array.isArray(value) || value.length !== 3) {
-    return fallback
+    return null
   }
 
   const numeric = value.map((item) => Number(item))
   if (numeric.some((item) => !Number.isFinite(item))) {
-    return fallback
+    return null
   }
 
   return [numeric[0]!, numeric[1]!, numeric[2]!]
+}
+
+function normalizeMprFrameAxisOrFallback(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  return normalizeMprFrameAxis(value) ?? fallback
 }
 
 export function normalizeMprFrameInfo(value: unknown): MprFrameInfo | null {
@@ -285,17 +301,96 @@ export function normalizeMprFrameInfo(value: unknown): MprFrameInfo | null {
     return normalizeMprFrameInfo(nestedFrame)
   }
 
-  const fallback = createDefaultMprFrameInfo()
-  const center = normalizeMprFrameAxis(record.center, fallback.center)
-  const axisSlice = normalizeMprFrameAxis(record.axisSlice ?? record.axis_slice, fallback.axisSlice)
-  const axisRow = normalizeMprFrameAxis(record.axisRow ?? record.axis_row, fallback.axisRow)
-  const axisCol = normalizeMprFrameAxis(record.axisCol ?? record.axis_col, fallback.axisCol)
+  const center = normalizeMprFrameAxis(record.center)
+  const axisSlice = normalizeMprFrameAxis(record.axisSlice ?? record.axis_slice)
+  const axisRow = normalizeMprFrameAxis(record.axisRow ?? record.axis_row)
+  const axisCol = normalizeMprFrameAxis(record.axisCol ?? record.axis_col)
+  if (!center || !axisSlice || !axisRow || !axisCol) {
+    return null
+  }
 
   return {
     center,
     axisSlice,
     axisRow,
     axisCol
+  }
+}
+
+export function normalizeMprCursorInfo(value: unknown): MprCursorInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const nestedCursor = (record.mprCursor ?? record.mpr_cursor ?? record.cursor) as unknown
+  if (nestedCursor && nestedCursor !== value) {
+    return normalizeMprCursorInfo(nestedCursor)
+  }
+
+  const orientationValue = record.orientationWorld ?? record.orientation_world
+  const orientationWorld = Array.isArray(orientationValue) && orientationValue.length === 3
+    ? orientationValue.map((row, index) =>
+        normalizeMprFrameAxisOrFallback(
+          row,
+          index === 0 ? [1, 0, 0] : index === 1 ? [0, 1, 0] : [0, 0, 1]
+        )
+      )
+    : [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1]
+      ]
+
+  return {
+    centerWorld: normalizeMprFrameAxisOrFallback(record.centerWorld ?? record.center_world, [0, 0, 0]),
+    referenceCenterWorld: normalizeMprFrameAxisOrFallback(record.referenceCenterWorld ?? record.reference_center_world, [0, 0, 0]),
+    orientationWorld: orientationWorld as MprCursorInfo['orientationWorld'],
+    linkedToVolumeRotation: Boolean(record.linkedToVolumeRotation ?? record.linked_to_volume_rotation ?? false)
+  }
+}
+
+export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const nestedPlane = (record.mprPlane ?? record.mpr_plane ?? record.plane) as unknown
+  if (nestedPlane && nestedPlane !== value) {
+    return normalizeMprPlaneInfo(nestedPlane)
+  }
+
+  const row = normalizeMprFrameAxisOrFallback(record.row, [0, 1, 0])
+  const col = normalizeMprFrameAxisOrFallback(record.col, [0, 0, 1])
+  const normal = normalizeMprFrameAxisOrFallback(record.normal, [1, 0, 0])
+  const rowWorld = normalizeMprFrameAxisOrFallback(record.rowWorld ?? record.row_world, row)
+  const colWorld = normalizeMprFrameAxisOrFallback(record.colWorld ?? record.col_world, col)
+  const normalWorld = normalizeMprFrameAxisOrFallback(record.normalWorld ?? record.normal_world, normal)
+  const outputShapeValue = record.outputShape ?? record.output_shape
+  const outputShape = Array.isArray(outputShapeValue) && outputShapeValue.length === 2
+    ? [Number(outputShapeValue[0]), Number(outputShapeValue[1])]
+    : [0, 0]
+  const pixelSpacingRowMm = Number(record.pixelSpacingRowMm ?? record.pixel_spacing_row_mm ?? 1)
+  const pixelSpacingColMm = Number(record.pixelSpacingColMm ?? record.pixel_spacing_col_mm ?? 1)
+
+  return {
+    viewport: typeof record.viewport === 'string' ? record.viewport : '',
+    centerWorld: normalizeMprFrameAxisOrFallback(record.centerWorld ?? record.center_world, [0, 0, 0]),
+    cursorCenterWorld: normalizeMprFrameAxisOrFallback(record.cursorCenterWorld ?? record.cursor_center_world, [0, 0, 0]),
+    rowWorld,
+    colWorld,
+    normalWorld,
+    pixelSpacingRowMm: Number.isFinite(pixelSpacingRowMm) ? pixelSpacingRowMm : 1,
+    pixelSpacingColMm: Number.isFinite(pixelSpacingColMm) ? pixelSpacingColMm : 1,
+    outputShape: [
+      Number.isFinite(outputShape[0]) ? outputShape[0] : 0,
+      Number.isFinite(outputShape[1]) ? outputShape[1] : 0
+    ],
+    row,
+    col,
+    normal,
+    isOblique: Boolean(record.isOblique ?? record.is_oblique ?? false)
   }
 }
 
@@ -346,7 +441,9 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportViewIds: createEmptyMprViewIds(),
     viewportImages: createEmptyMprImages(),
     viewportSliceLabels: createEmptyMprSliceLabels(),
+    mprCursor: null,
     mprFrame: null,
+    viewportPlanes: createEmptyMprPlanes(),
     viewportCrosshairs: createEmptyMprCrosshairs(),
     viewportScaleBars: createEmptyMprScaleBars(),
     cornerInfo: createEmptyCornerInfo(),
@@ -368,6 +465,14 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     tagSopInstanceUid: null,
     tagInstanceNumber: null,
     tagIsLoading: false,
-    tagLoadError: null
+    tagLoadError: null,
+    fourDPhaseIndex: 0,
+    fourDPhaseCount: 10,
+    fourDPhaseItems: createDefaultFourDPhaseItems(10),
+    fourDPlaybackFps: 2,
+    fourDPhaseViewIds: {},
+    fourDPhaseCache: {},
+    fourDIsPlaying: false,
+    fourDIsPreloading: false
   }
 }

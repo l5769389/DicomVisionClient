@@ -42,6 +42,56 @@ export interface DicomTagsResponse {
   items?: DicomTagItem[]
 }
 
+export interface FourDPhaseItem {
+  phaseIndex: number
+  label: string
+  seriesId?: string | null
+  imageSrc?: string
+  viewportImages?: Record<string, string>
+  status?: 'pending' | 'ready' | 'error'
+}
+
+export interface FourDPhasesRequest {
+  seriesId: string
+  includePreviewImages?: boolean
+  previewPhaseIndex?: number | null
+}
+
+export interface FourDPhasesResponse {
+  seriesId: string
+  isFourDSeries?: boolean
+  fourDPhaseCount?: number
+  fourDPhases?: FourDPhaseItem[]
+}
+
+export interface FourDPlaybackFpsRequest {
+  tabKey: string
+  fps: number
+}
+
+export interface FourDPlaybackPhaseEvent {
+  tabKey: string
+  phaseIndex: number
+}
+
+export interface FourDPlaybackStartRequest {
+  tabKey: string
+  phaseIndex: number
+  phaseCount: number
+  fps: number
+}
+
+export interface FourDPlaybackStateEvent {
+  tabKey: string
+  isPlaying: boolean
+  fps?: number | null
+  phaseIndex?: number | null
+}
+
+export interface FourDPlaybackStopRequest {
+  tabKey: string
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[]
 }
@@ -83,6 +133,13 @@ export interface MprCrosshairInfo {
   verticalAngleRad?: number | null
 }
 
+export interface MprCursorInfo {
+  centerWorld: [number, number, number]
+  referenceCenterWorld: [number, number, number]
+  orientationWorld: [[number, number, number], [number, number, number], [number, number, number]]
+  linkedToVolumeRotation?: boolean
+}
+
 export interface MprFrameInfo {
   center: [number, number, number]
   axisSlice: [number, number, number]
@@ -98,6 +155,22 @@ export interface MprMipConfig {
 
 export interface MprMipViewportConfig {
   thickness?: number
+}
+
+export interface MprPlaneInfo {
+  viewport: string
+  centerWorld: [number, number, number]
+  cursorCenterWorld: [number, number, number]
+  rowWorld: [number, number, number]
+  colWorld: [number, number, number]
+  normalWorld: [number, number, number]
+  pixelSpacingRowMm: number
+  pixelSpacingColMm: number
+  outputShape: [number, number]
+  row: [number, number, number]
+  col: [number, number, number]
+  normal: [number, number, number]
+  isOblique: boolean
 }
 
 export interface MtfCurvePointPayload {
@@ -194,7 +267,12 @@ export interface SeriesSummary {
   instanceCount: number
   width?: number | null
   height?: number | null
+  thumbnailSrc?: string
+  thumbnailUrl?: string
   folderPath: string
+  isFourDSeries?: boolean
+  fourDPhaseCount?: number | null
+  fourDPhases?: FourDPhaseItem[] | null
 }
 
 export interface SliceInfo {
@@ -221,6 +299,8 @@ export interface ViewColorInfo {
 export interface ViewCreateRequest {
   seriesId: string
   viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
+  viewGroupKey?: string | null
+  fourDPhaseIndex?: number | null
 }
 
 export interface ViewCreateResponse {
@@ -279,7 +359,9 @@ export interface ViewImageResponse {
   imageFormat: 'png' | 'jpeg'
   viewId: string
   mpr_crosshair?: MprCrosshairInfo | null
+  mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
+  mprPlane?: MprPlaneInfo | null
   scaleBar?: ScaleBarInfo | null
   cornerInfo?: CornerInfoPayload | null
   measurements?: MeasurementOverlayPayload[]
@@ -308,7 +390,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'mprMipConfig' | 'mprOblique' | 'measurement'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'mprMipConfig' | 'mprOblique' | 'mprStateSync' | 'measurement'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -316,7 +398,6 @@ export interface ViewOperationRequest {
   x?: number | null
   y?: number | null
   line?: 'horizontal' | 'vertical' | null
-  angleRad?: number | null
   points?: MeasurementPointPayload[] | null
   zoom?: number | null
   delta?: number | null
@@ -324,6 +405,7 @@ export interface ViewOperationRequest {
   wl?: number | null
   pseudocolorPreset?: string | null
   mprMipConfig?: MprMipConfig | null
+  sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null
   ver_flip?: boolean | null
@@ -396,9 +478,12 @@ export interface WindowInfo {
 
 export interface ApiOperations {
   GetCornerInfoApiV1DicomCornerInfoPost: { method: 'POST'; path: '/api/v1/dicom/cornerInfo'; request: CornerInfoRequest; response: CornerInfoResponse }
+  GetFourDPhasesApiV1DicomFourDPhasesPost: { method: 'POST'; path: '/api/v1/dicom/fourD/phases'; request: FourDPhasesRequest; response: FourDPhasesResponse }
+  GetFourDPreviewApiV1DicomFourDPreviewGet: { method: 'GET'; path: '/api/v1/dicom/fourD/preview'; request: never; response: unknown }
   LoadFolderApiV1DicomLoadFolderPost: { method: 'POST'; path: '/api/v1/dicom/loadFolder'; request: LoadFolderRequest; response: LoadFolderResponse }
   LoadSampleFolderApiV1DicomLoadSamplePost: { method: 'POST'; path: '/api/v1/dicom/loadSample'; request: never; response: LoadSampleResponse }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
+  GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }
   CreateViewApiV1ViewCreatePost: { method: 'POST'; path: '/api/v1/view/create'; request: ViewCreateRequest; response: ViewCreateResponse }
   ExportViewApiV1ViewExportPost: { method: 'POST'; path: '/api/v1/view/export'; request: ViewExportRequest; response: unknown }

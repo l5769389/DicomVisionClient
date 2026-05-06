@@ -1,8 +1,7 @@
-import { api } from '../../services/api'
+import { postApi } from '../../services/typedApi'
 import type {
   QaWaterAnalysis,
-  QaWaterAnalyzeRequest,
-  QaWaterAnalyzeResponse,
+  QaWaterMetrics,
   QaWaterMetricKey
 } from '../../types/viewer'
 
@@ -11,18 +10,17 @@ export async function analyzeWaterPhantomView(
   viewportKey: string,
   metrics: QaWaterMetricKey[]
 ): Promise<QaWaterAnalysis> {
-  const requestPayload: QaWaterAnalyzeRequest = {
+  const data = await postApi('AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost', {
     viewId,
     viewportKey,
     metrics
-  }
-  const { data } = await api.post<QaWaterAnalyzeResponse>('/view/qa/water/analyze', requestPayload)
+  })
 
   return {
     viewId: data.viewId,
     viewportKey: data.viewportKey,
     rois: data.rois ?? [],
-    metrics: data.metrics ?? {},
+    metrics: (data.metrics ?? {}) as QaWaterMetrics,
     status: data.status ?? 'ready',
     message: data.message ?? undefined
   }

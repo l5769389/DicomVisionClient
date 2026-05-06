@@ -1,5 +1,5 @@
 <template>
-  <div class="relative overflow-hidden rounded-[30px] border border-[var(--theme-border-strong)] bg-[var(--theme-surface-panel)] px-8 py-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_22px_44px_rgba(0,0,0,0.24)]">
+  <div class="sidebar-brand-card relative overflow-hidden rounded-[30px] border border-[var(--theme-border-strong)] bg-[var(--theme-surface-panel)] px-8 py-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_22px_44px_rgba(0,0,0,0.24)]">
     <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(78,169,255,0.2),transparent_26%),radial-gradient(circle_at_top_right,rgba(63,128,198,0.12),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_38%)]"></div>
     <div class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(120,143,166,0.14)_1px,transparent_1px),linear-gradient(90deg,rgba(120,143,166,0.14)_1px,transparent_1px)] bg-[size:32px_32px,32px_32px]"></div>
     <div class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(164,211,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(164,211,255,0.08)_1px,transparent_1px)] bg-[size:96px_96px,96px_96px]"></div>

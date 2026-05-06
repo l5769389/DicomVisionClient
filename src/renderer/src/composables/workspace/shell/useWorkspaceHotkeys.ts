@@ -15,6 +15,7 @@ export interface WorkspaceHotkeyOptions {
   deleteSelectedMeasurement: () => boolean
   deleteSelectedMtf: () => boolean
   exportCurrentView: (format: ViewerExportFormat) => void
+  finishPointSequenceMeasurement: () => boolean
   quickPreviewSelectedSeries: () => void
   selectedSeriesId: Ref<string>
   tagIndexChange: (payload: { tabKey: string; index: number }) => void
@@ -27,8 +28,9 @@ function getActiveSliceInfo(tab: ViewerTabItem | null, activeViewportKey: string
     return null
   }
 
+  const isMprLikeView = tab.viewType === 'MPR' || tab.viewType === '4D'
   const raw =
-    tab.viewType === 'MPR'
+    isMprLikeView
       ? tab.viewportSliceLabels?.[activeViewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? tab.sliceLabel
       : tab.sliceLabel
   const match = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
@@ -93,7 +95,7 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR') {
+    if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
       return
     }
 
@@ -133,6 +135,13 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
 
     const preferMtf = isMtfOperation(options.activeOperation.value)
     const preferAnnotation = options.activeOperation.value.startsWith('stack:annotate')
+
+    if (event.key === 'Escape') {
+      if (options.finishPointSequenceMeasurement()) {
+        event.preventDefault()
+      }
+      return
+    }
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
       const handled = runFirstAvailableAction([

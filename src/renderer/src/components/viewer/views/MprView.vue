@@ -36,7 +36,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
-  deleteSelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   openMtfCurve: []
@@ -69,6 +69,10 @@ function getViewportOrientation(viewportKey: MprViewportKey) {
 
 function getViewportCrosshair(viewportKey: MprViewportKey) {
   return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
+}
+
+function getViewportPlane(viewportKey: MprViewportKey) {
+  return props.activeTab.viewportPlanes?.[viewportKey] ?? null
 }
 
 function getViewportScaleBar(viewportKey: MprViewportKey): ScaleBarInfo | null {
@@ -108,6 +112,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       :selected-mtf-id="props.selectedMtfId ?? null"
       :mpr-crosshair="getViewportCrosshair(item.key)"
       :mpr-frame="props.activeTab.mprFrame ?? null"
+      :mpr-plane="getViewportPlane(item.key)"
       :scale-bar="getViewportScaleBar(item.key)"
       :orientation="getViewportOrientation(item.key)"
       @clear-mtf="emit('clearMtf')"
@@ -115,7 +120,7 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
       @copy-annotation="emit('copyAnnotation', $event)"
       @delete-annotation="emit('deleteAnnotation', $event)"
-      @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
+      @delete-selected-measurement="(viewportKey, measurementId) => emit('deleteSelectedMeasurement', viewportKey, measurementId)"
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @open-mtf-curve="emit('openMtfCurve')"

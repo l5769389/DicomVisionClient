@@ -2,6 +2,11 @@
 import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
+import { getSmoothCurveSegments, isValidMeasurement } from '../../../composables/measurements/measurementGeometry'
+import {
+  getFinalizedPointSequencePoints,
+  isPointSequenceMeasurement
+} from '../../../composables/measurements/measurementToolRules'
 import {
   getOverlayHandlePointsFromRectBounds,
   getOverlayRectBoundsFromScreenPoints,
@@ -13,11 +18,14 @@ interface RenderedMeasurement {
   key: string
   measurementId: string | null
   toolType: MeasurementToolType
+  points: MeasurementDraftPoint[]
   screenPoints: OverlayScreenPoint[]
   handlePoints: OverlayScreenPoint[]
   labelLines: string[]
   labelStyle: { left: string; top: string } | null
   rectBounds: { left: number; top: number; width: number; height: number } | null
+  smoothPathD: string
+  closesSmoothPath: boolean
   mode: 'committed' | 'selected' | 'moving' | 'draft'
 }
 
@@ -54,7 +62,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   copySelectedMeasurement: []
-  deleteSelectedMeasurement: []
+  deleteSelectedMeasurement: [measurementId?: string]
 }>()
 
 function getHandlePoints(
@@ -83,14 +91,15 @@ function getLabelPosition(
   const minY = props.imageFrame.top + 8
   const maxY = Math.max(props.imageFrame.top + props.imageFrame.height - 16, minY)
 
-  if (toolType === 'line' && screenPoints.length >= 2) {
+  if ((toolType === 'line' || toolType === 'curve') && screenPoints.length >= 2) {
+    const anchor = screenPoints[screenPoints.length - 1]
     return {
-      x: clamp(screenPoints[1].x + 12, minX, maxX),
-      y: clamp(screenPoints[1].y - 28, minY, maxY)
+      x: clamp(anchor.x + 12, minX, maxX),
+      y: clamp(anchor.y - 28, minY, maxY)
     }
   }
 
-  if ((toolType === 'rect' || toolType === 'ellipse') && rectBounds) {
+  if ((toolType === 'rect' || toolType === 'ellipse' || toolType === 'freeform') && rectBounds) {
     return {
       x: clamp(rectBounds.left + rectBounds.width + 12, minX, maxX),
       y: clamp(rectBounds.top - 24, minY, maxY)
@@ -111,6 +120,72 @@ function getLabelPosition(
   }
 }
 
+function getScreenBounds(screenPoints: OverlayScreenPoint[]): { left: number; top: number; width: number; height: number } | null {
+  if (!screenPoints.length) {
+    return null
+  }
+  const xs = screenPoints.map((point) => point.x)
+  const ys = screenPoints.map((point) => point.y)
+  const left = Math.min(...xs)
+  const right = Math.max(...xs)
+  const top = Math.min(...ys)
+  const bottom = Math.max(...ys)
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top
+  }
+}
+
+function getSmoothPathD(screenPoints: OverlayScreenPoint[], closePath = false): string {
+  if (screenPoints.length < 2) {
+    return ''
+  }
+
+  const [start] = screenPoints
+  const segments = getSmoothCurveSegments(screenPoints, closePath)
+  const commands = segments
+    .map((segment) => `C ${segment.controlPoint1.x},${segment.controlPoint1.y} ${segment.controlPoint2.x},${segment.controlPoint2.y} ${segment.end.x},${segment.end.y}`)
+    .join(' ')
+  return `M ${start.x},${start.y} ${commands}${closePath ? ' Z' : ''}`
+}
+
+function shouldCloseSmoothPath(params: {
+  measurementId: string | null
+  mode: RenderedMeasurement['mode']
+  points: MeasurementDraftPoint[]
+  screenPoints: OverlayScreenPoint[]
+  toolType: MeasurementToolType
+}): boolean {
+  if (params.toolType !== 'freeform' || params.screenPoints.length <= 2) {
+    return false
+  }
+  if (!isUnfinishedPointSequence(params)) {
+    return true
+  }
+
+  return (
+    isValidMeasurement('freeform', getFinalizedPointSequencePoints(params.points)) ||
+    isValidMeasurement('freeform', params.points)
+  )
+}
+
+function arePointsClose(a: MeasurementDraftPoint, b: MeasurementDraftPoint): boolean {
+  return Math.abs(a.x - b.x) < 0.0005 && Math.abs(a.y - b.y) < 0.0005
+}
+
+function arePointSequencesClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {
+  return a.length === b.length && a.every((point, index) => {
+    const otherPoint = b[index]
+    return otherPoint != null && arePointsClose(point, otherPoint)
+  })
+}
+
+function isUnfinishedPointSequence(measurement: Pick<RenderedMeasurement, 'measurementId' | 'mode' | 'toolType'>): boolean {
+  return measurement.mode === 'draft' && measurement.measurementId == null && isPointSequenceMeasurement(measurement.toolType)
+}
+
 function buildRenderedMeasurement(
   key: string,
   toolType: MeasurementToolType,
@@ -123,19 +198,33 @@ function buildRenderedMeasurement(
   }
 
   const screenPoints = points.map((point) => toOverlayScreenPoint(props.imageFrame, point))
-  const rectBounds = getOverlayRectBoundsFromScreenPoints(screenPoints)
+  const rectBounds = toolType === 'freeform' ? getScreenBounds(screenPoints) : getOverlayRectBoundsFromScreenPoints(screenPoints)
   const handlePoints = getHandlePoints(toolType, screenPoints, rectBounds)
   const labelPosition = getLabelPosition(toolType, screenPoints, rectBounds)
+  const measurementId = key === 'draft' ? props.draftMeasurement?.measurementId ?? null : key
+  const closesSmoothPath = shouldCloseSmoothPath({
+    measurementId,
+    mode,
+    points,
+    screenPoints,
+    toolType
+  })
 
   return {
     key,
-    measurementId: key === 'draft' ? props.draftMeasurement?.measurementId ?? null : key,
+    measurementId,
     toolType,
+    points,
     screenPoints,
     handlePoints,
     labelLines,
     mode,
     rectBounds,
+    smoothPathD:
+      (toolType === 'curve' || toolType === 'freeform') && screenPoints.length >= 2
+        ? getSmoothPathD(screenPoints, closesSmoothPath)
+        : '',
+    closesSmoothPath,
     labelStyle: labelLines.length && labelPosition
       ? {
           left: `${Math.round(labelPosition.x)}px`,
@@ -147,6 +236,15 @@ function buildRenderedMeasurement(
 
 const renderedMeasurements = computed(() =>
   props.measurements
+    .filter((measurement) => {
+      const draft = props.draftMeasurement
+      if (!draft || draft.measurementId || !isPointSequenceMeasurement(draft.toolType) || measurement.toolType !== draft.toolType) {
+        return true
+      }
+
+      const confirmedDraftPoints = getFinalizedPointSequencePoints(draft.points)
+      return !arePointSequencesClose(measurement.points, confirmedDraftPoints)
+    })
     .map((measurement) =>
       buildRenderedMeasurement(
         measurement.measurementId,
@@ -171,9 +269,18 @@ const renderedDraftMeasurement = computed(() =>
     : null
 )
 
-const allRenderedMeasurements = computed(() =>
-  renderedDraftMeasurement.value ? [...renderedMeasurements.value, renderedDraftMeasurement.value] : renderedMeasurements.value
-)
+const allRenderedMeasurements = computed(() => {
+  const draftMeasurement = renderedDraftMeasurement.value
+  if (!draftMeasurement) {
+    return renderedMeasurements.value
+  }
+
+  const committedMeasurements = draftMeasurement.measurementId
+    ? renderedMeasurements.value.filter((measurement) => measurement.measurementId !== draftMeasurement.measurementId)
+    : renderedMeasurements.value
+
+  return [...committedMeasurements, draftMeasurement]
+})
 
 const selectedDraftActionStyle = computed(() => {
   const measurement = renderedDraftMeasurement.value
@@ -249,6 +356,9 @@ function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
 }
 
 function getShapeFill(measurement: RenderedMeasurement): string {
+  if (isUnfinishedPointSequence(measurement)) {
+    return 'none'
+  }
   if (measurement.mode === 'moving') {
     return 'rgba(255,184,77,0.18)'
   }
@@ -417,6 +527,48 @@ function isKeyValueLabelLine(line: string): boolean {
           />
         </g>
 
+        <g v-else-if="measurement.toolType === 'curve' && measurement.screenPoints.length >= 2">
+          <path
+            :d="measurement.smoothPathD"
+            fill="none"
+            :stroke="getOuterStroke(measurement)"
+            stroke-width="5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getOuterStrokeDasharray(measurement)"
+          />
+          <path
+            :d="measurement.smoothPathD"
+            fill="none"
+            :stroke="getInnerStroke(measurement)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getInnerStrokeDasharray(measurement)"
+          />
+        </g>
+
+        <g v-else-if="measurement.toolType === 'freeform' && measurement.screenPoints.length >= 2">
+          <path
+            :d="measurement.smoothPathD"
+            :fill="measurement.closesSmoothPath ? getShapeFill(measurement) : 'none'"
+            :stroke="getOuterStroke(measurement)"
+            stroke-width="5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getOuterStrokeDasharray(measurement)"
+          />
+          <path
+            :d="measurement.smoothPathD"
+            :fill="measurement.closesSmoothPath ? getShapeFill(measurement) : 'none'"
+            :stroke="getInnerStroke(measurement)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :stroke-dasharray="getInnerStrokeDasharray(measurement)"
+          />
+        </g>
+
         <template v-if="shouldRenderHandles(measurement)">
           <circle
             v-for="(point, index) in measurement.handlePoints"
@@ -479,7 +631,8 @@ function isKeyValueLabelLine(line: string): boolean {
         class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/18 bg-red-400/10 text-red-100 transition hover:bg-red-400/18"
         title="删除"
         aria-label="删除测量"
-        @click.stop="emit('deleteSelectedMeasurement')"
+        @pointerdown.stop.prevent="emit('deleteSelectedMeasurement', renderedDraftMeasurement?.measurementId ?? undefined)"
+        @click.stop.prevent
       >
         <AppIcon name="trash" :size="16" />
       </button>

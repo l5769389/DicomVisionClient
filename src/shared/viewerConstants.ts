@@ -13,6 +13,7 @@ export const VIEW_OPERATION_TYPES = {
   volumeConfig: 'volumeConfig',
   mprMipConfig: 'mprMipConfig',
   mprOblique: 'mprOblique',
+  mprStateSync: 'mprStateSync',
   measurement: 'measurement'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]

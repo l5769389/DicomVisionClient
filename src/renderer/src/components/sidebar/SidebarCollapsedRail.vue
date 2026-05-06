@@ -3,6 +3,8 @@ import { VBtn, VChip } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { FolderSeriesItem } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import { getSeriesMetaLabel } from './seriesMetadata'
+import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
 defineProps<{
   connectionDotClass: string
@@ -49,7 +51,7 @@ const { t } = useUiLocale()
             type="button"
             class="flex w-full justify-center"
             :aria-label="series.seriesDescription || t('unnamedSeries')"
-            :title="`${series.seriesDescription || t('unnamedSeries')} | ${series.modality || 'N/A'} | ${series.instanceCount} ${t('frames')}`"
+            :title="`${series.seriesDescription || t('unnamedSeries')} | ${getSeriesMetaLabel(series)}`"
             @mouseenter="emit('showSeriesHoverCard', $event, series, index)"
             @mouseleave="emit('hideSeriesHoverCard')"
             @focus="emit('showSeriesHoverCard', $event, series, index)"
@@ -57,8 +59,9 @@ const { t } = useUiLocale()
             @click="emit('selectSeries', series.seriesId)"
             @dblclick="emit('openSeriesView', series.seriesId)"
           >
-            <span class="flex h-11 w-11 items-center justify-center rounded-2xl border text-[11px] font-bold uppercase transition duration-150" :class="series.seriesId === selectedSeriesId ? 'theme-active-surface shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] hover:theme-hover-surface'">
-              {{ String(index + 1).padStart(2, '0') }}
+            <span class="rail-series-thumbnail" :class="{ 'rail-series-thumbnail--active': series.seriesId === selectedSeriesId }">
+              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
+              <span v-else>{{ getSeriesFallbackLabel(series, String(index + 1).padStart(2, '0')) }}</span>
             </span>
           </button>
         </div>
@@ -81,3 +84,42 @@ const { t } = useUiLocale()
     </div>
   </div>
 </template>
+
+<style scoped>
+.rail-series-thumbnail {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--theme-accent) 15%, transparent), transparent 46%),
+    linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.rail-series-thumbnail:hover {
+  border-color: var(--theme-hover-border);
+  transform: translateY(-1px);
+}
+
+.rail-series-thumbnail--active {
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+}
+
+.rail-series-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+</style>

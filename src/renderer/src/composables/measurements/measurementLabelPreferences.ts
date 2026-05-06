@@ -1,7 +1,7 @@
 import type { RoiStatPreference } from '../ui/useUiPreferences'
 import type { MeasurementDraft, MeasurementOverlay, MeasurementToolType } from '../../types/viewer'
 
-const ROI_TOOL_TYPES = new Set<MeasurementToolType>(['rect', 'ellipse'])
+const ROI_TOOL_TYPES = new Set<MeasurementToolType>(['rect', 'ellipse', 'freeform'])
 
 interface ParsedLabelLine {
   key: string | null

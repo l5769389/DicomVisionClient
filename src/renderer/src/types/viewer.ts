@@ -3,7 +3,9 @@ import type {
   LoadFolderResponse as BackendLoadFolderResponse,
   MeasurementPointPayload as BackendMeasurementPointPayload,
   MprCrosshairInfo as BackendMprCrosshairInfo,
+  MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
+  MprPlaneInfo as BackendMprPlaneInfo,
   OperationAcceptedResponse as BackendOperationAcceptedResponse,
   OrientationInfo as BackendOrientationInfo,
   ScaleBarInfo as BackendScaleBarInfo,
@@ -13,7 +15,19 @@ import type {
   ViewHoverResponse as BackendViewHoverResponse
 } from '@shared/generated/backendApi'
 
-export type FolderSeriesItem = BackendSeriesSummary
+export type FolderSeriesItem = BackendSeriesSummary & {
+  thumbnailUrl?: string
+  isFourDSeries?: boolean
+  fourDPhaseCount?: number | null
+  fourDPhases?: FourDPhaseItem[] | null
+}
+
+export function isFourDSeriesItem(
+  series: Pick<FolderSeriesItem, 'isFourDSeries' | 'fourDPhaseCount' | 'fourDPhases'> | null | undefined
+): boolean {
+  return Boolean(series?.isFourDSeries || series?.fourDPhaseCount || series?.fourDPhases?.length)
+}
+
 export type LoadFolderResponse = BackendLoadFolderResponse
 export type ViewCreateResponse = BackendViewCreateResponse
 
@@ -37,10 +51,21 @@ export interface WorkspaceReadyPayload {
 }
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
-export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle'
+export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
+export type MprCrosshairInteractionMode = 'move' | 'rotate'
+export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
 export type AnnotationToolType = 'arrow'
 export type AnnotationSize = 'sm' | 'md' | 'lg'
 export type MprMipAlgorithm = 'maximum' | 'minimum' | 'average' | 'sum'
+
+export interface MprCrosshairInteractionPayload {
+  viewportKey: string
+  phase: 'start' | 'move' | 'end'
+  x: number
+  y: number
+  mode?: MprCrosshairInteractionMode
+  line?: MprCrosshairLineTarget
+}
 
 export type MeasurementDraftPoint = BackendMeasurementPointPayload
 
@@ -172,6 +197,69 @@ export interface ViewerMtfState {
   selectedMtfId?: string | null
 }
 
+export interface FourDPhaseItem {
+  phaseIndex: number
+  label: string
+  seriesId?: string | null
+  imageSrc?: string
+  viewportImages?: Partial<Record<MprViewportKey, string>>
+  status?: 'pending' | 'ready' | 'error'
+}
+
+export type FourDPhaseLoadStatus = 'pending' | 'preview' | 'loading' | 'ready' | 'error'
+
+export interface FourDPhaseCacheItem {
+  status: FourDPhaseLoadStatus
+  viewportImages?: Partial<Record<MprViewportKey, string>>
+  viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
+  viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
+  viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
+  viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
+  viewportMeasurements?: Partial<Record<MprViewportKey, MeasurementOverlay[]>>
+  viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
+  viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
+  viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
+  viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
+  mprCursor?: MprCursorInfo | null
+  mprFrame?: MprFrameInfo | null
+  windowLabel?: string
+}
+
+export interface FourDPhasesResponse {
+  seriesId: string
+  isFourDSeries: boolean
+  fourDPhaseCount: number
+  fourDPhases: FourDPhaseItem[]
+}
+
+export interface FourDPlaybackStartRequest {
+  tabKey: string
+  phaseIndex: number
+  phaseCount: number
+  fps: number
+}
+
+export interface FourDPlaybackStopRequest {
+  tabKey: string
+}
+
+export interface FourDPlaybackFpsRequest {
+  tabKey: string
+  fps: number
+}
+
+export interface FourDPlaybackPhaseEvent {
+  tabKey: string
+  phaseIndex: number
+}
+
+export interface FourDPlaybackStateEvent {
+  tabKey: string
+  isPlaying: boolean
+  fps?: number | null
+  phaseIndex?: number | null
+}
+
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
 
 export interface QaWaterRoi {
@@ -257,7 +345,9 @@ export interface MtfAnalyzeResponse {
 }
 
 export type MprCrosshairInfo = BackendMprCrosshairInfo
+export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
+export type MprPlaneInfo = BackendMprPlaneInfo
 export type ScaleBarInfo = BackendScaleBarInfo
 export type OrientationInfo = BackendOrientationInfo
 
@@ -314,6 +404,8 @@ export interface ViewImageResponse {
     wl?: number | null
   }
   mprFrame?: MprFrameInfo | null
+  mprPlane?: MprPlaneInfo | null
+  mprCursor?: MprCursorInfo | null
   mpr_crosshair?: MprCrosshairInfo | null
   scaleBar?: ScaleBarInfo | null
   measurements?: MeasurementOverlay[]
@@ -360,7 +452,9 @@ export interface ViewerTabItem {
   viewportViewIds?: Partial<Record<MprViewportKey, string>>
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
+  mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
+  viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
   viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
   measurements?: MeasurementOverlay[]
@@ -388,6 +482,14 @@ export interface ViewerTabItem {
   tagInstanceNumber?: number | null
   tagIsLoading?: boolean
   tagLoadError?: string | null
+  fourDPhaseIndex?: number
+  fourDPhaseCount?: number
+  fourDPhaseItems?: FourDPhaseItem[]
+  fourDPlaybackFps?: number
+  fourDPhaseViewIds?: Record<string, Partial<Record<MprViewportKey, string>>>
+  fourDPhaseCache?: Record<string, FourDPhaseCacheItem>
+  fourDIsPlaying?: boolean
+  fourDIsPreloading?: boolean
 }
 
 export interface ViewerOperationItem {
@@ -397,4 +499,4 @@ export interface ViewerOperationItem {
 }
 
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'MPR' | '3D' | 'Tag'
+export type ViewType = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag'

@@ -9,6 +9,7 @@ import type {
   MeasurementOverlay,
   MprCrosshairInfo,
   MprFrameInfo,
+  MprPlaneInfo,
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
@@ -47,6 +48,7 @@ const props = withDefaults(
     loadingLabel?: string
     mprCrosshair?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
+    mprPlane?: MprPlaneInfo | null
     orientation: OrientationInfo
     placeholder: string
     renderSurfaceActive?: boolean
@@ -68,6 +70,7 @@ const props = withDefaults(
     loadingLabel: '正在加载视图...',
     mprCrosshair: null,
     mprFrame: null,
+    mprPlane: null,
     qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
@@ -83,7 +86,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   copySelectedMtf: [viewportKey: string]
-  deleteSelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
   clickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
@@ -113,6 +116,13 @@ const imageFrame = ref({
   width: 0,
   height: 0
 })
+
+const measurementFrame = computed(() => ({
+  left: 0,
+  top: 0,
+  width: toStablePixel(stageSize.value.width),
+  height: toStablePixel(stageSize.value.height)
+}))
 
 function toStablePixel(value: number): number {
   return Number.isFinite(value) ? Math.round(value) : 0
@@ -327,6 +337,7 @@ watch(
         :image-frame="imageFrame"
         :mpr-crosshair="mprCrosshair"
         :mpr-frame="mprFrame"
+        :mpr-plane="mprPlane"
         :viewport-key="viewportKey"
         :is-active="isActive"
       />
@@ -341,9 +352,9 @@ watch(
         :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
-        :image-frame="imageFrame"
+        :image-frame="measurementFrame"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
-        @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey)"
+        @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"
       />
       <ViewportAnnotationOverlay
         :focus-state="getOverlayFocusState('annotation')"

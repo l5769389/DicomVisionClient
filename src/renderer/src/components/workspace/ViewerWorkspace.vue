@@ -10,6 +10,7 @@ import type {
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementOverlay,
+  MprCrosshairInteractionPayload,
   MprMipConfig,
   QaWaterAnalysis,
   QaWaterMetricKey,
@@ -18,11 +19,13 @@ import type {
   WorkspaceReadyPayload
 } from '../../types/viewer'
 import { findArrowAnnotationAtPoint, isValidArrowAnnotation, translateAnnotationPoints, updateEditedArrowPoints } from '../../composables/annotations/annotationGeometry'
+import { getSmoothCurveSegments } from '../../composables/measurements/measurementGeometry'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
+import FourDView from '../viewer/views/FourDView.vue'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
 import DicomTagView from '../viewer/views/DicomTagView.vue'
@@ -57,10 +60,10 @@ const emit = defineEmits<{
   activateTab: [tabKey: string]
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
-  measurementDraft: [payload: { viewportKey: string; toolType: 'line' | 'rect' | 'ellipse' | 'angle'; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
+  measurementDraft: [payload: { viewportKey: string; toolType: MeasurementDraft['toolType']; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
   measurementCreate: [payload: {
     viewportKey: string
-    toolType: 'line' | 'rect' | 'ellipse' | 'angle'
+    toolType: MeasurementDraft['toolType']
     points: { x: number; y: number }[]
     measurementId?: string
     labelLines?: string[]
@@ -72,7 +75,10 @@ const emit = defineEmits<{
   mtfCopy: [payload?: { mtfId?: string | null }]
   mtfDelete: [payload?: { mtfId?: string | null }]
   mtfSelect: [payload: { mtfId: string | null }]
-  mprCrosshair: [payload: { viewportKey: string; phase: 'start' | 'move' | 'end'; x: number; y: number; mode?: 'move' | 'rotate'; line?: 'horizontal' | 'vertical'; angleRad?: number }]
+  mprCrosshair: [payload: MprCrosshairInteractionPayload]
+  fourDPhaseChange: [payload: { tabKey: string; phaseIndex: number }]
+  fourDFpsChange: [payload: { tabKey: string; fps: number }]
+  fourDPlaybackChange: [payload: { tabKey: string; isPlaying: boolean }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
@@ -100,6 +106,7 @@ const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
 const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
 const ANNOTATION_DRAG_START_THRESHOLD = 3
+const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
 
 type AnnotationInteractionState =
   | { kind: 'idle' }
@@ -126,6 +133,7 @@ const {
   copySelectedMeasurement,
   deleteSelectedMeasurement,
   draftMeasurements,
+  finishPointSequenceMeasurement,
   getMtfDraft,
   getMtfDraftMode,
   getDraftMeasurementMode,
@@ -144,8 +152,11 @@ const {
   emitActiveViewportChange: (viewportKey) => emit('activeViewportChange', viewportKey),
   emitOperationChange: (value) => emit('setActiveOperation', value),
   emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
-  emitMeasurementCreate: (payload) => emit('measurementCreate', payload),
-  emitMeasurementDelete: (payload) => emit('measurementDelete', payload),
+  emitMeasurementCreate: (payload) => {
+    clearMeasurementPendingDelete(payload.viewportKey, payload.measurementId)
+    emit('measurementCreate', payload)
+  },
+  emitMeasurementDelete: emitMeasurementDeleteRequest,
   emitMtfCommit: (payload) => emit('mtfCommit', payload),
   emitMtfDelete: (payload) => emit('mtfDelete', payload),
   emitMtfSelect: (payload) => emit('mtfSelect', payload),
@@ -338,6 +349,29 @@ function drawLabel(context: CanvasRenderingContext2D, lines: string[], x: number
   context.restore()
 }
 
+function drawSmoothMeasurementPath(context: CanvasRenderingContext2D, points: MeasurementDraftPoint[], closePath = false): void {
+  if (points.length < 2) {
+    return
+  }
+
+  context.beginPath()
+  context.moveTo(points[0].x, points[0].y)
+  getSmoothCurveSegments(points, closePath).forEach((segment) => {
+    context.bezierCurveTo(
+      segment.controlPoint1.x,
+      segment.controlPoint1.y,
+      segment.controlPoint2.x,
+      segment.controlPoint2.y,
+      segment.end.x,
+      segment.end.y
+    )
+  })
+  if (closePath) {
+    context.closePath()
+  }
+  context.stroke()
+}
+
 function drawMeasurements(context: CanvasRenderingContext2D, measurements: MeasurementOverlay[], width: number, height: number): void {
   measurements.forEach((measurement) => {
     const points = measurement.points.map((point) => canvasPoint(point, width, height))
@@ -377,6 +411,10 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
           context.lineTo(points[2].x, points[2].y)
         }
         context.stroke()
+      } else if (measurement.toolType === 'curve' && points.length >= 2) {
+        drawSmoothMeasurementPath(context, points)
+      } else if (measurement.toolType === 'freeform' && points.length >= 3) {
+        drawSmoothMeasurementPath(context, points, true)
       }
     }
 
@@ -385,7 +423,9 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
     context.lineWidth = 2.5
     drawShape()
 
-    const anchor = points[1] ?? points[0]
+    const anchor = measurement.toolType === 'curve'
+      ? points[points.length - 1] ?? points[0]
+      : points[1] ?? points[0]
     drawLabel(context, measurement.labelLines ?? [], anchor.x + 12, anchor.y - 32, width)
     context.restore()
   })
@@ -461,6 +501,10 @@ function hasCornerInfo(cornerInfo: CornerInfo | null | undefined): boolean {
   return [cornerInfo.topLeft, cornerInfo.topRight, cornerInfo.bottomLeft, cornerInfo.bottomRight].some((lines) =>
     lines.some((line) => line.trim())
   )
+}
+
+function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | null | undefined): boolean {
+  return viewType === 'MPR' || viewType === '4D'
 }
 
 function drawCornerInfo(context: CanvasRenderingContext2D, cornerInfo: CornerInfo, width: number, height: number): void {
@@ -551,7 +595,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
       return
     }
 
-    const exportViewportKey = props.activeTab?.viewType === 'MPR' ? activeViewportKey.value : 'single'
+    const exportViewportKey = isMprLikeViewType(props.activeTab?.viewType) ? activeViewportKey.value : 'single'
     const defaultFileNameStem = buildExportFileStem(props.activeTab, activeViewportKey.value)
     let customFileNameStem: string | null = null
     if (!exportPreference.value.useDefaultFileName) {
@@ -563,7 +607,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
 
     const overlays: ViewerExportOverlays = {
       annotations: getAnnotations(exportViewportKey),
-      cornerInfo: props.activeTab?.viewType === 'MPR' ? getMprCornerInfo(exportViewportKey) : props.activeTab.cornerInfo,
+      cornerInfo: isMprLikeViewType(props.activeTab?.viewType) ? getMprCornerInfo(exportViewportKey) : props.activeTab.cornerInfo,
       measurements: getExportMeasurements(exportViewportKey)
     }
     const exportOverlays: ViewerExportOverlays =
@@ -607,7 +651,7 @@ function createAnnotationId(): string {
 
 function isAnnotationOperationEnabled(): boolean {
   return (
-    (props.activeTab?.viewType === 'Stack' || props.activeTab?.viewType === 'MPR') &&
+    (props.activeTab?.viewType === 'Stack' || isMprLikeViewType(props.activeTab?.viewType)) &&
     props.activeOperation.startsWith('stack:annotate')
   )
 }
@@ -727,7 +771,7 @@ function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
   if (!props.activeTab) {
     return []
   }
-  if (props.activeTab.viewType === 'MPR') {
+  if (isMprLikeViewType(props.activeTab.viewType)) {
     return props.activeTab.viewportMeasurements?.[viewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? []
   }
   return props.activeTab.measurements ?? []
@@ -737,11 +781,15 @@ function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverla
   const committedMeasurements = getCommittedMeasurements(viewportKey)
   const draft = draftMeasurements.value[viewportKey]
   const editingMeasurementId = draft?.measurementId
+  const pendingDeletedIds = new Set(pendingDeletedMeasurementIds.value[viewportKey] ?? [])
+  const visibleCommittedMeasurements = pendingDeletedIds.size
+    ? committedMeasurements.filter((measurement) => !pendingDeletedIds.has(measurement.measurementId))
+    : committedMeasurements
   if (!editingMeasurementId) {
-    return committedMeasurements.map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
+    return visibleCommittedMeasurements.map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
   }
 
-  return committedMeasurements
+  return visibleCommittedMeasurements
     .filter((measurement) => measurement.measurementId !== editingMeasurementId)
     .map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
 }
@@ -1279,8 +1327,70 @@ function handleCopySelectedMeasurement(viewportKey: string): void {
   void copySelectedMeasurement(viewportKey)
 }
 
-function handleDeleteSelectedMeasurement(viewportKey: string): void {
-  void deleteSelectedMeasurement(viewportKey)
+function markMeasurementPendingDelete(viewportKey: string, measurementId: string): void {
+  const nextIds = new Set(pendingDeletedMeasurementIds.value[viewportKey] ?? [])
+  nextIds.add(measurementId)
+  pendingDeletedMeasurementIds.value = {
+    ...pendingDeletedMeasurementIds.value,
+    [viewportKey]: Array.from(nextIds)
+  }
+}
+
+function clearMeasurementPendingDelete(viewportKey: string, measurementId: string | undefined): void {
+  if (!measurementId) {
+    return
+  }
+  pendingDeletedMeasurementIds.value = {
+    ...pendingDeletedMeasurementIds.value,
+    [viewportKey]: (pendingDeletedMeasurementIds.value[viewportKey] ?? []).filter((id) => id !== measurementId)
+  }
+}
+
+function clearLocalDraftMeasurement(viewportKey: string): void {
+  draftMeasurements.value = {
+    ...draftMeasurements.value,
+    [viewportKey]: null
+  }
+}
+
+function emitMeasurementDeleteRequest(payload: { viewportKey: string; measurementId: string }): void {
+  markMeasurementPendingDelete(payload.viewportKey, payload.measurementId)
+  emit('measurementDelete', payload)
+}
+
+function deleteSelectedMeasurementFromViewport(viewportKey?: string, measurementId?: string): boolean {
+  const targetViewportKey = viewportKey ?? activeViewportKey.value
+  const beforeDraft = draftMeasurements.value[targetViewportKey]
+  const targetMeasurementId = measurementId?.trim() || beforeDraft?.measurementId
+  if (targetMeasurementId) {
+    markMeasurementPendingDelete(targetViewportKey, targetMeasurementId)
+  }
+  const deleted = deleteSelectedMeasurement(targetViewportKey, targetMeasurementId)
+  if (targetMeasurementId) {
+    clearLocalDraftMeasurement(targetViewportKey)
+  }
+  const afterDraft = draftMeasurements.value[targetViewportKey]
+  const deletedMeasurementId = targetMeasurementId ?? (
+    beforeDraft?.measurementId !== afterDraft?.measurementId ? beforeDraft?.measurementId : undefined
+  )
+  if (deletedMeasurementId) {
+    markMeasurementPendingDelete(targetViewportKey, deletedMeasurementId)
+    if (!deleted) {
+      emitMeasurementDeleteRequest({
+        viewportKey: targetViewportKey,
+        measurementId: deletedMeasurementId
+      })
+    }
+  }
+  return deleted || Boolean(deletedMeasurementId)
+}
+
+function handleDeleteSelectedMeasurement(viewportKey: string, measurementId?: string): void {
+  void deleteSelectedMeasurementFromViewport(viewportKey, measurementId)
+}
+
+function handleDeleteSelectedMeasurementHotkey(): boolean {
+  return deleteSelectedMeasurementFromViewport(activeViewportKey.value)
 }
 
 function handleSelectMtf(payload: { mtfId: string | null }): void {
@@ -1378,7 +1488,7 @@ useWorkspaceHotkeys({
   copySelectedMeasurement,
   copySelectedMtf: () => runSelectedMtfAction((mtfId) => emit('mtfCopy', { mtfId })),
   deleteSelectedAnnotation,
-  deleteSelectedMeasurement,
+  deleteSelectedMeasurement: handleDeleteSelectedMeasurementHotkey,
   deleteSelectedMtf: () => runSelectedMtfAction((mtfId) => {
     isMtfCurveDialogOpen.value = false
     emit('mtfDelete', { mtfId })
@@ -1386,6 +1496,7 @@ useWorkspaceHotkeys({
   exportCurrentView: (format) => {
     void handleExportCurrentView(format)
   },
+  finishPointSequenceMeasurement,
   quickPreviewSelectedSeries: () => emit('quickPreviewSelectedSeries'),
   selectedSeriesId: selectedSeriesIdRef,
   tagIndexChange: (payload) => emit('tagIndexChange', payload),
@@ -1439,7 +1550,7 @@ onBeforeUnmount(() => {
       />
 
       <ViewerToolbar
-        v-if="activeTab && activeTab.viewType !== 'Tag'"
+        v-if="activeTab && activeTab.viewType !== 'Tag' && activeTab.viewType !== '4D'"
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="areToolbarActionsDisabled"
@@ -1481,7 +1592,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="activeTab.viewType === 'MPR' && isMprMipPanelOpen && activeMprMipConfig"
+          v-if="(activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
           class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
         >
           <MprMipConfigPanel
@@ -1574,6 +1685,57 @@ onBeforeUnmount(() => {
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"
+        />
+
+        <FourDView
+          v-else-if="activeTab.viewType === '4D'"
+          :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :active-tools="activeTools"
+          :are-toolbar-actions-disabled="areToolbarActionsDisabled"
+          :get-annotations="getViewportAnnotations"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          :get-mtf-draft-mode="getViewportMtfDraftMode"
+          :get-mtf-draft="getViewportMtfDraft"
+          :get-mtf-items="getViewportMtfItems"
+          :selected-mtf-id="selectedMtfId"
+          :get-corner-info="getMprCornerInfo"
+          :is-tool-selected="isToolSelected"
+          :menu-icon-size="menuIconSize"
+          :open-menu-key="openMenuKey"
+          :stack-tool-selections="stackToolSelections"
+          :toggle-icon-size="toggleIconSize"
+          :toolbar-icon-size="toolbarIconSize"
+          @apply-tool="applyTool"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
+          @clear-mtf="handleDeleteSelectedMtf"
+          @copy-selected-mtf="handleCopySelectedMtf"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
+          @open-mtf-curve="handleOpenMtfCurve"
+          @select-mtf="handleSelectMtf"
+          @viewport-click="handleViewportClick"
+          @viewport-wheel="handleViewportWheel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
+          @select-tool-option="selectToolOption"
+          @set-menu-open="setMenuOpen"
+          @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
+          @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
+          @playback-change="emit('fourDPlaybackChange', { tabKey: activeTab.key, isPlaying: $event })"
         />
 
         <DicomTagView

@@ -59,13 +59,14 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
 
   function handleHoverViewportChange(payload: { viewportKey: string; x: number | null; y: number | null }): void {
     const tab = options.activeTab.value
-    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'MPR')) {
+    const isMprLikeView = tab?.viewType === 'MPR' || tab?.viewType === '4D'
+    if (!tab || (tab.viewType !== 'Stack' && !isMprLikeView)) {
       return
     }
 
     const resolvedViewportKey = payload.viewportKey || options.activeViewportKey.value
     const viewId =
-      tab.viewType === 'MPR' ? tab.viewportViewIds?.[resolvedViewportKey as MprViewportKey] ?? '' : tab.viewId
+      isMprLikeView ? tab.viewportViewIds?.[resolvedViewportKey as MprViewportKey] ?? '' : tab.viewId
     if (!viewId) {
       return
     }

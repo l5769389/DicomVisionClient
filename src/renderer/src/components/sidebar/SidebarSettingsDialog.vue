@@ -77,6 +77,14 @@ const themePresets: ThemePreset[] = [
     summaryZh: '浅灰白底配冷蓝强调，更适合明亮环境和演示场景',
     summaryEn: 'Soft light surfaces with restrained blue accents for bright rooms and demos',
     preview: 'linear-gradient(135deg,#f7fbff 0%,#e8f1f8 42%,#d7e5f2 72%,#6aaed6 100%)'
+  },
+  {
+    id: 'industrial-utility',
+    labelZh: '工业实用风',
+    labelEn: 'Industrial Utility',
+    summaryZh: '石墨黑面板、钢蓝高亮与低装饰层次，贴近 PACS 工作台质感',
+    summaryEn: 'Graphite panels, steel-blue highlights, and restrained workstation contrast',
+    preview: 'linear-gradient(135deg,#05080b 0%,#111820 42%,#202a32 72%,#6fa9c4 100%)'
   }
 ]
 
@@ -111,9 +119,9 @@ function createDefaultQaWaterMetrics(): QaWaterMetricPreference[] {
 
 function createDefaultCrosshairConfigs(): CrosshairViewportConfig[] {
   return [
-    { key: 'mpr-ax', label: 'AX', color: '#22c55e', thickness: 2 },
-    { key: 'mpr-cor', label: 'COR', color: '#3b82f6', thickness: 2 },
-    { key: 'mpr-sag', label: 'SAG', color: '#ef4444', thickness: 2 }
+    { key: 'mpr-ax', label: 'AX', color: '#ef4444', thickness: 2 },
+    { key: 'mpr-cor', label: 'COR', color: '#22c55e', thickness: 2 },
+    { key: 'mpr-sag', label: 'SAG', color: '#3b82f6', thickness: 2 }
   ]
 }
 

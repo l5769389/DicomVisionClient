@@ -1,8 +1,38 @@
 import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
-import type { MeasurementDraftPayload, MeasurementDraftPoint, MprMipOperationConfig, ViewHoverPayload, VolumeRenderConfig } from '../types/viewer'
+import type {
+  FourDPlaybackFpsRequest,
+  FourDPlaybackPhaseEvent,
+  FourDPlaybackStartRequest,
+  FourDPlaybackStateEvent,
+  FourDPlaybackStopRequest,
+  MeasurementDraftPayload,
+  MeasurementDraftPoint,
+  MprMipOperationConfig,
+  ViewHoverPayload,
+  ViewHoverResponse,
+  ViewImageResponse,
+  VolumeRenderConfig
+} from '../types/viewer'
 
 type ViewActionType = DragActionType | 'delete'
+type SocketAckCallback = (error: Error | null, response?: SocketAckPayload) => void
+type ImageUpdateSocketArgs =
+  | [payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array]
+  | [message: [Partial<ViewImageResponse>, ArrayBuffer | Uint8Array]]
+
+interface SocketAckPayload {
+  ok?: boolean
+}
+
+interface SocketErrorPayload {
+  message?: string
+}
+
+interface BindViewPayload {
+  viewId: string
+  render?: boolean
+}
 
 export interface ViewOperationPayload {
   viewId: string
@@ -13,7 +43,6 @@ export interface ViewOperationPayload {
   x?: number
   y?: number
   line?: 'horizontal' | 'vertical'
-  angleRad?: number
   points?: MeasurementDraftPoint[]
   viewportKey?: string
   zoom?: number
@@ -23,6 +52,7 @@ export interface ViewOperationPayload {
   wl?: number
   pseudocolorPreset?: string
   mprMipConfig?: MprMipOperationConfig
+  sourceViewId?: string
   hor_flip?: boolean
   ver_flip?: boolean
   volumeConfig?: VolumeRenderConfig
@@ -30,10 +60,34 @@ export interface ViewOperationPayload {
 
 export type ViewOperationInput = Omit<ViewOperationPayload, 'viewId'>
 
-let socket: Socket | null = null
+export interface ServerToClientEvents {
+  connected: (payload: { sid: string }) => void
+  image_update: (...args: ImageUpdateSocketArgs) => void
+  image_error: (payload?: SocketErrorPayload) => void
+  render_error: (payload?: SocketErrorPayload) => void
+  hover_info: (payload?: ViewHoverResponse) => void
+  view_ack: (payload: { success?: boolean; message?: string; viewId?: string }) => void
+  view_bound: (payload: { viewId: string }) => void
+  measurement_draft: (payload: MeasurementDraftPayload) => void
+  four_d_phase_index: (payload?: FourDPlaybackPhaseEvent) => void
+  four_d_playback_state: (payload?: FourDPlaybackStateEvent) => void
+}
+
+interface ClientToServerEvents {
+  bind_view: (payload: BindViewPayload, callback?: SocketAckCallback) => void
+  view_operation: (payload: ViewOperationPayload, callback?: SocketAckCallback) => void
+  view_hover: (payload: ViewHoverPayload) => void
+  four_d_playback_start: (payload: FourDPlaybackStartRequest) => void
+  four_d_playback_stop: (payload: FourDPlaybackStopRequest) => void
+  four_d_playback_fps: (payload: FourDPlaybackFpsRequest) => void
+}
+
+export type ViewerSocket = Socket<ServerToClientEvents, ClientToServerEvents>
+
+let socket: ViewerSocket | null = null
 const measurementDraftHandlers = new Set<(payload: MeasurementDraftPayload) => void>()
 
-export function connectSocket(origin: string): Socket {
+export function connectSocket(origin: string): ViewerSocket {
   if (socket) {
     socket.disconnect()
   }
@@ -41,7 +95,7 @@ export function connectSocket(origin: string): Socket {
   socket = io(origin, {
     transports: ['websocket', 'polling'],
     forceNew: true
-  })
+  }) as ViewerSocket
   measurementDraftHandlers.forEach((handler) => {
     socket?.on('measurement_draft', handler)
   })
@@ -49,7 +103,7 @@ export function connectSocket(origin: string): Socket {
   return socket
 }
 
-export function getSocket(): Socket | null {
+export function getSocket(): ViewerSocket | null {
   return socket
 }
 
@@ -61,6 +115,28 @@ export function bindView(viewId: string): void {
   socket.emit('bind_view', { viewId })
 }
 
+export function bindViewSilently(viewId: string): void {
+  if (!socket || !viewId) {
+    return
+  }
+
+  socket.emit('bind_view', { viewId, render: false })
+}
+
+export function bindViewSilentlyWithAck(viewId: string, timeoutMs = 3000): Promise<boolean> {
+  if (!socket || !viewId) {
+    return Promise.resolve(false)
+  }
+
+  return new Promise((resolve) => {
+    socket
+      ?.timeout(timeoutMs)
+      .emit('bind_view', { viewId, render: false }, (error: Error | null, response?: { ok?: boolean }) => {
+        resolve(!error && response?.ok !== false)
+      })
+  })
+}
+
 export function emitViewOperation(payload: ViewOperationPayload): void {
   if (!socket || !payload.viewId) {
     return
@@ -68,11 +144,46 @@ export function emitViewOperation(payload: ViewOperationPayload): void {
   socket.emit('view_operation', payload)
 }
 
+export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutMs = 8000): Promise<boolean> {
+  if (!socket || !payload.viewId) {
+    return Promise.resolve(false)
+  }
+
+  return new Promise((resolve) => {
+    socket
+      ?.timeout(timeoutMs)
+      .emit('view_operation', payload, (error: Error | null, response?: { ok?: boolean }) => {
+        resolve(!error && response?.ok !== false)
+      })
+  })
+}
+
 export function emitViewHover(payload: ViewHoverPayload): void {
   if (!socket || !payload.viewId) {
     return
   }
   socket.emit('view_hover', payload)
+}
+
+export function emitFourDPlaybackStart(payload: FourDPlaybackStartRequest): void {
+  if (!socket || !payload.tabKey) {
+    return
+  }
+  socket.emit('four_d_playback_start', payload)
+}
+
+export function emitFourDPlaybackStop(payload: FourDPlaybackStopRequest): void {
+  if (!socket || !payload.tabKey) {
+    return
+  }
+  socket.emit('four_d_playback_stop', payload)
+}
+
+export function emitFourDPlaybackFps(payload: FourDPlaybackFpsRequest): void {
+  if (!socket || !payload.tabKey) {
+    return
+  }
+  socket.emit('four_d_playback_fps', payload)
 }
 
 export function onMeasurementDraft(handler: (payload: MeasurementDraftPayload) => void): void {

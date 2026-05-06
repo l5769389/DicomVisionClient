@@ -1,5 +1,5 @@
 import type { MprCrosshairInfo } from '../../types/viewer'
-import { normalizeDirectedCrosshairAngle, type CrosshairLineTarget, type MprViewportCrosshairGeometry } from '../workspace/views/mprFrameGeometry'
+import type { CrosshairLineTarget, MprViewportCrosshairGeometry } from '../workspace/views/mprFrameGeometry'
 
 const CROSSHAIR_LINE_HIT_TOLERANCE_PX = 6
 const CROSSHAIR_ROTATION_DEAD_ZONE_PX = 18
@@ -9,31 +9,6 @@ export type CrosshairHitTarget = 'center' | CrosshairLineTarget | 'none'
 interface NormalizedPoint {
   x: number
   y: number
-}
-
-interface CrosshairPointerGeometryInput {
-  containerRect: DOMRect
-  imageRect: DOMRect
-  geometry: MprViewportCrosshairGeometry
-}
-
-export function resolveCrosshairRotationPayload(
-  viewportPoint: NormalizedPoint,
-  input: CrosshairPointerGeometryInput
-): { angleRad: number; x: number; y: number } | null {
-  const { containerRect, imageRect, geometry } = input
-  if (!containerRect.width || !containerRect.height || !imageRect.width || !imageRect.height) {
-    return null
-  }
-  const pointerX = imageRect.left - containerRect.left + viewportPoint.x * imageRect.width
-  const pointerY = imageRect.top - containerRect.top + viewportPoint.y * imageRect.height
-  const centerX = imageRect.left - containerRect.left + geometry.center.x * imageRect.width
-  const centerY = imageRect.top - containerRect.top + geometry.center.y * imageRect.height
-  return {
-    angleRad: normalizeDirectedCrosshairAngle(Math.atan2(pointerY - centerY, pointerX - centerX)),
-    x: viewportPoint.x,
-    y: viewportPoint.y
-  }
 }
 
 export function resolveCrosshairHitTarget(input: {

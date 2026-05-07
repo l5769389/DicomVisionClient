@@ -390,6 +390,7 @@ watch(
           :active-tab="activeTab"
           :active-operation="interactionLocked ? '' : activeOperation"
           :active-viewport-key="activeViewportKey"
+          :allow-viewport-maximize="!interactionLocked"
           :get-annotations="getAnnotations"
           :get-cursor-class="getCursorClass"
           :get-draft-annotation="getDraftAnnotation"

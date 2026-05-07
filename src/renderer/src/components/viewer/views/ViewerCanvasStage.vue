@@ -89,6 +89,7 @@ const emit = defineEmits<{
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
   clickViewport: [viewportKey: string]
+  doubleClickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   imageLoaded: [viewportKey: string]
   openMtfCurve: []
@@ -304,6 +305,7 @@ watch(
     :data-active-viewport="isActive ? 'true' : 'false'"
     :data-viewport-key="viewportKey"
     @click="emit('clickViewport', viewportKey)"
+    @dblclick.stop="emit('doubleClickViewport', viewportKey)"
     @wheel.prevent="emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
     @pointerdown="handlePointerDown"
     @pointermove="handlePointerMove"

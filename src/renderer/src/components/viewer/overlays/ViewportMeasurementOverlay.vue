@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
+import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
 import { getSmoothCurveSegments, isValidMeasurement } from '../../../composables/measurements/measurementGeometry'
 import {
   getFinalizedPointSequencePoints,
@@ -35,9 +36,9 @@ interface ParsedLabelLine {
 }
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
-const committedStrokeInner = 'rgba(85,231,255,0.98)'
 const draftStrokeOuter = 'rgba(56,22,4,0.92)'
-const draftStrokeInner = 'rgba(255,184,77,0.98)'
+
+const { measurementStylePreference } = useUiPreferences()
 
 const props = withDefaults(
   defineProps<{
@@ -311,13 +312,9 @@ function getOuterStroke(measurement: RenderedMeasurement): string {
 }
 
 function getInnerStroke(measurement: RenderedMeasurement): string {
-  if (measurement.mode === 'moving') {
-    return 'rgba(255,224,130,1)'
-  }
-  if (measurement.mode === 'selected') {
-    return 'rgba(255,202,111,0.98)'
-  }
-  return measurement.mode === 'committed' ? committedStrokeInner : draftStrokeInner
+  return measurement.mode === 'committed'
+    ? measurementStylePreference.value.completedColor
+    : measurementStylePreference.value.editingColor
 }
 
 function getLabelClass(measurement: RenderedMeasurement): string {
@@ -336,11 +333,32 @@ function getLabelClass(measurement: RenderedMeasurement): string {
 }
 
 function getOuterStrokeDasharray(measurement: RenderedMeasurement): string | undefined {
-  return measurement.mode === 'draft' ? '10 7' : undefined
+  return getMeasurementLineStyle(measurement) === 'dash' ? getMeasurementDasharray(measurement) : undefined
 }
 
 function getInnerStrokeDasharray(measurement: RenderedMeasurement): string | undefined {
-  return measurement.mode === 'draft' ? '10 7' : undefined
+  return getMeasurementLineStyle(measurement) === 'dash' ? getMeasurementDasharray(measurement) : undefined
+}
+
+function getMeasurementLineStyle(measurement: RenderedMeasurement): 'solid' | 'dash' {
+  return measurement.mode === 'committed'
+    ? measurementStylePreference.value.completedLineStyle
+    : measurementStylePreference.value.editingLineStyle
+}
+
+function getInnerStrokeWidth(): number {
+  return measurementStylePreference.value.lineWidth
+}
+
+function getOuterStrokeWidth(): number {
+  return measurementStylePreference.value.lineWidth + 2.5
+}
+
+function getMeasurementDasharray(measurement: RenderedMeasurement): string {
+  const width = measurementStylePreference.value.lineWidth
+  const dash = measurement.mode === 'committed' ? Math.max(8, width * 4) : Math.max(10, width * 4)
+  const gap = Math.max(6, width * 2.8)
+  return `${dash} ${gap}`
 }
 
 function getHandleRadius(measurement: RenderedMeasurement): number {
@@ -348,7 +366,7 @@ function getHandleRadius(measurement: RenderedMeasurement): number {
 }
 
 function getHandleFill(measurement: RenderedMeasurement): string {
-  return measurement.mode === 'committed' ? 'white' : 'rgba(255,244,214,0.98)'
+  return measurement.mode === 'committed' ? 'white' : measurementStylePreference.value.editingColor
 }
 
 function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
@@ -360,12 +378,20 @@ function getShapeFill(measurement: RenderedMeasurement): string {
     return 'none'
   }
   if (measurement.mode === 'moving') {
-    return 'rgba(255,184,77,0.18)'
+    return hexToRgba(measurementStylePreference.value.editingColor, 0.18)
   }
   if (measurement.mode === 'selected') {
-    return 'rgba(255,184,77,0.1)'
+    return hexToRgba(measurementStylePreference.value.editingColor, 0.1)
   }
   return 'none'
+}
+
+function hexToRgba(color: string, opacity: number): string {
+  const normalized = /^#[\da-f]{6}$/i.test(color) ? color.slice(1) : 'ffb84d'
+  const red = parseInt(normalized.slice(0, 2), 16)
+  const green = parseInt(normalized.slice(2, 4), 16)
+  const blue = parseInt(normalized.slice(4, 6), 16)
+  return `rgba(${red},${green},${blue},${opacity})`
 }
 
 function parseLabelLine(line: string): ParsedLabelLine {
@@ -410,7 +436,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :x2="measurement.screenPoints[1].x"
             :y2="measurement.screenPoints[1].y"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
@@ -421,7 +447,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :x2="measurement.screenPoints[1].x"
             :y2="measurement.screenPoints[1].y"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
@@ -436,7 +462,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :height="measurement.rectBounds.height"
             :fill="getShapeFill(measurement)"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             stroke-linejoin="round"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
           />
@@ -447,7 +473,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :height="measurement.rectBounds.height"
             :fill="getShapeFill(measurement)"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
           />
@@ -461,7 +487,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :ry="measurement.rectBounds.height / 2"
             :fill="getShapeFill(measurement)"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
           />
           <ellipse
@@ -471,7 +497,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :ry="measurement.rectBounds.height / 2"
             :fill="getShapeFill(measurement)"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
           />
         </g>
@@ -484,7 +510,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :x2="measurement.screenPoints[1].x"
             :y2="measurement.screenPoints[1].y"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
@@ -496,7 +522,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :x2="measurement.screenPoints[1].x"
             :y2="measurement.screenPoints[1].y"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
@@ -508,7 +534,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :x2="measurement.screenPoints[2].x"
             :y2="measurement.screenPoints[2].y"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
@@ -520,7 +546,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :x2="measurement.screenPoints[2].x"
             :y2="measurement.screenPoints[2].y"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
@@ -532,7 +558,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :d="measurement.smoothPathD"
             fill="none"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
@@ -541,7 +567,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :d="measurement.smoothPathD"
             fill="none"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"
@@ -553,7 +579,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :d="measurement.smoothPathD"
             :fill="measurement.closesSmoothPath ? getShapeFill(measurement) : 'none'"
             :stroke="getOuterStroke(measurement)"
-            stroke-width="5"
+            :stroke-width="getOuterStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getOuterStrokeDasharray(measurement)"
@@ -562,7 +588,7 @@ function isKeyValueLabelLine(line: string): boolean {
             :d="measurement.smoothPathD"
             :fill="measurement.closesSmoothPath ? getShapeFill(measurement) : 'none'"
             :stroke="getInnerStroke(measurement)"
-            stroke-width="2.5"
+            :stroke-width="getInnerStrokeWidth()"
             stroke-linecap="round"
             stroke-linejoin="round"
             :stroke-dasharray="getInnerStrokeDasharray(measurement)"

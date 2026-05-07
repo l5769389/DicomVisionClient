@@ -4,6 +4,7 @@ import AppIcon from '../../AppIcon.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 defineProps<{
   activeTab: ViewerTabItem
@@ -27,33 +28,38 @@ const emit = defineEmits<{
   selectToolOption: [tool: StackTool, optionValue: string]
   setMenuOpen: [toolKey: string | null]
 }>()
+
+const { toolbarCopy: copy } = useUiLocale()
 </script>
 
 <template>
   <VCard
-    class="flex min-h-10 shrink-0 items-center justify-start overflow-visible rounded-2xl!"
-    :class="embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'theme-shell-panel border! px-3! py-2!'"
+    class="viewer-toolbar-card flex min-h-10 shrink-0 items-center justify-start overflow-visible rounded-2xl!"
+    :class="[
+      embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'theme-shell-panel border! px-3! py-2!',
+      areToolbarActionsDisabled ? 'viewer-toolbar-card--locked' : ''
+    ]"
   >
     <div class="flex flex-1 flex-wrap items-center justify-start gap-2 overflow-visible">
       <div
         v-for="tool in activeTools"
         :key="tool.key"
-        class="relative flex items-center overflow-visible"
+        class="toolbar-tool-group relative flex items-center overflow-visible"
         :class="tool.key === 'play' ? (activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused) ? 'rounded-2xl border border-[var(--theme-border-strong)]' : '') : tool.options ? 'rounded-2xl border border-[var(--theme-border-soft)]' : ''"
       >
         <template v-if="tool.key === 'play' && activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused)">
           <VBtn
             variant="flat"
-            class="inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-l-2xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
-            :title="isPlaying ? '暂停播放' : '继续播放'"
+            class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-l-2xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
+            :title="isPlaying ? copy.pausePlayback : copy.resumePlayback"
             @click="emit('pausePlayback')"
           >
             <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="toolbarIconSize" />
           </VBtn>
           <VBtn
             variant="flat"
-            class="inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-r-2xl! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
-            title="停止播放"
+            class="toolbar-playback-button toolbar-playback-button--stop inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-r-2xl! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
+            :title="copy.stopPlayback"
             @click="emit('endPlayback')"
           >
             <AppIcon name="stop" :size="toolbarIconSize" />
@@ -65,7 +71,7 @@ const emit = defineEmits<{
             variant="flat"
             type="button"
             class="theme-button-secondary inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-2xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
-            :disabled="areToolbarActionsDisabled && tool.key !== 'play'"
+            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && activeTab.viewType === 'Stack')"
             :active="isToolSelected(tool)"
             :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) }"
             :title="tool.label"
@@ -96,10 +102,10 @@ const emit = defineEmits<{
               <VBtn
                 v-bind="menuProps"
                 variant="flat"
-                class="theme-button-secondary inline-flex! h-10! w-7! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-2xl! border-y! border-r! border-l! border-l-white/10! transition hover:brightness-110"
+                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-10! w-7! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-2xl! border-y! border-r! border-l! border-l-white/10! transition hover:brightness-110"
                 :disabled="areToolbarActionsDisabled"
                 :aria-expanded="openMenuKey === tool.key"
-                :title="`${tool.label}选项`"
+                :title="copy.toolOptions(tool.label)"
               >
                 <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
               </VBtn>
@@ -121,20 +127,20 @@ const emit = defineEmits<{
                   {{ option.group }}
                 </div>
                 <div
-                  class="group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+                  class="toolbar-menu-option group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
                   :class="{
-                    'border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
+                    'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
                   }"
                   @click="emit('selectToolOption', tool, option.value)"
                 >
                   <div
-                    class="pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
+                    class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
                     :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
                   />
                   <div class="flex items-center justify-between gap-3">
                     <div class="flex min-w-0 items-center gap-4">
                       <div
-                        class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
+                        class="toolbar-menu-option__icon flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
                         :class="{
                           'w-[54px] rounded-[18px]': tool.key === 'pseudocolor',
                           'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel)_90%))]': stackToolSelections[tool.key] === option.value
@@ -161,7 +167,7 @@ const emit = defineEmits<{
                     </div>
                     <span
                       v-if="option.badge"
-                      class="shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
+                      class="toolbar-menu-option__badge shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
                     >
                       {{ option.badge }}
                     </span>

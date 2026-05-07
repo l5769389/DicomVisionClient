@@ -2,9 +2,10 @@ export type UiLocale = 'zh-CN' | 'en-US'
 
 export interface SettingsCopy {
   title: string
-  sectionLabel: string
   reset: string
   applyDraft: string
+  clear: string
+  selectAll: string
   language: string
   languageSub: string
   shortcuts: string
@@ -18,8 +19,6 @@ export interface SettingsCopy {
   display: string
   displaySub: string
   shortcutsTitle: string
-  shortcutsDesc: string
-  editable: string
   navGroup: string
   measureGroup: string
   workspaceGroup: string
@@ -87,12 +86,19 @@ export interface SettingsCopy {
   scaleBarDesc: string
   scaleBarEnabled: string
   scaleBarColor: string
+  measurementStyleTitle: string
+  measurementStyleDesc: string
+  measurementEditingColor: string
+  measurementCompletedColor: string
+  measurementLineWidth: string
+  measurementEditingLineStyle: string
+  measurementCompletedLineStyle: string
+  measurementSolidLine: string
+  measurementDashedLine: string
   enabledLabel: string
   disabledLabel: string
-  scaleBarPreviewLabel: string
   roiStatsTitle: string
   roiStatsDesc: string
-  themeDesc: string
   pseudocolor: string
   crosshairViewport: string
   crosshairColor: string
@@ -105,10 +111,17 @@ export interface SettingsCopy {
   themePresetTitle: string
   zhCn: string
   enUs: string
-  crosshairPreviewLabel: string
+  customPresetLimit: (limit: number) => string
+  crosshairTitle: string
+  crosshairDesc: string
+  crosshairStyleTitle: string
 }
 
 export interface TagViewCopy {
+  tagHeader: string
+  nameHeader: string
+  vrHeader: string
+  valueHeader: string
   copy: string
   copyName: string
   copyRow: string
@@ -145,10 +158,154 @@ export interface WorkspaceExportCopy {
   exportedTo: (location: string) => string
 }
 
+export interface ToolbarCopy {
+  pausePlayback: string
+  resumePlayback: string
+  stopPlayback: string
+  toolOptions: (toolLabel: string) => string
+}
+
+export interface ViewerCopy {
+  active: string
+  loadingView: string
+  loadingMprView: string
+  loadingStackView: string
+  loadingVolumeView: string
+  stackPlaceholder: string
+  volumePlaceholder: string
+  viewportPreview: (label: string) => string
+  switchSlice: string
+  slice: string
+  playbackFps: string
+  loading4dPlayback: string
+  pause4dPlayback: string
+  play4dPlayback: string
+  loading: string
+  pause: string
+  play: string
+  loading4dPhases: string
+  playingMprToolsDisabled: string
+  preparing4dPhases: string
+  playingPhaseDetail: (phase: number, total: number, fps: number) => string
+  phasesQueued: (count: number) => string
+  playingFps: (fps: number) => string
+  playbackIdle4d: string
+  phaseLoadStatus: (runtime: string, loaded: number, loading: number, unloaded: number, failed: number) => string
+  playing: string
+  ready: string
+  phases: string
+  select4dFrame: (frame: number) => string
+  loaded: string
+  notLoaded: string
+}
+
+export interface OverlayCopy {
+  annotationPlaceholder: string
+  annotationStyle: string
+  color: string
+  size: string
+  copy: string
+  delete: string
+  copyAnnotation: string
+  deleteAnnotation: string
+  copyMeasurement: string
+  deleteMeasurement: string
+  mtfMetric: string
+  mtfDrawRoi: string
+  mtfCalculating: string
+  mtfFailed: string
+  mtfSelectedRoi: string
+  mtfRoi: string
+  viewMtfCurve: string
+  copyMtfRoi: string
+  deleteMtfRoi: string
+  mtfIncomplete: string
+  mtfSubmitting: string
+  mtfDrawGuide: string
+  mtfCurveTitle: string
+  curvePlot: string
+  normalizedMtfDesc: string
+  keyMetrics: string
+  readingGuide: string
+  closeMtfCurve: string
+  close: string
+  noCurveData: string
+  curveMarkersIncomplete: string
+  measuredFromCurrentRoi: string
+  mtfGuideIntro: string
+  mtf50Guide: string
+  mtf10Guide: string
+  qaWaterTitle: string
+  qaWaterLoading: string
+  qaWaterFailed: string
+  qaWaterDetectionFailed: string
+  qaWaterDismiss: string
+  qaAccuracy: string
+  qaUniformity: string
+  qaNoise: string
+  roiSize: string
+  roiArea: string
+  roi: string
+  mean: string
+  delta: string
+}
+
+export interface VolumeCopy {
+  parameters: string
+  tissue: string
+  lighting: string
+  windowWidth: string
+  windowLevel: string
+  opacity: string
+  enableShading: string
+  interpolation: string
+  ambient: string
+  diffuse: string
+  specular: string
+  roughness: string
+  nearest: string
+  linear: string
+  cubic: string
+  bone: string
+  blood: string
+  muscle: string
+  softTissue: string
+  lung: string
+  custom: string
+}
+
+export interface MprProjectionCopy {
+  title: string
+  subtitle: string
+  expand: string
+  collapse: string
+  disabled: string
+  enabled: string
+  nativeMpr: string
+  slabProjection: string
+  algorithm: string
+  maximumDesc: string
+  minimumDesc: string
+  averageDesc: string
+  sumDesc: string
+}
+
+export interface WorkspaceStatusCopy {
+  mtfAnalysisFailed: string
+  noUsableSeries: string
+  folderLoadFailed: string
+  tagLoadFailed: string
+  notFourDSeries: string
+  fourDMetadataUnavailable: string
+  openViewFailed: (viewType: string) => string
+  tabTitleConnector: string
+}
+
 export const uiMessages = {
   'zh-CN': {
     common: {
       connection: '连接',
+      diagnosticWorkspace: '诊断工作区',
       openSettings: '打开设置',
       collapseSidebar: '收起侧栏',
       expandSidebar: '展开侧栏',
@@ -185,9 +342,10 @@ export const uiMessages = {
     },
     settings: {
       title: '工作区设置',
-      sectionLabel: 'Section',
       reset: '恢复默认',
       applyDraft: '应用',
+      clear: '取消全选',
+      selectAll: '全选',
       language: '语言',
       languageSub: '界面语言与固定主题切换',
       shortcuts: '快捷键',
@@ -201,8 +359,6 @@ export const uiMessages = {
       display: '显示',
       displaySub: '十字线、比例尺、ROI 统计与伪彩',
       shortcutsTitle: '快捷键矩阵',
-      shortcutsDesc: '当前展示推荐快捷键布局。',
-      editable: '可编辑布局',
       navGroup: '视图导航',
       measureGroup: '标注测量',
       workspaceGroup: '工作区',
@@ -270,12 +426,19 @@ export const uiMessages = {
       scaleBarDesc: '比例尺会跟随当前图像的 spacing、缩放和旋转实时更新。',
       scaleBarEnabled: '启用比例尺',
       scaleBarColor: '比例尺颜色',
+      measurementStyleTitle: '测量样式',
+      measurementStyleDesc: '设置测量编辑中和完成后的显示颜色、线宽与线型。',
+      measurementEditingColor: '编辑中颜色',
+      measurementCompletedColor: '完成后颜色',
+      measurementLineWidth: '线段粗细',
+      measurementEditingLineStyle: '编辑中线型',
+      measurementCompletedLineStyle: '完成后线型',
+      measurementSolidLine: '实线',
+      measurementDashedLine: '虚线',
       enabledLabel: '已启用',
       disabledLabel: '已关闭',
-      scaleBarPreviewLabel: '预览显示的是当前比例尺样式，不影响实际长度计算。',
       roiStatsTitle: 'ROI 统计项',
       roiStatsDesc: '矩形、椭圆和自由选择 ROI 默认显示以下统计值。',
-      themeDesc: '当前提供多套预设主题，不支持自由混搭颜色。',
       pseudocolor: '默认伪彩',
       crosshairViewport: 'MPR 视口',
       crosshairColor: '颜色',
@@ -288,9 +451,16 @@ export const uiMessages = {
       themePresetTitle: '固定主题',
       zhCn: '简体中文',
       enUs: 'English',
-      crosshairPreviewLabel: '预览中显示的是该视口内实际联动的两条十字线'
+      customPresetLimit: (limit: number) => `最多只能保留 ${limit} 个自定义模板。`,
+      crosshairTitle: '十字线',
+      crosshairDesc: '设置 MPR 三个视图的十字线颜色和线宽，并在同一区域预览效果。',
+      crosshairStyleTitle: '十字线样式'
     } satisfies SettingsCopy,
     tagView: {
+      tagHeader: 'Tag',
+      nameHeader: 'Name',
+      vrHeader: 'VR',
+      valueHeader: 'Value',
       copy: '复制',
       copyName: '复制 Name',
       copyRow: '复制本行',
@@ -324,11 +494,150 @@ export const uiMessages = {
       unableToExport: '当前视图无法导出，请先打开可导出的图像视图。',
       sentToDownloads: (formatLabel: string) => `${formatLabel} 已交给浏览器下载。`,
       exportedTo: (location: string) => `已导出到 ${location}`
-    } satisfies WorkspaceExportCopy
+    } satisfies WorkspaceExportCopy,
+    toolbar: {
+      pausePlayback: '暂停播放',
+      resumePlayback: '继续播放',
+      stopPlayback: '停止播放',
+      toolOptions: (toolLabel: string) => `${toolLabel}选项`
+    } satisfies ToolbarCopy,
+    viewer: {
+      active: '当前',
+      loadingView: '正在加载视图...',
+      loadingMprView: '正在加载 MPR 视图...',
+      loadingStackView: '正在加载栈视图...',
+      loadingVolumeView: '正在加载 3D 视图...',
+      stackPlaceholder: '单视口预览',
+      volumePlaceholder: '3D 视图预留区域',
+      viewportPreview: (label: string) => `${label} 预览`,
+      switchSlice: '切换切片',
+      slice: '切片',
+      playbackFps: '4D 播放 FPS',
+      loading4dPlayback: '正在加载 4D 播放',
+      pause4dPlayback: '暂停 4D 播放',
+      play4dPlayback: '播放 4D',
+      loading: '加载中',
+      pause: '暂停',
+      play: '播放',
+      loading4dPhases: '正在加载 4D phases',
+      playingMprToolsDisabled: '播放中，MPR 工具已禁用',
+      preparing4dPhases: '正在准备 phase 视口，播放即将开始。',
+      playingPhaseDetail: (phase: number, total: number, fps: number) => `第 ${phase} / ${total} 帧正在以 ${fps} FPS 播放。`,
+      phasesQueued: (count: number) => `${count} 个 phase 已加入队列`,
+      playingFps: (fps: number) => `正在播放 ${fps} FPS`,
+      playbackIdle4d: '4D 播放空闲',
+      phaseLoadStatus: (runtime: string, loaded: number, loading: number, unloaded: number, failed: number) =>
+        `${runtime}。Phase 加载状态：${loaded} 已加载，${loading} 加载中，${unloaded} 未加载，${failed} 失败。`,
+      playing: '播放中',
+      ready: '就绪',
+      phases: '相位',
+      select4dFrame: (frame: number) => `选择 4D 第 ${frame} 帧`,
+      loaded: '已加载',
+      notLoaded: '未加载'
+    } satisfies ViewerCopy,
+    overlay: {
+      annotationPlaceholder: '标注',
+      annotationStyle: '标注样式',
+      color: '颜色',
+      size: '大小',
+      copy: '复制',
+      delete: '删除',
+      copyAnnotation: '复制标注',
+      deleteAnnotation: '删除标注',
+      copyMeasurement: '复制测量',
+      deleteMeasurement: '删除测量',
+      mtfMetric: 'MTF 指标',
+      mtfDrawRoi: '绘制 ROI',
+      mtfCalculating: '计算中',
+      mtfFailed: '分析失败',
+      mtfSelectedRoi: '已选中 ROI',
+      mtfRoi: 'MTF ROI',
+      viewMtfCurve: '查看 MTF 曲线',
+      copyMtfRoi: '复制 MTF ROI',
+      deleteMtfRoi: '删除 MTF ROI',
+      mtfIncomplete: '当前 ROI 的 MTF 分析未完成。',
+      mtfSubmitting: '正在提交当前 ROI，并等待返回 MTF 指标。',
+      mtfDrawGuide: '拖拽一个矩形 ROI 开始分析。当前视口可以保留多个 MTF ROI。',
+      mtfCurveTitle: 'MTF 曲线',
+      curvePlot: '曲线图',
+      normalizedMtfDesc: '归一化 MTF 随空间频率变化',
+      keyMetrics: '关键指标',
+      readingGuide: '阅读提示',
+      closeMtfCurve: '关闭 MTF 曲线',
+      close: '关闭',
+      noCurveData: '暂无曲线数据',
+      curveMarkersIncomplete: '曲线标记不完整',
+      measuredFromCurrentRoi: '基于当前 ROI 测量',
+      mtfGuideIntro: '曲线越高，表示在更细空间频率下保留的对比度越好。',
+      mtf50Guide: 'MTF50 反映中等对比度细节响应。',
+      mtf10Guide: 'MTF10 常用于极限分辨率参考。',
+      qaWaterTitle: '水模 QA',
+      qaWaterLoading: '正在分析水模 QA...',
+      qaWaterFailed: '水模 QA 分析失败，请确认图像包含完整水模后重试。',
+      qaWaterDetectionFailed: '水模 QA 检测失败',
+      qaWaterDismiss: '知道了',
+      qaAccuracy: '准确性',
+      qaUniformity: '均匀性',
+      qaNoise: '噪声',
+      roiSize: 'ROI 尺寸',
+      roiArea: 'ROI 面积',
+      roi: 'ROI',
+      mean: '均值',
+      delta: '偏差'
+    } satisfies OverlayCopy,
+    volume: {
+      parameters: '3D 参数',
+      tissue: '组织窗',
+      lighting: '灯光',
+      windowWidth: '窗宽',
+      windowLevel: '窗位',
+      opacity: '透明度',
+      enableShading: '开启阴影',
+      interpolation: '插值方式',
+      ambient: '环境光',
+      diffuse: '漫反射',
+      specular: '镜面反射',
+      roughness: '粗糙度',
+      nearest: '最临近',
+      linear: '线性',
+      cubic: '三次内插',
+      bone: '骨骼',
+      blood: '血液',
+      muscle: '肌肉',
+      softTissue: '软组织',
+      lung: '肺',
+      custom: '自定义'
+    } satisfies VolumeCopy,
+    mprProjection: {
+      title: 'MPR 投影',
+      subtitle: 'MIP 厚层预览',
+      expand: '展开 MIP 面板',
+      collapse: '收起 MIP 面板',
+      disabled: '关闭',
+      enabled: '开启',
+      nativeMpr: '原生 MPR',
+      slabProjection: '厚层投影',
+      algorithm: '算法',
+      maximumDesc: '突出高密度结构。',
+      minimumDesc: '突出低密度结构。',
+      averageDesc: '将厚层混合为更柔和的预览。',
+      sumDesc: '沿厚层累加体素强度。'
+    } satisfies MprProjectionCopy,
+    workspaceStatus: {
+      mtfAnalysisFailed: 'MTF 分析失败',
+      noUsableSeries: '所选文件夹中未找到可用序列。',
+      folderLoadFailed: '加载文件夹失败。',
+      tagLoadFailed: 'DICOM Tag 加载失败。',
+      notFourDSeries: '当前序列不是 4D 序列。',
+      fourDMetadataUnavailable: '当前序列没有可用的 4D phase 元数据。',
+      openViewFailed: (viewType: string) => `${viewType} 视图打开失败。`,
+      tabTitleConnector: '路'
+    } satisfies WorkspaceStatusCopy
   },
   'en-US': {
     common: {
       connection: 'Connection',
+      diagnosticWorkspace: 'Diagnostic Workspace',
       openSettings: 'Open Settings',
       collapseSidebar: 'Collapse Sidebar',
       expandSidebar: 'Expand Sidebar',
@@ -365,9 +674,10 @@ export const uiMessages = {
     },
     settings: {
       title: 'Workspace Settings',
-      sectionLabel: 'Section',
       reset: 'Reset',
       applyDraft: 'Apply',
+      clear: 'Clear',
+      selectAll: 'Select All',
       language: 'Language',
       languageSub: 'Language and preset themes',
       shortcuts: 'Shortcuts',
@@ -381,8 +691,6 @@ export const uiMessages = {
       display: 'Display',
       displaySub: 'Crosshair, scale bar, ROI stats, and pseudocolor',
       shortcutsTitle: 'Shortcut Matrix',
-      shortcutsDesc: 'Current recommended shortcut layout.',
-      editable: 'Editable Layout',
       navGroup: 'Navigation',
       measureGroup: 'Measurement',
       workspaceGroup: 'Workspace',
@@ -450,12 +758,19 @@ export const uiMessages = {
       scaleBarDesc: 'The scale bar updates from the current spacing, zoom, and rotation.',
       scaleBarEnabled: 'Enable Scale Bar',
       scaleBarColor: 'Scale Bar Color',
+      measurementStyleTitle: 'Measurement Style',
+      measurementStyleDesc: 'Set colors, stroke width, and line styles while editing and after completion.',
+      measurementEditingColor: 'Editing color',
+      measurementCompletedColor: 'Completed color',
+      measurementLineWidth: 'Line width',
+      measurementEditingLineStyle: 'Editing line style',
+      measurementCompletedLineStyle: 'Completed line style',
+      measurementSolidLine: 'Solid',
+      measurementDashedLine: 'Dashed',
       enabledLabel: 'Enabled',
       disabledLabel: 'Disabled',
-      scaleBarPreviewLabel: 'The preview only shows the visual style. The real length is computed from the current view.',
       roiStatsTitle: 'ROI Statistics',
       roiStatsDesc: 'Rectangle, ellipse, and freehand ROI will show these statistics by default.',
-      themeDesc: 'Choose from preset themes instead of mixing colors freely.',
       pseudocolor: 'Default Pseudocolor',
       crosshairViewport: 'MPR Viewport',
       crosshairColor: 'Color',
@@ -468,9 +783,16 @@ export const uiMessages = {
       themePresetTitle: 'Preset Themes',
       zhCn: '简体中文',
       enUs: 'English',
-      crosshairPreviewLabel: 'The preview shows the two linked lines that actually appear in this viewport'
+      customPresetLimit: (limit: number) => `Up to ${limit} custom templates can be saved.`,
+      crosshairTitle: 'Crosshair',
+      crosshairDesc: 'Configure crosshair color and thickness for the three MPR views, with preview in the same area.',
+      crosshairStyleTitle: 'Crosshair Style'
     } satisfies SettingsCopy,
     tagView: {
+      tagHeader: 'Tag',
+      nameHeader: 'Name',
+      vrHeader: 'VR',
+      valueHeader: 'Value',
       copy: 'Copy',
       copyName: 'Copy Name',
       copyRow: 'Copy Row',
@@ -504,7 +826,145 @@ export const uiMessages = {
       unableToExport: 'The current view cannot be exported. Open an exportable image view first.',
       sentToDownloads: (formatLabel: string) => `${formatLabel} was sent to the browser downloads.`,
       exportedTo: (location: string) => `Exported to ${location}`
-    } satisfies WorkspaceExportCopy
+    } satisfies WorkspaceExportCopy,
+    toolbar: {
+      pausePlayback: 'Pause playback',
+      resumePlayback: 'Resume playback',
+      stopPlayback: 'Stop playback',
+      toolOptions: (toolLabel: string) => `${toolLabel} options`
+    } satisfies ToolbarCopy,
+    viewer: {
+      active: 'Active',
+      loadingView: 'Loading view...',
+      loadingMprView: 'Loading MPR view...',
+      loadingStackView: 'Loading stack view...',
+      loadingVolumeView: 'Loading 3D view...',
+      stackPlaceholder: 'Single viewport preview',
+      volumePlaceholder: '3D view placeholder',
+      viewportPreview: (label: string) => `${label} preview`,
+      switchSlice: 'Switch slice',
+      slice: 'Slice',
+      playbackFps: '4D playback FPS',
+      loading4dPlayback: 'Loading 4D playback',
+      pause4dPlayback: 'Pause 4D playback',
+      play4dPlayback: 'Play 4D playback',
+      loading: 'Loading',
+      pause: 'Pause',
+      play: 'Play',
+      loading4dPhases: 'Loading 4D phases',
+      playingMprToolsDisabled: 'Playing, MPR tools disabled',
+      preparing4dPhases: 'Preparing phase viewports before playback starts.',
+      playingPhaseDetail: (phase: number, total: number, fps: number) => `Phase ${phase} of ${total} is playing at ${fps} FPS.`,
+      phasesQueued: (count: number) => `${count} phases queued`,
+      playingFps: (fps: number) => `Playing ${fps} FPS`,
+      playbackIdle4d: '4D playback idle',
+      phaseLoadStatus: (runtime: string, loaded: number, loading: number, unloaded: number, failed: number) =>
+        `${runtime}. Phase load status: ${loaded} loaded, ${loading} loading, ${unloaded} not loaded, ${failed} failed.`,
+      playing: 'Playing',
+      ready: 'Ready',
+      phases: 'Phases',
+      select4dFrame: (frame: number) => `Select 4D frame ${frame}`,
+      loaded: 'Loaded',
+      notLoaded: 'Not loaded'
+    } satisfies ViewerCopy,
+    overlay: {
+      annotationPlaceholder: 'Annotation',
+      annotationStyle: 'Annotation Style',
+      color: 'Color',
+      size: 'Size',
+      copy: 'Copy',
+      delete: 'Delete',
+      copyAnnotation: 'Copy annotation',
+      deleteAnnotation: 'Delete annotation',
+      copyMeasurement: 'Copy measurement',
+      deleteMeasurement: 'Delete measurement',
+      mtfMetric: 'MTF Metric',
+      mtfDrawRoi: 'Draw ROI',
+      mtfCalculating: 'Calculating',
+      mtfFailed: 'Analysis failed',
+      mtfSelectedRoi: 'Selected ROI',
+      mtfRoi: 'MTF ROI',
+      viewMtfCurve: 'View MTF curve',
+      copyMtfRoi: 'Copy MTF ROI',
+      deleteMtfRoi: 'Delete MTF ROI',
+      mtfIncomplete: 'MTF analysis for the current ROI is not complete.',
+      mtfSubmitting: 'Submitting the current ROI and waiting for MTF metrics.',
+      mtfDrawGuide: 'Drag a rectangular ROI to start analysis. This viewport can keep multiple MTF ROIs.',
+      mtfCurveTitle: 'MTF Curve',
+      curvePlot: 'Curve Plot',
+      normalizedMtfDesc: 'Normalized MTF against spatial frequency',
+      keyMetrics: 'Key Metrics',
+      readingGuide: 'Reading Guide',
+      closeMtfCurve: 'Close MTF curve',
+      close: 'Close',
+      noCurveData: 'No curve data',
+      curveMarkersIncomplete: 'Curve markers are incomplete',
+      measuredFromCurrentRoi: 'Measured from the current ROI',
+      mtfGuideIntro: 'Higher curves indicate better retained contrast at finer spatial frequencies.',
+      mtf50Guide: 'MTF50 reflects mid-contrast detail response.',
+      mtf10Guide: 'MTF10 is often used as the limiting-resolution reference.',
+      qaWaterTitle: 'Water Phantom QA',
+      qaWaterLoading: 'Analyzing water phantom QA...',
+      qaWaterFailed: 'Water phantom QA failed. Confirm the image contains the complete phantom and try again.',
+      qaWaterDetectionFailed: 'Water phantom QA failed',
+      qaWaterDismiss: 'Got it',
+      qaAccuracy: 'Accuracy',
+      qaUniformity: 'Uniformity',
+      qaNoise: 'Noise',
+      roiSize: 'ROI Size',
+      roiArea: 'ROI Area',
+      roi: 'ROI',
+      mean: 'Mean',
+      delta: 'Delta'
+    } satisfies OverlayCopy,
+    volume: {
+      parameters: '3D Parameters',
+      tissue: 'Tissue Window',
+      lighting: 'Lighting',
+      windowWidth: 'Window Width',
+      windowLevel: 'Window Level',
+      opacity: 'Opacity',
+      enableShading: 'Enable Shading',
+      interpolation: 'Interpolation',
+      ambient: 'Ambient',
+      diffuse: 'Diffuse',
+      specular: 'Specular',
+      roughness: 'Roughness',
+      nearest: 'Nearest',
+      linear: 'Linear',
+      cubic: 'Cubic',
+      bone: 'Bone',
+      blood: 'Blood',
+      muscle: 'Muscle',
+      softTissue: 'Soft Tissue',
+      lung: 'Lung',
+      custom: 'Custom'
+    } satisfies VolumeCopy,
+    mprProjection: {
+      title: 'MPR Projection',
+      subtitle: 'MIP slab preview',
+      expand: 'Expand MIP panel',
+      collapse: 'Collapse MIP panel',
+      disabled: 'Disabled',
+      enabled: 'Enabled',
+      nativeMpr: 'Native MPR',
+      slabProjection: 'Slab projection',
+      algorithm: 'Algorithm',
+      maximumDesc: 'Highlight high-density structures.',
+      minimumDesc: 'Highlight low-density structures.',
+      averageDesc: 'Blend the slab into a softer preview.',
+      sumDesc: 'Accumulate voxel intensity through the slab.'
+    } satisfies MprProjectionCopy,
+    workspaceStatus: {
+      mtfAnalysisFailed: 'MTF analysis failed',
+      noUsableSeries: 'No usable series were found in the selected folder.',
+      folderLoadFailed: 'Folder loading failed.',
+      tagLoadFailed: 'DICOM Tag loading failed.',
+      notFourDSeries: 'The current series is not a 4D series.',
+      fourDMetadataUnavailable: '4D phase metadata is not available for this series.',
+      openViewFailed: (viewType: string) => `${viewType} view failed to open.`,
+      tabTitleConnector: '-'
+    } satisfies WorkspaceStatusCopy
   }
 } as const
 

@@ -587,6 +587,12 @@ watch(
   box-shadow: var(--theme-active-shadow-soft);
 }
 
+.four-d-phase-button--active:hover {
+  border-color: var(--theme-active-border);
+  background: var(--theme-active-surface-soft);
+  box-shadow: var(--theme-active-shadow-soft);
+}
+
 .four-d-phase-button__status {
   position: absolute;
   right: 6px;
@@ -692,6 +698,13 @@ watch(
 }
 
 .four-d-fps-option--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 16%, transparent), color-mix(in srgb, var(--theme-accent) 10%, transparent));
+  color: var(--theme-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.four-d-fps-option--active:hover {
   border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
   background: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 16%, transparent), color-mix(in srgb, var(--theme-accent) 10%, transparent));
   color: var(--theme-text-primary);

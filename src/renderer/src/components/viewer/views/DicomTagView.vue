@@ -260,22 +260,22 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(42,88,141,0.14),transparent_26%),linear-gradient(180deg,rgba(9,18,31,0.96),rgba(6,12,22,0.99))]">
-    <header class="border-b border-white/8 px-5 py-5">
+  <section class="dicom-tag-view flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(42,88,141,0.14),transparent_26%),linear-gradient(180deg,rgba(9,18,31,0.96),rgba(6,12,22,0.99))]">
+    <header class="tag-view-header border-b border-white/8 px-5 py-5">
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-2">
-          <h2 class="truncate text-[22px] font-semibold tracking-[0.01em] text-white">{{ activeTab.seriesTitle }}</h2>
-          <VChip size="small" variant="flat" class="rounded-full! border! border-sky-300/18! bg-sky-300/10! px-3! text-[11px]! font-semibold! uppercase! tracking-[0.18em]! text-sky-100!">
+          <h2 class="tag-view-title truncate text-[22px] font-semibold tracking-[0.01em] text-white">{{ activeTab.seriesTitle }}</h2>
+          <VChip size="small" variant="flat" class="tag-view-chip rounded-full! border! border-sky-300/18! bg-sky-300/10! px-3! text-[11px]! font-semibold! uppercase! tracking-[0.18em]! text-sky-100!">
             DICOM Tags
           </VChip>
         </div>
 
-        <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-          <span class="rounded-full border border-white/8 bg-white/5 px-3 py-1.5">{{ copy.instance }} {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
-          <span v-if="activeTab.tagSopInstanceUid" class="max-w-full truncate rounded-full border border-white/8 bg-white/5 px-3 py-1.5">SOP {{ activeTab.tagSopInstanceUid }}</span>
+        <div class="tag-view-meta-list mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+          <span class="tag-view-meta rounded-full border border-white/8 bg-white/5 px-3 py-1.5">{{ copy.instance }} {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
+          <span v-if="activeTab.tagSopInstanceUid" class="tag-view-meta max-w-full truncate rounded-full border border-white/8 bg-white/5 px-3 py-1.5">SOP {{ activeTab.tagSopInstanceUid }}</span>
           <span
             v-if="activeTab.tagFilePath"
-            class="min-w-0 max-w-full truncate rounded-full border border-slate-700/80 bg-slate-950/88 px-3 py-1.5 font-mono text-[12px] text-slate-400"
+            class="tag-view-meta tag-view-meta--path min-w-0 max-w-full truncate rounded-full border border-slate-700/80 bg-slate-950/88 px-3 py-1.5 font-mono text-[12px] text-slate-400"
           >
             {{ activeTab.tagFilePath }}
           </span>
@@ -283,17 +283,17 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       </div>
     </header>
 
-    <div class="border-b border-white/8 px-5 py-4">
+    <div class="tag-view-toolbar border-b border-white/8 px-5 py-4">
       <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div class="rounded-[18px] border border-white/8 bg-white/4 p-3">
-          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.instanceNavigation }}</div>
+        <div class="tag-control-panel rounded-[18px] border border-white/8 bg-white/4 p-3">
+          <div class="tag-control-label mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.instanceNavigation }}</div>
           <div class="flex flex-wrap items-center gap-3">
             <VPagination
               :model-value="currentDisplayIndex"
               :length="totalDisplayCount"
               :total-visible="7"
               active-color="sky-lighten-2"
-              class="min-w-0 flex-1"
+              class="tag-view-pagination min-w-0 flex-1"
               density="comfortable"
               :disabled="activeTab.tagIsLoading"
               @update:model-value="goToPage"
@@ -301,7 +301,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
             <div class="flex items-center gap-2">
               <VTextField
                 v-model="pageInput"
-                class="tag-field w-[94px]"
+                class="tag-field tag-page-field w-[94px]"
                 density="compact"
                 hide-details
                 :label="copy.page"
@@ -314,7 +314,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
               />
               <VBtn
                 variant="flat"
-                class="rounded-full! border! border-white/8! bg-white/7! px-4! text-sm! font-semibold! text-slate-100!"
+                class="tag-view-go-button rounded-full! border! border-white/8! bg-white/7! px-4! text-sm! font-semibold! text-slate-100!"
                 :disabled="activeTab.tagIsLoading"
                 @click="submitPageInput"
               >
@@ -324,11 +324,11 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           </div>
         </div>
 
-        <div class="rounded-[18px] border border-white/8 bg-white/4 p-3">
-          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.filter }}</div>
+        <div class="tag-control-panel rounded-[18px] border border-white/8 bg-white/4 p-3">
+          <div class="tag-control-label mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.filter }}</div>
           <VTextField
             v-model="searchQuery"
-            class="tag-field"
+            class="tag-field tag-search-field"
             clearable
             density="comfortable"
             hide-details
@@ -341,24 +341,24 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       </div>
     </div>
 
-    <div class="min-h-0 flex-1 px-5 py-5">
-      <div v-if="activeTab.tagIsLoading" class="grid h-full min-h-[260px] place-items-center rounded-[18px] border border-white/8 bg-white/4 text-sm text-slate-300">
+    <div class="tag-view-content min-h-0 flex-1 px-5 py-5">
+      <div v-if="activeTab.tagIsLoading" class="tag-state tag-state--loading grid h-full min-h-[260px] place-items-center rounded-[18px] border border-white/8 bg-white/4 text-sm text-slate-300">
         {{ copy.loading }}
       </div>
 
-      <div v-else-if="activeTab.tagLoadError" class="grid h-full min-h-[260px] place-items-center rounded-[18px] border border-rose-300/18 bg-rose-400/8 px-6 text-center text-sm text-rose-100">
+      <div v-else-if="activeTab.tagLoadError" class="tag-state tag-state--error grid h-full min-h-[260px] place-items-center rounded-[18px] border border-rose-300/18 bg-rose-400/8 px-6 text-center text-sm text-rose-100">
         {{ activeTab.tagLoadError }}
       </div>
 
-      <div v-else-if="activeTab.tagItems?.length" class="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(180deg,rgba(6,14,25,0.86),rgba(4,10,19,0.94))] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-        <div class="grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/8 bg-white/6 px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">
+      <div v-else-if="activeTab.tagItems?.length" class="tag-table-shell flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(180deg,rgba(6,14,25,0.86),rgba(4,10,19,0.94))] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <div class="tag-table-head grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/8 bg-white/6 px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">
           <span>Tag</span>
           <span>Name</span>
           <span>VR</span>
           <span>Value</span>
         </div>
 
-        <div ref="tagListScroller" class="min-h-0 flex-1 overflow-auto" @scroll="handleTagListScroll">
+        <div ref="tagListScroller" class="tag-list-scroll min-h-0 flex-1 overflow-auto" @scroll="handleTagListScroll">
           <div v-if="filteredTagItems.length" :style="{ height: `${virtualTopSpacerHeight}px` }"></div>
           <div
             v-for="{ item, index } in visibleTagRows"
@@ -368,17 +368,17 @@ async function handleContextAction(action: ContextAction): Promise<void> {
             :style="{ height: `${TAG_ROW_HEIGHT}px` }"
             @contextmenu="handleRowContextMenu($event, item)"
           >
-            <span class="font-mono text-[13px] text-sky-200/85">{{ item.tag || '--' }}</span>
-            <div class="min-w-0" :style="{ paddingLeft: `${item.depth * 14}px` }">
-              <div class="truncate text-[15px] font-medium text-white">{{ item.name || item.keyword || '--' }}</div>
-              <div v-if="item.keyword" class="mt-1 truncate font-mono text-[11px] text-slate-500">{{ item.keyword }}</div>
+            <span class="tag-row__tag font-mono text-[13px] text-sky-200/85">{{ item.tag || '--' }}</span>
+            <div class="tag-row__name-cell min-w-0" :style="{ paddingLeft: `${item.depth * 14}px` }">
+              <div class="tag-row__name truncate text-[15px] font-medium text-white">{{ item.name || item.keyword || '--' }}</div>
+              <div v-if="item.keyword" class="tag-row__keyword mt-1 truncate font-mono text-[11px] text-slate-500">{{ item.keyword }}</div>
             </div>
-            <span class="font-mono text-[13px] font-semibold text-amber-200/85">{{ item.vr || '--' }}</span>
+            <span class="tag-row__vr font-mono text-[13px] font-semibold text-amber-200/85">{{ item.vr || '--' }}</span>
             <span class="tag-row__value font-mono text-[13px] leading-6 text-slate-300" :title="item.value || '--'">{{ item.value || '--' }}</span>
           </div>
           <div v-if="filteredTagItems.length" :style="{ height: `${virtualBottomSpacerHeight}px` }"></div>
 
-          <div v-if="!filteredTagItems.length" class="grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
+          <div v-if="!filteredTagItems.length" class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
             {{ copy.noMatches }}
           </div>
         </div>
@@ -395,14 +395,14 @@ async function handleContextAction(action: ContextAction): Promise<void> {
             <VCard class="tag-context-menu min-w-[260px] overflow-hidden rounded-[22px]! border! border-cyan-200/14! bg-[linear-gradient(180deg,rgba(8,18,31,0.99),rgba(5,11,20,0.995))]! text-slate-100! shadow-[0_24px_52px_rgba(0,0,0,0.46)]!">
               <div class="tag-context-menu__chrome"></div>
               <div class="relative px-2.5 pb-2.5 pt-2.5">
-                <div class="rounded-[16px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                <div class="tag-context-preview rounded-[16px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                   <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                      <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">{{ copy.tagActions }}</div>
-                      <div class="mt-1 truncate font-mono text-[12px] text-cyan-100">{{ contextMenuPreview.tag }}</div>
-                      <div class="mt-0.5 truncate text-[12px] font-medium text-white">{{ contextMenuPreview.name }}</div>
+                      <div class="tag-context-menu__eyebrow text-[9px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">{{ copy.tagActions }}</div>
+                      <div class="tag-context-menu__tag mt-1 truncate font-mono text-[12px] text-cyan-100">{{ contextMenuPreview.tag }}</div>
+                      <div class="tag-context-menu__name mt-0.5 truncate text-[12px] font-medium text-white">{{ contextMenuPreview.name }}</div>
                     </div>
-                    <div class="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                    <div class="tag-context-copy-badge rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
                       {{ copy.copy }}
                     </div>
                   </div>
@@ -432,7 +432,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         </div>
       </div>
 
-      <div v-else class="grid h-full min-h-[260px] place-items-center rounded-[18px] border border-dashed border-white/10 bg-white/3 text-sm text-slate-400">
+      <div v-else class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center rounded-[18px] border border-dashed border-white/10 bg-white/3 text-sm text-slate-400">
         {{ copy.empty }}
       </div>
     </div>

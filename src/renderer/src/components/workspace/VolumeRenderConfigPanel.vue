@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 import type { VolumeInterpolationMode, VolumeLayerConfig, VolumeLightingConfig, VolumeRenderConfig } from '../../types/viewer'
 
 type PanelTabKey = 'tissue' | 'lighting'
@@ -13,15 +14,30 @@ const emit = defineEmits<{
 }>()
 
 const activeTab = ref<PanelTabKey>('tissue')
+const { volumeCopy } = useUiLocale()
 
-const interpolationOptions: Array<{ value: VolumeInterpolationMode; label: string }> = [
-  { value: 'nearest', label: '最临近' },
-  { value: 'linear', label: '线性' },
-  { value: 'cubic', label: '三次内插' }
-]
+const interpolationOptions = computed<Array<{ value: VolumeInterpolationMode; label: string }>>(() => [
+  { value: 'nearest', label: volumeCopy.value.nearest },
+  { value: 'linear', label: volumeCopy.value.linear },
+  { value: 'cubic', label: volumeCopy.value.cubic }
+])
 
 const WINDOW_WIDTH_SLIDER_FACTOR = 2
 const WINDOW_LEVEL_SLIDER_FACTOR = 2
+
+function getLayerLabel(layer: VolumeLayerConfig): string {
+  const copy = volumeCopy.value
+  const labels: Partial<Record<string, string>> = {
+    bone: copy.bone,
+    blood: copy.blood,
+    muscle: copy.muscle,
+    softTissue: copy.softTissue,
+    lung: copy.lung,
+    custom: copy.custom
+  }
+
+  return labels[layer.key] ?? layer.label
+}
 
 function toWidthSliderValue(value: number): number {
   return Math.round(value * WINDOW_WIDTH_SLIDER_FACTOR)
@@ -68,7 +84,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
   <div class="theme-shell-panel w-[352px] max-w-[calc(100vw-2.5rem)] rounded-[20px] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_38px_rgba(0,0,0,0.34)] backdrop-blur">
     <div class="mb-3 flex items-center justify-between gap-3">
       <div>
-        <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">3D Parameters</div>
+        <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ volumeCopy.parameters }}</div>
         <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">{{ props.config.preset.toUpperCase() }}</div>
       </div>
       <div class="rounded-full border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]">
@@ -87,7 +103,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         type="button"
         @click="activeTab = 'tissue'"
       >
-        组织窗
+        {{ volumeCopy.tissue }}
       </button>
       <button
         class="rounded-[10px] px-2 py-1.5 text-[11px] font-medium transition"
@@ -99,7 +115,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         type="button"
         @click="activeTab = 'lighting'"
       >
-        灯光
+        {{ volumeCopy.lighting }}
       </button>
     </div>
 
@@ -125,7 +141,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
               :checked="layer.enabled"
               @change="updateLayer(layer.key, { enabled: ($event.target as HTMLInputElement).checked })"
             />
-            <span>{{ layer.label }}</span>
+            <span>{{ getLayerLabel(layer) }}</span>
           </label>
           <div class="flex items-center gap-1.5">
             <input
@@ -146,7 +162,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         <div class="mt-2 space-y-2">
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>窗宽</span>
+              <span>{{ volumeCopy.windowWidth }}</span>
               <span>{{ Math.round(layer.ww) }}</span>
             </div>
             <input
@@ -162,7 +178,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>窗位</span>
+              <span>{{ volumeCopy.windowLevel }}</span>
               <span>{{ Math.round(layer.wl) }}</span>
             </div>
             <input
@@ -178,7 +194,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>透明度</span>
+              <span>{{ volumeCopy.opacity }}</span>
               <span>{{ layer.opacity.toFixed(2) }}</span>
             </div>
             <input
@@ -200,7 +216,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         class="rounded-[16px] border border-[var(--theme-border-strong)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,transparent),var(--theme-surface-card-soft))] px-3 py-2.5"
       >
         <label class="flex items-center justify-between gap-3 text-[12px] font-medium text-[var(--theme-text-primary)]">
-          <span>开启阴影</span>
+          <span>{{ volumeCopy.enableShading }}</span>
           <input
             class="h-4 w-4 rounded border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] accent-[var(--theme-accent)]"
             type="checkbox"
@@ -213,7 +229,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
       <div
         class="rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5"
       >
-        <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">插值方式</div>
+        <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">{{ volumeCopy.interpolation }}</div>
         <div class="grid grid-cols-3 gap-1">
           <label
             v-for="option in interpolationOptions"
@@ -244,7 +260,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
         <div class="space-y-2">
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>环境光</span>
+              <span>{{ volumeCopy.ambient }}</span>
               <span>{{ props.config.lighting.ambient.toFixed(2) }}</span>
             </div>
             <input
@@ -260,7 +276,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>漫反射</span>
+              <span>{{ volumeCopy.diffuse }}</span>
               <span>{{ props.config.lighting.diffuse.toFixed(2) }}</span>
             </div>
             <input
@@ -276,7 +292,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>镜面反射</span>
+              <span>{{ volumeCopy.specular }}</span>
               <span>{{ props.config.lighting.specular.toFixed(2) }}</span>
             </div>
             <input
@@ -292,7 +308,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 
           <div class="space-y-1">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              <span>粗糙度</span>
+              <span>{{ volumeCopy.roughness }}</span>
               <span>{{ props.config.lighting.roughness.toFixed(2) }}</span>
             </div>
             <input

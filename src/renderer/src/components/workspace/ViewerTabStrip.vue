@@ -27,7 +27,7 @@ const { t } = useUiLocale()
   <div class="flex min-w-0 items-center gap-2">
     <VBtn
       variant="flat"
-      class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition"
+      class="tab-scroll-button theme-button-secondary inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition"
       :class="canScrollTabsLeft ? 'hover:border-[var(--theme-border-strong)]' : 'cursor-default opacity-50'"
       :aria-label="t('scrollTabsLeft')"
       :disabled="!canScrollTabsLeft"
@@ -48,7 +48,7 @@ const { t } = useUiLocale()
         :data-tab-key="tab.key"
         role="button"
         tabindex="0"
-        class="group flex max-w-[288px] shrink-0 snap-start items-center gap-2 rounded-2xl! border! px-3! py-2! transition"
+        class="viewer-tab-card group flex max-w-[288px] shrink-0 snap-start items-center gap-2 rounded-2xl! border! px-3! py-2! transition"
         :class="tab.key === activeTabKey ? 'theme-active-surface' : 'theme-card-soft border! text-[var(--theme-text-secondary)] hover:theme-hover-surface'"
         @click="emit('activateTab', tab.key)"
         @keydown.enter.prevent="emit('activateTab', tab.key)"
@@ -59,13 +59,13 @@ const { t } = useUiLocale()
           <VChip
             size="x-small"
             variant="flat"
-            class="tab-viewtype-chip min-w-[60px]! justify-center rounded-full! border! px-2.5! py-0.5! text-[11px]! font-semibold! uppercase! tracking-[0.14em]!"
+            class="viewer-tab-chip tab-viewtype-chip min-w-[60px]! justify-center rounded-full! border! px-2.5! py-0.5! text-[11px]! font-semibold! uppercase! tracking-[0.14em]!"
             :class="tab.key === activeTabKey ? 'theme-active-pill' : 'border-[var(--theme-border-soft)]! bg-[var(--theme-surface-card)]! text-[var(--theme-text-secondary)]! group-hover:theme-hover-pill'"
           >
             {{ tab.viewType }}
           </VChip>
         </button>
-        <VBtn variant="flat" class="theme-button-secondary inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition hover:brightness-110" :aria-label="t('closeView')" @click.stop="emit('closeTab', tab.key)">
+        <VBtn variant="flat" class="viewer-tab-close theme-button-secondary inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition hover:brightness-110" :aria-label="t('closeView')" @click.stop="emit('closeTab', tab.key)">
           <AppIcon name="close" :size="15" :stroke-width="2.1" />
         </VBtn>
       </VCard>
@@ -73,7 +73,7 @@ const { t } = useUiLocale()
 
     <VBtn
       variant="flat"
-      class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition"
+      class="tab-scroll-button theme-button-secondary inline-flex! h-9! w-9! min-w-0! shrink-0 items-center! justify-center! rounded-xl! border! transition"
       :class="canScrollTabsRight ? 'hover:border-[var(--theme-border-strong)]' : 'cursor-default opacity-50'"
       :aria-label="t('scrollTabsRight')"
       :disabled="!canScrollTabsRight"

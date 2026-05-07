@@ -81,24 +81,25 @@
     --theme-accent: #66d0ff;
     --theme-accent-strong: #2a95e4;
     --theme-accent-contrast: #f5f7fb;
-    --theme-active-foreground: #f5f7fb;
-    --theme-active-foreground-secondary: rgba(245, 247, 251, 0.84);
-    --theme-active-foreground-muted: rgba(245, 247, 251, 0.72);
+    --theme-active-foreground: #f8fbff;
+    --theme-active-foreground-secondary: rgba(224, 240, 250, 0.86);
+    --theme-active-foreground-muted: rgba(178, 206, 224, 0.76);
     --theme-accent-warm: #ff8a5b;
-    --theme-active-border: color-mix(in srgb, var(--theme-accent) 44%, transparent);
+    --theme-active-border: color-mix(in srgb, var(--theme-accent) 42%, rgba(255, 255, 255, 0.1));
     --theme-active-surface:
-      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 84%, white 8%), var(--theme-accent-strong));
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 14%, rgba(21, 34, 50, 0.97)), color-mix(in srgb, var(--theme-accent-strong) 10%, rgba(7, 15, 28, 0.99)));
     --theme-active-surface-soft:
-      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 18%, transparent), color-mix(in srgb, var(--theme-accent-strong) 12%, var(--theme-surface-card)));
-    --theme-active-pill-bg: color-mix(in srgb, white 12%, var(--theme-accent) 88%);
-    --theme-active-pill-border: rgba(255, 255, 255, 0.18);
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 10%, rgba(21, 34, 50, 0.95)), color-mix(in srgb, var(--theme-accent-strong) 7%, rgba(7, 15, 28, 0.98)));
+    --theme-active-pill-bg: color-mix(in srgb, var(--theme-accent) 12%, rgba(18, 34, 50, 0.92));
+    --theme-active-pill-border: color-mix(in srgb, var(--theme-accent) 34%, rgba(255, 255, 255, 0.08));
     --theme-active-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      0 10px 24px color-mix(in srgb, var(--theme-accent-strong) 28%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 14%, transparent),
+      inset 0 -2px 0 color-mix(in srgb, var(--theme-accent) 72%, transparent),
+      0 8px 16px rgba(0, 0, 0, 0.16);
     --theme-active-shadow-soft:
-      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.24),
-      0 12px 24px color-mix(in srgb, var(--theme-accent-strong) 14%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 10px 20px rgba(0, 0, 0, 0.14);
     --theme-hover-border: color-mix(in srgb, var(--theme-accent) 28%, transparent);
     --theme-hover-surface:
       linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 12%, transparent), color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-card-soft)));
@@ -143,23 +144,25 @@
     --theme-accent: #4f8fb8;
     --theme-accent-strong: #2f6f97;
     --theme-accent-contrast: #f5f7fb;
-    --theme-active-foreground: #f5f7fb;
-    --theme-active-foreground-secondary: rgba(245, 247, 251, 0.84);
-    --theme-active-foreground-muted: rgba(245, 247, 251, 0.72);
+    --theme-active-foreground: #142235;
+    --theme-active-foreground-secondary: rgba(32, 50, 69, 0.78);
+    --theme-active-foreground-muted: rgba(71, 85, 105, 0.72);
     --theme-accent-warm: #6f9bb8;
-    --theme-active-border: color-mix(in srgb, var(--theme-accent) 44%, transparent);
+    --theme-active-border: color-mix(in srgb, var(--theme-accent-strong) 34%, rgba(66, 101, 138, 0.18));
     --theme-active-surface:
-      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 84%, white 8%), var(--theme-accent-strong));
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 12%, white 88%), color-mix(in srgb, var(--theme-accent-strong) 8%, #e7f0f7 92%));
     --theme-active-surface-soft:
-      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 84%, white 8%), var(--theme-accent-strong));
-    --theme-active-pill-bg: color-mix(in srgb, white 12%, var(--theme-accent) 88%);
-    --theme-active-pill-border: rgba(255, 255, 255, 0.18);
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 10%, #f8fbfe 90%), color-mix(in srgb, var(--theme-accent-strong) 6%, #edf5fa 94%));
+    --theme-active-pill-bg: color-mix(in srgb, var(--theme-accent) 10%, white 90%);
+    --theme-active-pill-border: color-mix(in srgb, var(--theme-accent-strong) 24%, rgba(66, 101, 138, 0.12));
     --theme-active-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      0 10px 24px color-mix(in srgb, var(--theme-accent-strong) 28%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent),
+      inset 0 -2px 0 color-mix(in srgb, var(--theme-accent-strong) 42%, transparent),
+      0 8px 16px color-mix(in srgb, var(--theme-accent-strong) 8%, transparent);
     --theme-active-shadow-soft:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      0 10px 24px color-mix(in srgb, var(--theme-accent-strong) 28%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 8%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.72),
+      0 10px 20px color-mix(in srgb, var(--theme-accent-strong) 7%, transparent);
     --theme-hover-border: color-mix(in srgb, var(--theme-accent-strong) 22%, rgba(58, 126, 177, 0.18));
     --theme-hover-surface:
       linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 10%, white 18%), color-mix(in srgb, var(--theme-accent-strong) 6%, var(--theme-surface-card-soft)));
@@ -202,23 +205,24 @@
     --theme-accent-strong: #3f7894;
     --theme-accent-contrast: #071014;
     --theme-active-foreground: #eef6f9;
-    --theme-active-foreground-secondary: rgba(238, 246, 249, 0.84);
-    --theme-active-foreground-muted: rgba(238, 246, 249, 0.72);
+    --theme-active-foreground-secondary: rgba(220, 233, 240, 0.84);
+    --theme-active-foreground-muted: rgba(165, 187, 199, 0.74);
     --theme-accent-warm: #c98a42;
-    --theme-active-border: color-mix(in srgb, var(--theme-accent) 48%, transparent);
+    --theme-active-border: color-mix(in srgb, var(--theme-accent) 36%, transparent);
     --theme-active-surface:
-      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 38%, #1e2a31 62%), color-mix(in srgb, var(--theme-accent-strong) 54%, #101820 46%));
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 12%, #17232a 88%), color-mix(in srgb, var(--theme-accent-strong) 10%, #101820 90%));
     --theme-active-surface-soft:
-      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 14%, rgba(34, 44, 52, 0.84)), color-mix(in srgb, var(--theme-accent-strong) 12%, rgba(16, 22, 28, 0.92)));
-    --theme-active-pill-bg: color-mix(in srgb, var(--theme-accent) 42%, #1a252d 58%);
-    --theme-active-pill-border: color-mix(in srgb, var(--theme-accent) 34%, transparent);
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 9%, #172129 91%), color-mix(in srgb, var(--theme-accent-strong) 7%, #0d141a 93%));
+    --theme-active-pill-bg: color-mix(in srgb, var(--theme-accent) 13%, #182127 87%);
+    --theme-active-pill-border: color-mix(in srgb, var(--theme-accent) 28%, transparent);
     --theme-active-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 10px 22px color-mix(in srgb, var(--theme-accent-strong) 18%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent),
+      inset 0 -2px 0 color-mix(in srgb, var(--theme-accent) 62%, transparent),
+      0 6px 14px rgba(0, 0, 0, 0.22);
     --theme-active-shadow-soft:
       inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 10px 20px color-mix(in srgb, var(--theme-accent-strong) 10%, transparent);
+      inset 0 1px 0 rgba(255, 255, 255, 0.045),
+      0 8px 16px rgba(0, 0, 0, 0.2);
     --theme-hover-border: color-mix(in srgb, var(--theme-accent) 30%, transparent);
     --theme-hover-surface:
       linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 10%, rgba(32, 40, 48, 0.82)), color-mix(in srgb, var(--theme-accent-strong) 8%, rgba(18, 24, 30, 0.9)));
@@ -237,15 +241,22 @@
     --type-line-heading: 1.14;
     --type-line-control: 1.16;
     --type-line-compact: 1.22;
-    --industrial-radius-panel: 10px;
-    --industrial-radius-control: 6px;
-    --industrial-radius-chip: 4px;
+    --industrial-radius-panel: 6px;
+    --industrial-radius-control: 4px;
+    --industrial-radius-chip: 3px;
     --industrial-panel-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.035),
       0 14px 30px rgba(0, 0, 0, 0.34);
     --industrial-control-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.04),
       0 4px 10px rgba(0, 0, 0, 0.18);
+    --industrial-active-border: rgba(111, 169, 196, 0.34);
+    --industrial-active-surface:
+      linear-gradient(180deg, #17232a, #0f171d);
+    --industrial-active-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.13),
+      0 0 0 1px rgba(0, 0, 0, 0.22),
+      0 6px 14px rgba(0, 0, 0, 0.22);
   }
 
   * {
@@ -349,7 +360,7 @@
     border-color: var(--theme-active-border) !important;
     background: var(--theme-active-surface) !important;
     color: var(--theme-active-foreground) !important;
-    box-shadow: var(--theme-active-shadow) !important;
+    box-shadow: var(--theme-active-shadow-soft) !important;
   }
 
   .toolbar-tool-button.v-btn--active .v-btn__overlay,
@@ -357,6 +368,43 @@
   .toolbar-tool-button.v-btn--active .v-btn__underlay,
   .toolbar-tool-button.toolbar-tool-button--active .v-btn__underlay {
     opacity: 0 !important;
+  }
+
+  .toolbar-tool-group:has(.toolbar-tool-button--active) {
+    border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft)) !important;
+    background: color-mix(in srgb, var(--theme-accent) 4%, transparent) !important;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 7%, transparent),
+      0 8px 18px rgba(0, 0, 0, 0.12) !important;
+  }
+
+  .toolbar-tool-group:has(.toolbar-tool-button--active)::after {
+    position: absolute;
+    right: 8px;
+    bottom: -1px;
+    left: 8px;
+    height: 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--theme-accent) 64%, white 4%);
+    content: "";
+    opacity: 0.72;
+    pointer-events: none;
+  }
+
+  .toolbar-tool-group:has(.toolbar-tool-button--active) .toolbar-tool-menu-button,
+  .toolbar-tool-menu-button[aria-expanded="true"] {
+    border-color: var(--theme-active-border) !important;
+    background: var(--theme-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--theme-active-shadow-soft) !important;
+  }
+
+  .toolbar-tool-group:has(.toolbar-tool-button--active) .toolbar-tool-menu-button:hover,
+  .toolbar-tool-menu-button[aria-expanded="true"]:hover {
+    border-color: var(--theme-active-border) !important;
+    background: var(--theme-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--theme-active-shadow-soft) !important;
   }
 
   .tab-viewtype-chip {
@@ -448,7 +496,7 @@
     color: var(--theme-text-primary) !important;
   }
 
-  .theme-button-secondary:not(.v-btn--disabled):not(.v-btn--active):not(.toolbar-tool-button--active):hover {
+  .theme-button-secondary:not(.v-btn--disabled):not(.v-btn--active):not(.toolbar-tool-button--active):not(.theme-active-surface):hover {
     border-color: var(--theme-hover-border) !important;
     background: var(--theme-hover-surface) !important;
     color: var(--theme-text-primary) !important;
@@ -462,10 +510,24 @@
     box-shadow: var(--theme-active-shadow-soft) !important;
   }
 
+  .theme-active-surface:hover {
+    border-color: var(--theme-active-border) !important;
+    background: var(--theme-active-surface-soft) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--theme-active-shadow-soft) !important;
+  }
+
   .theme-active-pill {
     border-color: var(--theme-active-pill-border) !important;
     background: var(--theme-active-pill-bg) !important;
-    color: var(--theme-text-primary) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 8%, transparent) !important;
+  }
+
+  .theme-active-pill:hover {
+    border-color: var(--theme-active-pill-border) !important;
+    background: var(--theme-active-pill-bg) !important;
+    color: var(--theme-active-foreground) !important;
   }
 
   .theme-hover-surface {
@@ -479,6 +541,83 @@
     border-color: var(--theme-hover-pill-border) !important;
     background: var(--theme-hover-pill-bg) !important;
     color: var(--theme-text-primary) !important;
+  }
+
+  .viewer-tab-card.theme-active-surface {
+    position: relative;
+    overflow: hidden;
+    border-color: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-soft)) !important;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 8px 18px rgba(0, 0, 0, 0.16) !important;
+  }
+
+  .viewer-tab-card.theme-active-surface::after {
+    position: absolute;
+    right: 14px;
+    bottom: 0;
+    left: 14px;
+    height: 2px;
+    border-radius: 999px 999px 0 0;
+    background: color-mix(in srgb, var(--theme-accent) 72%, white 4%);
+    content: "";
+    opacity: 0.72;
+    pointer-events: none;
+  }
+
+  .viewer-tab-card.theme-active-surface:hover {
+    border-color: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-soft)) !important;
+    background: var(--theme-active-surface-soft) !important;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 8px 18px rgba(0, 0, 0, 0.16) !important;
+  }
+
+  .viewer-tab-chip.theme-active-pill {
+    border-color: color-mix(in srgb, var(--theme-accent) 30%, transparent) !important;
+    background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface-card)) !important;
+    color: var(--theme-active-foreground) !important;
+  }
+
+  .tag-view-pagination .v-pagination__item--is-active .v-btn,
+  .tag-view-pagination .v-btn.v-btn--active {
+    border-color: var(--theme-active-border) !important;
+    background: var(--theme-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--theme-active-shadow) !important;
+  }
+
+  .tag-view-pagination .v-pagination__item--is-active .v-btn:hover,
+  .tag-view-pagination .v-btn.v-btn--active:hover {
+    border-color: var(--theme-active-border) !important;
+    background: var(--theme-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--theme-active-shadow) !important;
+  }
+
+  .toolbar-menu-option--active,
+  .toolbar-menu-option--active:hover {
+    border-color: color-mix(in srgb, var(--theme-accent) 22%, transparent) !important;
+    background: var(--theme-active-surface-soft) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 8%, transparent),
+      inset 0 1px 0 color-mix(in srgb, white 8%, transparent) !important;
+  }
+
+  .toolbar-menu-option__rail {
+    inset: 12px auto 12px 9px !important;
+    width: 3px !important;
+    height: auto !important;
+    border-radius: 999px !important;
+    opacity: 0 !important;
+    box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 22%, transparent) !important;
+  }
+
+  .toolbar-menu-option--active .toolbar-menu-option__rail {
+    opacity: 0.68 !important;
   }
 
   .theme-connection-tone {
@@ -541,7 +680,7 @@
     border-color: var(--theme-active-border) !important;
     background: var(--theme-active-surface) !important;
     color: var(--theme-active-foreground) !important;
-    box-shadow: var(--theme-active-shadow) !important;
+    box-shadow: var(--theme-active-shadow-soft) !important;
   }
 
   .theme-drop-active {
@@ -555,6 +694,40 @@
     background:
       linear-gradient(180deg, var(--theme-surface-panel-strong), var(--theme-surface-panel-strong)),
       repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.015) 0, rgba(255, 255, 255, 0.015) 1px, transparent 1px, transparent 28px) !important;
+  }
+
+  .viewer-viewport {
+    transition:
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .viewer-viewport::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 86%, white 6%) 0 72px, transparent 72px) left top / 100% 2px no-repeat,
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 86%, white 6%) 0 52px, transparent 52px) left top / 2px 100% no-repeat;
+    content: "";
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+    z-index: 8;
+  }
+
+  .viewer-viewport[data-active-viewport="true"],
+  .viewer-viewport.viewer-viewport--active {
+    border-color: var(--theme-active-border) !important;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 42%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--theme-accent) 20%, transparent),
+      0 10px 22px rgba(0, 0, 0, 0.18) !important;
+  }
+
+  .viewer-viewport[data-active-viewport="true"]::after,
+  .viewer-viewport.viewer-viewport--active::after {
+    opacity: 1;
   }
 
   .window-drag-region {
@@ -757,6 +930,11 @@
   :root[data-theme="industrial-utility"] .theme-button-primary,
   :root[data-theme="industrial-utility"] .theme-button-secondary,
   :root[data-theme="industrial-utility"] .toolbar-tool-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button,
+  :root[data-theme="industrial-utility"] .toolbar-playback-button,
+  :root[data-theme="industrial-utility"] .tab-scroll-button,
+  :root[data-theme="industrial-utility"] .viewer-tab-close,
+  :root[data-theme="industrial-utility"] .quick-action-button,
   :root[data-theme="industrial-utility"] .v-btn:not(.v-btn--variant-text),
   :root[data-theme="industrial-utility"] button.four-d-icon-button,
   :root[data-theme="industrial-utility"] button.four-d-fps-button,
@@ -767,38 +945,91 @@
 
   :root[data-theme="industrial-utility"] .theme-button-primary {
     border-color: color-mix(in srgb, var(--theme-accent) 40%, transparent) !important;
-    background: #244b5b !important;
+    background: linear-gradient(180deg, #284653, #1a313b) !important;
     color: #eef6f9 !important;
   }
 
   :root[data-theme="industrial-utility"] .theme-button-secondary,
   :root[data-theme="industrial-utility"] .toolbar-tool-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button,
+  :root[data-theme="industrial-utility"] .tab-scroll-button,
+  :root[data-theme="industrial-utility"] .viewer-tab-close,
+  :root[data-theme="industrial-utility"] .quick-action-button--secondary,
   :root[data-theme="industrial-utility"] .v-btn:not(.v-btn--variant-text):not(.v-btn--active):not(.toolbar-tool-button--active) {
     border-color: rgba(142, 157, 170, 0.16) !important;
     background: #151b21 !important;
     color: var(--theme-text-secondary) !important;
   }
 
+  :root[data-theme="industrial-utility"] .theme-active-surface,
+  :root[data-theme="industrial-utility"] .theme-active-surface:hover {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
   :root[data-theme="industrial-utility"] .toolbar-tool-button.v-btn--active,
   :root[data-theme="industrial-utility"] .toolbar-tool-button.toolbar-tool-button--active,
-  :root[data-theme="industrial-utility"] .theme-active-surface,
   :root[data-theme="industrial-utility"] .toolbar-tool-button.v-btn--active:hover,
   :root[data-theme="industrial-utility"] .toolbar-tool-button.toolbar-tool-button--active:hover {
-    border-color: var(--theme-active-border) !important;
-    background: #213d49 !important;
+    border-color: var(--industrial-active-border) !important;
+    background:
+      linear-gradient(180deg, #17232a, #101820) !important;
     color: var(--theme-active-foreground) !important;
-    box-shadow:
-      inset 3px 0 0 var(--theme-accent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 6px 16px rgba(0, 0, 0, 0.22) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
   }
 
   :root[data-theme="industrial-utility"] .theme-button-primary:hover,
-  :root[data-theme="industrial-utility"] .theme-button-secondary:not(.v-btn--disabled):not(.v-btn--active):not(.toolbar-tool-button--active):hover,
+  :root[data-theme="industrial-utility"] .theme-button-secondary:not(.v-btn--disabled):not(.v-btn--active):not(.toolbar-tool-button--active):not(.theme-active-surface):hover,
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button:not(.v-btn--disabled):hover,
+  :root[data-theme="industrial-utility"] .tab-scroll-button:not(.v-btn--disabled):hover,
+  :root[data-theme="industrial-utility"] .viewer-tab-close:not(.v-btn--disabled):hover,
   :root[data-theme="industrial-utility"] .theme-hover-surface {
     border-color: var(--theme-hover-border) !important;
     background: #1a242b !important;
     box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .theme-button-primary:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .theme-button-secondary:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .toolbar-tool-button:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .toolbar-playback-button:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .tab-scroll-button:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .viewer-tab-close:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] .quick-action-button:not(.v-btn--disabled):not(:disabled),
+  :root[data-theme="industrial-utility"] button.four-d-icon-button:not(:disabled),
+  :root[data-theme="industrial-utility"] button.four-d-fps-button:not(:disabled),
+  :root[data-theme="industrial-utility"] button.four-d-phase-button:not(:disabled) {
+    position: relative !important;
+    cursor: pointer !important;
+  }
+
+  :root[data-theme="industrial-utility"] .theme-button-primary:not(.v-btn--disabled):not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] .theme-button-secondary:not(.v-btn--disabled):not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] .toolbar-tool-button:not(.v-btn--disabled):not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button:not(.v-btn--disabled):not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] .toolbar-playback-button:not(.v-btn--disabled):not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] .quick-action-button:not(.v-btn--disabled):not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] button.four-d-icon-button:not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] button.four-d-fps-button:not(:disabled):focus-visible,
+  :root[data-theme="industrial-utility"] button.four-d-phase-button:not(:disabled):focus-visible {
+    outline: 2px solid rgba(111, 169, 196, 0.58) !important;
+    outline-offset: 2px !important;
+  }
+
+  :root[data-theme="industrial-utility"] .theme-button-primary:not(.v-btn--disabled):not(:disabled):active,
+  :root[data-theme="industrial-utility"] .theme-button-secondary:not(.v-btn--disabled):not(:disabled):active,
+  :root[data-theme="industrial-utility"] .toolbar-tool-button:not(.v-btn--disabled):not(:disabled):active,
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button:not(.v-btn--disabled):not(:disabled):active,
+  :root[data-theme="industrial-utility"] .toolbar-playback-button:not(.v-btn--disabled):not(:disabled):active,
+  :root[data-theme="industrial-utility"] .quick-action-button:not(.v-btn--disabled):not(:disabled):active,
+  :root[data-theme="industrial-utility"] button.four-d-icon-button:not(:disabled):active,
+  :root[data-theme="industrial-utility"] button.four-d-fps-button:not(:disabled):active,
+  :root[data-theme="industrial-utility"] button.four-d-phase-button:not(:disabled):active {
+    filter: brightness(0.92);
+    transform: translateY(1px);
   }
 
   :root[data-theme="industrial-utility"] .theme-active-pill,
@@ -807,6 +1038,467 @@
   :root[data-theme="industrial-utility"] .v-chip {
     border-radius: var(--industrial-radius-chip) !important;
     background: #182127 !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .theme-active-pill,
+  :root[data-theme="industrial-utility"] .theme-active-pill:hover {
+    border-color: rgba(111, 169, 196, 0.42) !important;
+    background:
+      linear-gradient(180deg, #22343d, #17242b) !important;
+    color: #e4eef3 !important;
+    box-shadow: inset 0 -1px 0 rgba(111, 169, 196, 0.32) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-toolbar-card--locked {
+    border-color: rgba(126, 142, 154, 0.14) !important;
+    background:
+      repeating-linear-gradient(90deg, rgba(126, 142, 154, 0.035) 0, rgba(126, 142, 154, 0.035) 1px, transparent 1px, transparent 18px),
+      #0a0f13 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .v-btn.v-btn--disabled:not(.v-btn--variant-text),
+  :root[data-theme="industrial-utility"] button.v-btn:disabled:not(.v-btn--variant-text),
+  :root[data-theme="industrial-utility"] .v-btn[aria-disabled="true"]:not(.v-btn--variant-text),
+  :root[data-theme="industrial-utility"] .quick-action-button.v-btn--disabled,
+  :root[data-theme="industrial-utility"] .toolbar-tool-button.v-btn.v-btn--disabled,
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button.v-btn.v-btn--disabled,
+  :root[data-theme="industrial-utility"] .toolbar-playback-button.v-btn.v-btn--disabled {
+    border-color: rgba(126, 142, 154, 0.12) !important;
+    background:
+      repeating-linear-gradient(135deg, rgba(126, 142, 154, 0.08) 0, rgba(126, 142, 154, 0.08) 1px, transparent 1px, transparent 7px),
+      #070b0f !important;
+    color: rgba(133, 146, 157, 0.42) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.42),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.34) !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.85) saturate(0.35) brightness(0.72);
+    opacity: 1 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .v-btn.v-btn--disabled:not(.v-btn--variant-text)::after,
+  :root[data-theme="industrial-utility"] button.v-btn:disabled:not(.v-btn--variant-text)::after,
+  :root[data-theme="industrial-utility"] .v-btn[aria-disabled="true"]:not(.v-btn--variant-text)::after {
+    opacity: 0 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .v-btn.v-btn--disabled .v-btn__content,
+  :root[data-theme="industrial-utility"] button.v-btn:disabled .v-btn__content,
+  :root[data-theme="industrial-utility"] .v-btn[aria-disabled="true"] .v-btn__content,
+  :root[data-theme="industrial-utility"] .quick-action-button.v-btn--disabled .v-btn__content {
+    opacity: 0.36 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .quick-actions-card {
+    background:
+      repeating-linear-gradient(90deg, rgba(151, 164, 176, 0.035) 0, rgba(151, 164, 176, 0.035) 1px, transparent 1px, transparent 22px),
+      linear-gradient(180deg, #11171c, #0d1216) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .quick-action-button {
+    min-height: 38px !important;
+    letter-spacing: 0 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .quick-action-button--primary {
+    border-color: rgba(111, 169, 196, 0.38) !important;
+    background:
+      repeating-linear-gradient(90deg, rgba(238, 246, 249, 0.04) 0, rgba(238, 246, 249, 0.04) 1px, transparent 1px, transparent 18px),
+      linear-gradient(180deg, #294856, #1a3039) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.055),
+      inset 0 -2px 0 rgba(111, 169, 196, 0.38),
+      0 6px 14px rgba(0, 0, 0, 0.2) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .quick-action-button--secondary:not(.v-btn--disabled):hover {
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    background: #1a242b !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--industrial-radius-control) !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item::before {
+    position: absolute;
+    inset: 8px auto 8px 0;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: transparent;
+    content: "";
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item--active {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item--inactive {
+    border-color: rgba(126, 142, 154, 0.1) !important;
+    background: #0b1014 !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.014),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.34) !important;
+    opacity: 0.68;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item--inactive:hover {
+    border-color: rgba(111, 169, 196, 0.2) !important;
+    background: #11191f !important;
+    opacity: 0.92;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item--active::before {
+    background: var(--theme-accent);
+    box-shadow: 0 0 10px rgba(111, 169, 196, 0.42);
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-icon {
+    border-radius: var(--industrial-radius-chip) !important;
+    background: #10161b !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item--active .settings-nav-icon {
+    border-color: rgba(111, 169, 196, 0.34) !important;
+    background: #16232a !important;
+    color: #e2edf2 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-nav-item--inactive .settings-nav-icon {
+    border-color: rgba(126, 142, 154, 0.12) !important;
+    background: #080c10 !important;
+    color: rgba(151, 164, 176, 0.68) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-backdrop {
+    background:
+      radial-gradient(circle at top, rgba(111, 169, 196, 0.08), transparent 36%),
+      repeating-linear-gradient(90deg, rgba(126, 142, 154, 0.035) 0, rgba(126, 142, 154, 0.035) 1px, transparent 1px, transparent 28px),
+      rgba(2, 5, 8, 0.66) !important;
+    backdrop-filter: blur(3px) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell {
+    border-color: rgba(126, 142, 154, 0.2) !important;
+    border-radius: var(--industrial-radius-panel) !important;
+    background:
+      repeating-linear-gradient(90deg, rgba(151, 164, 176, 0.026) 0, rgba(151, 164, 176, 0.026) 1px, transparent 1px, transparent 30px),
+      linear-gradient(180deg, #11171c, #070b0f) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.028),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.62),
+      0 28px 76px rgba(0, 0, 0, 0.56) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell > .pointer-events-none {
+    opacity: 0.24;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-header {
+    border-color: rgba(126, 142, 154, 0.16) !important;
+    background:
+      linear-gradient(90deg, rgba(111, 169, 196, 0.08), transparent 42%),
+      linear-gradient(180deg, rgba(18, 25, 31, 0.96), rgba(11, 16, 20, 0.98)) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .theme-card-soft,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .theme-shell-panel,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .theme-shell-panel-soft,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .theme-shell-panel-strong,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell section,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell label[class*="rounded"],
+  :root[data-theme="industrial-utility"] .settings-dialog-shell button[class*="rounded"],
+  :root[data-theme="industrial-utility"] .settings-dialog-shell div[class*="rounded"] {
+    border-radius: var(--industrial-radius-control) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .theme-card-soft,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell section[class*="border"],
+  :root[data-theme="industrial-utility"] .settings-dialog-shell div[class*="border"][class*="bg-"] {
+    border-color: rgba(126, 142, 154, 0.16) !important;
+    background:
+      linear-gradient(180deg, #12191f, #0b1014) !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell label[class*="cursor-pointer"],
+  :root[data-theme="industrial-utility"] .settings-dialog-shell button[class*="text-left"]:not(.settings-nav-item):not(.scale-bar-toggle-control) {
+    border-color: rgba(142, 157, 170, 0.16) !important;
+    background: #11171c !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell label[class*="cursor-pointer"]:hover,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell button[class*="text-left"]:not(.settings-nav-item):not(.scale-bar-toggle-control):hover {
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    background: #17242b !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell button[class*="text-left"][class*="border-[var(--theme-border-strong)]"]:not(.settings-nav-item):not(.scale-bar-toggle-control),
+  :root[data-theme="industrial-utility"] .settings-dialog-shell button[class*="ring-1"],
+  :root[data-theme="industrial-utility"] .settings-dialog-shell label:has(input:checked) {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell button[class*="text-left"]:not(.settings-nav-item):not(.scale-bar-toggle-control)::after,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell label[class*="cursor-pointer"]::after {
+    opacity: 0 !important;
+    content: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .scale-bar-control-card {
+    min-height: 136px;
+    border-color: rgba(126, 142, 154, 0.16) !important;
+    background:
+      linear-gradient(180deg, rgba(18, 25, 31, 0.92), rgba(10, 15, 19, 0.94)) !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .scale-bar-toggle-control {
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: inherit !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .scale-bar-toggle-control:focus-visible {
+    outline: 1px solid rgba(111, 169, 196, 0.62);
+    outline-offset: 3px;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .scale-bar-preview-surface {
+    min-height: 104px;
+    background:
+      repeating-linear-gradient(90deg, rgba(126, 142, 154, 0.018) 0, rgba(126, 142, 154, 0.018) 1px, transparent 1px, transparent 24px),
+      linear-gradient(180deg, rgba(14, 21, 26, 0.68), rgba(8, 12, 16, 0.54)) !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
+  :root[data-theme="industrial-utility"] .settings-dialog-shell textarea,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell select {
+    border-color: rgba(126, 142, 154, 0.2) !important;
+    border-radius: var(--industrial-radius-control) !important;
+    background: #090d11 !important;
+    color: var(--theme-text-primary) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.026),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.42) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input:focus,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell textarea:focus,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell select:focus {
+    border-color: rgba(111, 169, 196, 0.52) !important;
+    outline: none !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.16),
+      inset 0 -2px 0 rgba(111, 169, 196, 0.46) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input[type="color"] {
+    border-color: rgba(126, 142, 154, 0.22) !important;
+    border-radius: var(--industrial-radius-chip) !important;
+    background: #070b0f !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input[type="checkbox"] {
+    border-color: rgba(126, 142, 154, 0.42) !important;
+    border-radius: 2px !important;
+    background-color: #070b0f !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input[type="range"] {
+    accent-color: var(--theme-accent);
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .font-mono {
+    border-color: rgba(111, 169, 196, 0.22) !important;
+    border-radius: var(--industrial-radius-chip) !important;
+    background:
+      linear-gradient(180deg, #17232b, #0e151b) !important;
+    color: #dfeaf0 !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.035),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.34) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell span[class*="rounded-full"],
+  :root[data-theme="industrial-utility"] .settings-dialog-shell span[class*="rounded-2xl"] {
+    border-radius: var(--industrial-radius-chip) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .settings-content-scroll::-webkit-scrollbar-track,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .settings-nav-scroll::-webkit-scrollbar-track {
+    background: #070b0f !important;
+  }
+
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .settings-content-scroll::-webkit-scrollbar-thumb,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell .settings-nav-scroll::-webkit-scrollbar-thumb {
+    border: 2px solid #070b0f;
+    border-radius: var(--industrial-radius-control) !important;
+    background: #32414b padding-box !important;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-tab-card {
+    border-radius: var(--industrial-radius-control) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-tab-card.theme-active-surface {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035),
+      0 6px 14px rgba(0, 0, 0, 0.22) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-tab-card.theme-active-surface::after {
+    right: 10px;
+    left: 10px;
+    background: rgba(111, 169, 196, 0.72);
+    opacity: 1;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-tab-card.theme-active-surface .viewer-tab-close {
+    border-color: rgba(126, 142, 154, 0.14) !important;
+    background: #0e1419 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-tab-chip.theme-active-pill {
+    border-color: rgba(111, 169, 196, 0.46) !important;
+    background:
+      linear-gradient(180deg, #233842, #18262d) !important;
+    color: #eaf3f7 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-list-card {
+    border-radius: var(--industrial-radius-control) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-list-card.theme-active-surface {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-list-card.theme-active-surface:hover {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-list-card.theme-active-surface .series-thumbnail--active,
+  :root[data-theme="industrial-utility"] .rail-series-thumbnail--active {
+    border-color: rgba(111, 169, 196, 0.38) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.12) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-list-card .series-delete-button {
+    border-color: rgba(201, 138, 66, 0.18) !important;
+    background: #1b1412 !important;
+    color: rgba(245, 214, 186, 0.78) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-list-card.theme-active-surface .series-delete-button {
+    border-color: rgba(201, 138, 66, 0.28) !important;
+    background: #231915 !important;
+    color: #f1d6bc !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group {
+    border-radius: var(--industrial-radius-control) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active) {
+    border-color: rgba(111, 169, 196, 0.26) !important;
+    background: #0e1419 !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.08),
+      var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active)::after {
+    right: 6px;
+    left: 6px;
+    background: rgba(111, 169, 196, 0.72);
+    opacity: 1;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-menu-button[aria-expanded="true"] {
+    border-color: rgba(111, 169, 196, 0.34) !important;
+    background: #17242b !important;
+    color: #e2edf2 !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.12),
+      var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-playback-button {
+    border-radius: var(--industrial-radius-control) !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-playback-button--pause {
+    border-color: rgba(111, 169, 196, 0.34) !important;
+    background: #203c48 !important;
+    color: #eef6f9 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-playback-button--stop {
+    border-color: rgba(201, 138, 66, 0.28) !important;
+    background: #352017 !important;
+    color: #f1d6bc !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-menu-option {
+    border-radius: var(--industrial-radius-control) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-menu-option:not(.toolbar-menu-option--active):hover {
+    border-color: rgba(111, 169, 196, 0.22) !important;
+    background: #17242b !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-menu-option--active,
+  :root[data-theme="industrial-utility"] .toolbar-menu-option--active:hover {
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    background: #14232b !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-menu-option__rail {
+    inset: 11px auto 11px 8px !important;
+    width: 2px !important;
+    border-radius: 2px !important;
+    opacity: 0 !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-menu-option--active .toolbar-menu-option__rail {
+    opacity: 0.62 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-menu-option__icon,
+  :root[data-theme="industrial-utility"] .toolbar-menu-option__badge {
+    border-radius: var(--industrial-radius-chip) !important;
+    background: #101820 !important;
     box-shadow: none !important;
   }
 
@@ -825,8 +1517,8 @@
     border-color: rgba(126, 142, 154, 0.16) !important;
     border-radius: var(--industrial-radius-panel) !important;
     background:
-      linear-gradient(180deg, #05080b, #030507),
-      repeating-linear-gradient(90deg, rgba(140, 155, 168, 0.025) 0, rgba(140, 155, 168, 0.025) 1px, transparent 1px, transparent 32px) !important;
+      repeating-linear-gradient(90deg, rgba(140, 155, 168, 0.025) 0, rgba(140, 155, 168, 0.025) 1px, transparent 1px, transparent 32px),
+      linear-gradient(180deg, #05080b, #030507) !important;
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.025),
       0 18px 36px rgba(0, 0, 0, 0.34) !important;
@@ -915,6 +1607,12 @@
     color: var(--theme-text-secondary);
   }
 
+  :root[data-theme="industrial-utility"] .series-four-d-chip--active {
+    border-color: rgba(111, 169, 196, 0.38) !important;
+    background: #1d3039 !important;
+    color: #e2edf2 !important;
+  }
+
   :root[data-theme="industrial-utility"] .series-context-menu__chrome {
     background:
       linear-gradient(90deg, rgba(111, 169, 196, 0.08), transparent 34%),
@@ -946,6 +1644,221 @@
     background: linear-gradient(180deg, transparent 54%, rgba(0, 0, 0, 0.34)) !important;
   }
 
+  :root[data-theme="industrial-utility"] button.four-d-icon-button:not(:disabled):hover,
+  :root[data-theme="industrial-utility"] button.four-d-fps-button:not(:disabled):not([aria-expanded="true"]):hover,
+  :root[data-theme="industrial-utility"] button.four-d-phase-button:not(:disabled):not(.four-d-phase-button--active):hover {
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    background: #1a242b !important;
+  }
+
+  :root[data-theme="industrial-utility"] button.four-d-icon-button:disabled,
+  :root[data-theme="industrial-utility"] button.four-d-fps-button:disabled,
+  :root[data-theme="industrial-utility"] button.four-d-phase-button:disabled {
+    border-color: rgba(126, 142, 154, 0.12) !important;
+    background:
+      repeating-linear-gradient(135deg, rgba(126, 142, 154, 0.08) 0, rgba(126, 142, 154, 0.08) 1px, transparent 1px, transparent 7px),
+      #070b0f !important;
+    color: rgba(133, 146, 157, 0.42) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.42),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.34) !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.85) saturate(0.35) brightness(0.72);
+    opacity: 1 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .four-d-fps-button[aria-expanded="true"],
+  :root[data-theme="industrial-utility"] .four-d-phase-button--active {
+    border-color: rgba(111, 169, 196, 0.42) !important;
+    background: #172730 !important;
+    color: #eef6f9 !important;
+    box-shadow:
+      inset 0 -2px 0 var(--theme-accent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .four-d-fps-option--active {
+    border-color: rgba(111, 169, 196, 0.34) !important;
+    background: #14232b !important;
+    color: #e2edf2 !important;
+    box-shadow:
+      inset 0 -2px 0 rgba(111, 169, 196, 0.7),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .four-d-phase-button--loading {
+    border-color: rgba(201, 138, 66, 0.38) !important;
+    background: #211812 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .four-d-phase-button--loaded {
+    border-color: rgba(92, 165, 125, 0.34) !important;
+    background: #132018 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .four-d-phase-runtime--loading {
+    border-color: rgba(201, 138, 66, 0.28) !important;
+    background: #211812 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .four-d-phase-runtime--playing {
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    background: #14232b !important;
+  }
+
+  :root[data-theme="industrial-utility"] .theme-drop-active {
+    border-color: rgba(111, 169, 196, 0.38) !important;
+    background:
+      repeating-linear-gradient(90deg, rgba(111, 169, 196, 0.08) 0, rgba(111, 169, 196, 0.08) 1px, transparent 1px, transparent 18px),
+      linear-gradient(180deg, #101820, #0b1116) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.12),
+      inset 0 -3px 0 var(--theme-accent) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .dicom-tag-view {
+    border-color: rgba(126, 142, 154, 0.18) !important;
+    border-radius: var(--industrial-radius-panel) !important;
+    background:
+      repeating-linear-gradient(90deg, rgba(151, 164, 176, 0.026) 0, rgba(151, 164, 176, 0.026) 1px, transparent 1px, transparent 28px),
+      linear-gradient(180deg, #11171c, #080c10) !important;
+    box-shadow: var(--industrial-panel-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-header,
+  :root[data-theme="industrial-utility"] .tag-view-toolbar {
+    border-color: rgba(126, 142, 154, 0.14) !important;
+    background:
+      linear-gradient(90deg, rgba(111, 169, 196, 0.08), transparent 42%),
+      linear-gradient(180deg, rgba(17, 23, 28, 0.96), rgba(11, 16, 20, 0.98)) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-title {
+    color: var(--theme-text-primary) !important;
+    letter-spacing: 0 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-chip,
+  :root[data-theme="industrial-utility"] .tag-view-meta,
+  :root[data-theme="industrial-utility"] .tag-context-copy-badge {
+    border-color: rgba(111, 169, 196, 0.26) !important;
+    border-radius: var(--industrial-radius-chip) !important;
+    background: #17232b !important;
+    color: #dfeaf0 !important;
+    letter-spacing: 0 !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-meta--path {
+    border-color: rgba(126, 142, 154, 0.18) !important;
+    background: #090d11 !important;
+    color: var(--theme-text-muted) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-control-panel,
+  :root[data-theme="industrial-utility"] .tag-table-shell,
+  :root[data-theme="industrial-utility"] .tag-state,
+  :root[data-theme="industrial-utility"] .tag-context-preview {
+    border-color: rgba(126, 142, 154, 0.16) !important;
+    border-radius: var(--industrial-radius-control) !important;
+    background:
+      linear-gradient(180deg, #12191f, #0b1014) !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-control-label,
+  :root[data-theme="industrial-utility"] .tag-table-head {
+    color: var(--theme-text-muted) !important;
+    letter-spacing: 0 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-field .v-field {
+    border-radius: var(--industrial-radius-control) !important;
+    background: #090d11 !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.026),
+      0 0 0 1px rgba(126, 142, 154, 0.18) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-field .v-field--variant-outlined .v-field__outline {
+    color: rgba(126, 142, 154, 0.44) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-field .v-field__input {
+    color: var(--theme-text-primary) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-field .v-label {
+    color: var(--theme-text-muted) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-field .v-field--focused {
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.16),
+      inset 0 -2px 0 rgba(111, 169, 196, 0.46),
+      0 0 0 1px rgba(0, 0, 0, 0.2) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-field .v-field--focused .v-field__outline {
+    color: rgba(111, 169, 196, 0.78) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-go-button {
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    border-radius: var(--industrial-radius-control) !important;
+    background: #17242b !important;
+    color: #eef6f9 !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-go-button:not(.v-btn--disabled):hover {
+    border-color: rgba(111, 169, 196, 0.42) !important;
+    background: #1b3039 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-pagination .v-btn {
+    border: 1px solid rgba(126, 142, 154, 0.14) !important;
+    border-radius: var(--industrial-radius-control) !important;
+    background: #11171c !important;
+    color: var(--theme-text-secondary) !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-pagination .v-pagination__item--is-active .v-btn,
+  :root[data-theme="industrial-utility"] .tag-view-pagination .v-btn.v-btn--active {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-view-pagination .v-pagination__item--is-active .v-btn:hover,
+  :root[data-theme="industrial-utility"] .tag-view-pagination .v-btn.v-btn--active:hover {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    color: var(--theme-active-foreground) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-table-head {
+    border-color: rgba(126, 142, 154, 0.16) !important;
+    background:
+      linear-gradient(180deg, #151e24, #10161b) !important;
+    box-shadow: inset 0 -2px 0 rgba(111, 169, 196, 0.2) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-list-scroll::-webkit-scrollbar-track {
+    border-radius: 2px;
+    background: #070a0d;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-list-scroll::-webkit-scrollbar-thumb {
+    border-radius: 2px;
+    background: #32414b padding-box;
+    box-shadow: none;
+  }
+
   :root[data-theme="industrial-utility"] .tag-context-menu,
   :root[data-theme="industrial-utility"] .v-overlay__content > .v-card {
     border-radius: var(--industrial-radius-panel) !important;
@@ -962,12 +1875,32 @@
 
   :root[data-theme="industrial-utility"] .tag-row {
     border-color: rgba(126, 142, 154, 0.12) !important;
+    background: #0b1014 !important;
     color: var(--theme-text-secondary) !important;
   }
 
   :root[data-theme="industrial-utility"] .tag-row:hover,
   :root[data-theme="industrial-utility"] .tag-row--menu-open {
-    background: #121a20 !important;
+    background:
+      linear-gradient(90deg, rgba(111, 169, 196, 0.12), transparent 46%),
+      #121a20 !important;
+    box-shadow: inset 3px 0 0 rgba(111, 169, 196, 0.72) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-row__tag {
+    color: #9dc9dc !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-row__name {
+    color: var(--theme-text-primary) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-row__keyword {
+    color: var(--theme-text-muted) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .tag-row__vr {
+    color: #d2a06d !important;
   }
 
   :root[data-theme="industrial-utility"] .tag-row__value {
@@ -976,22 +1909,25 @@
 
   :root[data-theme="industrial-utility"] .tag-context-menu__chrome {
     background:
-      linear-gradient(90deg, rgba(111, 169, 196, 0.08), transparent 38%),
+      linear-gradient(90deg, rgba(111, 169, 196, 0.1), transparent 38%),
       repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.04) 0, rgba(148, 163, 184, 0.04) 1px, transparent 1px, transparent 28px) !important;
   }
 
   :root[data-theme="industrial-utility"] .tag-context-menu__item {
     border-radius: var(--industrial-radius-control) !important;
+    color: var(--theme-text-primary) !important;
   }
 
   :root[data-theme="industrial-utility"] .tag-context-menu__item:hover {
     background: #17242b !important;
     box-shadow: inset 3px 0 0 var(--theme-accent) !important;
+    transform: none !important;
   }
 
   :root[data-theme="industrial-utility"] .tag-context-menu__badge {
     border-radius: var(--industrial-radius-chip) !important;
     background: #17232b !important;
+    color: #dfeaf0 !important;
   }
 
   :root[data-theme="industrial-utility"] [data-annotation-ui-root],

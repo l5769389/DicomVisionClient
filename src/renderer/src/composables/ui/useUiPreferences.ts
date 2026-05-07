@@ -28,6 +28,16 @@ export interface ScaleBarPreference {
   color: string
 }
 
+export type MeasurementLineStyle = 'solid' | 'dash'
+
+export interface MeasurementStylePreference {
+  editingColor: string
+  completedColor: string
+  lineWidth: number
+  editingLineStyle: MeasurementLineStyle
+  completedLineStyle: MeasurementLineStyle
+}
+
 export interface ExportPreference {
   locationMode: 'default' | 'custom'
   desktopDirectory: string | null
@@ -70,14 +80,15 @@ interface UiPreferencesState {
   selectedWindowPresetId: string
   crosshairConfigs: CrosshairViewportPreference[]
   scaleBarPreference: ScaleBarPreference
+  measurementStylePreference: MeasurementStylePreference
   exportPreference: ExportPreference
   qaWaterMetrics: QaWaterMetricPreference[]
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 5
-const DEFAULT_THEME_ID = 'aurora'
+const CURRENT_PREFERENCES_VERSION = 6
+const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
 export const MAX_CUSTOM_WINDOW_PRESETS = 5
@@ -154,6 +165,16 @@ function createDefaultScaleBarPreference(): ScaleBarPreference {
   }
 }
 
+function createDefaultMeasurementStylePreference(): MeasurementStylePreference {
+  return {
+    editingColor: '#ffb84d',
+    completedColor: '#55e7ff',
+    lineWidth: 2.5,
+    editingLineStyle: 'dash',
+    completedLineStyle: 'solid'
+  }
+}
+
 function createDefaultExportPreference(): ExportPreference {
   return {
     locationMode: 'default',
@@ -197,6 +218,7 @@ function createDefaultState(): UiPreferencesState {
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
     crosshairConfigs: createDefaultCrosshairConfigs(),
     scaleBarPreference: createDefaultScaleBarPreference(),
+    measurementStylePreference: createDefaultMeasurementStylePreference(),
     exportPreference: createDefaultExportPreference(),
     qaWaterMetrics: createDefaultQaWaterMetrics(),
     roiStatOptions: createDefaultRoiStatOptions(),
@@ -277,6 +299,32 @@ function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
   return {
     enabled: typeof record?.enabled === 'boolean' ? record.enabled : defaults.enabled,
     color: typeof record?.color === 'string' && record.color.trim() ? record.color : defaults.color
+  }
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  const normalized = value.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized : fallback
+}
+
+function normalizeMeasurementLineStyle(value: unknown, fallback: MeasurementLineStyle): MeasurementLineStyle {
+  return value === 'dash' || value === 'solid' ? value : fallback
+}
+
+function normalizeMeasurementStylePreference(value: unknown): MeasurementStylePreference {
+  const defaults = createDefaultMeasurementStylePreference()
+  const record = value && typeof value === 'object' ? (value as Partial<MeasurementStylePreference>) : null
+
+  return {
+    editingColor: normalizeHexColor(record?.editingColor, defaults.editingColor),
+    completedColor: normalizeHexColor(record?.completedColor, defaults.completedColor),
+    lineWidth: Math.min(6, Math.max(1.5, normalizeNumber(record?.lineWidth, defaults.lineWidth))),
+    editingLineStyle: normalizeMeasurementLineStyle(record?.editingLineStyle, defaults.editingLineStyle),
+    completedLineStyle: normalizeMeasurementLineStyle(record?.completedLineStyle, defaults.completedLineStyle)
   }
 }
 
@@ -408,6 +456,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
   state.crosshairConfigs = nextState.crosshairConfigs
   state.scaleBarPreference = nextState.scaleBarPreference
+  state.measurementStylePreference = nextState.measurementStylePreference
   state.exportPreference = nextState.exportPreference
   state.qaWaterMetrics = nextState.qaWaterMetrics
   state.roiStatOptions = nextState.roiStatOptions
@@ -426,6 +475,13 @@ function serializeState(): UiPreferencesState {
     scaleBarPreference: {
       enabled: state.scaleBarPreference.enabled,
       color: state.scaleBarPreference.color
+    },
+    measurementStylePreference: {
+      editingColor: state.measurementStylePreference.editingColor,
+      completedColor: state.measurementStylePreference.completedColor,
+      lineWidth: state.measurementStylePreference.lineWidth,
+      editingLineStyle: state.measurementStylePreference.editingLineStyle,
+      completedLineStyle: state.measurementStylePreference.completedLineStyle
     },
     exportPreference: {
       locationMode: state.exportPreference.locationMode,
@@ -495,6 +551,7 @@ async function hydrateState(): Promise<void> {
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
+        measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
         exportPreference: normalizeExportPreference(parsed.exportPreference),
         qaWaterMetrics: normalizeQaWaterMetrics(parsed.qaWaterMetrics),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
@@ -615,6 +672,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setMeasurementStylePreference(nextValue: MeasurementStylePreference): void {
+    state.measurementStylePreference = normalizeMeasurementStylePreference(nextValue)
+    void persistState()
+  }
+
   function setExportPreference(nextValue: ExportPreference): void {
     state.exportPreference = normalizeExportPreference(nextValue)
     void persistState()
@@ -653,6 +715,7 @@ export function useUiPreferences() {
     getWindowPresetLabel,
     locale,
     exportPreference: computed(() => state.exportPreference),
+    measurementStylePreference: computed(() => state.measurementStylePreference),
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
@@ -661,6 +724,7 @@ export function useUiPreferences() {
     setCrosshairConfigs,
     setExportPreference,
     setLocale,
+    setMeasurementStylePreference,
     setQaWaterMetrics,
     setScaleBarPreference,
     setRoiStatOptions,

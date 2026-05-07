@@ -172,7 +172,7 @@ function handleSeriesDragEnd(): void {
           v-for="series in seriesList"
           :key="series.seriesId"
           draggable="true"
-          class="group relative rounded-2xl! border! px-3! py-3! transition duration-150"
+          class="series-list-card group relative rounded-2xl! border! px-3! py-3! transition duration-150"
           :class="series.seriesId === selectedSeriesId ? 'theme-active-surface' : 'theme-card-soft border! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
           @contextmenu="handleSeriesContextMenu($event, series)"
           @dragstart="handleSeriesDragStart($event, series.seriesId)"
@@ -195,7 +195,7 @@ function handleSeriesDragEnd(): void {
           </button>
           <VBtn
             variant="flat"
-            class="absolute bottom-3 right-3 h-8! w-8! min-w-0! rounded-lg! border!"
+            class="series-delete-button absolute bottom-3 right-3 h-8! w-8! min-w-0! rounded-lg! border!"
             :class="series.seriesId === selectedSeriesId ? 'border-white/18! bg-white/12! text-white!' : 'border-rose-300/14! bg-rose-400/8! text-rose-100!'"
             :aria-label="t('deleteSeries')"
             :title="t('deleteSeries')"
@@ -283,10 +283,10 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-thumbnail--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 72%, white 8%);
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, white 6%);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 42%, transparent),
-    0 0 0 4px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 20%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 12%, transparent);
 }
 
 .series-thumbnail img {
@@ -322,7 +322,7 @@ function handleSeriesDragEnd(): void {
 
 .series-thumbnail__dot--active {
   background: var(--theme-accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 14%, transparent);
 }
 
 .series-four-d-chip {
@@ -342,9 +342,9 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-four-d-chip--active {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.14);
-  color: white;
+  border-color: var(--theme-active-pill-border);
+  background: var(--theme-active-pill-bg);
+  color: var(--theme-active-foreground);
 }
 
 .series-context-menu {

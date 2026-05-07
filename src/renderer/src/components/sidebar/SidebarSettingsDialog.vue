@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
@@ -58,33 +58,33 @@ interface ColorPreset {
   label: string
 }
 
-const DEFAULT_THEME_ID = 'aurora'
+const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 
 const themePresets: ThemePreset[] = [
   {
+    id: 'industrial-utility',
+    labelZh: '工业实用风（默认）',
+    labelEn: 'Industrial Utility (Default)',
+    summaryZh: '深色控制台配色，强调边界、禁用态和高频操作识别。',
+    summaryEn: 'Dark console styling with clearer control boundaries, disabled states, and action contrast.',
+    preview: 'linear-gradient(135deg,#05080b 0%,#111820 42%,#202a32 72%,#6fa9c4 100%)'
+  },
+  {
     id: 'aurora',
-    labelZh: '默认主题',
-    labelEn: 'Default Theme',
-    summaryZh: '沿用当前项目的深蓝界面、冷蓝高亮与低亮背景层次',
-    summaryEn: 'Current project look with deep navy surfaces and cool blue highlights',
+    labelZh: '冷蓝深色',
+    labelEn: 'Aurora Dark',
+    summaryZh: '深蓝背景配冷蓝高亮，保留原始界面的柔和层次。',
+    summaryEn: 'Deep navy surfaces with cool blue highlights and the original softer layering.',
     preview: 'linear-gradient(135deg,#07111d 0%,#0d1b2d 48%,#16324d 78%,#66d0ff 100%)'
   },
   {
     id: 'clinical-light',
-    labelZh: 'Clinical Light',
+    labelZh: '临床浅色',
     labelEn: 'Clinical Light',
-    summaryZh: '浅灰白底配冷蓝强调，更适合明亮环境和演示场景',
-    summaryEn: 'Soft light surfaces with restrained blue accents for bright rooms and demos',
+    summaryZh: '浅灰白界面配冷蓝强调，适合明亮环境和演示场景。',
+    summaryEn: 'Light gray clinical surfaces with restrained blue accents for bright rooms and demos.',
     preview: 'linear-gradient(135deg,#f7fbff 0%,#e8f1f8 42%,#d7e5f2 72%,#6aaed6 100%)'
-  },
-  {
-    id: 'industrial-utility',
-    labelZh: '工业实用风',
-    labelEn: 'Industrial Utility',
-    summaryZh: '石墨黑面板、钢蓝高亮与低装饰层次，贴近 PACS 工作台质感',
-    summaryEn: 'Graphite panels, steel-blue highlights, and restrained workstation contrast',
-    preview: 'linear-gradient(135deg,#05080b 0%,#111820 42%,#202a32 72%,#6fa9c4 100%)'
   }
 ]
 
@@ -94,6 +94,15 @@ const scaleBarColorPresets: ColorPreset[] = [
   { value: '#3b82f6', label: 'Blue' },
   { value: '#ef4444', label: 'Red' },
   { value: '#f59e0b', label: 'Amber' },
+  { value: '#a855f7', label: 'Violet' }
+]
+
+const measurementColorPresets: ColorPreset[] = [
+  { value: '#ffb84d', label: 'Amber' },
+  { value: '#55e7ff', label: 'Cyan' },
+  { value: '#f8fafc', label: 'White' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#ef4444', label: 'Red' },
   { value: '#a855f7', label: 'Violet' }
 ]
 
@@ -129,6 +138,16 @@ function createDefaultScaleBarPreference(): ScaleBarConfig {
   return {
     enabled: true,
     color: '#f8fafc'
+  }
+}
+
+function createDefaultMeasurementStylePreference() {
+  return {
+    editingColor: '#ffb84d',
+    completedColor: '#55e7ff',
+    lineWidth: 2.5,
+    editingLineStyle: 'dash' as MeasurementLineStyle,
+    completedLineStyle: 'solid' as MeasurementLineStyle
   }
 }
 
@@ -213,6 +232,7 @@ const {
   addCustomWindowPreset,
   crosshairConfigs,
   getWindowPresetLabel,
+  measurementStylePreference,
   qaWaterMetrics,
   removeCustomWindowPresets,
   roiStatOptions,
@@ -220,6 +240,7 @@ const {
   selectedPseudocolorKey,
   selectedWindowPresetId,
   setCrosshairConfigs,
+  setMeasurementStylePreference,
   setQaWaterMetrics,
   setScaleBarPreference,
   systemWindowPresets,
@@ -229,6 +250,7 @@ const {
 } = useUiPreferences()
 
 const activeSection = ref<SettingsSection>('language')
+const settingsContentScrollRef = ref<HTMLElement | null>(null)
 const customPresetZhName = ref('')
 const customPresetEnName = ref('')
 const customPresetWw = ref('400')
@@ -323,6 +345,10 @@ function resetLanguageSection(): void {
 }
 
 function resetWindowPresetSection(): void {
+  const customPresetIds = displayCustomWindowPresets.value.map((preset) => preset.id)
+  if (customPresetIds.length) {
+    removeCustomWindowPresets(customPresetIds)
+  }
   selectedWindowPresetId.value = systemWindowPresets[0]?.id ?? 'lung'
   selectedCustomPresetIds.value = []
   customPresetZhName.value = ''
@@ -336,6 +362,7 @@ function resetDisplaySection(): void {
   setRoiStatOptions(createDefaultRoiStatOptions())
   setCrosshairConfigs(createDefaultCrosshairConfigs())
   setScaleBarPreference(createDefaultScaleBarPreference())
+  setMeasurementStylePreference(createDefaultMeasurementStylePreference())
 }
 
 function resetQaSection(): void {
@@ -362,6 +389,18 @@ function resetCurrentSection(): void {
   if (activeSection.value === 'display') {
     resetDisplaySection()
   }
+}
+
+function toggleScaleBarEnabled(): void {
+  const scrollContainer = settingsContentScrollRef.value
+  const currentScrollTop = scrollContainer?.scrollTop ?? 0
+  scaleBarPreference.value.enabled = !scaleBarPreference.value.enabled
+
+  requestAnimationFrame(() => {
+    if (scrollContainer) {
+      scrollContainer.scrollTop = currentScrollTop
+    }
+  })
 }
 
 function handleLocaleChange(nextLocale: AppLocale): void {
@@ -430,14 +469,14 @@ watch(displayCustomWindowPresets, () => {
   <Teleport to="body">
     <div
       v-if="isOpen"
-      class="fixed inset-0 z-[1300] flex items-center justify-center bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-accent)_16%,transparent),transparent_38%),rgba(3,8,15,0.42)] px-4 py-6 backdrop-blur-[8px]"
+      class="settings-dialog-backdrop fixed inset-0 z-[1300] flex items-center justify-center bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-accent)_16%,transparent),transparent_38%),rgba(3,8,15,0.42)] px-4 py-6 backdrop-blur-[8px]"
       @click.self="emit('close')"
     >
-      <div class="theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]">
+      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]">
         <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_14%,transparent),transparent_26%),radial-gradient(circle_at_bottom_left,color-mix(in_srgb,var(--theme-accent-warm)_12%,transparent),transparent_22%)]"></div>
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[color:color-mix(in_srgb,var(--theme-text-primary)_40%,transparent)] to-transparent"></div>
 
-        <div class="relative flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-7 py-6">
+        <div class="settings-dialog-header relative flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-7 py-6">
           <div class="min-w-0">
             <div class="flex items-center gap-3">
               <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-primary)]">
@@ -458,11 +497,11 @@ watch(displayCustomWindowPresets, () => {
                 v-for="section in sections"
                 :key="section.key"
                 type="button"
-                class="group flex w-full items-start gap-3 rounded-[22px] border px-4 py-4 text-left transition duration-150"
-                :class="section.key === activeSection ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_28px_rgba(0,0,0,0.16)]' : 'theme-card-soft border hover:border-[var(--theme-border-strong)]'"
+                class="settings-nav-item group flex w-full items-start gap-3 rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                :class="section.key === activeSection ? 'settings-nav-item--active theme-active-surface' : 'settings-nav-item--inactive theme-card-soft border hover:border-[var(--theme-border-strong)]'"
                 @click="activeSection = section.key"
               >
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition" :class="section.key === activeSection ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'">
+                <div class="settings-nav-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition" :class="section.key === activeSection ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'">
                   <AppIcon :name="section.icon" :size="18" />
                 </div>
                 <div class="min-w-0">
@@ -476,8 +515,7 @@ watch(displayCustomWindowPresets, () => {
           <section class="flex min-h-0 flex-col overflow-hidden px-6 py-5 lg:px-7">
             <div class="mb-5 flex shrink-0 items-end justify-between gap-4">
               <div class="min-w-0">
-                <div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--theme-text-muted)]">{{ copy.sectionLabel }}</div>
-                <div class="mt-2 text-2xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ currentSectionTitle }}</div>
+                <div class="text-2xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ currentSectionTitle }}</div>
                 <div v-if="currentSectionSubtitle" class="mt-1 text-sm text-[var(--theme-text-muted)]">{{ currentSectionSubtitle }}</div>
               </div>
               <div class="hidden items-center gap-2 md:flex">
@@ -486,7 +524,7 @@ watch(displayCustomWindowPresets, () => {
               </div>
             </div>
 
-            <div class="settings-content-scroll min-h-0 flex-1 overflow-auto pr-2">
+            <div ref="settingsContentScrollRef" class="settings-content-scroll min-h-0 flex-1 overflow-auto pr-2">
               <div class="space-y-5 pb-12">
                 <template v-if="activeSection === 'language'">
                   <div class="grid gap-5 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
@@ -526,7 +564,6 @@ watch(displayCustomWindowPresets, () => {
                         <AppIcon name="palette" :size="18" />
                         <span class="text-lg font-semibold">{{ copy.themePresetTitle }}</span>
                       </div>
-                      <div class="mb-4 text-sm text-[var(--theme-text-secondary)]">{{ copy.themeDesc }}</div>
                       <div class="grid gap-3">
                         <button
                           v-for="theme in themePresets"
@@ -552,9 +589,7 @@ watch(displayCustomWindowPresets, () => {
                     <div class="mb-4 flex items-center justify-between gap-3">
                       <div>
                         <div class="text-lg font-semibold text-[var(--theme-text-primary)]">{{ copy.shortcutsTitle }}</div>
-                        <div class="mt-1 text-sm text-[var(--theme-text-secondary)]">{{ copy.shortcutsDesc }}</div>
                       </div>
-                      <span class="rounded-full border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]">{{ copy.editable }}</span>
                     </div>
 
                     <div class="space-y-4">
@@ -755,15 +790,15 @@ watch(displayCustomWindowPresets, () => {
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                             <AppIcon name="crosshair" :size="18" />
-                            <span class="text-lg font-semibold">{{ isZh ? '十字线' : 'Crosshair' }}</span>
+                            <span class="text-lg font-semibold">{{ copy.crosshairTitle }}</span>
                           </div>
-                          <div class="mt-2 text-sm text-[var(--theme-text-secondary)]">{{ isZh ? '设置 MPR 三个视图的十字线颜色和线宽，并在同一区域预览效果。' : 'Configure crosshair color and thickness for the three MPR views, with preview in the same area.' }}</div>
+                          <div class="mt-2 text-sm text-[var(--theme-text-secondary)]">{{ copy.crosshairDesc }}</div>
                         </div>
                       </div>
 
                       <div class="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
                         <div class="min-w-0">
-                          <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '十字线样式' : 'Crosshair Style' }}</div>
+                          <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.crosshairStyleTitle }}</div>
                           <div class="grid gap-4 xl:grid-cols-3 2xl:grid-cols-1">
                             <div
                               v-for="config in crosshairConfigs"
@@ -804,7 +839,6 @@ watch(displayCustomWindowPresets, () => {
                             <AppIcon name="palette" :size="18" />
                             <span class="text-sm font-semibold">{{ copy.visualPreview }}</span>
                           </div>
-                          <div class="mb-4 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.crosshairPreviewLabel }}</div>
                           <div class="grid gap-4 md:grid-cols-3 2xl:grid-cols-1">
                             <div
                               v-for="config in crosshairConfigs"
@@ -837,9 +871,15 @@ watch(displayCustomWindowPresets, () => {
                         <div class="max-w-2xl text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
                       </div>
 
-                      <div class="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,0.92fr)_minmax(0,1.15fr)]">
-                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-3">
-                          <label class="flex h-full cursor-pointer items-center justify-between gap-4">
+                      <div class="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,0.92fr)_minmax(0,1.15fr)]">
+                        <div class="scale-bar-control-card rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-3">
+                          <button
+                            type="button"
+                            role="switch"
+                            class="scale-bar-toggle-control flex min-h-[112px] w-full cursor-pointer items-center justify-between gap-4 text-left"
+                            :aria-checked="scaleBarPreference.enabled"
+                            @click="toggleScaleBarEnabled"
+                          >
                             <div class="min-w-0">
                               <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.scaleBarEnabled }}</div>
                               <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
@@ -849,11 +889,10 @@ watch(displayCustomWindowPresets, () => {
                             <span class="relative h-6 w-11 shrink-0 rounded-full border transition" :class="scaleBarPreference.enabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]' : 'border-[var(--theme-border-strong)] bg-[var(--theme-surface-card)]'">
                               <span class="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition" :class="scaleBarPreference.enabled ? 'left-6' : 'left-1'"></span>
                             </span>
-                            <input v-model="scaleBarPreference.enabled" type="checkbox" class="sr-only" />
-                          </label>
+                          </button>
                         </div>
 
-                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
+                        <div class="scale-bar-control-card rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-3 py-3">
                           <div class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.scaleBarColor }}</div>
                           <div class="flex items-center gap-3">
                             <input v-model="scaleBarPreference.color" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
@@ -880,12 +919,11 @@ watch(displayCustomWindowPresets, () => {
                           </div>
                         </div>
 
-                        <div class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
-                          <div class="mb-3 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarPreviewLabel }}</div>
-                          <div class="relative h-20 overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                        <div class="scale-bar-control-card rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="scale-bar-preview-surface relative min-h-[104px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
                             <div
-                              v-if="scaleBarPreference.enabled"
-                              class="absolute bottom-3 left-1/2 -translate-x-1/2"
+                              class="scale-bar-preview-mark absolute bottom-3 left-1/2 -translate-x-1/2 transition duration-150"
+                              :class="scaleBarPreference.enabled ? 'opacity-100' : 'opacity-30 grayscale'"
                               :style="{ color: scaleBarPreference.color }"
                             >
                               <div class="mb-1 text-center text-[11px] font-semibold tracking-[0.12em]">10 cm</div>
@@ -906,6 +944,133 @@ watch(displayCustomWindowPresets, () => {
                               </div>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="measure-line" :size="18" />
+                            <span class="text-sm font-semibold">{{ copy.measurementStyleTitle }}</span>
+                          </div>
+                          <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.measurementStyleDesc }}</div>
+                        </div>
+                      </div>
+
+                      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.75fr)]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.measurementEditingColor }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="measurementStylePreference.editingColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ measurementStylePreference.editingColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in measurementColorPresets"
+                              :key="`editing-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="measurementStylePreference.editingColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="measurementStylePreference.editingColor = preset.value"
+                            >
+                              <span
+                                v-if="measurementStylePreference.editingColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.measurementCompletedColor }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="measurementStylePreference.completedColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ measurementStylePreference.completedColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in measurementColorPresets"
+                              :key="`completed-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="measurementStylePreference.completedColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="measurementStylePreference.completedColor = preset.value"
+                            >
+                              <span
+                                v-if="measurementStylePreference.completedColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.measurementLineWidth }}</div>
+                          <input v-model.number="measurementStylePreference.lineWidth" type="range" min="1.5" max="6" step="0.5" class="w-full accent-[var(--theme-accent)]" />
+                          <div class="mt-2 flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
+                            <span>1.5 px</span>
+                            <span class="font-semibold text-[var(--theme-text-primary)]">{{ measurementStylePreference.lineWidth }} px</span>
+                            <span>6 px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(260px,1fr)]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.measurementEditingLineStyle }}</div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              class="rounded-[16px] border px-3 py-2 text-sm font-semibold transition"
+                              :class="measurementStylePreference.editingLineStyle === 'solid' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                              @click="measurementStylePreference.editingLineStyle = 'solid'"
+                            >
+                              {{ copy.measurementSolidLine }}
+                            </button>
+                            <button
+                              type="button"
+                              class="rounded-[16px] border px-3 py-2 text-sm font-semibold transition"
+                              :class="measurementStylePreference.editingLineStyle === 'dash' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                              @click="measurementStylePreference.editingLineStyle = 'dash'"
+                            >
+                              {{ copy.measurementDashedLine }}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.measurementCompletedLineStyle }}</div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              class="rounded-[16px] border px-3 py-2 text-sm font-semibold transition"
+                              :class="measurementStylePreference.completedLineStyle === 'solid' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                              @click="measurementStylePreference.completedLineStyle = 'solid'"
+                            >
+                              {{ copy.measurementSolidLine }}
+                            </button>
+                            <button
+                              type="button"
+                              class="rounded-[16px] border px-3 py-2 text-sm font-semibold transition"
+                              :class="measurementStylePreference.completedLineStyle === 'dash' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                              @click="measurementStylePreference.completedLineStyle = 'dash'"
+                            >
+                              {{ copy.measurementDashedLine }}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <svg class="h-20 w-full" viewBox="0 0 280 72" aria-hidden="true">
+                            <line x1="20" y1="22" x2="260" y2="22" :stroke="measurementStylePreference.editingColor" :stroke-width="measurementStylePreference.lineWidth" stroke-linecap="round" :stroke-dasharray="measurementStylePreference.editingLineStyle === 'dash' ? '12 8' : undefined" />
+                            <line x1="20" y1="52" x2="260" y2="52" :stroke="measurementStylePreference.completedColor" :stroke-width="measurementStylePreference.lineWidth" stroke-linecap="round" :stroke-dasharray="measurementStylePreference.completedLineStyle === 'dash' ? '12 8' : undefined" />
+                          </svg>
                         </div>
                       </div>
                     </div>

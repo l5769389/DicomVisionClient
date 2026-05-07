@@ -113,8 +113,15 @@ const { t } = useUiLocale()
 }
 
 .rail-series-thumbnail--active {
-  border-color: var(--theme-accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, white 6%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+}
+
+.rail-series-thumbnail--active:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, white 6%);
+  transform: none;
 }
 
 .rail-series-thumbnail img {

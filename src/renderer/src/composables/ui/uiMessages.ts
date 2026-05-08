@@ -2,6 +2,9 @@ export type UiLocale = 'zh-CN' | 'en-US'
 
 export interface SettingsCopy {
   title: string
+  versionLabel: string
+  versionBadge: (version: string) => string
+  productName: string
   reset: string
   applyDraft: string
   clear: string
@@ -342,6 +345,9 @@ export const uiMessages = {
     },
     settings: {
       title: '工作区设置',
+      versionLabel: '版本',
+      versionBadge: (version: string) => `v${version}`,
+      productName: 'DicomVision',
       reset: '恢复默认',
       applyDraft: '应用',
       clear: '取消全选',
@@ -674,6 +680,9 @@ export const uiMessages = {
     },
     settings: {
       title: 'Workspace Settings',
+      versionLabel: 'Version',
+      versionBadge: (version: string) => `v${version}`,
+      productName: 'DicomVision',
       reset: 'Reset',
       applyDraft: 'Apply',
       clear: 'Clear',

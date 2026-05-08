@@ -1,6 +1,6 @@
 {
-  "name": "dicom-vision-client",
-  "productName": "DicomVision Client",
+  "name": "dicom-vision",
+  "productName": "DicomVision",
   "version": "0.1.0",
   "private": true,
   "description": "Vue3 + Electron + electron-vite + Socket.IO + Axios + Tailwind CSS DICOM viewer frontend",
@@ -8,9 +8,9 @@
   "main": "out/main/index.js",
   "type": "module",
   "build": {
-    "appId": "com.dicomvision.client",
-    "productName": "DicomVision Client",
-    "artifactName": "DicomVision-Client-${version}-Setup.${ext}",
+    "appId": "com.dicomvision.app",
+    "productName": "DicomVision",
+    "artifactName": "DicomVision-${version}-Setup.${ext}",
     "copyright": "Copyright (c) DicomVision",
     "directories": {
       "buildResources": "build",
@@ -32,7 +32,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "executableName": "DicomVisionClient",
+      "executableName": "DicomVision",
       "target": [
         "nsis"
       ]
@@ -52,8 +52,13 @@
       "installerHeaderIcon": "build/icon.ico",
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/uninstallerSidebar.bmp",
-      "shortcutName": "DicomVision Client",
-      "uninstallDisplayName": "DicomVision Client",
+      "include": "build/installer.nsh",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "shortcutName": "DicomVision",
+      "uninstallDisplayName": "DicomVision",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
@@ -63,6 +68,7 @@
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
     "build:web": "vite build --config vite.web.config.ts",
+    "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
     "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",
     "preview": "electron-vite preview",
     "preview:web": "vite preview --config vite.web.config.ts",

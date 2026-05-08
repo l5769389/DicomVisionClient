@@ -369,10 +369,16 @@ watch(
               v-for="option in FPS_OPTIONS"
               :key="option"
               type="button"
-              class="four-d-fps-option"
-              :class="{ 'four-d-fps-option--active': option === normalizedFps }"
+              class="four-d-fps-option toolbar-menu-option group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+              :class="{
+                'four-d-fps-option--active toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': option === normalizedFps
+              }"
               @click="selectFps(option)"
             >
+              <div
+                class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
+                :class="{ 'opacity-100': option === normalizedFps }"
+              />
               <span>FPS {{ option }}</span>
               <AppIcon v-if="option === normalizedFps" name="check" :size="14" />
             </button>
@@ -648,6 +654,13 @@ watch(
   box-shadow: var(--theme-hover-shadow);
 }
 
+.four-d-fps-button[aria-expanded="true"] {
+  border-color: var(--theme-active-border);
+  background: var(--theme-active-surface-soft);
+  color: var(--theme-text-primary);
+  box-shadow: var(--theme-active-shadow-soft);
+}
+
 .four-d-fps-button:focus-visible {
   outline: none;
   border-color: var(--theme-active-border);
@@ -696,20 +709,6 @@ watch(
   border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent);
   background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
   color: var(--theme-text-primary);
-}
-
-.four-d-fps-option--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 16%, transparent), color-mix(in srgb, var(--theme-accent) 10%, transparent));
-  color: var(--theme-text-primary);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.four-d-fps-option--active:hover {
-  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 16%, transparent), color-mix(in srgb, var(--theme-accent) 10%, transparent));
-  color: var(--theme-text-primary);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .four-d-phase-footer {

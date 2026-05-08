@@ -1,285 +1,208 @@
-﻿# DicomVision Client
+# DicomVision
 
 [English](./README.md)
 
-DicomVision Client 是 DicomVision 阅片系统的前端仓库，负责桌面端与 Web 端的工作流编排、视口管理、交互工具和实时显示；配套后端负责 DICOM 解析、MPR 重建与 3D 体渲染。
+DicomVision 是一套面向 DICOM 影像浏览、重建、测量与质量分析的 C/S 阅片工具，支持 Stack 切片阅览、MPR/斜切 MPR、4D 时相播放、服务端 3D 体渲染、DICOM 标签检查、ROI 测量、MTF/FWHM 分析、水模 QA、图像导出、深浅主题切换，并可分别部署为浏览器 Web 应用或包含内置后端的 Windows 桌面应用。
 
-配套后端仓库 GitHub 地址：[DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+## 功能总览
 
-## 项目概述
+- **影像加载与序列管理**：加载本地 DICOM 文件夹、服务端示例数据或服务端可访问路径，自动发现序列并在侧边栏中管理。
+- **Stack 阅片**：支持逐层浏览、窗宽窗位、缩放、平移、滚动、旋转、翻转、重置、伪彩和角标信息显示。
+- **MPR 与斜切 MPR**：支持轴位、冠状位、矢状位三视口联动，十字线同步，斜切旋转，MIP 配置，方向标和比例尺叠加。
+- **4D 时相播放**：支持多时相预览、时相切换、播放控制、FPS 调整和多视口时相缓存。
+- **3D 体渲染**：后端基于 VTK 执行体渲染，支持预设、传输函数、不透明度、颜色、光照、插值和图层配置。
+- **测量与分析**：支持线段、矩形、椭圆、角度、曲线、自由形状测量，并提供 MTF/FWHM 与水模 QA 分析流程。
+- **DICOM 标签查看**：按实例查看 DICOM tag、VR、名称和值，辅助调试与影像数据检查。
+- **Web 与桌面双形态**：Web 端可部署为静态前端连接远程后端；桌面端可打包 Electron 应用并内置服务端 bundle。
 
-DicomVision 采用前后端分离的医学影像查看架构：
+## 仓库地址
 
-- `DicomVisionClient`：基于 Electron + Vue 的交互前端
-- `DicomVisionServer`：基于 FastAPI + Socket.IO 的渲染与服务后端
+- 客户端 Client：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
+- 服务端 Server：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
 
-前端本身不直接完成医学图像渲染，而是负责驱动业务流程、管理工作区状态，并实时接收后端返回的图像帧、叠加信息和交互反馈。
+## 项目截图
 
-## 软件功能
+| Stack 阅片 | MPR 重建 |
+| --- | --- |
+| <img src="./screenshots/stack.png" alt="Stack 阅片" width="420"> | <img src="./screenshots/mpr.png" alt="MPR 重建" width="420"> |
 
-### 影像浏览工作流
+| 斜切 MPR / 十字线旋转 | 4D 时相播放 |
+| --- | --- |
+| <img src="./screenshots/mpr_rotate.png" alt="斜切 MPR 与十字线旋转" width="420"> | <img src="./screenshots/4D.png" alt="4D 时相播放" width="420"> |
 
-- 从桌面端选择本地 DICOM 文件夹
-- 在左侧工作流区域浏览加载后的序列
-- 创建多个标签页和多个视口会话
-- 在同一工作区中切换不同序列和不同阅片模式
+| 测量工具 | DICOM 标签 |
+| --- | --- |
+| <img src="./screenshots/measure.png" alt="测量工具" width="420"> | <img src="./screenshots/dicomTags.png" alt="DICOM 标签" width="420"> |
 
-### 多视图阅片能力
+| MTF 分析 | FWHM 结果 |
+| --- | --- |
+| <img src="./screenshots/mtf.png" alt="MTF 分析" width="420"> | <img src="./screenshots/mtf_fwhm.png" alt="FWHM 结果" width="420"> |
 
-- Stack 模式：逐层浏览切片
-- MPR 模式：进行正交重建与联动查看
-- 3D 模式：基于后端 VTK 管线进行体渲染
+| 水模 QA | 设置面板 |
+| --- | --- |
+| <img src="./screenshots/water_phantom_qa.png" alt="水模 QA" width="420"> | <img src="./screenshots/settings.png" alt="设置面板" width="420"> |
 
-### 交互能力
-
-- 平移、缩放、滚动、重置、视口尺寸更新
-- 十字线联动与导航交互
-- 悬停信息反馈与叠加层展示
-- 通过工具栏统一下发图像操作与视图操作
-
-### 3D 渲染配置
-
-- 内置多种 3D 预设
-- 支持传输函数编辑
-- 支持图层显隐、颜色、不透明度、WW/WL、光照等配置
-- 支持快速预览与完整渲染更新流程
-
-### 产品化能力
-
-- 提供 Electron 桌面运行形态
-- 提供 Web 构建与部署路径
-- 支持将后端桌面 bundle 一并打入 Windows 安装包
+| 深色主题 | 浅色主题 |
+| --- | --- |
+| <img src="./screenshots/theme.png" alt="深色主题" width="420"> | <img src="./screenshots/theme_light.png" alt="浅色主题" width="420"> |
 
 ## 系统架构
 
-系统使用两条通信链路：
+DicomVision 拆分为两个仓库：
 
-- HTTP API：处理加载目录、创建视口、设置视口尺寸等粗粒度操作
-- Socket.IO：处理低延迟交互命令和实时图像更新
+- `DicomVisionClient`：Electron + Vue 前端，负责工作区编排、UI 状态、用户交互、Web 构建和桌面端打包。
+- `DicomVisionServer`：FastAPI + Socket.IO 后端，负责 DICOM 发现、元数据服务、2D 渲染、MPR/4D/3D 计算、测量分析和实时图像推送。
 
-典型运行流程如下：
+典型运行流程：
 
-1. 用户在客户端中选择 DICOM 文件夹。
-2. 前端调用后端接口注册并解析可读序列。
-3. 前端创建 Stack、MPR 或 3D 视口。
-4. 前端将视口与 socket 会话绑定。
-5. 用户交互事件持续发送到后端。
-6. 后端实时回传渲染结果、叠加信息和确认事件。
+1. 客户端加载本地文件夹、服务端可访问路径或服务端示例数据。
+2. 服务端发现可读 DICOM 序列并返回序列元数据。
+3. 客户端创建 Stack、MPR、3D、4D 或 DICOM Tag 标签页。
+4. 视口通过 Socket.IO 与服务端会话绑定。
+5. 用户操作持续发送到服务端。
+6. 服务端实时回推渲染帧、叠加层、悬停信息、确认事件和错误信息。
 
 ## 技术栈
 
-### 前端
-
-- Electron
 - Vue 3
 - TypeScript
+- Electron
+- electron-vite
+- Vite Web 构建
 - Vuetify
 - Tailwind CSS
 - Axios
 - Socket.IO Client
-- electron-vite
-
-### 后端
-
-- Python 3.13+
-- FastAPI
-- python-socketio
-- pydicom
-- NumPy / SciPy
-- Pillow
-- VTK
-- uv
+- Vitest
+- electron-builder
 
 ## 目录结构
 
 ```text
 src/
-  main/                    Electron 主进程
+  main/                    Electron 主进程与内置后端启动逻辑
   preload/                 Electron 预加载桥接层
   renderer/                Vue 渲染层应用
-  shared/                  共享运行时配置与契约
+  shared/                  共享运行时配置、常量和生成的 API 类型
 
 src/renderer/src/
-  components/              UI 组件
-  composables/             工作区状态与交互逻辑
-  plugins/                 Vue / Vuetify 初始化
+  components/              侧边栏、工作区、视口、叠加层和设置 UI
+  composables/             阅片工作区状态和交互编排
+  constants/               前端常量
+  platform/                桌面端 / Web 端运行时适配
   services/                HTTP 与 Socket.IO 客户端
-  types/                   前端领域类型
+  types/                   阅片领域类型
 
-docs/                      项目文档与实现说明
-screenshots/               README 与发布截图目录
-scripts/                   打包与发布脚本
+screenshots/               README 与发布截图
+scripts/                   安装器素材、服务端暂存和 Windows 发布脚本
 ```
 
-## 主要界面模块
+## 快速开始
 
-- `ViewerWorkspace.vue`：主工作区与视口编排容器
-- `ViewerToolbar.vue`：交互工具栏
-- `ViewerTabStrip.vue`：标签页与会话切换
-- `SidebarPanel.vue`：加载流程、序列浏览与设置区域
-- `StackView.vue`：Stack 视口
-- `MprView.vue`：MPR 视口
-- `VolumeView.vue`：3D 视口
-- `VolumeRenderConfigPanel.vue`：3D 高级渲染参数面板
-
-## 前后端使用说明
-
-### 1. 启动后端
-
-后端仓库地址：
-
-[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-
-安装依赖：
+### 1. 启动服务端
 
 ```bash
+cd ../DicomVisionServer
 uv sync
-```
-
-启动服务：
-
-```bash
 uv run python run.py
 ```
 
-默认地址：
+服务端默认地址：
 
 - HTTP：`http://127.0.0.1:8000`
 - OpenAPI：`http://127.0.0.1:8000/docs`
 - Socket.IO：`http://127.0.0.1:8000/socket.io`
 
-### 2. 启动前端开发环境
-
-安装依赖：
+### 2. 启动桌面客户端
 
 ```bash
+cd ../DicomVisionClient
 npm install
-```
-
-启动 Electron 客户端：
-
-```bash
 npm run dev
 ```
 
-需要注意：
+桌面开发模式默认要求后端已运行在 `http://127.0.0.1:8000`。如果需要连接其它后端地址，可以设置：
 
-- 桌面开发模式下，必须先手动启动后端服务。
-- 当前桌面开发模式默认连接 `http://127.0.0.1:8000`。
-- 如果后端不可达，客户端界面仍可能打开，但阅片工作流无法正常使用。
+```powershell
+$env:DICOM_VISION_SERVER_ORIGIN = "http://127.0.0.1:8000"
+npm run dev
+```
 
-### 3. 本地联调建议流程
+## Web 端开发与部署
 
-1. 先启动 `DicomVisionServer`。
-2. 再启动 `DicomVisionClient`。
-3. 在客户端中选择本地 DICOM 文件夹。
-4. 从左侧序列列表中选择目标序列。
-5. 创建 Stack、MPR 或 3D 视口。
-6. 通过工具栏和鼠标手势进行浏览与交互。
-
-## Web 端使用
-
-本地启动 Web 前端：
+本地启动 Web 客户端：
 
 ```bash
 npm run dev:web
 ```
 
-构建 Web 产物：
+构建静态 Web 产物：
 
 ```bash
 npm run build:web
 ```
 
-预览 Web 产物：
+预览 Web 构建结果：
 
 ```bash
 npm run preview:web
 ```
 
-相关环境变量：
+生产环境常用变量：
 
-- `VITE_BACKEND_ORIGIN`：Web 前端连接的后端地址
-- `VITE_WEB_USE_SERVER_SAMPLE`：是否启用服务端示例数据加载路径
-
-当前默认值：
-
-- Web 开发默认后端：`http://127.0.0.1:8000`
-- 当前生产示例后端：`https://dicomvisionserver.onrender.com`
-
-可进一步参考：
-
-- [docs/web-packaging.zh-CN.md](./docs/web-packaging.zh-CN.md)
-- [docs/web-deploy-render-vercel.zh-CN.md](./docs/web-deploy-render-vercel.zh-CN.md)
-
-## 构建与发布
-
-### 前端构建
-
-```bash
-npm run build
+```env
+VITE_BACKEND_ORIGIN=https://your-backend.example.com
+VITE_WEB_USE_SERVER_SAMPLE=true
 ```
 
-### 类型检查
+部署说明：
 
-```bash
-npm run typecheck
+- 将 `DicomVisionServer` 部署为 HTTP + Socket.IO 后端；服务端仓库内已有面向 Render 的配置。
+- 将客户端 `dist-web/` 目录部署到 Vercel、静态托管或其它支持 SPA 的平台。
+- 将 Web 前端域名加入服务端 `CORS_ORIGINS`。
+- 当 `VITE_WEB_USE_SERVER_SAMPLE=true` 时，Web 客户端会调用服务端示例数据接口，而不是提示输入本地文件系统路径。
+
+## 桌面端打包
+
+桌面端是 Electron 应用，可以将服务端产物一起打入安装包，并在运行时自动拉起本地后端。
+
+如果 `DicomVisionServer` 与当前仓库位于同级目录，可一键生成 Windows 安装包：
+
+```powershell
+npm run release:win
 ```
 
-### Windows 安装包
+如果已经有服务端 bundle，也可以手动打包：
 
-当前仓库负责打包 Electron 客户端，并消费后端预先构建好的桌面 bundle。
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-win.ps1 -ServerBundlePath "D:\path\to\DicomVisionServer"
+```
 
-典型打包流程：
+服务端 bundle 目录需要满足：
 
-1. 在 `DicomVisionServer` 中构建后端桌面 bundle。
-2. 将该 bundle 暂存到当前仓库。
-3. 生成 Electron Windows 安装包。
+```text
+DicomVisionServer/
+  DicomVisionServer.exe
+  ...
+```
 
-可用脚本：
+生成的安装包位于 `dist-electron/`。运行时 Electron 主进程会从 `resources/server/DicomVisionServer.exe` 启动内置服务端，分配本地端口，并让 UI 自动连接到解析后的后端地址。
 
-- `npm run build`：构建 Electron 应用
-- `npm run release:win`：串联后端 bundle 构建与 Windows 安装包打包
+## 常用脚本
 
-相关脚本：
+- `npm run dev`：启动 Electron 桌面开发环境。
+- `npm run dev:web`：启动浏览器端 Vite 开发服务。
+- `npm run build`：构建 Electron main、preload 和 renderer 产物。
+- `npm run build:web`：构建独立 Web 前端到 `dist-web/`。
+- `npm run preview`：预览 Electron 构建结果。
+- `npm run preview:web`：预览 Web 构建结果。
+- `npm run generate:api-types`：从服务端 OpenAPI schema 重新生成前端 API 类型。
+- `npm run typecheck`：运行 Web 与 Electron 项目的 TypeScript 检查。
+- `npm run test:run`：运行一次 Vitest。
+- `npm run release:win`：构建服务端桌面 bundle 并生成 Windows 安装包。
 
-- `scripts/stage-server-bundle.ps1`
-- `scripts/package-win.ps1`
-- `scripts/release-win.ps1`
+## 后端 README
 
-打包后的桌面版会从 `resources/server/DicomVisionServer.exe` 自动启动内置后端。
+后端 API、Socket.IO 事件、Render 部署和桌面 bundle 说明见：
 
-## 后端连接说明
-
-前端中与后端连接相关的关键文件：
-
-- `src/shared/appConfig.ts`
-- `src/renderer/src/services/api.ts`
-- `src/renderer/src/services/socket.ts`
-- `src/renderer/src/composables/workspace/connection/useViewerWorkspaceConnection.ts`
-- `src/main/index.ts`
-
-桌面开发模式默认配置：
-
-- Host：`127.0.0.1`
-- Port：`8000`
-
-打包后的桌面应用会在运行时为内置后端分配可用端口，并将 UI 自动连接到解析后的后端地址。
-
-## 截图目录
-
-README 和发布展示图统一放在 [`screenshots/`](./screenshots/) 目录中。
-
-建议后续补充以下截图：
-
-- 主工作区总览
-- Stack 视口
-- MPR 联动布局
-- 3D 渲染配置面板
-- 序列加载与侧边栏流程
-
-## 关联仓库
-
-后端项目：
-
-[DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+[DicomVisionServer README](https://github.com/l5769389/DicomVisionServer)

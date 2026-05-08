@@ -1,193 +1,142 @@
-﻿# DicomVision Client
+# DicomVision
 
 [中文说明](./README.zh-CN.md)
 
-DicomVision Client is the desktop and web frontend for the DicomVision viewing system. It focuses on workflow orchestration, viewport management, interactive tools, and real-time presentation, while the companion backend performs DICOM parsing, MPR reconstruction, and 3D volume rendering.
+DicomVision is a client/server DICOM viewing and analysis tool for image browsing, reconstruction, measurement, and QA workflows. It supports Stack viewing, MPR and oblique MPR, 4D phase playback, server-side 3D volume rendering, DICOM tag inspection, ROI measurement, MTF/FWHM analysis, water phantom QA, image export, dark/light themes, and separate web or Windows desktop deployment.
 
-Companion backend repository: [DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+## Feature Overview
 
-## Overview
+- **Image loading and series management**: load local DICOM folders, server-side sample data, or backend-accessible paths, then browse discovered series from the sidebar.
+- **Stack viewing**: slice scrolling, window/level, zoom, pan, rotate, flip, reset, pseudocolor presets, and corner metadata overlays.
+- **MPR and oblique MPR**: axial, coronal, and sagittal synchronized viewports with crosshair navigation, oblique rotation, MIP configuration, orientation overlays, and scale bars.
+- **4D phase playback**: phase previews, phase switching, playback controls, FPS control, and cached multi-viewport phase images.
+- **3D volume rendering**: VTK-backed backend rendering with presets, transfer functions, opacity, color, lighting, interpolation, and layer controls.
+- **Measurement and analysis**: line, rectangle, ellipse, angle, curve, and freeform measurements, plus MTF/FWHM and water phantom QA workflows.
+- **DICOM tag inspection**: instance-level tag, VR, name, and value browsing for debugging and dataset review.
+- **Web and desktop delivery**: deploy the web client as a static app connected to a remote backend, or package a Windows Electron desktop app with an embedded backend bundle.
 
-DicomVision is a frontend-backend medical imaging viewer architecture:
+## Repositories
 
-- `DicomVisionClient`: Electron + Vue application for user interaction and workspace presentation
-- `DicomVisionServer`: FastAPI + Socket.IO service for DICOM loading, rendering, and view-state processing
+- Client: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
+- Server: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
 
-The client does not render medical images locally. It sends commands to the backend and receives rendered frames, overlays, and interaction feedback in real time.
+## Screenshots
 
-## Key Features
+| Stack viewing | MPR reconstruction |
+| --- | --- |
+| <img src="./screenshots/stack.png" alt="Stack viewing" width="420"> | <img src="./screenshots/mpr.png" alt="MPR reconstruction" width="420"> |
 
-### Clinical Viewing Workflow
+| Oblique MPR / crosshair rotation | 4D phase playback |
+| --- | --- |
+| <img src="./screenshots/mpr_rotate.png" alt="Oblique MPR and crosshair rotation" width="420"> | <img src="./screenshots/4D.png" alt="4D phase playback" width="420"> |
 
-- Load local DICOM folders from the desktop client
-- Browse discovered studies and series in the left-side workflow panel
-- Create and switch between multiple tabs and viewport sessions
-- Support mixed viewing workflows within the same workspace
+| Measurement tools | DICOM tags |
+| --- | --- |
+| <img src="./screenshots/measure.png" alt="Measurement tools" width="420"> | <img src="./screenshots/dicomTags.png" alt="DICOM tags" width="420"> |
 
-### Multi-Mode Visualization
+| MTF analysis | FWHM result |
+| --- | --- |
+| <img src="./screenshots/mtf.png" alt="MTF analysis" width="420"> | <img src="./screenshots/mtf_fwhm.png" alt="FWHM result" width="420"> |
 
-- Stack viewing for slice-by-slice browsing
-- MPR viewing for orthogonal reconstruction workflows
-- 3D volume viewing backed by the server-side VTK pipeline
+| Water phantom QA | Settings |
+| --- | --- |
+| <img src="./screenshots/water_phantom_qa.png" alt="Water phantom QA" width="420"> | <img src="./screenshots/settings.png" alt="Settings" width="420"> |
 
-### Interactive Tools
-
-- Pan, zoom, scroll, reset, and viewport resize
-- Crosshair-based interaction and synchronized navigation
-- Hover feedback and overlay display
-- Toolbar-driven image and view operations
-
-### 3D Rendering Controls
-
-- Built-in rendering presets
-- Transfer-function editing
-- Layer visibility, color, opacity, WW/WL, and lighting controls
-- Fast preview plus full render update workflow
-
-### Productization
-
-- Electron desktop runtime for local workstation scenarios
-- Web build path for frontend-only deployment
-- Windows packaging workflow that bundles the backend artifact into the desktop installer
+| Dark theme | Light theme |
+| --- | --- |
+| <img src="./screenshots/theme.png" alt="Dark theme" width="420"> | <img src="./screenshots/theme_light.png" alt="Light theme" width="420"> |
 
 ## Architecture
 
-The system uses two communication paths:
+DicomVision is split into two repositories:
 
-- HTTP API for coarse-grained operations such as loading folders, creating views, and setting viewport size
-- Socket.IO for low-latency interactive commands and real-time image updates
+- `DicomVisionClient`: Electron + Vue frontend for workspace orchestration, UI state, user interaction, web builds, and desktop packaging.
+- `DicomVisionServer`: FastAPI + Socket.IO backend for DICOM discovery, metadata services, 2D rendering, MPR/4D/3D computation, measurement analysis, and realtime image delivery.
 
 Typical runtime flow:
 
-1. The user opens a DICOM folder in the client.
-2. The client calls the backend to register readable series.
-3. The client creates one or more viewports for Stack, MPR, or 3D.
-4. The client binds the viewport to a socket session.
-5. User interactions are forwarded to the backend.
-6. The backend returns rendered frames, overlays, and acknowledgements in real time.
+1. The client loads a local folder, backend-accessible path, or server-side sample dataset.
+2. The server discovers readable DICOM series and returns series metadata.
+3. The client creates Stack, MPR, 3D, 4D, or DICOM Tag tabs.
+4. Viewports are bound to Socket.IO sessions.
+5. User operations are sent to the backend.
+6. The backend streams rendered frames, overlays, hover data, acknowledgements, and errors back to the client.
 
 ## Tech Stack
 
-### Frontend
-
-- Electron
 - Vue 3
 - TypeScript
+- Electron
+- electron-vite
+- Vite web build
 - Vuetify
 - Tailwind CSS
 - Axios
 - Socket.IO Client
-- electron-vite
-
-### Backend
-
-- Python 3.13+
-- FastAPI
-- python-socketio
-- pydicom
-- NumPy / SciPy
-- Pillow
-- VTK
-- uv
+- Vitest
+- electron-builder
 
 ## Repository Structure
 
 ```text
 src/
-  main/                    Electron main process
+  main/                    Electron main process and embedded backend startup
   preload/                 Electron preload bridge
   renderer/                Vue renderer application
-  shared/                  shared runtime config and contracts
+  shared/                  shared runtime config, constants, and generated API types
 
 src/renderer/src/
-  components/              UI components
-  composables/             viewer state and interaction logic
-  plugins/                 Vue and Vuetify setup
+  components/              sidebar, workspace, viewport, overlay, and settings UI
+  composables/             viewer workspace state and interaction orchestration
+  constants/               frontend constants
+  platform/                desktop/web runtime adapters
   services/                HTTP and Socket.IO clients
-  types/                   frontend domain types
+  types/                   viewer domain types
 
-docs/                      project notes and implementation docs
-screenshots/               repository screenshots for README and releases
-scripts/                   packaging and release scripts
+screenshots/               README and release screenshots
+scripts/                   installer assets, server staging, and Windows release scripts
 ```
 
-## Core Modules
+## Quick Start
 
-- `ViewerWorkspace.vue`: central workspace and viewport composition
-- `ViewerToolbar.vue`: interaction tools and command entry
-- `ViewerTabStrip.vue`: tab and session switching
-- `SidebarPanel.vue`: loading flow, series browser, and settings shell
-- `StackView.vue`: stack viewport
-- `MprView.vue`: MPR viewport
-- `VolumeView.vue`: 3D viewport
-- `VolumeRenderConfigPanel.vue`: advanced 3D rendering controls
-
-## Frontend and Backend Usage
-
-### 1. Start the Backend
-
-Backend repository:
-
-[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-
-Install dependencies:
+### 1. Start the server
 
 ```bash
+cd ../DicomVisionServer
 uv sync
-```
-
-Run the backend:
-
-```bash
 uv run python run.py
 ```
 
-Default backend address:
+Default server endpoints:
 
 - HTTP: `http://127.0.0.1:8000`
 - OpenAPI: `http://127.0.0.1:8000/docs`
 - Socket.IO: `http://127.0.0.1:8000/socket.io`
 
-### 2. Start the Client in Development Mode
-
-Install dependencies:
+### 2. Start the desktop client
 
 ```bash
+cd ../DicomVisionClient
 npm install
-```
-
-Run the Electron client:
-
-```bash
 npm run dev
 ```
 
-Important:
+Desktop development mode expects the backend to already be running at `http://127.0.0.1:8000`. To point the Electron shell at another backend, set:
 
-- Desktop development mode requires the backend to be started separately first.
-- The client connects to `http://127.0.0.1:8000` by default during desktop development.
-- If the backend is not reachable, the desktop app opens but the viewer workflow will not function correctly.
+```powershell
+$env:DICOM_VISION_SERVER_ORIGIN = "http://127.0.0.1:8000"
+npm run dev
+```
 
-### 3. Use the Viewer
+## Web Development and Deployment
 
-Recommended local workflow:
-
-1. Start `DicomVisionServer`.
-2. Start `DicomVisionClient`.
-3. Choose a local DICOM folder.
-4. Select a series from the sidebar.
-5. Open Stack, MPR, or 3D viewports.
-6. Interact through the toolbar and pointer gestures.
-
-## Web Usage
-
-Run the web frontend locally:
+Run the web client locally:
 
 ```bash
 npm run dev:web
 ```
 
-Create a production web build:
+Build the static web app:
 
 ```bash
 npm run build:web
@@ -199,86 +148,61 @@ Preview the web build:
 npm run preview:web
 ```
 
-Relevant environment variables:
+Production web variables:
 
-- `VITE_BACKEND_ORIGIN`: backend origin for the web frontend
-- `VITE_WEB_USE_SERVER_SAMPLE`: whether the web client should use the server-side sample loading path
-
-Current defaults:
-
-- Development web backend: `http://127.0.0.1:8000`
-- Production example backend: `https://dicomvisionserver.onrender.com`
-
-See [docs/web-packaging.zh-CN.md](./docs/web-packaging.zh-CN.md) and [docs/web-deploy-render-vercel.zh-CN.md](./docs/web-deploy-render-vercel.zh-CN.md) for deployment notes.
-
-## Build and Release
-
-### Frontend Build
-
-```bash
-npm run build
+```env
+VITE_BACKEND_ORIGIN=https://your-backend.example.com
+VITE_WEB_USE_SERVER_SAMPLE=true
 ```
 
-### Type Check
+Deployment notes:
 
-```bash
-npm run typecheck
+- Deploy `DicomVisionServer` as an HTTP + Socket.IO backend. The server repository includes Render-oriented configuration.
+- Deploy the client web build output from `dist-web/` to Vercel, static hosting, or any SPA-compatible host.
+- Add the web frontend origin to the backend `CORS_ORIGINS`.
+- When `VITE_WEB_USE_SERVER_SAMPLE=true`, the web client uses the backend sample loading endpoint instead of asking for a local filesystem path.
+
+## Desktop Packaging
+
+The desktop product is an Electron app that can bundle the server artifact and launch it automatically at runtime.
+
+One-command Windows release, assuming `DicomVisionServer` is next to this repository:
+
+```powershell
+npm run release:win
 ```
 
-### Windows Installer
+Manual packaging with an existing server bundle:
 
-This repository packages the Electron application and consumes a prebuilt backend bundle.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-win.ps1 -ServerBundlePath "D:\path\to\DicomVisionServer"
+```
 
-Typical packaging flow:
+Expected server bundle shape:
 
-1. Build the backend desktop bundle in `DicomVisionServer`.
-2. Stage that bundle into this repository.
-3. Build the Electron installer.
+```text
+DicomVisionServer/
+  DicomVisionServer.exe
+  ...
+```
 
-Available scripts:
+The packaged installer is generated under `dist-electron/`. At runtime, the Electron main process starts the embedded backend from `resources/server/DicomVisionServer.exe`, allocates a local port, and connects the UI to that resolved backend origin.
 
-- `npm run build`: build the Electron application
-- `npm run release:win`: build the backend bundle and package the Windows installer in one flow
+## Scripts
 
-Supporting scripts:
+- `npm run dev`: start the Electron desktop development runtime.
+- `npm run dev:web`: start the browser-based Vite development server.
+- `npm run build`: build the Electron main, preload, and renderer outputs.
+- `npm run build:web`: build the standalone web frontend into `dist-web/`.
+- `npm run preview`: preview the Electron build.
+- `npm run preview:web`: preview the web build.
+- `npm run generate:api-types`: regenerate frontend API types from the server OpenAPI schema.
+- `npm run typecheck`: run TypeScript checks for web and Electron projects.
+- `npm run test:run`: run Vitest once.
+- `npm run release:win`: build the server desktop bundle and package the Windows installer.
 
-- `scripts/stage-server-bundle.ps1`
-- `scripts/package-win.ps1`
-- `scripts/release-win.ps1`
+## Backend README
 
-Packaged desktop builds can launch the bundled backend automatically from `resources/server/DicomVisionServer.exe`.
+Backend API, Socket.IO events, Render deployment, and desktop bundle details are documented here:
 
-## Backend Connectivity
-
-Relevant frontend files:
-
-- `src/shared/appConfig.ts`
-- `src/renderer/src/services/api.ts`
-- `src/renderer/src/services/socket.ts`
-- `src/renderer/src/composables/workspace/connection/useViewerWorkspaceConnection.ts`
-- `src/main/index.ts`
-
-Desktop development defaults:
-
-- Backend host: `127.0.0.1`
-- Backend port: `8000`
-
-The packaged desktop application can allocate a runtime port for the embedded backend and then connect the UI to that resolved origin automatically.
-
-## Screenshots
-
-Store README and release screenshots in [`screenshots/`](./screenshots/).
-
-Suggested assets:
-
-- main workspace
-- stack viewport
-- MPR layout
-- 3D rendering panel
-- series loading workflow
-
-## Related Repository
-
-Backend project:
-
-[DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+[DicomVisionServer README](https://github.com/l5769389/DicomVisionServer)

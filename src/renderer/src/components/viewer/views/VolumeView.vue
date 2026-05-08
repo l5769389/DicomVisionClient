@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { ViewerTabItem } from '../../../types/viewer'
+import type { CornerInfo, ViewerTabItem } from '../../../types/viewer'
 
 defineProps<{
   activeTab: ViewerTabItem
@@ -14,6 +14,13 @@ const emit = defineEmits<{
   pointerUp: [event: PointerEvent]
   viewportClick: [viewportKey: string]
 }>()
+
+const emptyVolumeCornerInfo: CornerInfo = {
+  topLeft: [],
+  topRight: [],
+  bottomLeft: [],
+  bottomRight: []
+}
 </script>
 
 <template>
@@ -29,7 +36,7 @@ const emit = defineEmits<{
       loading-label="正在加载 3D 视图..."
       :alt="activeTab.viewType"
       placeholder="3D 视图预留区域"
-      :corner-info="activeTab.cornerInfo"
+      :corner-info="emptyVolumeCornerInfo"
       :orientation="activeTab.orientation"
       :soft-image="true"
       @click-viewport="emit('viewportClick', $event)"

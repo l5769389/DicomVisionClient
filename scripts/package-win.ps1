@@ -9,9 +9,14 @@ $stagedServerBundlePath = Join-Path $clientRoot "dist-server\\DicomVisionServer"
 
 Push-Location $clientRoot
 try {
+  & npm run generate:installer-assets
+  if ($LASTEXITCODE -ne 0) {
+    throw "Installer asset generation failed with exit code $LASTEXITCODE"
+  }
+
   & npm run build
   if ($LASTEXITCODE -ne 0) {
-    throw "Client build failed with exit code $LASTEXITCODE"
+    throw "Application build failed with exit code $LASTEXITCODE"
   }
 
   if (![string]::IsNullOrWhiteSpace($ServerBundlePath)) {

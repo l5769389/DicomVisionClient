@@ -256,6 +256,7 @@ const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
 const selectedCustomPresetIds = ref<string[]>([])
+const appVersion = __APP_VERSION__
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = settingsCopy
@@ -482,7 +483,14 @@ watch(displayCustomWindowPresets, () => {
               <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-primary)]">
                 <AppIcon name="settings" :size="20" />
               </div>
-              <div class="text-xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ copy.title }}</div>
+              <div class="min-w-0">
+                <div class="text-xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ copy.title }}</div>
+                <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--theme-text-muted)]">
+                  <span>{{ copy.productName }}</span>
+                  <span class="h-1 w-1 rounded-full bg-[var(--theme-border-strong)]"></span>
+                  <span>{{ copy.versionLabel }} {{ copy.versionBadge(appVersion) }}</span>
+                </div>
+              </div>
             </div>
           </div>
           <button type="button" class="theme-button-secondary flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition hover:brightness-110" :aria-label="copy.title" @click="emit('close')">

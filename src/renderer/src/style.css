@@ -1448,6 +1448,15 @@
       var(--industrial-control-shadow) !important;
   }
 
+  :root[data-theme="industrial-utility"] button.four-d-fps-button[aria-expanded="true"] {
+    border-color: rgba(111, 169, 196, 0.34) !important;
+    background: #17242b !important;
+    color: #e2edf2 !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.12),
+      var(--industrial-control-shadow) !important;
+  }
+
   :root[data-theme="industrial-utility"] .toolbar-playback-button {
     border-radius: var(--industrial-radius-control) !important;
     box-shadow: var(--industrial-control-shadow) !important;

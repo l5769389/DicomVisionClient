@@ -11,6 +11,8 @@ interface ImportMeta {
 }
 
 declare global {
+  const __APP_VERSION__: string
+
   interface Window {
     viewerApi?: {
       chooseFolder: () => Promise<string | null>

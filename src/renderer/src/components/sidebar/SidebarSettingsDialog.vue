@@ -345,6 +345,10 @@ function isDicomTagDisplayModeActive(value: DicomTagDisplayMode): boolean {
   return dicomTagDisplayMode.value === value
 }
 
+function handleSelectDicomTagDisplayMode(value: DicomTagDisplayMode): void {
+  dicomTagDisplayMode.value = value
+}
+
 function handleSelectDefaultTagEditSaveLocation(): void {
   tagEditSaveLocationError.value = ''
   setDicomTagEditSavePreference({
@@ -967,45 +971,25 @@ onMounted(async () => {
                           </div>
                         </div>
 
-                        <div class="grid gap-4 lg:grid-cols-2">
+                        <div class="grid gap-3 lg:grid-cols-2">
                           <button
                             v-for="option in dicomTagDisplayModeOptions"
                             :key="option.value"
                             type="button"
-                            class="relative flex min-h-[156px] flex-col justify-between overflow-hidden rounded-[22px] border px-5 py-4 text-left transition duration-150"
+                            class="settings-choice-card group min-h-[82px] rounded-[6px] border px-5 py-4 text-left transition duration-150"
                             :aria-pressed="isDicomTagDisplayModeActive(option.value)"
-                            :class="isDicomTagDisplayModeActive(option.value) ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_24%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_12%,var(--theme-surface-card)))] text-[var(--theme-text-primary)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_78%,transparent),0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_22%,transparent),0_18px_34px_rgba(0,0,0,0.24)]' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_76%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel)_72%,black_28%)] text-[var(--theme-text-secondary)] opacity-75 hover:border-[var(--theme-border-soft)] hover:bg-[var(--theme-surface-panel)] hover:opacity-90'"
-                            @click="dicomTagDisplayMode = option.value"
+                            :class="{ 'settings-choice-card--active': isDicomTagDisplayModeActive(option.value) }"
+                            @click="handleSelectDicomTagDisplayMode(option.value)"
                           >
-                            <span
-                              class="absolute inset-y-4 left-0 w-1 rounded-r-full transition"
-                              :class="isDicomTagDisplayModeActive(option.value) ? 'bg-[var(--theme-accent)] opacity-100' : 'bg-transparent opacity-0'"
-                            ></span>
-                            <span
-                              class="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border transition"
-                              :class="isDicomTagDisplayModeActive(option.value) ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_18px_color-mix(in_srgb,var(--theme-accent)_50%,transparent)]' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_72%,transparent)] bg-transparent text-transparent opacity-40'"
-                            >
-                              <AppIcon name="check" :size="16" />
-                            </span>
-
-                            <span class="min-w-0 pr-14">
-                              <span
-                                class="mb-4 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em]"
-                                :class="isDicomTagDisplayModeActive(option.value) ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_65%,white_12%)] bg-white/12 text-[var(--theme-text-primary)]' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_70%,transparent)] text-[var(--theme-text-muted)] opacity-70'"
-                              >
-                                {{ option.badge }}
+                            <div class="flex min-w-0 items-start gap-4">
+                              <span class="settings-choice-card__check mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-[4px] border">
+                                <AppIcon v-if="isDicomTagDisplayModeActive(option.value)" name="check" :size="18" />
                               </span>
-                              <span class="block text-xl font-semibold leading-7" :class="isDicomTagDisplayModeActive(option.value) ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.title }}</span>
-                              <span class="mt-3 block text-sm leading-7" :class="isDicomTagDisplayModeActive(option.value) ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-muted)]'">{{ option.description }}</span>
-                            </span>
-
-                            <span
-                              class="mt-5 inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold"
-                              :class="isDicomTagDisplayModeActive(option.value) ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_70%,transparent)] bg-transparent text-[var(--theme-text-muted)] opacity-70'"
-                            >
-                              <AppIcon v-if="isDicomTagDisplayModeActive(option.value)" name="check" :size="14" />
-                              {{ isDicomTagDisplayModeActive(option.value) ? (isZh ? '已启用' : 'Active') : (isZh ? '可选择' : 'Available') }}
-                            </span>
+                              <div class="min-w-0">
+                                <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ option.title }}</div>
+                                <div class="mt-1 line-clamp-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ option.description }}</div>
+                              </div>
+                            </div>
                           </button>
                         </div>
                       </div>
@@ -1026,49 +1010,43 @@ onMounted(async () => {
                         <div class="grid gap-3 lg:grid-cols-2">
                           <button
                             type="button"
-                            class="group min-h-[126px] rounded-[22px] border px-4 py-4 text-left transition duration-150"
-                            :class="dicomTagEditSavePreference.locationMode === 'default' ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                            class="settings-choice-card group min-h-[92px] rounded-[6px] border px-5 py-4 text-left transition duration-150"
+                            :class="{ 'settings-choice-card--active': dicomTagEditSavePreference.locationMode === 'default' }"
                             @click="handleSelectDefaultTagEditSaveLocation"
                           >
-                            <div class="flex h-full flex-col justify-between gap-4">
-                              <div>
-                                <div class="flex items-center justify-between gap-3">
-                                  <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '默认下载目录' : 'Default downloads' }}</div>
-                                  <span
-                                    class="h-3 w-3 rounded-full border"
-                                    :class="dicomTagEditSavePreference.locationMode === 'default' ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent'"
-                                  ></span>
+                            <div class="flex min-w-0 items-start gap-4">
+                              <span class="settings-choice-card__check mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-[4px] border">
+                                <AppIcon v-if="dicomTagEditSavePreference.locationMode === 'default'" name="check" :size="18" />
+                              </span>
+                              <div class="min-w-0">
+                                <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '默认下载目录' : 'Default downloads' }}</div>
+                                <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '跟随系统默认导出位置。' : 'Use the system default export location.' }}</div>
+                                <div class="mt-2 truncate text-[11px] font-medium text-[var(--theme-text-muted)]" :title="tagEditSaveDefaultLocationLabel || (isZh ? '系统默认下载目录' : 'System default downloads')">
+                                  {{ tagEditSaveDefaultLocationLabel || (isZh ? '系统默认下载目录' : 'System default downloads') }}
                                 </div>
-                                <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '跟随系统默认导出位置。' : 'Use the system default export location.' }}</div>
-                              </div>
-                              <div class="line-clamp-2 break-all text-[11px] font-medium text-[var(--theme-text-muted)]">
-                                {{ tagEditSaveDefaultLocationLabel || (isZh ? '系统默认下载目录' : 'System default downloads') }}
                               </div>
                             </div>
                           </button>
 
                           <button
                             type="button"
-                            class="group min-h-[126px] rounded-[22px] border px-4 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+                            class="settings-choice-card group min-h-[92px] rounded-[6px] border px-5 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
                             :disabled="!canPickTagEditSaveLocation"
-                            :class="dicomTagEditSavePreference.locationMode === 'custom' ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                            :class="{ 'settings-choice-card--active': dicomTagEditSavePreference.locationMode === 'custom' }"
                             @click="handleSelectCustomTagEditSaveLocation"
                           >
-                            <div class="flex h-full flex-col justify-between gap-4">
-                              <div>
-                                <div class="flex items-center justify-between gap-3">
-                                  <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '自定义文件夹' : 'Custom folder' }}</div>
-                                  <span
-                                    class="h-3 w-3 rounded-full border"
-                                    :class="dicomTagEditSavePreference.locationMode === 'custom' ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent'"
-                                  ></span>
-                                </div>
-                                <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            <div class="flex min-w-0 items-start gap-4">
+                              <span class="settings-choice-card__check mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-[4px] border">
+                                <AppIcon v-if="dicomTagEditSavePreference.locationMode === 'custom'" name="check" :size="18" />
+                              </span>
+                              <div class="min-w-0">
+                                <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '自定义文件夹' : 'Custom folder' }}</div>
+                                <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
                                   {{ canPickTagEditSaveLocation ? (isZh ? '选择一个专门保存 Tag 修改副本的位置。' : 'Choose a dedicated location for tag edit copies.') : (isZh ? '当前环境不支持选择本地文件夹。' : 'Folder picking is not available in this environment.') }}
                                 </div>
-                              </div>
-                              <div class="line-clamp-2 break-all text-[11px] font-medium text-[var(--theme-text-muted)]">
-                                {{ tagEditSaveCustomLocationLabel }}
+                                <div class="mt-2 truncate text-[11px] font-medium text-[var(--theme-text-muted)]" :title="tagEditSaveCustomLocationLabel">
+                                  {{ tagEditSaveCustomLocationLabel }}
+                                </div>
                               </div>
                             </div>
                           </button>
@@ -1078,7 +1056,7 @@ onMounted(async () => {
                           <div class="flex flex-col gap-4">
                             <div class="min-w-0">
                               <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '当前保存位置' : 'Current save location' }}</div>
-                              <div class="mt-2 max-w-full break-words text-sm font-medium leading-6 text-[var(--theme-text-primary)] [overflow-wrap:anywhere]">{{ tagEditSaveLocationLabel }}</div>
+                              <div class="mt-2 max-w-full truncate whitespace-nowrap text-sm font-medium leading-6 text-[var(--theme-text-primary)]" :title="tagEditSaveLocationLabel">{{ tagEditSaveLocationLabel }}</div>
                               <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">
                                 {{
                                   viewerRuntime.platform === 'desktop'
@@ -1498,5 +1476,53 @@ onMounted(async () => {
 .settings-content-scroll::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 52%, transparent), color-mix(in srgb, var(--theme-accent-warm) 28%, transparent));
   border-radius: 999px;
+}
+
+.settings-choice-card {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 76%, transparent);
+  box-shadow: none;
+  outline: none;
+}
+
+.settings-choice-card:hover {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 82%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+}
+
+.settings-choice-card:focus {
+  outline: none;
+}
+
+.settings-choice-card:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 34%, transparent);
+}
+
+.settings-choice-card--active,
+.settings-choice-card--active:hover,
+.settings-choice-card--active:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card)),
+      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel))
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.settings-choice-card__check {
+  border-color: color-mix(in srgb, var(--theme-text-muted) 68%, transparent);
+  background: transparent;
+  color: transparent;
+}
+
+.settings-choice-card--active .settings-choice-card__check {
+  border-color: color-mix(in srgb, var(--theme-accent) 84%, white 8%);
+  background: var(--theme-accent);
+  color: var(--theme-accent-contrast);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 12%, transparent);
 }
 </style>

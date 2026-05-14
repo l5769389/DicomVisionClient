@@ -123,6 +123,7 @@ interface ViewerWorkspaceState {
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   statusToast: Ref<WorkspaceStatusToast | null>
   dismissStatusToast: () => void
+  showStatusToast: (messageText: string, tone?: WorkspaceStatusToastTone, options?: WorkspaceStatusToastOptions) => void
   toggleSidebar: () => void
   triggerViewAction: (payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
@@ -137,6 +138,20 @@ interface WorkspaceStatusToast {
   id: number
   message: string
   tone: WorkspaceStatusToastTone
+  detail?: string | null
+  directoryPath?: string | null
+  filePath?: string | null
+  canOpenLocation?: boolean
+  busy?: boolean
+}
+
+interface WorkspaceStatusToastOptions {
+  detail?: string | null
+  directoryPath?: string | null
+  filePath?: string | null
+  canOpenLocation?: boolean
+  busy?: boolean
+  durationMs?: number
 }
 
 export function useViewerWorkspace(): ViewerWorkspaceState {
@@ -201,7 +216,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     statusToast.value = null
   }
 
-  function showStatusToast(messageText: string, tone: WorkspaceStatusToastTone = 'info'): void {
+  function showStatusToast(messageText: string, tone: WorkspaceStatusToastTone = 'info', options: WorkspaceStatusToastOptions = {}): void {
     if (statusToastTimer != null) {
       window.clearTimeout(statusToastTimer)
     }
@@ -210,14 +225,24 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     statusToast.value = {
       id,
       message: messageText,
-      tone
+      tone,
+      detail: options.detail ?? null,
+      directoryPath: options.directoryPath ?? null,
+      filePath: options.filePath ?? null,
+      canOpenLocation: Boolean(options.canOpenLocation),
+      busy: Boolean(options.busy)
     }
-    statusToastTimer = window.setTimeout(() => {
-      if (statusToast.value?.id === id) {
-        statusToast.value = null
-      }
+    const durationMs = options.durationMs ?? (options.detail || options.canOpenLocation ? 9000 : 3600)
+    if (durationMs > 0) {
+      statusToastTimer = window.setTimeout(() => {
+        if (statusToast.value?.id === id) {
+          statusToast.value = null
+        }
+        statusToastTimer = null
+      }, durationMs)
+    } else {
       statusToastTimer = null
-    }, 3600)
+    }
   }
 
   function resolveBackendErrorDetail(error: unknown): string {
@@ -1978,6 +2003,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     setViewerStage,
     statusToast,
     dismissStatusToast,
+    showStatusToast,
     toggleSidebar,
     triggerViewAction,
     viewerFolderSourceMode: viewerRuntime.folderSourceMode,

@@ -5,9 +5,11 @@ import AppIcon from './components/AppIcon.vue'
 import SidebarPanel from './components/SidebarPanel.vue'
 import ViewerWorkspace from './components/workspace/ViewerWorkspace.vue'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
+import { openExportLocation } from './platform/exporting'
 import { isFourDSeriesItem } from './types/viewer'
 
 const viewer = useViewerWorkspace()
+type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
 const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
@@ -36,14 +38,59 @@ const preventSelectAll = (event: KeyboardEvent): void => {
   }
 }
 
+function isAppStatusToastTone(value: unknown): value is AppStatusToastTone {
+  return value === 'info' || value === 'success' || value === 'warning' || value === 'error'
+}
+
+const handleStatusToastEvent = (event: Event): void => {
+  const detail = (event as CustomEvent<{
+    message?: unknown
+    tone?: unknown
+    detail?: unknown
+    directoryPath?: unknown
+    filePath?: unknown
+    canOpenLocation?: unknown
+    busy?: unknown
+    durationMs?: unknown
+  }>).detail
+  const message = typeof detail?.message === 'string' ? detail.message.trim() : ''
+  if (!message) {
+    return
+  }
+  viewer.showStatusToast(message, isAppStatusToastTone(detail?.tone) ? detail.tone : 'info', {
+    detail: typeof detail?.detail === 'string' ? detail.detail.trim() : null,
+    directoryPath: typeof detail?.directoryPath === 'string' ? detail.directoryPath : null,
+    filePath: typeof detail?.filePath === 'string' ? detail.filePath : null,
+    canOpenLocation: detail?.canOpenLocation === true,
+    busy: detail?.busy === true,
+    durationMs: typeof detail?.durationMs === 'number' && Number.isFinite(detail.durationMs) ? detail.durationMs : undefined
+  })
+}
+
+async function handleOpenStatusToastLocation(): Promise<void> {
+  const toast = viewer.statusToast.value
+  if (!toast?.canOpenLocation) {
+    return
+  }
+  const opened = await openExportLocation({
+    directoryPath: toast.directoryPath ?? null,
+    filePath: toast.filePath ?? null
+  })
+  if (!opened) {
+    viewer.showStatusToast('打开保存位置失败。', 'error')
+  }
+}
+
 onMounted(() => {
   document.addEventListener('selectstart', preventSelection)
   window.addEventListener('keydown', preventSelectAll)
+  window.addEventListener('dicomvision:status-toast', handleStatusToastEvent)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('selectstart', preventSelection)
   window.removeEventListener('keydown', preventSelectAll)
+  window.removeEventListener('dicomvision:status-toast', handleStatusToastEvent)
 })
 
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
@@ -212,11 +259,36 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           <div class="text-2xl font-semibold text-[var(--theme-text-primary)]">Drop files or folders to load series</div>
         </div>
       </div>
-      <div v-if="viewer.statusToast.value" class="app-status-toast" :data-tone="viewer.statusToast.value.tone" role="status" aria-live="polite">
-        <span class="app-status-toast__icon" aria-hidden="true">
+      <div
+        v-if="viewer.statusToast.value"
+        class="app-status-toast"
+        :data-busy="viewer.statusToast.value.busy ? 'true' : undefined"
+        :data-tone="viewer.statusToast.value.tone"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="app-status-toast__icon" :class="{ 'app-status-toast__icon--busy': viewer.statusToast.value.busy }" aria-hidden="true">
           <AppIcon :name="statusToastIcon" :size="18" />
         </span>
-        <span class="app-status-toast__message">{{ viewer.statusToast.value.message }}</span>
+        <span class="app-status-toast__content">
+          <span class="app-status-toast__message">{{ viewer.statusToast.value.message }}</span>
+          <button
+            v-if="viewer.statusToast.value.detail && viewer.statusToast.value.canOpenLocation"
+            type="button"
+            class="app-status-toast__detail app-status-toast__detail--button"
+            :title="viewer.statusToast.value.detail"
+            @click="handleOpenStatusToastLocation"
+          >
+            {{ viewer.statusToast.value.detail }}
+          </button>
+          <span
+            v-else-if="viewer.statusToast.value.detail"
+            class="app-status-toast__detail"
+            :title="viewer.statusToast.value.detail"
+          >
+            {{ viewer.statusToast.value.detail }}
+          </span>
+        </span>
         <button type="button" class="app-status-toast__close" aria-label="Close notification" @click="viewer.dismissStatusToast">
           <AppIcon name="close" :size="13" />
         </button>
@@ -358,6 +430,30 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   color: var(--theme-accent);
 }
 
+.app-status-toast__icon--busy {
+  position: relative;
+}
+
+.app-status-toast__icon--busy::after {
+  position: absolute;
+  inset: -3px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 46%, transparent);
+  border-radius: 12px;
+  content: "";
+  animation: app-status-busy-pulse 1.4s ease-out infinite;
+}
+
+@keyframes app-status-busy-pulse {
+  0% {
+    opacity: 0.88;
+    transform: scale(0.88);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
 .app-status-toast[data-tone="error"] .app-status-toast__icon {
   background: color-mix(in srgb, #ef7777 18%, transparent);
   color: #ffb3b3;
@@ -374,10 +470,44 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 }
 
 .app-status-toast__message {
+  display: block;
   min-width: 0;
   color: var(--theme-text-secondary);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.app-status-toast__content {
+  min-width: 0;
+}
+
+.app-status-toast__detail {
+  display: block;
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-status-toast__detail--button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--theme-accent) 56%, transparent);
+  text-underline-offset: 3px;
+}
+
+.app-status-toast__detail--button:hover {
+  color: var(--theme-accent);
 }
 
 .app-status-toast__close {

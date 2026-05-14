@@ -28,6 +28,21 @@ export interface DicomTagItem {
   tagPath?: string[]
 }
 
+export interface DicomTagModifyJobStatusResponse {
+  jobId: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed'
+  statusUrl: string
+  artifactUrl?: string | null
+  error?: string | null
+  artifactKind?: 'dicom' | 'zip' | null
+  fileName?: string | null
+  mediaType?: string | null
+  modifiedCount?: number | null
+  seriesFolder?: string | null
+  createdAt: string
+  completedAt?: string | null
+}
+
 export interface DicomTagModifyRequest {
   seriesId: string
   index?: number
@@ -492,6 +507,9 @@ export interface ApiOperations {
   LoadFolderApiV1DicomLoadFolderPost: { method: 'POST'; path: '/api/v1/dicom/loadFolder'; request: LoadFolderRequest; response: LoadFolderResponse }
   LoadSampleFolderApiV1DicomLoadSamplePost: { method: 'POST'; path: '/api/v1/dicom/loadSample'; request: never; response: LoadSampleResponse }
   ModifyDicomTagApiV1DicomModifyTagPost: { method: 'POST'; path: '/api/v1/dicom/modifyTag'; request: DicomTagModifyRequest; response: unknown }
+  CreateModifyDicomTagJobApiV1DicomModifyTagJobsPost: { method: 'POST'; path: '/api/v1/dicom/modifyTag/jobs'; request: DicomTagModifyRequest; response: unknown }
+  GetModifyDicomTagJobApiV1DicomModifyTagJobsJobIdGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}'; request: never; response: DicomTagModifyJobStatusResponse }
+  GetModifyDicomTagJobArtifactApiV1DicomModifyTagJobsJobIdArtifactGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}/artifact'; request: never; response: unknown }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
   GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }

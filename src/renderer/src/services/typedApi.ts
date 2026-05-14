@@ -1,4 +1,4 @@
-import type { AxiosRequestConfig } from 'axios'
+import type { AxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiOperations } from '@shared/generated/backendApi'
 import { api } from './api'
 
@@ -29,6 +29,7 @@ type SupportedOperationKey = keyof typeof operationPaths & ApiOperationKey
 type OperationRequest<K extends SupportedOperationKey> = ApiOperations[K]['request']
 type OperationResponse<K extends SupportedOperationKey> = ApiOperations[K]['response']
 type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPost']['request']
+type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
 export interface DicomTagModifyArtifact {
   artifactKind: 'dicom' | 'zip'
@@ -37,6 +38,21 @@ export interface DicomTagModifyArtifact {
   mediaType: string
   modifiedCount: number
   seriesFolder: string
+}
+
+export interface DicomTagModifyJob {
+  jobId: string
+  status: DicomTagModifyJobStatus
+  statusUrl: string
+  artifactUrl?: string | null
+  error?: string | null
+  artifactKind?: 'dicom' | 'zip' | null
+  fileName?: string | null
+  mediaType?: string | null
+  modifiedCount?: number | null
+  seriesFolder?: string | null
+  createdAt: string
+  completedAt?: string | null
 }
 
 function toApiBaseRelativePath(path: string): string {
@@ -86,18 +102,7 @@ function getFileNameFromContentDisposition(value: string): string {
   return plainMatch?.[1]?.trim() ?? ''
 }
 
-export async function postDicomTagModifyArtifact(
-  data: DicomTagModifyRequest,
-  config?: AxiosRequestConfig
-): Promise<DicomTagModifyArtifact> {
-  const response = await api.post<ArrayBuffer>(
-    toApiBaseRelativePath(operationPaths.ModifyDicomTagApiV1DicomModifyTagPost),
-    data,
-    {
-      ...config,
-      responseType: 'arraybuffer'
-    }
-  )
+function buildDicomTagModifyArtifact(response: AxiosResponse<ArrayBuffer>): DicomTagModifyArtifact {
   const contentDisposition = getResponseHeader(response.headers, 'content-disposition')
   const mediaType = getResponseHeader(response.headers, 'content-type') || 'application/octet-stream'
   const artifactKindHeader = getResponseHeader(response.headers, 'x-dicomvision-artifact-kind')
@@ -116,4 +121,54 @@ export async function postDicomTagModifyArtifact(
     modifiedCount: Number.isFinite(modifiedCount) ? modifiedCount : 1,
     seriesFolder: getResponseHeader(response.headers, 'x-dicomvision-series-folder')
   }
+}
+
+export async function postDicomTagModifyArtifact(
+  data: DicomTagModifyRequest,
+  config?: AxiosRequestConfig
+): Promise<DicomTagModifyArtifact> {
+  const response = await api.post<ArrayBuffer>(
+    toApiBaseRelativePath(operationPaths.ModifyDicomTagApiV1DicomModifyTagPost),
+    data,
+    {
+      ...config,
+      responseType: 'arraybuffer'
+    }
+  )
+  return buildDicomTagModifyArtifact(response)
+}
+
+export async function postDicomTagModifyJob(
+  data: DicomTagModifyRequest,
+  config?: AxiosRequestConfig
+): Promise<DicomTagModifyJob> {
+  const response = await api.post<DicomTagModifyJob>(
+    toApiBaseRelativePath('/api/v1/dicom/modifyTag/jobs'),
+    data,
+    config
+  )
+  return response.data
+}
+
+export async function getDicomTagModifyJob(jobId: string, config?: AxiosRequestConfig): Promise<DicomTagModifyJob> {
+  const response = await api.get<DicomTagModifyJob>(
+    toApiBaseRelativePath(`/api/v1/dicom/modifyTag/jobs/${encodeURIComponent(jobId)}`),
+    config
+  )
+  return response.data
+}
+
+export async function getDicomTagModifyJobArtifact(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<DicomTagModifyArtifact> {
+  const response = await api.get<ArrayBuffer>(
+    toApiBaseRelativePath(`/api/v1/dicom/modifyTag/jobs/${encodeURIComponent(jobId)}/artifact`),
+    {
+      timeout: 0,
+      ...config,
+      responseType: 'arraybuffer'
+    }
+  )
+  return buildDicomTagModifyArtifact(response)
 }

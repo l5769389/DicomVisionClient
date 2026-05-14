@@ -6,7 +6,13 @@ import type { DicomTagItem, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
 import { openExportLocation, saveBinaryFile, type SaveFilePreference } from '../../../platform/exporting'
-import { postDicomTagModifyArtifact } from '../../../services/typedApi'
+import {
+  getDicomTagModifyJob,
+  getDicomTagModifyJobArtifact,
+  postDicomTagModifyArtifact,
+  postDicomTagModifyJob,
+  type DicomTagModifyJob
+} from '../../../services/typedApi'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -26,6 +32,7 @@ interface DicomTagTreeNode {
   name: string
   vr: string
   value: string
+  searchText: string
   depth: number
   original: DicomTagItem
   children?: DicomTagTreeNode[]
@@ -43,6 +50,10 @@ const TAG_OVERSCAN_ROWS = 8
 const TAG_TREE_INDENT_PX = 28
 const TAG_TREE_MAX_GUIDE_DEPTH = 10
 const TAG_EDIT_EXPORT_ROOT = 'DicomVisionTagEdits'
+const TAG_EDIT_JOB_POLL_INTERVAL_MS = 1200
+const TAG_EDIT_JOB_MAX_POLLS = 1500
+const TAG_EDIT_JOB_STATUS_TIMEOUT_MS = 8000
+const TAG_EDIT_JOB_MAX_STATUS_ERRORS = 3
 const EDITABLE_BINARY_VR_VALUES = new Set(['OB', 'OD', 'OF', 'OL', 'OV', 'OW', 'UN'])
 
 const { locale, tagViewCopy: copy } = useUiLocale()
@@ -157,6 +168,11 @@ const tagEditCopy = computed(() => ({
   newValue: isZh.value ? '新值' : 'New value',
   openLocation: isZh.value ? '打开' : 'Open',
   openLocationFailed: isZh.value ? '打开保存位置失败。' : 'Failed to open the save location.',
+  seriesJobStarted: isZh.value ? 'Series Tag 修改任务已开始，可继续浏览图像。' : 'Series tag edit started. You can keep browsing images.',
+  seriesJobCompleted: (count: number) =>
+    isZh.value ? `Series Tag 修改任务已完成，已生成 ${count} 个 DICOM 文件。` : `Series tag edit completed. Created ${count} DICOM file(s).`,
+  seriesJobFailed: isZh.value ? 'Series Tag 修改任务失败。' : 'Series tag edit failed.',
+  seriesJobTimeout: isZh.value ? 'Series Tag 修改任务仍在执行，请稍后再查看。' : 'Series tag edit is still running. Check again later.',
   saving: isZh.value ? '正在保存...' : 'Saving...',
   saveFailed: isZh.value ? 'DICOM Tag 修改保存失败。' : 'Failed to save DICOM tag edit.',
   downloadStarted: (fileName: string) => (isZh.value ? `已交给浏览器下载：${fileName}` : `Browser download started: ${fileName}`),
@@ -309,6 +325,54 @@ function resolveBackendErrorDetail(error: unknown): string {
   return error instanceof Error && error.message.trim() ? error.message.trim() : ''
 }
 
+function showGlobalStatusToast(
+  message: string,
+  tone: 'info' | 'success' | 'warning' | 'error' = 'info',
+  options: {
+    detail?: string | null
+    directoryPath?: string | null
+    filePath?: string | null
+    canOpenLocation?: boolean
+    busy?: boolean
+    durationMs?: number
+  } = {}
+): void {
+  window.dispatchEvent(
+    new CustomEvent('dicomvision:status-toast', {
+      detail: {
+        message,
+        tone,
+        ...options
+      }
+    })
+  )
+}
+
+function waitForDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function waitForDicomTagModifyJob(initialJob: DicomTagModifyJob): Promise<DicomTagModifyJob> {
+  let job = initialJob
+  let failedStatusPollCount = 0
+  for (let pollIndex = 0; pollIndex < TAG_EDIT_JOB_MAX_POLLS; pollIndex += 1) {
+    if (job.status === 'succeeded' || job.status === 'failed') {
+      return job
+    }
+    await waitForDelay(TAG_EDIT_JOB_POLL_INTERVAL_MS)
+    try {
+      job = await getDicomTagModifyJob(initialJob.jobId, { timeout: TAG_EDIT_JOB_STATUS_TIMEOUT_MS })
+      failedStatusPollCount = 0
+    } catch (error) {
+      failedStatusPollCount += 1
+      if (failedStatusPollCount >= TAG_EDIT_JOB_MAX_STATUS_ERRORS) {
+        throw error
+      }
+    }
+  }
+  throw new Error(tagEditCopy.value.seriesJobTimeout)
+}
+
 function isEditableTagItem(item: DicomTagItem): boolean {
   const normalizedTag = item.tag.replace(/[(),\s]/g, '').toUpperCase()
   return Boolean(
@@ -413,6 +477,33 @@ async function submitTagEdit(): Promise<void> {
   isSavingTagEdit.value = true
   tagEditDialogError.value = ''
 
+  if (tagEditScope.value === 'series') {
+    tagEditNotice.value = null
+    try {
+      const job = await postDicomTagModifyJob({
+        seriesId: props.activeTab.seriesId,
+        index: props.activeTab.tagIndex ?? 0,
+        tagPath: item.tagPath,
+        value: tagEditValue.value,
+        scope: 'series'
+      })
+      const startedMessage = tagEditCopy.value.seriesJobStarted
+      showGlobalStatusToast(startedMessage, 'info', {
+        busy: true,
+        durationMs: 0
+      })
+      isTagEditDialogOpen.value = false
+      void finishSeriesTagEditJob(job)
+    } catch (error) {
+      const message = resolveBackendErrorDetail(error) || tagEditCopy.value.saveFailed
+      tagEditDialogError.value = message
+      showGlobalStatusToast(message, 'error')
+    } finally {
+      isSavingTagEdit.value = false
+    }
+    return
+  }
+
   try {
     const artifact = await postDicomTagModifyArtifact({
       seriesId: props.activeTab.seriesId,
@@ -450,6 +541,42 @@ async function submitTagEdit(): Promise<void> {
   }
 }
 
+async function finishSeriesTagEditJob(initialJob: DicomTagModifyJob): Promise<void> {
+  try {
+    const completedJob = await waitForDicomTagModifyJob(initialJob)
+    if (completedJob.status === 'failed') {
+      throw new Error(completedJob.error || tagEditCopy.value.seriesJobFailed)
+    }
+
+    const artifact = await getDicomTagModifyJobArtifact(completedJob.jobId)
+    const savedFile = await saveBinaryFile({
+      data: artifact.data,
+      fileName: artifact.fileName,
+      mimeType: artifact.mediaType,
+      preference: await resolveTagEditSavePreference(artifact.seriesFolder)
+    })
+    const message = tagEditCopy.value.seriesJobCompleted(artifact.modifiedCount)
+    const detail = savedFile.locationDescription ?? tagEditCopy.value.downloadStarted(artifact.fileName)
+    tagEditNotice.value = null
+    showGlobalStatusToast(message, 'success', {
+      detail,
+      directoryPath: savedFile.directoryPath ?? null,
+      filePath: savedFile.filePath ?? null,
+      canOpenLocation: Boolean((savedFile.directoryPath || savedFile.filePath) && window.viewerApi?.openExportLocation),
+      busy: false,
+      durationMs: 10000
+    })
+  } catch (error) {
+    const detail = resolveBackendErrorDetail(error) || (error instanceof Error ? error.message : '') || tagEditCopy.value.seriesJobFailed
+    tagEditNotice.value = null
+    showGlobalStatusToast(tagEditCopy.value.seriesJobFailed, 'error', {
+      detail,
+      busy: false,
+      durationMs: 8000
+    })
+  }
+}
+
 function getRawTagDepth(item: DicomTagItem): number {
   return Number.isFinite(item.depth) ? Math.max(0, item.depth) : 0
 }
@@ -460,14 +587,20 @@ function buildTagTree(items: DicomTagItem[]): DicomTagTreeNode[] {
 
   items.forEach((item, index) => {
     const depth = getRawTagDepth(item)
+    const tag = item.tag || '--'
+    const keyword = item.keyword || ''
+    const name = resolveTagName(item)
+    const vr = item.vr || '--'
+    const value = item.value || '--'
     const node: DicomTagTreeNode = {
       id: `${index}-${item.tag || 'tag'}-${item.keyword || item.name || 'unnamed'}`,
-      title: resolveTagName(item),
-      tag: item.tag || '--',
-      keyword: item.keyword || '',
-      name: resolveTagName(item),
-      vr: item.vr || '--',
-      value: item.value || '--',
+      title: name,
+      tag,
+      keyword,
+      name,
+      vr,
+      value,
+      searchText: buildTagSearchText(tag, name, keyword, value, vr),
       depth,
       original: item
     }
@@ -488,16 +621,27 @@ function buildTagTree(items: DicomTagItem[]): DicomTagTreeNode[] {
 }
 
 function collectTreeNodeIds(nodes: DicomTagTreeNode[]): string[] {
-  return nodes.flatMap((node) => [node.id, ...collectTreeNodeIds(node.children ?? [])])
+  const ids: string[] = []
+  const stack = [...nodes].reverse()
+  while (stack.length > 0) {
+    const node = stack.pop()
+    if (!node) {
+      continue
+    }
+    ids.push(node.id)
+    const children = node.children ?? []
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index]
+      if (child) {
+        stack.push(child)
+      }
+    }
+  }
+  return ids
 }
 
 function doesTreeNodeMatchQuery(node: DicomTagTreeNode, query: string): boolean {
-  if (!query) {
-    return true
-  }
-
-  const fields = [node.tag, node.name, node.keyword, node.value, node.vr]
-  return fields.some((field) => field.toLowerCase().includes(query))
+  return !query || node.searchText.includes(query)
 }
 
 function flattenTagTreeRows(
@@ -511,14 +655,17 @@ function flattenTagTreeRows(
 
   nodes.forEach((node) => {
     const children = node.children ?? []
-    const childRows = flattenTagTreeRows(children, query, expandedIds, level + 1)
     const isMatched = doesTreeNodeMatchQuery(node, query)
+    const isExpanded = isSearching || expandedIds.has(node.id)
+    const childRows =
+      children.length > 0 && (isSearching || isExpanded)
+        ? flattenTagTreeRows(children, query, expandedIds, level + 1)
+        : []
     const shouldInclude = !isSearching || isMatched || childRows.length > 0
     if (!shouldInclude) {
       return
     }
 
-    const isExpanded = isSearching || expandedIds.has(node.id)
     rows.push({
       ...node,
       hasChildren: children.length > 0,
@@ -533,6 +680,10 @@ function flattenTagTreeRows(
   })
 
   return rows
+}
+
+function buildTagSearchText(...fields: Array<string | null | undefined>): string {
+  return fields.map((field) => field ?? '').join('\n').toLowerCase()
 }
 
 function toggleTreeNode(nodeId: string): void {
@@ -569,8 +720,7 @@ function getTreeBranchStyle(item: VisibleDicomTagTreeRow): Record<string, string
 }
 
 function doesTagMatchQuery(item: DicomTagItem, query: string): boolean {
-  const fields = [item.tag, item.name, item.value, item.keyword]
-  return fields.some((field) => (field ?? '').toLowerCase().includes(query))
+  return buildTagSearchText(item.tag, item.name, item.value, item.keyword, item.vr).includes(query)
 }
 
 function goToPage(page: number): void {

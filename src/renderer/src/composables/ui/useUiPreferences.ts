@@ -321,7 +321,7 @@ function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
 }
 
 function normalizeDicomTagDisplayMode(value: unknown): DicomTagDisplayMode {
-  return value === 'tree' ? 'tree' : DEFAULT_DICOM_TAG_DISPLAY_MODE
+  return value === 'flat' || value === 'tree' ? value : DEFAULT_DICOM_TAG_DISPLAY_MODE
 }
 
 function normalizeDicomTagEditSavePreference(value: unknown): DicomTagEditSavePreference {

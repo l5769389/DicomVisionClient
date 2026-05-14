@@ -427,6 +427,7 @@ export interface DicomTagItem {
   vr: string
   value: string
   depth: number
+  tagPath?: string[]
 }
 
 export interface DicomTagsResponse {

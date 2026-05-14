@@ -21,12 +21,23 @@ const operationPaths = {
   GetFourDPhasesApiV1DicomFourDPhasesPost: '/api/v1/dicom/fourD/phases',
   LoadFolderApiV1DicomLoadFolderPost: '/api/v1/dicom/loadFolder',
   LoadSampleFolderApiV1DicomLoadSamplePost: '/api/v1/dicom/loadSample',
+  ModifyDicomTagApiV1DicomModifyTagPost: '/api/v1/dicom/modifyTag',
   SetViewSizeApiV1ViewSetSizePost: '/api/v1/view/setSize'
 } satisfies SupportedOperationPaths
 
 type SupportedOperationKey = keyof typeof operationPaths & ApiOperationKey
 type OperationRequest<K extends SupportedOperationKey> = ApiOperations[K]['request']
 type OperationResponse<K extends SupportedOperationKey> = ApiOperations[K]['response']
+type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPost']['request']
+
+export interface DicomTagModifyArtifact {
+  artifactKind: 'dicom' | 'zip'
+  data: Uint8Array
+  fileName: string
+  mediaType: string
+  modifiedCount: number
+  seriesFolder: string
+}
 
 function toApiBaseRelativePath(path: string): string {
   return path.replace(API_V1_PREFIX_PATTERN, '')
@@ -46,4 +57,63 @@ export async function postApi<K extends SupportedOperationKey>(
 ): Promise<OperationResponse<K>> {
   const response = await api.post<OperationResponse<K>>(toApiBaseRelativePath(operationPaths[operation]), data, config)
   return response.data
+}
+
+function getResponseHeader(headers: unknown, key: string): string {
+  const normalizedKey = key.toLowerCase()
+  const headerRecord = headers as Record<string, unknown> & { get?: (name: string) => unknown }
+  const value = headerRecord[normalizedKey] ?? headerRecord[key] ?? headerRecord.get?.(key)
+
+  return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
+}
+
+function getFileNameFromContentDisposition(value: string): string {
+  const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(value)
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].trim())
+    } catch {
+      return encodedMatch[1].trim()
+    }
+  }
+
+  const quotedMatch = /filename="([^"]+)"/i.exec(value)
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1].trim()
+  }
+
+  const plainMatch = /filename=([^;]+)/i.exec(value)
+  return plainMatch?.[1]?.trim() ?? ''
+}
+
+export async function postDicomTagModifyArtifact(
+  data: DicomTagModifyRequest,
+  config?: AxiosRequestConfig
+): Promise<DicomTagModifyArtifact> {
+  const response = await api.post<ArrayBuffer>(
+    toApiBaseRelativePath(operationPaths.ModifyDicomTagApiV1DicomModifyTagPost),
+    data,
+    {
+      ...config,
+      responseType: 'arraybuffer'
+    }
+  )
+  const contentDisposition = getResponseHeader(response.headers, 'content-disposition')
+  const mediaType = getResponseHeader(response.headers, 'content-type') || 'application/octet-stream'
+  const artifactKindHeader = getResponseHeader(response.headers, 'x-dicomvision-artifact-kind')
+  const artifactKind = artifactKindHeader === 'zip' ? 'zip' : 'dicom'
+  const fileName =
+    getResponseHeader(response.headers, 'x-dicomvision-file-name') ||
+    getFileNameFromContentDisposition(contentDisposition) ||
+    (artifactKind === 'zip' ? 'dicom-tag-edits.zip' : 'dicom-tag-edit.dcm')
+  const modifiedCount = Number.parseInt(getResponseHeader(response.headers, 'x-dicomvision-modified-count'), 10)
+
+  return {
+    artifactKind,
+    data: new Uint8Array(response.data),
+    fileName,
+    mediaType,
+    modifiedCount: Number.isFinite(modifiedCount) ? modifiedCount : 1,
+    seriesFolder: getResponseHeader(response.headers, 'x-dicomvision-series-folder')
+  }
 }

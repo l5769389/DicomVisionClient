@@ -1,11 +1,13 @@
 ﻿<script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type DicomTagDisplayMode, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
+import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
+import { viewerRuntime } from '../../platform/runtime'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
 
 defineProps<{
@@ -232,6 +234,7 @@ const {
   addCustomWindowPreset,
   crosshairConfigs,
   dicomTagDisplayMode,
+  dicomTagEditSavePreference,
   getWindowPresetLabel,
   measurementStylePreference,
   qaWaterMetrics,
@@ -241,6 +244,7 @@ const {
   selectedPseudocolorKey,
   selectedWindowPresetId,
   setCrosshairConfigs,
+  setDicomTagEditSavePreference,
   setMeasurementStylePreference,
   setQaWaterMetrics,
   setScaleBarPreference,
@@ -257,6 +261,9 @@ const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
 const selectedCustomPresetIds = ref<string[]>([])
+const tagEditSaveDefaultLocationLabel = ref('')
+const tagEditSaveLocationError = ref('')
+const isChoosingTagEditSaveLocation = ref(false)
 const appVersion = __APP_VERSION__
 
 const isZh = computed(() => locale.value === 'zh-CN')
@@ -300,6 +307,31 @@ const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; 
   }
 ])
 const currentDicomTagDisplayModeTitle = computed(() => dicomTagDisplayModeOptions.value.find((option) => option.value === dicomTagDisplayMode.value)?.title ?? '')
+const canPickTagEditSaveLocation = computed(() => viewerRuntime.platform === 'desktop' && canChooseCustomExportDirectory())
+const tagEditSaveCustomLocationLabel = computed(() =>
+  dicomTagEditSavePreference.value.desktopDirectory || (isZh.value ? '尚未选择文件夹' : 'No folder selected')
+)
+const tagEditSaveLocationLabel = computed(() => {
+  if (dicomTagEditSavePreference.value.locationMode === 'custom') {
+    return tagEditSaveCustomLocationLabel.value
+  }
+
+  return tagEditSaveDefaultLocationLabel.value || (isZh.value ? '系统默认下载目录' : 'System default downloads')
+})
+const tagEditSaveLocationModeLabel = computed(() =>
+  dicomTagEditSavePreference.value.locationMode === 'custom'
+    ? (isZh.value ? '自定义位置' : 'Custom location')
+    : (isZh.value ? '默认位置' : 'Default location')
+)
+const canOpenTagEditSaveLocation = computed(() => {
+  if (viewerRuntime.platform !== 'desktop') {
+    return false
+  }
+  if (dicomTagEditSavePreference.value.locationMode === 'custom') {
+    return Boolean(dicomTagEditSavePreference.value.desktopDirectory)
+  }
+  return Boolean(tagEditSaveDefaultLocationLabel.value)
+})
 
 function getThemeSummary(theme: ThemePreset): string {
   return isZh.value ? theme.summaryZh : theme.summaryEn
@@ -311,6 +343,76 @@ function getThemeLabel(theme: ThemePreset): string {
 
 function isDicomTagDisplayModeActive(value: DicomTagDisplayMode): boolean {
   return dicomTagDisplayMode.value === value
+}
+
+function handleSelectDefaultTagEditSaveLocation(): void {
+  tagEditSaveLocationError.value = ''
+  setDicomTagEditSavePreference({
+    ...dicomTagEditSavePreference.value,
+    locationMode: 'default'
+  })
+}
+
+function handleSelectCustomTagEditSaveLocation(): void {
+  if (!canPickTagEditSaveLocation.value) {
+    return
+  }
+
+  tagEditSaveLocationError.value = ''
+  setDicomTagEditSavePreference({
+    ...dicomTagEditSavePreference.value,
+    locationMode: 'custom'
+  })
+}
+
+async function handleChooseTagEditSaveLocation(): Promise<void> {
+  if (!canPickTagEditSaveLocation.value) {
+    return
+  }
+
+  tagEditSaveLocationError.value = ''
+  isChoosingTagEditSaveLocation.value = true
+  try {
+    const selectedDirectory = await chooseCustomExportDirectory()
+    if (!selectedDirectory?.desktopDirectory) {
+      return
+    }
+
+    setDicomTagEditSavePreference({
+      locationMode: 'custom',
+      desktopDirectory: selectedDirectory.desktopDirectory
+    })
+  } catch (error) {
+    console.error('Failed to choose DICOM tag edit save location.', error)
+    tagEditSaveLocationError.value = isZh.value ? '选择保存位置失败。' : 'Failed to choose save location.'
+  } finally {
+    isChoosingTagEditSaveLocation.value = false
+  }
+}
+
+async function handleOpenTagEditSaveLocation(): Promise<void> {
+  const directoryPath =
+    dicomTagEditSavePreference.value.locationMode === 'custom'
+      ? dicomTagEditSavePreference.value.desktopDirectory
+      : tagEditSaveDefaultLocationLabel.value
+
+  if (!directoryPath) {
+    return
+  }
+
+  tagEditSaveLocationError.value = ''
+  const opened = await openExportLocation({ directoryPath })
+  if (!opened) {
+    tagEditSaveLocationError.value = isZh.value ? '打开保存位置失败。' : 'Failed to open save location.'
+  }
+}
+
+function handleClearTagEditSaveLocation(): void {
+  tagEditSaveLocationError.value = ''
+  setDicomTagEditSavePreference({
+    locationMode: 'default',
+    desktopDirectory: null
+  })
 }
 
 function getShortcutComboParts(combo: string): string[] {
@@ -388,7 +490,11 @@ function resetDisplaySection(): void {
 }
 
 function resetDicomTagSection(): void {
-  dicomTagDisplayMode.value = 'flat'
+  dicomTagDisplayMode.value = 'tree'
+  setDicomTagEditSavePreference({
+    locationMode: 'default',
+    desktopDirectory: null
+  })
 }
 
 function resetQaSection(): void {
@@ -491,6 +597,15 @@ function handleRemoveSelectedCustomWindowPresets(): void {
 
 watch(displayCustomWindowPresets, () => {
   syncSelectedCustomPresetIds()
+})
+
+onMounted(async () => {
+  try {
+    tagEditSaveDefaultLocationLabel.value = await getDefaultExportLocationLabel()
+  } catch (error) {
+    console.error('Failed to resolve DICOM tag edit default save location.', error)
+    tagEditSaveDefaultLocationLabel.value = ''
+  }
 })
 
 </script>
@@ -832,7 +947,7 @@ watch(displayCustomWindowPresets, () => {
                             <div>
                               <div class="text-lg font-semibold">{{ isZh ? 'DICOM Tag 设置' : 'DICOM Tag Settings' }}</div>
                               <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">
-                                {{ isZh ? '管理 Tag 页的显示方式，后续也可以放入 Tag 修改和保存位置相关配置。' : 'Manage the Tag view display mode, with room for future tag editing and save-location options.' }}
+                                {{ isZh ? '管理 Tag 页显示方式，以及修改后 DICOM 文件在前端的保存策略。' : 'Manage tag display mode and frontend save behavior for modified DICOM files.' }}
                               </div>
                             </div>
                           </div>
@@ -892,6 +1007,120 @@ watch(displayCustomWindowPresets, () => {
                               {{ isDicomTagDisplayModeActive(option.value) ? (isZh ? '已启用' : 'Active') : (isZh ? '可选择' : 'Available') }}
                             </span>
                           </button>
+                        </div>
+                      </div>
+
+                      <div class="mt-5 rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'Tag 修改保存位置' : 'Tag Edit Save Location' }}</div>
+                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                              {{ isZh ? '右键修改 Tag 后生成的新 DICOM 文件会保存到这里；同一个 series 会归档在同一个子文件夹中。' : 'Modified DICOM copies created from tag edits are saved here; each series is grouped into one subfolder.' }}
+                            </div>
+                          </div>
+                          <span class="w-fit rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                            {{ tagEditSaveLocationModeLabel }}
+                          </span>
+                        </div>
+
+                        <div class="grid gap-3 lg:grid-cols-2">
+                          <button
+                            type="button"
+                            class="group min-h-[126px] rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                            :class="dicomTagEditSavePreference.locationMode === 'default' ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                            @click="handleSelectDefaultTagEditSaveLocation"
+                          >
+                            <div class="flex h-full flex-col justify-between gap-4">
+                              <div>
+                                <div class="flex items-center justify-between gap-3">
+                                  <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '默认下载目录' : 'Default downloads' }}</div>
+                                  <span
+                                    class="h-3 w-3 rounded-full border"
+                                    :class="dicomTagEditSavePreference.locationMode === 'default' ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent'"
+                                  ></span>
+                                </div>
+                                <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '跟随系统默认导出位置。' : 'Use the system default export location.' }}</div>
+                              </div>
+                              <div class="line-clamp-2 break-all text-[11px] font-medium text-[var(--theme-text-muted)]">
+                                {{ tagEditSaveDefaultLocationLabel || (isZh ? '系统默认下载目录' : 'System default downloads') }}
+                              </div>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            class="group min-h-[126px] rounded-[22px] border px-4 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+                            :disabled="!canPickTagEditSaveLocation"
+                            :class="dicomTagEditSavePreference.locationMode === 'custom' ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                            @click="handleSelectCustomTagEditSaveLocation"
+                          >
+                            <div class="flex h-full flex-col justify-between gap-4">
+                              <div>
+                                <div class="flex items-center justify-between gap-3">
+                                  <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '自定义文件夹' : 'Custom folder' }}</div>
+                                  <span
+                                    class="h-3 w-3 rounded-full border"
+                                    :class="dicomTagEditSavePreference.locationMode === 'custom' ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent'"
+                                  ></span>
+                                </div>
+                                <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                                  {{ canPickTagEditSaveLocation ? (isZh ? '选择一个专门保存 Tag 修改副本的位置。' : 'Choose a dedicated location for tag edit copies.') : (isZh ? '当前环境不支持选择本地文件夹。' : 'Folder picking is not available in this environment.') }}
+                                </div>
+                              </div>
+                              <div class="line-clamp-2 break-all text-[11px] font-medium text-[var(--theme-text-muted)]">
+                                {{ tagEditSaveCustomLocationLabel }}
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+
+                        <div class="mt-4 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-4">
+                          <div class="flex flex-col gap-4">
+                            <div class="min-w-0">
+                              <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '当前保存位置' : 'Current save location' }}</div>
+                              <div class="mt-2 max-w-full break-words text-sm font-medium leading-6 text-[var(--theme-text-primary)] [overflow-wrap:anywhere]">{{ tagEditSaveLocationLabel }}</div>
+                              <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                                {{
+                                  viewerRuntime.platform === 'desktop'
+                                    ? (isZh ? '实际生成目录会追加 DicomVisionTagEdits/<series-id>，避免不同 series 的修改文件混在一起。' : 'The actual output appends DicomVisionTagEdits/<series-id> so different series stay separated.')
+                                    : (isZh ? 'Web 端会保存后端返回的 DICOM 或 ZIP 下载文件，具体位置由浏览器决定。' : 'On web, the returned DICOM or ZIP is downloaded and the browser decides the final location.')
+                                }}
+                              </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                              <button
+                                v-if="canOpenTagEditSaveLocation"
+                                type="button"
+                                class="theme-button-primary min-w-[120px] rounded-2xl px-4 py-2 text-sm font-semibold"
+                                @click="handleOpenTagEditSaveLocation"
+                              >
+                                {{ isZh ? '打开' : 'Open' }}
+                              </button>
+                              <template v-if="dicomTagEditSavePreference.locationMode === 'custom'">
+                                <button
+                                  type="button"
+                                  class="theme-button-primary min-w-[150px] rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                  :disabled="!canPickTagEditSaveLocation || isChoosingTagEditSaveLocation"
+                                  @click="handleChooseTagEditSaveLocation"
+                                >
+                                  {{ isChoosingTagEditSaveLocation ? '...' : (isZh ? '选择文件夹' : 'Choose folder') }}
+                                </button>
+                                <button
+                                  type="button"
+                                  class="theme-button-secondary min-w-[150px] rounded-2xl px-4 py-2 text-sm font-medium"
+                                  @click="handleClearTagEditSaveLocation"
+                                >
+                                  {{ isZh ? '恢复默认' : 'Use default' }}
+                                </button>
+                              </template>
+                            </div>
+                          </div>
+                          <div
+                            v-if="tagEditSaveLocationError"
+                            class="mt-4 rounded-2xl border border-[color:color-mix(in_srgb,#ef7777_36%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,#ef7777_10%,transparent)] px-4 py-3 text-xs leading-5 text-[color:color-mix(in_srgb,#ef7777_76%,var(--theme-text-primary))]"
+                          >
+                            {{ tagEditSaveLocationError }}
+                          </div>
                         </div>
                       </div>
                     </section>

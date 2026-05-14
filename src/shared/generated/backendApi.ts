@@ -25,6 +25,15 @@ export interface DicomTagItem {
   vr: string
   value: string
   depth?: number
+  tagPath?: string[]
+}
+
+export interface DicomTagModifyRequest {
+  seriesId: string
+  index?: number
+  tagPath: string[]
+  value: string
+  scope?: 'current' | 'series'
 }
 
 export interface DicomTagsRequest {
@@ -482,6 +491,7 @@ export interface ApiOperations {
   GetFourDPreviewApiV1DicomFourDPreviewGet: { method: 'GET'; path: '/api/v1/dicom/fourD/preview'; request: never; response: unknown }
   LoadFolderApiV1DicomLoadFolderPost: { method: 'POST'; path: '/api/v1/dicom/loadFolder'; request: LoadFolderRequest; response: LoadFolderResponse }
   LoadSampleFolderApiV1DicomLoadSamplePost: { method: 'POST'; path: '/api/v1/dicom/loadSample'; request: never; response: LoadSampleResponse }
+  ModifyDicomTagApiV1DicomModifyTagPost: { method: 'POST'; path: '/api/v1/dicom/modifyTag'; request: DicomTagModifyRequest; response: unknown }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
   GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }

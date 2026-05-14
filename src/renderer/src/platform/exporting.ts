@@ -22,6 +22,12 @@ export interface ExportedFileResult {
   mode: 'filesystem' | 'download'
 }
 
+export interface SaveFilePreference {
+  locationMode: 'default' | 'custom'
+  desktopDirectory?: string | null
+  webDirectoryName?: string | null
+}
+
 function supportsWebDirectoryPicker(): boolean {
   return typeof window !== 'undefined' && typeof (window as WebDirectoryPickerWindow).showDirectoryPicker === 'function'
 }
@@ -168,14 +174,14 @@ async function resolveUniqueWebFileName(directoryHandle: FileSystemDirectoryHand
   }
 }
 
-export async function saveExportedFile(params: {
+export async function saveBinaryFile(params: {
   data: Uint8Array
-  exportPreference: ExportPreference
   fileName: string
   mimeType: string
+  preference: SaveFilePreference
 }): Promise<ExportedFileResult> {
   if (viewerRuntime.platform === 'desktop') {
-    const directoryPath = params.exportPreference.locationMode === 'custom' ? params.exportPreference.desktopDirectory?.trim() : null
+    const directoryPath = params.preference.locationMode === 'custom' ? params.preference.desktopDirectory?.trim() : null
     const savedPath =
       (await window.viewerApi?.saveExportFile?.({
         fileName: params.fileName,
@@ -193,7 +199,7 @@ export async function saveExportedFile(params: {
     }
   }
 
-  if (params.exportPreference.locationMode === 'custom') {
+  if (params.preference.locationMode === 'custom') {
     const directoryHandle = await readStoredWebExportDirectory()
     if (directoryHandle && (await ensureWebExportDirectoryPermission(directoryHandle))) {
       const fileName = await resolveUniqueWebFileName(directoryHandle, params.fileName)
@@ -215,6 +221,20 @@ export async function saveExportedFile(params: {
     locationDescription: null,
     mode: 'download'
   }
+}
+
+export async function saveExportedFile(params: {
+  data: Uint8Array
+  exportPreference: ExportPreference
+  fileName: string
+  mimeType: string
+}): Promise<ExportedFileResult> {
+  return saveBinaryFile({
+    data: params.data,
+    fileName: params.fileName,
+    mimeType: params.mimeType,
+    preference: params.exportPreference
+  })
 }
 
 export async function openExportLocation(result: Pick<ExportedFileResult, 'directoryPath' | 'filePath'>): Promise<boolean> {

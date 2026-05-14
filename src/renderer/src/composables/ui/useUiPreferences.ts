@@ -51,6 +51,11 @@ export interface ExportPreference {
   webDirectoryName: string | null
 }
 
+export interface DicomTagEditSavePreference {
+  locationMode: 'default' | 'custom'
+  desktopDirectory: string | null
+}
+
 export interface RoiStatPreference {
   key: string
   label: string
@@ -83,16 +88,17 @@ interface UiPreferencesState {
   crosshairConfigs: CrosshairViewportPreference[]
   scaleBarPreference: ScaleBarPreference
   measurementStylePreference: MeasurementStylePreference
+  dicomTagEditSavePreference: DicomTagEditSavePreference
   exportPreference: ExportPreference
   qaWaterMetrics: QaWaterMetricPreference[]
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 7
+const CURRENT_PREFERENCES_VERSION = 8
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
-const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'flat'
+const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
 export const MAX_CUSTOM_WINDOW_PRESETS = 5
 const LEGACY_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string> = {
@@ -192,6 +198,13 @@ function createDefaultExportPreference(): ExportPreference {
   }
 }
 
+function createDefaultDicomTagEditSavePreference(): DicomTagEditSavePreference {
+  return {
+    locationMode: 'default',
+    desktopDirectory: null
+  }
+}
+
 function createDefaultRoiStatOptions(): RoiStatPreference[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -223,6 +236,7 @@ function createDefaultState(): UiPreferencesState {
     crosshairConfigs: createDefaultCrosshairConfigs(),
     scaleBarPreference: createDefaultScaleBarPreference(),
     measurementStylePreference: createDefaultMeasurementStylePreference(),
+    dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     exportPreference: createDefaultExportPreference(),
     qaWaterMetrics: createDefaultQaWaterMetrics(),
     roiStatOptions: createDefaultRoiStatOptions(),
@@ -308,6 +322,17 @@ function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
 
 function normalizeDicomTagDisplayMode(value: unknown): DicomTagDisplayMode {
   return value === 'tree' ? 'tree' : DEFAULT_DICOM_TAG_DISPLAY_MODE
+}
+
+function normalizeDicomTagEditSavePreference(value: unknown): DicomTagEditSavePreference {
+  const defaults = createDefaultDicomTagEditSavePreference()
+  const record = value && typeof value === 'object' ? (value as Partial<DicomTagEditSavePreference>) : null
+
+  return {
+    locationMode: record?.locationMode === 'custom' ? 'custom' : defaults.locationMode,
+    desktopDirectory:
+      typeof record?.desktopDirectory === 'string' && record.desktopDirectory.trim() ? record.desktopDirectory.trim() : null
+  }
 }
 
 function normalizeHexColor(value: unknown, fallback: string): string {
@@ -466,6 +491,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.crosshairConfigs = nextState.crosshairConfigs
   state.scaleBarPreference = nextState.scaleBarPreference
   state.measurementStylePreference = nextState.measurementStylePreference
+  state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.exportPreference = nextState.exportPreference
   state.qaWaterMetrics = nextState.qaWaterMetrics
   state.roiStatOptions = nextState.roiStatOptions
@@ -492,6 +518,10 @@ function serializeState(): UiPreferencesState {
       lineWidth: state.measurementStylePreference.lineWidth,
       editingLineStyle: state.measurementStylePreference.editingLineStyle,
       completedLineStyle: state.measurementStylePreference.completedLineStyle
+    },
+    dicomTagEditSavePreference: {
+      locationMode: state.dicomTagEditSavePreference.locationMode,
+      desktopDirectory: state.dicomTagEditSavePreference.desktopDirectory
     },
     exportPreference: {
       locationMode: state.exportPreference.locationMode,
@@ -563,6 +593,7 @@ async function hydrateState(): Promise<void> {
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
+        dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         exportPreference: normalizeExportPreference(parsed.exportPreference),
         qaWaterMetrics: normalizeQaWaterMetrics(parsed.qaWaterMetrics),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
@@ -695,6 +726,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setDicomTagEditSavePreference(nextValue: DicomTagEditSavePreference): void {
+    state.dicomTagEditSavePreference = normalizeDicomTagEditSavePreference(nextValue)
+    void persistState()
+  }
+
   function setExportPreference(nextValue: ExportPreference): void {
     state.exportPreference = normalizeExportPreference(nextValue)
     void persistState()
@@ -730,6 +766,7 @@ export function useUiPreferences() {
   return {
     customWindowPresets: computed(() => state.customWindowPresets),
     crosshairConfigs: computed(() => state.crosshairConfigs),
+    dicomTagEditSavePreference: computed(() => state.dicomTagEditSavePreference),
     getWindowPresetLabel,
     locale,
     dicomTagDisplayMode,
@@ -741,6 +778,7 @@ export function useUiPreferences() {
     selectedPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
+    setDicomTagEditSavePreference,
     setExportPreference,
     setLocale,
     setMeasurementStylePreference,

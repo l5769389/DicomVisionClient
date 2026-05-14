@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu, VPagination, VTextField } from 'vuetify/components'
+import { VBtn, VCard, VChip, VDialog, VDivider, VList, VListItem, VMenu, VPagination, VTextarea, VTextField } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
 import type { DicomTagItem, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
+import { openExportLocation, saveBinaryFile, type SaveFilePreference } from '../../../platform/exporting'
+import { postDicomTagModifyArtifact } from '../../../services/typedApi'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -14,7 +16,8 @@ const emit = defineEmits<{
   indexChange: [payload: { tabKey: string; index: number }]
 }>()
 
-type ContextAction = 'row' | 'tag' | 'name' | 'value'
+type ContextAction = 'modify' | 'row' | 'tag' | 'name' | 'value'
+type TagEditScope = 'current' | 'series'
 interface DicomTagTreeNode {
   id: string
   title: string
@@ -39,9 +42,11 @@ const TAG_ROW_HEIGHT = 76
 const TAG_OVERSCAN_ROWS = 8
 const TAG_TREE_INDENT_PX = 28
 const TAG_TREE_MAX_GUIDE_DEPTH = 10
+const TAG_EDIT_EXPORT_ROOT = 'DicomVisionTagEdits'
+const EDITABLE_BINARY_VR_VALUES = new Set(['OB', 'OD', 'OF', 'OL', 'OV', 'OW', 'UN'])
 
-const { tagViewCopy: copy } = useUiLocale()
-const { dicomTagDisplayMode } = useUiPreferences()
+const { locale, tagViewCopy: copy } = useUiLocale()
+const { dicomTagDisplayMode, dicomTagEditSavePreference } = useUiPreferences()
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
 const isTreeTagDisplayMode = computed(() => dicomTagDisplayMode.value === 'tree')
@@ -57,6 +62,14 @@ const contextMenuPosition = ref({
   y: 0
 })
 const contextMenuItem = ref<DicomTagItem | null>(null)
+const isTagEditDialogOpen = ref(false)
+const tagEditItem = ref<DicomTagItem | null>(null)
+const tagEditScope = ref<TagEditScope>('current')
+const tagEditValue = ref('')
+const isSavingTagEdit = ref(false)
+const isOpeningTagEditLocation = ref(false)
+const tagEditDialogError = ref('')
+const tagEditNotice = ref<{ tone: 'success' | 'error'; message: string; detail?: string; directoryPath?: string; filePath?: string } | null>(null)
 
 const filteredTagItems = computed(() => {
   const items = props.activeTab.tagItems ?? []
@@ -123,7 +136,47 @@ const contextMenuPreview = computed(() => {
   }
 })
 
-const contextMenuActions = computed(() => [
+const isContextMenuItemEditable = computed(() => Boolean(contextMenuItem.value && isEditableTagItem(contextMenuItem.value)))
+const canOpenTagEditNoticeLocation = computed(() => Boolean(tagEditNotice.value?.directoryPath && window.viewerApi?.openExportLocation))
+const isZh = computed(() => locale.value === 'zh-CN')
+const tagEditCopy = computed(() => ({
+  applyCurrent: isZh.value ? '仅当前 DICOM' : 'Current DICOM only',
+  applyCurrentDesc: isZh.value ? '只生成当前实例的修改副本。' : 'Create a modified copy for the current instance only.',
+  applySeries: isZh.value ? '本 Series 全部 DICOM' : 'All DICOMs in this series',
+  applySeriesDesc: isZh.value ? '为当前 series 中所有实例生成修改副本。' : 'Create modified copies for every instance in this series.',
+  cancel: isZh.value ? '取消' : 'Cancel',
+  confirm: isZh.value ? '确认保存' : 'Save copies',
+  currentValue: isZh.value ? '当前值' : 'Current value',
+  dialogTitle: isZh.value ? '修改 DICOM Tag' : 'Edit DICOM Tag',
+  dialogSubtitle: isZh.value
+    ? '不会覆盖原始文件，会在设置中的导出位置生成新的 DICOM 文件。'
+    : 'Original files are not overwritten. New DICOM files are written to the configured export location.',
+  editableDisabled: isZh.value ? '该 Tag 不支持在这里直接修改' : 'This tag cannot be edited here',
+  modifyAction: isZh.value ? '修改 Tag Value' : 'Edit Tag Value',
+  modifySubtitle: isZh.value ? '生成新的 DICOM 副本' : 'Create modified DICOM copies',
+  newValue: isZh.value ? '新值' : 'New value',
+  openLocation: isZh.value ? '打开' : 'Open',
+  openLocationFailed: isZh.value ? '打开保存位置失败。' : 'Failed to open the save location.',
+  saving: isZh.value ? '正在保存...' : 'Saving...',
+  saveFailed: isZh.value ? 'DICOM Tag 修改保存失败。' : 'Failed to save DICOM tag edit.',
+  downloadStarted: (fileName: string) => (isZh.value ? `已交给浏览器下载：${fileName}` : `Browser download started: ${fileName}`),
+  saved: (count: number) =>
+    isZh.value
+      ? `已生成 ${count} 个修改后的 DICOM 文件`
+      : `Created ${count} modified DICOM file(s)`,
+  savedDirectory: (directory: string) => (isZh.value ? `保存位置：${directory}` : `Saved to: ${directory}`),
+  scopeTitle: isZh.value ? '应用范围' : 'Apply scope',
+  targetTag: isZh.value ? '目标 Tag' : 'Target Tag'
+}))
+
+const contextMenuActions = computed<Array<{ key: ContextAction; title: string; subtitle: string; badge: string; disabled?: boolean }>>(() => [
+  {
+    key: 'modify',
+    title: tagEditCopy.value.modifyAction,
+    subtitle: isContextMenuItemEditable.value ? tagEditCopy.value.modifySubtitle : tagEditCopy.value.editableDisabled,
+    badge: 'EDIT',
+    disabled: !isContextMenuItemEditable.value
+  },
   {
     key: 'row' as const,
     title: copy.value.copyRow,
@@ -150,6 +203,19 @@ const contextMenuActions = computed(() => [
   }
 ])
 
+const tagEditPreview = computed(() => {
+  const item = tagEditItem.value
+  if (!item) {
+    return { tag: '--', name: '--', vr: '--', value: '' }
+  }
+  return {
+    tag: item.tag || '--',
+    name: resolveTagName(item),
+    vr: item.vr || '--',
+    value: item.value || ''
+  }
+})
+
 watch(
   () => [props.activeTab.key, props.activeTab.tagIndex, props.activeTab.tagTotal] as const,
   () => {
@@ -163,6 +229,8 @@ watch(
   () => {
     closeContextMenu()
     contextMenuItem.value = null
+    isTagEditDialogOpen.value = false
+    tagEditItem.value = null
   }
 )
 
@@ -227,6 +295,159 @@ function updateSearchQuery(value: string | null): void {
 
 function clearSearchQuery(): void {
   searchQuery.value = ''
+}
+
+function resolveBackendErrorDetail(error: unknown): string {
+  const responseData = (error as { response?: { data?: unknown } } | null)?.response?.data
+  if (responseData && typeof responseData === 'object' && 'detail' in responseData) {
+    const detail = (responseData as { detail?: unknown }).detail
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail.trim()
+    }
+  }
+
+  return error instanceof Error && error.message.trim() ? error.message.trim() : ''
+}
+
+function isEditableTagItem(item: DicomTagItem): boolean {
+  const normalizedTag = item.tag.replace(/[(),\s]/g, '').toUpperCase()
+  return Boolean(
+    item.tagPath?.length &&
+      item.tag &&
+      item.vr !== 'SQ' &&
+      item.vr !== 'ITEM' &&
+      normalizedTag !== '7FE00010' &&
+      !EDITABLE_BINARY_VR_VALUES.has(item.vr)
+  )
+}
+
+function openTagEditDialog(item: DicomTagItem): void {
+  if (!isEditableTagItem(item)) {
+    tagEditNotice.value = {
+      tone: 'error',
+      message: tagEditCopy.value.editableDisabled
+    }
+    return
+  }
+
+  tagEditItem.value = item
+  tagEditValue.value = item.value ?? ''
+  tagEditScope.value = 'current'
+  tagEditDialogError.value = ''
+  isTagEditDialogOpen.value = true
+}
+
+function closeTagEditDialog(): void {
+  if (isSavingTagEdit.value) {
+    return
+  }
+
+  isTagEditDialogOpen.value = false
+  tagEditDialogError.value = ''
+}
+
+function getSafeTagEditFolderName(value: string): string {
+  return value.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^[._ -]+|[._ -]+$/g, '').slice(0, 24) || 'series'
+}
+
+function appendDesktopPath(baseDirectory: string, ...segments: string[]): string {
+  const separator = baseDirectory.includes('\\') ? '\\' : '/'
+  const base = baseDirectory.replace(/[\\/]+$/g, '')
+  const cleanSegments = segments.map((segment) => segment.replace(/^[\\/]+|[\\/]+$/g, '')).filter(Boolean)
+  return [base, ...cleanSegments].join(separator)
+}
+
+async function resolveTagEditSavePreference(seriesFolder: string): Promise<SaveFilePreference> {
+  if (!window.viewerApi?.saveExportFile) {
+    return { locationMode: 'default' }
+  }
+
+  const configuredDirectory =
+    dicomTagEditSavePreference.value.locationMode === 'custom'
+      ? dicomTagEditSavePreference.value.desktopDirectory?.trim()
+      : await window.viewerApi.getDefaultExportDirectory?.()
+
+  if (!configuredDirectory) {
+    return { locationMode: 'default' }
+  }
+
+  return {
+    locationMode: 'custom',
+    desktopDirectory: appendDesktopPath(configuredDirectory, TAG_EDIT_EXPORT_ROOT, getSafeTagEditFolderName(seriesFolder || props.activeTab.seriesId))
+  }
+}
+
+async function openTagEditNoticeLocation(): Promise<void> {
+  const notice = tagEditNotice.value
+  if (!notice?.directoryPath) {
+    return
+  }
+
+  isOpeningTagEditLocation.value = true
+  try {
+    const opened = await openExportLocation({
+      directoryPath: notice.directoryPath,
+      filePath: null
+    })
+    if (!opened) {
+      throw new Error(tagEditCopy.value.openLocationFailed)
+    }
+  } catch (error) {
+    tagEditNotice.value = {
+      tone: 'error',
+      message: tagEditCopy.value.openLocationFailed,
+      detail: error instanceof Error ? error.message : undefined
+    }
+  } finally {
+    isOpeningTagEditLocation.value = false
+  }
+}
+
+async function submitTagEdit(): Promise<void> {
+  const item = tagEditItem.value
+  if (!item?.tagPath?.length || !isEditableTagItem(item)) {
+    tagEditDialogError.value = tagEditCopy.value.editableDisabled
+    return
+  }
+
+  isSavingTagEdit.value = true
+  tagEditDialogError.value = ''
+
+  try {
+    const artifact = await postDicomTagModifyArtifact({
+      seriesId: props.activeTab.seriesId,
+      index: props.activeTab.tagIndex ?? 0,
+      tagPath: item.tagPath,
+      value: tagEditValue.value,
+      scope: tagEditScope.value
+    })
+    const savedFile = await saveBinaryFile({
+      data: artifact.data,
+      fileName: artifact.fileName,
+      mimeType: artifact.mediaType,
+      preference: await resolveTagEditSavePreference(artifact.seriesFolder)
+    })
+    tagEditNotice.value = {
+      tone: 'success',
+      message: tagEditCopy.value.saved(artifact.modifiedCount),
+      detail: savedFile.locationDescription
+        ? tagEditCopy.value.savedDirectory(savedFile.locationDescription)
+        : tagEditCopy.value.downloadStarted(artifact.fileName),
+      directoryPath: savedFile.directoryPath ?? undefined,
+      filePath: savedFile.filePath ?? undefined
+    }
+    isTagEditDialogOpen.value = false
+  } catch (error) {
+    const message = resolveBackendErrorDetail(error) || tagEditCopy.value.saveFailed
+    tagEditDialogError.value = message
+    tagEditNotice.value = {
+      tone: 'error',
+      message: tagEditCopy.value.saveFailed,
+      detail: message
+    }
+  } finally {
+    isSavingTagEdit.value = false
+  }
 }
 
 function getRawTagDepth(item: DicomTagItem): number {
@@ -421,6 +642,12 @@ async function handleContextAction(action: ContextAction): Promise<void> {
     return
   }
 
+  if (action === 'modify') {
+    openTagEditDialog(contextMenuItem.value)
+    closeContextMenu()
+    return
+  }
+
   if (action === 'row') {
     await writeClipboardText(buildRowText(contextMenuItem.value))
   } else if (action === 'tag') {
@@ -556,7 +783,8 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                   'tag-tree-row--branch': item.hasChildren,
                   'tag-tree-row--item': item.vr === 'ITEM',
                   'tag-tree-row--sequence': item.vr === 'SQ',
-                  'tag-tree-row--matched': Boolean(tagTreeSearchText && item.isMatched)
+                  'tag-tree-row--matched': Boolean(tagTreeSearchText && item.isMatched),
+                  'tag-tree-row--menu-open': isContextMenuOpen && contextMenuItem === item.original
                 }"
                 @contextmenu.stop.prevent="handleRowContextMenu($event, item.original)"
               >
@@ -633,7 +861,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           </div>
         </template>
 
-        <div v-if="contextMenuItem" class="fixed z-[2000] h-0 w-0" :style="contextMenuAnchorStyle">
+        <div v-if="contextMenuItem" class="fixed z-[2100] h-0 w-0" :style="contextMenuAnchorStyle">
           <VMenu
             v-model="isContextMenuOpen"
             activator="parent"
@@ -642,36 +870,42 @@ async function handleContextAction(action: ContextAction): Promise<void> {
             scroll-strategy="reposition"
             :close-on-content-click="true"
           >
-            <VCard class="tag-context-menu min-w-[260px] overflow-hidden rounded-[22px]! border! border-cyan-200/14! bg-[linear-gradient(180deg,rgba(8,18,31,0.99),rgba(5,11,20,0.995))]! text-slate-100! shadow-[0_24px_52px_rgba(0,0,0,0.46)]!">
+            <VCard class="tag-context-menu theme-shell-panel min-w-[300px] overflow-hidden rounded-[24px]! border! text-[var(--theme-text-primary)]! shadow-[0_28px_64px_rgba(0,0,0,0.5)]!">
               <div class="tag-context-menu__chrome"></div>
               <div class="relative px-2.5 pb-2.5 pt-2.5">
-                <div class="tag-context-preview rounded-[16px] border border-white/8 bg-white/[0.04] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                <div class="tag-context-preview rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                   <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <div class="tag-context-menu__eyebrow text-[9px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">{{ copy.tagActions }}</div>
-                      <div class="tag-context-menu__tag mt-1 truncate font-mono text-[12px] text-cyan-100">{{ contextMenuPreview.tag }}</div>
-                      <div class="tag-context-menu__name mt-0.5 truncate text-[12px] font-medium text-white">{{ contextMenuPreview.name }}</div>
+                    <div class="tag-context-menu__thumb">
+                      <AppIcon name="tag" :size="20" />
                     </div>
-                    <div class="tag-context-copy-badge rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+                    <div class="min-w-0 flex-1">
+                      <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-[color:color-mix(in_srgb,var(--theme-text-secondary)_68%,var(--theme-accent)_32%)]">{{ copy.tagActions }}</div>
+                      <div class="mt-1 truncate font-mono text-[12px] font-medium text-[var(--theme-text-primary)]">{{ contextMenuPreview.tag }}</div>
+                      <div class="mt-0.5 truncate text-[11px] text-[var(--theme-text-secondary)]">{{ contextMenuPreview.name }}</div>
+                      <div class="mt-1 truncate font-mono text-[10px] text-[var(--theme-text-muted)]">{{ contextMenuPreview.value }}</div>
+                    </div>
+                    <div class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-primary)]">
                       {{ copy.copy }}
                     </div>
                   </div>
                 </div>
 
-                <VDivider class="my-2.5 border-white/8 opacity-100" />
+                <VDivider class="my-2.5 border-[var(--theme-border-soft)] opacity-100" />
 
                 <VList class="bg-transparent! py-0!">
                   <VListItem
                     v-for="action in contextMenuActions"
                     :key="action.key"
-                    class="tag-context-menu__item rounded-[16px]! px-2.5! py-1.5! text-slate-100!"
-                    @click="void handleContextAction(action.key)"
+                    :disabled="action.disabled"
+                    class="tag-context-menu__item rounded-[16px]! px-2.5! py-1.5!"
+                    :class="{ 'tag-context-menu__item--disabled': action.disabled }"
+                    @click="!action.disabled && handleContextAction(action.key)"
                   >
                     <div class="flex items-center gap-2.5">
-                      <div class="tag-context-menu__badge">{{ action.badge }}</div>
+                      <div class="tag-context-menu__badge" :class="{ 'tag-context-menu__badge--disabled': action.disabled }">{{ action.badge }}</div>
                       <div class="min-w-0 flex-1">
-                        <div class="truncate text-[12px] font-medium text-white">{{ action.title }}</div>
-                        <div class="truncate text-[11px] text-slate-400">{{ action.subtitle }}</div>
+                        <div class="truncate text-[12px] font-medium" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : 'text-[var(--theme-text-primary)]'">{{ action.title }}</div>
+                        <div class="truncate text-[11px]" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
                       </div>
                     </div>
                   </VListItem>
@@ -686,11 +920,137 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         {{ copy.empty }}
       </div>
     </div>
+
+    <VDialog v-model="isTagEditDialogOpen" max-width="660" persistent>
+      <VCard class="tag-edit-dialog overflow-hidden rounded-[24px]! border! p-0! text-[var(--theme-text-primary)]!">
+        <div class="tag-edit-dialog__header px-5 py-5">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex min-w-0 gap-3">
+              <div class="tag-edit-dialog__icon">
+                <AppIcon name="tag" :size="18" />
+              </div>
+              <div class="min-w-0">
+                <div class="text-lg font-semibold leading-tight">{{ tagEditCopy.dialogTitle }}</div>
+                <div class="mt-2 max-w-[520px] text-sm leading-6 text-[var(--theme-text-secondary)]">{{ tagEditCopy.dialogSubtitle }}</div>
+              </div>
+            </div>
+            <button type="button" class="tag-edit-dialog__close" :disabled="isSavingTagEdit" @click="closeTagEditDialog">
+              <AppIcon name="close" :size="17" />
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-4 px-5 py-5">
+          <div class="tag-edit-target rounded-[18px] border px-4 py-4">
+            <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ tagEditCopy.targetTag }}</div>
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="tag-edit-target__tag font-mono text-sm">{{ tagEditPreview.tag }}</span>
+                  <span class="tag-edit-target__vr font-mono text-[12px] font-semibold">{{ tagEditPreview.vr }}</span>
+                </div>
+                <div class="mt-2 truncate text-[15px] font-semibold leading-6 text-[var(--theme-text-primary)]">{{ tagEditPreview.name }}</div>
+                <div class="tag-edit-target__value mt-2 min-w-0 truncate font-mono text-[12px]">
+                  {{ tagEditCopy.currentValue }}: {{ tagEditPreview.value || '--' }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tag-edit-field-block">
+            <div class="tag-edit-field-label">{{ tagEditCopy.newValue }}</div>
+            <VTextarea
+              v-model="tagEditValue"
+              class="tag-edit-textarea"
+              :disabled="isSavingTagEdit"
+              :placeholder="tagEditCopy.newValue"
+              rows="3"
+              auto-grow
+              hide-details
+              variant="outlined"
+            />
+          </div>
+
+          <div class="tag-edit-scope rounded-[18px] border px-4 py-4">
+            <div class="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ tagEditCopy.scopeTitle }}</div>
+            <div class="tag-edit-scope-grid">
+              <button
+                type="button"
+                class="tag-edit-scope-option"
+                :class="{ 'tag-edit-scope-option--active': tagEditScope === 'current' }"
+                :disabled="isSavingTagEdit"
+                @click="tagEditScope = 'current'"
+              >
+                <span class="tag-edit-scope-option__check">
+                  <AppIcon v-if="tagEditScope === 'current'" name="check" :size="13" />
+                </span>
+                <span class="tag-edit-scope-option__text">
+                  <span>{{ tagEditCopy.applyCurrent }}</span>
+                  <span>{{ tagEditCopy.applyCurrentDesc }}</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="tag-edit-scope-option"
+                :class="{ 'tag-edit-scope-option--active': tagEditScope === 'series' }"
+                :disabled="isSavingTagEdit"
+                @click="tagEditScope = 'series'"
+              >
+                <span class="tag-edit-scope-option__check">
+                  <AppIcon v-if="tagEditScope === 'series'" name="check" :size="13" />
+                </span>
+                <span class="tag-edit-scope-option__text">
+                  <span>{{ tagEditCopy.applySeries }}</span>
+                  <span>{{ tagEditCopy.applySeriesDesc }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="tagEditDialogError" class="tag-edit-dialog__error rounded-[14px] border px-4 py-3 text-sm leading-6">
+            {{ tagEditDialogError }}
+          </div>
+
+          <div class="tag-edit-dialog__footer flex justify-end gap-2 pt-1">
+            <VBtn variant="text" class="tag-edit-action-button" :disabled="isSavingTagEdit" @click="closeTagEditDialog">
+              {{ tagEditCopy.cancel }}
+            </VBtn>
+            <VBtn variant="flat" class="tag-edit-action-button tag-edit-action-button--primary" :loading="isSavingTagEdit" @click="submitTagEdit">
+              <span class="inline-flex items-center gap-2">
+                <AppIcon v-if="!isSavingTagEdit" name="check" :size="14" />
+                {{ isSavingTagEdit ? tagEditCopy.saving : tagEditCopy.confirm }}
+              </span>
+            </VBtn>
+          </div>
+        </div>
+      </VCard>
+    </VDialog>
+
+    <div v-if="tagEditNotice" class="tag-edit-notice" :data-tone="tagEditNotice.tone" role="status" aria-live="polite">
+      <AppIcon :name="tagEditNotice.tone === 'success' ? 'success' : 'error'" :size="18" />
+      <div class="tag-edit-notice__content min-w-0 flex-1">
+        <div class="tag-edit-notice__message truncate text-sm font-semibold" :title="tagEditNotice.message">{{ tagEditNotice.message }}</div>
+        <div v-if="tagEditNotice.detail" class="tag-edit-notice__detail mt-0.5 truncate text-[12px] opacity-75" :title="tagEditNotice.detail">{{ tagEditNotice.detail }}</div>
+      </div>
+      <button
+        v-if="canOpenTagEditNoticeLocation"
+        type="button"
+        class="tag-edit-notice__open"
+        :disabled="isOpeningTagEditLocation"
+        @click="void openTagEditNoticeLocation()"
+      >
+        {{ tagEditCopy.openLocation }}
+      </button>
+      <button type="button" class="tag-edit-notice__close" aria-label="Close notification" @click="tagEditNotice = null">
+        <AppIcon name="close" :size="13" />
+      </button>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .dicom-tag-view {
+  position: relative;
   border-color: var(--theme-border-soft);
   background: var(--theme-surface-card-soft);
   color: var(--theme-text-primary);
@@ -848,6 +1208,318 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   color: color-mix(in srgb, #ef7777 72%, var(--theme-text-primary));
 }
 
+.tag-edit-dialog {
+  border-color: var(--theme-border-soft) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 5%, transparent), transparent 36%),
+    var(--theme-surface-panel-strong) !important;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.42),
+    0 0 0 1px color-mix(in srgb, var(--theme-border-strong) 34%, transparent) !important;
+}
+
+.tag-edit-dialog__header {
+  border-bottom: 1px solid var(--theme-border-soft);
+}
+
+.tag-edit-dialog__icon {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card));
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
+}
+
+.tag-edit-dialog__close,
+.tag-edit-notice__close {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card) 88%, transparent);
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.tag-edit-dialog__close:hover,
+.tag-edit-notice__close:hover {
+  border-color: var(--theme-border-strong);
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card-soft));
+  color: var(--theme-text-primary);
+}
+
+.tag-edit-dialog__close:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.tag-edit-target,
+.tag-edit-scope {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card) 78%, transparent);
+}
+
+.tag-edit-target__tag {
+  color: color-mix(in srgb, var(--theme-accent) 76%, var(--theme-text-primary));
+}
+
+.tag-edit-target__vr {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent-warm) 30%, var(--theme-border-soft));
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--theme-accent-warm) 11%, var(--theme-surface-card));
+  color: color-mix(in srgb, var(--theme-accent-warm) 78%, var(--theme-text-primary));
+}
+
+.tag-edit-target__value {
+  color: var(--theme-text-muted);
+}
+
+.tag-edit-field-block {
+  display: grid;
+  gap: 8px;
+}
+
+.tag-edit-field-label {
+  padding-left: 2px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+:deep(.tag-edit-textarea .v-field) {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+:deep(.tag-edit-textarea .v-field__input) {
+  min-height: 96px;
+  padding: 14px 16px;
+  color: var(--theme-text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+:deep(.tag-edit-textarea .v-field__input::placeholder) {
+  color: var(--theme-text-muted);
+  opacity: 0.72;
+}
+
+:deep(.tag-edit-textarea .v-field__outline) {
+  color: transparent;
+}
+
+:deep(.tag-edit-textarea .v-field--focused) {
+  background: color-mix(in srgb, var(--theme-surface-card) 94%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 46%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+}
+
+.tag-edit-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tag-edit-scope-option {
+  display: flex;
+  min-height: 86px;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 15px;
+  padding: 13px;
+  background: color-mix(in srgb, var(--theme-surface-panel) 64%, transparent);
+  color: var(--theme-text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.tag-edit-scope-option:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+}
+
+.tag-edit-scope-option:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.tag-edit-scope-option--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 13%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent),
+    0 12px 26px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.tag-edit-scope-option__check {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+  color: transparent;
+}
+
+.tag-edit-scope-option--active .tag-edit-scope-option__check {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 80%, var(--theme-surface-card));
+  color: var(--theme-accent-contrast);
+}
+
+.tag-edit-scope-option__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tag-edit-scope-option__text span:first-child {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tag-edit-scope-option__text span:last-child {
+  color: var(--theme-text-muted);
+  font-size: 12px;
+}
+
+.tag-edit-dialog__error {
+  border-color: color-mix(in srgb, #ef7777 34%, var(--theme-border-soft));
+  background: color-mix(in srgb, #ef7777 10%, var(--theme-surface-card-soft));
+  color: color-mix(in srgb, #ef7777 76%, var(--theme-text-primary));
+}
+
+:deep(.tag-edit-action-button) {
+  min-height: 40px !important;
+  border-radius: 12px !important;
+  padding: 0 16px !important;
+  color: var(--theme-text-secondary) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+}
+
+:deep(.tag-edit-action-button:hover) {
+  background: color-mix(in srgb, var(--theme-accent) 9%, transparent) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+:deep(.tag-edit-action-button--primary) {
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-surface-card)) !important;
+  color: var(--theme-accent-contrast) !important;
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--theme-accent) 16%, transparent) !important;
+}
+
+@media (max-width: 680px) {
+  .tag-edit-scope-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tag-edit-notice {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  display: flex;
+  width: min(760px, calc(100% - 36px));
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 94%, transparent);
+  color: var(--theme-text-primary);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+}
+
+.tag-edit-notice[data-tone="success"] {
+  border-color: color-mix(in srgb, #7bd7a4 40%, var(--theme-border-soft));
+}
+
+.tag-edit-notice[data-tone="error"] {
+  border-color: color-mix(in srgb, #ef7777 42%, var(--theme-border-soft));
+}
+
+.tag-edit-notice__content {
+  overflow: hidden;
+}
+
+.tag-edit-notice__message,
+.tag-edit-notice__detail {
+  display: block;
+  max-width: 100%;
+}
+
+.tag-edit-notice__open {
+  display: inline-flex;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border-soft));
+  border-radius: 11px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.tag-edit-notice__open:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card-soft));
+}
+
+.tag-edit-notice__open:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
 .tag-row {
   align-items: center;
   border-color: var(--theme-border-soft);
@@ -928,8 +1600,26 @@ async function handleContextAction(action: ContextAction): Promise<void> {
     box-shadow 150ms ease;
 }
 
-.tag-tree-row:hover {
-  background-color: var(--tag-tree-row-bg);
+.tag-tree-row:hover,
+.tag-tree-row--menu-open {
+  background-color: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card-soft));
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--theme-accent) 62%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 13%, transparent);
+}
+
+.tag-tree-row:hover .tag-tree-row__guide-line,
+.tag-tree-row--menu-open .tag-tree-row__guide-line,
+.tag-tree-row:hover .tag-tree-row__branch-line,
+.tag-tree-row--menu-open .tag-tree-row__branch-line {
+  background: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong));
+  opacity: 0.86;
+}
+
+.tag-tree-row:hover .tag-tree-row__leaf-dot::before,
+.tag-tree-row--menu-open .tag-tree-row__leaf-dot::before {
+  border-color: color-mix(in srgb, var(--theme-accent) 64%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 26%, transparent);
 }
 
 .tag-tree-row--branch {
@@ -1070,13 +1760,14 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   inset: 0;
   background:
     radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 30%),
-    radial-gradient(circle at bottom left, rgba(56, 189, 248, 0.14), transparent 32%),
+    radial-gradient(circle at bottom left, color-mix(in srgb, var(--theme-accent-warm) 18%, transparent), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%);
   pointer-events: none;
 }
 
 .tag-context-menu__item {
   min-height: 50px;
+  color: var(--theme-text-primary);
   transition:
     background-color 160ms ease,
     transform 160ms ease,
@@ -1084,25 +1775,63 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 }
 
 .tag-context-menu__item:hover {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(34, 211, 238, 0.08));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 14%, transparent),
+    color-mix(in srgb, var(--theme-accent) 8%, transparent)
+  );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 10px 22px rgba(0, 0, 0, 0.18);
   transform: translateY(-1px);
 }
 
+.tag-context-menu__item--disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.tag-context-menu__item--disabled:hover {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.tag-context-menu__thumb {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 86%, var(--theme-surface-card) 14%);
+  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
+}
+
 .tag-context-menu__badge {
   display: inline-flex;
   height: 24px;
-  min-width: 36px;
+  min-width: 38px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(103, 232, 249, 0.2);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 22%, transparent);
   border-radius: 9999px;
-  background: linear-gradient(180deg, rgba(34, 211, 238, 0.14), rgba(14, 116, 144, 0.16));
-  color: rgba(207, 250, 254, 0.95);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 16%, transparent),
+    color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card))
+  );
+  color: color-mix(in srgb, var(--theme-text-primary) 84%, var(--theme-accent) 16%);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.14em;
+}
+
+.tag-context-menu__badge--disabled {
+  border-color: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
+  color: var(--theme-text-muted);
 }
 </style>

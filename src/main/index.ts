@@ -5,6 +5,7 @@ import { createServer } from 'node:net'
 import { dirname, extname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN, buildHttpOrigin } from '../shared/appConfig'
 
@@ -126,6 +127,47 @@ async function loadUiPreferences(): Promise<unknown | null> {
 
 async function saveUiPreferences(payload: unknown): Promise<void> {
   await writeFile(resolveUiPreferencesPath(), JSON.stringify(payload, null, 2), 'utf-8')
+}
+
+function getWindowFromIpcEvent(event: IpcMainInvokeEvent): BrowserWindow | undefined {
+  return BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
+}
+
+function normalizeDroppedDicomPaths(paths: unknown): string[] {
+  if (!Array.isArray(paths)) {
+    return []
+  }
+
+  const normalizedPaths: string[] = []
+  const seen = new Set<string>()
+  for (const rawPath of paths) {
+    if (typeof rawPath !== 'string') {
+      continue
+    }
+
+    const candidatePath = rawPath.trim()
+    if (!candidatePath) {
+      continue
+    }
+
+    try {
+      const candidateStats = statSync(candidatePath)
+      if (!candidateStats.isDirectory() && !candidateStats.isFile()) {
+        continue
+      }
+
+      const dedupeKey = process.platform === 'win32' ? candidatePath.toLowerCase() : candidatePath
+      if (seen.has(dedupeKey)) {
+        continue
+      }
+      seen.add(dedupeKey)
+      normalizedPaths.push(candidatePath)
+    } catch {
+      continue
+    }
+  }
+
+  return normalizedPaths
 }
 
 function pipeBackendLogs(processHandle: ChildProcessWithoutNullStreams): void {
@@ -299,8 +341,28 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  ipcMain.handle('viewer:choose-folder', async () => {
-    const currentWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
+  ipcMain.handle('viewer:minimize-window', (event) => {
+    getWindowFromIpcEvent(event)?.minimize()
+  })
+
+  ipcMain.handle('viewer:toggle-window-fullscreen', (event) => {
+    const currentWindow = getWindowFromIpcEvent(event)
+    if (!currentWindow) {
+      return false
+    }
+
+    currentWindow.setFullScreen(!currentWindow.isFullScreen())
+    return currentWindow.isFullScreen()
+  })
+
+  ipcMain.handle('viewer:close-window', (event) => {
+    getWindowFromIpcEvent(event)?.close()
+  })
+
+  ipcMain.handle('viewer:normalize-dropped-paths', (_event, paths: unknown) => normalizeDroppedDicomPaths(paths))
+
+  ipcMain.handle('viewer:choose-folder', async (event) => {
+    const currentWindow = getWindowFromIpcEvent(event)
     const result = currentWindow
       ? await dialog.showOpenDialog(currentWindow, { properties: ['openDirectory'] })
       : await dialog.showOpenDialog({ properties: ['openDirectory'] })
@@ -312,8 +374,8 @@ app.whenReady().then(() => {
     return result.filePaths[0]
   })
 
-  ipcMain.handle('viewer:choose-export-directory', async () => {
-    const currentWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
+  ipcMain.handle('viewer:choose-export-directory', async (event) => {
+    const currentWindow = getWindowFromIpcEvent(event)
     const result = currentWindow
       ? await dialog.showOpenDialog(currentWindow, { properties: ['openDirectory', 'createDirectory'] })
       : await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })

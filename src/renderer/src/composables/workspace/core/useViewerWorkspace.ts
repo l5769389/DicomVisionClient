@@ -34,6 +34,7 @@ import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/run
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
+import { useUiLocale } from '../../ui/useUiLocale'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
 import {
   createDefaultVolumeRenderConfig,
@@ -109,6 +110,7 @@ interface ViewerWorkspaceState {
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
+  loadDroppedDicomFiles: (files: File[]) => Promise<void>
   message: Ref<string>
   openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
   openView: (viewType: ViewType) => Promise<void>
@@ -119,6 +121,8 @@ interface ViewerWorkspaceState {
   setActiveOperation: (value: string) => void
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
+  statusToast: Ref<WorkspaceStatusToast | null>
+  dismissStatusToast: () => void
   toggleSidebar: () => void
   triggerViewAction: (payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }) => void
   viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
@@ -127,11 +131,29 @@ interface ViewerWorkspaceState {
   viewerTabs: Ref<ViewerTabItem[]>
 }
 
+type WorkspaceStatusToastTone = 'info' | 'success' | 'warning' | 'error'
+
+interface WorkspaceStatusToast {
+  id: number
+  message: string
+  tone: WorkspaceStatusToastTone
+}
+
 export function useViewerWorkspace(): ViewerWorkspaceState {
+  // These operations can be adjusted continuously from sliders/draggers. The UI
+  // stays optimistic, while the backend receives only the last value in a burst.
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
   const MPR_MIP_CONFIG_DEBOUNCE_MS = 120
+  // During MPR crosshair drag, incoming render frames may lag one pointer event
+  // behind. This short lock preserves the user's active pointer offset visually.
+  const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 240
+  const FOUR_D_FPS_MIN = 1
+  const FOUR_D_FPS_MAX = 30
+  const FOUR_D_DEFAULT_FPS = 2
+  const POINT_SET_CLOSE_EPSILON = 0.0005
   const backendOrigin = ref(DESKTOP_DEV_BACKEND_ORIGIN)
   const message = ref('')
+  const statusToast = ref<WorkspaceStatusToast | null>(null)
   const isSidebarCollapsed = ref(false)
   const isLoadingFolder = ref(false)
   const isViewLoading = ref(false)
@@ -151,6 +173,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     verFlip: false
   }
   const { selectedPseudocolorKey } = useUiPreferences()
+  const { workspaceStatusCopy } = useUiLocale()
+  let statusToastId = 0
+  let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
 
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
@@ -167,6 +192,55 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const fourDPlaybackStartTokens = new Map<string, number>()
   const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
   const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
+
+  function dismissStatusToast(): void {
+    if (statusToastTimer != null) {
+      window.clearTimeout(statusToastTimer)
+      statusToastTimer = null
+    }
+    statusToast.value = null
+  }
+
+  function showStatusToast(messageText: string, tone: WorkspaceStatusToastTone = 'info'): void {
+    if (statusToastTimer != null) {
+      window.clearTimeout(statusToastTimer)
+    }
+    statusToastId += 1
+    const id = statusToastId
+    statusToast.value = {
+      id,
+      message: messageText,
+      tone
+    }
+    statusToastTimer = window.setTimeout(() => {
+      if (statusToast.value?.id === id) {
+        statusToast.value = null
+      }
+      statusToastTimer = null
+    }, 3600)
+  }
+
+  function resolveBackendErrorDetail(error: unknown): string {
+    const responseData = (error as { response?: { data?: unknown } } | null)?.response?.data
+    if (responseData && typeof responseData === 'object' && 'detail' in responseData) {
+      const detail = (responseData as { detail?: unknown }).detail
+      if (typeof detail === 'string' && detail.trim()) {
+        return detail.trim()
+      }
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+      return error.message.trim()
+    }
+
+    return ''
+  }
+
+  function buildLoadFailureToastMessage(error: unknown): string {
+    const fallbackMessage = workspaceStatusCopy.value.folderLoadFailed
+    const detail = resolveBackendErrorDetail(error)
+    return detail ? `${fallbackMessage} ${detail}` : fallbackMessage
+  }
 
   function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
     return viewType === 'MPR' || viewType === '4D'
@@ -234,7 +308,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeMprCrosshairDragLockTimer = window.setTimeout(() => {
       activeMprCrosshairDragLockTimer = null
       activeMprCrosshairDragLock.value = null
-    }, 240)
+    }, MPR_CROSSHAIR_DRAG_LOCK_TTL_MS)
   }
 
   function findFourDTab(tabKey: string): ViewerTabItem | null {
@@ -246,6 +320,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const phaseItemsCount = tab.fourDPhaseItems?.length ?? 0
     const phaseCount = phaseItemsCount || tab.fourDPhaseCount || 1
     return Math.max(1, Math.trunc(Number(phaseCount) || 1))
+  }
+
+  function clampFourDFps(value: number | null | undefined, fallback = FOUR_D_DEFAULT_FPS): number {
+    const numericValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+    return Math.max(FOUR_D_FPS_MIN, Math.min(FOUR_D_FPS_MAX, Math.trunc(numericValue)))
   }
 
   function generateMtfId(): string {
@@ -292,8 +371,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const otherPoint = b[index]
       return (
         otherPoint != null &&
-        Math.abs(point.x - otherPoint.x) < 0.0005 &&
-        Math.abs(point.y - otherPoint.y) < 0.0005
+        Math.abs(point.x - otherPoint.x) < POINT_SET_CLOSE_EPSILON &&
+        Math.abs(point.y - otherPoint.y) < POINT_SET_CLOSE_EPSILON
       )
     })
   }
@@ -1123,7 +1202,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function handleFourDFpsChange(payload: { tabKey: string; fps: number }): void {
-    const fps = Number.isFinite(payload.fps) ? Math.max(1, Math.min(30, Math.trunc(payload.fps))) : 2
+    const fps = clampFourDFps(payload.fps)
     viewerTabs.value = viewerTabs.value.map((item) =>
       item.key === payload.tabKey && item.viewType === '4D'
         ? {
@@ -1169,7 +1248,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       tabKey,
       phaseIndex: Math.max(0, Math.trunc(refreshedTab.fourDPhaseIndex ?? 0)),
       phaseCount: getFourDPhaseCount(refreshedTab),
-      fps: Math.max(1, Math.min(30, Math.trunc(refreshedTab.fourDPlaybackFps ?? 2)))
+      fps: clampFourDFps(refreshedTab.fourDPlaybackFps)
     })
   }
 
@@ -1215,7 +1294,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             fourDIsPlaying: Boolean(payload.isPlaying),
             fourDPlaybackFps:
               typeof payload.fps === 'number' && Number.isFinite(payload.fps)
-                ? Math.max(1, Math.min(30, Math.trunc(payload.fps)))
+                ? clampFourDFps(payload.fps)
                 : item.fourDPlaybackFps
           }
         : item
@@ -1735,6 +1814,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await loadFolderSeries(picked)
   }
 
+  async function loadDroppedDicomFiles(files: File[]): Promise<void> {
+    const scanPaths = await viewerRuntime.resolveDroppedFileScanPaths(files)
+    if (!scanPaths.length) {
+      message.value = ''
+      showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
+      return
+    }
+
+    for (const path of scanPaths) {
+      await loadFolderSeries(path)
+    }
+  }
+
   async function loadFolderSeries(path: string): Promise<void> {
     const requestVersion = folderLoadRequestVersion + 1
     folderLoadRequestVersion = requestVersion
@@ -1754,7 +1846,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
       if (!incomingSeries.length) {
-        message.value = '所选文件夹中未找到可用序列。'
+        message.value = ''
+        showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
         return
       }
 
@@ -1784,7 +1877,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (folderLoadRequestVersion !== requestVersion) {
         return
       }
-      message.value = '加载文件夹失败。'
+      message.value = ''
+      showStatusToast(buildLoadFailureToastMessage(error), 'error')
       console.error(error)
     } finally {
       if (folderLoadRequestVersion === requestVersion) {
@@ -1832,6 +1926,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()
+    dismissStatusToast()
     if (resizeObserver && observedViewerStage) {
       resizeObserver.unobserve(observedViewerStage)
     }
@@ -1870,6 +1965,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isLoadingFolder,
     isSidebarCollapsed,
     isViewLoading,
+    loadDroppedDicomFiles,
     message,
     openSeriesView: views.openSeriesView,
     openView: views.openView,
@@ -1880,6 +1976,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     setActiveOperation,
     setActiveViewportKey,
     setViewerStage,
+    statusToast,
+    dismissStatusToast,
     toggleSidebar,
     triggerViewAction,
     viewerFolderSourceMode: viewerRuntime.folderSourceMode,

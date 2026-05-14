@@ -34,23 +34,23 @@ const { toolbarCopy: copy } = useUiLocale()
 
 <template>
   <VCard
-    class="viewer-toolbar-card flex min-h-10 shrink-0 items-center justify-start overflow-visible rounded-2xl!"
+    class="viewer-toolbar-card flex min-h-9 shrink-0 items-center justify-start overflow-visible rounded-xl!"
     :class="[
-      embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'theme-shell-panel border! px-3! py-2!',
+      embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'theme-shell-panel border! px-2! py-1.5!',
       areToolbarActionsDisabled ? 'viewer-toolbar-card--locked' : ''
     ]"
   >
-    <div class="flex flex-1 flex-wrap items-center justify-start gap-2 overflow-visible">
+    <div class="flex flex-1 flex-wrap items-center justify-start gap-1.5 overflow-visible">
       <div
         v-for="tool in activeTools"
         :key="tool.key"
         class="toolbar-tool-group relative flex items-center overflow-visible"
-        :class="tool.key === 'play' ? (activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused) ? 'rounded-2xl border border-[var(--theme-border-strong)]' : '') : tool.options ? 'rounded-2xl border border-[var(--theme-border-soft)]' : ''"
+        :class="tool.key === 'play' ? (activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused) ? 'rounded-xl border border-[var(--theme-border-strong)]' : '') : tool.options ? 'rounded-xl border border-[var(--theme-border-soft)]' : ''"
       >
         <template v-if="tool.key === 'play' && activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused)">
           <VBtn
             variant="flat"
-            class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-l-2xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
+            class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
             :title="isPlaying ? copy.pausePlayback : copy.resumePlayback"
             @click="emit('pausePlayback')"
           >
@@ -58,7 +58,7 @@ const { toolbarCopy: copy } = useUiLocale()
           </VBtn>
           <VBtn
             variant="flat"
-            class="toolbar-playback-button toolbar-playback-button--stop inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-r-2xl! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
+            class="toolbar-playback-button toolbar-playback-button--stop inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-r-xl! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
             :title="copy.stopPlayback"
             @click="emit('endPlayback')"
           >
@@ -70,7 +70,7 @@ const { toolbarCopy: copy } = useUiLocale()
           <VBtn
             variant="flat"
             type="button"
-            class="theme-button-secondary inline-flex! h-10! w-10! min-w-0! items-center! justify-center! rounded-2xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
+            class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
             :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && activeTab.viewType === 'Stack')"
             :active="isToolSelected(tool)"
             :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) }"
@@ -102,7 +102,7 @@ const { toolbarCopy: copy } = useUiLocale()
               <VBtn
                 v-bind="menuProps"
                 variant="flat"
-                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-10! w-7! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-2xl! border-y! border-r! border-l! border-l-white/10! transition hover:brightness-110"
+                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-9! w-6! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l! border-l-white/10! transition hover:brightness-110"
                 :disabled="areToolbarActionsDisabled"
                 :aria-expanded="openMenuKey === tool.key"
                 :title="copy.toolOptions(tool.label)"

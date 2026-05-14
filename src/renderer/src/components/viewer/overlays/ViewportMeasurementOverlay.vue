@@ -37,6 +37,7 @@ interface ParsedLabelLine {
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
 const draftStrokeOuter = 'rgba(56,22,4,0.92)'
+const POINT_CLOSE_EPSILON = 0.0005
 
 const { measurementStylePreference } = useUiPreferences()
 
@@ -173,7 +174,7 @@ function shouldCloseSmoothPath(params: {
 }
 
 function arePointsClose(a: MeasurementDraftPoint, b: MeasurementDraftPoint): boolean {
-  return Math.abs(a.x - b.x) < 0.0005 && Math.abs(a.y - b.y) < 0.0005
+  return Math.abs(a.x - b.x) < POINT_CLOSE_EPSILON && Math.abs(a.y - b.y) < POINT_CLOSE_EPSILON
 }
 
 function arePointSequencesClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {

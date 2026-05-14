@@ -631,8 +631,8 @@ export const uiMessages = {
     } satisfies MprProjectionCopy,
     workspaceStatus: {
       mtfAnalysisFailed: 'MTF 分析失败',
-      noUsableSeries: '所选文件夹中未找到可用序列。',
-      folderLoadFailed: '加载文件夹失败。',
+      noUsableSeries: '所选路径中未找到可用序列。',
+      folderLoadFailed: 'DICOM 加载失败。',
       tagLoadFailed: 'DICOM Tag 加载失败。',
       notFourDSeries: '当前序列不是 4D 序列。',
       fourDMetadataUnavailable: '当前序列没有可用的 4D phase 元数据。',
@@ -966,8 +966,8 @@ export const uiMessages = {
     } satisfies MprProjectionCopy,
     workspaceStatus: {
       mtfAnalysisFailed: 'MTF analysis failed',
-      noUsableSeries: 'No usable series were found in the selected folder.',
-      folderLoadFailed: 'Folder loading failed.',
+      noUsableSeries: 'No usable series were found in the selected path.',
+      folderLoadFailed: 'DICOM loading failed.',
       tagLoadFailed: 'DICOM Tag loading failed.',
       notFourDSeries: 'The current series is not a 4D series.',
       fourDMetadataUnavailable: '4D phase metadata is not available for this series.',

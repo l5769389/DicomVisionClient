@@ -3,6 +3,7 @@ import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { loadUiPreferencesFromStorage, saveUiPreferencesToStorage } from '../../platform/preferencesStorage'
 
 export type AppLocale = 'zh-CN' | 'en-US'
+export type DicomTagDisplayMode = 'flat' | 'tree'
 
 export interface WindowTemplatePreset {
   id: string
@@ -77,6 +78,7 @@ interface UiPreferencesState {
   locale: AppLocale
   themeId: string
   selectedPseudocolorKey: string
+  dicomTagDisplayMode: DicomTagDisplayMode
   selectedWindowPresetId: string
   crosshairConfigs: CrosshairViewportPreference[]
   scaleBarPreference: ScaleBarPreference
@@ -87,9 +89,10 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 6
+const CURRENT_PREFERENCES_VERSION = 7
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
+const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'flat'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
 export const MAX_CUSTOM_WINDOW_PRESETS = 5
 const LEGACY_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string> = {
@@ -215,6 +218,7 @@ function createDefaultState(): UiPreferencesState {
     locale: 'zh-CN',
     themeId: DEFAULT_THEME_ID,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
+    dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
     crosshairConfigs: createDefaultCrosshairConfigs(),
     scaleBarPreference: createDefaultScaleBarPreference(),
@@ -300,6 +304,10 @@ function normalizeScaleBarPreference(value: unknown): ScaleBarPreference {
     enabled: typeof record?.enabled === 'boolean' ? record.enabled : defaults.enabled,
     color: typeof record?.color === 'string' && record.color.trim() ? record.color : defaults.color
   }
+}
+
+function normalizeDicomTagDisplayMode(value: unknown): DicomTagDisplayMode {
+  return value === 'tree' ? 'tree' : DEFAULT_DICOM_TAG_DISPLAY_MODE
 }
 
 function normalizeHexColor(value: unknown, fallback: string): string {
@@ -453,6 +461,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.locale = nextState.locale
   state.themeId = nextState.themeId
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
+  state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
   state.crosshairConfigs = nextState.crosshairConfigs
   state.scaleBarPreference = nextState.scaleBarPreference
@@ -470,6 +479,7 @@ function serializeState(): UiPreferencesState {
     locale: state.locale,
     themeId: state.themeId,
     selectedPseudocolorKey: state.selectedPseudocolorKey,
+    dicomTagDisplayMode: state.dicomTagDisplayMode,
     selectedWindowPresetId: state.selectedWindowPresetId,
     crosshairConfigs: state.crosshairConfigs.map((item) => ({ ...item })),
     scaleBarPreference: {
@@ -548,6 +558,7 @@ async function hydrateState(): Promise<void> {
         locale: normalizeLocale(parsed.locale),
         themeId: normalizeThemeId(parsed.themeId),
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
+        dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
@@ -608,6 +619,13 @@ export function useUiPreferences() {
     get: () => state.selectedPseudocolorKey,
     set: (value: string) => {
       state.selectedPseudocolorKey = normalizePseudocolorKey(value)
+      void persistState()
+    }
+  })
+  const dicomTagDisplayMode = computed({
+    get: () => state.dicomTagDisplayMode,
+    set: (value: DicomTagDisplayMode) => {
+      state.dicomTagDisplayMode = normalizeDicomTagDisplayMode(value)
       void persistState()
     }
   })
@@ -714,6 +732,7 @@ export function useUiPreferences() {
     crosshairConfigs: computed(() => state.crosshairConfigs),
     getWindowPresetLabel,
     locale,
+    dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
     measurementStylePreference: computed(() => state.measurementStylePreference),
     qaWaterMetrics: computed(() => state.qaWaterMetrics),

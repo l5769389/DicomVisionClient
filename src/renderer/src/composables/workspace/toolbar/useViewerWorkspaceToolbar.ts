@@ -244,9 +244,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
 
-  const toolbarIconSize = 20
-  const menuIconSize = 16
-  const toggleIconSize = 12
+  const toolbarIconSize = 18
+  const menuIconSize = 15
+  const toggleIconSize = 11
 
   let playbackTimer: ReturnType<typeof window.setInterval> | null = null
 

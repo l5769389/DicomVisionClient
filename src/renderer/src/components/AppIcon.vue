@@ -64,9 +64,16 @@ const mdiIconMap: Record<string, string> = {
   bell: 'mdi-bell-outline',
   shield: 'mdi-shield-check-outline',
   copy: 'mdi-content-copy',
+  error: 'mdi-alert-circle-outline',
+  info: 'mdi-information-outline',
   trash: 'mdi-trash-can-outline',
   check: 'mdi-check-bold',
-  close: 'mdi-close'
+  close: 'mdi-close',
+  'folder-import': 'mdi-folder-download-outline',
+  fullscreen: 'mdi-fullscreen',
+  minimize: 'mdi-window-minimize',
+  success: 'mdi-check-circle-outline',
+  warning: 'mdi-alert-outline'
 }
 
 const mdiClassName = computed(() => mdiIconMap[props.name] ?? 'mdi-help-circle-outline')

@@ -106,6 +106,8 @@ const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
 const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
 const ANNOTATION_DRAG_START_THRESHOLD = 3
+const ANNOTATION_POINT_CLOSE_EPSILON = 0.0005
+const EXPORT_LABEL_LINE_HEIGHT_PX = 18
 const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
 
 type AnnotationInteractionState =
@@ -324,13 +326,12 @@ function drawLabel(context: CanvasRenderingContext2D, lines: string[], x: number
     return
   }
 
-  const lineHeight = 18
   context.font = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
   const width = Math.min(
     Math.max(...visibleLines.map((line) => context.measureText(line).width)) + 14,
     Math.max(120, maxWidth - 16)
   )
-  const height = visibleLines.length * lineHeight + 8
+  const height = visibleLines.length * EXPORT_LABEL_LINE_HEIGHT_PX + 8
   const left = Math.max(8, Math.min(maxWidth - width - 8, x))
   const top = Math.max(8, y)
 
@@ -344,7 +345,7 @@ function drawLabel(context: CanvasRenderingContext2D, lines: string[], x: number
   context.stroke()
   context.fillStyle = '#f8fafc'
   visibleLines.forEach((line, index) => {
-    context.fillText(line, left + 7, top + 18 + index * lineHeight)
+    context.fillText(line, left + 7, top + EXPORT_LABEL_LINE_HEIGHT_PX + index * EXPORT_LABEL_LINE_HEIGHT_PX)
   })
   context.restore()
 }
@@ -942,7 +943,11 @@ function areAnnotationPointSetsClose(a: MeasurementDraftPoint[], b: MeasurementD
 
   return a.every((point, index) => {
     const other = b[index]
-    return other != null && Math.abs(point.x - other.x) < 0.0005 && Math.abs(point.y - other.y) < 0.0005
+    return (
+      other != null &&
+      Math.abs(point.x - other.x) < ANNOTATION_POINT_CLOSE_EPSILON &&
+      Math.abs(point.y - other.y) < ANNOTATION_POINT_CLOSE_EPSILON
+    )
   })
 }
 
@@ -1513,7 +1518,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    class="theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[26px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    class="theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
   >
     <div
       v-if="!hasSelectedSeries"
@@ -1534,7 +1539,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else class="flex h-full min-h-0 flex-col gap-3">
+    <div v-else class="flex h-full min-h-0 flex-col gap-2">
       <ViewerTabStrip
         v-if="hasViewerTabs"
         v-model:tab-strip-ref="tabStripRef"

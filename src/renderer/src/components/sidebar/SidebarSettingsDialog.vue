@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type DicomTagDisplayMode, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
@@ -16,7 +16,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'qa' | 'export' | 'display'
+type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'dicomTags' | 'qa' | 'export' | 'display'
 type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 
 interface ShortcutItem {
@@ -231,6 +231,7 @@ const {
   setLocale,
   addCustomWindowPreset,
   crosshairConfigs,
+  dicomTagDisplayMode,
   getWindowPresetLabel,
   measurementStylePreference,
   qaWaterMetrics,
@@ -265,6 +266,7 @@ const sections = computed(() => [
   { key: 'language' as const, title: copy.value.language, subtitle: copy.value.languageSub, icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: copy.value.shortcutsSub, icon: 'keyboard' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: copy.value.windowPresetsSub, icon: 'contrast' },
+  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM Tag' : 'DICOM Tags', subtitle: isZh.value ? 'Tag 显示、编辑与保存策略' : 'Tag display, editing, and save behavior', icon: 'tag' },
   { key: 'qa' as const, title: copy.value.qaSection, subtitle: copy.value.qaSectionSub, icon: 'qa' },
   { key: 'export' as const, title: copy.value.exportSection ?? 'Export', subtitle: copy.value.exportSectionSub ?? 'Formats and default save location', icon: 'export' },
   { key: 'display' as const, title: copy.value.display, subtitle: copy.value.displaySub, icon: 'crosshair' }
@@ -283,6 +285,21 @@ const areAllCustomPresetsSelected = computed(() => (
 const canAddCustomWindowPreset = computed(() => displayCustomWindowPresets.value.length < MAX_CUSTOM_WINDOW_PRESETS)
 const customPresetLimitLabel = computed(() => `${displayCustomWindowPresets.value.length}/${MAX_CUSTOM_WINDOW_PRESETS}`)
 const enabledQaWaterMetricCount = computed(() => qaWaterMetrics.value.filter((item) => item.enabled).length)
+const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; title: string; description: string; badge: string }>>(() => [
+  {
+    value: 'flat',
+    title: isZh.value ? '平铺列表' : 'Flat list',
+    description: isZh.value ? '按后端返回顺序显示所有 Tag，不做层级缩进。' : 'Show all tags in backend order without hierarchy indentation.',
+    badge: 'LIST'
+  },
+  {
+    value: 'tree',
+    title: isZh.value ? '树形缩进' : 'Tree indent',
+    description: isZh.value ? '对序列等嵌套 Tag 按 depth 缩进，搜索时保留上下文。' : 'Indent nested sequence tags by depth and keep context while searching.',
+    badge: 'TREE'
+  }
+])
+const currentDicomTagDisplayModeTitle = computed(() => dicomTagDisplayModeOptions.value.find((option) => option.value === dicomTagDisplayMode.value)?.title ?? '')
 
 function getThemeSummary(theme: ThemePreset): string {
   return isZh.value ? theme.summaryZh : theme.summaryEn
@@ -290,6 +307,10 @@ function getThemeSummary(theme: ThemePreset): string {
 
 function getThemeLabel(theme: ThemePreset): string {
   return isZh.value ? theme.labelZh : theme.labelEn
+}
+
+function isDicomTagDisplayModeActive(value: DicomTagDisplayMode): boolean {
+  return dicomTagDisplayMode.value === value
 }
 
 function getShortcutComboParts(combo: string): string[] {
@@ -366,6 +387,10 @@ function resetDisplaySection(): void {
   setMeasurementStylePreference(createDefaultMeasurementStylePreference())
 }
 
+function resetDicomTagSection(): void {
+  dicomTagDisplayMode.value = 'flat'
+}
+
 function resetQaSection(): void {
   setQaWaterMetrics(createDefaultQaWaterMetrics())
 }
@@ -385,6 +410,10 @@ function resetCurrentSection(): void {
   }
   if (activeSection.value === 'qa') {
     resetQaSection()
+    return
+  }
+  if (activeSection.value === 'dicomTags') {
+    resetDicomTagSection()
     return
   }
   if (activeSection.value === 'display') {
@@ -791,7 +820,85 @@ watch(displayCustomWindowPresets, () => {
                   </div>
                 </template>
 
-                <template v-else>
+                <template v-else-if="activeSection === 'dicomTags'">
+                  <div class="space-y-5">
+                    <section class="theme-card-soft rounded-[28px] p-5">
+                      <div class="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_13%,transparent)] text-[var(--theme-accent)]">
+                              <AppIcon name="tag" :size="20" />
+                            </span>
+                            <div>
+                              <div class="text-lg font-semibold">{{ isZh ? 'DICOM Tag 设置' : 'DICOM Tag Settings' }}</div>
+                              <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">
+                                {{ isZh ? '管理 Tag 页的显示方式，后续也可以放入 Tag 修改和保存位置相关配置。' : 'Manage the Tag view display mode, with room for future tag editing and save-location options.' }}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <span class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                          {{ isZh ? '当前：' : 'Current: ' }}{{ currentDicomTagDisplayModeTitle }}
+                        </span>
+                      </div>
+
+                      <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                        <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'Tag 显示方式' : 'Tag Display Mode' }}</div>
+                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                              {{ isZh ? '平铺适合快速浏览；树形缩进适合查看序列等嵌套 Tag。' : 'Flat is best for quick scanning; tree indentation helps inspect nested sequence tags.' }}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="grid gap-4 lg:grid-cols-2">
+                          <button
+                            v-for="option in dicomTagDisplayModeOptions"
+                            :key="option.value"
+                            type="button"
+                            class="relative flex min-h-[156px] flex-col justify-between overflow-hidden rounded-[22px] border px-5 py-4 text-left transition duration-150"
+                            :aria-pressed="isDicomTagDisplayModeActive(option.value)"
+                            :class="isDicomTagDisplayModeActive(option.value) ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_24%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_12%,var(--theme-surface-card)))] text-[var(--theme-text-primary)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_78%,transparent),0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_22%,transparent),0_18px_34px_rgba(0,0,0,0.24)]' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_76%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel)_72%,black_28%)] text-[var(--theme-text-secondary)] opacity-75 hover:border-[var(--theme-border-soft)] hover:bg-[var(--theme-surface-panel)] hover:opacity-90'"
+                            @click="dicomTagDisplayMode = option.value"
+                          >
+                            <span
+                              class="absolute inset-y-4 left-0 w-1 rounded-r-full transition"
+                              :class="isDicomTagDisplayModeActive(option.value) ? 'bg-[var(--theme-accent)] opacity-100' : 'bg-transparent opacity-0'"
+                            ></span>
+                            <span
+                              class="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border transition"
+                              :class="isDicomTagDisplayModeActive(option.value) ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_18px_color-mix(in_srgb,var(--theme-accent)_50%,transparent)]' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_72%,transparent)] bg-transparent text-transparent opacity-40'"
+                            >
+                              <AppIcon name="check" :size="16" />
+                            </span>
+
+                            <span class="min-w-0 pr-14">
+                              <span
+                                class="mb-4 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em]"
+                                :class="isDicomTagDisplayModeActive(option.value) ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_65%,white_12%)] bg-white/12 text-[var(--theme-text-primary)]' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_70%,transparent)] text-[var(--theme-text-muted)] opacity-70'"
+                              >
+                                {{ option.badge }}
+                              </span>
+                              <span class="block text-xl font-semibold leading-7" :class="isDicomTagDisplayModeActive(option.value) ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.title }}</span>
+                              <span class="mt-3 block text-sm leading-7" :class="isDicomTagDisplayModeActive(option.value) ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-muted)]'">{{ option.description }}</span>
+                            </span>
+
+                            <span
+                              class="mt-5 inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold"
+                              :class="isDicomTagDisplayModeActive(option.value) ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white' : 'border-[color:color-mix(in_srgb,var(--theme-border-soft)_70%,transparent)] bg-transparent text-[var(--theme-text-muted)] opacity-70'"
+                            >
+                              <AppIcon v-if="isDicomTagDisplayModeActive(option.value)" name="check" :size="14" />
+                              {{ isDicomTagDisplayModeActive(option.value) ? (isZh ? '已启用' : 'Active') : (isZh ? '可选择' : 'Available') }}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                </template>
+
+                <template v-else-if="activeSection === 'display'">
                   <div class="space-y-5">
                     <div class="theme-card-soft rounded-[28px] p-5">
                       <div class="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">

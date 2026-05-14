@@ -17,6 +17,11 @@ import type {
 
 type ViewActionType = DragActionType | 'delete'
 type SocketAckCallback = (error: Error | null, response?: SocketAckPayload) => void
+const BIND_VIEW_ACK_TIMEOUT_MS = 3000
+const VIEW_OPERATION_ACK_TIMEOUT_MS = 8000
+
+// python-socketio may deliver the binary payload either as two arguments or as a
+// single tuple-like message depending on transport/adapter behavior.
 type ImageUpdateSocketArgs =
   | [payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array]
   | [message: [Partial<ViewImageResponse>, ArrayBuffer | Uint8Array]]
@@ -123,7 +128,7 @@ export function bindViewSilently(viewId: string): void {
   socket.emit('bind_view', { viewId, render: false })
 }
 
-export function bindViewSilentlyWithAck(viewId: string, timeoutMs = 3000): Promise<boolean> {
+export function bindViewSilentlyWithAck(viewId: string, timeoutMs = BIND_VIEW_ACK_TIMEOUT_MS): Promise<boolean> {
   if (!socket || !viewId) {
     return Promise.resolve(false)
   }
@@ -144,7 +149,7 @@ export function emitViewOperation(payload: ViewOperationPayload): void {
   socket.emit('view_operation', payload)
 }
 
-export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutMs = 8000): Promise<boolean> {
+export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutMs = VIEW_OPERATION_ACK_TIMEOUT_MS): Promise<boolean> {
   if (!socket || !payload.viewId) {
     return Promise.resolve(false)
   }

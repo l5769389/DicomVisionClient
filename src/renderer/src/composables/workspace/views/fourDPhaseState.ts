@@ -16,6 +16,7 @@ import {
 import { resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
 
 export const MPR_VIEWPORT_KEYS: MprViewportKey[] = ['mpr-ax', 'mpr-cor', 'mpr-sag']
+const FOUR_D_PHASE_RENDER_WAIT_TIMEOUT_MS = 2500
 
 export interface FourDPhaseViewportMatch {
   phaseKey: string
@@ -35,7 +36,7 @@ export class FourDPhaseRenderTracker {
     tabKey: string,
     phaseKey: string,
     viewIds: Partial<Record<MprViewportKey, string>>,
-    timeoutMs = 2500
+    timeoutMs = FOUR_D_PHASE_RENDER_WAIT_TIMEOUT_MS
   ): Promise<void> {
     const expectedViewIds = Object.values(viewIds).filter((viewId): viewId is string => Boolean(viewId))
     if (!expectedViewIds.length) {
@@ -45,6 +46,8 @@ export class FourDPhaseRenderTracker {
     return new Promise((resolve) => {
       const waiterKey = this.getWaiterKey(tabKey, phaseKey)
       const waiters = this.waiters.get(waiterKey) ?? []
+      // 4D preloading should continue even if one viewport render event is lost;
+      // a timeout avoids leaving playback stuck behind an unresolved waiter.
       const timeoutId = globalThis.setTimeout(() => {
         this.removeWaiter(waiterKey, timeoutId)
         resolve()

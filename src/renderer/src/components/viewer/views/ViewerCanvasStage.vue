@@ -210,6 +210,8 @@ function getRenderedImageRect(image: HTMLImageElement): DOMRect {
   const elementAspectRatio = rect.width / rect.height
   const imageAspectRatio = naturalWidth / naturalHeight
 
+  // The <img> uses object-contain, so the DOM box can include letterboxing.
+  // Hover and image-space overlays need the actual rendered image rectangle.
   if (elementAspectRatio > imageAspectRatio) {
     const renderedWidth = rect.height * imageAspectRatio
     const offsetX = (rect.width - renderedWidth) / 2

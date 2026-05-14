@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu, VPagination, VTextField } from 'vuetify/components'
+import AppIcon from '../../AppIcon.vue'
 import type { DicomTagItem, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -13,17 +15,42 @@ const emit = defineEmits<{
 }>()
 
 type ContextAction = 'row' | 'tag' | 'name' | 'value'
+interface DicomTagTreeNode {
+  id: string
+  title: string
+  tag: string
+  keyword: string
+  name: string
+  vr: string
+  value: string
+  depth: number
+  original: DicomTagItem
+  children?: DicomTagTreeNode[]
+}
+
+interface VisibleDicomTagTreeRow extends DicomTagTreeNode {
+  hasChildren: boolean
+  isExpanded: boolean
+  isMatched: boolean
+  level: number
+}
+
 const TAG_ROW_HEIGHT = 76
 const TAG_OVERSCAN_ROWS = 8
+const TAG_TREE_INDENT_PX = 28
+const TAG_TREE_MAX_GUIDE_DEPTH = 10
 
 const { tagViewCopy: copy } = useUiLocale()
+const { dicomTagDisplayMode } = useUiPreferences()
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
+const isTreeTagDisplayMode = computed(() => dicomTagDisplayMode.value === 'tree')
 const searchQuery = ref('')
 const pageInput = ref('1')
 const tagListScroller = ref<HTMLElement | null>(null)
 const tagListScrollTop = ref(0)
 const tagListViewportHeight = ref(0)
+const expandedTagTreeNodeIds = ref<Set<string>>(new Set())
 const isContextMenuOpen = ref(false)
 const contextMenuPosition = ref({
   x: 0,
@@ -38,11 +65,21 @@ const filteredTagItems = computed(() => {
     return items
   }
 
-  return items.filter((item) => {
-    const fields = [item.tag, item.name, item.value, item.keyword]
-    return fields.some((field) => (field ?? '').toLowerCase().includes(query))
-  })
+  return items.filter((item) => doesTagMatchQuery(item, query))
 })
+
+const treeTagItems = computed(() => buildTagTree(props.activeTab.tagItems ?? []))
+
+const tagTreeItemCount = computed(() => props.activeTab.tagItems?.length ?? 0)
+const tagTreeSearchText = computed(() => searchQuery.value.trim())
+const visibleTreeTagRows = computed(() =>
+  flattenTagTreeRows(treeTagItems.value, tagTreeSearchText.value.toLowerCase(), expandedTagTreeNodeIds.value)
+)
+const tagTreeSummaryText = computed(() =>
+  tagTreeSearchText.value
+    ? `${visibleTreeTagRows.value.length} / ${tagTreeItemCount.value} Tags`
+    : `${tagTreeItemCount.value} Tags`
+)
 
 const virtualTagStartIndex = computed(() =>
   Math.max(0, Math.floor(tagListScrollTop.value / TAG_ROW_HEIGHT) - TAG_OVERSCAN_ROWS)
@@ -130,6 +167,14 @@ watch(
 )
 
 watch(
+  treeTagItems,
+  (items) => {
+    expandedTagTreeNodeIds.value = new Set(collectTreeNodeIds(items))
+  },
+  { immediate: true }
+)
+
+watch(
   tagListScroller,
   (element, _previousElement, onCleanup) => {
     if (!element) {
@@ -149,7 +194,7 @@ watch(
 )
 
 watch(
-  () => [props.activeTab.key, props.activeTab.tagIndex, searchQuery.value] as const,
+  () => [props.activeTab.key, props.activeTab.tagIndex, searchQuery.value, dicomTagDisplayMode.value] as const,
   async () => {
     closeContextMenu()
     await nextTick()
@@ -174,6 +219,137 @@ function updateTagListViewport(element = tagListScroller.value): void {
 
 function handleTagListScroll(event: Event): void {
   updateTagListViewport(event.currentTarget as HTMLElement)
+}
+
+function updateSearchQuery(value: string | null): void {
+  searchQuery.value = value ?? ''
+}
+
+function clearSearchQuery(): void {
+  searchQuery.value = ''
+}
+
+function getRawTagDepth(item: DicomTagItem): number {
+  return Number.isFinite(item.depth) ? Math.max(0, item.depth) : 0
+}
+
+function buildTagTree(items: DicomTagItem[]): DicomTagTreeNode[] {
+  const roots: DicomTagTreeNode[] = []
+  const stack: DicomTagTreeNode[] = []
+
+  items.forEach((item, index) => {
+    const depth = getRawTagDepth(item)
+    const node: DicomTagTreeNode = {
+      id: `${index}-${item.tag || 'tag'}-${item.keyword || item.name || 'unnamed'}`,
+      title: resolveTagName(item),
+      tag: item.tag || '--',
+      keyword: item.keyword || '',
+      name: resolveTagName(item),
+      vr: item.vr || '--',
+      value: item.value || '--',
+      depth,
+      original: item
+    }
+
+    const parent = depth > 0 ? stack[depth - 1] : null
+    if (parent) {
+      parent.children = parent.children ?? []
+      parent.children.push(node)
+    } else {
+      roots.push(node)
+    }
+
+    stack.length = depth
+    stack[depth] = node
+  })
+
+  return roots
+}
+
+function collectTreeNodeIds(nodes: DicomTagTreeNode[]): string[] {
+  return nodes.flatMap((node) => [node.id, ...collectTreeNodeIds(node.children ?? [])])
+}
+
+function doesTreeNodeMatchQuery(node: DicomTagTreeNode, query: string): boolean {
+  if (!query) {
+    return true
+  }
+
+  const fields = [node.tag, node.name, node.keyword, node.value, node.vr]
+  return fields.some((field) => field.toLowerCase().includes(query))
+}
+
+function flattenTagTreeRows(
+  nodes: DicomTagTreeNode[],
+  query: string,
+  expandedIds: Set<string>,
+  level = 0
+): VisibleDicomTagTreeRow[] {
+  const rows: VisibleDicomTagTreeRow[] = []
+  const isSearching = query.length > 0
+
+  nodes.forEach((node) => {
+    const children = node.children ?? []
+    const childRows = flattenTagTreeRows(children, query, expandedIds, level + 1)
+    const isMatched = doesTreeNodeMatchQuery(node, query)
+    const shouldInclude = !isSearching || isMatched || childRows.length > 0
+    if (!shouldInclude) {
+      return
+    }
+
+    const isExpanded = isSearching || expandedIds.has(node.id)
+    rows.push({
+      ...node,
+      hasChildren: children.length > 0,
+      isExpanded,
+      isMatched,
+      level
+    })
+
+    if (isExpanded) {
+      rows.push(...childRows)
+    }
+  })
+
+  return rows
+}
+
+function toggleTreeNode(nodeId: string): void {
+  const nextExpandedIds = new Set(expandedTagTreeNodeIds.value)
+  if (nextExpandedIds.has(nodeId)) {
+    nextExpandedIds.delete(nodeId)
+  } else {
+    nextExpandedIds.add(nodeId)
+  }
+  expandedTagTreeNodeIds.value = nextExpandedIds
+}
+
+function getTreeRowIndentStyle(item: VisibleDicomTagTreeRow): Record<string, string> {
+  const guideDepth = Math.min(item.level, TAG_TREE_MAX_GUIDE_DEPTH)
+  return {
+    '--tag-tree-depth': String(item.level),
+    '--tag-tree-guide-depth': String(guideDepth),
+    paddingLeft: `${guideDepth * TAG_TREE_INDENT_PX}px`
+  }
+}
+
+function getTreeGuideStyle(level: number): Record<string, string> {
+  return {
+    left: `${(level - 1) * TAG_TREE_INDENT_PX + 11}px`
+  }
+}
+
+function getTreeBranchStyle(item: VisibleDicomTagTreeRow): Record<string, string> {
+  const guideDepth = Math.min(item.level, TAG_TREE_MAX_GUIDE_DEPTH)
+  return {
+    left: `${(guideDepth - 1) * TAG_TREE_INDENT_PX + 11}px`,
+    width: `${TAG_TREE_INDENT_PX - 8}px`
+  }
+}
+
+function doesTagMatchQuery(item: DicomTagItem, query: string): boolean {
+  const fields = [item.tag, item.name, item.value, item.keyword]
+  return fields.some((field) => (field ?? '').toLowerCase().includes(query))
 }
 
 function goToPage(page: number): void {
@@ -260,22 +436,22 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 </script>
 
 <template>
-  <section class="dicom-tag-view flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(42,88,141,0.14),transparent_26%),linear-gradient(180deg,rgba(9,18,31,0.96),rgba(6,12,22,0.99))]">
-    <header class="tag-view-header border-b border-white/8 px-5 py-5">
+  <section class="dicom-tag-view flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border">
+    <header class="tag-view-header border-b px-4 py-3">
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-2">
-          <h2 class="tag-view-title truncate text-[22px] font-semibold tracking-[0.01em] text-white">{{ activeTab.seriesTitle }}</h2>
-          <VChip size="small" variant="flat" class="tag-view-chip rounded-full! border! border-sky-300/18! bg-sky-300/10! px-3! text-[11px]! font-semibold! uppercase! tracking-[0.18em]! text-sky-100!">
+          <h2 class="tag-view-title truncate text-[20px] font-semibold tracking-[0.01em]">{{ activeTab.seriesTitle }}</h2>
+          <VChip size="x-small" variant="flat" class="tag-view-chip rounded-full! border! border-sky-300/18! bg-sky-300/10! px-2.5! text-[10px]! font-semibold! uppercase! tracking-[0.16em]! text-sky-100!">
             DICOM Tags
           </VChip>
         </div>
 
-        <div class="tag-view-meta-list mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-          <span class="tag-view-meta rounded-full border border-white/8 bg-white/5 px-3 py-1.5">{{ copy.instance }} {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
-          <span v-if="activeTab.tagSopInstanceUid" class="tag-view-meta max-w-full truncate rounded-full border border-white/8 bg-white/5 px-3 py-1.5">SOP {{ activeTab.tagSopInstanceUid }}</span>
+        <div class="tag-view-meta-list mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span class="tag-view-meta rounded-full border px-2.5 py-1">{{ copy.instance }} {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
+          <span v-if="activeTab.tagSopInstanceUid" class="tag-view-meta max-w-full truncate rounded-full border px-2.5 py-1">SOP {{ activeTab.tagSopInstanceUid }}</span>
           <span
             v-if="activeTab.tagFilePath"
-            class="tag-view-meta tag-view-meta--path min-w-0 max-w-full truncate rounded-full border border-slate-700/80 bg-slate-950/88 px-3 py-1.5 font-mono text-[12px] text-slate-400"
+            class="tag-view-meta tag-view-meta--path min-w-0 max-w-full truncate rounded-full border px-2.5 py-1 font-mono text-[11px]"
           >
             {{ activeTab.tagFilePath }}
           </span>
@@ -283,18 +459,17 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       </div>
     </header>
 
-    <div class="tag-view-toolbar border-b border-white/8 px-5 py-4">
-      <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div class="tag-control-panel rounded-[18px] border border-white/8 bg-white/4 p-3">
-          <div class="tag-control-label mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.instanceNavigation }}</div>
-          <div class="flex flex-wrap items-center gap-3">
+    <div class="tag-view-toolbar border-b px-4 py-2.5">
+      <div class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div class="tag-control-panel rounded-[14px] border p-2">
+          <div class="tag-control-label mb-1 text-[10px] font-semibold uppercase tracking-[0.16em]">{{ copy.instanceNavigation }}</div>
+          <div class="flex flex-wrap items-center gap-2">
             <VPagination
               :model-value="currentDisplayIndex"
               :length="totalDisplayCount"
               :total-visible="7"
-              active-color="sky-lighten-2"
               class="tag-view-pagination min-w-0 flex-1"
-              density="comfortable"
+              density="compact"
               :disabled="activeTab.tagIsLoading"
               @update:model-value="goToPage"
             />
@@ -306,15 +481,14 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                 hide-details
                 :label="copy.page"
                 variant="outlined"
-                bg-color="rgba(7,12,21,1)"
-                color="rgb(125,211,252)"
                 :disabled="activeTab.tagIsLoading"
                 @keydown.enter.prevent="submitPageInput"
                 @blur="submitPageInput"
               />
               <VBtn
                 variant="flat"
-                class="tag-view-go-button rounded-full! border! border-white/8! bg-white/7! px-4! text-sm! font-semibold! text-slate-100!"
+                density="compact"
+                class="tag-view-go-button rounded-full! border! px-3! text-xs! font-semibold!"
                 :disabled="activeTab.tagIsLoading"
                 @click="submitPageInput"
               >
@@ -324,24 +498,34 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           </div>
         </div>
 
-        <div class="tag-control-panel rounded-[18px] border border-white/8 bg-white/4 p-3">
-          <div class="tag-control-label mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{{ copy.filter }}</div>
+        <div class="tag-control-panel rounded-[14px] border p-2">
+          <div class="tag-control-label mb-1 text-[10px] font-semibold uppercase tracking-[0.16em]">{{ copy.filter }}</div>
           <VTextField
-            v-model="searchQuery"
+            :model-value="searchQuery"
             class="tag-field tag-search-field"
-            clearable
-            density="comfortable"
+            density="compact"
             hide-details
             :label="copy.searchLabel"
             variant="outlined"
-            bg-color="rgba(7,12,21,1)"
-            color="rgb(125,211,252)"
-          />
+            @update:model-value="updateSearchQuery"
+          >
+            <template v-if="searchQuery" #append-inner>
+              <button
+                type="button"
+                class="tag-search-clear-button"
+                aria-label="Clear search"
+                @mousedown.prevent
+                @click.stop="clearSearchQuery"
+              >
+                <AppIcon name="close" :size="17" />
+              </button>
+            </template>
+          </VTextField>
         </div>
       </div>
     </div>
 
-    <div class="tag-view-content min-h-0 flex-1 px-5 py-5">
+    <div class="tag-view-content min-h-0 flex-1 px-4 py-3">
       <div v-if="activeTab.tagIsLoading" class="tag-state tag-state--loading grid h-full min-h-[260px] place-items-center rounded-[18px] border border-white/8 bg-white/4 text-sm text-slate-300">
         {{ copy.loading }}
       </div>
@@ -350,38 +534,104 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         {{ activeTab.tagLoadError }}
       </div>
 
-      <div v-else-if="activeTab.tagItems?.length" class="tag-table-shell flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(180deg,rgba(6,14,25,0.86),rgba(4,10,19,0.94))] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-        <div class="tag-table-head grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/8 bg-white/6 px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">
-          <span>Tag</span>
-          <span>Name</span>
-          <span>VR</span>
-          <span>Value</span>
-        </div>
+      <div v-else-if="activeTab.tagItems?.length" class="tag-table-shell flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <template v-if="isTreeTagDisplayMode">
+          <div class="tag-tree-head grid grid-cols-[minmax(420px,1fr)_90px_minmax(280px,1fr)] gap-4 border-b px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em]">
+            <span>Tree / Tag / Name</span>
+            <span>VR</span>
+            <span>Value</span>
+          </div>
 
-        <div ref="tagListScroller" class="tag-list-scroll min-h-0 flex-1 overflow-auto" @scroll="handleTagListScroll">
-          <div v-if="filteredTagItems.length" :style="{ height: `${virtualTopSpacerHeight}px` }"></div>
-          <div
-            v-for="{ item, index } in visibleTagRows"
-            :key="`${item.tag}-${item.keyword}-${index}`"
-            class="tag-row grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/6 px-6 text-sm text-slate-200 transition-colors duration-150 hover:bg-white/3 last:border-b-0"
-            :class="{ 'tag-row--menu-open': isContextMenuOpen && contextMenuItem === item }"
-            :style="{ height: `${TAG_ROW_HEIGHT}px` }"
-            @contextmenu="handleRowContextMenu($event, item)"
-          >
-            <span class="tag-row__tag font-mono text-[13px] text-sky-200/85">{{ item.tag || '--' }}</span>
-            <div class="tag-row__name-cell min-w-0" :style="{ paddingLeft: `${item.depth * 14}px` }">
-              <div class="tag-row__name truncate text-[15px] font-medium text-white">{{ item.name || item.keyword || '--' }}</div>
-              <div v-if="item.keyword" class="tag-row__keyword mt-1 truncate font-mono text-[11px] text-slate-500">{{ item.keyword }}</div>
+          <div class="tag-tree-summary border-b px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">
+            {{ tagTreeSummaryText }}
+          </div>
+
+          <div class="tag-tree-scroll min-h-0 flex-1 overflow-auto">
+            <template v-if="visibleTreeTagRows.length">
+              <div
+                v-for="item in visibleTreeTagRows"
+                :key="item.id"
+                class="tag-tree-row grid min-w-0 grid-cols-[minmax(320px,1fr)_90px_minmax(260px,1fr)] gap-4"
+                :class="{
+                  'tag-tree-row--branch': item.hasChildren,
+                  'tag-tree-row--item': item.vr === 'ITEM',
+                  'tag-tree-row--sequence': item.vr === 'SQ',
+                  'tag-tree-row--matched': Boolean(tagTreeSearchText && item.isMatched)
+                }"
+                @contextmenu.stop.prevent="handleRowContextMenu($event, item.original)"
+              >
+                <div class="tag-tree-row__identity min-w-0" :style="getTreeRowIndentStyle(item)">
+                  <div v-if="item.level > 0" class="tag-tree-row__guides" aria-hidden="true">
+                    <span
+                      v-for="guideLevel in Math.min(item.level, TAG_TREE_MAX_GUIDE_DEPTH)"
+                      :key="guideLevel"
+                      class="tag-tree-row__guide-line"
+                      :style="getTreeGuideStyle(guideLevel)"
+                    ></span>
+                    <span class="tag-tree-row__branch-line" :style="getTreeBranchStyle(item)"></span>
+                  </div>
+
+                  <button
+                    v-if="item.hasChildren"
+                    type="button"
+                    class="tag-tree-row__toggle"
+                    :aria-label="item.isExpanded ? 'Collapse tag branch' : 'Expand tag branch'"
+                    @click.stop="toggleTreeNode(item.id)"
+                  >
+                    <AppIcon name="chevron-right" :size="15" class="tag-tree-row__toggle-icon" :class="{ 'tag-tree-row__toggle-icon--open': item.isExpanded }" />
+                  </button>
+                  <span v-else class="tag-tree-row__leaf-dot" aria-hidden="true"></span>
+
+                  <div class="tag-tree-row__identity-text min-w-0">
+                    <div class="tag-tree-row__tag truncate font-mono text-[13px]">{{ item.tag }}</div>
+                    <div class="tag-tree-row__name mt-1 truncate text-[14px] font-semibold">{{ item.name }}</div>
+                    <div v-if="item.keyword" class="tag-tree-row__keyword mt-0.5 truncate font-mono text-[11px]">{{ item.keyword }}</div>
+                  </div>
+                </div>
+                <span class="tag-tree-row__vr font-mono text-[13px] font-semibold">{{ item.vr }}</span>
+                <span class="tag-tree-row__value font-mono text-[13px] leading-6" :title="item.value">{{ item.value }}</span>
+              </div>
+            </template>
+
+            <div v-else class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
+              {{ tagTreeSearchText ? copy.noMatches : copy.empty }}
             </div>
-            <span class="tag-row__vr font-mono text-[13px] font-semibold text-amber-200/85">{{ item.vr || '--' }}</span>
-            <span class="tag-row__value font-mono text-[13px] leading-6 text-slate-300" :title="item.value || '--'">{{ item.value || '--' }}</span>
           </div>
-          <div v-if="filteredTagItems.length" :style="{ height: `${virtualBottomSpacerHeight}px` }"></div>
+        </template>
 
-          <div v-if="!filteredTagItems.length" class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
-            {{ copy.noMatches }}
+        <template v-else>
+          <div class="tag-table-head grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/8 bg-white/6 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">
+            <span>Tag</span>
+            <span>Name</span>
+            <span>VR</span>
+            <span>Value</span>
           </div>
-        </div>
+
+          <div ref="tagListScroller" class="tag-list-scroll min-h-0 flex-1 overflow-auto" @scroll="handleTagListScroll">
+            <div v-if="filteredTagItems.length" :style="{ height: `${virtualTopSpacerHeight}px` }"></div>
+            <div
+              v-for="{ item, index } in visibleTagRows"
+              :key="`${item.tag}-${item.keyword}-${index}`"
+              class="tag-row grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/6 px-6 text-sm text-slate-200 transition-colors duration-150 hover:bg-white/3 last:border-b-0"
+              :class="{ 'tag-row--menu-open': isContextMenuOpen && contextMenuItem === item }"
+              :style="{ height: `${TAG_ROW_HEIGHT}px` }"
+              @contextmenu="handleRowContextMenu($event, item)"
+            >
+              <span class="tag-row__tag font-mono text-[13px] text-sky-200/85">{{ item.tag || '--' }}</span>
+              <div class="tag-row__name-cell min-w-0">
+                <div class="tag-row__name truncate text-[15px] font-medium text-white">{{ item.name || item.keyword || '--' }}</div>
+                <div v-if="item.keyword" class="tag-row__keyword mt-1 truncate font-mono text-[11px] text-slate-500">{{ item.keyword }}</div>
+              </div>
+              <span class="tag-row__vr font-mono text-[13px] font-semibold text-amber-200/85">{{ item.vr || '--' }}</span>
+              <span class="tag-row__value font-mono text-[13px] leading-6 text-slate-300" :title="item.value || '--'">{{ item.value || '--' }}</span>
+            </div>
+            <div v-if="filteredTagItems.length" :style="{ height: `${virtualBottomSpacerHeight}px` }"></div>
+
+            <div v-if="!filteredTagItems.length" class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center px-6 text-center text-sm text-slate-400">
+              {{ copy.noMatches }}
+            </div>
+          </div>
+        </template>
 
         <div v-if="contextMenuItem" class="fixed z-[2000] h-0 w-0" :style="contextMenuAnchorStyle">
           <VMenu
@@ -440,51 +690,200 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 </template>
 
 <style scoped>
+.dicom-tag-view {
+  border-color: var(--theme-border-soft);
+  background: var(--theme-surface-card-soft);
+  color: var(--theme-text-primary);
+}
+
+.tag-view-header,
+.tag-view-toolbar {
+  border-color: var(--theme-border-soft);
+}
+
+.tag-view-title {
+  color: var(--theme-text-primary);
+}
+
+:deep(.tag-view-chip) {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 11%, transparent) !important;
+  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent)) !important;
+}
+
+.tag-view-meta-list {
+  color: var(--theme-text-secondary);
+}
+
+.tag-view-meta {
+  border-color: var(--theme-border-soft);
+  background: var(--theme-surface-card);
+  color: var(--theme-text-secondary);
+}
+
+.tag-view-meta--path {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 78%, var(--theme-text-primary) 8%);
+  background: var(--theme-surface-card-soft);
+  color: var(--theme-text-muted);
+}
+
+.tag-control-panel {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card) 78%, transparent);
+}
+
+.tag-control-label {
+  color: var(--theme-text-muted);
+}
+
 :deep(.tag-field .v-field) {
   border-radius: 14px;
+  min-height: 40px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 0 0 1px rgba(148, 163, 184, 0.18);
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
 }
 
 :deep(.tag-field .v-field--variant-outlined) {
-  background: rgba(7, 12, 21, 1);
+  background: var(--theme-surface-card);
 }
 
 :deep(.tag-field .v-field--variant-outlined .v-field__outline) {
   --v-field-border-opacity: 1;
-  color: rgba(148, 163, 184, 0.62);
+  color: var(--theme-border-soft);
 }
 
 :deep(.tag-field .v-field__input) {
-  color: rgba(241, 245, 249, 0.96);
+  min-height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  color: var(--theme-text-primary);
   padding-left: 12px;
   padding-right: 12px;
 }
 
 :deep(.tag-field .v-label) {
-  color: rgba(148, 163, 184, 0.88);
+  color: var(--theme-text-muted);
   padding-left: 4px;
 }
 
 :deep(.tag-field .v-field--focused) {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 0 0 1px rgba(125, 211, 252, 0.34),
-    0 0 0 4px rgba(56, 189, 248, 0.08);
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 6%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 34%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--theme-accent) 9%, transparent);
 }
 
 :deep(.tag-field .v-field--focused .v-field__outline) {
-  color: rgba(125, 211, 252, 0.86);
+  color: color-mix(in srgb, var(--theme-accent) 82%, var(--theme-text-primary));
+}
+
+:deep(.tag-search-field .v-field--focused) {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 6%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 34%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--theme-accent) 9%, transparent) !important;
+}
+
+.tag-search-clear-button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 8%, var(--theme-surface-card));
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.tag-search-clear-button:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card-soft));
+  color: var(--theme-text-primary);
+}
+
+:deep(.tag-view-go-button) {
+  border-color: var(--theme-border-soft) !important;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card)) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+:deep(.tag-view-go-button:hover) {
+  border-color: var(--theme-border-strong) !important;
+  background: color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface-card-soft)) !important;
+}
+
+:deep(.tag-view-pagination .v-btn) {
+  min-width: 34px;
+  height: 34px;
+  color: var(--theme-text-secondary);
+}
+
+:deep(.tag-view-pagination .v-btn--active),
+:deep(.tag-view-pagination .v-pagination__item--is-active .v-btn) {
+  background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-surface-card)) !important;
+  color: var(--theme-accent-contrast) !important;
+}
+
+.tag-state {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  color: var(--theme-text-muted);
+}
+
+.tag-state--loading {
+  color: var(--theme-text-secondary);
+}
+
+.tag-state--error {
+  border-color: color-mix(in srgb, #ef7777 34%, var(--theme-border-soft));
+  background: color-mix(in srgb, #ef7777 10%, var(--theme-surface-card-soft));
+  color: color-mix(in srgb, #ef7777 72%, var(--theme-text-primary));
 }
 
 .tag-row {
   align-items: center;
+  border-color: var(--theme-border-soft);
+  color: var(--theme-text-secondary);
+}
+
+.tag-row:hover {
+  background-color: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card-soft));
+}
+
+.tag-table-head {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+  color: var(--theme-text-secondary);
+}
+
+.tag-row__tag {
+  color: color-mix(in srgb, var(--theme-accent) 70%, var(--theme-text-primary));
+}
+
+.tag-row__name {
+  color: var(--theme-text-primary);
+}
+
+.tag-row__keyword {
+  color: var(--theme-text-muted);
+}
+
+.tag-row__vr {
+  color: color-mix(in srgb, var(--theme-accent-warm) 70%, var(--theme-text-secondary));
 }
 
 .tag-row__value {
   display: -webkit-box;
   overflow: hidden;
+  color: var(--theme-text-secondary);
   word-break: break-all;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
@@ -496,6 +895,169 @@ async function handleContextAction(action: ContextAction): Promise<void> {
     linear-gradient(90deg, rgba(34, 211, 238, 0.06), rgba(56, 189, 248, 0.03)),
     rgba(125, 211, 252, 0.08);
   box-shadow: inset 2px 0 0 rgba(103, 232, 249, 0.65);
+}
+
+.tag-table-shell {
+  border-color: var(--theme-border-soft);
+  background: var(--theme-surface-card-soft);
+  color: var(--theme-text-primary);
+}
+
+.tag-tree-head {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+  color: var(--theme-text-secondary);
+}
+
+.tag-tree-summary {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 72%, transparent);
+  color: var(--theme-text-muted);
+}
+
+.tag-tree-row {
+  --tag-tree-row-bg: color-mix(in srgb, var(--theme-surface-card-soft) 58%, transparent);
+  position: relative;
+  min-height: 74px;
+  align-items: center;
+  padding: 0 24px;
+  background-color: var(--tag-tree-row-bg);
+  color: var(--theme-text-primary);
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.tag-tree-row:hover {
+  background-color: var(--tag-tree-row-bg);
+}
+
+.tag-tree-row--branch {
+  background-color: var(--tag-tree-row-bg);
+  box-shadow: none;
+}
+
+.tag-tree-row--sequence {
+  background-color: var(--tag-tree-row-bg);
+}
+
+.tag-tree-row--item {
+  background-color: var(--tag-tree-row-bg);
+}
+
+.tag-tree-row--matched {
+  background-color: var(--tag-tree-row-bg);
+  box-shadow: none;
+}
+
+.tag-tree-row__identity {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 74px;
+}
+
+.tag-tree-row__guides {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--tag-tree-guide-depth) * 28px);
+  pointer-events: none;
+}
+
+.tag-tree-row__guide-line {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  opacity: 0.72;
+}
+
+.tag-tree-row__branch-line {
+  position: absolute;
+  top: 50%;
+  height: 1px;
+  background: color-mix(in srgb, var(--theme-border-strong) 82%, transparent);
+  opacity: 0.76;
+}
+
+.tag-tree-row__toggle,
+.tag-tree-row__leaf-dot {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+}
+
+.tag-tree-row__toggle {
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  color: color-mix(in srgb, var(--theme-accent) 82%, white 8%);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.tag-tree-row__toggle:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 16%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.tag-tree-row__toggle-icon {
+  transition: transform 150ms ease;
+}
+
+.tag-tree-row__toggle-icon--open {
+  transform: rotate(90deg);
+}
+
+.tag-tree-row__leaf-dot::before {
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  content: "";
+}
+
+.tag-tree-row__identity-text {
+  position: relative;
+  z-index: 1;
+}
+
+.tag-tree-row__tag {
+  color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-text-primary));
+}
+
+.tag-tree-row__name {
+  color: var(--theme-text-primary);
+}
+
+.tag-tree-row__keyword {
+  color: var(--theme-text-muted);
+}
+
+.tag-tree-row__vr {
+  color: color-mix(in srgb, var(--theme-accent-warm) 70%, var(--theme-text-secondary));
+}
+
+.tag-tree-row__value {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--theme-text-secondary);
+  word-break: break-all;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .tag-context-menu {

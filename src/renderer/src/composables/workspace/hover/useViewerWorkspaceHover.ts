@@ -3,6 +3,9 @@ import throttle from 'lodash/throttle'
 import type { CornerInfo, MprViewportKey, ViewHoverResponse, ViewerTabItem } from '../../../types/viewer'
 import { emitViewHover } from '../../../services/socket'
 
+const HOVER_EMIT_THROTTLE_MS = 30
+const HOVER_CORNER_PATTERN = /^X:\s*-?\d+\s+Y:\s*-?\d+$/i
+
 interface ViewerWorkspaceHoverOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
   activeViewportKey: { value: string }
@@ -10,10 +13,8 @@ interface ViewerWorkspaceHoverOptions {
 }
 
 export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
-  const HOVER_EMIT_THROTTLE_MS = 30
   const hoveredViewIds = new Set<string>()
   const lastHoverPixelsByViewId = new Map<string, { row: number; col: number }>()
-  const hoverCornerPattern = /^X:\s*-?\d+\s+Y:\s*-?\d+$/i
 
   const emitThrottledViewHover = throttle(
     (payload: { viewId: string; x: number; y: number }) => {
@@ -26,13 +27,13 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   function stripHoverCornerInfo(cornerInfo: CornerInfo): CornerInfo {
     return {
       ...cornerInfo,
-      bottomRight: cornerInfo.bottomRight.filter((line) => !hoverCornerPattern.test(line.trim()))
+      bottomRight: cornerInfo.bottomRight.filter((line) => !HOVER_CORNER_PATTERN.test(line.trim()))
     }
   }
 
   function withHoverCornerInfo(cornerInfo: CornerInfo, row: number | null = null, col: number | null = null): CornerInfo {
-    const hoverLine = cornerInfo.bottomRight.find((line) => hoverCornerPattern.test(line.trim())) ?? null
-    const bottomRight = cornerInfo.bottomRight.filter((line) => !hoverCornerPattern.test(line.trim()))
+    const hoverLine = cornerInfo.bottomRight.find((line) => HOVER_CORNER_PATTERN.test(line.trim())) ?? null
+    const bottomRight = cornerInfo.bottomRight.filter((line) => !HOVER_CORNER_PATTERN.test(line.trim()))
     if (row != null && col != null) {
       bottomRight.push(`X:${col} Y:${row}`)
     } else if (hoverLine) {

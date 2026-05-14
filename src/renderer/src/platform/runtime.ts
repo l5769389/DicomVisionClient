@@ -9,6 +9,7 @@ export interface ViewerRuntimeApi {
   chooseFolder: () => Promise<string | null>
   getBackendOrigin: () => Promise<string>
   platform: ViewerPlatform
+  resolveDroppedFileScanPaths: (files: File[]) => Promise<string[]>
 }
 
 const WEB_SAMPLE_FOLDER_SENTINEL = '__server_sample__'
@@ -49,7 +50,24 @@ function createDesktopRuntime(): ViewerRuntimeApi {
     folderSourceMode: 'desktop-picker',
     chooseFolder: () => window.viewerApi?.chooseFolder?.() ?? Promise.resolve(null),
     getBackendOrigin: () =>
-      window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN)
+      window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN),
+    resolveDroppedFileScanPaths: async (files) => {
+      const api = window.viewerApi
+      if (!api) {
+        return []
+      }
+
+      const preloadCapturedPaths = api.consumeLatestDroppedFilePaths()
+      const fallbackFilePaths = files.flatMap((file) => {
+        try {
+          const path = api.getPathForFile(file).trim()
+          return path ? [path] : []
+        } catch {
+          return []
+        }
+      })
+      return api.normalizeDroppedPaths(preloadCapturedPaths.length ? preloadCapturedPaths : fallbackFilePaths)
+    }
   }
 }
 
@@ -69,7 +87,8 @@ function createWebRuntime(): ViewerRuntimeApi {
       const trimmedPath = enteredPath?.trim() ?? ''
       return trimmedPath.length ? trimmedPath : null
     },
-    getBackendOrigin: async () => resolveWebBackendOrigin()
+    getBackendOrigin: async () => resolveWebBackendOrigin(),
+    resolveDroppedFileScanPaths: async () => []
   }
 }
 

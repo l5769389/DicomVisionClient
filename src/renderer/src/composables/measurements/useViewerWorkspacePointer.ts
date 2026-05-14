@@ -121,8 +121,12 @@ interface MeasurementPointerContext extends BasicPointerContext {
 }
 
 const DRAG_START_THRESHOLD = 3
+const VIEWPORT_DRAG_THROTTLE_MS = 30
+const MPR_CROSSHAIR_THROTTLE_MS = 16
+const MEASUREMENT_DRAFT_THROTTLE_MS = 30
 const POINT_SEQUENCE_DOUBLE_CLICK_MS = 420
 const POINT_SEQUENCE_DOUBLE_CLICK_DISTANCE = 0.025
+const POINT_SET_CLOSE_EPSILON = 0.0005
 
 function generateMeasurementId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -168,8 +172,8 @@ function arePointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[
     const otherPoint = b[index]
     return (
       otherPoint != null &&
-      Math.abs(point.x - otherPoint.x) < 0.0005 &&
-      Math.abs(point.y - otherPoint.y) < 0.0005
+      Math.abs(point.x - otherPoint.x) < POINT_SET_CLOSE_EPSILON &&
+      Math.abs(point.y - otherPoint.y) < POINT_SET_CLOSE_EPSILON
     )
   })
 }
@@ -251,7 +255,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
       options.emitViewportDrag(payload)
     },
-    30,
+    VIEWPORT_DRAG_THROTTLE_MS,
     { leading: true, trailing: true }
   )
 
@@ -266,7 +270,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         line: payload.line
       })
     },
-    16,
+    MPR_CROSSHAIR_THROTTLE_MS,
     { leading: true, trailing: true }
   )
 
@@ -279,11 +283,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         points: payload.points
       })
     },
-    30,
+    MEASUREMENT_DRAFT_THROTTLE_MS,
     { leading: true, trailing: true }
   )
 
-  // 把当前这根 “手指 / 鼠标” 强行锁定在当前元素上，无论你滑到哪里，事件都只发给这个元素。
+  // Pointer capture keeps drag/measurement lifecycle consistent even when the
+  // cursor briefly leaves the image during a high-frequency interaction.
   function setPointerCapture(pointerTarget: HTMLElement, pointerId: number): void {
     pointerTarget.setPointerCapture(pointerId)
     activePointerId.value = pointerId

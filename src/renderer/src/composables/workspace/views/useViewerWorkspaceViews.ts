@@ -128,6 +128,23 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const fourDPhaseRenderTracker = new FourDPhaseRenderTracker()
   const { selectedPseudocolorKey } = useUiPreferences()
 
+  function revokeObjectUrlIfNeeded(imageSrc: string | null | undefined): void {
+    // Backend frames arrive as Blob URLs. Revoke only those URLs; data/http URLs
+    // can also appear in tests or future integrations and are not owned here.
+    if (imageSrc?.startsWith('blob:')) {
+      URL.revokeObjectURL(imageSrc)
+    }
+  }
+
+  function createRenderedImageObjectUrl(imageBinary: ArrayBuffer | Uint8Array, mimeType: string): string {
+    // The backend sends already-rendered PNG/JPEG bytes. The frontend only wraps
+    // them as object URLs; pixel decoding/windowing stays on the server.
+    const bytes = imageBinary instanceof Uint8Array ? imageBinary : new Uint8Array(imageBinary)
+    const ownedBytes = new Uint8Array(bytes.byteLength)
+    ownedBytes.set(bytes)
+    return URL.createObjectURL(new Blob([ownedBytes.buffer], { type: mimeType }))
+  }
+
   function findTab(seriesId: string, viewType?: ViewType): ViewerTabItem | undefined {
     return options.viewerTabs.value.find((item) =>
       viewType ? item.seriesId === seriesId && item.viewType === viewType : item.seriesId === seriesId
@@ -876,8 +893,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
       const mimeType = payload.imageFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
-      const bytes = new Uint8Array(imageBinary)
-      const imageSrc = URL.createObjectURL(new Blob([bytes], { type: mimeType }))
+      const imageSrc = createRenderedImageObjectUrl(imageBinary, mimeType)
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
       const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
@@ -910,8 +926,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
       if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
         const currentViewportImage = item.viewportImages?.[viewportKey]
-        if (currentViewportKey && currentViewportImage?.startsWith('blob:')) {
-          URL.revokeObjectURL(currentViewportImage)
+        if (currentViewportKey) {
+          revokeObjectUrlIfNeeded(currentViewportImage)
         }
 
         let nextFourDPhaseCache = item.fourDPhaseCache
@@ -921,8 +937,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           const existingPhaseCache = item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]
           const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
           const previousCachedImage = existingPhaseCache?.viewportImages?.[viewportKey]
-          if (previousCachedImage?.startsWith('blob:') && previousCachedImage !== currentViewportImage) {
-            URL.revokeObjectURL(previousCachedImage)
+          if (previousCachedImage !== currentViewportImage) {
+            revokeObjectUrlIfNeeded(previousCachedImage)
           }
 
           const nextViewportImages = {
@@ -1076,13 +1092,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
 
       if (item.viewType === '4D') {
-        URL.revokeObjectURL(imageSrc)
+        revokeObjectUrlIfNeeded(imageSrc)
         return item
       }
 
-      if (item.imageSrc.startsWith('blob:')) {
-        URL.revokeObjectURL(item.imageSrc)
-      }
+      revokeObjectUrlIfNeeded(item.imageSrc)
 
       return {
         ...item,
@@ -1506,19 +1520,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
 
     const closingImageSrc = options.viewerTabs.value[currentIndex]?.imageSrc
-    if (closingImageSrc?.startsWith('blob:')) {
-      URL.revokeObjectURL(closingImageSrc)
-    }
+    revokeObjectUrlIfNeeded(closingImageSrc)
     Object.values(closingTab.viewportImages ?? {}).forEach((imageSrc) => {
-      if (imageSrc?.startsWith('blob:')) {
-        URL.revokeObjectURL(imageSrc)
-      }
+      revokeObjectUrlIfNeeded(imageSrc)
     })
     Object.values(closingTab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
       Object.values(phaseCache.viewportImages ?? {}).forEach((imageSrc) => {
-        if (imageSrc?.startsWith('blob:')) {
-          URL.revokeObjectURL(imageSrc)
-        }
+        revokeObjectUrlIfNeeded(imageSrc)
       })
     })
 

@@ -58,6 +58,10 @@ https://dicom-vision-client.vercel.app/
 | --- | --- |
 | <img src="./screenshots/theme.png" alt="深色主题" width="420"> | <img src="./screenshots/theme_light.png" alt="浅色主题" width="420"> |
 
+| 拖拽导入 | 脱敏导出 |
+| --- | --- |
+| <img src="./screenshots/drag_import.png" alt="拖拽导入 DICOM" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM 脱敏导出" width="420"> |
+
 ## 系统架构
 
 DicomVision 拆分为两个仓库：

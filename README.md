@@ -59,6 +59,10 @@ https://dicom-vision-client.vercel.app/
 | --- | --- |
 | <img src="./screenshots/theme.png" alt="Dark theme" width="420"> | <img src="./screenshots/theme_light.png" alt="Light theme" width="420"> |
 
+| Drag-and-drop import | De-identification export |
+| --- | --- |
+| <img src="./screenshots/drag_import.png" alt="Drag-and-drop DICOM import" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM de-identification export" width="420"> |
+
 ## Architecture
 
 DicomVision is split into two repositories:

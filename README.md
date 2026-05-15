@@ -2,17 +2,26 @@
 
 [中文说明](./README.zh-CN.md)
 
-DicomVision is a client/server DICOM viewing and analysis tool for image browsing, reconstruction, measurement, and QA workflows. It supports Stack viewing, MPR and oblique MPR, 4D phase playback, server-side 3D volume rendering, DICOM tag inspection, ROI measurement, MTF/FWHM analysis, water phantom QA, image export, dark/light themes, and separate web or Windows desktop deployment.
+DicomVision is a client/server DICOM viewing and analysis tool for image browsing, reconstruction, measurement, QA, metadata review, and privacy-safe export workflows. It supports Stack viewing, MPR and oblique MPR, 4D phase playback, server-side 3D volume rendering, DICOM tag inspection/editing, DICOM de-identification export, ROI measurement, MTF/FWHM analysis, water phantom QA, image export, dark/light themes, and separate web or Windows desktop deployment.
+
+## Version 1.1.0 Updates
+
+- Added DICOM Tag tree mode with sequence/item hierarchy, clearer indentation, and theme-aware row hover feedback.
+- Added DICOM Tag editing from the tag context menu. Current-instance edits return a single DICOM copy, while series-wide edits run in the background with live progress.
+- Added de-identified DICOM export from the series context menu, using configurable privacy fields and the same background progress flow as batch tag edits.
+- Added drag-and-drop loading for local DICOM files or folders in the desktop app.
+- Refined the compact top toolbar, tab overflow behavior, settings layout, context menus, and theme-aware toast notifications.
 
 ## Feature Overview
 
-- **Image loading and series management**: load local DICOM folders, server-side sample data, or backend-accessible paths, then browse discovered series from the sidebar.
+- **Image loading and series management**: load local DICOM folders, drag files/folders into the desktop app, use server-side sample data, or enter backend-accessible paths, then browse discovered series from the sidebar.
 - **Stack viewing**: slice scrolling, window/level, zoom, pan, rotate, flip, reset, pseudocolor presets, and corner metadata overlays.
 - **MPR and oblique MPR**: axial, coronal, and sagittal synchronized viewports with crosshair navigation, oblique rotation, MIP configuration, orientation overlays, and scale bars.
 - **4D phase playback**: phase previews, phase switching, playback controls, FPS control, and cached multi-viewport phase images.
 - **3D volume rendering**: VTK-backed backend rendering with presets, transfer functions, opacity, color, lighting, interpolation, and layer controls.
 - **Measurement and analysis**: line, rectangle, ellipse, angle, curve, and freeform measurements, plus MTF/FWHM and water phantom QA workflows.
-- **DICOM tag inspection**: instance-level tag, VR, name, and value browsing for debugging and dataset review.
+- **DICOM tag tools**: instance-level tag, VR, name, and value browsing in flat or tree mode, plus editable tag export for current DICOM or full series.
+- **De-identification export**: configurable privacy-field removal for DICOM series, saved as new copies without overwriting source files.
 - **Web and desktop delivery**: deploy the web client as a static app connected to a remote backend, or package a Windows Electron desktop app with an embedded backend bundle.
 
 ## Web Preview

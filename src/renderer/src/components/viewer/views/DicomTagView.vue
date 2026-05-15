@@ -50,7 +50,7 @@ const TAG_OVERSCAN_ROWS = 8
 const TAG_TREE_INDENT_PX = 28
 const TAG_TREE_MAX_GUIDE_DEPTH = 10
 const TAG_EDIT_EXPORT_ROOT = 'DicomVisionTagEdits'
-const TAG_EDIT_JOB_POLL_INTERVAL_MS = 1200
+const TAG_EDIT_JOB_POLL_INTERVAL_MS = 700
 const TAG_EDIT_JOB_MAX_POLLS = 1500
 const TAG_EDIT_JOB_STATUS_TIMEOUT_MS = 8000
 const TAG_EDIT_JOB_MAX_STATUS_ERRORS = 3
@@ -160,8 +160,8 @@ const tagEditCopy = computed(() => ({
   currentValue: isZh.value ? '当前值' : 'Current value',
   dialogTitle: isZh.value ? '修改 DICOM Tag' : 'Edit DICOM Tag',
   dialogSubtitle: isZh.value
-    ? '不会覆盖原始文件，会在设置中的导出位置生成新的 DICOM 文件。'
-    : 'Original files are not overwritten. New DICOM files are written to the configured export location.',
+    ? '不会覆盖原始文件，会按 DICOM Tag 设置中的保存策略生成新的 DICOM 文件。'
+    : 'Original files are not overwritten. New DICOM files are saved using the DICOM Tag save settings.',
   editableDisabled: isZh.value ? '该 Tag 不支持在这里直接修改' : 'This tag cannot be edited here',
   modifyAction: isZh.value ? '修改 Tag Value' : 'Edit Tag Value',
   modifySubtitle: isZh.value ? '生成新的 DICOM 副本' : 'Create modified DICOM copies',
@@ -172,6 +172,11 @@ const tagEditCopy = computed(() => ({
   seriesJobCompleted: (count: number) =>
     isZh.value ? `Series Tag 修改任务已完成，已生成 ${count} 个 DICOM 文件。` : `Series tag edit completed. Created ${count} DICOM file(s).`,
   seriesJobFailed: isZh.value ? 'Series Tag 修改任务失败。' : 'Series tag edit failed.',
+  seriesJobPackaging: isZh.value ? 'DICOM 已处理完成，正在打包结果...' : 'DICOM processing complete. Packaging result...',
+  seriesJobPreparing: isZh.value ? '正在准备批量修改任务...' : 'Preparing batch edit...',
+  seriesJobProgress: (processed: number, total: number, percent: number) =>
+    isZh.value ? `已处理 ${processed}/${total}（${percent}%）` : `Processed ${processed}/${total} (${percent}%)`,
+  seriesJobSaving: isZh.value ? '正在保存批量修改结果...' : 'Saving batch edit result...',
   seriesJobTimeout: isZh.value ? 'Series Tag 修改任务仍在执行，请稍后再查看。' : 'Series tag edit is still running. Check again later.',
   saving: isZh.value ? '正在保存...' : 'Saving...',
   saveFailed: isZh.value ? 'DICOM Tag 修改保存失败。' : 'Failed to save DICOM tag edit.',
@@ -334,6 +339,8 @@ function showGlobalStatusToast(
     filePath?: string | null
     canOpenLocation?: boolean
     busy?: boolean
+    progressLabel?: string | null
+    progressPercent?: number | null
     durationMs?: number
   } = {}
 ): void {
@@ -352,9 +359,49 @@ function waitForDelay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function getJobProgress(job: DicomTagModifyJob): { isPackaging: boolean; processed: number; total: number; percent: number; label: string } {
+  const total = Math.max(0, Number(job.totalCount ?? 0))
+  const processedFallback = job.status === 'succeeded' ? total : 0
+  const processed = Math.max(0, Math.min(total || Number(job.processedCount ?? processedFallback), Number(job.processedCount ?? processedFallback)))
+  const isProcessingComplete = total > 0 && processed >= total
+  const percentFromJob = Number(job.progressPercent)
+  const percent =
+    isProcessingComplete
+      ? 100
+      : Number.isFinite(percentFromJob) && percentFromJob >= 0
+        ? Math.max(0, Math.min(100, Math.round(percentFromJob)))
+        : total > 0
+          ? Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
+          : 0
+
+  return {
+    isPackaging: isProcessingComplete && job.status !== 'succeeded',
+    processed,
+    total,
+    percent,
+    label:
+      total > 0
+        ? isProcessingComplete && job.status !== 'succeeded'
+          ? tagEditCopy.value.seriesJobPackaging
+          : tagEditCopy.value.seriesJobProgress(processed, total, percent)
+        : tagEditCopy.value.seriesJobPreparing
+  }
+}
+
+function showTagEditJobProgress(job: DicomTagModifyJob, message = tagEditCopy.value.seriesJobStarted): void {
+  const progress = getJobProgress(job)
+  showGlobalStatusToast(progress.isPackaging ? tagEditCopy.value.seriesJobPackaging : message, 'info', {
+    busy: true,
+    durationMs: 0,
+    progressLabel: progress.label,
+    progressPercent: progress.percent
+  })
+}
+
 async function waitForDicomTagModifyJob(initialJob: DicomTagModifyJob): Promise<DicomTagModifyJob> {
   let job = initialJob
   let failedStatusPollCount = 0
+  showTagEditJobProgress(job)
   for (let pollIndex = 0; pollIndex < TAG_EDIT_JOB_MAX_POLLS; pollIndex += 1) {
     if (job.status === 'succeeded' || job.status === 'failed') {
       return job
@@ -363,6 +410,7 @@ async function waitForDicomTagModifyJob(initialJob: DicomTagModifyJob): Promise<
     try {
       job = await getDicomTagModifyJob(initialJob.jobId, { timeout: TAG_EDIT_JOB_STATUS_TIMEOUT_MS })
       failedStatusPollCount = 0
+      showTagEditJobProgress(job)
     } catch (error) {
       failedStatusPollCount += 1
       if (failedStatusPollCount >= TAG_EDIT_JOB_MAX_STATUS_ERRORS) {
@@ -487,11 +535,7 @@ async function submitTagEdit(): Promise<void> {
         value: tagEditValue.value,
         scope: 'series'
       })
-      const startedMessage = tagEditCopy.value.seriesJobStarted
-      showGlobalStatusToast(startedMessage, 'info', {
-        busy: true,
-        durationMs: 0
-      })
+      showTagEditJobProgress(job)
       isTagEditDialogOpen.value = false
       void finishSeriesTagEditJob(job)
     } catch (error) {
@@ -548,6 +592,13 @@ async function finishSeriesTagEditJob(initialJob: DicomTagModifyJob): Promise<vo
       throw new Error(completedJob.error || tagEditCopy.value.seriesJobFailed)
     }
 
+    const progress = getJobProgress(completedJob)
+    showGlobalStatusToast(tagEditCopy.value.seriesJobSaving, 'info', {
+      busy: true,
+      durationMs: 0,
+      progressLabel: progress.label,
+      progressPercent: 100
+    })
     const artifact = await getDicomTagModifyJobArtifact(completedJob.jobId)
     const savedFile = await saveBinaryFile({
       data: artifact.data,

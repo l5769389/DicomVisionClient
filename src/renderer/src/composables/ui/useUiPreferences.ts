@@ -4,6 +4,33 @@ import { loadUiPreferencesFromStorage, saveUiPreferencesToStorage } from '../../
 
 export type AppLocale = 'zh-CN' | 'en-US'
 export type DicomTagDisplayMode = 'flat' | 'tree'
+export type DicomDeidentifyFieldKey =
+  | 'patientIdentity'
+  | 'patientDemographics'
+  | 'datesAndTimes'
+  | 'accessionInstitution'
+  | 'physiciansOperators'
+  | 'descriptions'
+  | 'deviceInfo'
+  | 'privateTags'
+  | 'uids'
+
+export const DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS: DicomDeidentifyFieldKey[] = [
+  'patientIdentity',
+  'patientDemographics',
+  'datesAndTimes',
+  'accessionInstitution',
+  'physiciansOperators',
+  'privateTags',
+  'uids'
+]
+
+const DICOM_DEIDENTIFY_FIELD_KEYS: DicomDeidentifyFieldKey[] = [
+  ...DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS,
+  'descriptions',
+  'deviceInfo'
+]
+const DICOM_DEIDENTIFY_FIELD_KEY_SET = new Set(DICOM_DEIDENTIFY_FIELD_KEYS)
 
 export interface WindowTemplatePreset {
   id: string
@@ -56,6 +83,11 @@ export interface DicomTagEditSavePreference {
   desktopDirectory: string | null
 }
 
+export interface DicomDeidentifyPreference {
+  selectedFieldKeys: DicomDeidentifyFieldKey[]
+  replacementPrefix: string
+}
+
 export interface RoiStatPreference {
   key: string
   label: string
@@ -89,13 +121,14 @@ interface UiPreferencesState {
   scaleBarPreference: ScaleBarPreference
   measurementStylePreference: MeasurementStylePreference
   dicomTagEditSavePreference: DicomTagEditSavePreference
+  dicomDeidentifyPreference: DicomDeidentifyPreference
   exportPreference: ExportPreference
   qaWaterMetrics: QaWaterMetricPreference[]
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 8
+const CURRENT_PREFERENCES_VERSION = 9
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -205,6 +238,13 @@ function createDefaultDicomTagEditSavePreference(): DicomTagEditSavePreference {
   }
 }
 
+function createDefaultDicomDeidentifyPreference(): DicomDeidentifyPreference {
+  return {
+    selectedFieldKeys: [...DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS],
+    replacementPrefix: 'ANON'
+  }
+}
+
 function createDefaultRoiStatOptions(): RoiStatPreference[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -237,6 +277,7 @@ function createDefaultState(): UiPreferencesState {
     scaleBarPreference: createDefaultScaleBarPreference(),
     measurementStylePreference: createDefaultMeasurementStylePreference(),
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
+    dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
     exportPreference: createDefaultExportPreference(),
     qaWaterMetrics: createDefaultQaWaterMetrics(),
     roiStatOptions: createDefaultRoiStatOptions(),
@@ -332,6 +373,30 @@ function normalizeDicomTagEditSavePreference(value: unknown): DicomTagEditSavePr
     locationMode: record?.locationMode === 'custom' ? 'custom' : defaults.locationMode,
     desktopDirectory:
       typeof record?.desktopDirectory === 'string' && record.desktopDirectory.trim() ? record.desktopDirectory.trim() : null
+  }
+}
+
+function normalizeDicomDeidentifyPreference(value: unknown): DicomDeidentifyPreference {
+  const defaults = createDefaultDicomDeidentifyPreference()
+  const record = value && typeof value === 'object' ? (value as Partial<DicomDeidentifyPreference>) : null
+  const hasStoredSelection = Array.isArray(record?.selectedFieldKeys)
+  const selectedFieldKeys = hasStoredSelection
+    ? Array.from(
+        new Set(
+          record.selectedFieldKeys?.filter((item): item is DicomDeidentifyFieldKey =>
+            typeof item === 'string' && DICOM_DEIDENTIFY_FIELD_KEY_SET.has(item as DicomDeidentifyFieldKey)
+          ) ?? []
+        )
+      )
+    : defaults.selectedFieldKeys
+  const replacementPrefix =
+    typeof record?.replacementPrefix === 'string' && record.replacementPrefix.trim()
+      ? record.replacementPrefix.trim().slice(0, 24)
+      : defaults.replacementPrefix
+
+  return {
+    selectedFieldKeys,
+    replacementPrefix
   }
 }
 
@@ -492,6 +557,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.scaleBarPreference = nextState.scaleBarPreference
   state.measurementStylePreference = nextState.measurementStylePreference
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
+  state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
   state.exportPreference = nextState.exportPreference
   state.qaWaterMetrics = nextState.qaWaterMetrics
   state.roiStatOptions = nextState.roiStatOptions
@@ -522,6 +588,10 @@ function serializeState(): UiPreferencesState {
     dicomTagEditSavePreference: {
       locationMode: state.dicomTagEditSavePreference.locationMode,
       desktopDirectory: state.dicomTagEditSavePreference.desktopDirectory
+    },
+    dicomDeidentifyPreference: {
+      selectedFieldKeys: [...state.dicomDeidentifyPreference.selectedFieldKeys],
+      replacementPrefix: state.dicomDeidentifyPreference.replacementPrefix
     },
     exportPreference: {
       locationMode: state.exportPreference.locationMode,
@@ -594,6 +664,7 @@ async function hydrateState(): Promise<void> {
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
+        dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
         exportPreference: normalizeExportPreference(parsed.exportPreference),
         qaWaterMetrics: normalizeQaWaterMetrics(parsed.qaWaterMetrics),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
@@ -731,6 +802,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setDicomDeidentifyPreference(nextValue: DicomDeidentifyPreference): void {
+    state.dicomDeidentifyPreference = normalizeDicomDeidentifyPreference(nextValue)
+    void persistState()
+  }
+
   function setExportPreference(nextValue: ExportPreference): void {
     state.exportPreference = normalizeExportPreference(nextValue)
     void persistState()
@@ -766,6 +842,7 @@ export function useUiPreferences() {
   return {
     customWindowPresets: computed(() => state.customWindowPresets),
     crosshairConfigs: computed(() => state.crosshairConfigs),
+    dicomDeidentifyPreference: computed(() => state.dicomDeidentifyPreference),
     dicomTagEditSavePreference: computed(() => state.dicomTagEditSavePreference),
     getWindowPresetLabel,
     locale,
@@ -778,6 +855,7 @@ export function useUiPreferences() {
     selectedPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
+    setDicomDeidentifyPreference,
     setDicomTagEditSavePreference,
     setExportPreference,
     setLocale,

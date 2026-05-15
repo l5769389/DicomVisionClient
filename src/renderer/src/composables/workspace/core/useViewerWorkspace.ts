@@ -143,6 +143,8 @@ interface WorkspaceStatusToast {
   filePath?: string | null
   canOpenLocation?: boolean
   busy?: boolean
+  progressLabel?: string | null
+  progressPercent?: number | null
 }
 
 interface WorkspaceStatusToastOptions {
@@ -151,6 +153,8 @@ interface WorkspaceStatusToastOptions {
   filePath?: string | null
   canOpenLocation?: boolean
   busy?: boolean
+  progressLabel?: string | null
+  progressPercent?: number | null
   durationMs?: number
 }
 
@@ -230,7 +234,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       directoryPath: options.directoryPath ?? null,
       filePath: options.filePath ?? null,
       canOpenLocation: Boolean(options.canOpenLocation),
-      busy: Boolean(options.busy)
+      busy: Boolean(options.busy),
+      progressLabel: options.progressLabel ?? null,
+      progressPercent:
+        typeof options.progressPercent === 'number' && Number.isFinite(options.progressPercent)
+          ? Math.max(0, Math.min(100, options.progressPercent))
+          : null
     }
     const durationMs = options.durationMs ?? (options.detail || options.canOpenLocation ? 9000 : 3600)
     if (durationMs > 0) {

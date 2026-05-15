@@ -16,6 +16,7 @@ const operationPaths = {
   AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost: '/api/v1/view/qa/water/analyze',
   CloseViewApiV1ViewClosePost: '/api/v1/view/close',
   CreateViewApiV1ViewCreatePost: '/api/v1/view/create',
+  DeidentifyDicomSeriesApiV1DicomDeidentifyPost: '/api/v1/dicom/deidentify',
   GetCornerInfoApiV1DicomCornerInfoPost: '/api/v1/dicom/cornerInfo',
   GetDicomTagsApiV1DicomTagsPost: '/api/v1/dicom/tags',
   GetFourDPhasesApiV1DicomFourDPhasesPost: '/api/v1/dicom/fourD/phases',
@@ -28,6 +29,7 @@ const operationPaths = {
 type SupportedOperationKey = keyof typeof operationPaths & ApiOperationKey
 type OperationRequest<K extends SupportedOperationKey> = ApiOperations[K]['request']
 type OperationResponse<K extends SupportedOperationKey> = ApiOperations[K]['response']
+type DicomDeidentifyRequest = ApiOperations['DeidentifyDicomSeriesApiV1DicomDeidentifyPost']['request']
 type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPost']['request']
 type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
@@ -40,6 +42,8 @@ export interface DicomTagModifyArtifact {
   seriesFolder: string
 }
 
+export type DicomDeidentifyArtifact = DicomTagModifyArtifact
+
 export interface DicomTagModifyJob {
   jobId: string
   status: DicomTagModifyJobStatus
@@ -50,7 +54,10 @@ export interface DicomTagModifyJob {
   fileName?: string | null
   mediaType?: string | null
   modifiedCount?: number | null
+  processedCount?: number | null
+  progressPercent?: number | null
   seriesFolder?: string | null
+  totalCount?: number | null
   createdAt: string
   completedAt?: string | null
 }
@@ -102,15 +109,31 @@ function getFileNameFromContentDisposition(value: string): string {
   return plainMatch?.[1]?.trim() ?? ''
 }
 
-function buildDicomTagModifyArtifact(response: AxiosResponse<ArrayBuffer>): DicomTagModifyArtifact {
+function decodeHeaderFileName(value: string): string {
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return ''
+  }
+
+  try {
+    return decodeURIComponent(trimmedValue)
+  } catch {
+    return trimmedValue
+  }
+}
+
+function buildDicomBinaryArtifact(
+  response: AxiosResponse<ArrayBuffer>,
+  fallbackFileNames: { dicomFileName: string; zipFileName: string }
+): DicomTagModifyArtifact {
   const contentDisposition = getResponseHeader(response.headers, 'content-disposition')
   const mediaType = getResponseHeader(response.headers, 'content-type') || 'application/octet-stream'
   const artifactKindHeader = getResponseHeader(response.headers, 'x-dicomvision-artifact-kind')
   const artifactKind = artifactKindHeader === 'zip' ? 'zip' : 'dicom'
   const fileName =
-    getResponseHeader(response.headers, 'x-dicomvision-file-name') ||
+    decodeHeaderFileName(getResponseHeader(response.headers, 'x-dicomvision-file-name')) ||
     getFileNameFromContentDisposition(contentDisposition) ||
-    (artifactKind === 'zip' ? 'dicom-tag-edits.zip' : 'dicom-tag-edit.dcm')
+    (artifactKind === 'zip' ? fallbackFileNames.zipFileName : fallbackFileNames.dicomFileName)
   const modifiedCount = Number.parseInt(getResponseHeader(response.headers, 'x-dicomvision-modified-count'), 10)
 
   return {
@@ -135,7 +158,66 @@ export async function postDicomTagModifyArtifact(
       responseType: 'arraybuffer'
     }
   )
-  return buildDicomTagModifyArtifact(response)
+  return buildDicomBinaryArtifact(response, {
+    dicomFileName: 'dicom-tag-edit.dcm',
+    zipFileName: 'dicom-tag-edits.zip'
+  })
+}
+
+export async function postDicomDeidentifyArtifact(
+  data: DicomDeidentifyRequest,
+  config?: AxiosRequestConfig
+): Promise<DicomDeidentifyArtifact> {
+  const response = await api.post<ArrayBuffer>(
+    toApiBaseRelativePath(operationPaths.DeidentifyDicomSeriesApiV1DicomDeidentifyPost),
+    data,
+    {
+      ...config,
+      responseType: 'arraybuffer'
+    }
+  )
+  return buildDicomBinaryArtifact(response, {
+    dicomFileName: 'dicom-deidentified.dcm',
+    zipFileName: 'dicom-deidentified.zip'
+  })
+}
+
+export async function postDicomDeidentifyJob(
+  data: DicomDeidentifyRequest,
+  config?: AxiosRequestConfig
+): Promise<DicomTagModifyJob> {
+  const response = await api.post<DicomTagModifyJob>(
+    toApiBaseRelativePath('/api/v1/dicom/deidentify/jobs'),
+    data,
+    config
+  )
+  return response.data
+}
+
+export async function getDicomDeidentifyJob(jobId: string, config?: AxiosRequestConfig): Promise<DicomTagModifyJob> {
+  const response = await api.get<DicomTagModifyJob>(
+    toApiBaseRelativePath(`/api/v1/dicom/deidentify/jobs/${encodeURIComponent(jobId)}`),
+    config
+  )
+  return response.data
+}
+
+export async function getDicomDeidentifyJobArtifact(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<DicomDeidentifyArtifact> {
+  const response = await api.get<ArrayBuffer>(
+    toApiBaseRelativePath(`/api/v1/dicom/deidentify/jobs/${encodeURIComponent(jobId)}/artifact`),
+    {
+      timeout: 0,
+      ...config,
+      responseType: 'arraybuffer'
+    }
+  )
+  return buildDicomBinaryArtifact(response, {
+    dicomFileName: 'dicom-deidentified.dcm',
+    zipFileName: 'dicom-deidentified.zip'
+  })
 }
 
 export async function postDicomTagModifyJob(
@@ -170,5 +252,8 @@ export async function getDicomTagModifyJobArtifact(
       responseType: 'arraybuffer'
     }
   )
-  return buildDicomTagModifyArtifact(response)
+  return buildDicomBinaryArtifact(response, {
+    dicomFileName: 'dicom-tag-edit.dcm',
+    zipFileName: 'dicom-tag-edits.zip'
+  })
 }

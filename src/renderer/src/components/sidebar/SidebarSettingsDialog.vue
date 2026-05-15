@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type DicomTagDisplayMode, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
@@ -233,6 +233,7 @@ const {
   setLocale,
   addCustomWindowPreset,
   crosshairConfigs,
+  dicomDeidentifyPreference,
   dicomTagDisplayMode,
   dicomTagEditSavePreference,
   getWindowPresetLabel,
@@ -244,6 +245,7 @@ const {
   selectedPseudocolorKey,
   selectedWindowPresetId,
   setCrosshairConfigs,
+  setDicomDeidentifyPreference,
   setDicomTagEditSavePreference,
   setMeasurementStylePreference,
   setQaWaterMetrics,
@@ -273,7 +275,7 @@ const sections = computed(() => [
   { key: 'language' as const, title: copy.value.language, subtitle: copy.value.languageSub, icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: copy.value.shortcutsSub, icon: 'keyboard' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: copy.value.windowPresetsSub, icon: 'contrast' },
-  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM Tag' : 'DICOM Tags', subtitle: isZh.value ? 'Tag 显示、编辑与保存策略' : 'Tag display, editing, and save behavior', icon: 'tag' },
+  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM Tag' : 'DICOM Tags', subtitle: isZh.value ? 'Tag 显示、编辑、保存与脱敏策略' : 'Tag display, editing, save, and de-identification behavior', icon: 'tag' },
   { key: 'qa' as const, title: copy.value.qaSection, subtitle: copy.value.qaSectionSub, icon: 'qa' },
   { key: 'export' as const, title: copy.value.exportSection ?? 'Export', subtitle: copy.value.exportSectionSub ?? 'Formats and default save location', icon: 'export' },
   { key: 'display' as const, title: copy.value.display, subtitle: copy.value.displaySub, icon: 'crosshair' }
@@ -307,6 +309,73 @@ const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; 
   }
 ])
 const currentDicomTagDisplayModeTitle = computed(() => dicomTagDisplayModeOptions.value.find((option) => option.value === dicomTagDisplayMode.value)?.title ?? '')
+const dicomDeidentifyOptions = computed<Array<{ key: DicomDeidentifyFieldKey; title: string; description: string; badge: string; recommended: boolean }>>(() => [
+  {
+    key: 'patientIdentity',
+    title: isZh.value ? '患者身份' : 'Patient identity',
+    description: isZh.value ? 'Patient Name、Patient ID、联系方式、地址等直接身份信息。' : 'Patient name, ID, contact details, address, and direct identifiers.',
+    badge: 'ID',
+    recommended: true
+  },
+  {
+    key: 'patientDemographics',
+    title: isZh.value ? '患者人口学' : 'Patient demographics',
+    description: isZh.value ? '生日、性别、年龄、身高体重等人口学字段。' : 'Birth date, sex, age, height, weight, and demographic fields.',
+    badge: 'BIO',
+    recommended: true
+  },
+  {
+    key: 'datesAndTimes',
+    title: isZh.value ? '日期与时间' : 'Dates and times',
+    description: isZh.value ? '清空 Study / Series / Acquisition 等日期和时间字段。' : 'Clear study, series, acquisition, and content date/time fields.',
+    badge: 'TIME',
+    recommended: true
+  },
+  {
+    key: 'accessionInstitution',
+    title: isZh.value ? '检查号与机构' : 'Accession and institution',
+    description: isZh.value ? 'Accession Number、Institution、Department、Study ID 等字段。' : 'Accession number, institution, department, study ID, and related fields.',
+    badge: 'ORG',
+    recommended: true
+  },
+  {
+    key: 'physiciansOperators',
+    title: isZh.value ? '医生与操作者' : 'Physicians and operators',
+    description: isZh.value ? 'Referring / Performing Physician、Operators 等人员字段。' : 'Referring physician, performing physician, operators, and related staff fields.',
+    badge: 'DOC',
+    recommended: true
+  },
+  {
+    key: 'descriptions',
+    title: isZh.value ? '描述文本' : 'Description text',
+    description: isZh.value ? 'Study Description、Series Description、Protocol Name，可能包含备注但会影响语义可读性。' : 'Study description, series description, and protocol name. Useful when notes may contain identifiers.',
+    badge: 'DESC',
+    recommended: false
+  },
+  {
+    key: 'deviceInfo',
+    title: isZh.value ? '设备信息' : 'Device info',
+    description: isZh.value ? 'Station Name、设备序列号、型号、软件版本等设备标识。' : 'Station name, device serial number, model, software versions, and equipment identifiers.',
+    badge: 'DEV',
+    recommended: false
+  },
+  {
+    key: 'privateTags',
+    title: isZh.value ? '私有 Tag' : 'Private tags',
+    description: isZh.value ? '删除厂商私有 Tag，避免隐藏字段携带身份信息。' : 'Remove vendor private tags that may hide identifying data.',
+    badge: 'PRIV',
+    recommended: true
+  },
+  {
+    key: 'uids',
+    title: isZh.value ? '重生成 UID' : 'Regenerate UIDs',
+    description: isZh.value ? '重生成 Study / Series / SOP Instance UID，并同步 file meta。' : 'Regenerate Study, Series, and SOP Instance UIDs and sync file meta.',
+    badge: 'UID',
+    recommended: true
+  }
+])
+const selectedDicomDeidentifyFieldKeySet = computed(() => new Set(dicomDeidentifyPreference.value.selectedFieldKeys))
+const selectedDicomDeidentifyCount = computed(() => dicomDeidentifyPreference.value.selectedFieldKeys.length)
 const canPickTagEditSaveLocation = computed(() => viewerRuntime.platform === 'desktop' && canChooseCustomExportDirectory())
 const tagEditSaveCustomLocationLabel = computed(() =>
   dicomTagEditSavePreference.value.desktopDirectory || (isZh.value ? '尚未选择文件夹' : 'No folder selected')
@@ -347,6 +416,48 @@ function isDicomTagDisplayModeActive(value: DicomTagDisplayMode): boolean {
 
 function handleSelectDicomTagDisplayMode(value: DicomTagDisplayMode): void {
   dicomTagDisplayMode.value = value
+}
+
+function isDicomDeidentifyFieldSelected(key: DicomDeidentifyFieldKey): boolean {
+  return selectedDicomDeidentifyFieldKeySet.value.has(key)
+}
+
+function toggleDicomDeidentifyField(key: DicomDeidentifyFieldKey): void {
+  const nextKeys = new Set(dicomDeidentifyPreference.value.selectedFieldKeys)
+  if (nextKeys.has(key)) {
+    nextKeys.delete(key)
+  } else {
+    nextKeys.add(key)
+  }
+  setDicomDeidentifyPreference({
+    ...dicomDeidentifyPreference.value,
+    selectedFieldKeys: [...nextKeys]
+  })
+}
+
+function selectAllDicomDeidentifyFields(): void {
+  setDicomDeidentifyPreference({
+    ...dicomDeidentifyPreference.value,
+    selectedFieldKeys: dicomDeidentifyOptions.value.map((option) => option.key)
+  })
+}
+
+function restoreDefaultDicomDeidentifyFields(): void {
+  setDicomDeidentifyPreference({
+    ...dicomDeidentifyPreference.value,
+    selectedFieldKeys: [...DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS]
+  })
+}
+
+function updateDicomDeidentifyReplacementPrefix(event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) {
+    return
+  }
+  setDicomDeidentifyPreference({
+    ...dicomDeidentifyPreference.value,
+    replacementPrefix: target.value
+  })
 }
 
 function handleSelectDefaultTagEditSaveLocation(): void {
@@ -498,6 +609,10 @@ function resetDicomTagSection(): void {
   setDicomTagEditSavePreference({
     locationMode: 'default',
     desktopDirectory: null
+  })
+  setDicomDeidentifyPreference({
+    selectedFieldKeys: [...DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS],
+    replacementPrefix: 'ANON'
   })
 }
 
@@ -1099,6 +1214,87 @@ onMounted(async () => {
                           >
                             {{ tagEditSaveLocationError }}
                           </div>
+                        </div>
+                      </div>
+
+                      <div class="mt-5 rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                        <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div class="flex items-start gap-3">
+                            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_24%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-accent)]">
+                              <AppIcon name="shield" :size="18" />
+                            </span>
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'DICOM 脱敏导出' : 'DICOM De-identification Export' }}</div>
+                              <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                                {{ isZh ? '右键序列执行脱敏导出时，会按这里勾选的规则生成新的 DICOM 副本，不覆盖原文件。' : 'Series context-menu de-identification exports use these rules and never overwrite source files.' }}
+                              </div>
+                            </div>
+                          </div>
+                          <span class="w-fit rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                            {{ selectedDicomDeidentifyCount }} / {{ dicomDeidentifyOptions.length }}
+                          </span>
+                        </div>
+
+                        <div class="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                          <button
+                            v-for="option in dicomDeidentifyOptions"
+                            :key="option.key"
+                            type="button"
+                            class="group min-h-[128px] rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                            :aria-pressed="isDicomDeidentifyFieldSelected(option.key)"
+                            :class="isDicomDeidentifyFieldSelected(option.key) ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_11%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
+                            @click="toggleDicomDeidentifyField(option.key)"
+                          >
+                            <span class="flex items-start justify-between gap-3">
+                              <span class="min-w-0">
+                                <span class="inline-flex rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em]" :class="isDicomDeidentifyFieldSelected(option.key) ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_48%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-muted)]'">
+                                  {{ option.badge }}
+                                </span>
+                                <span class="mt-3 block text-sm font-semibold text-[var(--theme-text-primary)]">{{ option.title }}</span>
+                              </span>
+                              <span
+                                class="grid h-5 w-5 shrink-0 place-items-center rounded-md border transition"
+                                :class="isDicomDeidentifyFieldSelected(option.key) ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)] bg-transparent text-transparent'"
+                              >
+                                <AppIcon name="check" :size="12" />
+                              </span>
+                            </span>
+                            <span class="mt-3 block text-xs leading-5 text-[var(--theme-text-secondary)]">{{ option.description }}</span>
+                            <span v-if="option.recommended" class="mt-3 inline-flex rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_22%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_8%,transparent)] px-2 py-0.5 text-[10px] font-semibold text-[var(--theme-text-secondary)]">
+                              {{ isZh ? '常用默认' : 'Default' }}
+                            </span>
+                          </button>
+                        </div>
+
+                        <div class="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                          <label class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3">
+                            <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '替换前缀' : 'Replacement prefix' }}</span>
+                            <input
+                              :value="dicomDeidentifyPreference.replacementPrefix"
+                              maxlength="24"
+                              class="mt-2 w-full border-0 bg-transparent text-sm font-semibold text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
+                              placeholder="ANON"
+                              @input="updateDicomDeidentifyReplacementPrefix"
+                            />
+                            <span class="mt-1 block text-xs leading-5 text-[var(--theme-text-secondary)]">
+                              {{ isZh ? '用于生成匿名 Patient ID，例如 ANON-XXXX。' : 'Used to generate anonymous Patient ID values such as ANON-XXXX.' }}
+                            </span>
+                          </label>
+                          <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+                            <button type="button" class="theme-button-secondary rounded-2xl px-4 py-2 text-sm font-medium" @click="restoreDefaultDicomDeidentifyFields">
+                              {{ isZh ? '恢复常用' : 'Use defaults' }}
+                            </button>
+                            <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold" @click="selectAllDicomDeidentifyFields">
+                              {{ isZh ? '全选' : 'Select all' }}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div
+                          v-if="selectedDicomDeidentifyCount === 0"
+                          class="mt-4 rounded-2xl border border-[color:color-mix(in_srgb,#f4b860_38%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,#f4b860_10%,transparent)] px-4 py-3 text-xs leading-5 text-[color:color-mix(in_srgb,#f4b860_78%,var(--theme-text-primary))]"
+                        >
+                          {{ isZh ? '至少选择一个脱敏项后，右键菜单中的脱敏导出才会执行。' : 'Select at least one de-identification option before using context-menu export.' }}
                         </div>
                       </div>
                     </section>

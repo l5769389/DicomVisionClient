@@ -27,6 +27,17 @@ const statusToastIcon = computed(() => {
       return 'info'
   }
 })
+const statusToastProgressLabel = computed(() => {
+  const toast = viewer.statusToast.value
+  const label = toast?.progressLabel?.trim() ?? ''
+  if (!label) {
+    return ''
+  }
+
+  const message = toast?.message.trim() ?? ''
+  const detail = toast?.detail?.trim() ?? ''
+  return label === message || label === detail ? '' : label
+})
 
 const preventSelection = (event: Event): void => {
   event.preventDefault()
@@ -51,6 +62,8 @@ const handleStatusToastEvent = (event: Event): void => {
     filePath?: unknown
     canOpenLocation?: unknown
     busy?: unknown
+    progressLabel?: unknown
+    progressPercent?: unknown
     durationMs?: unknown
   }>).detail
   const message = typeof detail?.message === 'string' ? detail.message.trim() : ''
@@ -63,6 +76,11 @@ const handleStatusToastEvent = (event: Event): void => {
     filePath: typeof detail?.filePath === 'string' ? detail.filePath : null,
     canOpenLocation: detail?.canOpenLocation === true,
     busy: detail?.busy === true,
+    progressLabel: typeof detail?.progressLabel === 'string' ? detail.progressLabel.trim() : null,
+    progressPercent:
+      typeof detail?.progressPercent === 'number' && Number.isFinite(detail.progressPercent)
+        ? detail.progressPercent
+        : null,
     durationMs: typeof detail?.durationMs === 'number' && Number.isFinite(detail.durationMs) ? detail.durationMs : undefined
   })
 }
@@ -288,6 +306,12 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           >
             {{ viewer.statusToast.value.detail }}
           </span>
+          <span v-if="viewer.statusToast.value.progressPercent != null" class="app-status-toast__progress" aria-hidden="true">
+            <span class="app-status-toast__progress-fill" :style="{ width: `${viewer.statusToast.value.progressPercent}%` }"></span>
+          </span>
+          <span v-if="statusToastProgressLabel" class="app-status-toast__progress-label">
+            {{ statusToastProgressLabel }}
+          </span>
         </span>
         <button type="button" class="app-status-toast__close" aria-label="Close notification" @click="viewer.dismissStatusToast">
           <AppIcon name="close" :size="13" />
@@ -508,6 +532,37 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 
 .app-status-toast__detail--button:hover {
   color: var(--theme-accent);
+}
+
+.app-status-toast__progress {
+  display: block;
+  width: 100%;
+  height: 5px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
+}
+
+.app-status-toast__progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-accent) 82%, var(--theme-text-primary) 10%),
+    color-mix(in srgb, var(--theme-accent-warm) 62%, var(--theme-accent) 38%)
+  );
+  transition: width 220ms ease;
+}
+
+.app-status-toast__progress-label {
+  display: block;
+  margin-top: 4px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .app-status-toast__close {

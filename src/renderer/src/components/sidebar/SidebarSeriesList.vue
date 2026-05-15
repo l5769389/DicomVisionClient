@@ -3,7 +3,15 @@ import { computed, ref } from 'vue'
 import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import { isFourDSeriesItem, type FolderSeriesItem, type ViewType } from '../../types/viewer'
+import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import { saveBinaryFile, type SaveFilePreference } from '../../platform/exporting'
+import {
+  getDicomDeidentifyJob,
+  getDicomDeidentifyJobArtifact,
+  postDicomDeidentifyJob,
+  type DicomTagModifyJob
+} from '../../services/typedApi'
 import { getSeriesMetaLabel, getSeriesValueMetaLabel } from './seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
@@ -20,17 +28,46 @@ const emit = defineEmits<{
 }>()
 
 const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
+const DEIDENTIFY_EXPORT_ROOT = 'DicomVisionDeidentified'
+const DEIDENTIFY_JOB_POLL_INTERVAL_MS = 700
+const DEIDENTIFY_JOB_MAX_POLLS = 1500
+const DEIDENTIFY_JOB_STATUS_TIMEOUT_MS = 8000
+const DEIDENTIFY_JOB_MAX_STATUS_ERRORS = 3
 
-type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'delete'
+type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'deidentify' | 'delete'
 
-const { t } = useUiLocale()
+const { locale, t } = useUiLocale()
+const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
 const isContextMenuOpen = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
+const isDeidentifyingSeriesId = ref('')
 
 const contextMenuAnchorStyle = computed(() => ({
   left: `${contextMenuPosition.value.x}px`,
   top: `${contextMenuPosition.value.y}px`
+}))
+
+const isZh = computed(() => locale.value === 'zh-CN')
+const selectedDeidentifyFieldCount = computed(() => dicomDeidentifyPreference.value.selectedFieldKeys.length)
+const deidentifyCopy = computed(() => ({
+  actionTitle: isZh.value ? '脱敏导出' : 'De-identify Export',
+  actionSubtitle:
+    selectedDeidentifyFieldCount.value > 0
+      ? (isZh.value ? '生成脱敏 DICOM 副本' : 'Create de-identified DICOM copies')
+      : (isZh.value ? '请先在设置中选择脱敏项' : 'Select de-identification fields in settings first'),
+  downloadStarted: (fileName: string) => (isZh.value ? `已交给浏览器下载：${fileName}` : `Browser download started: ${fileName}`),
+  exportFailed: isZh.value ? 'DICOM 脱敏导出失败。' : 'Failed to export de-identified DICOM.',
+  exportJobCompleted: (count: number) =>
+    isZh.value ? `DICOM 脱敏导出已完成，已生成 ${count} 个 DICOM 文件。` : `DICOM de-identify export completed. Created ${count} DICOM file(s).`,
+  exportJobPackaging: isZh.value ? 'DICOM 已处理完成，正在打包结果...' : 'DICOM processing complete. Packaging result...',
+  exportJobPreparing: isZh.value ? '正在准备脱敏导出任务...' : 'Preparing de-identify export...',
+  exportJobProgress: (processed: number, total: number, percent: number) =>
+    isZh.value ? `已处理 ${processed}/${total}（${percent}%）` : `Processed ${processed}/${total} (${percent}%)`,
+  exportJobSaving: isZh.value ? '正在保存脱敏导出结果...' : 'Saving de-identify export result...',
+  exportJobStarted: isZh.value ? 'DICOM 脱敏导出任务已开始，可继续浏览图像。' : 'DICOM de-identify export started. You can keep browsing images.',
+  exportJobTimeout: isZh.value ? 'DICOM 脱敏导出任务仍在执行，请稍后再查看。' : 'DICOM de-identify export is still running. Check again later.',
+  savedDirectory: (directory: string) => (isZh.value ? `保存位置：${directory}` : `Saved to: ${directory}`)
 }))
 
 const contextMenuActions = computed(() => [
@@ -64,6 +101,13 @@ const contextMenuActions = computed(() => [
     title: 'TAG',
     subtitle: 'DICOM Tags',
     badge: 'TAG'
+  },
+  {
+    key: 'deidentify' as const,
+    title: deidentifyCopy.value.actionTitle,
+    subtitle: deidentifyCopy.value.actionSubtitle,
+    badge: 'DEID',
+    disabled: selectedDeidentifyFieldCount.value === 0 || Boolean(isDeidentifyingSeriesId.value)
   },
   {
     key: 'delete' as const,
@@ -102,6 +146,109 @@ function closeContextMenu(): void {
   isContextMenuOpen.value = false
 }
 
+function resolveBackendErrorDetail(error: unknown): string {
+  const responseData = (error as { response?: { data?: unknown } } | null)?.response?.data
+  if (responseData && typeof responseData === 'object' && 'detail' in responseData) {
+    const detail = (responseData as { detail?: unknown }).detail
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail.trim()
+    }
+  }
+
+  return error instanceof Error && error.message.trim() ? error.message.trim() : ''
+}
+
+function showGlobalStatusToast(
+  message: string,
+  tone: 'info' | 'success' | 'warning' | 'error' = 'info',
+  options: {
+    detail?: string | null
+    directoryPath?: string | null
+    filePath?: string | null
+    canOpenLocation?: boolean
+    busy?: boolean
+    progressLabel?: string | null
+    progressPercent?: number | null
+    durationMs?: number
+  } = {}
+): void {
+  window.dispatchEvent(
+    new CustomEvent('dicomvision:status-toast', {
+      detail: {
+        message,
+        tone,
+        ...options
+      }
+    })
+  )
+}
+
+function waitForDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function getDeidentifyJobProgress(job: DicomTagModifyJob): { isPackaging: boolean; processed: number; total: number; percent: number; label: string } {
+  const total = Math.max(0, Number(job.totalCount ?? 0))
+  const processedFallback = job.status === 'succeeded' ? total : 0
+  const processed = Math.max(0, Math.min(total || Number(job.processedCount ?? processedFallback), Number(job.processedCount ?? processedFallback)))
+  const isProcessingComplete = total > 0 && processed >= total
+  const percentFromJob = Number(job.progressPercent)
+  const percent =
+    isProcessingComplete
+      ? 100
+      : Number.isFinite(percentFromJob) && percentFromJob >= 0
+        ? Math.max(0, Math.min(100, Math.round(percentFromJob)))
+        : total > 0
+          ? Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
+          : 0
+
+  return {
+    isPackaging: isProcessingComplete && job.status !== 'succeeded',
+    processed,
+    total,
+    percent,
+    label:
+      total > 0
+        ? isProcessingComplete && job.status !== 'succeeded'
+          ? deidentifyCopy.value.exportJobPackaging
+          : deidentifyCopy.value.exportJobProgress(processed, total, percent)
+        : deidentifyCopy.value.exportJobPreparing
+  }
+}
+
+function showDeidentifyJobProgress(job: DicomTagModifyJob, message = deidentifyCopy.value.exportJobStarted): void {
+  const progress = getDeidentifyJobProgress(job)
+  showGlobalStatusToast(progress.isPackaging ? deidentifyCopy.value.exportJobPackaging : message, 'info', {
+    busy: true,
+    durationMs: 0,
+    progressLabel: progress.label,
+    progressPercent: progress.percent
+  })
+}
+
+async function waitForDicomDeidentifyJob(initialJob: DicomTagModifyJob): Promise<DicomTagModifyJob> {
+  let job = initialJob
+  let failedStatusPollCount = 0
+  showDeidentifyJobProgress(job)
+  for (let pollIndex = 0; pollIndex < DEIDENTIFY_JOB_MAX_POLLS; pollIndex += 1) {
+    if (job.status === 'succeeded' || job.status === 'failed') {
+      return job
+    }
+    await waitForDelay(DEIDENTIFY_JOB_POLL_INTERVAL_MS)
+    try {
+      job = await getDicomDeidentifyJob(initialJob.jobId, { timeout: DEIDENTIFY_JOB_STATUS_TIMEOUT_MS })
+      failedStatusPollCount = 0
+      showDeidentifyJobProgress(job)
+    } catch (error) {
+      failedStatusPollCount += 1
+      if (failedStatusPollCount >= DEIDENTIFY_JOB_MAX_STATUS_ERRORS) {
+        throw error
+      }
+    }
+  }
+  throw new Error(deidentifyCopy.value.exportJobTimeout)
+}
+
 function handleSeriesContextMenu(event: MouseEvent, series: FolderSeriesItem): void {
   event.preventDefault()
   emit('selectSeries', series.seriesId)
@@ -113,21 +260,134 @@ function handleSeriesContextMenu(event: MouseEvent, series: FolderSeriesItem): v
   isContextMenuOpen.value = true
 }
 
-function handleContextAction(action: SeriesContextAction): void {
-  if (!contextSeries.value) {
+async function handleContextAction(action: SeriesContextAction): Promise<void> {
+  const series = contextSeries.value
+  if (!series) {
     return
   }
-  if (action === '4D' && !isFourDSeries(contextSeries.value)) {
+  if (action === '4D' && !isFourDSeries(series)) {
     return
   }
 
   if (action === 'delete') {
-    emit('removeSeries', contextSeries.value.seriesId)
+    emit('removeSeries', series.seriesId)
+  } else if (action === 'deidentify') {
+    closeContextMenu()
+    await exportDeidentifiedSeries(series)
+    return
   } else {
-    emit('openSeriesView', contextSeries.value.seriesId, action)
+    emit('openSeriesView', series.seriesId, action)
   }
 
   closeContextMenu()
+}
+
+function getSafeDeidentifyFolderName(value: string): string {
+  return value.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^[._ -]+|[._ -]+$/g, '').slice(0, 24) || 'series'
+}
+
+function appendDesktopPath(baseDirectory: string, ...segments: string[]): string {
+  const separator = baseDirectory.includes('\\') ? '\\' : '/'
+  const base = baseDirectory.replace(/[\\/]+$/g, '')
+  const cleanSegments = segments.map((segment) => segment.replace(/^[\\/]+|[\\/]+$/g, '')).filter(Boolean)
+  return [base, ...cleanSegments].join(separator)
+}
+
+async function resolveDeidentifySavePreference(seriesFolder: string, fallbackSeriesId: string): Promise<SaveFilePreference> {
+  if (!window.viewerApi?.saveExportFile) {
+    return exportPreference.value
+  }
+
+  const configuredDirectory =
+    exportPreference.value.locationMode === 'custom'
+      ? exportPreference.value.desktopDirectory?.trim()
+      : await window.viewerApi.getDefaultExportDirectory?.()
+
+  if (!configuredDirectory) {
+    return exportPreference.value
+  }
+
+  return {
+    ...exportPreference.value,
+    locationMode: 'custom',
+    desktopDirectory: appendDesktopPath(
+      configuredDirectory,
+      DEIDENTIFY_EXPORT_ROOT,
+      getSafeDeidentifyFolderName(seriesFolder || fallbackSeriesId)
+    )
+  }
+}
+
+async function exportDeidentifiedSeries(series: FolderSeriesItem): Promise<void> {
+  if (isDeidentifyingSeriesId.value) {
+    return
+  }
+  if (selectedDeidentifyFieldCount.value === 0) {
+    showGlobalStatusToast(deidentifyCopy.value.actionSubtitle, 'error')
+    return
+  }
+
+  isDeidentifyingSeriesId.value = series.seriesId
+  try {
+    const job = await postDicomDeidentifyJob({
+      seriesId: series.seriesId,
+      fieldKeys: dicomDeidentifyPreference.value.selectedFieldKeys,
+      replacementPrefix: dicomDeidentifyPreference.value.replacementPrefix
+    })
+    showDeidentifyJobProgress(job)
+    void finishDeidentifyExportJob(job, series)
+  } catch (error) {
+    const detail = resolveBackendErrorDetail(error)
+    isDeidentifyingSeriesId.value = ''
+    showGlobalStatusToast(deidentifyCopy.value.exportFailed, 'error', {
+      detail: detail || undefined,
+      busy: false,
+      durationMs: 8000
+    })
+  }
+}
+
+async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: FolderSeriesItem): Promise<void> {
+  try {
+    const completedJob = await waitForDicomDeidentifyJob(initialJob)
+    if (completedJob.status === 'failed') {
+      throw new Error(completedJob.error || deidentifyCopy.value.exportFailed)
+    }
+
+    const progress = getDeidentifyJobProgress(completedJob)
+    showGlobalStatusToast(deidentifyCopy.value.exportJobSaving, 'info', {
+      busy: true,
+      durationMs: 0,
+      progressLabel: progress.label,
+      progressPercent: 100
+    })
+    const artifact = await getDicomDeidentifyJobArtifact(completedJob.jobId)
+    const savedFile = await saveBinaryFile({
+      data: artifact.data,
+      fileName: artifact.fileName,
+      mimeType: artifact.mediaType,
+      preference: await resolveDeidentifySavePreference(artifact.seriesFolder, series.seriesId)
+    })
+    showGlobalStatusToast(deidentifyCopy.value.exportJobCompleted(artifact.modifiedCount), 'success', {
+      detail: savedFile.locationDescription
+        ? deidentifyCopy.value.savedDirectory(savedFile.locationDescription)
+        : deidentifyCopy.value.downloadStarted(artifact.fileName),
+      directoryPath: savedFile.directoryPath ?? null,
+      filePath: savedFile.filePath ?? null,
+      canOpenLocation: Boolean((savedFile.directoryPath || savedFile.filePath) && window.viewerApi?.openExportLocation),
+      busy: false,
+      durationMs: 10000
+    })
+  } catch (error) {
+    const detail = resolveBackendErrorDetail(error)
+    showGlobalStatusToast(deidentifyCopy.value.exportFailed, 'error', {
+      detail: detail || (error instanceof Error ? error.message : undefined),
+      busy: false,
+      durationMs: 8000
+    })
+  } finally {
+    isDeidentifyingSeriesId.value = ''
+  }
 }
 
 function handleSeriesDragStart(event: DragEvent, seriesId: string): void {

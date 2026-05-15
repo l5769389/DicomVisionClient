@@ -18,6 +18,12 @@ export interface CornerInfoResponse {
   cornerInfo: CornerInfoPayload
 }
 
+export interface DicomDeidentifyRequest {
+  seriesId: string
+  fieldKeys?: ('patientIdentity' | 'patientDemographics' | 'datesAndTimes' | 'accessionInstitution' | 'physiciansOperators' | 'descriptions' | 'deviceInfo' | 'privateTags' | 'uids')[]
+  replacementPrefix?: string
+}
+
 export interface DicomTagItem {
   tag: string
   keyword: string
@@ -38,7 +44,10 @@ export interface DicomTagModifyJobStatusResponse {
   fileName?: string | null
   mediaType?: string | null
   modifiedCount?: number | null
+  processedCount?: number
+  progressPercent?: number
   seriesFolder?: string | null
+  totalCount?: number
   createdAt: string
   completedAt?: string | null
 }
@@ -502,6 +511,10 @@ export interface WindowInfo {
 
 export interface ApiOperations {
   GetCornerInfoApiV1DicomCornerInfoPost: { method: 'POST'; path: '/api/v1/dicom/cornerInfo'; request: CornerInfoRequest; response: CornerInfoResponse }
+  DeidentifyDicomSeriesApiV1DicomDeidentifyPost: { method: 'POST'; path: '/api/v1/dicom/deidentify'; request: DicomDeidentifyRequest; response: unknown }
+  CreateDeidentifyDicomSeriesJobApiV1DicomDeidentifyJobsPost: { method: 'POST'; path: '/api/v1/dicom/deidentify/jobs'; request: DicomDeidentifyRequest; response: unknown }
+  GetDeidentifyDicomSeriesJobApiV1DicomDeidentifyJobsJobIdGet: { method: 'GET'; path: '/api/v1/dicom/deidentify/jobs/{job_id}'; request: never; response: DicomTagModifyJobStatusResponse }
+  GetDeidentifyDicomSeriesJobArtifactApiV1DicomDeidentifyJobsJobIdArtifactGet: { method: 'GET'; path: '/api/v1/dicom/deidentify/jobs/{job_id}/artifact'; request: never; response: unknown }
   GetFourDPhasesApiV1DicomFourDPhasesPost: { method: 'POST'; path: '/api/v1/dicom/fourD/phases'; request: FourDPhasesRequest; response: FourDPhasesResponse }
   GetFourDPreviewApiV1DicomFourDPreviewGet: { method: 'GET'; path: '/api/v1/dicom/fourD/preview'; request: never; response: unknown }
   LoadFolderApiV1DicomLoadFolderPost: { method: 'POST'; path: '/api/v1/dicom/loadFolder'; request: LoadFolderRequest; response: LoadFolderResponse }

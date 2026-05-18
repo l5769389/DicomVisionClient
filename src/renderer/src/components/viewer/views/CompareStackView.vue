@@ -10,6 +10,11 @@ import type {
   MeasurementOverlay,
   ViewerTabItem
 } from '../../../types/viewer'
+import {
+  COMPARE_STACK_PANE_KEYS,
+  COMPARE_STACK_SOURCE_PANE_KEY,
+  createComparePaneRecord
+} from '../../../composables/workspace/views/viewerWorkspaceTabs'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -55,18 +60,11 @@ interface SliceInfo {
   total: number
 }
 
-const paneKeys: CompareStackPaneKey[] = ['compare-a', 'compare-b']
-const sliderValues = ref<Record<CompareStackPaneKey, number>>({
-  'compare-a': 1,
-  'compare-b': 1
-})
-const activeSliderKeys = ref<Record<CompareStackPaneKey, boolean>>({
-  'compare-a': false,
-  'compare-b': false
-})
+const sliderValues = ref<Record<CompareStackPaneKey, number>>(createComparePaneRecord(() => 1))
+const activeSliderKeys = ref<Record<CompareStackPaneKey, boolean>>(createComparePaneRecord(() => false))
 
 const panes = computed<ComparePaneView[]>(() =>
-  paneKeys.map((key, index) => ({
+  COMPARE_STACK_PANE_KEYS.map((key, index) => ({
     key,
     badge: index === 0 ? 'A' : 'B',
     title: props.activeTab.compareSeriesTitles?.[key] || (index === 0 ? props.activeTab.seriesTitle : 'Compare Series'),
@@ -89,21 +87,20 @@ function parseSliceInfo(sliceLabel: string): SliceInfo {
   }
 }
 
-const sliceInfos = computed<Record<CompareStackPaneKey, SliceInfo>>(() => ({
-  'compare-a': parseSliceInfo(props.activeTab.compareSliceLabels?.['compare-a'] ?? ''),
-  'compare-b': parseSliceInfo(props.activeTab.compareSliceLabels?.['compare-b'] ?? '')
-}))
+const sliceInfos = computed<Record<CompareStackPaneKey, SliceInfo>>(() =>
+  createComparePaneRecord((paneKey) => parseSliceInfo(props.activeTab.compareSliceLabels?.[paneKey] ?? ''))
+)
 
 const isScrollSynced = computed(() => props.activeTab.compareSyncScroll !== false)
 const syncedSliderPane = computed(() => panes.value[0] ?? null)
-const syncedSliceInfo = computed(() => sliceInfos.value['compare-a'])
+const syncedSliceInfo = computed(() => sliceInfos.value[COMPARE_STACK_SOURCE_PANE_KEY])
 
 function clampSliceValue(value: number, total: number): number {
   return Math.min(Math.max(value, 1), total)
 }
 
 function syncInactiveSliderValues(values = sliceInfos.value): void {
-  paneKeys.forEach((key) => {
+  COMPARE_STACK_PANE_KEYS.forEach((key) => {
     if (!activeSliderKeys.value[key]) {
       sliderValues.value[key] = clampSliceValue(values[key].current, values[key].total)
     }
@@ -115,10 +112,7 @@ watch(sliceInfos, (values) => syncInactiveSliderValues(values), { immediate: tru
 watch(
   () => props.activeTab.key,
   () => {
-    activeSliderKeys.value = {
-      'compare-a': false,
-      'compare-b': false
-    }
+    activeSliderKeys.value = createComparePaneRecord(() => false)
     syncInactiveSliderValues()
   }
 )
@@ -259,20 +253,20 @@ function handleSyncedSliceSliderInput(event: Event): void {
 
       <div v-if="isScrollSynced && syncedSliderPane" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
         <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Slice</span>
-        <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues['compare-a'] }}</span>
+        <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[COMPARE_STACK_SOURCE_PANE_KEY] }}</span>
         <div class="my-2 flex min-h-0 flex-1 items-center">
           <input
             class="compare-stack-slider h-full w-3 cursor-pointer"
             type="range"
             min="1"
             :max="syncedSliceInfo.total"
-            :value="sliderValues['compare-a']"
+            :value="sliderValues[COMPARE_STACK_SOURCE_PANE_KEY]"
             orient="vertical"
             aria-label="切换同步对比切片"
-            @pointerdown="beginSliceSliderDrag('compare-a')"
-            @pointerup="endSliceSliderDrag('compare-a')"
-            @pointercancel="endSliceSliderDrag('compare-a')"
-            @change="endSliceSliderDrag('compare-a')"
+            @pointerdown="beginSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"
+            @pointerup="endSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"
+            @pointercancel="endSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"
+            @change="endSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"
             @input="handleSyncedSliceSliderInput"
           />
         </div>

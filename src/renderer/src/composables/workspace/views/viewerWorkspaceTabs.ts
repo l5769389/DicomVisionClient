@@ -19,7 +19,19 @@ import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
-export const COMPARE_STACK_PANE_KEYS: CompareStackPaneKey[] = ['compare-a', 'compare-b']
+export const COMPARE_STACK_SOURCE_PANE_KEY: CompareStackPaneKey = 'compare-a'
+export const COMPARE_STACK_TARGET_PANE_KEY: CompareStackPaneKey = 'compare-b'
+export const COMPARE_STACK_PANE_KEYS: CompareStackPaneKey[] = [COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY]
+
+export function createComparePaneRecord<T>(
+  factory: (paneKey: CompareStackPaneKey, index: number) => T
+): Record<CompareStackPaneKey, T> {
+  const record = {} as Record<CompareStackPaneKey, T>
+  COMPARE_STACK_PANE_KEYS.forEach((paneKey, index) => {
+    record[paneKey] = factory(paneKey, index)
+  })
+  return record
+}
 
 export function createEmptyMprImages(): Record<MprViewportKey, string> {
   return {
@@ -112,66 +124,39 @@ export function createEmptyMprPseudocolorPresets(): Record<MprViewportKey, strin
 }
 
 export function createEmptyCompareViewIds(): Record<CompareStackPaneKey, string> {
-  return {
-    'compare-a': '',
-    'compare-b': ''
-  }
+  return createComparePaneRecord(() => '')
 }
 
 export function createEmptyCompareImages(): Record<CompareStackPaneKey, string> {
-  return {
-    'compare-a': '',
-    'compare-b': ''
-  }
+  return createComparePaneRecord(() => '')
 }
 
 export function createEmptyCompareSliceLabels(): Record<CompareStackPaneKey, string> {
-  return {
-    'compare-a': '',
-    'compare-b': ''
-  }
+  return createComparePaneRecord(() => '')
 }
 
 export function createEmptyCompareWindowLabels(): Record<CompareStackPaneKey, string> {
-  return {
-    'compare-a': '',
-    'compare-b': ''
-  }
+  return createComparePaneRecord(() => '')
 }
 
 export function createEmptyCompareScaleBars(): Record<CompareStackPaneKey, null> {
-  return {
-    'compare-a': null,
-    'compare-b': null
-  }
+  return createComparePaneRecord(() => null)
 }
 
 export function createEmptyCompareCornerInfos(): Record<CompareStackPaneKey, CornerInfo> {
-  return {
-    'compare-a': createEmptyCornerInfo(),
-    'compare-b': createEmptyCornerInfo()
-  }
+  return createComparePaneRecord(() => createEmptyCornerInfo())
 }
 
 export function createEmptyCompareOrientations(): Record<CompareStackPaneKey, OrientationInfo> {
-  return {
-    'compare-a': createEmptyOrientationInfo(),
-    'compare-b': createEmptyOrientationInfo()
-  }
+  return createComparePaneRecord(() => createEmptyOrientationInfo())
 }
 
 export function createEmptyCompareTransformStates(): Record<CompareStackPaneKey, ViewTransformInfo> {
-  return {
-    'compare-a': createDefaultTransformInfo(),
-    'compare-b': createDefaultTransformInfo()
-  }
+  return createComparePaneRecord(() => createDefaultTransformInfo())
 }
 
 export function createEmptyComparePseudocolorPresets(): Record<CompareStackPaneKey, string> {
-  return {
-    'compare-a': DEFAULT_PSEUDOCOLOR_PRESET,
-    'compare-b': DEFAULT_PSEUDOCOLOR_PRESET
-  }
+  return createComparePaneRecord(() => DEFAULT_PSEUDOCOLOR_PRESET)
 }
 
 export function createDefaultFourDPhaseItems(phaseCount = 10): FourDPhaseItem[] {
@@ -475,7 +460,7 @@ export function isMprViewportKey(viewportKey: string): viewportKey is MprViewpor
 }
 
 export function isCompareStackPaneKey(viewportKey: string): viewportKey is CompareStackPaneKey {
-  return viewportKey === 'compare-a' || viewportKey === 'compare-b'
+  return COMPARE_STACK_PANE_KEYS.includes(viewportKey as CompareStackPaneKey)
 }
 
 export function createTabKey(seriesId: string, viewType: ViewType): string {
@@ -511,14 +496,12 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     imageSrc: '',
     sliceLabel: '',
     windowLabel: '',
-    compareSeriesIds: {
-      'compare-a': series.seriesId,
-      'compare-b': ''
-    },
-    compareSeriesTitles: {
-      'compare-a': seriesTitle,
-      'compare-b': ''
-    },
+    compareSeriesIds: createComparePaneRecord((paneKey) =>
+      paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? series.seriesId : ''
+    ),
+    compareSeriesTitles: createComparePaneRecord((paneKey) =>
+      paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? seriesTitle : ''
+    ),
     compareViewIds: createEmptyCompareViewIds(),
     compareImages: createEmptyCompareImages(),
     compareSliceLabels: createEmptyCompareSliceLabels(),

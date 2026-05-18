@@ -13,6 +13,16 @@ import {
   postDicomTagModifyJob,
   type DicomTagModifyJob
 } from '../../../services/typedApi'
+import {
+  getDicomJobProgress,
+  showDicomJobProgressToast,
+  waitForDicomJob,
+  type DicomJobToastCopy
+} from '../../../composables/workspace/tasks/dicomJobTask'
+import {
+  dispatchWorkspaceStatusToast,
+  resolveBackendErrorDetail
+} from '../../../composables/workspace/tasks/workspaceStatus'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -50,10 +60,6 @@ const TAG_OVERSCAN_ROWS = 8
 const TAG_TREE_INDENT_PX = 28
 const TAG_TREE_MAX_GUIDE_DEPTH = 10
 const TAG_EDIT_EXPORT_ROOT = 'DicomVisionTagEdits'
-const TAG_EDIT_JOB_POLL_INTERVAL_MS = 700
-const TAG_EDIT_JOB_MAX_POLLS = 1500
-const TAG_EDIT_JOB_STATUS_TIMEOUT_MS = 8000
-const TAG_EDIT_JOB_MAX_STATUS_ERRORS = 3
 const EDITABLE_BINARY_VR_VALUES = new Set(['OB', 'OD', 'OF', 'OL', 'OV', 'OW', 'UN'])
 
 const { locale, tagViewCopy: copy } = useUiLocale()
@@ -318,107 +324,24 @@ function clearSearchQuery(): void {
   searchQuery.value = ''
 }
 
-function resolveBackendErrorDetail(error: unknown): string {
-  const responseData = (error as { response?: { data?: unknown } } | null)?.response?.data
-  if (responseData && typeof responseData === 'object' && 'detail' in responseData) {
-    const detail = (responseData as { detail?: unknown }).detail
-    if (typeof detail === 'string' && detail.trim()) {
-      return detail.trim()
-    }
-  }
-
-  return error instanceof Error && error.message.trim() ? error.message.trim() : ''
-}
-
-function showGlobalStatusToast(
-  message: string,
-  tone: 'info' | 'success' | 'warning' | 'error' = 'info',
-  options: {
-    detail?: string | null
-    directoryPath?: string | null
-    filePath?: string | null
-    canOpenLocation?: boolean
-    busy?: boolean
-    progressLabel?: string | null
-    progressPercent?: number | null
-    durationMs?: number
-  } = {}
-): void {
-  window.dispatchEvent(
-    new CustomEvent('dicomvision:status-toast', {
-      detail: {
-        message,
-        tone,
-        ...options
-      }
-    })
-  )
-}
-
-function waitForDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-function getJobProgress(job: DicomTagModifyJob): { isPackaging: boolean; processed: number; total: number; percent: number; label: string } {
-  const total = Math.max(0, Number(job.totalCount ?? 0))
-  const processedFallback = job.status === 'succeeded' ? total : 0
-  const processed = Math.max(0, Math.min(total || Number(job.processedCount ?? processedFallback), Number(job.processedCount ?? processedFallback)))
-  const isProcessingComplete = total > 0 && processed >= total
-  const percentFromJob = Number(job.progressPercent)
-  const percent =
-    isProcessingComplete
-      ? 100
-      : Number.isFinite(percentFromJob) && percentFromJob >= 0
-        ? Math.max(0, Math.min(100, Math.round(percentFromJob)))
-        : total > 0
-          ? Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
-          : 0
-
+function getTagEditJobToastCopy(): DicomJobToastCopy {
   return {
-    isPackaging: isProcessingComplete && job.status !== 'succeeded',
-    processed,
-    total,
-    percent,
-    label:
-      total > 0
-        ? isProcessingComplete && job.status !== 'succeeded'
-          ? tagEditCopy.value.seriesJobPackaging
-          : tagEditCopy.value.seriesJobProgress(processed, total, percent)
-        : tagEditCopy.value.seriesJobPreparing
+    packaging: tagEditCopy.value.seriesJobPackaging,
+    preparing: tagEditCopy.value.seriesJobPreparing,
+    progress: tagEditCopy.value.seriesJobProgress,
+    started: tagEditCopy.value.seriesJobStarted
   }
 }
 
 function showTagEditJobProgress(job: DicomTagModifyJob, message = tagEditCopy.value.seriesJobStarted): void {
-  const progress = getJobProgress(job)
-  showGlobalStatusToast(progress.isPackaging ? tagEditCopy.value.seriesJobPackaging : message, 'info', {
-    busy: true,
-    durationMs: 0,
-    progressLabel: progress.label,
-    progressPercent: progress.percent
-  })
+  showDicomJobProgressToast(job, getTagEditJobToastCopy(), message)
 }
 
 async function waitForDicomTagModifyJob(initialJob: DicomTagModifyJob): Promise<DicomTagModifyJob> {
-  let job = initialJob
-  let failedStatusPollCount = 0
-  showTagEditJobProgress(job)
-  for (let pollIndex = 0; pollIndex < TAG_EDIT_JOB_MAX_POLLS; pollIndex += 1) {
-    if (job.status === 'succeeded' || job.status === 'failed') {
-      return job
-    }
-    await waitForDelay(TAG_EDIT_JOB_POLL_INTERVAL_MS)
-    try {
-      job = await getDicomTagModifyJob(initialJob.jobId, { timeout: TAG_EDIT_JOB_STATUS_TIMEOUT_MS })
-      failedStatusPollCount = 0
-      showTagEditJobProgress(job)
-    } catch (error) {
-      failedStatusPollCount += 1
-      if (failedStatusPollCount >= TAG_EDIT_JOB_MAX_STATUS_ERRORS) {
-        throw error
-      }
-    }
-  }
-  throw new Error(tagEditCopy.value.seriesJobTimeout)
+  return waitForDicomJob(initialJob, getDicomTagModifyJob, {
+    onProgress: showTagEditJobProgress,
+    timeoutMessage: tagEditCopy.value.seriesJobTimeout
+  })
 }
 
 function isEditableTagItem(item: DicomTagItem): boolean {
@@ -541,7 +464,7 @@ async function submitTagEdit(): Promise<void> {
     } catch (error) {
       const message = resolveBackendErrorDetail(error) || tagEditCopy.value.saveFailed
       tagEditDialogError.value = message
-      showGlobalStatusToast(message, 'error')
+      dispatchWorkspaceStatusToast(message, 'error')
     } finally {
       isSavingTagEdit.value = false
     }
@@ -592,8 +515,8 @@ async function finishSeriesTagEditJob(initialJob: DicomTagModifyJob): Promise<vo
       throw new Error(completedJob.error || tagEditCopy.value.seriesJobFailed)
     }
 
-    const progress = getJobProgress(completedJob)
-    showGlobalStatusToast(tagEditCopy.value.seriesJobSaving, 'info', {
+    const progress = getDicomJobProgress(completedJob, getTagEditJobToastCopy())
+    dispatchWorkspaceStatusToast(tagEditCopy.value.seriesJobSaving, 'info', {
       busy: true,
       durationMs: 0,
       progressLabel: progress.label,
@@ -609,7 +532,7 @@ async function finishSeriesTagEditJob(initialJob: DicomTagModifyJob): Promise<vo
     const message = tagEditCopy.value.seriesJobCompleted(artifact.modifiedCount)
     const detail = savedFile.locationDescription ?? tagEditCopy.value.downloadStarted(artifact.fileName)
     tagEditNotice.value = null
-    showGlobalStatusToast(message, 'success', {
+    dispatchWorkspaceStatusToast(message, 'success', {
       detail,
       directoryPath: savedFile.directoryPath ?? null,
       filePath: savedFile.filePath ?? null,
@@ -620,7 +543,7 @@ async function finishSeriesTagEditJob(initialJob: DicomTagModifyJob): Promise<vo
   } catch (error) {
     const detail = resolveBackendErrorDetail(error) || (error instanceof Error ? error.message : '') || tagEditCopy.value.seriesJobFailed
     tagEditNotice.value = null
-    showGlobalStatusToast(tagEditCopy.value.seriesJobFailed, 'error', {
+    dispatchWorkspaceStatusToast(tagEditCopy.value.seriesJobFailed, 'error', {
       detail,
       busy: false,
       durationMs: 8000

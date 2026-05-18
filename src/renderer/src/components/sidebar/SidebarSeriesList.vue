@@ -12,6 +12,16 @@ import {
   postDicomDeidentifyJob,
   type DicomTagModifyJob
 } from '../../services/typedApi'
+import {
+  getDicomJobProgress,
+  showDicomJobProgressToast,
+  waitForDicomJob,
+  type DicomJobToastCopy
+} from '../../composables/workspace/tasks/dicomJobTask'
+import {
+  dispatchWorkspaceStatusToast,
+  resolveBackendErrorDetail
+} from '../../composables/workspace/tasks/workspaceStatus'
 import { getSeriesMetaLabel, getSeriesValueMetaLabel } from './seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
@@ -30,10 +40,6 @@ const emit = defineEmits<{
 
 const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
 const DEIDENTIFY_EXPORT_ROOT = 'DicomVisionDeidentified'
-const DEIDENTIFY_JOB_POLL_INTERVAL_MS = 700
-const DEIDENTIFY_JOB_MAX_POLLS = 1500
-const DEIDENTIFY_JOB_STATUS_TIMEOUT_MS = 8000
-const DEIDENTIFY_JOB_MAX_STATUS_ERRORS = 3
 
 type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'compare' | 'deidentify' | 'delete'
 
@@ -161,107 +167,24 @@ function closeContextMenu(): void {
   isContextMenuOpen.value = false
 }
 
-function resolveBackendErrorDetail(error: unknown): string {
-  const responseData = (error as { response?: { data?: unknown } } | null)?.response?.data
-  if (responseData && typeof responseData === 'object' && 'detail' in responseData) {
-    const detail = (responseData as { detail?: unknown }).detail
-    if (typeof detail === 'string' && detail.trim()) {
-      return detail.trim()
-    }
-  }
-
-  return error instanceof Error && error.message.trim() ? error.message.trim() : ''
-}
-
-function showGlobalStatusToast(
-  message: string,
-  tone: 'info' | 'success' | 'warning' | 'error' = 'info',
-  options: {
-    detail?: string | null
-    directoryPath?: string | null
-    filePath?: string | null
-    canOpenLocation?: boolean
-    busy?: boolean
-    progressLabel?: string | null
-    progressPercent?: number | null
-    durationMs?: number
-  } = {}
-): void {
-  window.dispatchEvent(
-    new CustomEvent('dicomvision:status-toast', {
-      detail: {
-        message,
-        tone,
-        ...options
-      }
-    })
-  )
-}
-
-function waitForDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-function getDeidentifyJobProgress(job: DicomTagModifyJob): { isPackaging: boolean; processed: number; total: number; percent: number; label: string } {
-  const total = Math.max(0, Number(job.totalCount ?? 0))
-  const processedFallback = job.status === 'succeeded' ? total : 0
-  const processed = Math.max(0, Math.min(total || Number(job.processedCount ?? processedFallback), Number(job.processedCount ?? processedFallback)))
-  const isProcessingComplete = total > 0 && processed >= total
-  const percentFromJob = Number(job.progressPercent)
-  const percent =
-    isProcessingComplete
-      ? 100
-      : Number.isFinite(percentFromJob) && percentFromJob >= 0
-        ? Math.max(0, Math.min(100, Math.round(percentFromJob)))
-        : total > 0
-          ? Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
-          : 0
-
+function getDeidentifyJobToastCopy(): DicomJobToastCopy {
   return {
-    isPackaging: isProcessingComplete && job.status !== 'succeeded',
-    processed,
-    total,
-    percent,
-    label:
-      total > 0
-        ? isProcessingComplete && job.status !== 'succeeded'
-          ? deidentifyCopy.value.exportJobPackaging
-          : deidentifyCopy.value.exportJobProgress(processed, total, percent)
-        : deidentifyCopy.value.exportJobPreparing
+    packaging: deidentifyCopy.value.exportJobPackaging,
+    preparing: deidentifyCopy.value.exportJobPreparing,
+    progress: deidentifyCopy.value.exportJobProgress,
+    started: deidentifyCopy.value.exportJobStarted
   }
 }
 
 function showDeidentifyJobProgress(job: DicomTagModifyJob, message = deidentifyCopy.value.exportJobStarted): void {
-  const progress = getDeidentifyJobProgress(job)
-  showGlobalStatusToast(progress.isPackaging ? deidentifyCopy.value.exportJobPackaging : message, 'info', {
-    busy: true,
-    durationMs: 0,
-    progressLabel: progress.label,
-    progressPercent: progress.percent
-  })
+  showDicomJobProgressToast(job, getDeidentifyJobToastCopy(), message)
 }
 
 async function waitForDicomDeidentifyJob(initialJob: DicomTagModifyJob): Promise<DicomTagModifyJob> {
-  let job = initialJob
-  let failedStatusPollCount = 0
-  showDeidentifyJobProgress(job)
-  for (let pollIndex = 0; pollIndex < DEIDENTIFY_JOB_MAX_POLLS; pollIndex += 1) {
-    if (job.status === 'succeeded' || job.status === 'failed') {
-      return job
-    }
-    await waitForDelay(DEIDENTIFY_JOB_POLL_INTERVAL_MS)
-    try {
-      job = await getDicomDeidentifyJob(initialJob.jobId, { timeout: DEIDENTIFY_JOB_STATUS_TIMEOUT_MS })
-      failedStatusPollCount = 0
-      showDeidentifyJobProgress(job)
-    } catch (error) {
-      failedStatusPollCount += 1
-      if (failedStatusPollCount >= DEIDENTIFY_JOB_MAX_STATUS_ERRORS) {
-        throw error
-      }
-    }
-  }
-  throw new Error(deidentifyCopy.value.exportJobTimeout)
+  return waitForDicomJob(initialJob, getDicomDeidentifyJob, {
+    onProgress: showDeidentifyJobProgress,
+    timeoutMessage: deidentifyCopy.value.exportJobTimeout
+  })
 }
 
 function handleSeriesContextMenu(event: MouseEvent, series: FolderSeriesItem): void {
@@ -342,7 +265,7 @@ async function exportDeidentifiedSeries(series: FolderSeriesItem): Promise<void>
     return
   }
   if (selectedDeidentifyFieldCount.value === 0) {
-    showGlobalStatusToast(deidentifyCopy.value.actionSubtitle, 'error')
+    dispatchWorkspaceStatusToast(deidentifyCopy.value.actionSubtitle, 'error')
     return
   }
 
@@ -358,7 +281,7 @@ async function exportDeidentifiedSeries(series: FolderSeriesItem): Promise<void>
   } catch (error) {
     const detail = resolveBackendErrorDetail(error)
     isDeidentifyingSeriesId.value = ''
-    showGlobalStatusToast(deidentifyCopy.value.exportFailed, 'error', {
+    dispatchWorkspaceStatusToast(deidentifyCopy.value.exportFailed, 'error', {
       detail: detail || undefined,
       busy: false,
       durationMs: 8000
@@ -383,8 +306,8 @@ async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: 
       throw new Error(completedJob.error || deidentifyCopy.value.exportFailed)
     }
 
-    const progress = getDeidentifyJobProgress(completedJob)
-    showGlobalStatusToast(deidentifyCopy.value.exportJobSaving, 'info', {
+    const progress = getDicomJobProgress(completedJob, getDeidentifyJobToastCopy())
+    dispatchWorkspaceStatusToast(deidentifyCopy.value.exportJobSaving, 'info', {
       busy: true,
       durationMs: 0,
       progressLabel: progress.label,
@@ -397,7 +320,7 @@ async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: 
       mimeType: artifact.mediaType,
       preference: await resolveDeidentifySavePreference(artifact.seriesFolder, series.seriesId)
     })
-    showGlobalStatusToast(deidentifyCopy.value.exportJobCompleted(artifact.modifiedCount), 'success', {
+    dispatchWorkspaceStatusToast(deidentifyCopy.value.exportJobCompleted(artifact.modifiedCount), 'success', {
       detail: savedFile.locationDescription
         ? deidentifyCopy.value.savedDirectory(savedFile.locationDescription)
         : deidentifyCopy.value.downloadStarted(artifact.fileName),
@@ -409,7 +332,7 @@ async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: 
     })
   } catch (error) {
     const detail = resolveBackendErrorDetail(error)
-    showGlobalStatusToast(deidentifyCopy.value.exportFailed, 'error', {
+    dispatchWorkspaceStatusToast(deidentifyCopy.value.exportFailed, 'error', {
       detail: detail || (error instanceof Error ? error.message : undefined),
       busy: false,
       durationMs: 8000

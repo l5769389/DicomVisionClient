@@ -10,7 +10,10 @@ import {
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
+  COMPARE_STACK_SOURCE_PANE_KEY,
+  COMPARE_STACK_TARGET_PANE_KEY,
   buildTabTitle,
+  createComparePaneRecord,
   createCompareStackTabKey,
   createEmptyCompareCornerInfos,
   createEmptyCompareImages,
@@ -82,6 +85,7 @@ import {
 } from '../volume/volumeRenderConfig'
 import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import { useUiPreferences } from '../../ui/useUiPreferences'
+import { createKeyedLatestRequestGuard } from '../requests/latestRequest'
 import type {
   BackendCreateViewType,
   CompareStackPaneKey,
@@ -147,7 +151,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const fourDPhaseSwitchInFlightTabKeys = new Set<string>()
   const queuedFourDPhaseSwitches = new Map<string, { phaseIndex: number; phaseOptions: SetFourDPhaseOptions }>()
   const fourDManifestRequests = new Map<string, Promise<FourDPhasesResponse | null>>()
-  const tagRequestVersions = new Map<string, number>()
+  const tagRequestGuard = createKeyedLatestRequestGuard<string>()
   const fourDPhaseRenderTracker = new FourDPhaseRenderTracker()
   const { selectedPseudocolorKey } = useUiPreferences()
 
@@ -223,8 +227,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
-    const requestVersion = (tagRequestVersions.get(tabKey) ?? 0) + 1
-    tagRequestVersions.set(tabKey, requestVersion)
+    const request = tagRequestGuard.start(tabKey)
 
     options.viewerTabs.value = options.viewerTabs.value.map((item) =>
       item.key === tabKey
@@ -237,11 +240,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
 
     try {
-      const data = await postApi('GetDicomTagsApiV1DicomTagsPost', {
-        seriesId: tab.seriesId,
-        index
-      })
-      if (tagRequestVersions.get(tabKey) !== requestVersion) {
+      const data = await postApi(
+        'GetDicomTagsApiV1DicomTagsPost',
+        {
+          seriesId: tab.seriesId,
+          index
+        },
+        {
+          signal: request.signal
+        }
+      )
+      if (!tagRequestGuard.isCurrent(tabKey, request.token)) {
         return
       }
 
@@ -260,10 +269,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
           : item
       )
-      tagRequestVersions.delete(tabKey)
+      tagRequestGuard.finish(tabKey, request.token)
       options.message.value = ''
     } catch (error) {
-      if (tagRequestVersions.get(tabKey) !== requestVersion) {
+      if (!tagRequestGuard.isCurrent(tabKey, request.token)) {
         return
       }
       const fallbackMessage =
@@ -280,7 +289,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
           : item
       )
-      tagRequestVersions.delete(tabKey)
+      tagRequestGuard.finish(tabKey, request.token)
       options.message.value = fallbackMessage
       console.error(error)
     }
@@ -329,13 +338,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }
 
   async function createCompareStackViewIds(sourceSeriesId: string, targetSeriesId: string): Promise<Record<CompareStackPaneKey, string>> {
+    const seriesByPane = createComparePaneRecord((paneKey) =>
+      paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? sourceSeriesId : targetSeriesId
+    )
     const entries = await Promise.all(
-      [
-        ['compare-a', sourceSeriesId],
-        ['compare-b', targetSeriesId]
-      ].map(async ([viewportKey, seriesId]) => {
+      COMPARE_STACK_PANE_KEYS.map(async (viewportKey) => {
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
-          seriesId,
+          seriesId: seriesByPane[viewportKey],
           viewType: 'Stack'
         })
         return [viewportKey, data.viewId] as const
@@ -437,10 +446,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   function createComparePseudocolorPresetMap(preset: string): Record<CompareStackPaneKey, string> {
     const normalizedPreset = normalizePseudocolorPresetKey(preset)
-    return {
-      'compare-a': normalizedPreset,
-      'compare-b': normalizedPreset
-    }
+    return createComparePaneRecord(() => normalizedPreset)
   }
 
   async function emitComparePseudocolorOperations(
@@ -1700,7 +1706,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
       })
       options.activeTabKey.value = existingTab.key
-      options.activeViewportKey.value = 'compare-a'
+      options.activeViewportKey.value = COMPARE_STACK_SOURCE_PANE_KEY
       await nextTick()
       await waitForCompareViewportLayout(existingTab.compareViewIds ?? {})
       await renderTab(existingTab.key, true)
@@ -1714,20 +1720,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ...createTab(sourceSeries, 'CompareStack'),
         key: tabKey,
         title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
-        compareSeriesIds: {
-          'compare-a': sourceSeriesId,
-          'compare-b': targetSeriesId
-        },
-        compareSeriesTitles: {
-          'compare-a': getSeriesDisplayName(sourceSeries, sourceSeriesId),
-          'compare-b': getSeriesDisplayName(targetSeries, targetSeriesId)
-        }
+        compareSeriesIds: createComparePaneRecord((paneKey) =>
+          paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? sourceSeriesId : targetSeriesId
+        ),
+        compareSeriesTitles: createComparePaneRecord((paneKey) =>
+          paneKey === COMPARE_STACK_SOURCE_PANE_KEY
+            ? getSeriesDisplayName(sourceSeries, sourceSeriesId)
+            : getSeriesDisplayName(targetSeries, targetSeriesId)
+        )
       }
       options.viewerTabs.value = [...options.viewerTabs.value, tab]
     }
 
     options.activeTabKey.value = tabKey
-    options.activeViewportKey.value = 'compare-a'
+    options.activeViewportKey.value = COMPARE_STACK_SOURCE_PANE_KEY
     options.isViewLoading.value = true
 
     try {
@@ -1750,23 +1756,24 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               seriesId: sourceSeriesId,
               seriesTitle: getSeriesDisplayName(sourceSeries, sourceSeriesId),
               pseudocolorPreset: initialPseudocolorPreset,
-              compareSeriesIds: {
-                'compare-a': sourceSeriesId,
-                'compare-b': targetSeriesId
-              },
-              compareSeriesTitles: {
-                'compare-a': getSeriesDisplayName(sourceSeries, sourceSeriesId),
-                'compare-b': getSeriesDisplayName(targetSeries, targetSeriesId)
-              },
+              compareSeriesIds: createComparePaneRecord((paneKey) =>
+                paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? sourceSeriesId : targetSeriesId
+              ),
+              compareSeriesTitles: createComparePaneRecord((paneKey) =>
+                paneKey === COMPARE_STACK_SOURCE_PANE_KEY
+                  ? getSeriesDisplayName(sourceSeries, sourceSeriesId)
+                  : getSeriesDisplayName(targetSeries, targetSeriesId)
+              ),
               compareViewIds: nextCompareViewIds,
               compareImages: createEmptyCompareImages(),
               compareSliceLabels: createEmptyCompareSliceLabels(),
               compareWindowLabels: createEmptyCompareWindowLabels(),
               compareScaleBars: createEmptyCompareScaleBars(),
-              compareCornerInfos: {
-                'compare-a': options.withHoverCornerInfo(sourceCornerInfo),
-                'compare-b': options.withHoverCornerInfo(targetCornerInfo)
-              },
+              compareCornerInfos: createComparePaneRecord((paneKey) =>
+                paneKey === COMPARE_STACK_SOURCE_PANE_KEY
+                  ? options.withHoverCornerInfo(sourceCornerInfo)
+                  : options.withHoverCornerInfo(targetCornerInfo)
+              ),
               compareOrientations: createEmptyCompareOrientations(),
               compareTransformStates: createEmptyCompareTransformStates(),
               comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset),
@@ -1828,7 +1835,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : tab.viewType === '3D'
             ? 'volume'
             : tab.viewType === 'CompareStack'
-              ? 'compare-a'
+              ? COMPARE_STACK_SOURCE_PANE_KEY
               : 'single'
     }
   }
@@ -1852,7 +1859,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     options.onBeforeCloseTab?.(closingTab)
 
     fourDPhaseRenderTracker.clearTab(tabKey)
-    tagRequestVersions.delete(tabKey)
+    tagRequestGuard.cancel(tabKey)
     queuedFourDPhaseSwitches.delete(tabKey)
     fourDPhaseSwitchInFlightTabKeys.delete(tabKey)
     queuedFourDPreloadTabKeys.delete(tabKey)

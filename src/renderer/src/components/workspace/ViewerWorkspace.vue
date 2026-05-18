@@ -46,6 +46,10 @@ import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type V
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
 import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
 import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
+import {
+  COMPARE_STACK_SOURCE_PANE_KEY,
+  COMPARE_STACK_TARGET_PANE_KEY
+} from '../../composables/workspace/views/viewerWorkspaceTabs'
 
 const props = defineProps<{
   activeOperation: string
@@ -521,7 +525,10 @@ function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): 
     return getMprCornerInfo(viewportKey)
   }
   if (isCompareStackViewType(tab.viewType)) {
-    const paneKey = viewportKey === 'compare-b' ? 'compare-b' : 'compare-a'
+    const paneKey =
+      viewportKey === COMPARE_STACK_TARGET_PANE_KEY
+        ? COMPARE_STACK_TARGET_PANE_KEY
+        : COMPARE_STACK_SOURCE_PANE_KEY
     return tab.compareCornerInfos?.[paneKey] ?? tab.cornerInfo
   }
   return tab.cornerInfo

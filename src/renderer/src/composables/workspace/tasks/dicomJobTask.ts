@@ -1,0 +1,120 @@
+import type { DicomTagModifyJob } from '../../../services/typedApi'
+import { dispatchWorkspaceStatusToast } from './workspaceStatus'
+
+export const DEFAULT_DICOM_JOB_POLL_OPTIONS = {
+  intervalMs: 700,
+  maxPolls: 1500,
+  maxStatusErrors: 3,
+  statusTimeoutMs: 8000
+} as const
+
+export interface DicomJobProgressCopy {
+  packaging: string
+  preparing: string
+  progress: (processed: number, total: number, percent: number) => string
+}
+
+export interface DicomJobToastCopy extends DicomJobProgressCopy {
+  started: string
+}
+
+export interface DicomJobProgress {
+  isPackaging: boolean
+  label: string
+  percent: number
+  processed: number
+  total: number
+}
+
+export interface WaitForDicomJobOptions {
+  intervalMs?: number
+  maxPolls?: number
+  maxStatusErrors?: number
+  onProgress?: (job: DicomTagModifyJob) => void
+  statusTimeoutMs?: number
+  timeoutMessage: string
+}
+
+function waitForDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+export function getDicomJobProgress(job: DicomTagModifyJob, copy: DicomJobProgressCopy): DicomJobProgress {
+  const total = Math.max(0, Number(job.totalCount ?? 0))
+  const processedFallback = job.status === 'succeeded' ? total : 0
+  const processed = Math.max(
+    0,
+    Math.min(total || Number(job.processedCount ?? processedFallback), Number(job.processedCount ?? processedFallback))
+  )
+  const isProcessingComplete = total > 0 && processed >= total
+  const percentFromJob = Number(job.progressPercent)
+  const percent =
+    isProcessingComplete || job.status === 'succeeded'
+      ? 100
+      : Number.isFinite(percentFromJob) && percentFromJob >= 0
+        ? Math.max(0, Math.min(100, Math.round(percentFromJob)))
+        : total > 0
+          ? Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
+          : 0
+
+  return {
+    isPackaging: isProcessingComplete && job.status !== 'succeeded',
+    label:
+      total > 0
+        ? isProcessingComplete && job.status !== 'succeeded'
+          ? copy.packaging
+          : copy.progress(processed, total, percent)
+        : copy.preparing,
+    percent,
+    processed,
+    total
+  }
+}
+
+export function showDicomJobProgressToast(
+  job: DicomTagModifyJob,
+  copy: DicomJobToastCopy,
+  message = copy.started
+): void {
+  const progress = getDicomJobProgress(job, copy)
+  dispatchWorkspaceStatusToast(progress.isPackaging ? copy.packaging : message, 'info', {
+    busy: true,
+    durationMs: 0,
+    progressLabel: progress.label,
+    progressPercent: progress.percent
+  })
+}
+
+export async function waitForDicomJob(
+  initialJob: DicomTagModifyJob,
+  fetchJob: (jobId: string, config: { timeout: number }) => Promise<DicomTagModifyJob>,
+  options: WaitForDicomJobOptions
+): Promise<DicomTagModifyJob> {
+  const intervalMs = options.intervalMs ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.intervalMs
+  const maxPolls = options.maxPolls ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.maxPolls
+  const maxStatusErrors = options.maxStatusErrors ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.maxStatusErrors
+  const statusTimeoutMs = options.statusTimeoutMs ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.statusTimeoutMs
+  let job = initialJob
+  let failedStatusPollCount = 0
+
+  options.onProgress?.(job)
+  for (let pollIndex = 0; pollIndex < maxPolls; pollIndex += 1) {
+    if (job.status === 'succeeded' || job.status === 'failed') {
+      return job
+    }
+
+    await waitForDelay(intervalMs)
+    try {
+      job = await fetchJob(initialJob.jobId, { timeout: statusTimeoutMs })
+      failedStatusPollCount = 0
+      options.onProgress?.(job)
+    } catch (error) {
+      failedStatusPollCount += 1
+      if (failedStatusPollCount >= maxStatusErrors) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error(options.timeoutMessage)
+}

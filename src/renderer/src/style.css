@@ -85,6 +85,27 @@
     --theme-active-foreground-secondary: rgba(224, 240, 250, 0.86);
     --theme-active-foreground-muted: rgba(178, 206, 224, 0.76);
     --theme-accent-warm: #ff8a5b;
+    --theme-status-info: var(--theme-accent);
+    --theme-status-success: #7bd7a4;
+    --theme-status-warning: #f3c66b;
+    --theme-status-danger: #ef7777;
+    --theme-status-info-border: color-mix(in srgb, var(--theme-status-info) 42%, var(--theme-border-soft));
+    --theme-status-success-border: color-mix(in srgb, var(--theme-status-success) 38%, var(--theme-border-soft));
+    --theme-status-warning-border: color-mix(in srgb, var(--theme-status-warning) 42%, var(--theme-border-soft));
+    --theme-status-danger-border: color-mix(in srgb, var(--theme-status-danger) 42%, var(--theme-border-soft));
+    --theme-status-info-surface: color-mix(in srgb, var(--theme-status-info) 14%, transparent);
+    --theme-status-success-surface: color-mix(in srgb, var(--theme-status-success) 16%, transparent);
+    --theme-status-warning-surface: color-mix(in srgb, var(--theme-status-warning) 18%, transparent);
+    --theme-status-danger-surface: color-mix(in srgb, var(--theme-status-danger) 18%, transparent);
+    --theme-status-info-text: var(--theme-status-info);
+    --theme-status-success-text: color-mix(in srgb, var(--theme-status-success) 78%, var(--theme-text-primary));
+    --theme-status-warning-text: color-mix(in srgb, var(--theme-status-warning) 78%, var(--theme-text-primary));
+    --theme-status-danger-text: color-mix(in srgb, var(--theme-status-danger) 82%, var(--theme-text-primary));
+    --theme-danger-border: color-mix(in srgb, var(--theme-status-danger) 54%, transparent);
+    --theme-danger-surface:
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-status-danger) 72%, #361014), color-mix(in srgb, var(--theme-status-danger) 48%, #170609));
+    --theme-danger-text: #fff;
+    --theme-focus-ring: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 24%, transparent);
     --theme-active-border: color-mix(in srgb, var(--theme-accent) 42%, rgba(255, 255, 255, 0.1));
     --theme-active-surface:
       linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 14%, rgba(21, 34, 50, 0.97)), color-mix(in srgb, var(--theme-accent-strong) 10%, rgba(7, 15, 28, 0.99)));

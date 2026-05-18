@@ -370,14 +370,21 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   color: var(--theme-text-primary);
 }
 
+.app-window-control-button:focus-visible,
+.app-status-toast__detail--button:focus-visible,
+.app-status-toast__close:focus-visible {
+  outline: none;
+  box-shadow: var(--theme-focus-ring);
+}
+
 .app-window-control-button:active {
   transform: translateY(1px);
 }
 
 .app-window-control-button--danger:hover {
-  border-color: rgba(174, 67, 67, 0.72);
-  background: linear-gradient(180deg, rgba(174, 67, 67, 0.94), rgba(135, 38, 38, 0.94));
-  color: #fff;
+  border-color: var(--theme-danger-border);
+  background: var(--theme-danger-surface);
+  color: var(--theme-danger-text);
 }
 
 .dicom-file-drop-overlay {
@@ -434,15 +441,15 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 }
 
 .app-status-toast[data-tone="error"] {
-  border-color: color-mix(in srgb, #ef7777 42%, var(--theme-border-soft));
+  border-color: var(--theme-status-danger-border);
 }
 
 .app-status-toast[data-tone="warning"] {
-  border-color: color-mix(in srgb, #f3c66b 42%, var(--theme-border-soft));
+  border-color: var(--theme-status-warning-border);
 }
 
 .app-status-toast[data-tone="success"] {
-  border-color: color-mix(in srgb, #7bd7a4 38%, var(--theme-border-soft));
+  border-color: var(--theme-status-success-border);
 }
 
 .app-status-toast__icon {
@@ -452,8 +459,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--theme-accent) 14%, transparent);
-  color: var(--theme-accent);
+  background: var(--theme-status-info-surface);
+  color: var(--theme-status-info-text);
 }
 
 .app-status-toast__icon--busy {
@@ -481,18 +488,18 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 }
 
 .app-status-toast[data-tone="error"] .app-status-toast__icon {
-  background: color-mix(in srgb, #ef7777 18%, transparent);
-  color: #ffb3b3;
+  background: var(--theme-status-danger-surface);
+  color: var(--theme-status-danger-text);
 }
 
 .app-status-toast[data-tone="warning"] .app-status-toast__icon {
-  background: color-mix(in srgb, #f3c66b 18%, transparent);
-  color: #ffe0a3;
+  background: var(--theme-status-warning-surface);
+  color: var(--theme-status-warning-text);
 }
 
 .app-status-toast[data-tone="success"] .app-status-toast__icon {
-  background: color-mix(in srgb, #7bd7a4 16%, transparent);
-  color: #a7f3c5;
+  background: var(--theme-status-success-surface);
+  color: var(--theme-status-success-text);
 }
 
 .app-status-toast__message {

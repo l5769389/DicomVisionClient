@@ -10,6 +10,10 @@ import {
   createToolbarActivationController
 } from './toolbarStateMachines'
 import {
+  COMPARE_STACK_SOURCE_PANE_KEY,
+  COMPARE_STACK_TARGET_PANE_KEY
+} from '../views/viewerWorkspaceTabs'
+import {
   createDefaultMprMipConfig,
   normalizeMprMipConfig,
   type CompareSyncSettingKey,
@@ -103,6 +107,27 @@ const compareSyncOptionValues: Record<CompareSyncSettingKey, string> = {
   pseudocolor: 'compare-sync:pseudocolor',
   view: 'compare-sync:view',
   transform: 'compare-sync:transform'
+}
+
+const compareSyncOptionConfigs: Array<{
+  key: CompareSyncSettingKey
+  label: string
+  icon: string
+  description: string
+}> = [
+  { key: 'scroll', label: '翻页', icon: 'page', description: '同步切片滚动' },
+  { key: 'window', label: '窗宽窗位', icon: 'window', description: '同步 WW / WL 调整' },
+  { key: 'pseudocolor', label: '伪彩', icon: 'pseudocolor', description: '同步伪彩方案' },
+  { key: 'view', label: '缩放平移', icon: 'pan', description: '同步 zoom 和 pan' },
+  { key: 'transform', label: '旋转翻转', icon: 'rotate', description: '同步 90° 旋转和镜像翻转' }
+]
+
+const compareSyncStateGetters: Record<CompareSyncSettingKey, (tab: ViewerTabItem) => boolean> = {
+  scroll: (tab) => tab.compareSyncScroll !== false,
+  window: (tab) => tab.compareSyncWindow !== false,
+  pseudocolor: (tab) => tab.compareSyncPseudocolor !== false,
+  view: (tab) => tab.compareSyncView !== false,
+  transform: (tab) => tab.compareSyncTransform === true
 }
 
 const stackTools: StackTool[] = [
@@ -317,19 +342,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!tab || tab.viewType !== 'CompareStack') {
       return false
     }
-    if (key === 'scroll') {
-      return tab.compareSyncScroll !== false
-    }
-    if (key === 'window') {
-      return tab.compareSyncWindow !== false
-    }
-    if (key === 'pseudocolor') {
-      return tab.compareSyncPseudocolor !== false
-    }
-    if (key === 'view') {
-      return tab.compareSyncView !== false
-    }
-    return tab.compareSyncTransform === true
+    return compareSyncStateGetters[key](tab)
   }
 
   const compareSyncTool = computed<StackTool>(() => {
@@ -340,48 +353,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       icon: 'sync',
       kind: 'action',
       showSelectedOptionIcon: false,
-      options: [
-        {
-          value: compareSyncOptionValues.scroll,
-          label: '翻页',
-          icon: 'page',
-          description: '同步切片滚动',
-          checked: getCompareSyncEnabled(tab, 'scroll'),
-          syncKey: 'scroll'
-        },
-        {
-          value: compareSyncOptionValues.window,
-          label: '窗宽窗位',
-          icon: 'window',
-          description: '同步 WW / WL 调整',
-          checked: getCompareSyncEnabled(tab, 'window'),
-          syncKey: 'window'
-        },
-        {
-          value: compareSyncOptionValues.pseudocolor,
-          label: '伪彩',
-          icon: 'pseudocolor',
-          description: '同步伪彩方案',
-          checked: getCompareSyncEnabled(tab, 'pseudocolor'),
-          syncKey: 'pseudocolor'
-        },
-        {
-          value: compareSyncOptionValues.view,
-          label: '缩放平移',
-          icon: 'pan',
-          description: '同步 zoom 和 pan',
-          checked: getCompareSyncEnabled(tab, 'view'),
-          syncKey: 'view'
-        },
-        {
-          value: compareSyncOptionValues.transform,
-          label: '旋转翻转',
-          icon: 'rotate',
-          description: '同步 90° 旋转和镜像翻转',
-          checked: getCompareSyncEnabled(tab, 'transform'),
-          syncKey: 'transform'
-        }
-      ]
+      options: compareSyncOptionConfigs.map(({ key, label, icon, description }) => ({
+        value: compareSyncOptionValues[key],
+        label,
+        icon,
+        description,
+        checked: getCompareSyncEnabled(tab, key),
+        syncKey: key
+      }))
     }
   })
 
@@ -907,7 +886,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
             : viewType === '3D'
               ? 'volume'
               : viewType === 'CompareStack'
-                ? 'compare-a'
+                ? COMPARE_STACK_SOURCE_PANE_KEY
                 : 'single'
         )
         restoreToolbarState(tabKey, viewType)
@@ -1009,7 +988,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ] ?? tab.pseudocolorPreset
       }
       if (tab.viewType === 'CompareStack') {
-        const viewportKey = options.activeViewportKey.value === 'compare-b' ? 'compare-b' : 'compare-a'
+        const viewportKey =
+          options.activeViewportKey.value === COMPARE_STACK_TARGET_PANE_KEY
+            ? COMPARE_STACK_TARGET_PANE_KEY
+            : COMPARE_STACK_SOURCE_PANE_KEY
         return tab.comparePseudocolorPresets?.[viewportKey] ?? tab.pseudocolorPreset
       }
       return tab.pseudocolorPreset

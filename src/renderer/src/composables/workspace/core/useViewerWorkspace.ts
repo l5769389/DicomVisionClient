@@ -26,6 +26,15 @@ import {
   isMprViewportKey,
   normalizeCornerInfo
 } from '../views/viewerWorkspaceTabs'
+import {
+  hasOperableView,
+  isMprLikeViewType,
+  isStackLikeViewType,
+  resolveCompareOperationPaneKeys,
+  resolveCompareOperationViewIds,
+  resolveComparePaneKey,
+  resolveViewIdForTabViewport
+} from '../views/viewerViewportTargets'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
@@ -34,6 +43,7 @@ import {
   type ActiveMprCrosshairDragLock
 } from '../views/mprInteractionGuard'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
+import { createLatestRequestGuard } from '../requests/latestRequest'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
@@ -215,7 +225,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let pendingMprMipConfigTimer: ReturnType<typeof window.setTimeout> | null = null
   let pendingMprMipConfigPayload: { viewIds: string[]; config: MprMipConfig } | null = null
   let activeMprCrosshairDragLockTimer: ReturnType<typeof window.setTimeout> | null = null
-  let folderLoadRequestVersion = 0
+  const folderLoadRequestGuard = createLatestRequestGuard()
   const fourDPlaybackStartTokens = new Map<string, number>()
   const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
   const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
@@ -284,75 +294,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return detail ? `${fallbackMessage} ${detail}` : fallbackMessage
   }
 
-  function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'MPR' || viewType === '4D'
-  }
-
-  function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'CompareStack'
-  }
-
-  function getComparePaneKey(viewportKey: string): CompareStackPaneKey {
-    return isCompareStackPaneKey(viewportKey) ? viewportKey : 'compare-a'
-  }
-
   function getActiveViewIdForTab(tab: ViewerTabItem, viewportKey = activeViewportKey.value): string {
-    if (isMprLikeViewType(tab.viewType)) {
-      return tab.viewportViewIds?.[viewportKey as MprViewportKey] ?? ''
-    }
-    if (tab.viewType === 'CompareStack') {
-      return tab.compareViewIds?.[getComparePaneKey(viewportKey)] ?? ''
-    }
-    return tab.viewId
-  }
-
-  function shouldSyncCompareOperation(tab: ViewerTabItem, opType: ViewOperationType | string): boolean {
-    if (opType === VIEW_OPERATION_TYPES.scroll) {
-      return tab.compareSyncScroll !== false
-    }
-    if (opType === VIEW_OPERATION_TYPES.window) {
-      return tab.compareSyncWindow !== false
-    }
-    if (opType === VIEW_OPERATION_TYPES.pseudocolor) {
-      return tab.compareSyncPseudocolor !== false
-    }
-    if (opType === VIEW_OPERATION_TYPES.pan || opType === VIEW_OPERATION_TYPES.zoom) {
-      return tab.compareSyncView !== false
-    }
-    if (opType === VIEW_OPERATION_TYPES.transform2d) {
-      return tab.compareSyncTransform === true
-    }
-    return false
+    return resolveViewIdForTabViewport(tab, viewportKey)
   }
 
   function getCompareOperationPaneKeys(tab: ViewerTabItem, viewportKey: string, opType: ViewOperationType | string): CompareStackPaneKey[] {
-    const paneKey = getComparePaneKey(viewportKey)
-    if (tab.viewType !== 'CompareStack' || !shouldSyncCompareOperation(tab, opType)) {
-      return [paneKey]
-    }
-
-    return paneKey === 'compare-a' ? ['compare-a', 'compare-b'] : ['compare-b', 'compare-a']
+    return resolveCompareOperationPaneKeys(tab, viewportKey, opType)
   }
 
   function getCompareOperationViewIds(tab: ViewerTabItem, viewportKey: string, opType: ViewOperationType | string): string[] {
-    if (tab.viewType !== 'CompareStack') {
-      const viewId = getActiveViewIdForTab(tab, viewportKey)
-      return viewId ? [viewId] : []
-    }
-
-    return getCompareOperationPaneKeys(tab, viewportKey, opType)
-      .map((paneKey) => tab.compareViewIds?.[paneKey] ?? '')
-      .filter((viewId): viewId is string => Boolean(viewId))
-  }
-
-  function hasOperableView(tab: ViewerTabItem): boolean {
-    if (isMprLikeViewType(tab.viewType)) {
-      return Object.values(tab.viewportViewIds ?? {}).some(Boolean)
-    }
-    if (tab.viewType === 'CompareStack') {
-      return Object.values(tab.compareViewIds ?? {}).some(Boolean)
-    }
-    return Boolean(tab.viewId)
+    return resolveCompareOperationViewIds(tab, viewportKey, opType)
   }
 
   function isFourDPlaybackLocked(tab: ViewerTabItem | null | undefined): boolean {
@@ -552,7 +503,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return tab.viewportTransformStates?.[viewportKey as MprViewportKey] ?? DEFAULT_VIEW_TRANSFORM
     }
     if (tab.viewType === 'CompareStack') {
-      return tab.compareTransformStates?.[getComparePaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
+      return tab.compareTransformStates?.[resolveComparePaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
     }
     return tab.transformState ?? DEFAULT_VIEW_TRANSFORM
   }
@@ -1246,7 +1197,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (tab.viewType === 'CompareStack') {
-      return tab.compareViewIds?.[getComparePaneKey(viewportKey)] ?? null
+      return tab.compareViewIds?.[resolveComparePaneKey(viewportKey)] ?? null
     }
 
     if (tab.viewType !== 'Stack') {
@@ -2071,19 +2022,24 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function loadFolderSeries(path: string): Promise<void> {
-    const requestVersion = folderLoadRequestVersion + 1
-    folderLoadRequestVersion = requestVersion
+    const request = folderLoadRequestGuard.start()
     isLoadingFolder.value = true
 
     try {
       const data =
         path === WEB_SAMPLE_FOLDER_SENTINEL
-          ? await postApi('LoadSampleFolderApiV1DicomLoadSamplePost')
-          : await postApi('LoadFolderApiV1DicomLoadFolderPost', {
-              folderPath: path
-            })
+          ? await postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined, { signal: request.signal })
+          : await postApi(
+              'LoadFolderApiV1DicomLoadFolderPost',
+              {
+                folderPath: path
+              },
+              {
+                signal: request.signal
+              }
+            )
 
-      if (folderLoadRequestVersion !== requestVersion) {
+      if (!folderLoadRequestGuard.isCurrent(request.token)) {
         return
       }
 
@@ -2117,15 +2073,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       message.value = ''
     } catch (error) {
-      if (folderLoadRequestVersion !== requestVersion) {
+      if (!folderLoadRequestGuard.isCurrent(request.token)) {
         return
       }
       message.value = ''
       showStatusToast(buildLoadFailureToastMessage(error), 'error')
       console.error(error)
     } finally {
-      if (folderLoadRequestVersion === requestVersion) {
+      if (folderLoadRequestGuard.isCurrent(request.token)) {
         isLoadingFolder.value = false
+        folderLoadRequestGuard.finish(request.token)
       }
     }
   }

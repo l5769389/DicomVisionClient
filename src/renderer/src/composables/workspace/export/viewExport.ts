@@ -2,6 +2,13 @@ import { api } from '../../../services/api'
 import { saveExportedFile, type ExportedFileResult } from '../../../platform/exporting'
 import type { ExportPreference } from '../../ui/useUiPreferences'
 import type { AnnotationOverlay, CornerInfo, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import {
+  COMPARE_STACK_TARGET_PANE_KEY,
+  MPR_PRIMARY_VIEWPORT_KEY,
+  isMprLikeViewType,
+  resolveComparePaneKey,
+  resolveMprViewportKey
+} from '../views/viewerViewportTargets'
 
 export type ViewerExportFormat = 'png' | 'dicom'
 
@@ -45,24 +52,13 @@ function cloneAnnotations(annotations: AnnotationOverlay[]): AnnotationOverlay[]
 }
 
 function resolveExportViewportKey(activeViewportKey: string): MprViewportKey {
-  if (activeViewportKey === 'mpr-cor' || activeViewportKey === 'mpr-sag') {
-    return activeViewportKey
-  }
-  return 'mpr-ax'
-}
-
-function isMprLikeViewType(viewType: ViewerTabItem['viewType']): boolean {
-  return viewType === 'MPR' || viewType === '4D'
-}
-
-function resolveCompareViewportKey(activeViewportKey: string): 'compare-a' | 'compare-b' {
-  return activeViewportKey === 'compare-b' ? 'compare-b' : 'compare-a'
+  return resolveMprViewportKey(activeViewportKey)
 }
 
 export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey: string): string {
   const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
   if (activeTab.viewType === 'CompareStack') {
-    const viewportLabel = resolveCompareViewportKey(activeViewportKey) === 'compare-b' ? 'b' : 'a'
+    const viewportLabel = resolveComparePaneKey(activeViewportKey) === COMPARE_STACK_TARGET_PANE_KEY ? 'b' : 'a'
     return `${safeTitle}-compare-${viewportLabel}`
   }
   if (!isMprLikeViewType(activeTab.viewType)) {
@@ -71,13 +67,13 @@ export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey:
 
   const viewportKey = resolveExportViewportKey(activeViewportKey)
   const viewportLabel =
-    viewportKey === 'mpr-cor' ? 'cor' : viewportKey === 'mpr-sag' ? 'sag' : 'ax'
+    viewportKey === 'mpr-cor' ? 'cor' : viewportKey === 'mpr-sag' ? 'sag' : MPR_PRIMARY_VIEWPORT_KEY.replace('mpr-', '')
   return `${safeTitle}-mpr-${viewportLabel}`
 }
 
 function resolveExportViewId(activeTab: ViewerTabItem, activeViewportKey: string): string | null {
   if (activeTab.viewType === 'CompareStack') {
-    return activeTab.compareViewIds?.[resolveCompareViewportKey(activeViewportKey)] ?? null
+    return activeTab.compareViewIds?.[resolveComparePaneKey(activeViewportKey)] ?? null
   }
 
   if (!isMprLikeViewType(activeTab.viewType)) {

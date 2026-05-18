@@ -1,7 +1,12 @@
 import type { ComputedRef } from 'vue'
 import throttle from 'lodash/throttle'
-import type { CornerInfo, MprViewportKey, ViewHoverResponse, ViewerTabItem } from '../../../types/viewer'
+import type { CornerInfo, ViewHoverResponse, ViewerTabItem } from '../../../types/viewer'
 import { emitViewHover } from '../../../services/socket'
+import {
+  isMprLikeViewType,
+  isStackLikeViewType,
+  resolveViewIdForTabViewport
+} from '../views/viewerViewportTargets'
 
 const HOVER_EMIT_THROTTLE_MS = 30
 const HOVER_CORNER_PATTERN = /^X:\s*-?\d+\s+Y:\s*-?\d+$/i
@@ -58,16 +63,18 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     options.updateHoverCornerInfoByViewId(payload.viewId, payload.row, payload.col)
   }
 
+  function resolveHoverViewId(tab: ViewerTabItem, viewportKey: string): string {
+    return resolveViewIdForTabViewport(tab, viewportKey)
+  }
+
   function handleHoverViewportChange(payload: { viewportKey: string; x: number | null; y: number | null }): void {
     const tab = options.activeTab.value
-    const isMprLikeView = tab?.viewType === 'MPR' || tab?.viewType === '4D'
-    if (!tab || (tab.viewType !== 'Stack' && !isMprLikeView)) {
+    if (!tab || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
       return
     }
 
     const resolvedViewportKey = payload.viewportKey || options.activeViewportKey.value
-    const viewId =
-      isMprLikeView ? tab.viewportViewIds?.[resolvedViewportKey as MprViewportKey] ?? '' : tab.viewId
+    const viewId = resolveHoverViewId(tab, resolvedViewportKey)
     if (!viewId) {
       return
     }

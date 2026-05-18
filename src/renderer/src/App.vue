@@ -244,6 +244,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
+          @open-layout-view="viewer.openLayoutView"
           @open-series-view="viewer.openSeriesView"
           @set-active-operation="viewer.setActiveOperation"
           @hover-viewport-change="viewer.handleHoverViewportChange"

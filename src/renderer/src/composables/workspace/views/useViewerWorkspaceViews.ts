@@ -37,6 +37,8 @@ import {
   createEmptyMprViewIds,
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
+  createLayoutTab,
+  createLayoutTabKey,
   createTab,
   getSeriesDisplayName,
   isCompareStackPaneKey,
@@ -49,6 +51,7 @@ import {
   normalizeOrientationInfo,
   normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
+import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
 import {
   FourDPhaseRenderTracker,
@@ -98,6 +101,8 @@ import type {
   MeasurementOverlay,
   MprViewportKey,
   ViewImageResponse,
+  ViewerLayoutSlot,
+  ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
@@ -170,6 +175,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const ownedBytes = new Uint8Array(bytes.byteLength)
     ownedBytes.set(bytes)
     return URL.createObjectURL(new Blob([ownedBytes.buffer], { type: mimeType }))
+  }
+
+  async function cloneLayoutImageSrc(imageSrc: string | null | undefined): Promise<{ imageSrc: string | null; ownsImageSrc: boolean }> {
+    if (!imageSrc) {
+      return { imageSrc: null, ownsImageSrc: false }
+    }
+    if (!imageSrc.startsWith('blob:')) {
+      return { imageSrc, ownsImageSrc: false }
+    }
+
+    try {
+      const response = await fetch(imageSrc)
+      if (!response.ok) {
+        return { imageSrc, ownsImageSrc: false }
+      }
+      return {
+        imageSrc: URL.createObjectURL(await response.blob()),
+        ownsImageSrc: true
+      }
+    } catch {
+      return { imageSrc, ownsImageSrc: false }
+    }
+  }
+
+  function revokeLayoutSlotImages(slots: ViewerLayoutSlot[] | null | undefined): void {
+    slots?.forEach((slot) => {
+      if (slot.ownsImageSrc) {
+        revokeObjectUrlIfNeeded(slot.imageSrc)
+      }
+    })
   }
 
   function findTab(seriesId: string, viewType?: ViewType): ViewerTabItem | undefined {
@@ -1448,7 +1483,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     if (!seriesId) {
       return
     }
-    if (viewType === 'CompareStack') {
+    if (viewType === 'CompareStack' || viewType === 'Layout') {
       return
     }
 
@@ -1802,6 +1837,173 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function mergeLayoutSlot(baseSlot: ViewerLayoutSlot, seedSlot: ViewerLayoutSlot): ViewerLayoutSlot {
+    return {
+      ...baseSlot,
+      ...seedSlot,
+      id: baseSlot.id,
+      row: baseSlot.row,
+      column: baseSlot.column,
+      rowSpan: baseSlot.rowSpan,
+      columnSpan: baseSlot.columnSpan
+    }
+  }
+
+  async function createStackLayoutSeedSlot(tab: ViewerTabItem): Promise<ViewerLayoutSlot> {
+    const clonedImage = await cloneLayoutImageSrc(tab.imageSrc)
+    return {
+      id: 'seed-stack',
+      row: 0,
+      column: 0,
+      rowSpan: 1,
+      columnSpan: 1,
+      seriesId: tab.seriesId,
+      seriesTitle: tab.seriesTitle,
+      viewType: tab.viewType,
+      sourceViewType: tab.viewType,
+      viewportKey: 'single',
+      viewId: tab.viewId,
+      imageSrc: clonedImage.imageSrc,
+      ownsImageSrc: clonedImage.ownsImageSrc,
+      sliceLabel: tab.sliceLabel,
+      windowLabel: tab.windowLabel
+    }
+  }
+
+  async function createMprLayoutSeedSlots(tab: ViewerTabItem): Promise<ViewerLayoutSlot[]> {
+    return await Promise.all(
+      MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
+        const clonedImage = await cloneLayoutImageSrc(tab.viewportImages?.[viewportKey])
+        return {
+          id: `seed-${viewportKey}`,
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: tab.seriesId,
+          seriesTitle: tab.seriesTitle,
+          viewType: tab.viewType,
+          sourceViewType: tab.viewType,
+          viewportKey,
+          viewId: tab.viewportViewIds?.[viewportKey] ?? null,
+          imageSrc: clonedImage.imageSrc,
+          ownsImageSrc: clonedImage.ownsImageSrc,
+          sliceLabel: tab.viewportSliceLabels?.[viewportKey] ?? '',
+          windowLabel: tab.windowLabel
+        } satisfies ViewerLayoutSlot
+      })
+    )
+  }
+
+  async function createCompareLayoutSeedSlots(tab: ViewerTabItem): Promise<ViewerLayoutSlot[]> {
+    return await Promise.all(
+      COMPARE_STACK_PANE_KEYS.map(async (paneKey) => {
+        const clonedImage = await cloneLayoutImageSrc(tab.compareImages?.[paneKey])
+        return {
+          id: `seed-${paneKey}`,
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: tab.compareSeriesIds?.[paneKey] ?? null,
+          seriesTitle: tab.compareSeriesTitles?.[paneKey] ?? null,
+          viewType: 'Stack',
+          sourceViewType: 'CompareStack',
+          viewportKey: paneKey,
+          viewId: tab.compareViewIds?.[paneKey] ?? null,
+          imageSrc: clonedImage.imageSrc,
+          ownsImageSrc: clonedImage.ownsImageSrc,
+          sliceLabel: tab.compareSliceLabels?.[paneKey] ?? '',
+          windowLabel: tab.compareWindowLabels?.[paneKey] ?? ''
+        } satisfies ViewerLayoutSlot
+      })
+    )
+  }
+
+  async function createLayoutSeedSlots(tab: ViewerTabItem | null): Promise<ViewerLayoutSlot[]> {
+    if (!tab) {
+      return []
+    }
+
+    if (tab.viewType === 'CompareStack') {
+      return await createCompareLayoutSeedSlots(tab)
+    }
+    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+      return await createMprLayoutSeedSlots(tab)
+    }
+    if (tab.viewType === 'Stack' || tab.viewType === '3D') {
+      return [await createStackLayoutSeedSlot(tab)]
+    }
+    if (tab.viewType === 'Layout') {
+      return await Promise.all(
+        (tab.layoutSlots ?? []).map(async (slot) => {
+          const clonedImage = await cloneLayoutImageSrc(slot.imageSrc)
+          return {
+            ...slot,
+            imageSrc: clonedImage.imageSrc,
+            ownsImageSrc: clonedImage.ownsImageSrc
+          }
+        })
+      )
+    }
+    return []
+  }
+
+  async function createSeededLayoutSlots(
+    template: ViewerLayoutTemplate,
+    sourceTab: ViewerTabItem | null
+  ): Promise<ViewerLayoutSlot[]> {
+    const baseSlots = template.slots.map((slot) => ({ ...slot }))
+    const seedSlots = await createLayoutSeedSlots(sourceTab)
+    seedSlots.slice(0, baseSlots.length).forEach((seedSlot, index) => {
+      baseSlots[index] = mergeLayoutSlot(baseSlots[index]!, seedSlot)
+    })
+    return baseSlots
+  }
+
+  async function openLayoutView(template: ViewerLayoutTemplate): Promise<void> {
+    const activeTab = options.viewerTabs.value.find((item) => item.key === options.activeTabKey.value)
+    const sourceSeriesId = activeTab?.seriesId ?? options.selectedSeriesId.value
+    const sourceSeries = options.seriesList.value.find((item) => item.seriesId === sourceSeriesId)
+    if (!sourceSeries) {
+      return
+    }
+
+    const layoutTemplate = cloneViewerLayoutTemplate(template)
+    const layoutSlots = await createSeededLayoutSlots(layoutTemplate, activeTab ?? null)
+    const tabKey = createLayoutTabKey(sourceSeries.seriesId, layoutTemplate.key)
+    const existingTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (existingTab) {
+      revokeLayoutSlotImages(existingTab.layoutSlots)
+    }
+
+    if (existingTab) {
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              title: `${getSeriesDisplayName(sourceSeries, sourceSeries.seriesId)} · Layout ${layoutTemplate.label}`,
+              layoutTemplate,
+              layoutSlots
+            }
+          : item
+      )
+    } else {
+      options.viewerTabs.value = [
+        ...options.viewerTabs.value,
+        {
+          ...createLayoutTab(sourceSeries, layoutTemplate),
+          layoutSlots
+        }
+      ]
+    }
+
+    options.selectedSeriesId.value = sourceSeries.seriesId
+    options.activeTabKey.value = tabKey
+    options.activeViewportKey.value = 'layout'
+    options.message.value = ''
+  }
+
   async function openView(viewType: ViewType): Promise<void> {
     if (!options.selectedSeriesId.value) {
       return
@@ -1836,7 +2038,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? 'volume'
             : tab.viewType === 'CompareStack'
               ? COMPARE_STACK_SOURCE_PANE_KEY
-              : 'single'
+              : tab.viewType === 'Layout'
+                ? 'layout'
+                : 'single'
     }
   }
 
@@ -1896,6 +2100,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     Object.values(closingTab.viewportImages ?? {}).forEach((imageSrc) => {
       revokeObjectUrlIfNeeded(imageSrc)
     })
+    revokeLayoutSlotImages(closingTab.layoutSlots)
     Object.values(closingTab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
       Object.values(phaseCache.viewportImages ?? {}).forEach((imageSrc) => {
         revokeObjectUrlIfNeeded(imageSrc)
@@ -1946,6 +2151,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     closeTab,
     findTabByViewId,
     invalidateFourDMprState,
+    openLayoutView,
     openSeriesCompare,
     openSeriesView,
     openView,

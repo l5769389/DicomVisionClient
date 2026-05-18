@@ -5,6 +5,11 @@ import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import type { ViewerExportFormat } from '../export/viewExport'
 import {
+  createViewerLayoutOptionValue,
+  parseViewerLayoutOptionValue,
+  VIEWER_LAYOUT_PRESETS
+} from '../layout/viewerLayoutTemplates'
+import {
   createMenuController,
   createPlaybackController,
   createToolbarActivationController
@@ -18,6 +23,7 @@ import {
   normalizeMprMipConfig,
   type CompareSyncSettingKey,
   type MprMipConfig,
+  type ViewerLayoutTemplate,
   type ViewerTabItem,
   type VolumeRenderConfig
 } from '../../../types/viewer'
@@ -80,6 +86,22 @@ const pseudocolorTool: StackTool = {
     label: option.label,
     icon: 'pseudocolor',
     swatchKey: option.key
+  }))
+}
+
+const layoutTool: StackTool = {
+  key: 'layout',
+  label: 'Layout',
+  icon: 'layout',
+  kind: 'action',
+  menuKind: 'layout',
+  showSelectedOptionIcon: false,
+  options: VIEWER_LAYOUT_PRESETS.map((template) => ({
+    value: createViewerLayoutOptionValue(template),
+    label: template.label,
+    icon: 'layout',
+    layoutRows: template.rows,
+    layoutColumns: template.columns
   }))
 }
 
@@ -147,6 +169,7 @@ const stackTools: StackTool[] = [
     ]
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  layoutTool,
   tagTool,
   qaTool,
   { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
@@ -196,6 +219,7 @@ const genericTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  layoutTool,
   tagTool,
   measureTool,
   pseudocolorTool,
@@ -207,6 +231,7 @@ const volumeTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  layoutTool,
   tagTool,
   { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' },
   {
@@ -267,6 +292,7 @@ interface ViewerWorkspaceToolbarOptions {
     config?: MprMipConfig
   }) => void
   emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
+  emitOpenLayoutView: (template: ViewerLayoutTemplate) => void | Promise<void>
   emitViewportWheel: (payload: { viewportKey: string; deltaY: number }) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
   exportCurrentView: (format: ViewerExportFormat) => void
@@ -302,6 +328,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     export: 'png',
     volumePreset: 'volumePreset:aaa',
+    layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
@@ -373,6 +400,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
             .flatMap((tool) => (tool.key === 'page' ? [tool, compareSyncTool.value] : [tool]))
       : options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
         ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+        : options.activeTab.value?.viewType === 'Layout'
+          ? [layoutTool]
         : options.activeTab.value?.viewType === '3D'
           ? volumeTools
           : genericTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
@@ -413,6 +442,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getDefaultToolbarToolKey(viewType: ViewerTabItem['viewType'] | undefined): string {
+    if (viewType === 'Layout') {
+      return 'layout'
+    }
     if (viewType === 'MPR' || viewType === '4D') {
       return 'crosshair'
     }
@@ -431,6 +463,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getDefaultOperationValue(viewType: ViewerTabItem['viewType'] | undefined): string {
+    if (viewType === 'Layout') {
+      return ''
+    }
     if (viewType === 'MPR' || viewType === '4D') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`
     }
@@ -649,6 +684,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
+    if (tool.key === 'layout') {
+      setMenuOpen(openMenuKey.value === tool.key ? null : tool.key)
+      return
+    }
+
     closeMenus()
     if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
       options.stopViewportDrag()
@@ -754,6 +794,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string): void {
+    if (tool.key === 'layout') {
+      const template = parseViewerLayoutOptionValue(optionValue)
+      if (!template) {
+        return
+      }
+
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        layout: optionValue
+      }
+      closeMenus()
+      void options.emitOpenLayoutView(template)
+      return
+    }
+
     if (tool.key === 'compareSync') {
       const activeTab = options.activeTab.value
       const selectedOption = tool.options?.find((option) => option.value === optionValue)
@@ -887,7 +942,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
               ? 'volume'
               : viewType === 'CompareStack'
                 ? COMPARE_STACK_SOURCE_PANE_KEY
-                : 'single'
+                : viewType === 'Layout'
+                  ? 'layout'
+                  : 'single'
         )
         restoreToolbarState(tabKey, viewType)
         closeMenus()

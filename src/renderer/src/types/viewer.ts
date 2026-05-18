@@ -501,6 +501,8 @@ export interface ViewerTabItem {
   tagInstanceNumber?: number | null
   tagIsLoading?: boolean
   tagLoadError?: string | null
+  layoutTemplate?: ViewerLayoutTemplate | null
+  layoutSlots?: ViewerLayoutSlot[]
   fourDPhaseIndex?: number
   fourDPhaseCount?: number
   fourDPhaseItems?: FourDPhaseItem[]
@@ -517,5 +519,32 @@ export interface ViewerOperationItem {
   label: string
 }
 
+export interface ViewerLayoutSlot {
+  id: string
+  row: number
+  column: number
+  rowSpan: number
+  columnSpan: number
+  seriesId?: string | null
+  seriesTitle?: string | null
+  viewType?: ViewType | null
+  sourceViewType?: ViewType | null
+  viewportKey?: string | null
+  viewId?: string | null
+  imageSrc?: string | null
+  ownsImageSrc?: boolean
+  sliceLabel?: string | null
+  windowLabel?: string | null
+}
+
+export interface ViewerLayoutTemplate {
+  key: string
+  label: string
+  rows: number
+  columns: number
+  slots: ViewerLayoutSlot[]
+  source: 'preset' | 'custom'
+}
+
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'Tag'
+export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'Tag' | 'Layout'

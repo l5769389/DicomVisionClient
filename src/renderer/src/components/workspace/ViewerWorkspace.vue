@@ -15,6 +15,7 @@ import type {
   MprMipConfig,
   QaWaterAnalysis,
   QaWaterMetricKey,
+  ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType,
   WorkspaceReadyPayload
@@ -28,6 +29,7 @@ import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorksp
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import CompareStackView from '../viewer/views/CompareStackView.vue'
 import FourDView from '../viewer/views/FourDView.vue'
+import LayoutView from '../viewer/views/LayoutView.vue'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
 import DicomTagView from '../viewer/views/DicomTagView.vue'
@@ -95,6 +97,7 @@ const emit = defineEmits<{
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
+  openLayoutView: [template: ViewerLayoutTemplate]
   toggleSidebar: []
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
@@ -205,6 +208,7 @@ const {
   emitSetActiveOperation: (value) => emit('setActiveOperation', value),
   emitTriggerViewAction: (payload) => handleToolbarViewAction(payload),
   emitCompareSyncChange: (payload) => emit('compareSyncChange', payload),
+  emitOpenLayoutView: (template) => emit('openLayoutView', template),
   emitViewportWheel: (payload) => emit('viewportWheel', payload),
   emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
   exportCurrentView: (format) => {
@@ -1664,6 +1668,11 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
+        />
+
+        <LayoutView
+          v-else-if="activeTab.viewType === 'Layout'"
+          :active-tab="activeTab"
         />
 
         <StackView

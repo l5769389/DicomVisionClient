@@ -4,6 +4,8 @@ export interface StackToolOption {
   value: string
   label: string
   icon: string
+  layoutRows?: number
+  layoutColumns?: number
   swatchKey?: string
   description?: string
   badge?: string
@@ -18,6 +20,7 @@ export interface StackTool {
   icon: string
   swatchKey?: string
   kind?: 'mode' | 'action'
+  menuKind?: 'options' | 'layout'
   options?: StackToolOption[]
   showSelectedOptionIcon?: boolean
 }

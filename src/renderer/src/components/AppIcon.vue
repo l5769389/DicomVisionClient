@@ -43,6 +43,7 @@ const mdiIconMap: Record<string, string> = {
   pause: 'mdi-pause',
   stop: 'mdi-stop',
   'four-d': 'mdi-timeline-clock-outline',
+  layout: 'mdi-view-dashboard-outline',
   tag: 'mdi-tag-text-outline',
   export: 'mdi-export-variant',
   pseudocolor: 'mdi-palette-outline',

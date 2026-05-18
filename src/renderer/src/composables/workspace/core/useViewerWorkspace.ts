@@ -73,6 +73,7 @@ import type {
   MprMipOperationConfig,
   MprViewportKey,
   ViewImageResponse,
+  ViewerLayoutTemplate,
   ViewTransformInfo,
   ViewerMtfItem,
   ViewerTabItem,
@@ -131,6 +132,7 @@ interface ViewerWorkspaceState {
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
   openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
+  openLayoutView: (template: ViewerLayoutTemplate) => Promise<void>
   openView: (viewType: ViewType) => Promise<void>
   removeSeries: (seriesId: string) => void
   selectSeries: (seriesId: string) => void
@@ -2171,6 +2173,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     loadDroppedDicomFiles,
     message,
     openSeriesView: views.openSeriesView,
+    openLayoutView: views.openLayoutView,
     openSeriesCompare: views.openSeriesCompare,
     openView: views.openView,
     removeSeries: views.removeSeries,

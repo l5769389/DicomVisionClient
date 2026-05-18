@@ -11,12 +11,14 @@ import type {
   OrientationInfo,
   ScaleBarInfo,
   ViewTransformInfo,
+  ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
+import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
 export const COMPARE_STACK_SOURCE_PANE_KEY: CompareStackPaneKey = 'compare-a'
@@ -471,6 +473,10 @@ export function createCompareStackTabKey(sourceSeriesId: string, targetSeriesId:
   return `${sourceSeriesId}::CompareStack::${targetSeriesId}`
 }
 
+export function createLayoutTabKey(seriesId: string, templateKey: string): string {
+  return `${seriesId}::Layout::${templateKey}`
+}
+
 export function getSeriesDisplayName(series: FolderSeriesItem | null, fallbackSeriesId: string): string {
   if (!series) {
     return fallbackSeriesId
@@ -544,6 +550,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     tagInstanceNumber: null,
     tagIsLoading: false,
     tagLoadError: null,
+    layoutTemplate: null,
+    layoutSlots: [],
     fourDPhaseIndex: 0,
     fourDPhaseCount: 10,
     fourDPhaseItems: createDefaultFourDPhaseItems(10),
@@ -552,5 +560,22 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fourDPhaseCache: {},
     fourDIsPlaying: false,
     fourDIsPreloading: false
+  }
+}
+
+export function createLayoutTab(series: FolderSeriesItem, template: ViewerLayoutTemplate): ViewerTabItem {
+  const layoutTemplate = cloneViewerLayoutTemplate(template)
+  const seriesTitle = getSeriesDisplayName(series, series.seriesId)
+  return {
+    ...createTab(series, 'Layout'),
+    key: createLayoutTabKey(series.seriesId, layoutTemplate.key),
+    title: `${seriesTitle} · Layout ${layoutTemplate.label}`,
+    viewType: 'Layout',
+    viewId: '',
+    imageSrc: '',
+    sliceLabel: '',
+    windowLabel: '',
+    layoutTemplate,
+    layoutSlots: layoutTemplate.slots.map((slot) => ({ ...slot }))
   }
 }

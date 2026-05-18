@@ -5,6 +5,7 @@ import type {
   AnnotationDraft,
   AnnotationOverlay,
   AnnotationSize,
+  CompareSyncSettingKey,
   CornerInfo,
   DraftMeasurementMode,
   MeasurementDraft,
@@ -25,6 +26,7 @@ import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferen
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
+import CompareStackView from '../viewer/views/CompareStackView.vue'
 import FourDView from '../viewer/views/FourDView.vue'
 import MprView from '../viewer/views/MprView.vue'
 import StackView from '../viewer/views/StackView.vue'
@@ -79,12 +81,13 @@ const emit = defineEmits<{
   fourDPhaseChange: [payload: { tabKey: string; phaseIndex: number }]
   fourDFpsChange: [payload: { tabKey: string; fps: number }]
   fourDPlaybackChange: [payload: { tabKey: string; isPlaying: boolean }]
+  compareSyncChange: [payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [deltaY: number]
+  viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
@@ -197,7 +200,8 @@ const {
   activeTab: activeTabRef,
   emitSetActiveOperation: (value) => emit('setActiveOperation', value),
   emitTriggerViewAction: (payload) => handleToolbarViewAction(payload),
-  emitViewportWheel: (deltaY) => emit('viewportWheel', deltaY),
+  emitCompareSyncChange: (payload) => emit('compareSyncChange', payload),
+  emitViewportWheel: (payload) => emit('viewportWheel', payload),
   emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
   exportCurrentView: (format) => {
     void handleExportCurrentView(format)
@@ -508,6 +512,21 @@ function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | null | undefine
   return viewType === 'MPR' || viewType === '4D'
 }
 
+function isCompareStackViewType(viewType: ViewerTabItem['viewType'] | null | undefined): boolean {
+  return viewType === 'CompareStack'
+}
+
+function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): CornerInfo {
+  if (isMprLikeViewType(tab.viewType)) {
+    return getMprCornerInfo(viewportKey)
+  }
+  if (isCompareStackViewType(tab.viewType)) {
+    const paneKey = viewportKey === 'compare-b' ? 'compare-b' : 'compare-a'
+    return tab.compareCornerInfos?.[paneKey] ?? tab.cornerInfo
+  }
+  return tab.cornerInfo
+}
+
 function drawCornerInfo(context: CanvasRenderingContext2D, cornerInfo: CornerInfo, width: number, height: number): void {
   const blocks: Array<{
     key: keyof CornerInfo
@@ -596,7 +615,10 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
       return
     }
 
-    const exportViewportKey = isMprLikeViewType(props.activeTab?.viewType) ? activeViewportKey.value : 'single'
+    const exportViewportKey =
+      isMprLikeViewType(props.activeTab?.viewType) || isCompareStackViewType(props.activeTab?.viewType)
+        ? activeViewportKey.value
+        : 'single'
     const defaultFileNameStem = buildExportFileStem(props.activeTab, activeViewportKey.value)
     let customFileNameStem: string | null = null
     if (!exportPreference.value.useDefaultFileName) {
@@ -608,7 +630,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
 
     const overlays: ViewerExportOverlays = {
       annotations: getAnnotations(exportViewportKey),
-      cornerInfo: isMprLikeViewType(props.activeTab?.viewType) ? getMprCornerInfo(exportViewportKey) : props.activeTab.cornerInfo,
+      cornerInfo: getActiveCornerInfoForExport(props.activeTab, exportViewportKey),
       measurements: getExportMeasurements(exportViewportKey)
     }
     const exportOverlays: ViewerExportOverlays =
@@ -652,7 +674,9 @@ function createAnnotationId(): string {
 
 function isAnnotationOperationEnabled(): boolean {
   return (
-    (props.activeTab?.viewType === 'Stack' || isMprLikeViewType(props.activeTab?.viewType)) &&
+    (props.activeTab?.viewType === 'Stack' ||
+      isCompareStackViewType(props.activeTab?.viewType) ||
+      isMprLikeViewType(props.activeTab?.viewType)) &&
     props.activeOperation.startsWith('stack:annotate')
   )
 }
@@ -772,8 +796,8 @@ function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
   if (!props.activeTab) {
     return []
   }
-  if (isMprLikeViewType(props.activeTab.viewType)) {
-    return props.activeTab.viewportMeasurements?.[viewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? []
+  if (isMprLikeViewType(props.activeTab.viewType) || isCompareStackViewType(props.activeTab.viewType)) {
+    return props.activeTab.viewportMeasurements?.[viewportKey] ?? []
   }
   return props.activeTab.measurements ?? []
 }
@@ -1052,7 +1076,7 @@ function handleAnnotationPointerDown(event: PointerEvent, viewportKey: string): 
   }
 
   event.preventDefault()
-  setActiveViewport(viewportKey as never)
+  setActiveViewport(viewportKey)
   const rect = getRenderedImageRect(imageElement)
   const annotations = getAnnotations(viewportKey)
   const hit = findArrowAnnotationAtPoint(annotations, point, rect)
@@ -1607,8 +1631,36 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <CompareStackView
+          v-if="activeTab.viewType === 'CompareStack'"
+          :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :get-annotations="getViewportAnnotations"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
+          @viewport-click="handleViewportClick"
+          @viewport-wheel="handleViewportWheel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
+        />
+
         <StackView
-          v-if="activeTab.viewType === 'Stack'"
+          v-else-if="activeTab.viewType === 'Stack'"
           :active-tab="activeTab"
           :active-operation="props.activeOperation"
           :annotations="getViewportAnnotations('single')"

@@ -47,10 +47,12 @@ export type OperationAcceptedResponse = BackendOperationAcceptedResponse
 export interface WorkspaceReadyPayload {
   element: HTMLElement | null
   viewportKey: string
-  viewportElements?: Partial<Record<MprViewportKey, HTMLElement | null>>
+  viewportElements?: Partial<Record<string, HTMLElement | null>>
 }
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+export type CompareStackPaneKey = 'compare-a' | 'compare-b'
+export type CompareSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform'
 export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
 export type MprCrosshairInteractionMode = 'move' | 'rotate'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
@@ -450,6 +452,22 @@ export interface ViewerTabItem {
   imageSrc: string
   sliceLabel: string
   windowLabel: string
+  compareSeriesIds?: Record<CompareStackPaneKey, string>
+  compareSeriesTitles?: Record<CompareStackPaneKey, string>
+  compareViewIds?: Partial<Record<CompareStackPaneKey, string>>
+  compareImages?: Partial<Record<CompareStackPaneKey, string>>
+  compareSliceLabels?: Partial<Record<CompareStackPaneKey, string>>
+  compareWindowLabels?: Partial<Record<CompareStackPaneKey, string>>
+  compareScaleBars?: Partial<Record<CompareStackPaneKey, ScaleBarInfo | null>>
+  compareCornerInfos?: Partial<Record<CompareStackPaneKey, CornerInfo>>
+  compareOrientations?: Partial<Record<CompareStackPaneKey, OrientationInfo>>
+  compareTransformStates?: Partial<Record<CompareStackPaneKey, ViewTransformInfo>>
+  comparePseudocolorPresets?: Partial<Record<CompareStackPaneKey, string>>
+  compareSyncScroll?: boolean
+  compareSyncWindow?: boolean
+  compareSyncPseudocolor?: boolean
+  compareSyncView?: boolean
+  compareSyncTransform?: boolean
   viewportViewIds?: Partial<Record<MprViewportKey, string>>
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
@@ -463,8 +481,8 @@ export interface ViewerTabItem {
   annotations?: AnnotationOverlay[]
   cornerInfo: CornerInfo
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
-  viewportMeasurements?: Partial<Record<MprViewportKey, MeasurementOverlay[]>>
-  viewportAnnotations?: Partial<Record<MprViewportKey, AnnotationOverlay[]>>
+  viewportMeasurements?: Partial<Record<string, MeasurementOverlay[]>>
+  viewportAnnotations?: Partial<Record<string, AnnotationOverlay[]>>
   orientation: OrientationInfo
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
   transformState: ViewTransformInfo
@@ -500,4 +518,4 @@ export interface ViewerOperationItem {
 }
 
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag'
+export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'Tag'

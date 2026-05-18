@@ -26,6 +26,7 @@ const mdiIconMap: Record<string, string> = {
   'mirror-h': 'mdi-flip-horizontal',
   'mirror-v': 'mdi-flip-vertical',
   reset: 'mdi-restore',
+  sync: 'mdi-sync',
   page: 'mdi-swap-vertical',
   annotate: 'mdi-pencil',
   measure: 'mdi-ruler',

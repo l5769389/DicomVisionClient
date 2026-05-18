@@ -16,9 +16,13 @@ import {
   ViewOperationInput
 } from '../../../services/socket'
 import {
+  COMPARE_STACK_PANE_KEYS,
   createEmptyMprCrosshairs,
   createEmptyMprOrientations,
+  createEmptyComparePseudocolorPresets,
+  createEmptyCompareTransformStates,
   createEmptyMprScaleBars,
+  isCompareStackPaneKey,
   isMprViewportKey,
   normalizeCornerInfo
 } from '../views/viewerWorkspaceTabs'
@@ -44,6 +48,8 @@ import {
 import type {
   CornerInfo,
   ConnectionState,
+  CompareStackPaneKey,
+  CompareSyncSettingKey,
   FolderSeriesItem,
   FourDPlaybackPhaseEvent,
   FourDPlaybackStateEvent,
@@ -74,7 +80,7 @@ interface ViewerWorkspaceState {
   closeTab: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
   hasSelectedSeries: ComputedRef<boolean>
-  handleViewportWheel: (deltaY: number) => void
+  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number }) => void
   handleViewportDrag: (payload: {
     deltaX: number
     deltaY: number
@@ -106,12 +112,14 @@ interface ViewerWorkspaceState {
   handleFourDPhaseChange: (payload: { tabKey: string; phaseIndex: number }) => void
   handleFourDFpsChange: (payload: { tabKey: string; fps: number }) => void
   handleFourDPlaybackChange: (payload: { tabKey: string; isPlaying: boolean }) => void
+  handleCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
   loadDroppedDicomFiles: (files: File[]) => Promise<void>
   message: Ref<string>
+  openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
   openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
   openView: (viewType: ViewType) => Promise<void>
   removeSeries: (seriesId: string) => void
@@ -183,7 +191,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const activeOperation = ref(STACK_DEFAULT_OPERATION)
   const viewerStage = ref<HTMLElement | null>(null)
   const activeViewportKey = ref('single')
-  const viewportElements = ref<Partial<Record<MprViewportKey, HTMLElement | null>>>({})
+  const viewportElements = ref<Partial<Record<string, HTMLElement | null>>>({})
   const seriesCornerInfoMap = ref<Record<string, CornerInfo>>({})
   const loadingSeriesCornerInfo = new Map<string, Promise<CornerInfo>>()
   const DEFAULT_VIEW_TRANSFORM: ViewTransformInfo = {
@@ -278,6 +286,73 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
     return viewType === 'MPR' || viewType === '4D'
+  }
+
+  function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'Stack' || viewType === 'CompareStack'
+  }
+
+  function getComparePaneKey(viewportKey: string): CompareStackPaneKey {
+    return isCompareStackPaneKey(viewportKey) ? viewportKey : 'compare-a'
+  }
+
+  function getActiveViewIdForTab(tab: ViewerTabItem, viewportKey = activeViewportKey.value): string {
+    if (isMprLikeViewType(tab.viewType)) {
+      return tab.viewportViewIds?.[viewportKey as MprViewportKey] ?? ''
+    }
+    if (tab.viewType === 'CompareStack') {
+      return tab.compareViewIds?.[getComparePaneKey(viewportKey)] ?? ''
+    }
+    return tab.viewId
+  }
+
+  function shouldSyncCompareOperation(tab: ViewerTabItem, opType: ViewOperationType | string): boolean {
+    if (opType === VIEW_OPERATION_TYPES.scroll) {
+      return tab.compareSyncScroll !== false
+    }
+    if (opType === VIEW_OPERATION_TYPES.window) {
+      return tab.compareSyncWindow !== false
+    }
+    if (opType === VIEW_OPERATION_TYPES.pseudocolor) {
+      return tab.compareSyncPseudocolor !== false
+    }
+    if (opType === VIEW_OPERATION_TYPES.pan || opType === VIEW_OPERATION_TYPES.zoom) {
+      return tab.compareSyncView !== false
+    }
+    if (opType === VIEW_OPERATION_TYPES.transform2d) {
+      return tab.compareSyncTransform === true
+    }
+    return false
+  }
+
+  function getCompareOperationPaneKeys(tab: ViewerTabItem, viewportKey: string, opType: ViewOperationType | string): CompareStackPaneKey[] {
+    const paneKey = getComparePaneKey(viewportKey)
+    if (tab.viewType !== 'CompareStack' || !shouldSyncCompareOperation(tab, opType)) {
+      return [paneKey]
+    }
+
+    return paneKey === 'compare-a' ? ['compare-a', 'compare-b'] : ['compare-b', 'compare-a']
+  }
+
+  function getCompareOperationViewIds(tab: ViewerTabItem, viewportKey: string, opType: ViewOperationType | string): string[] {
+    if (tab.viewType !== 'CompareStack') {
+      const viewId = getActiveViewIdForTab(tab, viewportKey)
+      return viewId ? [viewId] : []
+    }
+
+    return getCompareOperationPaneKeys(tab, viewportKey, opType)
+      .map((paneKey) => tab.compareViewIds?.[paneKey] ?? '')
+      .filter((viewId): viewId is string => Boolean(viewId))
+  }
+
+  function hasOperableView(tab: ViewerTabItem): boolean {
+    if (isMprLikeViewType(tab.viewType)) {
+      return Object.values(tab.viewportViewIds ?? {}).some(Boolean)
+    }
+    if (tab.viewType === 'CompareStack') {
+      return Object.values(tab.compareViewIds ?? {}).some(Boolean)
+    }
+    return Boolean(tab.viewId)
   }
 
   function isFourDPlaybackLocked(tab: ViewerTabItem | null | undefined): boolean {
@@ -420,6 +495,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         }
       }
 
+      const compareViewportKey = Object.entries(item.compareViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0]
+      if (item.viewType === 'CompareStack' && compareViewportKey && isCompareStackPaneKey(compareViewportKey)) {
+        return {
+          ...item,
+          compareCornerInfos: {
+            ...(item.compareCornerInfos ?? {}),
+            [compareViewportKey]: withHoverCornerInfo(item.compareCornerInfos?.[compareViewportKey] ?? item.cornerInfo, row, col)
+          }
+        }
+      }
+
       const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0] as
         | MprViewportKey
         | undefined
@@ -465,6 +551,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (isMprLikeViewType(tab.viewType)) {
       return tab.viewportTransformStates?.[viewportKey as MprViewportKey] ?? DEFAULT_VIEW_TRANSFORM
     }
+    if (tab.viewType === 'CompareStack') {
+      return tab.compareTransformStates?.[getComparePaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
+    }
     return tab.transformState ?? DEFAULT_VIEW_TRANSFORM
   }
 
@@ -483,6 +572,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           ...item,
           viewportTransformStates: {
             ...(item.viewportTransformStates ?? {}),
+            [viewportKey]: transform
+          }
+        }
+      }
+
+      if (item.viewType === 'CompareStack' && viewportKey && isCompareStackPaneKey(viewportKey)) {
+        return {
+          ...item,
+          compareTransformStates: {
+            ...(item.compareTransformStates ?? createEmptyCompareTransformStates()),
             [viewportKey]: transform
           }
         }
@@ -551,7 +650,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'reset' || payload.action === 'resetAll') && tab.viewType !== 'Stack' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+    if ((payload.action === 'reset' || payload.action === 'resetAll') && !isStackLikeViewType(tab.viewType) && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -559,15 +658,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'rotate' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'rotate' && !isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if (payload.action === 'pseudocolor' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'pseudocolor' && !isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if (payload.action === 'windowPreset' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'windowPreset' && !isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -575,11 +674,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType) && tab.viewType !== '3D') {
+    if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && !isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType) && tab.viewType !== '3D') {
       return
     }
 
-    if (!tab.viewId && !isMprLikeViewType(tab.viewType)) {
+    if (!hasOperableView(tab) && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -590,8 +689,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (payload.action === 'clearMtf' || payload.action === 'resetAll') {
       clearActiveTabMtf()
       if (payload.action === 'clearMtf') {
-        const viewId =
-          isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+        const viewId = getActiveViewIdForTab(tab)
         if (!viewId) {
           return
         }
@@ -605,8 +703,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'clearAnnotations') {
-      const viewId =
-        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      const viewId = getActiveViewIdForTab(tab)
       if (!viewId) {
         return
       }
@@ -619,8 +716,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'clearMeasurements') {
-      const viewId =
-        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      const viewId = getActiveViewIdForTab(tab)
       if (!viewId) {
         return
       }
@@ -718,12 +814,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'rotate' && payload.value) {
-      const viewId =
-        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
-      if (!viewId) {
-        return
-      }
-
       const currentTransform = getCurrentViewportTransform(tab, activeViewportKey.value)
       let nextTransform: ViewTransformInfo = currentTransform
 
@@ -751,6 +841,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
 
+      if (tab.viewType === 'CompareStack') {
+        const targetPaneKeys = getCompareOperationPaneKeys(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
+        targetPaneKeys.forEach((viewportKey) => {
+          updateTabTransformState(tab.key, nextTransform, viewportKey)
+          const targetViewId = tab.compareViewIds?.[viewportKey] ?? ''
+          if (!targetViewId) {
+            return
+          }
+          emitViewOperation({
+            viewId: targetViewId,
+            opType: VIEW_OPERATION_TYPES.transform2d,
+            rotationDegrees: nextTransform.rotationDegrees,
+            hor_flip: nextTransform.horFlip,
+            ver_flip: nextTransform.verFlip
+          })
+        })
+        return
+      }
+
+      const viewId = getActiveViewIdForTab(tab)
+      if (!viewId) {
+        return
+      }
+
       updateTabTransformState(tab.key, nextTransform, activeViewportKey.value)
       emitViewOperation({
         viewId,
@@ -764,9 +878,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'pseudocolor' && payload.value) {
       const presetKey = normalizePseudocolorPresetKey(payload.value)
-      const viewId =
-        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
-      if (!viewId) {
+      const targetViewIds = getCompareOperationViewIds(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.pseudocolor)
+      if (!targetViewIds.length) {
         return
       }
 
@@ -785,16 +898,33 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           }
         }
 
+        if (item.viewType === 'CompareStack' && isCompareStackPaneKey(activeViewportKey.value)) {
+          const targetPaneKeys = getCompareOperationPaneKeys(item, activeViewportKey.value, VIEW_OPERATION_TYPES.pseudocolor)
+          const nextPresets = {
+            ...(item.comparePseudocolorPresets ?? createEmptyComparePseudocolorPresets())
+          }
+          targetPaneKeys.forEach((viewportKey) => {
+            nextPresets[viewportKey] = presetKey
+          })
+          return {
+            ...item,
+            comparePseudocolorPresets: nextPresets,
+            pseudocolorPreset: presetKey
+          }
+        }
+
         return {
           ...item,
           pseudocolorPreset: presetKey
         }
       })
 
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.pseudocolor,
-        pseudocolorPreset: presetKey
+      targetViewIds.forEach((targetViewId) => {
+        emitViewOperation({
+          viewId: targetViewId,
+          opType: VIEW_OPERATION_TYPES.pseudocolor,
+          pseudocolorPreset: presetKey
+        })
       })
       return
     }
@@ -803,17 +933,18 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const [wwRaw, wlRaw] = payload.value.split('|')
       const ww = Number.parseFloat(wwRaw)
       const wl = Number.parseFloat(wlRaw)
-      const viewId =
-        isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
+      const viewId = getActiveViewIdForTab(tab)
       if (!viewId || !Number.isFinite(ww) || !Number.isFinite(wl)) {
         return
       }
 
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.window,
-        ww,
-        wl
+      getCompareOperationViewIds(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.window).forEach((targetViewId) => {
+        emitViewOperation({
+          viewId: targetViewId,
+          opType: VIEW_OPERATION_TYPES.window,
+          ww,
+          wl
+        })
       })
       return
     }
@@ -861,6 +992,52 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
 
+      if (tab.viewType === 'CompareStack') {
+        const paneViewIds = COMPARE_STACK_PANE_KEYS
+          .map((viewportKey) => tab.compareViewIds?.[viewportKey] ?? '')
+          .filter((viewId): viewId is string => Boolean(viewId))
+        if (!paneViewIds.length) {
+          return
+        }
+
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                compareTransformStates: COMPARE_STACK_PANE_KEYS.reduce(
+                  (states, viewportKey) => ({
+                    ...states,
+                    [viewportKey]: DEFAULT_VIEW_TRANSFORM
+                  }),
+                  { ...(item.compareTransformStates ?? createEmptyCompareTransformStates()) }
+                ),
+                comparePseudocolorPresets: COMPARE_STACK_PANE_KEYS.reduce(
+                  (presets, viewportKey) => ({
+                    ...presets,
+                    [viewportKey]: DEFAULT_PSEUDOCOLOR_PRESET
+                  }),
+                  { ...(item.comparePseudocolorPresets ?? createEmptyComparePseudocolorPresets()) }
+                ),
+                pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET
+              }
+            : item
+        )
+
+        paneViewIds.forEach((viewId) => {
+          emitViewOperation({
+            viewId,
+            opType: VIEW_OPERATION_TYPES.reset,
+            subOpType: payload.action === 'resetAll' ? 'all' : 'view'
+          })
+        })
+        return
+      }
+
+      const viewId = getActiveViewIdForTab(tab)
+      if (!viewId) {
+        return
+      }
+
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
@@ -871,7 +1048,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       )
 
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.reset,
         subOpType: payload.action === 'resetAll' ? 'all' : 'view'
       })
@@ -940,6 +1117,28 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     scheduleVolumeConfigEmit(tab.viewId, normalizedConfig)
   }
 
+  function handleCompareSyncChange(payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }): void {
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== payload.tabKey || item.viewType !== 'CompareStack') {
+        return item
+      }
+
+      if (payload.key === 'scroll') {
+        return { ...item, compareSyncScroll: payload.value }
+      }
+      if (payload.key === 'window') {
+        return { ...item, compareSyncWindow: payload.value }
+      }
+      if (payload.key === 'pseudocolor') {
+        return { ...item, compareSyncPseudocolor: payload.value }
+      }
+      if (payload.key === 'view') {
+        return { ...item, compareSyncView: payload.value }
+      }
+      return { ...item, compareSyncTransform: payload.value }
+    })
+  }
+
   function setActiveViewportKey(viewportKey: string): void {
     activeViewportKey.value = viewportKey
   }
@@ -1004,7 +1203,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     measurementId?: string
   }): void {
     const tab = activeTab.value
-    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) || !payload.points.length) {
+    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType)) || !payload.points.length) {
       return
     }
 
@@ -1022,12 +1221,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (!tab.viewId) {
+    const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
+    if (!viewId) {
       return
     }
 
     emitViewOperation({
-      viewId: tab.viewId,
+      viewId,
       ...operationPayload
     })
   }
@@ -1043,6 +1243,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return null
       }
       return tab.viewportViewIds?.[viewportKey] ?? null
+    }
+
+    if (tab.viewType === 'CompareStack') {
+      return tab.compareViewIds?.[getComparePaneKey(viewportKey)] ?? null
     }
 
     if (tab.viewType !== 'Stack') {
@@ -1122,7 +1326,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     mtfId?: string
   }): Promise<void> {
     const tab = activeTab.value
-    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType))) {
+    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
       return
     }
 
@@ -1541,15 +1745,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     onImageUpdate: handleImageUpdate
   })
 
-  function handleViewportWheel(deltaY: number): void {
+  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number }): void {
     const tab = activeTab.value
     if (!tab) {
       return
     }
 
-    const viewId =
-      isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[activeViewportKey.value as MprViewportKey] ?? '' : tab.viewId
-    if (!viewId || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType))) {
+    const viewportKey = typeof payload === 'number' ? activeViewportKey.value : payload.viewportKey
+    const deltaY = typeof payload === 'number' ? payload : payload.deltaY
+    const viewId = getActiveViewIdForTab(tab, viewportKey)
+    if (!viewId || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
       return
     }
 
@@ -1560,17 +1765,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (isMprLikeViewType(tab.viewType)) {
-      emitMprViewOperation(activeViewportKey.value, {
+      emitMprViewOperation(viewportKey, {
         opType: VIEW_OPERATION_TYPES.scroll,
         delta: scroll
       })
       return
     }
 
-    emitViewOperation({
-      viewId,
-      opType: VIEW_OPERATION_TYPES.scroll,
-      delta: scroll
+    getCompareOperationViewIds(tab, viewportKey, VIEW_OPERATION_TYPES.scroll).forEach((targetViewId) => {
+      emitViewOperation({
+        viewId: targetViewId,
+        opType: VIEW_OPERATION_TYPES.scroll,
+        delta: scroll
+      })
     })
   }
 
@@ -1586,8 +1793,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const viewId =
-      isMprLikeViewType(tab.viewType) ? tab.viewportViewIds?.[payload.viewportKey as MprViewportKey] ?? '' : tab.viewId
+    const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
     if (!viewId) {
       return
     }
@@ -1606,12 +1812,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    emitViewOperation({
-      viewId,
-      opType: payload.opType,
-      actionType: payload.phase,
-      x: payload.deltaX,
-      y: payload.deltaY
+    getCompareOperationViewIds(tab, payload.viewportKey, payload.opType).forEach((targetViewId) => {
+      emitViewOperation({
+        viewId: targetViewId,
+        opType: payload.opType,
+        actionType: payload.phase,
+        x: payload.deltaX,
+        y: payload.deltaY
+      })
     })
   }
 
@@ -1740,13 +1948,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     labelLines?: string[]
   }): void {
     const tab = activeTab.value
-    if (tab && !isFourDPlaybackLocked(tab) && (tab.viewType === 'Stack' || isMprLikeViewType(tab.viewType)) && payload.measurementId?.trim()) {
+    if (tab && !isFourDPlaybackLocked(tab) && (isStackLikeViewType(tab.viewType) || isMprLikeViewType(tab.viewType)) && payload.measurementId?.trim()) {
       viewerTabs.value = viewerTabs.value.map((item) => {
         if (item.key !== tab.key) {
           return item
         }
 
-        if (isMprLikeViewType(item.viewType)) {
+        if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack') {
           return {
             ...item,
             viewportMeasurements: {
@@ -1774,7 +1982,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function handleMeasurementDelete(payload: { viewportKey: string; measurementId: string }): void {
     const tab = activeTab.value
-    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) || !payload.measurementId) {
+    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType)) || !payload.measurementId) {
       return
     }
 
@@ -1783,7 +1991,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return item
       }
 
-      if (isMprLikeViewType(item.viewType)) {
+      if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack') {
         return {
           ...item,
           viewportMeasurements: {
@@ -1813,12 +2021,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (!tab.viewId) {
+    const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
+    if (!viewId) {
       return
     }
 
     emitViewOperation({
-      viewId: tab.viewId,
+      viewId,
       ...operationPayload
     })
   }
@@ -1929,7 +2138,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (!resizeObserver) {
       resizeObserver = new ResizeObserver(() => {
         const hasRenderableView =
-          Boolean(activeTab.value?.viewId) || Object.values(activeTab.value?.viewportViewIds ?? {}).some(Boolean)
+          Boolean(activeTab.value?.viewId) ||
+          Object.values(activeTab.value?.compareViewIds ?? {}).some(Boolean) ||
+          Object.values(activeTab.value?.viewportViewIds ?? {}).some(Boolean)
         if (hasRenderableView && !isViewLoading.value && activeTab.value) {
           void views.renderTab(activeTab.value.key)
         }
@@ -1992,6 +2203,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleFourDFpsChange,
     handleFourDPlaybackChange,
     handleMprCrosshair,
+    handleCompareSyncChange,
     handleVolumeConfigChange,
     handleViewportDrag,
     handleViewportWheel,
@@ -2002,6 +2214,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     loadDroppedDicomFiles,
     message,
     openSeriesView: views.openSeriesView,
+    openSeriesCompare: views.openSeriesCompare,
     openView: views.openView,
     removeSeries: views.removeSeries,
     selectSeries: views.selectSeries,

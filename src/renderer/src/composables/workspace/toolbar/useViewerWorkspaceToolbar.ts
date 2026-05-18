@@ -9,7 +9,14 @@ import {
   createPlaybackController,
   createToolbarActivationController
 } from './toolbarStateMachines'
-import { createDefaultMprMipConfig, normalizeMprMipConfig, type MprMipConfig, type ViewerTabItem, type VolumeRenderConfig } from '../../../types/viewer'
+import {
+  createDefaultMprMipConfig,
+  normalizeMprMipConfig,
+  type CompareSyncSettingKey,
+  type MprMipConfig,
+  type ViewerTabItem,
+  type VolumeRenderConfig
+} from '../../../types/viewer'
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
@@ -90,6 +97,14 @@ const exportTool: StackTool = {
   ]
 }
 
+const compareSyncOptionValues: Record<CompareSyncSettingKey, string> = {
+  scroll: 'compare-sync:scroll',
+  window: 'compare-sync:window',
+  pseudocolor: 'compare-sync:pseudocolor',
+  view: 'compare-sync:view',
+  transform: 'compare-sync:transform'
+}
+
 const stackTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
@@ -129,6 +144,28 @@ const stackTools: StackTool[] = [
     ]
   }
 ]
+
+const compareStackTools: StackTool[] = stackTools
+  .filter((tool) => tool.key !== 'play' && tool.key !== 'qa')
+  .map((tool) => {
+    if (tool.key !== 'reset') {
+      return tool
+    }
+
+    return {
+      ...tool,
+      options: tool.options
+        ?.filter((option) => option.value !== 'reset:mtf')
+        .map((option) =>
+          option.value === 'reset:all'
+            ? {
+                ...option,
+                description: 'Reset the view and clear measurements and annotations.'
+              }
+            : option
+        )
+    }
+  })
 
 const genericTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -204,13 +241,14 @@ interface ViewerWorkspaceToolbarOptions {
     value?: string
     config?: MprMipConfig
   }) => void
-  emitViewportWheel: (deltaY: number) => void
+  emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
+  emitViewportWheel: (payload: { viewportKey: string; deltaY: number }) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
   exportCurrentView: (format: ViewerExportFormat) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
   stopViewportDrag: () => void
-  setActiveViewport: (viewportKey: 'single' | 'volume' | 'mpr-ax' | 'mpr-cor' | 'mpr-sag') => void
+  setActiveViewport: (viewportKey: string) => void
 }
 
 interface StoredToolbarState {
@@ -275,9 +313,85 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }))
   }))
 
+  function getCompareSyncEnabled(tab: ViewerTabItem | null | undefined, key: CompareSyncSettingKey): boolean {
+    if (!tab || tab.viewType !== 'CompareStack') {
+      return false
+    }
+    if (key === 'scroll') {
+      return tab.compareSyncScroll !== false
+    }
+    if (key === 'window') {
+      return tab.compareSyncWindow !== false
+    }
+    if (key === 'pseudocolor') {
+      return tab.compareSyncPseudocolor !== false
+    }
+    if (key === 'view') {
+      return tab.compareSyncView !== false
+    }
+    return tab.compareSyncTransform === true
+  }
+
+  const compareSyncTool = computed<StackTool>(() => {
+    const tab = options.activeTab.value
+    return {
+      key: 'compareSync',
+      label: 'Sync',
+      icon: 'sync',
+      kind: 'action',
+      showSelectedOptionIcon: false,
+      options: [
+        {
+          value: compareSyncOptionValues.scroll,
+          label: '翻页',
+          icon: 'page',
+          description: '同步切片滚动',
+          checked: getCompareSyncEnabled(tab, 'scroll'),
+          syncKey: 'scroll'
+        },
+        {
+          value: compareSyncOptionValues.window,
+          label: '窗宽窗位',
+          icon: 'window',
+          description: '同步 WW / WL 调整',
+          checked: getCompareSyncEnabled(tab, 'window'),
+          syncKey: 'window'
+        },
+        {
+          value: compareSyncOptionValues.pseudocolor,
+          label: '伪彩',
+          icon: 'pseudocolor',
+          description: '同步伪彩方案',
+          checked: getCompareSyncEnabled(tab, 'pseudocolor'),
+          syncKey: 'pseudocolor'
+        },
+        {
+          value: compareSyncOptionValues.view,
+          label: '缩放平移',
+          icon: 'pan',
+          description: '同步 zoom 和 pan',
+          checked: getCompareSyncEnabled(tab, 'view'),
+          syncKey: 'view'
+        },
+        {
+          value: compareSyncOptionValues.transform,
+          label: '旋转翻转',
+          icon: 'rotate',
+          description: '同步 90° 旋转和镜像翻转',
+          checked: getCompareSyncEnabled(tab, 'transform'),
+          syncKey: 'transform'
+        }
+      ]
+    }
+  })
+
   const activeTools = computed(() =>
     options.activeTab.value?.viewType === 'Stack'
       ? stackTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+      : options.activeTab.value?.viewType === 'CompareStack'
+        ? compareStackTools
+            .map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+            .flatMap((tool) => (tool.key === 'page' ? [tool, compareSyncTool.value] : [tool]))
       : options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
         ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
         : options.activeTab.value?.viewType === '3D'
@@ -471,7 +585,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    options.emitViewportWheel(1)
+    options.emitViewportWheel({
+      viewportKey: 'single',
+      deltaY: 1
+    })
   }
 
   function startPlayback(): void {
@@ -545,6 +662,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function applyTool(tool: StackTool): void {
     if (areToolbarActionsDisabled.value && tool.key !== 'play') {
+      return
+    }
+
+    if (tool.key === 'compareSync') {
+      setMenuOpen(openMenuKey.value === tool.key ? null : tool.key)
       return
     }
 
@@ -653,6 +775,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string): void {
+    if (tool.key === 'compareSync') {
+      const activeTab = options.activeTab.value
+      const selectedOption = tool.options?.find((option) => option.value === optionValue)
+      if (!activeTab || activeTab.viewType !== 'CompareStack' || !selectedOption?.syncKey) {
+        return
+      }
+      options.emitCompareSyncChange({
+        tabKey: activeTab.key,
+        key: selectedOption.syncKey,
+        value: !selectedOption.checked
+      })
+      return
+    }
+
     stackToolSelections.value = {
       ...stackToolSelections.value,
       [tool.key]: optionValue
@@ -731,16 +867,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function handleViewportClick(viewportKey: string): void {
-    options.setActiveViewport(viewportKey as never)
+    options.setActiveViewport(viewportKey)
   }
 
   function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean }): void {
-    options.setActiveViewport(payload.viewportKey as never)
+    options.setActiveViewport(payload.viewportKey)
     const delta = payload.exact ? payload.deltaY : payload.deltaY > 0 ? 1 : payload.deltaY < 0 ? -1 : 0
     if (!Number.isFinite(delta) || delta === 0) {
       return
     }
-    options.emitViewportWheel(delta)
+    options.emitViewportWheel({
+      viewportKey: payload.viewportKey,
+      deltaY: delta
+    })
   }
 
   watch(
@@ -762,7 +901,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         stopPlayback()
         isVolumeConfigPanelOpen.value = false
         isMprMipPanelOpen.value = false
-        options.setActiveViewport(viewType === 'MPR' || viewType === '4D' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single')
+        options.setActiveViewport(
+          viewType === 'MPR' || viewType === '4D'
+            ? 'mpr-ax'
+            : viewType === '3D'
+              ? 'volume'
+              : viewType === 'CompareStack'
+                ? 'compare-a'
+                : 'single'
+        )
         restoreToolbarState(tabKey, viewType)
         closeMenus()
       }
@@ -860,6 +1007,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
             ? 'mpr-ax'
             : options.activeViewportKey.value) as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
         ] ?? tab.pseudocolorPreset
+      }
+      if (tab.viewType === 'CompareStack') {
+        const viewportKey = options.activeViewportKey.value === 'compare-b' ? 'compare-b' : 'compare-a'
+        return tab.comparePseudocolorPresets?.[viewportKey] ?? tab.pseudocolorPreset
       }
       return tab.pseudocolorPreset
     },

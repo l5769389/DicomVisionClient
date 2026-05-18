@@ -87,7 +87,7 @@ interface PointerComposableOptions {
 }
 
 interface PointerComposableState {
-  activeViewportKey: Ref<MprViewportKey | 'single' | 'volume'>
+  activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
   copySelectedMeasurement: (viewportKey?: string) => boolean
   deleteSelectedMeasurement: (viewportKey?: string, measurementId?: string) => boolean
@@ -103,7 +103,7 @@ interface PointerComposableState {
   handleViewportPointerDown: (event: PointerEvent, viewportKey: string) => void
   handleViewportPointerMove: (event: PointerEvent) => void
   handleViewportPointerUp: (event: PointerEvent) => void
-  setActiveViewport: (viewportKey: MprViewportKey | 'single' | 'volume') => void
+  setActiveViewport: (viewportKey: string) => void
   stopViewportDrag: (pointerTarget?: EventTarget | null) => void
   updateDraftMeasurementLabelLines: (viewportKey: string, labelLines: string[]) => void
   viewportCursorClasses: Ref<Partial<Record<string, string>>>
@@ -221,7 +221,7 @@ interface PointSequenceDraftResolution {
 export function useViewerWorkspacePointer(options: PointerComposableOptions): PointerComposableState {
   const measurementInteractionController = createMeasurementInteractionController()
   const mtfInteractionController = createMtfInteractionController()
-  const activeViewportKey = ref<MprViewportKey | 'single' | 'volume'>('mpr-ax')
+  const activeViewportKey = ref<string>('mpr-ax')
   const crosshairPointerViewportKey = ref('')
   const dragViewportKey = ref('')
   const dragOperationType = ref<ViewOperationType | null>(null)
@@ -319,7 +319,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     })
   }
 
-  function setActiveViewport(viewportKey: MprViewportKey | 'single' | 'volume'): void {
+  function setActiveViewport(viewportKey: string): void {
     activeViewportKey.value = viewportKey
     options.emitActiveViewportChange(viewportKey)
   }
@@ -370,6 +370,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return viewType === 'MPR' || viewType === '4D'
   }
 
+  function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'Stack' || viewType === 'CompareStack'
+  }
+
   function isCrosshairOperationEnabled(): boolean {
     return isMprLikeViewType(options.activeTab.value?.viewType) && getNormalizedOperation() === VIEW_OPERATION_TYPES.crosshair
   }
@@ -380,7 +384,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   function isMeasurementOperationEnabled(): boolean {
     const viewType = options.activeTab.value?.viewType
-    return (viewType === 'Stack' || isMprLikeViewType(viewType)) && getMeasurementToolType() != null
+    return (isStackLikeViewType(viewType) || isMprLikeViewType(viewType)) && getMeasurementToolType() != null
   }
 
   function isMtfOperationEnabled(): boolean {
@@ -1854,7 +1858,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     event.preventDefault()
-    setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+    setActiveViewport(viewportKey)
 
     const existingDraft = getDraftMeasurement(viewportKey)
     if (finishSelectedPointSequenceDraftOnDoubleClick(viewportKey, toolType, context.point, existingDraft, event)) {
@@ -1908,7 +1912,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     event.preventDefault()
-    setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+    setActiveViewport(viewportKey)
     const selectedMtf = getSelectedMtf(viewportKey)
     const intent = resolveMtfPointerDownIntent({
       items: options.getMtfItems(viewportKey),
@@ -1946,7 +1950,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return false
     }
 
-    setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+    setActiveViewport(viewportKey)
     const point = getNormalizedContainerPoint(event)
     if (!point) {
       return true
@@ -1979,7 +1983,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     event.preventDefault()
     setPointerCapture(pointerTarget, event.pointerId)
-    setActiveViewport(viewportKey as MprViewportKey | 'single' | 'volume')
+    setActiveViewport(viewportKey)
     dragViewportKey.value = viewportKey
     dragOperationType.value = getNormalizedOperation() as ViewOperationType
     isViewportDragging.value = true

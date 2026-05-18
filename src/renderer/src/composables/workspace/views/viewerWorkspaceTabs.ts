@@ -1,6 +1,7 @@
 import type {
   CornerInfo,
   CornerPosition,
+  CompareStackPaneKey,
   FourDPhaseItem,
   FolderSeriesItem,
   MprCursorInfo,
@@ -18,6 +19,7 @@ import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
+export const COMPARE_STACK_PANE_KEYS: CompareStackPaneKey[] = ['compare-a', 'compare-b']
 
 export function createEmptyMprImages(): Record<MprViewportKey, string> {
   return {
@@ -106,6 +108,69 @@ export function createEmptyMprPseudocolorPresets(): Record<MprViewportKey, strin
     'mpr-ax': DEFAULT_PSEUDOCOLOR_PRESET,
     'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
     'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
+  }
+}
+
+export function createEmptyCompareViewIds(): Record<CompareStackPaneKey, string> {
+  return {
+    'compare-a': '',
+    'compare-b': ''
+  }
+}
+
+export function createEmptyCompareImages(): Record<CompareStackPaneKey, string> {
+  return {
+    'compare-a': '',
+    'compare-b': ''
+  }
+}
+
+export function createEmptyCompareSliceLabels(): Record<CompareStackPaneKey, string> {
+  return {
+    'compare-a': '',
+    'compare-b': ''
+  }
+}
+
+export function createEmptyCompareWindowLabels(): Record<CompareStackPaneKey, string> {
+  return {
+    'compare-a': '',
+    'compare-b': ''
+  }
+}
+
+export function createEmptyCompareScaleBars(): Record<CompareStackPaneKey, null> {
+  return {
+    'compare-a': null,
+    'compare-b': null
+  }
+}
+
+export function createEmptyCompareCornerInfos(): Record<CompareStackPaneKey, CornerInfo> {
+  return {
+    'compare-a': createEmptyCornerInfo(),
+    'compare-b': createEmptyCornerInfo()
+  }
+}
+
+export function createEmptyCompareOrientations(): Record<CompareStackPaneKey, OrientationInfo> {
+  return {
+    'compare-a': createEmptyOrientationInfo(),
+    'compare-b': createEmptyOrientationInfo()
+  }
+}
+
+export function createEmptyCompareTransformStates(): Record<CompareStackPaneKey, ViewTransformInfo> {
+  return {
+    'compare-a': createDefaultTransformInfo(),
+    'compare-b': createDefaultTransformInfo()
+  }
+}
+
+export function createEmptyComparePseudocolorPresets(): Record<CompareStackPaneKey, string> {
+  return {
+    'compare-a': DEFAULT_PSEUDOCOLOR_PRESET,
+    'compare-b': DEFAULT_PSEUDOCOLOR_PRESET
   }
 }
 
@@ -409,8 +474,16 @@ export function isMprViewportKey(viewportKey: string): viewportKey is MprViewpor
   return viewportKey === 'mpr-ax' || viewportKey === 'mpr-cor' || viewportKey === 'mpr-sag'
 }
 
+export function isCompareStackPaneKey(viewportKey: string): viewportKey is CompareStackPaneKey {
+  return viewportKey === 'compare-a' || viewportKey === 'compare-b'
+}
+
 export function createTabKey(seriesId: string, viewType: ViewType): string {
   return `${seriesId}::${viewType}`
+}
+
+export function createCompareStackTabKey(sourceSeriesId: string, targetSeriesId: string): string {
+  return `${sourceSeriesId}::CompareStack::${targetSeriesId}`
 }
 
 export function getSeriesDisplayName(series: FolderSeriesItem | null, fallbackSeriesId: string): string {
@@ -438,6 +511,28 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     imageSrc: '',
     sliceLabel: '',
     windowLabel: '',
+    compareSeriesIds: {
+      'compare-a': series.seriesId,
+      'compare-b': ''
+    },
+    compareSeriesTitles: {
+      'compare-a': seriesTitle,
+      'compare-b': ''
+    },
+    compareViewIds: createEmptyCompareViewIds(),
+    compareImages: createEmptyCompareImages(),
+    compareSliceLabels: createEmptyCompareSliceLabels(),
+    compareWindowLabels: createEmptyCompareWindowLabels(),
+    compareScaleBars: createEmptyCompareScaleBars(),
+    compareCornerInfos: createEmptyCompareCornerInfos(),
+    compareOrientations: createEmptyCompareOrientations(),
+    compareTransformStates: createEmptyCompareTransformStates(),
+    comparePseudocolorPresets: createEmptyComparePseudocolorPresets(),
+    compareSyncScroll: true,
+    compareSyncWindow: true,
+    compareSyncPseudocolor: true,
+    compareSyncView: true,
+    compareSyncTransform: false,
     viewportViewIds: createEmptyMprViewIds(),
     viewportImages: createEmptyMprImages(),
     viewportSliceLabels: createEmptyMprSliceLabels(),

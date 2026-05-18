@@ -9,7 +9,18 @@ import {
   emitViewOperationWithAck
 } from '../../../services/socket'
 import {
+  COMPARE_STACK_PANE_KEYS,
   buildTabTitle,
+  createCompareStackTabKey,
+  createEmptyCompareCornerInfos,
+  createEmptyCompareImages,
+  createEmptyCompareOrientations,
+  createEmptyComparePseudocolorPresets,
+  createEmptyCompareScaleBars,
+  createEmptyCompareSliceLabels,
+  createEmptyCompareTransformStates,
+  createEmptyCompareViewIds,
+  createEmptyCompareWindowLabels,
   createEmptyCornerInfo,
   createEmptyMprCornerInfos,
   createEmptyMprCrosshairs,
@@ -24,6 +35,8 @@ import {
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
   createTab,
+  getSeriesDisplayName,
+  isCompareStackPaneKey,
   isMprViewportKey,
   mergeCornerInfo,
   normalizeCornerInfo,
@@ -71,6 +84,7 @@ import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } fr
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import type {
   BackendCreateViewType,
+  CompareStackPaneKey,
   CornerInfo,
   DicomTagItem,
   FolderSeriesItem,
@@ -95,7 +109,7 @@ interface ViewerWorkspaceViewsOptions {
   selectedSeriesId: Ref<string>
   seriesCornerInfoMap: Ref<Record<string, CornerInfo>>
   seriesList: Ref<FolderSeriesItem[]>
-  viewportElements: Ref<Partial<Record<MprViewportKey, HTMLElement | null>>>
+  viewportElements: Ref<Partial<Record<string, HTMLElement | null>>>
   viewerStage: Ref<HTMLElement | null>
   viewerTabs: Ref<ViewerTabItem[]>
   clearPendingVolumeConfig: (viewId: string) => void
@@ -110,6 +124,15 @@ interface SetFourDPhaseOptions {
 
 interface MprViewSizeUpdate {
   viewportKey: MprViewportKey
+  viewId: string
+  size: {
+    width: number
+    height: number
+  }
+}
+
+interface CompareViewSizeUpdate {
+  viewportKey: CompareStackPaneKey
   viewId: string
   size: {
     width: number
@@ -155,6 +178,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return options.viewerTabs.value.find(
       (item) =>
         item.viewId === viewId ||
+        Object.values(item.compareViewIds ?? {}).includes(viewId) ||
         Object.values(item.viewportViewIds ?? {}).includes(viewId) ||
         Boolean(findFourDPhaseViewportByViewId(item, viewId))
     )
@@ -304,6 +328,29 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
+  async function createCompareStackViewIds(sourceSeriesId: string, targetSeriesId: string): Promise<Record<CompareStackPaneKey, string>> {
+    const entries = await Promise.all(
+      [
+        ['compare-a', sourceSeriesId],
+        ['compare-b', targetSeriesId]
+      ].map(async ([viewportKey, seriesId]) => {
+        const data = await postApi('CreateViewApiV1ViewCreatePost', {
+          seriesId,
+          viewType: 'Stack'
+        })
+        return [viewportKey, data.viewId] as const
+      })
+    )
+
+    return entries.reduce(
+      (accumulator, [viewportKey, viewId]) => ({
+        ...accumulator,
+        [viewportKey]: viewId
+      }),
+      createEmptyCompareViewIds()
+    )
+  }
+
   function createFourDViewGroupKey(tab: ViewerTabItem, phaseIndex: number): string {
     return `4d:${tab.key}:${getFourDPhaseKey(phaseIndex)}`
   }
@@ -365,6 +412,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return normalizePseudocolorPresetKey(tab.viewportPseudocolorPresets?.[viewportKey] ?? tab.pseudocolorPreset)
   }
 
+  function getTabComparePseudocolorPreset(tab: ViewerTabItem, viewportKey: CompareStackPaneKey): string {
+    return normalizePseudocolorPresetKey(tab.comparePseudocolorPresets?.[viewportKey] ?? tab.pseudocolorPreset)
+  }
+
   async function emitMprPseudocolorOperations(
     viewIds: Partial<Record<MprViewportKey, string>>,
     tab: ViewerTabItem
@@ -379,6 +430,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewId,
           opType: VIEW_OPERATION_TYPES.pseudocolor,
           pseudocolorPreset: getTabViewportPseudocolorPreset(tab, viewportKey)
+        })
+      })
+    )
+  }
+
+  function createComparePseudocolorPresetMap(preset: string): Record<CompareStackPaneKey, string> {
+    const normalizedPreset = normalizePseudocolorPresetKey(preset)
+    return {
+      'compare-a': normalizedPreset,
+      'compare-b': normalizedPreset
+    }
+  }
+
+  async function emitComparePseudocolorOperations(
+    viewIds: Partial<Record<CompareStackPaneKey, string>>,
+    tab: ViewerTabItem,
+    presetOverride?: string
+  ): Promise<void> {
+    const entries = Object.entries(viewIds) as [CompareStackPaneKey, string][]
+    await Promise.all(
+      entries.map(async ([viewportKey, viewId]) => {
+        if (!viewId) {
+          return
+        }
+        await emitViewOperationWithAck({
+          viewId,
+          opType: VIEW_OPERATION_TYPES.pseudocolor,
+          pseudocolorPreset: presetOverride
+            ? normalizePseudocolorPresetKey(presetOverride)
+            : getTabComparePseudocolorPreset(tab, viewportKey)
         })
       })
     )
@@ -432,6 +513,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       if (tab.viewId) {
         bindView(tab.viewId)
       }
+      Object.values(tab.compareViewIds ?? {}).forEach((viewId) => {
+        if (viewId) {
+          bindView(viewId)
+        }
+      })
       Object.values(tab.viewportViewIds ?? {}).forEach((viewId) => {
         if (viewId) {
           bindView(viewId)
@@ -920,6 +1006,67 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
         : item.volumeRenderConfig
 
+      const compareViewportKey = Object.entries(item.compareViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
+        | CompareStackPaneKey
+        | undefined
+      if (item.viewType === 'CompareStack' && compareViewportKey) {
+        const compareSeriesId = item.compareSeriesIds?.[compareViewportKey] ?? item.seriesId
+        const compareSeriesCornerInfo =
+          options.seriesCornerInfoMap.value[compareSeriesId] ??
+          options.seriesCornerInfoMap.value[item.seriesId] ??
+          createEmptyCornerInfo()
+        const expectedComparePseudocolorPreset = getTabComparePseudocolorPreset(item, compareViewportKey)
+        const comparePseudocolorPreset = normalizePseudocolorPresetKey(
+          payload.color?.pseudocolorPreset ?? item.comparePseudocolorPresets?.[compareViewportKey] ?? item.pseudocolorPreset
+        )
+        if (payload.color?.pseudocolorPreset && comparePseudocolorPreset !== expectedComparePseudocolorPreset) {
+          revokeObjectUrlIfNeeded(imageSrc)
+          return item
+        }
+        const currentImage = item.compareImages?.[compareViewportKey]
+        revokeObjectUrlIfNeeded(currentImage)
+
+        return {
+          ...item,
+          compareImages: {
+            ...(item.compareImages ?? createEmptyCompareImages()),
+            [compareViewportKey]: imageSrc
+          },
+          compareSliceLabels: {
+            ...(item.compareSliceLabels ?? createEmptyCompareSliceLabels()),
+            [compareViewportKey]: sliceLabel
+          },
+          compareWindowLabels: {
+            ...(item.compareWindowLabels ?? createEmptyCompareWindowLabels()),
+            [compareViewportKey]: windowLabel
+          },
+          compareScaleBars: {
+            ...(item.compareScaleBars ?? createEmptyCompareScaleBars()),
+            [compareViewportKey]: scaleBar
+          },
+          compareCornerInfos: {
+            ...(item.compareCornerInfos ?? createEmptyCompareCornerInfos()),
+            [compareViewportKey]: options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+          },
+          compareOrientations: {
+            ...(item.compareOrientations ?? createEmptyCompareOrientations()),
+            [compareViewportKey]: orientationInfo
+          },
+          compareTransformStates: {
+            ...(item.compareTransformStates ?? createEmptyCompareTransformStates()),
+            [compareViewportKey]: transformState
+          },
+          comparePseudocolorPresets: {
+            ...(item.comparePseudocolorPresets ?? createEmptyComparePseudocolorPresets()),
+            [compareViewportKey]: comparePseudocolorPreset
+          },
+          viewportMeasurements: {
+            ...(item.viewportMeasurements ?? {}),
+            [compareViewportKey]: (payload.measurements ?? []) as MeasurementOverlay[]
+          }
+        }
+      }
+
       const currentViewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
         | MprViewportKey
         | undefined
@@ -1138,6 +1285,40 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       .filter((item): item is MprViewSizeUpdate => Boolean(item))
   }
 
+  function resolveCompareViewportElement(viewportKey: CompareStackPaneKey): HTMLElement | null {
+    const cachedElement = options.viewportElements.value[viewportKey] ?? null
+    if (cachedElement?.isConnected) {
+      return cachedElement
+    }
+
+    return (
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`) ??
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
+      null
+    )
+  }
+
+  function collectCompareViewSizeUpdates(
+    compareViewIds: Partial<Record<CompareStackPaneKey, string>> | undefined,
+    force = false
+  ): CompareViewSizeUpdate[] {
+    const entries = Object.entries(compareViewIds ?? {}) as [CompareStackPaneKey, string][]
+    return entries
+      .filter(([viewportKey, viewId]) => isCompareStackPaneKey(viewportKey) && Boolean(viewId))
+      .map(([viewportKey, viewId]) => {
+        const size = getViewportSize(resolveCompareViewportElement(viewportKey))
+        if (!size) {
+          return null
+        }
+        const sizeChanged = hasViewSizeChanged(viewId, size)
+        if (!force && !sizeChanged) {
+          return null
+        }
+        return { viewportKey, viewId, size }
+      })
+      .filter((item): item is CompareViewSizeUpdate => Boolean(item))
+  }
+
   function viewSizeUpdatesToViewIds(updates: MprViewSizeUpdate[]): Partial<Record<MprViewportKey, string>> {
     return updates.reduce<Partial<Record<MprViewportKey, string>>>((accumulator, update) => {
       accumulator[update.viewportKey] = update.viewId
@@ -1160,6 +1341,34 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         })
       })
     )
+  }
+
+  async function postCompareViewSizeUpdates(updates: CompareViewSizeUpdate[], renderOnBind = true): Promise<void> {
+    await Promise.all(
+      updates.map(async ({ viewId, size }) => {
+        if (renderOnBind) {
+          bindView(viewId)
+        } else {
+          await bindViewSilentlyWithAck(viewId)
+        }
+        await postApi('SetViewSizeApiV1ViewSetSizePost', {
+          opType: VIEW_OPERATION_TYPES.setSize,
+          size,
+          viewId
+        })
+      })
+    )
+  }
+
+  async function waitForCompareViewportLayout(compareViewIds: Partial<Record<CompareStackPaneKey, string>>): Promise<void> {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const requiredKeys = (Object.keys(compareViewIds) as CompareStackPaneKey[]).filter((key) => Boolean(compareViewIds[key]))
+      if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveCompareViewportElement(key))))) {
+        return
+      }
+    }
   }
 
   async function renderMprViewIds(
@@ -1203,6 +1412,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    if (tab.viewType === 'CompareStack') {
+      await postCompareViewSizeUpdates(collectCompareViewSizeUpdates(tab.compareViewIds, force))
+      return
+    }
+
     if (!tab.viewId) {
       return
     }
@@ -1226,6 +1440,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   async function openSeriesView(seriesId: string, viewType: ViewType): Promise<void> {
     if (!seriesId) {
+      return
+    }
+    if (viewType === 'CompareStack') {
       return
     }
 
@@ -1450,6 +1667,134 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  async function openSeriesCompare(sourceSeriesId: string, targetSeriesId: string): Promise<void> {
+    if (!sourceSeriesId || !targetSeriesId || sourceSeriesId === targetSeriesId) {
+      return
+    }
+
+    const sourceSeries = options.seriesList.value.find((item) => item.seriesId === sourceSeriesId) ?? null
+    const targetSeries = options.seriesList.value.find((item) => item.seriesId === targetSeriesId) ?? null
+    if (!sourceSeries || !targetSeries) {
+      options.message.value = '对比序列不存在或已被移除。'
+      return
+    }
+
+    options.selectedSeriesId.value = sourceSeriesId
+    const tabKey = createCompareStackTabKey(sourceSeriesId, targetSeriesId)
+    const initialPseudocolorPreset = normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+    const existingTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    const hasExistingViews = COMPARE_STACK_PANE_KEYS.every((viewportKey) => Boolean(existingTab?.compareViewIds?.[viewportKey]))
+
+    if (existingTab && hasExistingViews) {
+      options.viewerTabs.value = options.viewerTabs.value.map((item) => {
+        if (item.key !== existingTab.key) {
+          return item
+        }
+
+        Object.values(item.compareImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+        return {
+          ...item,
+          pseudocolorPreset: initialPseudocolorPreset,
+          compareImages: createEmptyCompareImages(),
+          comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset)
+        }
+      })
+      options.activeTabKey.value = existingTab.key
+      options.activeViewportKey.value = 'compare-a'
+      await nextTick()
+      await waitForCompareViewportLayout(existingTab.compareViewIds ?? {})
+      await renderTab(existingTab.key, true)
+      const refreshedTab = options.viewerTabs.value.find((item) => item.key === existingTab.key) ?? existingTab
+      await emitComparePseudocolorOperations(refreshedTab.compareViewIds ?? {}, refreshedTab, initialPseudocolorPreset)
+      return
+    }
+
+    if (!existingTab) {
+      const tab = {
+        ...createTab(sourceSeries, 'CompareStack'),
+        key: tabKey,
+        title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
+        compareSeriesIds: {
+          'compare-a': sourceSeriesId,
+          'compare-b': targetSeriesId
+        },
+        compareSeriesTitles: {
+          'compare-a': getSeriesDisplayName(sourceSeries, sourceSeriesId),
+          'compare-b': getSeriesDisplayName(targetSeries, targetSeriesId)
+        }
+      }
+      options.viewerTabs.value = [...options.viewerTabs.value, tab]
+    }
+
+    options.activeTabKey.value = tabKey
+    options.activeViewportKey.value = 'compare-a'
+    options.isViewLoading.value = true
+
+    try {
+      const [sourceCornerInfo, targetCornerInfo, nextCompareViewIds] = await Promise.all([
+        options.ensureSeriesCornerInfo(sourceSeriesId),
+        options.ensureSeriesCornerInfo(targetSeriesId),
+        createCompareStackViewIds(sourceSeriesId, targetSeriesId)
+      ])
+
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              viewType: 'CompareStack',
+              viewId: '',
+              imageSrc: '',
+              sliceLabel: '',
+              windowLabel: '',
+              title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
+              seriesId: sourceSeriesId,
+              seriesTitle: getSeriesDisplayName(sourceSeries, sourceSeriesId),
+              pseudocolorPreset: initialPseudocolorPreset,
+              compareSeriesIds: {
+                'compare-a': sourceSeriesId,
+                'compare-b': targetSeriesId
+              },
+              compareSeriesTitles: {
+                'compare-a': getSeriesDisplayName(sourceSeries, sourceSeriesId),
+                'compare-b': getSeriesDisplayName(targetSeries, targetSeriesId)
+              },
+              compareViewIds: nextCompareViewIds,
+              compareImages: createEmptyCompareImages(),
+              compareSliceLabels: createEmptyCompareSliceLabels(),
+              compareWindowLabels: createEmptyCompareWindowLabels(),
+              compareScaleBars: createEmptyCompareScaleBars(),
+              compareCornerInfos: {
+                'compare-a': options.withHoverCornerInfo(sourceCornerInfo),
+                'compare-b': options.withHoverCornerInfo(targetCornerInfo)
+              },
+              compareOrientations: createEmptyCompareOrientations(),
+              compareTransformStates: createEmptyCompareTransformStates(),
+              comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset),
+              compareSyncScroll: item.compareSyncScroll ?? true,
+              compareSyncWindow: item.compareSyncWindow ?? true,
+              compareSyncPseudocolor: item.compareSyncPseudocolor ?? true,
+              compareSyncView: item.compareSyncView ?? true,
+              compareSyncTransform: item.compareSyncTransform ?? false
+            }
+          : item
+      )
+
+      options.isViewLoading.value = false
+      await waitForCompareViewportLayout(nextCompareViewIds)
+      await renderTab(tabKey, true)
+      const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+      if (refreshedTab) {
+        await emitComparePseudocolorOperations(nextCompareViewIds, refreshedTab, initialPseudocolorPreset)
+      }
+      options.message.value = ''
+    } catch (error) {
+      options.message.value = 'Stack 对比视图打开失败。'
+      console.error(error)
+    } finally {
+      options.isViewLoading.value = false
+    }
+  }
+
   async function openView(viewType: ViewType): Promise<void> {
     if (!options.selectedSeriesId.value) {
       return
@@ -1477,7 +1822,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
     if (tab) {
       options.selectedSeriesId.value = tab.seriesId
-      options.activeViewportKey.value = tab.viewType === 'MPR' || tab.viewType === '4D' ? 'mpr-ax' : tab.viewType === '3D' ? 'volume' : 'single'
+      options.activeViewportKey.value =
+        tab.viewType === 'MPR' || tab.viewType === '4D'
+          ? 'mpr-ax'
+          : tab.viewType === '3D'
+            ? 'volume'
+            : tab.viewType === 'CompareStack'
+              ? 'compare-a'
+              : 'single'
     }
   }
 
@@ -1505,11 +1857,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     fourDPhaseSwitchInFlightTabKeys.delete(tabKey)
     queuedFourDPreloadTabKeys.delete(tabKey)
     fourDPreloadRequests.delete(tabKey)
-    releaseBackendViews([closingTab.viewId, ...Object.values(closingTab.viewportViewIds ?? {}), ...getFourDPhaseBackendViewIds(closingTab)])
+    releaseBackendViews([
+      closingTab.viewId,
+      ...Object.values(closingTab.compareViewIds ?? {}),
+      ...Object.values(closingTab.viewportViewIds ?? {}),
+      ...getFourDPhaseBackendViewIds(closingTab)
+    ])
     if (closingTab.viewId) {
       options.clearPendingVolumeConfig(closingTab.viewId)
       viewSizeCache.delete(closingTab.viewId)
     }
+    Object.values(closingTab.compareViewIds ?? {}).forEach((viewId) => {
+      if (viewId) {
+        viewSizeCache.delete(viewId)
+      }
+    })
     Object.values(closingTab.viewportViewIds ?? {}).forEach((viewId) => {
       if (viewId) {
         viewSizeCache.delete(viewId)
@@ -1521,6 +1883,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const closingImageSrc = options.viewerTabs.value[currentIndex]?.imageSrc
     revokeObjectUrlIfNeeded(closingImageSrc)
+    Object.values(closingTab.compareImages ?? {}).forEach((imageSrc) => {
+      revokeObjectUrlIfNeeded(imageSrc)
+    })
     Object.values(closingTab.viewportImages ?? {}).forEach((imageSrc) => {
       revokeObjectUrlIfNeeded(imageSrc)
     })
@@ -1574,6 +1939,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     closeTab,
     findTabByViewId,
     invalidateFourDMprState,
+    openSeriesCompare,
     openSeriesView,
     openView,
     preloadFourDPhases,

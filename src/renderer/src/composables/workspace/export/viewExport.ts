@@ -55,8 +55,16 @@ function isMprLikeViewType(viewType: ViewerTabItem['viewType']): boolean {
   return viewType === 'MPR' || viewType === '4D'
 }
 
+function resolveCompareViewportKey(activeViewportKey: string): 'compare-a' | 'compare-b' {
+  return activeViewportKey === 'compare-b' ? 'compare-b' : 'compare-a'
+}
+
 export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey: string): string {
   const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
+  if (activeTab.viewType === 'CompareStack') {
+    const viewportLabel = resolveCompareViewportKey(activeViewportKey) === 'compare-b' ? 'b' : 'a'
+    return `${safeTitle}-compare-${viewportLabel}`
+  }
   if (!isMprLikeViewType(activeTab.viewType)) {
     return `${safeTitle}-${activeTab.viewType.toLowerCase()}`
   }
@@ -68,6 +76,10 @@ export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey:
 }
 
 function resolveExportViewId(activeTab: ViewerTabItem, activeViewportKey: string): string | null {
+  if (activeTab.viewType === 'CompareStack') {
+    return activeTab.compareViewIds?.[resolveCompareViewportKey(activeViewportKey)] ?? null
+  }
+
   if (!isMprLikeViewType(activeTab.viewType)) {
     return activeTab.viewId || null
   }

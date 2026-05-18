@@ -1,3 +1,5 @@
+import type { CompareSyncSettingKey } from '../../../types/viewer'
+
 export interface StackToolOption {
   value: string
   label: string
@@ -6,6 +8,8 @@ export interface StackToolOption {
   description?: string
   badge?: string
   group?: string
+  checked?: boolean
+  syncKey?: CompareSyncSettingKey
 }
 
 export interface StackTool {

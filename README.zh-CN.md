@@ -2,20 +2,21 @@
 
 [English](./README.md)
 
-DicomVision 是一套面向 DICOM 影像浏览、重建、测量、质量分析、元数据检查与脱敏导出的 C/S 阅片工具，支持 Stack 切片阅览、MPR/斜切 MPR、4D 时相播放、服务端 3D 体渲染、DICOM 标签检查与修改、DICOM 脱敏导出、ROI 测量、MTF/FWHM 分析、水模 QA、图像导出、深浅主题切换，并可分别部署为浏览器 Web 应用或包含内置后端的 Windows 桌面应用。
+DicomVision 是一套面向 DICOM 影像浏览、重建、测量、质量分析、元数据检查、对比阅片与脱敏导出的 C/S 阅片工具，支持 Stack 切片阅览、Stack 双序列对比、MPR/斜切 MPR、4D 时相播放、服务端 3D 体渲染、DICOM 标签检查与修改、DICOM 脱敏导出、ROI 测量、MTF/FWHM 分析、水模 QA、图像导出、深浅主题切换，并可分别部署为浏览器 Web 应用或包含内置后端的 Windows 桌面应用。
 
-## v1.1.0 更新内容
+## v1.2.0 更新内容
 
-- 新增 DICOM Tag 树形显示模式，支持序列与 Item 层级、缩进关系和适配主题的行悬停高亮。
-- 新增 DICOM Tag 右键修改功能，支持仅当前 DICOM 或当前 series 全部 DICOM，批量修改会在后台执行并实时显示进度。
-- 新增 DICOM series 脱敏导出，脱敏字段可在设置中配置，导出流程同样支持后台任务、实时进度和完成提示。
-- 新增桌面端拖拽 DICOM 文件或文件夹到应用中自动解析序列。
-- 优化顶部 tab、操作栏、设置页、右键菜单、toast 提示和多主题下的视觉一致性。
+- 新增 Stack Compare 双序列对比：在序列右键菜单选择 Compare，再选择目标序列，即可打开并排对比标签页。
+- 新增 Compare Sync 控制，可按需同步翻页、窗宽窗位、伪彩、缩放平移、旋转翻转，测量和标注仍按 A/B 视图独立保存。
+- 优化 Compare 渲染链路：两侧视图会使用设置中的默认伪彩，Reset 会同时重置 A/B 视图，并支持测量和标注操作。
+- 精简 Compare 界面：隐藏 QA 专用内容，移除冗余的视图信息，并在翻页同步开启时使用单个共享 slice 拖拽条。
+- 保留近期 DICOM Tag 树形/修改、脱敏导出、拖拽加载、后台任务进度和多主题一致性优化。
 
 ## 功能总览
 
 - **影像加载与序列管理**：加载本地 DICOM 文件夹、拖拽桌面端文件/文件夹、服务端示例数据或服务端可访问路径，自动发现序列并在侧边栏中管理。
 - **Stack 阅片**：支持逐层浏览、窗宽窗位、缩放、平移、滚动、旋转、翻转、重置、伪彩和角标信息显示。
+- **Stack 双序列对比**：支持两个 series 并排阅片，可同步翻页、窗宽窗位、伪彩、缩放平移、旋转翻转，同时让测量和标注按视图独立管理。
 - **MPR 与斜切 MPR**：支持轴位、冠状位、矢状位三视口联动，十字线同步，斜切旋转，MIP 配置，方向标和比例尺叠加。
 - **4D 时相播放**：支持多时相预览、时相切换、播放控制、FPS 调整和多视口时相缓存。
 - **3D 体渲染**：后端基于 VTK 执行体渲染，支持预设、传输函数、不透明度、颜色、光照、插值和图层配置。
@@ -45,6 +46,10 @@ https://dicom-vision-client.vercel.app/
 | 测量工具 | DICOM 标签 |
 | --- | --- |
 | <img src="./screenshots/measure.png" alt="测量工具" width="420"> | <img src="./screenshots/dicomTags.png" alt="DICOM 标签" width="420"> |
+
+| Stack 双序列对比 | DICOM Tag 批量修改 |
+| --- | --- |
+| <img src="./screenshots/compare_stack.png" alt="Stack 双序列对比" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="DICOM Tag 批量修改" width="420"> |
 
 | MTF 分析 | FWHM 结果 |
 | --- | --- |

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { VBtn, VCard, VChip, VDivider, VList, VListItem, VMenu } from 'vuetify/components'
+import { VBtn, VCard, VChip, VDialog, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import { isFourDSeriesItem, type FolderSeriesItem, type ViewType } from '../../types/viewer'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
@@ -22,6 +22,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  compareSeries: [sourceSeriesId: string, targetSeriesId: string]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
   selectSeries: [seriesId: string]
@@ -34,13 +35,15 @@ const DEIDENTIFY_JOB_MAX_POLLS = 1500
 const DEIDENTIFY_JOB_STATUS_TIMEOUT_MS = 8000
 const DEIDENTIFY_JOB_MAX_STATUS_ERRORS = 3
 
-type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'deidentify' | 'delete'
+type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'compare' | 'deidentify' | 'delete'
 
 const { locale, t } = useUiLocale()
 const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
 const isContextMenuOpen = ref(false)
+const isCompareDialogOpen = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
+const compareSourceSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
 
 const contextMenuAnchorStyle = computed(() => ({
@@ -103,6 +106,13 @@ const contextMenuActions = computed(() => [
     badge: 'TAG'
   },
   {
+    key: 'compare' as const,
+    title: isZh.value ? '对比' : 'Compare',
+    subtitle: isZh.value ? '选择另一个序列打开 Stack 对比' : 'Choose another series for Stack compare',
+    badge: 'CMP',
+    disabled: props.seriesList.length < 2
+  },
+  {
     key: 'deidentify' as const,
     title: deidentifyCopy.value.actionTitle,
     subtitle: deidentifyCopy.value.actionSubtitle,
@@ -118,8 +128,9 @@ const contextMenuActions = computed(() => [
   }
 ])
 
-const contextSeriesPreview = computed(() => {
-  if (!contextSeries.value) {
+const compareSourcePreview = computed(() => {
+  const series = compareSourceSeries.value
+  if (!series) {
     return {
       title: '',
       meta: '',
@@ -130,13 +141,17 @@ const contextSeriesPreview = computed(() => {
   }
 
   return {
-    title: contextSeries.value.seriesDescription || t('unnamedSeries'),
-    meta: getSeriesMetaLabel(contextSeries.value),
-    id: contextSeries.value.seriesId,
-    thumbnailSrc: getSeriesThumbnailSrc(contextSeries.value),
-    fallbackLabel: getSeriesFallbackLabel(contextSeries.value)
+    title: series.seriesDescription || t('unnamedSeries'),
+    meta: getSeriesMetaLabel(series),
+    id: series.seriesId,
+    thumbnailSrc: getSeriesThumbnailSrc(series) ?? '',
+    fallbackLabel: getSeriesFallbackLabel(series)
   }
 })
+
+const compareCandidates = computed(() =>
+  props.seriesList.filter((series) => series.seriesId !== compareSourceSeries.value?.seriesId)
+)
 
 function isFourDSeries(series: FolderSeriesItem): boolean {
   return isFourDSeriesItem(series)
@@ -251,7 +266,6 @@ async function waitForDicomDeidentifyJob(initialJob: DicomTagModifyJob): Promise
 
 function handleSeriesContextMenu(event: MouseEvent, series: FolderSeriesItem): void {
   event.preventDefault()
-  emit('selectSeries', series.seriesId)
   contextSeries.value = series
   contextMenuPosition.value = {
     x: event.clientX,
@@ -271,6 +285,11 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
 
   if (action === 'delete') {
     emit('removeSeries', series.seriesId)
+  } else if (action === 'compare') {
+    compareSourceSeries.value = series
+    isCompareDialogOpen.value = true
+    closeContextMenu()
+    return
   } else if (action === 'deidentify') {
     closeContextMenu()
     await exportDeidentifiedSeries(series)
@@ -345,6 +364,16 @@ async function exportDeidentifiedSeries(series: FolderSeriesItem): Promise<void>
       durationMs: 8000
     })
   }
+}
+
+function confirmCompareSeries(targetSeries: FolderSeriesItem): void {
+  const sourceSeries = compareSourceSeries.value
+  if (!sourceSeries || sourceSeries.seriesId === targetSeries.seriesId) {
+    return
+  }
+
+  emit('compareSeries', sourceSeries.seriesId, targetSeries.seriesId)
+  isCompareDialogOpen.value = false
 }
 
 async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: FolderSeriesItem): Promise<void> {
@@ -472,55 +501,125 @@ function handleSeriesDragEnd(): void {
       <VMenu
         v-model="isContextMenuOpen"
         activator="parent"
+        content-class="series-context-menu-overlay"
         location="bottom start"
         :offset="8"
         scroll-strategy="reposition"
         :close-on-content-click="true"
       >
-        <VCard class="series-context-menu theme-shell-panel min-w-[300px] overflow-hidden rounded-[24px]! border! text-[var(--theme-text-primary)]! shadow-[0_28px_64px_rgba(0,0,0,0.5)]!">
+        <VCard class="series-context-menu theme-shell-panel w-[304px] max-w-[calc(100vw-24px)] overflow-hidden rounded-[22px]! border! text-[var(--theme-text-primary)]! shadow-[0_24px_52px_rgba(0,0,0,0.44)]!">
           <div class="series-context-menu__chrome"></div>
-          <div class="relative px-2.5 pb-2.5 pt-2.5">
-            <div class="rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_72%,transparent)] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <div class="flex items-start justify-between gap-3">
-                <div class="series-context-menu__thumb">
-                  <img v-if="contextSeriesPreview.thumbnailSrc" :src="contextSeriesPreview.thumbnailSrc" :alt="contextSeriesPreview.title" loading="lazy" decoding="async" draggable="false" />
-                  <span v-else>{{ contextSeriesPreview.fallbackLabel }}</span>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="text-[9px] font-semibold uppercase tracking-[0.22em] text-[color:color-mix(in_srgb,var(--theme-text-secondary)_68%,var(--theme-accent)_32%)]">{{ t('seriesActions') }}</div>
-                  <div class="mt-1 truncate text-[12px] font-medium text-[var(--theme-text-primary)]">{{ contextSeriesPreview.title }}</div>
-                  <div class="mt-0.5 truncate text-[11px] text-[var(--theme-text-secondary)]">{{ contextSeriesPreview.meta }}</div>
-                  <div class="mt-1 truncate font-mono text-[10px] text-[var(--theme-text-muted)]">{{ contextSeriesPreview.id }}</div>
-                </div>
-                <div class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2 py-[5px] text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-primary)]">
-                  {{ t('open') }}
-                </div>
-              </div>
-            </div>
-
-            <VDivider class="my-2.5 border-[var(--theme-border-soft)] opacity-100" />
-
-            <VList class="bg-transparent! py-0!">
-              <VListItem
+          <div class="series-context-menu__body relative px-2 pb-2 pt-2">
+            <div class="series-context-menu__actions space-y-0.5">
+              <VBtn
                 v-for="action in contextMenuActions"
                 :key="action.key"
-                class="series-context-menu__item rounded-[16px]! px-2.5! py-1.5!"
+                class="series-context-menu__item h-auto! w-full! min-w-0! justify-start! rounded-[14px]! px-0! py-0! normal-case! tracking-normal!"
                 :class="{ 'series-context-menu__item--danger': action.danger, 'series-context-menu__item--disabled': action.disabled }"
+                variant="flat"
+                :ripple="false"
+                :disabled="action.disabled"
                 @click="!action.disabled && handleContextAction(action.key)"
               >
-                <div class="flex items-center gap-2.5">
+                <div class="series-context-menu__item-content flex w-full items-center gap-2.5">
                   <div class="series-context-menu__badge" :class="{ 'series-context-menu__badge--danger': action.danger, 'series-context-menu__badge--disabled': action.disabled }">{{ action.badge }}</div>
-                  <div class="min-w-0 flex-1">
+                  <div class="min-w-0 flex-1 text-left">
                     <div class="truncate text-[12px] font-medium" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300' : 'text-[var(--theme-text-primary)]'">{{ action.title }}</div>
                     <div class="truncate text-[11px]" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300/70' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
                   </div>
                 </div>
-              </VListItem>
-            </VList>
+              </VBtn>
+            </div>
           </div>
         </VCard>
       </VMenu>
     </div>
+
+    <VDialog v-model="isCompareDialogOpen" max-width="920">
+      <VCard class="series-compare-dialog theme-shell-panel overflow-hidden rounded-[24px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_28px_70px_rgba(0,0,0,0.52)]!">
+        <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
+          <div class="min-w-0">
+            <div class="text-lg font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '选择对比序列' : 'Choose Compare Series' }}</div>
+            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? 'A 为当前基准序列，选择一个 B 目标序列后会打开左右并排的 Stack 对比 Tab。' : 'A is the current source series. Choose a B target series to open a side-by-side Stack compare tab.' }}</div>
+          </div>
+          <VBtn class="h-10! w-10! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isCompareDialogOpen = false">
+            <AppIcon name="close" :size="18" />
+          </VBtn>
+        </div>
+
+        <div class="grid gap-4 p-5 md:grid-cols-[minmax(280px,0.92fr)_56px_minmax(0,1.18fr)]">
+          <section class="series-compare-dialog__source theme-card-soft rounded-2xl border p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <span class="series-compare-dialog__role-badge series-compare-dialog__role-badge--source">A</span>
+                <div>
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ isZh ? '基准 Source' : 'Source Series' }}</div>
+                  <div class="mt-0.5 text-[11px] font-medium text-[var(--theme-accent)]">{{ isZh ? '已固定为当前序列' : 'Locked as current series' }}</div>
+                </div>
+              </div>
+              <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-accent)]">SOURCE</span>
+            </div>
+
+            <div class="mt-5 grid grid-cols-[58px_minmax(0,1fr)] gap-3">
+              <span class="series-compare-dialog__thumb series-compare-dialog__thumb--source">
+                <img v-if="compareSourcePreview.thumbnailSrc" :src="compareSourcePreview.thumbnailSrc" :alt="compareSourcePreview.title" loading="lazy" decoding="async" draggable="false" />
+                <span v-else>{{ compareSourcePreview.fallbackLabel }}</span>
+              </span>
+              <div class="min-w-0">
+                <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ compareSourcePreview.title }}</div>
+                <div class="mt-1.5 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ compareSourcePreview.meta }}</div>
+                <div class="mt-1.5 truncate font-mono text-[11px] text-[var(--theme-text-muted)]" :title="compareSourcePreview.id">{{ compareSourcePreview.id }}</div>
+              </div>
+            </div>
+          </section>
+
+          <div class="series-compare-dialog__connector hidden items-center justify-center md:flex" aria-hidden="true">
+            <span class="series-compare-dialog__connector-line"></span>
+            <span class="series-compare-dialog__connector-badge">VS</span>
+            <span class="series-compare-dialog__connector-line"></span>
+          </div>
+
+          <section class="min-w-0">
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="series-compare-dialog__role-badge series-compare-dialog__role-badge--target">B</span>
+                <div>
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ isZh ? '目标 Target' : 'Target Series' }}</div>
+                  <div class="mt-0.5 text-[11px] text-[var(--theme-text-secondary)]">{{ isZh ? '点击下方序列作为右侧 B 视图' : 'Click a series below as the right-side B view' }}</div>
+                </div>
+              </div>
+              <span class="theme-card-soft rounded-full border px-2 py-0.5 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ compareCandidates.length }}</span>
+            </div>
+            <div class="series-compare-dialog__list min-h-0 max-h-[420px] space-y-2 overflow-auto pr-1">
+              <button
+                v-for="candidate in compareCandidates"
+                :key="candidate.seriesId"
+                class="series-compare-dialog__candidate theme-card-soft grid w-full grid-cols-[50px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-3 text-left transition duration-150"
+                type="button"
+                @click="confirmCompareSeries(candidate)"
+              >
+                <span class="series-compare-dialog__thumb">
+                  <img v-if="getSeriesThumbnailSrc(candidate)" :src="getSeriesThumbnailSrc(candidate)" :alt="candidate.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
+                  <span v-else>{{ getSeriesFallbackLabel(candidate) }}</span>
+                </span>
+                <span class="min-w-0">
+                  <span class="flex min-w-0 items-center gap-2">
+                    <span class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ candidate.seriesDescription || t('unnamedSeries') }}</span>
+                    <span class="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">{{ candidate.modality || 'N/A' }}</span>
+                  </span>
+                  <span class="mt-1 block truncate text-[11px] text-[var(--theme-text-secondary)]">{{ getSeriesValueMetaLabel(candidate) }}</span>
+                  <span class="mt-1 block truncate font-mono text-[10px] text-[var(--theme-text-muted)]">{{ candidate.seriesId }}</span>
+                </span>
+                <span class="series-compare-dialog__target-action">
+                  <span>B</span>
+                  <AppIcon name="chevron-right" :size="15" />
+                </span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 
@@ -609,7 +708,19 @@ function handleSeriesDragEnd(): void {
 
 .series-context-menu {
   position: relative;
+  max-height: min(620px, calc(100vh - 24px));
   backdrop-filter: blur(16px);
+}
+
+:global(.series-context-menu-overlay) {
+  width: 304px !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(100vh - 24px) !important;
+}
+
+.series-context-menu__body {
+  max-height: min(620px, calc(100vh - 24px));
+  overflow-y: auto;
 }
 
 .series-context-menu__chrome {
@@ -623,24 +734,57 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-context-menu__item {
-  min-height: 50px;
-  color: rgba(241, 245, 249, 1);
+  position: relative;
+  min-height: 44px;
+  border: 1px solid transparent !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: var(--theme-text-primary) !important;
+  box-shadow: none !important;
+  overflow: visible;
+  text-align: left;
+}
+
+.series-context-menu__item-content {
+  position: relative;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 7px 10px;
+  background: transparent;
   transition:
     background-color 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
+    border-color 160ms ease;
 }
 
-.series-context-menu__item:hover {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(34, 211, 238, 0.08));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 10px 22px rgba(0, 0, 0, 0.18);
-  transform: translateY(-1px);
+.series-context-menu__item-content::before {
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary) 8%);
+  content: '';
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 
-.series-context-menu__item--danger:hover {
-  background: linear-gradient(180deg, rgba(251, 113, 133, 0.14), rgba(225, 29, 72, 0.08));
+.series-context-menu__item:hover .series-context-menu__item-content {
+  border-color: color-mix(in srgb, var(--theme-accent) 26%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card) 76%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+.series-context-menu__item:hover .series-context-menu__item-content::before {
+  opacity: 1;
+}
+
+.series-context-menu__item--danger:hover .series-context-menu__item-content {
+  border-color: rgba(251, 113, 133, 0.24) !important;
+  background: color-mix(in srgb, rgb(251, 113, 133) 10%, var(--theme-surface-card) 78%) !important;
+}
+
+.series-context-menu__item--danger:hover .series-context-menu__item-content::before {
+  background: rgb(251, 113, 133);
 }
 
 .series-context-menu__item--disabled {
@@ -648,38 +792,37 @@ function handleSeriesDragEnd(): void {
   opacity: 0.58;
 }
 
-.series-context-menu__item--disabled:hover {
-  background: transparent;
-  box-shadow: none;
-  transform: none;
+.series-context-menu__item--disabled:hover .series-context-menu__item-content {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-.series-context-menu__thumb {
-  display: grid;
-  width: 46px;
-  height: 46px;
-  flex: 0 0 auto;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
-  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+.series-context-menu__item--disabled:hover .series-context-menu__item-content::before {
+  opacity: 0;
 }
 
-.series-context-menu__thumb img {
+:deep(.series-context-menu__item .v-btn__content) {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  justify-content: flex-start;
+  white-space: normal;
+}
+
+:deep(.series-context-menu__item .v-btn__overlay),
+:deep(.series-context-menu__item .v-btn__underlay) {
+  opacity: 0 !important;
+  background: transparent !important;
+}
+
+:deep(.series-context-menu__item .v-btn__content) {
+  position: relative;
+  z-index: 1;
 }
 
 .series-context-menu__badge {
   display: inline-flex;
-  height: 24px;
-  min-width: 38px;
+  height: 22px;
+  min-width: 36px;
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(103, 232, 249, 0.2);
@@ -701,5 +844,125 @@ function handleSeriesDragEnd(): void {
   border-color: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
   background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
   color: var(--theme-text-muted);
+}
+
+.series-compare-dialog {
+  backdrop-filter: blur(18px);
+}
+
+.series-compare-dialog__source {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 42%),
+    color-mix(in srgb, var(--theme-surface-card) 90%, transparent);
+}
+
+.series-compare-dialog__role-badge {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.series-compare-dialog__role-badge--source {
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 44%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.series-compare-dialog__role-badge--target {
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 74%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-muted) 86%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.series-compare-dialog__connector {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.series-compare-dialog__connector-line {
+  width: 1px;
+  min-height: 46px;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--theme-accent) 36%, transparent), transparent);
+}
+
+.series-compare-dialog__connector-badge {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-soft));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-panel) 90%, transparent);
+  color: color-mix(in srgb, var(--theme-text-primary) 82%, var(--theme-accent) 18%);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.series-compare-dialog__candidate:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card));
+  transform: translateY(-1px);
+}
+
+.series-compare-dialog__candidate:hover .series-compare-dialog__target-action {
+  border-color: color-mix(in srgb, var(--theme-accent) 44%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  color: var(--theme-accent);
+}
+
+.series-compare-dialog__thumb {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--theme-accent) 16%, transparent), transparent 44%),
+    linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
+  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.series-compare-dialog__thumb--source {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+}
+
+.series-compare-dialog__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.series-compare-dialog__target-action {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 78%, transparent);
+  padding: 0 8px;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
 }
 </style>

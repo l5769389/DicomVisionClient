@@ -23,6 +23,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  compareSeries: [sourceSeriesId: string, targetSeriesId: string]
   chooseFolder: []
   openView: [viewType: ViewType]
   openSeriesView: [seriesId: string, viewType: ViewType]
@@ -61,6 +62,10 @@ function handleOpenSeriesView(seriesId: string, viewType: ViewType): void {
   emit('openSeriesView', seriesId, viewType)
 }
 
+function handleCompareSeries(sourceSeriesId: string, targetSeriesId: string): void {
+  emit('compareSeries', sourceSeriesId, targetSeriesId)
+}
+
 function openMenu(): void {
   isMenuOpen.value = true
 }
@@ -91,7 +96,7 @@ function hideSeriesHoverCard(): void {
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel />
         <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder')" @open-view="emit('openView', $event)" />
-        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
+        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>
 

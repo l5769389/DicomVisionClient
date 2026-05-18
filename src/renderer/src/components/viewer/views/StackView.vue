@@ -69,14 +69,38 @@ const sliceInfo = computed(() => {
 })
 
 const sliderValue = ref(1)
+const isSliceSliderActive = ref(false)
+
+function clampSliceValue(value: number, total = sliceInfo.value.total): number {
+  return Math.min(Math.max(value, 1), total)
+}
 
 watch(
   sliceInfo,
   (value) => {
-    sliderValue.value = Math.min(Math.max(value.current, 1), value.total)
+    if (!isSliceSliderActive.value) {
+      sliderValue.value = clampSliceValue(value.current, value.total)
+    }
   },
   { immediate: true }
 )
+
+watch(
+  () => props.activeTab.key,
+  () => {
+    isSliceSliderActive.value = false
+    sliderValue.value = clampSliceValue(sliceInfo.value.current, sliceInfo.value.total)
+  }
+)
+
+function beginSliceSliderDrag(): void {
+  isSliceSliderActive.value = true
+}
+
+function endSliceSliderDrag(): void {
+  sliderValue.value = clampSliceValue(sliderValue.value)
+  isSliceSliderActive.value = false
+}
 
 function handleSliceSliderInput(event: Event): void {
   const target = event.target
@@ -84,7 +108,12 @@ function handleSliceSliderInput(event: Event): void {
     return
   }
 
-  const nextValue = Number(target.value)
+  beginSliceSliderDrag()
+  const rawValue = Number(target.value)
+  if (!Number.isFinite(rawValue)) {
+    return
+  }
+  const nextValue = clampSliceValue(rawValue)
   const previousValue = sliderValue.value
   sliderValue.value = nextValue
   const delta = nextValue - previousValue
@@ -162,6 +191,10 @@ function handleSliceSliderInput(event: Event): void {
           :value="sliderValue"
           orient="vertical"
           aria-label="切换切片"
+          @pointerdown="beginSliceSliderDrag"
+          @pointerup="endSliceSliderDrag"
+          @pointercancel="endSliceSliderDrag"
+          @change="endSliceSliderDrag"
           @input="handleSliceSliderInput"
         />
       </div>

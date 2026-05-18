@@ -29,9 +29,12 @@ function getActiveSliceInfo(tab: ViewerTabItem | null, activeViewportKey: string
   }
 
   const isMprLikeView = tab.viewType === 'MPR' || tab.viewType === '4D'
+  const isCompareStack = tab.viewType === 'CompareStack'
   const raw =
     isMprLikeView
       ? tab.viewportSliceLabels?.[activeViewportKey as 'mpr-ax' | 'mpr-cor' | 'mpr-sag'] ?? tab.sliceLabel
+      : isCompareStack
+        ? tab.compareSliceLabels?.[activeViewportKey as 'compare-a' | 'compare-b'] ?? tab.sliceLabel
       : tab.sliceLabel
   const match = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
   if (!match) {
@@ -95,7 +98,7 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    if (tab.viewType !== 'Stack' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
+    if (tab.viewType !== 'Stack' && tab.viewType !== 'CompareStack' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
       return
     }
 

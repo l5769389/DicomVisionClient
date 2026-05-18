@@ -72,8 +72,8 @@ const { toolbarCopy: copy } = useUiLocale()
             type="button"
             class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
             :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && activeTab.viewType === 'Stack')"
-            :active="isToolSelected(tool)"
-            :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) }"
+            :active="isToolSelected(tool) || openMenuKey === tool.key"
+            :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) || openMenuKey === tool.key }"
             :title="tool.label"
             @click.stop="emit('applyTool', tool)"
           >
@@ -95,7 +95,7 @@ const { toolbarCopy: copy } = useUiLocale()
             location="bottom end"
             :offset="8"
             scroll-strategy="reposition"
-            :close-on-content-click="true"
+            :close-on-content-click="tool.key !== 'compareSync'"
             @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
           >
             <template #activator="{ props: menuProps }">
@@ -129,13 +129,13 @@ const { toolbarCopy: copy } = useUiLocale()
                 <div
                   class="toolbar-menu-option group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
                   :class="{
-                    'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
+                    'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value || option.checked
                   }"
                   @click="emit('selectToolOption', tool, option.value)"
                 >
                   <div
                     class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-                    :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
+                    :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value || option.checked }"
                   />
                   <div class="flex items-center justify-between gap-3">
                     <div class="flex min-w-0 items-center gap-4">
@@ -143,7 +143,7 @@ const { toolbarCopy: copy } = useUiLocale()
                         class="toolbar-menu-option__icon flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
                         :class="{
                           'w-[54px] rounded-[18px]': tool.key === 'pseudocolor',
-                          'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel)_90%))]': stackToolSelections[tool.key] === option.value
+                          'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel)_90%))]': stackToolSelections[tool.key] === option.value || option.checked
                         }"
                       >
                         <PseudocolorBand
@@ -165,6 +165,13 @@ const { toolbarCopy: copy } = useUiLocale()
                         </div>
                       </div>
                     </div>
+                    <span
+                      v-if="tool.key === 'compareSync'"
+                      class="toolbar-menu-option__check grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_82%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_92%,transparent)] text-[var(--theme-text-muted)]"
+                      :class="{ 'border-[color:color-mix(in_srgb,var(--theme-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-accent)]': option.checked }"
+                    >
+                      <AppIcon v-if="option.checked" name="check" :size="14" />
+                    </span>
                     <span
                       v-if="option.badge"
                       class="toolbar-menu-option__badge shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"

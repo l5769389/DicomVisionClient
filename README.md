@@ -2,20 +2,21 @@
 
 [中文说明](./README.zh-CN.md)
 
-DicomVision is a client/server DICOM viewing and analysis tool for image browsing, reconstruction, measurement, QA, metadata review, and privacy-safe export workflows. It supports Stack viewing, MPR and oblique MPR, 4D phase playback, server-side 3D volume rendering, DICOM tag inspection/editing, DICOM de-identification export, ROI measurement, MTF/FWHM analysis, water phantom QA, image export, dark/light themes, and separate web or Windows desktop deployment.
+DicomVision is a client/server DICOM viewing and analysis tool for image browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export workflows. It supports Stack viewing, side-by-side Stack compare, MPR and oblique MPR, 4D phase playback, server-side 3D volume rendering, DICOM tag inspection/editing, DICOM de-identification export, ROI measurement, MTF/FWHM analysis, water phantom QA, image export, dark/light themes, and separate web or Windows desktop deployment.
 
-## Version 1.1.0 Updates
+## Version 1.2.0 Updates
 
-- Added DICOM Tag tree mode with sequence/item hierarchy, clearer indentation, and theme-aware row hover feedback.
-- Added DICOM Tag editing from the tag context menu. Current-instance edits return a single DICOM copy, while series-wide edits run in the background with live progress.
-- Added de-identified DICOM export from the series context menu, using configurable privacy fields and the same background progress flow as batch tag edits.
-- Added drag-and-drop loading for local DICOM files or folders in the desktop app.
-- Refined the compact top toolbar, tab overflow behavior, settings layout, context menus, and theme-aware toast notifications.
+- Added side-by-side Stack Compare: right-click a source series, choose Compare, select a target series, and open a synchronized comparison tab.
+- Added Compare Sync controls for slice scrolling, window/level, pseudocolor, zoom/pan, and rotate/flip, with measurement and annotation overlays kept independent per pane.
+- Improved Compare rendering so both panes use the configured default pseudocolor, reset together, and support measurement and annotation workflows.
+- Refined the Compare UI by hiding QA-only controls, removing redundant pane metadata, and using a single shared slice slider when slice sync is enabled.
+- Kept the recent DICOM Tag tree/editing, de-identification export, drag-and-drop loading, background task progress, and theme consistency improvements.
 
 ## Feature Overview
 
 - **Image loading and series management**: load local DICOM folders, drag files/folders into the desktop app, use server-side sample data, or enter backend-accessible paths, then browse discovered series from the sidebar.
 - **Stack viewing**: slice scrolling, window/level, zoom, pan, rotate, flip, reset, pseudocolor presets, and corner metadata overlays.
+- **Stack Compare**: open two series side by side, optionally synchronize slice scrolling, WW/WL, pseudocolor, zoom/pan, and rotate/flip, while keeping measurements and annotations independent.
 - **MPR and oblique MPR**: axial, coronal, and sagittal synchronized viewports with crosshair navigation, oblique rotation, MIP configuration, orientation overlays, and scale bars.
 - **4D phase playback**: phase previews, phase switching, playback controls, FPS control, and cached multi-viewport phase images.
 - **3D volume rendering**: VTK-backed backend rendering with presets, transfer functions, opacity, color, lighting, interpolation, and layer controls.
@@ -46,6 +47,10 @@ https://dicom-vision-client.vercel.app/
 | Measurement tools | DICOM tags |
 | --- | --- |
 | <img src="./screenshots/measure.png" alt="Measurement tools" width="420"> | <img src="./screenshots/dicomTags.png" alt="DICOM tags" width="420"> |
+
+| Stack Compare | Batch DICOM tag editing |
+| --- | --- |
+| <img src="./screenshots/compare_stack.png" alt="Side-by-side Stack Compare" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="Batch DICOM tag editing" width="420"> |
 
 | MTF analysis | FWHM result |
 | --- | --- |

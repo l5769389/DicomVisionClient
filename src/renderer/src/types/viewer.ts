@@ -52,7 +52,8 @@ export interface WorkspaceReadyPayload {
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 export type CompareStackPaneKey = 'compare-a' | 'compare-b'
-export type CompareSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform'
+export type ViewSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform' | 'reset'
+export type CompareSyncSettingKey = ViewSyncSettingKey
 export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
 export type MprCrosshairInteractionMode = 'move' | 'rotate'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
@@ -468,6 +469,13 @@ export interface ViewerTabItem {
   compareSyncPseudocolor?: boolean
   compareSyncView?: boolean
   compareSyncTransform?: boolean
+  compareSyncReset?: boolean
+  layoutSyncScroll?: boolean
+  layoutSyncWindow?: boolean
+  layoutSyncPseudocolor?: boolean
+  layoutSyncView?: boolean
+  layoutSyncTransform?: boolean
+  layoutSyncReset?: boolean
   viewportViewIds?: Partial<Record<MprViewportKey, string>>
   viewportImages?: Partial<Record<MprViewportKey, string>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
@@ -535,6 +543,11 @@ export interface ViewerLayoutSlot {
   ownsImageSrc?: boolean
   sliceLabel?: string | null
   windowLabel?: string | null
+  cornerInfo?: CornerInfo | null
+  orientation?: OrientationInfo | null
+  scaleBar?: ScaleBarInfo | null
+  transformState?: ViewTransformInfo | null
+  pseudocolorPreset?: string | null
 }
 
 export interface ViewerLayoutTemplate {

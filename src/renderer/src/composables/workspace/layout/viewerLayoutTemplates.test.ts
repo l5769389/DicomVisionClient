@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createUniformLayoutTemplate,
+  createCustomViewerLayoutOptionValue,
   createViewerLayoutOptionValue,
   parseViewerLayoutOptionValue,
   VIEWER_LAYOUT_PRESETS
@@ -39,5 +40,10 @@ describe('viewerLayoutTemplates', () => {
       columns: 4,
       source: 'custom'
     })
+  })
+
+  it('formats custom toolbar values with clamped grid dimensions', () => {
+    expect(createCustomViewerLayoutOptionValue(3, 4)).toBe('layout:custom:3x4')
+    expect(createCustomViewerLayoutOptionValue(0, 99)).toBe('layout:custom:1x6')
   })
 })

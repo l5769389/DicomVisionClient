@@ -1307,7 +1307,7 @@
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018) !important;
   }
 
-  :root[data-theme="industrial-utility"] .settings-dialog-shell input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input:not([type="checkbox"]):not([type="range"]):not([type="color"]):not(.settings-nav-search__input),
   :root[data-theme="industrial-utility"] .settings-dialog-shell textarea,
   :root[data-theme="industrial-utility"] .settings-dialog-shell select {
     border-color: rgba(126, 142, 154, 0.2) !important;
@@ -1319,7 +1319,7 @@
       inset 0 -1px 0 rgba(0, 0, 0, 0.42) !important;
   }
 
-  :root[data-theme="industrial-utility"] .settings-dialog-shell input:focus,
+  :root[data-theme="industrial-utility"] .settings-dialog-shell input:not(.settings-nav-search__input):focus,
   :root[data-theme="industrial-utility"] .settings-dialog-shell textarea:focus,
   :root[data-theme="industrial-utility"] .settings-dialog-shell select:focus {
     border-color: rgba(111, 169, 196, 0.52) !important;
@@ -1414,6 +1414,20 @@
     border-color: var(--industrial-active-border) !important;
     background: var(--industrial-active-surface) !important;
     box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-tree-group-header--active,
+  :root[data-theme="industrial-utility"] .series-tree-study-header--active {
+    border-color: var(--industrial-active-border) !important;
+    background: var(--industrial-active-surface) !important;
+    box-shadow: var(--industrial-active-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .series-tree-group-header--active::before,
+  :root[data-theme="industrial-utility"] .series-tree-study-header--active::before,
+  :root[data-theme="industrial-utility"] .series-list-card.theme-active-surface::before {
+    background: var(--theme-accent);
+    box-shadow: 0 0 10px rgba(111, 169, 196, 0.42);
   }
 
   :root[data-theme="industrial-utility"] .series-list-card.theme-active-surface:hover {

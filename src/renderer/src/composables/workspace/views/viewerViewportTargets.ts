@@ -16,7 +16,7 @@ export function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefine
 }
 
 export function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-  return viewType === 'Stack' || viewType === 'CompareStack'
+  return viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout'
 }
 
 export function resolveMprViewportKey(viewportKey: string): MprViewportKey {
@@ -34,6 +34,9 @@ export function resolveViewIdForTabViewport(tab: ViewerTabItem, viewportKey: str
   if (tab.viewType === 'CompareStack') {
     return tab.compareViewIds?.[resolveComparePaneKey(viewportKey)] ?? ''
   }
+  if (tab.viewType === 'Layout') {
+    return resolveLayoutSlot(tab, viewportKey)?.viewId ?? ''
+  }
   return tab.viewId
 }
 
@@ -44,7 +47,59 @@ export function hasOperableView(tab: ViewerTabItem): boolean {
   if (tab.viewType === 'CompareStack') {
     return Object.values(tab.compareViewIds ?? {}).some(Boolean)
   }
+  if (tab.viewType === 'Layout') {
+    return (tab.layoutSlots ?? []).some((slot) => Boolean(slot.viewId))
+  }
   return Boolean(tab.viewId)
+}
+
+function resolveLayoutSlot(tab: ViewerTabItem, viewportKey: string) {
+  const slots = tab.layoutSlots ?? []
+  return slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
+}
+
+function shouldSyncLayoutOperation(tab: ViewerTabItem, opType: ViewOperationType | string): boolean {
+  if (opType === VIEW_OPERATION_TYPES.scroll) {
+    return tab.layoutSyncScroll === true
+  }
+  if (opType === VIEW_OPERATION_TYPES.window) {
+    return tab.layoutSyncWindow === true
+  }
+  if (opType === VIEW_OPERATION_TYPES.pseudocolor) {
+    return tab.layoutSyncPseudocolor === true
+  }
+  if (opType === VIEW_OPERATION_TYPES.pan || opType === VIEW_OPERATION_TYPES.zoom) {
+    return tab.layoutSyncView === true
+  }
+  if (opType === VIEW_OPERATION_TYPES.transform2d) {
+    return tab.layoutSyncTransform === true
+  }
+  if (opType === VIEW_OPERATION_TYPES.reset) {
+    return tab.layoutSyncReset === true
+  }
+  return false
+}
+
+function resolveLayoutOperationViewIds(
+  tab: ViewerTabItem,
+  viewportKey: string,
+  opType: ViewOperationType | string
+): string[] {
+  const activeSlot = resolveLayoutSlot(tab, viewportKey)
+  if (!activeSlot?.viewId) {
+    return []
+  }
+  if (!shouldSyncLayoutOperation(tab, opType)) {
+    return [activeSlot.viewId]
+  }
+
+  return [
+    activeSlot.viewId,
+    ...(tab.layoutSlots ?? [])
+      .filter((slot) => slot.id !== activeSlot.id)
+      .map((slot) => slot.viewId ?? '')
+      .filter((viewId): viewId is string => Boolean(viewId))
+  ]
 }
 
 export function shouldSyncCompareOperation(tab: ViewerTabItem, opType: ViewOperationType | string): boolean {
@@ -62,6 +117,9 @@ export function shouldSyncCompareOperation(tab: ViewerTabItem, opType: ViewOpera
   }
   if (opType === VIEW_OPERATION_TYPES.transform2d) {
     return tab.compareSyncTransform === true
+  }
+  if (opType === VIEW_OPERATION_TYPES.reset) {
+    return tab.compareSyncReset !== false
   }
   return false
 }
@@ -86,6 +144,10 @@ export function resolveCompareOperationViewIds(
   viewportKey: string,
   opType: ViewOperationType | string
 ): string[] {
+  if (tab.viewType === 'Layout') {
+    return resolveLayoutOperationViewIds(tab, viewportKey, opType)
+  }
+
   if (tab.viewType !== 'CompareStack') {
     const viewId = resolveViewIdForTabViewport(tab, viewportKey)
     return viewId ? [viewId] : []

@@ -1,6 +1,7 @@
 import { computed, reactive, watch } from 'vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { loadUiPreferencesFromStorage, saveUiPreferencesToStorage } from '../../platform/preferencesStorage'
+import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
 
 export type AppLocale = 'zh-CN' | 'en-US'
 export type DicomTagDisplayMode = 'flat' | 'tree'
@@ -88,6 +89,16 @@ export interface DicomDeidentifyPreference {
   replacementPrefix: string
 }
 
+export interface HangingProtocolRule {
+  id: string
+  name: string
+  enabled: boolean
+  modality: string
+  seriesDescriptionKeyword: string
+  rows: number
+  columns: number
+}
+
 export interface RoiStatPreference {
   key: string
   label: string
@@ -122,18 +133,20 @@ interface UiPreferencesState {
   measurementStylePreference: MeasurementStylePreference
   dicomTagEditSavePreference: DicomTagEditSavePreference
   dicomDeidentifyPreference: DicomDeidentifyPreference
+  hangingProtocolRules: HangingProtocolRule[]
   exportPreference: ExportPreference
   qaWaterMetrics: QaWaterMetricPreference[]
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 9
+const CURRENT_PREFERENCES_VERSION = 10
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
 export const MAX_CUSTOM_WINDOW_PRESETS = 5
+export const MAX_HANGING_PROTOCOL_RULES = 8
 const LEGACY_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key'], string> = {
   'mpr-ax': '#ffd166',
   'mpr-cor': '#7dd3fc',
@@ -245,6 +258,10 @@ function createDefaultDicomDeidentifyPreference(): DicomDeidentifyPreference {
   }
 }
 
+function createDefaultHangingProtocolRules(): HangingProtocolRule[] {
+  return []
+}
+
 function createDefaultRoiStatOptions(): RoiStatPreference[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -278,6 +295,7 @@ function createDefaultState(): UiPreferencesState {
     measurementStylePreference: createDefaultMeasurementStylePreference(),
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
+    hangingProtocolRules: createDefaultHangingProtocolRules(),
     exportPreference: createDefaultExportPreference(),
     qaWaterMetrics: createDefaultQaWaterMetrics(),
     roiStatOptions: createDefaultRoiStatOptions(),
@@ -303,6 +321,10 @@ function createCustomPresetId(): string {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+function createHangingProtocolRuleId(): string {
+  return `hp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 function normalizeLocale(value: unknown): AppLocale {
   return value === 'en-US' ? 'en-US' : 'zh-CN'
 }
@@ -311,6 +333,14 @@ function normalizeNumber(value: unknown, fallback: number): number {
   const nextValue =
     typeof value === 'number' ? value : typeof value === 'string' ? Number.parseFloat(value) : Number.NaN
   return Number.isFinite(nextValue) ? nextValue : fallback
+}
+
+function normalizeInteger(value: unknown, fallback: number): number {
+  return Math.trunc(normalizeNumber(value, fallback))
+}
+
+function normalizeLayoutGridSize(value: unknown, fallback: number): number {
+  return Math.min(VIEWER_LAYOUT_CUSTOM_GRID_SIZE, Math.max(1, normalizeInteger(value, fallback)))
 }
 
 function normalizeAccent(value: unknown): string {
@@ -398,6 +428,42 @@ function normalizeDicomDeidentifyPreference(value: unknown): DicomDeidentifyPref
     selectedFieldKeys,
     replacementPrefix
   }
+}
+
+function normalizeHangingProtocolModality(value: unknown): string {
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  if (!normalized || normalized === 'ANY' || normalized === '*') {
+    return 'ALL'
+  }
+  return normalized.replace(/[^A-Z0-9_-]/g, '').slice(0, 12) || 'ALL'
+}
+
+function normalizeHangingProtocolRules(value: unknown): HangingProtocolRule[] {
+  if (!Array.isArray(value)) {
+    return createDefaultHangingProtocolRules()
+  }
+
+  return value.slice(0, MAX_HANGING_PROTOCOL_RULES).map((item, index) => {
+    const record = item && typeof item === 'object' ? (item as Partial<HangingProtocolRule>) : {}
+    const rows = normalizeLayoutGridSize(record.rows, 1)
+    const columns = normalizeLayoutGridSize(record.columns, 1)
+    const name =
+      typeof record.name === 'string' && record.name.trim()
+        ? record.name.trim().slice(0, 48)
+        : `Protocol ${index + 1}`
+    return {
+      id: typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `loaded-hp-${index}`,
+      name,
+      enabled: typeof record.enabled === 'boolean' ? record.enabled : true,
+      modality: normalizeHangingProtocolModality(record.modality),
+      seriesDescriptionKeyword:
+        typeof record.seriesDescriptionKeyword === 'string'
+          ? record.seriesDescriptionKeyword.trim().slice(0, 64)
+          : '',
+      rows,
+      columns
+    }
+  })
 }
 
 function normalizeHexColor(value: unknown, fallback: string): string {
@@ -558,6 +624,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.measurementStylePreference = nextState.measurementStylePreference
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
+  state.hangingProtocolRules = nextState.hangingProtocolRules
   state.exportPreference = nextState.exportPreference
   state.qaWaterMetrics = nextState.qaWaterMetrics
   state.roiStatOptions = nextState.roiStatOptions
@@ -593,6 +660,7 @@ function serializeState(): UiPreferencesState {
       selectedFieldKeys: [...state.dicomDeidentifyPreference.selectedFieldKeys],
       replacementPrefix: state.dicomDeidentifyPreference.replacementPrefix
     },
+    hangingProtocolRules: state.hangingProtocolRules.map((item) => ({ ...item })),
     exportPreference: {
       locationMode: state.exportPreference.locationMode,
       desktopDirectory: state.exportPreference.desktopDirectory,
@@ -665,6 +733,7 @@ async function hydrateState(): Promise<void> {
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
+        hangingProtocolRules: normalizeHangingProtocolRules(parsed.hangingProtocolRules),
         exportPreference: normalizeExportPreference(parsed.exportPreference),
         qaWaterMetrics: normalizeQaWaterMetrics(parsed.qaWaterMetrics),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
@@ -807,6 +876,40 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setHangingProtocolRules(nextValue: HangingProtocolRule[]): void {
+    state.hangingProtocolRules = normalizeHangingProtocolRules(nextValue)
+    void persistState()
+  }
+
+  function addHangingProtocolRule(input: Omit<HangingProtocolRule, 'id'>): string {
+    if (state.hangingProtocolRules.length >= MAX_HANGING_PROTOCOL_RULES) {
+      return state.hangingProtocolRules[state.hangingProtocolRules.length - 1]?.id ?? ''
+    }
+
+    const id = createHangingProtocolRuleId()
+    state.hangingProtocolRules = normalizeHangingProtocolRules([
+      ...state.hangingProtocolRules,
+      {
+        ...input,
+        id
+      }
+    ])
+    void persistState()
+    return id
+  }
+
+  function updateHangingProtocolRule(id: string, patch: Partial<Omit<HangingProtocolRule, 'id'>>): void {
+    state.hangingProtocolRules = normalizeHangingProtocolRules(
+      state.hangingProtocolRules.map((rule) => (rule.id === id ? { ...rule, ...patch, id } : rule))
+    )
+    void persistState()
+  }
+
+  function removeHangingProtocolRule(id: string): void {
+    state.hangingProtocolRules = state.hangingProtocolRules.filter((rule) => rule.id !== id)
+    void persistState()
+  }
+
   function setExportPreference(nextValue: ExportPreference): void {
     state.exportPreference = normalizeExportPreference(nextValue)
     void persistState()
@@ -848,6 +951,7 @@ export function useUiPreferences() {
     locale,
     dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
+    hangingProtocolRules: computed(() => state.hangingProtocolRules),
     measurementStylePreference: computed(() => state.measurementStylePreference),
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
     roiStatOptions: computed(() => state.roiStatOptions),
@@ -858,6 +962,7 @@ export function useUiPreferences() {
     setDicomDeidentifyPreference,
     setDicomTagEditSavePreference,
     setExportPreference,
+    setHangingProtocolRules,
     setLocale,
     setMeasurementStylePreference,
     setQaWaterMetrics,
@@ -866,6 +971,9 @@ export function useUiPreferences() {
     addCustomWindowPreset,
     removeCustomWindowPreset,
     removeCustomWindowPresets,
+    addHangingProtocolRule,
+    updateHangingProtocolRule,
+    removeHangingProtocolRule,
     systemWindowPresets,
     themeId,
     windowPresets

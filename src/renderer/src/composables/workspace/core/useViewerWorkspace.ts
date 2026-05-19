@@ -44,6 +44,10 @@ import {
 } from '../views/mprInteractionGuard'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { createLatestRequestGuard } from '../requests/latestRequest'
+import {
+  createLayoutTemplateFromHangingProtocolRule,
+  findMatchingHangingProtocolRule
+} from '../layout/hangingProtocolRules'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
@@ -124,6 +128,14 @@ interface ViewerWorkspaceState {
   handleFourDFpsChange: (payload: { tabKey: string; fps: number }) => void
   handleFourDPlaybackChange: (payload: { tabKey: string; isPlaying: boolean }) => void
   handleCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
+  handleLayoutSlotDicomDrop: (payload: { tabKey: string; slotId: string; files: File[] }) => Promise<void>
+  handleLayoutSlotSeriesDrop: (payload: {
+    tabKey: string
+    slotId: string
+    seriesId: string
+    folderPath?: string
+    seriesInstanceUid?: string | null
+  }) => Promise<void>
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
@@ -178,6 +190,10 @@ interface WorkspaceStatusToastOptions {
   durationMs?: number
 }
 
+interface LoadFolderSeriesOptions {
+  selectLoadedSeries?: boolean
+}
+
 export function useViewerWorkspace(): ViewerWorkspaceState {
   // These operations can be adjusted continuously from sliders/draggers. The UI
   // stays optimistic, while the backend receives only the last value in a burst.
@@ -211,7 +227,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     horFlip: false,
     verFlip: false
   }
-  const { selectedPseudocolorKey } = useUiPreferences()
+  const { hangingProtocolRules, selectedPseudocolorKey } = useUiPreferences()
   const { workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -306,6 +322,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function getCompareOperationViewIds(tab: ViewerTabItem, viewportKey: string, opType: ViewOperationType | string): string[] {
     return resolveCompareOperationViewIds(tab, viewportKey, opType)
+  }
+
+  function getLayoutOperationSlots(tab: ViewerTabItem, viewportKey: string, opType: ViewOperationType | string) {
+    const targetViewIds = new Set(getCompareOperationViewIds(tab, viewportKey, opType))
+    return (tab.layoutSlots ?? []).filter((slot) => slot.viewId && targetViewIds.has(slot.viewId))
   }
 
   function isFourDPlaybackLocked(tab: ViewerTabItem | null | undefined): boolean {
@@ -459,6 +480,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         }
       }
 
+      if (item.viewType === 'Layout' && (item.layoutSlots ?? []).some((slot) => slot.viewId === viewId)) {
+        return {
+          ...item,
+          layoutSlots: (item.layoutSlots ?? []).map((slot) =>
+            slot.viewId === viewId
+              ? {
+                  ...slot,
+                  cornerInfo: withHoverCornerInfo(slot.cornerInfo ?? item.cornerInfo, row, col)
+                }
+              : slot
+          )
+        }
+      }
+
       const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0] as
         | MprViewportKey
         | undefined
@@ -507,6 +542,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (tab.viewType === 'CompareStack') {
       return tab.compareTransformStates?.[resolveComparePaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
     }
+    if (tab.viewType === 'Layout') {
+      return tab.layoutSlots?.find((slot) => slot.id === viewportKey)?.transformState ?? DEFAULT_VIEW_TRANSFORM
+    }
     return tab.transformState ?? DEFAULT_VIEW_TRANSFORM
   }
 
@@ -537,6 +575,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             ...(item.compareTransformStates ?? createEmptyCompareTransformStates()),
             [viewportKey]: transform
           }
+        }
+      }
+
+      if (item.viewType === 'Layout' && viewportKey) {
+        return {
+          ...item,
+          layoutSlots: (item.layoutSlots ?? []).map((slot) =>
+            slot.id === viewportKey
+              ? {
+                  ...slot,
+                  transformState: transform
+                }
+              : slot
+          )
         }
       }
 
@@ -813,6 +865,21 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
 
+      if (tab.viewType === 'Layout') {
+        const targetSlots = getLayoutOperationSlots(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
+        targetSlots.forEach((slot) => {
+          updateTabTransformState(tab.key, nextTransform, slot.id)
+          emitViewOperation({
+            viewId: slot.viewId!,
+            opType: VIEW_OPERATION_TYPES.transform2d,
+            rotationDegrees: nextTransform.rotationDegrees,
+            hor_flip: nextTransform.horFlip,
+            ver_flip: nextTransform.verFlip
+          })
+        })
+        return
+      }
+
       const viewId = getActiveViewIdForTab(tab)
       if (!viewId) {
         return
@@ -863,6 +930,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             ...item,
             comparePseudocolorPresets: nextPresets,
             pseudocolorPreset: presetKey
+          }
+        }
+
+        if (item.viewType === 'Layout') {
+          const targetViewIds = new Set(getCompareOperationViewIds(item, activeViewportKey.value, VIEW_OPERATION_TYPES.pseudocolor))
+          return {
+            ...item,
+            pseudocolorPreset: presetKey,
+            layoutSlots: (item.layoutSlots ?? []).map((slot) =>
+              slot.viewId && targetViewIds.has(slot.viewId)
+                ? {
+                    ...slot,
+                    pseudocolorPreset: presetKey
+                  }
+                : slot
+            )
           }
         }
 
@@ -946,7 +1029,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
 
       if (tab.viewType === 'CompareStack') {
-        const paneViewIds = COMPARE_STACK_PANE_KEYS
+        const targetPaneKeys = getCompareOperationPaneKeys(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.reset)
+        const paneViewIds = targetPaneKeys
           .map((viewportKey) => tab.compareViewIds?.[viewportKey] ?? '')
           .filter((viewId): viewId is string => Boolean(viewId))
         if (!paneViewIds.length) {
@@ -957,14 +1041,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           item.key === tab.key
             ? {
                 ...item,
-                compareTransformStates: COMPARE_STACK_PANE_KEYS.reduce(
+                compareTransformStates: targetPaneKeys.reduce(
                   (states, viewportKey) => ({
                     ...states,
                     [viewportKey]: DEFAULT_VIEW_TRANSFORM
                   }),
                   { ...(item.compareTransformStates ?? createEmptyCompareTransformStates()) }
                 ),
-                comparePseudocolorPresets: COMPARE_STACK_PANE_KEYS.reduce(
+                comparePseudocolorPresets: targetPaneKeys.reduce(
                   (presets, viewportKey) => ({
                     ...presets,
                     [viewportKey]: DEFAULT_PSEUDOCOLOR_PRESET
@@ -977,6 +1061,41 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         )
 
         paneViewIds.forEach((viewId) => {
+          emitViewOperation({
+            viewId,
+            opType: VIEW_OPERATION_TYPES.reset,
+            subOpType: payload.action === 'resetAll' ? 'all' : 'view'
+          })
+        })
+        return
+      }
+
+      if (tab.viewType === 'Layout') {
+        const targetSlots = getLayoutOperationSlots(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.reset)
+        if (!targetSlots.length) {
+          return
+        }
+
+        const targetViewIds = new Set(targetSlots.map((slot) => slot.viewId).filter((viewId): viewId is string => Boolean(viewId)))
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
+                layoutSlots: (item.layoutSlots ?? []).map((slot) =>
+                  slot.viewId && targetViewIds.has(slot.viewId)
+                    ? {
+                        ...slot,
+                        transformState: DEFAULT_VIEW_TRANSFORM,
+                        pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET
+                      }
+                    : slot
+                )
+              }
+            : item
+        )
+
+        targetViewIds.forEach((viewId) => {
           emitViewOperation({
             viewId,
             opType: VIEW_OPERATION_TYPES.reset,
@@ -1072,8 +1191,27 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function handleCompareSyncChange(payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }): void {
     viewerTabs.value = viewerTabs.value.map((item) => {
-      if (item.key !== payload.tabKey || item.viewType !== 'CompareStack') {
+      if (item.key !== payload.tabKey || (item.viewType !== 'CompareStack' && item.viewType !== 'Layout')) {
         return item
+      }
+
+      if (item.viewType === 'Layout') {
+        if (payload.key === 'scroll') {
+          return { ...item, layoutSyncScroll: payload.value }
+        }
+        if (payload.key === 'window') {
+          return { ...item, layoutSyncWindow: payload.value }
+        }
+        if (payload.key === 'pseudocolor') {
+          return { ...item, layoutSyncPseudocolor: payload.value }
+        }
+        if (payload.key === 'view') {
+          return { ...item, layoutSyncView: payload.value }
+        }
+        if (payload.key === 'transform') {
+          return { ...item, layoutSyncTransform: payload.value }
+        }
+        return { ...item, layoutSyncReset: payload.value }
       }
 
       if (payload.key === 'scroll') {
@@ -1088,7 +1226,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (payload.key === 'view') {
         return { ...item, compareSyncView: payload.value }
       }
-      return { ...item, compareSyncTransform: payload.value }
+      if (payload.key === 'transform') {
+        return { ...item, compareSyncTransform: payload.value }
+      }
+      return { ...item, compareSyncReset: payload.value }
     })
   }
 
@@ -1200,6 +1341,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (tab.viewType === 'CompareStack') {
       return tab.compareViewIds?.[resolveComparePaneKey(viewportKey)] ?? null
+    }
+
+    if (tab.viewType === 'Layout') {
+      return resolveViewIdForTabViewport(tab, viewportKey) || null
     }
 
     if (tab.viewType !== 'Stack') {
@@ -1907,7 +2052,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           return item
         }
 
-        if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack') {
+        if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack' || item.viewType === 'Layout') {
           return {
             ...item,
             viewportMeasurements: {
@@ -1944,10 +2089,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return item
       }
 
-      if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack') {
-        return {
-          ...item,
-          viewportMeasurements: {
+        if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack' || item.viewType === 'Layout') {
+          return {
+            ...item,
+            viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [payload.viewportKey]: (item.viewportMeasurements?.[payload.viewportKey as MprViewportKey] ?? []).filter(
               (measurement) => measurement.measurementId !== payload.measurementId
@@ -2001,13 +2146,45 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }))
   }
 
+  function getSeriesDedupKey(series: FolderSeriesItem): string {
+    return series.seriesInstanceUid || `${series.folderPath}::${series.seriesId}`
+  }
+
+  async function openSeriesViewWithHangingProtocol(seriesId: string, viewType: ViewType): Promise<void> {
+    if (viewType !== 'Stack') {
+      await views.openSeriesView(seriesId, viewType)
+      return
+    }
+
+    const series = seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    const rule = findMatchingHangingProtocolRule(hangingProtocolRules.value, series)
+    if (!rule) {
+      await views.openSeriesView(seriesId, viewType)
+      return
+    }
+
+    await views.openSeriesView(seriesId, 'Stack')
+    await views.openLayoutView(createLayoutTemplateFromHangingProtocolRule(rule))
+  }
+
+  async function openViewWithHangingProtocol(viewType: ViewType): Promise<void> {
+    if (!selectedSeriesId.value) {
+      return
+    }
+    await openSeriesViewWithHangingProtocol(selectedSeriesId.value, viewType)
+  }
+
+  function shouldAutoSelectLoadedSeries(): boolean {
+    return !selectedSeriesId.value
+  }
+
   async function chooseFolder(): Promise<void> {
     const picked = await viewerRuntime.chooseFolder()
     if (!picked) {
       return
     }
 
-    await loadFolderSeries(picked)
+    await loadFolderSeries(picked, { selectLoadedSeries: shouldAutoSelectLoadedSeries() })
   }
 
   async function loadDroppedDicomFiles(files: File[]): Promise<void> {
@@ -2018,12 +2195,87 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    let shouldSelectLoadedSeries = shouldAutoSelectLoadedSeries()
     for (const path of scanPaths) {
-      await loadFolderSeries(path)
+      const loadedSeries = await loadFolderSeries(path, { selectLoadedSeries: shouldSelectLoadedSeries })
+      if (loadedSeries.length && shouldSelectLoadedSeries) {
+        shouldSelectLoadedSeries = false
+      }
     }
   }
 
-  async function loadFolderSeries(path: string): Promise<void> {
+  async function handleLayoutSlotDicomDrop(payload: { tabKey: string; slotId: string; files: File[] }): Promise<void> {
+    const scanPaths = await viewerRuntime.resolveDroppedFileScanPaths(payload.files)
+    if (!scanPaths.length) {
+      message.value = ''
+      showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
+      return
+    }
+
+    for (const path of scanPaths) {
+      const loadedSeries = await loadFolderSeries(path, { selectLoadedSeries: false })
+      const nextSeries = loadedSeries[0] ?? null
+      if (!nextSeries) {
+        continue
+      }
+
+      await views.setLayoutSlotSeries({
+        tabKey: payload.tabKey,
+        slotId: payload.slotId,
+        series: nextSeries,
+        activateSlot: false
+      })
+      showStatusToast('Layout slot loaded', 'success')
+      return
+    }
+
+    showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+  }
+
+  function resolveDroppedLayoutSeries(payload: {
+    seriesId: string
+    folderPath?: string
+    seriesInstanceUid?: string | null
+  }): FolderSeriesItem | null {
+    const candidates = seriesList.value.filter((item) => item.seriesId === payload.seriesId)
+    const hasSnapshotIdentity = Boolean(payload.folderPath || payload.seriesInstanceUid)
+    if (!hasSnapshotIdentity) {
+      return candidates[0] ?? null
+    }
+
+    return (
+      candidates.find((item) => {
+        const folderMatches = payload.folderPath ? item.folderPath === payload.folderPath : true
+        const uidMatches = payload.seriesInstanceUid ? item.seriesInstanceUid === payload.seriesInstanceUid : true
+        return folderMatches && uidMatches
+      }) ?? null
+    )
+  }
+
+  async function handleLayoutSlotSeriesDrop(payload: {
+    tabKey: string
+    slotId: string
+    seriesId: string
+    folderPath?: string
+    seriesInstanceUid?: string | null
+  }): Promise<void> {
+    const series = resolveDroppedLayoutSeries(payload)
+    if (!series) {
+      showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+      return
+    }
+
+    await views.setLayoutSlotSeries({
+      tabKey: payload.tabKey,
+      slotId: payload.slotId,
+      series,
+      activateSlot: false
+    })
+    showStatusToast('Layout slot loaded', 'success')
+  }
+
+  async function loadFolderSeries(path: string, options: LoadFolderSeriesOptions = {}): Promise<FolderSeriesItem[]> {
+    const { selectLoadedSeries = true } = options
     const request = folderLoadRequestGuard.start()
     isLoadingFolder.value = true
 
@@ -2042,45 +2294,46 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             )
 
       if (!folderLoadRequestGuard.isCurrent(request.token)) {
-        return
+        return []
       }
 
       const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
       if (!incomingSeries.length) {
         message.value = ''
         showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
-        return
+        return []
       }
 
-      const existingSeriesKeys = new Set(
-        seriesList.value.map((item) => item.seriesInstanceUid || `${item.folderPath}::${item.seriesId}`)
-      )
+      const existingSeriesByKey = new Map(seriesList.value.map((item) => [getSeriesDedupKey(item), item] as const))
       const appendedSeries = incomingSeries.filter((item) => {
-        const seriesKey = item.seriesInstanceUid || `${item.folderPath}::${item.seriesId}`
-        if (existingSeriesKeys.has(seriesKey)) {
+        const seriesKey = getSeriesDedupKey(item)
+        if (existingSeriesByKey.has(seriesKey)) {
           return false
         }
-        existingSeriesKeys.add(seriesKey)
+        existingSeriesByKey.set(seriesKey, item)
         return true
       })
+      const loadedSeries = incomingSeries.map((item) => existingSeriesByKey.get(getSeriesDedupKey(item)) ?? item)
 
       if (appendedSeries.length) {
         seriesList.value = [...seriesList.value, ...appendedSeries]
       }
 
-      const nextSeriesId = appendedSeries[0]?.seriesId ?? selectedSeriesId.value
-      if (nextSeriesId) {
+      const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
+      if (selectLoadedSeries && nextSeriesId) {
         views.selectSeries(nextSeriesId)
       }
 
       message.value = ''
+      return loadedSeries
     } catch (error) {
       if (!folderLoadRequestGuard.isCurrent(request.token)) {
-        return
+        return []
       }
       message.value = ''
       showStatusToast(buildLoadFailureToastMessage(error), 'error')
       console.error(error)
+      return []
     } finally {
       if (folderLoadRequestGuard.isCurrent(request.token)) {
         isLoadingFolder.value = false
@@ -2163,6 +2416,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleFourDPlaybackChange,
     handleMprCrosshair,
     handleCompareSyncChange,
+    handleLayoutSlotDicomDrop,
+    handleLayoutSlotSeriesDrop,
     handleVolumeConfigChange,
     handleViewportDrag,
     handleViewportWheel,
@@ -2172,10 +2427,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isViewLoading,
     loadDroppedDicomFiles,
     message,
-    openSeriesView: views.openSeriesView,
+    openSeriesView: openSeriesViewWithHangingProtocol,
     openLayoutView: views.openLayoutView,
     openSeriesCompare: views.openSeriesCompare,
-    openView: views.openView,
+    openView: openViewWithHangingProtocol,
     removeSeries: views.removeSeries,
     selectSeries: views.selectSeries,
     selectedSeriesId,

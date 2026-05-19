@@ -123,6 +123,22 @@ const handleQuickPreviewSelectedSeries = (): void => {
   void viewer.openSeriesView(viewer.selectedSeriesId.value, 'Stack')
 }
 
+const handleLayoutSlotDicomDrop = (payload: { tabKey: string; slotId: string; files: File[] }): void => {
+  isDicomFileDropActive.value = false
+  void viewer.handleLayoutSlotDicomDrop(payload)
+}
+
+const handleLayoutSlotSeriesDrop = (payload: {
+  tabKey: string
+  slotId: string
+  seriesId: string
+  folderPath?: string
+  seriesInstanceUid?: string | null
+}): void => {
+  isDicomFileDropActive.value = false
+  void viewer.handleLayoutSlotSeriesDrop(payload)
+}
+
 const minimizeWindow = (): void => {
   void window.viewerApi?.minimizeWindow()
 }
@@ -245,6 +261,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
           @open-layout-view="viewer.openLayoutView"
+          @layout-slot-dicom-drop="handleLayoutSlotDicomDrop"
+          @layout-slot-series-drop="handleLayoutSlotSeriesDrop"
           @open-series-view="viewer.openSeriesView"
           @set-active-operation="viewer.setActiveOperation"
           @hover-viewport-change="viewer.handleHoverViewportChange"

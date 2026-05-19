@@ -24,7 +24,8 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
     const isMultiViewport =
       options.activeTab.value?.viewType === 'MPR' ||
       options.activeTab.value?.viewType === '4D' ||
-      options.activeTab.value?.viewType === 'CompareStack'
+      options.activeTab.value?.viewType === 'CompareStack' ||
+      options.activeTab.value?.viewType === 'Layout'
     const activeViewport = options.viewportHostRef.value?.querySelector<HTMLElement>('[data-active-render-surface="true"]')
     const stageElement =
       isMultiViewport ? options.viewportHostRef.value ?? null : activeViewport ?? null

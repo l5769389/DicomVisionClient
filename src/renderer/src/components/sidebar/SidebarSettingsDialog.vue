@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, MAX_HANGING_PROTOCOL_RULES, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type HangingProtocolRule, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
@@ -18,8 +18,37 @@ const emit = defineEmits<{
   close: []
 }>()
 
-type SettingsSection = 'language' | 'shortcuts' | 'windowPresets' | 'dicomTags' | 'qa' | 'export' | 'display'
+type SettingsSection =
+  | 'language'
+  | 'shortcuts'
+  | 'windowPresets'
+  | 'hangingProtocol'
+  | 'dicomTags'
+  | 'qa'
+  | 'dicomExport'
+  | 'deidentifyExport'
+  | 'displayCrosshair'
+  | 'displayScaleBar'
+  | 'displayMeasurement'
+  | 'displayPseudocolor'
+  | 'displayRoi'
+type SettingsNavGroupKey = 'general' | 'display' | 'dicomTags' | 'export' | 'qa'
 type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+
+interface SettingsNavItem {
+  key: SettingsSection
+  title: string
+  subtitle: string
+  icon: string
+}
+
+interface SettingsNavGroup {
+  key: SettingsNavGroupKey
+  title: string
+  subtitle: string
+  icon: string
+  items: SettingsNavItem[]
+}
 
 interface ShortcutItem {
   id: string
@@ -58,6 +87,32 @@ interface ThemePreset {
 interface ColorPreset {
   value: string
   label: string
+}
+
+const SETTINGS_SEARCH_SEPARATOR_PATTERN = /[\s_\-./\\|:，。；;、（）()[\]{}]+/g
+
+const SETTINGS_GROUP_SEARCH_ALIASES: Record<SettingsNavGroupKey, string[]> = {
+  general: ['常规', '基础', '偏好', 'general', 'basic', 'preference', 'language', 'shortcut'],
+  display: ['显示', '图像', 'display', 'image', 'viewer', 'visual', 'layout', 'window', 'measure'],
+  dicomTags: ['dicom tag', 'tag', '标签', '元数据', 'metadata', 'edit'],
+  export: ['导出', '保存', '脱敏', '匿名', 'export', 'save', 'deidentify', 'anonymize'],
+  qa: ['qa', '质控', '质量', 'mtf', '水模', 'phantom', 'quality']
+}
+
+const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
+  language: ['语言', '主题', '界面', '中文', '英文', 'language', 'locale', 'theme', 'skin', 'ui', 'zh', 'en'],
+  shortcuts: ['快捷键', '键盘', '热键', 'shortcut', 'hotkey', 'keyboard', 'keymap'],
+  windowPresets: ['窗模板', '窗宽', '窗位', '调窗', 'window', 'preset', 'ww', 'wl', 'windowlevel'],
+  hangingProtocol: ['挂片协议', '挂片', '布局规则', 'hanging', 'protocol', 'layout', 'rule'],
+  dicomTags: ['dicom tag', 'tag', '标签', '元数据', '修改', '保存位置', 'metadata', 'edit', 'save'],
+  qa: ['qa', '质控', '质量', 'mtf', '水模', 'phantom', 'water', 'quality'],
+  dicomExport: ['dicom导出', '导出', '保存', '位置', 'dicom', 'export', 'save', 'location'],
+  deidentifyExport: ['脱敏', '匿名', '隐私', 'deidentify', 'de-identify', 'anonymize', 'anonymous', 'privacy'],
+  displayCrosshair: ['十字线', 'mpr', 'crosshair', 'axis', '定位线'],
+  displayScaleBar: ['比例尺', '标尺', 'scale', 'scalebar', 'ruler'],
+  displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
+  displayPseudocolor: ['伪彩', '色图', '色带', '默认伪彩', 'pseudocolor', 'colormap', 'color', 'palette', 'bw', 'rainbow', 'pet', 'cardiac'],
+  displayRoi: ['roi', '统计', '均值', '面积', '最大值', '最小值', 'stats', 'mean', 'area', 'min', 'max']
 }
 
 const DEFAULT_THEME_ID = 'industrial-utility'
@@ -232,13 +287,16 @@ const {
   locale: globalLocale,
   setLocale,
   addCustomWindowPreset,
+  addHangingProtocolRule,
   crosshairConfigs,
   dicomDeidentifyPreference,
   dicomTagDisplayMode,
   dicomTagEditSavePreference,
   getWindowPresetLabel,
+  hangingProtocolRules,
   measurementStylePreference,
   qaWaterMetrics,
+  removeHangingProtocolRule,
   removeCustomWindowPresets,
   roiStatOptions,
   scaleBarPreference,
@@ -247,6 +305,8 @@ const {
   setCrosshairConfigs,
   setDicomDeidentifyPreference,
   setDicomTagEditSavePreference,
+  setHangingProtocolRules,
+  updateHangingProtocolRule,
   setMeasurementStylePreference,
   setQaWaterMetrics,
   setScaleBarPreference,
@@ -257,12 +317,20 @@ const {
 } = useUiPreferences()
 
 const activeSection = ref<SettingsSection>('language')
+const settingsNavSearch = ref('')
+const manuallyExpandedSettingsGroups = ref<SettingsNavGroupKey[]>([])
+const manuallyCollapsedSettingsGroups = ref<SettingsNavGroupKey[]>([])
 const settingsContentScrollRef = ref<HTMLElement | null>(null)
 const customPresetZhName = ref('')
 const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
 const selectedCustomPresetIds = ref<string[]>([])
+const hangingProtocolName = ref('')
+const hangingProtocolModality = ref('CT')
+const hangingProtocolKeyword = ref('')
+const hangingProtocolRows = ref('1')
+const hangingProtocolColumns = ref('2')
 const tagEditSaveDefaultLocationLabel = ref('')
 const tagEditSaveLocationError = ref('')
 const isChoosingTagEditSaveLocation = ref(false)
@@ -271,18 +339,101 @@ const appVersion = __APP_VERSION__
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = settingsCopy
 const { resetExportSection } = useExportSettings(copy)
-const sections = computed(() => [
-  { key: 'language' as const, title: copy.value.language, subtitle: copy.value.languageSub, icon: 'language' },
-  { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: copy.value.shortcutsSub, icon: 'keyboard' },
-  { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: copy.value.windowPresetsSub, icon: 'contrast' },
-  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM Tag' : 'DICOM Tags', subtitle: isZh.value ? 'Tag 显示、编辑、保存与脱敏策略' : 'Tag display, editing, save, and de-identification behavior', icon: 'tag' },
-  { key: 'qa' as const, title: copy.value.qaSection, subtitle: copy.value.qaSectionSub, icon: 'qa' },
-  { key: 'export' as const, title: copy.value.exportSection ?? 'Export', subtitle: copy.value.exportSectionSub ?? 'Formats and default save location', icon: 'export' },
-  { key: 'display' as const, title: copy.value.display, subtitle: copy.value.displaySub, icon: 'crosshair' }
+const sections = computed<SettingsNavItem[]>(() => [
+  { key: 'language' as const, title: isZh.value ? '语言与主题' : 'Language & Theme', subtitle: isZh.value ? '界面偏好' : 'UI preferences', icon: 'language' },
+  { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
+  { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
+  { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
+  { key: 'displayCrosshair' as const, title: copy.value.crosshairTitle, subtitle: isZh.value ? 'MPR 十字线' : 'MPR crosshair', icon: 'crosshair' },
+  { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
+  { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '测量线样式' : 'Measurement style', icon: 'measure-line' },
+  { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
+  { key: 'hangingProtocol' as const, title: isZh.value ? '挂片协议' : 'Hanging Protocol', subtitle: isZh.value ? '自动布局规则' : 'Layout rules', icon: 'layout' },
+  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM Tag' : 'DICOM Tags', subtitle: isZh.value ? '显示与修改保存' : 'Display and edit save', icon: 'tag' },
+  { key: 'dicomExport' as const, title: isZh.value ? 'DICOM 导出' : 'DICOM Export', subtitle: isZh.value ? '导出位置与内容' : 'Location and overlays', icon: 'export' },
+  { key: 'deidentifyExport' as const, title: isZh.value ? '脱敏导出' : 'De-identify Export', subtitle: isZh.value ? '匿名字段规则' : 'Anonymization rules', icon: 'shield' },
+  { key: 'qa' as const, title: copy.value.qaSection, subtitle: isZh.value ? '质控指标' : 'Quality metrics', icon: 'qa' }
 ])
+const navigationGroups = computed<SettingsNavGroup[]>(() => {
+  const getSection = (key: SettingsSection): SettingsNavItem => (
+    sections.value.find((section) => section.key === key) ?? sections.value[0]!
+  )
+
+  return [
+    {
+      key: 'general',
+      title: isZh.value ? '常规' : 'General',
+      subtitle: isZh.value ? '基础偏好' : 'Basic preferences',
+      icon: 'settings',
+      items: [getSection('language'), getSection('shortcuts')]
+    },
+    {
+      key: 'display',
+      title: copy.value.display,
+      subtitle: isZh.value ? '图像显示' : 'Image display',
+      icon: 'crosshair',
+      items: [
+        getSection('displayPseudocolor'),
+        getSection('windowPresets'),
+        getSection('displayCrosshair'),
+        getSection('displayScaleBar'),
+        getSection('displayMeasurement'),
+        getSection('displayRoi'),
+        getSection('hangingProtocol')
+      ]
+    },
+    {
+      key: 'dicomTags',
+      title: isZh.value ? 'DICOM Tag' : 'DICOM Tags',
+      subtitle: isZh.value ? 'Tag 设置' : 'Tag settings',
+      icon: 'tag',
+      items: [getSection('dicomTags')]
+    },
+    {
+      key: 'export',
+      title: copy.value.exportSection ?? 'Export',
+      subtitle: isZh.value ? '保存与匿名化' : 'Save and anonymize',
+      icon: 'export',
+      items: [getSection('dicomExport'), getSection('deidentifyExport')]
+    },
+    {
+      key: 'qa',
+      title: copy.value.qaSection,
+      subtitle: copy.value.qaSectionSub,
+      icon: 'qa',
+      items: [getSection('qa')]
+    }
+  ]
+})
+const normalizedSettingsNavSearch = computed(() => normalizeSettingsSearch(settingsNavSearch.value))
+const hasSettingsNavSearch = computed(() => normalizedSettingsNavSearch.value.length > 0)
+const manuallyExpandedSettingsGroupSet = computed(() => new Set(manuallyExpandedSettingsGroups.value))
+const manuallyCollapsedSettingsGroupSet = computed(() => new Set(manuallyCollapsedSettingsGroups.value))
+const settingsGroupSearchTerms = computed(() => new Map(
+  navigationGroups.value.map((group) => [group.key, normalizeSettingsTerms(getSettingsGroupSearchTerms(group))])
+))
+const settingsSectionSearchTerms = computed(() => new Map(
+  sections.value.map((section) => [section.key, normalizeSettingsTerms(getSettingsSectionSearchTerms(section))])
+))
+const filteredNavigationGroups = computed<SettingsNavGroup[]>(() => {
+  const query = normalizedSettingsNavSearch.value
+  if (!query) {
+    return navigationGroups.value
+  }
+
+  return navigationGroups.value.flatMap((group) => {
+    const groupMatches = matchesSettingsSearch(settingsGroupSearchTerms.value.get(group.key) ?? [], query)
+    const items = groupMatches
+      ? group.items
+      : group.items.filter((item) => matchesSettingsSearch(settingsSectionSearchTerms.value.get(item.key) ?? [], query))
+
+    return items.length ? [{ ...group, items }] : []
+  })
+})
 const shortcutGroups = computed(() => createShortcutGroups(copy.value, isZh.value))
-const currentSectionTitle = computed(() => sections.value.find((item) => item.key === activeSection.value)?.title ?? copy.value.title)
-const currentSectionSubtitle = computed(() => sections.value.find((item) => item.key === activeSection.value)?.subtitle ?? '')
+const currentSection = computed(() => sections.value.find((item) => item.key === activeSection.value) ?? sections.value[0]!)
+const currentSectionTitle = computed(() => currentSection.value?.title ?? copy.value.title)
+const currentSectionSubtitle = computed(() => currentSection.value?.subtitle ?? '')
 const selectedWindowPreset = computed(() => windowPresets.value.find((preset) => preset.id === selectedWindowPresetId.value) ?? windowPresets.value[0] ?? null)
 const displayCustomWindowPresets = computed(() => windowPresets.value.filter((preset) => preset.source === 'custom'))
 const selectedCustomPresetIdSet = computed(() => new Set(selectedCustomPresetIds.value))
@@ -293,6 +444,9 @@ const areAllCustomPresetsSelected = computed(() => (
 ))
 const canAddCustomWindowPreset = computed(() => displayCustomWindowPresets.value.length < MAX_CUSTOM_WINDOW_PRESETS)
 const customPresetLimitLabel = computed(() => `${displayCustomWindowPresets.value.length}/${MAX_CUSTOM_WINDOW_PRESETS}`)
+const hangingProtocolRuleCountLabel = computed(() => `${hangingProtocolRules.value.length}/${MAX_HANGING_PROTOCOL_RULES}`)
+const canAddHangingProtocolRule = computed(() => hangingProtocolRules.value.length < MAX_HANGING_PROTOCOL_RULES)
+const hangingProtocolModalityOptions = ['ALL', 'CT', 'MR', 'PT', 'US', 'XA', 'CR', 'DX', 'OT']
 const enabledQaWaterMetricCount = computed(() => qaWaterMetrics.value.filter((item) => item.enabled).length)
 const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; title: string; description: string; badge: string }>>(() => [
   {
@@ -410,12 +564,145 @@ function getThemeLabel(theme: ThemePreset): string {
   return isZh.value ? theme.labelZh : theme.labelEn
 }
 
+function normalizeSettingsSearch(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(SETTINGS_SEARCH_SEPARATOR_PATTERN, '')
+}
+
+function normalizeSettingsTerms(terms: string[]): string[] {
+  return [...new Set(terms.map(normalizeSettingsSearch).filter(Boolean))]
+}
+
+function isOrderedFuzzyMatch(text: string, query: string): boolean {
+  if (!query) {
+    return true
+  }
+
+  let queryIndex = 0
+  for (const char of text) {
+    if (char === query[queryIndex]) {
+      queryIndex += 1
+      if (queryIndex === query.length) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function matchesSettingsSearch(normalizedTerms: string[], normalizedQuery: string): boolean {
+  return normalizedTerms.some((term) => term.includes(normalizedQuery) || isOrderedFuzzyMatch(term, normalizedQuery))
+}
+
+function getSettingsGroupSearchTerms(group: SettingsNavGroup): string[] {
+  return [group.key, group.title, group.subtitle, ...SETTINGS_GROUP_SEARCH_ALIASES[group.key]]
+}
+
+function getSettingsSectionSearchTerms(item: SettingsNavItem): string[] {
+  return [item.key, item.title, item.subtitle, ...SETTINGS_SECTION_SEARCH_ALIASES[item.key]]
+}
+
+function isNavigationGroupActive(group: SettingsNavGroup): boolean {
+  return group.items.some((item) => item.key === activeSection.value)
+}
+
+function isNavigationGroupExpanded(group: SettingsNavGroup): boolean {
+  if (hasSettingsNavSearch.value) return true
+  if (manuallyCollapsedSettingsGroupSet.value.has(group.key)) return false
+  return isNavigationGroupActive(group) || manuallyExpandedSettingsGroupSet.value.has(group.key)
+}
+
+function shouldShowNavigationGroupItems(group: SettingsNavGroup): boolean {
+  return (group.items.length > 1 && isNavigationGroupExpanded(group)) || (hasSettingsNavSearch.value && group.items.length === 1)
+}
+
+function setNavigationGroupExpanded(groupKey: SettingsNavGroupKey, expanded: boolean): void {
+  const expandedKeys = new Set(manuallyExpandedSettingsGroups.value)
+  const collapsedKeys = new Set(manuallyCollapsedSettingsGroups.value)
+
+  if (expanded) {
+    expandedKeys.add(groupKey)
+    collapsedKeys.delete(groupKey)
+  } else {
+    expandedKeys.delete(groupKey)
+    collapsedKeys.add(groupKey)
+  }
+
+  manuallyExpandedSettingsGroups.value = [...expandedKeys]
+  manuallyCollapsedSettingsGroups.value = [...collapsedKeys]
+}
+
+function handleNavigationGroupClick(group: SettingsNavGroup): void {
+  const firstSectionKey = group.items[0]?.key
+  if (!firstSectionKey) return
+
+  if (group.items.length <= 1) {
+    activeSection.value = firstSectionKey
+    return
+  }
+
+  if (hasSettingsNavSearch.value) {
+    activeSection.value = firstSectionKey
+    setNavigationGroupExpanded(group.key, true)
+    return
+  }
+
+  if (isNavigationGroupExpanded(group)) {
+    setNavigationGroupExpanded(group.key, false)
+    return
+  }
+
+  activeSection.value = firstSectionKey
+  setNavigationGroupExpanded(group.key, true)
+}
+
 function isDicomTagDisplayModeActive(value: DicomTagDisplayMode): boolean {
   return dicomTagDisplayMode.value === value
 }
 
 function handleSelectDicomTagDisplayMode(value: DicomTagDisplayMode): void {
   dicomTagDisplayMode.value = value
+}
+
+function normalizeHangingProtocolGridInput(value: string): number {
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? Math.min(6, Math.max(1, parsed)) : 1
+}
+
+function getHangingProtocolRuleSummary(rule: HangingProtocolRule): string {
+  const conditionParts = [
+    rule.modality === 'ALL' ? (isZh.value ? '全部检查模态' : 'Any modality') : (isZh.value ? `检查模态 ${rule.modality}` : rule.modality),
+    rule.seriesDescriptionKeyword
+      ? (isZh.value ? `序列描述包含 "${rule.seriesDescriptionKeyword}"` : `Description contains "${rule.seriesDescriptionKeyword}"`)
+      : (isZh.value ? '不限制序列描述' : 'Any description')
+  ]
+  return `${conditionParts.join(' / ')} -> ${rule.rows} x ${rule.columns}`
+}
+
+function handleAddHangingProtocolRule(): void {
+  if (!canAddHangingProtocolRule.value) {
+    return
+  }
+
+  const rows = normalizeHangingProtocolGridInput(hangingProtocolRows.value)
+  const columns = normalizeHangingProtocolGridInput(hangingProtocolColumns.value)
+  const fallbackName = `${hangingProtocolModality.value || 'ALL'} ${rows}x${columns}`
+  addHangingProtocolRule({
+    name: hangingProtocolName.value.trim() || fallbackName,
+    enabled: true,
+    modality: hangingProtocolModality.value,
+    seriesDescriptionKeyword: hangingProtocolKeyword.value.trim(),
+    rows,
+    columns
+  })
+  hangingProtocolName.value = ''
+  hangingProtocolKeyword.value = ''
+}
+
+function toggleHangingProtocolRule(rule: HangingProtocolRule): void {
+  updateHangingProtocolRule(rule.id, { enabled: !rule.enabled })
 }
 
 function isDicomDeidentifyFieldSelected(key: DicomDeidentifyFieldKey): boolean {
@@ -596,12 +883,26 @@ function resetWindowPresetSection(): void {
   customPresetWl.value = '40'
 }
 
-function resetDisplaySection(): void {
-  selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
-  setRoiStatOptions(createDefaultRoiStatOptions())
-  setCrosshairConfigs(createDefaultCrosshairConfigs())
-  setScaleBarPreference(createDefaultScaleBarPreference())
-  setMeasurementStylePreference(createDefaultMeasurementStylePreference())
+function resetDisplaySubSection(section: SettingsSection): void {
+  if (section === 'displayPseudocolor') {
+    selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
+    return
+  }
+  if (section === 'displayRoi') {
+    setRoiStatOptions(createDefaultRoiStatOptions())
+    return
+  }
+  if (section === 'displayCrosshair') {
+    setCrosshairConfigs(createDefaultCrosshairConfigs())
+    return
+  }
+  if (section === 'displayScaleBar') {
+    setScaleBarPreference(createDefaultScaleBarPreference())
+    return
+  }
+  if (section === 'displayMeasurement') {
+    setMeasurementStylePreference(createDefaultMeasurementStylePreference())
+  }
 }
 
 function resetDicomTagSection(): void {
@@ -610,10 +911,22 @@ function resetDicomTagSection(): void {
     locationMode: 'default',
     desktopDirectory: null
   })
+}
+
+function resetDeidentifyExportSection(): void {
   setDicomDeidentifyPreference({
     selectedFieldKeys: [...DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS],
     replacementPrefix: 'ANON'
   })
+}
+
+function resetHangingProtocolSection(): void {
+  setHangingProtocolRules([])
+  hangingProtocolName.value = ''
+  hangingProtocolModality.value = 'CT'
+  hangingProtocolKeyword.value = ''
+  hangingProtocolRows.value = '1'
+  hangingProtocolColumns.value = '2'
 }
 
 function resetQaSection(): void {
@@ -629,8 +942,12 @@ function resetCurrentSection(): void {
     resetWindowPresetSection()
     return
   }
-  if (activeSection.value === 'export') {
+  if (activeSection.value === 'dicomExport') {
     resetExportSection()
+    return
+  }
+  if (activeSection.value === 'deidentifyExport') {
+    resetDeidentifyExportSection()
     return
   }
   if (activeSection.value === 'qa') {
@@ -641,8 +958,18 @@ function resetCurrentSection(): void {
     resetDicomTagSection()
     return
   }
-  if (activeSection.value === 'display') {
-    resetDisplaySection()
+  if (activeSection.value === 'hangingProtocol') {
+    resetHangingProtocolSection()
+    return
+  }
+  if (
+    activeSection.value === 'displayCrosshair' ||
+    activeSection.value === 'displayScaleBar' ||
+    activeSection.value === 'displayMeasurement' ||
+    activeSection.value === 'displayPseudocolor' ||
+    activeSection.value === 'displayRoi'
+  ) {
+    resetDisplaySubSection(activeSection.value)
   }
 }
 
@@ -736,7 +1063,7 @@ onMounted(async () => {
       class="settings-dialog-backdrop fixed inset-0 z-[1300] flex items-center justify-center bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-accent)_16%,transparent),transparent_38%),rgba(3,8,15,0.42)] px-4 py-6 backdrop-blur-[8px]"
       @click.self="emit('close')"
     >
-      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1180px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]">
+      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1320px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]">
         <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_14%,transparent),transparent_26%),radial-gradient(circle_at_bottom_left,color-mix(in_srgb,var(--theme-accent-warm)_12%,transparent),transparent_22%)]"></div>
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[color:color-mix(in_srgb,var(--theme-text-primary)_40%,transparent)] to-transparent"></div>
 
@@ -761,25 +1088,80 @@ onMounted(async () => {
           </button>
         </div>
 
-        <div class="relative grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div class="relative grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)]">
           <aside class="theme-shell-panel-soft settings-nav-scroll min-h-0 overflow-auto border-b px-5 py-5 lg:border-b-0 lg:border-r">
-            <div class="space-y-3">
+            <label class="settings-nav-search mb-4 flex min-h-12 items-center gap-2 rounded-2xl border px-3">
+              <AppIcon name="search" :size="16" />
+              <input
+                v-model="settingsNavSearch"
+                type="text"
+                class="settings-nav-search__input min-w-0 flex-1 text-sm font-medium text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
+                :placeholder="isZh ? '搜索设置 / Search' : 'Search settings'"
+              />
               <button
-                v-for="section in sections"
-                :key="section.key"
+                v-if="settingsNavSearch"
                 type="button"
-                class="settings-nav-item group flex w-full items-start gap-3 rounded-[22px] border px-4 py-4 text-left transition duration-150"
-                :class="section.key === activeSection ? 'settings-nav-item--active theme-active-surface' : 'settings-nav-item--inactive theme-card-soft border hover:border-[var(--theme-border-strong)]'"
-                @click="activeSection = section.key"
+                class="grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+                :aria-label="isZh ? '清空搜索' : 'Clear search'"
+                @click="settingsNavSearch = ''"
               >
-                <div class="settings-nav-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition" :class="section.key === activeSection ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'">
-                  <AppIcon :name="section.icon" :size="18" />
-                </div>
-                <div class="min-w-0">
-                  <div class="text-sm font-semibold" :class="section.key === activeSection ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-primary)]'">{{ section.title }}</div>
-                  <div class="mt-1 text-xs leading-5" :class="section.key === activeSection ? 'text-[var(--theme-text-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ section.subtitle }}</div>
-                </div>
+                <AppIcon name="close" :size="13" />
               </button>
+            </label>
+
+            <div class="space-y-4">
+              <div
+                v-if="filteredNavigationGroups.length === 0"
+                class="rounded-2xl border border-dashed border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-6 text-center"
+              >
+                <AppIcon name="search" :size="20" class="mx-auto text-[var(--theme-text-muted)]" />
+                <div class="mt-2 text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '没有匹配的设置' : 'No settings found' }}</div>
+                <div class="mt-1 text-xs leading-5 text-[var(--theme-text-muted)]">{{ isZh ? '试试中文或英文关键词。' : 'Try a Chinese or English keyword.' }}</div>
+              </div>
+
+              <template v-else>
+                <div v-for="group in filteredNavigationGroups" :key="group.key" class="settings-nav-group">
+                  <div
+                    class="settings-nav-item group flex w-full cursor-pointer items-start gap-3 rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                    :class="isNavigationGroupActive(group) ? 'settings-nav-item--active' : 'settings-nav-item--inactive'"
+                    role="button"
+                    tabindex="0"
+                    @click="handleNavigationGroupClick(group)"
+                    @keydown.enter.prevent="handleNavigationGroupClick(group)"
+                    @keydown.space.prevent="handleNavigationGroupClick(group)"
+                  >
+                    <div class="settings-nav-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition" :class="isNavigationGroupActive(group) ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'">
+                      <AppIcon :name="group.icon" :size="18" />
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ group.title }}</div>
+                      <div class="mt-1 text-xs leading-5" :class="isNavigationGroupActive(group) ? 'text-[var(--theme-text-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ group.subtitle }}</div>
+                    </div>
+                    <span
+                      v-if="group.items.length > 1"
+                      class="settings-nav-chevron ml-auto mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-xl border transition"
+                      :class="isNavigationGroupExpanded(group) ? 'settings-nav-chevron--open' : 'settings-nav-chevron--closed'"
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="chevron-down" :size="16" />
+                    </span>
+                  </div>
+
+                  <div v-if="shouldShowNavigationGroupItems(group)" class="settings-nav-sublist mt-2 grid gap-1.5 pl-4">
+                    <button
+                      v-for="section in group.items"
+                      :key="section.key"
+                      type="button"
+                      class="settings-nav-subitem flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-left transition duration-150"
+                      :class="section.key === activeSection ? 'settings-nav-subitem--active' : 'settings-nav-subitem--inactive'"
+                      @click="activeSection = section.key"
+                    >
+                      <span class="settings-nav-subitem__dot h-2 w-2 shrink-0 rounded-full"></span>
+                      <span class="block min-w-0 truncate text-xs font-semibold text-[var(--theme-text-primary)]">{{ section.title }}</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
             </div>
           </aside>
 
@@ -798,7 +1180,7 @@ onMounted(async () => {
             <div ref="settingsContentScrollRef" class="settings-content-scroll min-h-0 flex-1 overflow-auto pr-2">
               <div class="space-y-5 pb-12">
                 <template v-if="activeSection === 'language'">
-                  <div class="grid gap-5 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
+                  <div class="grid gap-5 xl:grid-cols-[minmax(280px,0.72fr)_minmax(0,1.28fr)]">
                     <div class="theme-card-soft rounded-[28px] p-5">
                       <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
                         <AppIcon name="language" :size="18" />
@@ -997,8 +1379,138 @@ onMounted(async () => {
                   </div>
                 </template>
 
-                <template v-else-if="activeSection === 'export'">
-                  <ExportSettingsPanel />
+                <template v-else-if="activeSection === 'hangingProtocol'">
+                  <div class="space-y-5">
+                    <section class="theme-card-soft rounded-[28px] p-5">
+                      <div class="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_13%,transparent)] text-[var(--theme-accent)]">
+                              <AppIcon name="layout" :size="20" />
+                            </span>
+                            <div>
+                              <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-lg font-semibold">{{ isZh ? '挂片协议' : 'Hanging Protocol' }}</span>
+                                <span v-if="isZh" class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">Hanging Protocol</span>
+                              </div>
+                              <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">
+                                {{ isZh ? '按 Modality、Series Description 等序列信息匹配布局规则，用于一键或自动套用常用诊断布局。' : 'Persist layout rules matched by series metadata for one-click or automatic diagnostic layouts.' }}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <span class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                          {{ hangingProtocolRuleCountLabel }}
+                        </span>
+                      </div>
+
+                      <div class="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                        <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                          <div class="mb-4">
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '新增挂片规则' : 'Add Hanging Protocol Rule' }}</div>
+                            <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                              {{ isZh ? '按检查模态和序列描述关键字匹配，命中后自动使用指定行列布局。' : 'Match by modality and series description keyword, then use the selected grid.' }}
+                            </div>
+                          </div>
+
+                          <div class="grid gap-3">
+                            <label class="block">
+                              <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '规则名称' : 'Rule name' }}</span>
+                              <input v-model="hangingProtocolName" maxlength="48" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" :placeholder="isZh ? '例如：胸部 CT 双窗布局' : 'e.g. Chest CT dual viewport'" />
+                            </label>
+
+                            <div class="grid gap-3 md:grid-cols-2">
+                              <label class="block">
+                                <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '检查模态 Modality' : 'Modality' }}</span>
+                                <select v-model="hangingProtocolModality" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]">
+                                  <option v-for="modality in hangingProtocolModalityOptions" :key="modality" :value="modality">
+                                    {{ modality === 'ALL' ? (isZh ? '全部' : 'All') : modality }}
+                                  </option>
+                                </select>
+                              </label>
+                              <label class="block">
+                                <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '序列描述关键字' : 'Description keyword' }}</span>
+                                <input v-model="hangingProtocolKeyword" maxlength="64" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" :placeholder="isZh ? '可留空，例如 chest / lung' : 'Optional, e.g. chest / lung'" />
+                              </label>
+                            </div>
+
+                            <div class="grid gap-3 md:grid-cols-2">
+                              <label class="block">
+                                <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '布局行数' : 'Rows' }}</span>
+                                <input v-model="hangingProtocolRows" type="number" min="1" max="6" step="1" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]" />
+                              </label>
+                              <label class="block">
+                                <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '布局列数' : 'Columns' }}</span>
+                                <input v-model="hangingProtocolColumns" type="number" min="1" max="6" step="1" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]" />
+                              </label>
+                            </div>
+                          </div>
+
+                          <div v-if="!canAddHangingProtocolRule" class="mt-4 rounded-2xl border border-[color:color-mix(in_srgb,#f4b860_38%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,#f4b860_10%,transparent)] px-4 py-3 text-xs leading-5 text-[color:color-mix(in_srgb,#f4b860_78%,var(--theme-text-primary))]">
+                            {{ isZh ? `最多只能保存 ${MAX_HANGING_PROTOCOL_RULES} 条布局规则。` : `Up to ${MAX_HANGING_PROTOCOL_RULES} layout rules can be saved.` }}
+                          </div>
+                          <div class="mt-4 flex flex-wrap gap-2">
+                            <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60" :disabled="!canAddHangingProtocolRule" @click="handleAddHangingProtocolRule">
+                              {{ isZh ? '保存挂片规则' : 'Save rule' }}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                          <div class="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '已保存挂片规则' : 'Saved Rules' }}</div>
+                              <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">
+                                {{ isZh ? '规则按列表顺序匹配；关闭后会保留在设置中，但不会参与自动匹配。' : 'Rules match in list order. Disabled rules are kept but ignored.' }}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div v-if="hangingProtocolRules.length === 0" class="grid min-h-[220px] place-items-center rounded-[20px] border border-dashed border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-5 py-8 text-center">
+                            <div>
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '还没有挂片规则' : 'No layout rules yet' }}</div>
+                              <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                                {{ isZh ? '新增规则后会随设置持久化保存。' : 'New rules are persisted with your settings.' }}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div v-else class="grid gap-3">
+                            <div
+                              v-for="rule in hangingProtocolRules"
+                              :key="rule.id"
+                              class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-4"
+                            >
+                              <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div class="min-w-0">
+                                  <div class="flex flex-wrap items-center gap-2">
+                                    <span class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ rule.name }}</span>
+                                    <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">{{ rule.rows }} x {{ rule.columns }}</span>
+                                    <span class="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]" :class="rule.enabled ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_36%,var(--theme-border-soft))] text-[var(--theme-accent)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-muted)]'">
+                                      {{ rule.enabled ? (isZh ? '启用' : 'On') : (isZh ? '关闭' : 'Off') }}
+                                    </span>
+                                  </div>
+                                  <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ getHangingProtocolRuleSummary(rule) }}</div>
+                                </div>
+                                <div class="flex shrink-0 flex-wrap gap-2">
+                                  <button type="button" class="theme-button-secondary rounded-2xl px-3 py-2 text-xs font-semibold" @click="toggleHangingProtocolRule(rule)">
+                                    {{ rule.enabled ? (isZh ? '关闭' : 'Disable') : (isZh ? '启用' : 'Enable') }}
+                                  </button>
+                                  <button type="button" class="theme-button-secondary rounded-2xl px-3 py-2 text-xs font-semibold" @click="removeHangingProtocolRule(rule.id)">
+                                    {{ isZh ? '删除' : 'Remove' }}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                </template>
+
+                <template v-else-if="activeSection === 'dicomExport'">
+                  <ExportSettingsPanel mode="dicom" />
                 </template>
 
                 <template v-else-if="activeSection === 'qa'">
@@ -1054,29 +1566,36 @@ onMounted(async () => {
                   </div>
                 </template>
 
-                <template v-else-if="activeSection === 'dicomTags'">
+                <template v-else-if="activeSection === 'dicomTags' || activeSection === 'deidentifyExport'">
                   <div class="space-y-5">
                     <section class="theme-card-soft rounded-[28px] p-5">
                       <div class="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div class="min-w-0">
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                             <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_13%,transparent)] text-[var(--theme-accent)]">
-                              <AppIcon name="tag" :size="20" />
+                              <AppIcon :name="activeSection === 'deidentifyExport' ? 'shield' : 'tag'" :size="20" />
                             </span>
                             <div>
-                              <div class="text-lg font-semibold">{{ isZh ? 'DICOM Tag 设置' : 'DICOM Tag Settings' }}</div>
+                              <div class="text-lg font-semibold">{{ activeSection === 'deidentifyExport' ? (isZh ? 'DICOM 脱敏导出' : 'DICOM De-identification Export') : (isZh ? 'DICOM Tag 设置' : 'DICOM Tag Settings') }}</div>
                               <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">
-                                {{ isZh ? '管理 Tag 页显示方式，以及修改后 DICOM 文件在前端的保存策略。' : 'Manage tag display mode and frontend save behavior for modified DICOM files.' }}
+                                {{
+                                  activeSection === 'deidentifyExport'
+                                    ? (isZh ? '选择脱敏字段与匿名前缀，导出时生成新的 DICOM 副本。' : 'Choose anonymized fields and prefix for exported DICOM copies.')
+                                    : (isZh ? '管理 Tag 显示方式和修改副本保存位置。' : 'Manage tag display mode and modified-copy save location.')
+                                }}
                               </div>
                             </div>
                           </div>
                         </div>
-                        <span class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                        <span v-if="activeSection === 'dicomTags'" class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
                           {{ isZh ? '当前：' : 'Current: ' }}{{ currentDicomTagDisplayModeTitle }}
+                        </span>
+                        <span v-else class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
+                          {{ selectedDicomDeidentifyCount }} / {{ dicomDeidentifyOptions.length }}
                         </span>
                       </div>
 
-                      <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                      <div v-if="activeSection === 'dicomTags'" class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
                         <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'Tag 显示方式' : 'Tag Display Mode' }}</div>
@@ -1109,7 +1628,7 @@ onMounted(async () => {
                         </div>
                       </div>
 
-                      <div class="mt-5 rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                      <div v-if="activeSection === 'dicomTags'" class="mt-5 rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
                         <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'Tag 修改保存位置' : 'Tag Edit Save Location' }}</div>
@@ -1217,7 +1736,7 @@ onMounted(async () => {
                         </div>
                       </div>
 
-                      <div class="mt-5 rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                      <div v-if="activeSection === 'deidentifyExport'" class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
                         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div class="flex items-start gap-3">
                             <span class="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_24%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-accent)]">
@@ -1301,9 +1820,17 @@ onMounted(async () => {
                   </div>
                 </template>
 
-                <template v-else-if="activeSection === 'display'">
+                <template
+                  v-else-if="
+                    activeSection === 'displayCrosshair' ||
+                    activeSection === 'displayScaleBar' ||
+                    activeSection === 'displayMeasurement' ||
+                    activeSection === 'displayPseudocolor' ||
+                    activeSection === 'displayRoi'
+                  "
+                >
                   <div class="space-y-5">
-                    <div class="theme-card-soft rounded-[28px] p-5">
+                    <div v-if="activeSection === 'displayCrosshair'" class="theme-card-soft rounded-[28px] p-5">
                       <div class="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
@@ -1380,21 +1907,21 @@ onMounted(async () => {
                       </div>
                     </div>
 
-                    <div class="theme-card-soft rounded-[24px] p-4">
-                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div v-if="activeSection === 'displayScaleBar'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4">
                         <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                           <AppIcon name="measure" :size="18" />
                           <span class="text-sm font-semibold">{{ copy.scaleBarTitle }}</span>
                         </div>
-                        <div class="max-w-2xl text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
+                        <div class="mt-1 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
                       </div>
 
-                      <div class="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,0.92fr)_minmax(0,1.15fr)]">
+                      <div class="grid min-w-0 gap-4 xl:grid-cols-2">
                         <div class="scale-bar-control-card rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-3">
                           <button
                             type="button"
                             role="switch"
-                            class="scale-bar-toggle-control flex min-h-[112px] w-full cursor-pointer items-center justify-between gap-4 text-left"
+                            class="scale-bar-toggle-control flex min-h-[74px] w-full cursor-pointer items-center justify-between gap-4 text-left"
                             :aria-checked="scaleBarPreference.enabled"
                             @click="toggleScaleBarEnabled"
                           >
@@ -1437,8 +1964,9 @@ onMounted(async () => {
                           </div>
                         </div>
 
-                        <div class="scale-bar-control-card rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
-                          <div class="scale-bar-preview-surface relative min-h-[104px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                        <div class="scale-bar-control-card rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4 xl:col-span-2">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.visualPreview }}</div>
+                          <div class="scale-bar-preview-surface relative min-h-[96px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
                             <div
                               class="scale-bar-preview-mark absolute bottom-3 left-1/2 -translate-x-1/2 transition duration-150"
                               :class="scaleBarPreference.enabled ? 'opacity-100' : 'opacity-30 grayscale'"
@@ -1466,7 +1994,7 @@ onMounted(async () => {
                       </div>
                     </div>
 
-                    <div class="theme-card-soft rounded-[24px] p-4">
+                    <div v-if="activeSection === 'displayMeasurement'" class="theme-card-soft rounded-[24px] p-4">
                       <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
@@ -1593,31 +2121,41 @@ onMounted(async () => {
                       </div>
                     </div>
 
-                    <div class="grid gap-5 xl:grid-cols-2">
-                      <div class="theme-card-soft rounded-[24px] p-4">
-                        <div class="mb-3 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.pseudocolor }}</div>
-                        <div class="space-y-3">
+                    <div v-if="activeSection === 'displayPseudocolor' || activeSection === 'displayRoi'" class="grid gap-5">
+                      <div v-if="activeSection === 'displayPseudocolor'" class="theme-card-soft rounded-[24px] p-4">
+                        <div class="mb-4 flex items-center justify-between gap-3">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="pseudocolor" :size="18" />
+                            <span class="text-sm font-semibold">{{ copy.pseudocolor }}</span>
+                          </div>
+                          <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">
+                            {{ PSEUDOCOLOR_PRESET_OPTIONS.length }}
+                          </span>
+                        </div>
+                        <div class="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                           <button
                             v-for="option in PSEUDOCOLOR_PRESET_OPTIONS"
                             :key="option.key"
                             type="button"
-                            class="relative flex w-full items-center gap-3 rounded-[18px] border px-3 py-3 text-left transition duration-150"
+                            class="relative rounded-[18px] border px-3 py-3 text-left transition duration-150"
                             :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
                             @click="selectedPseudocolorKey = option.key"
                           >
-                            <span class="h-9 flex-1 rounded-2xl border shadow-inner" :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'" :style="{ background: option.gradient }"></span>
-                            <span class="w-24 shrink-0 text-sm font-semibold" :class="selectedPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
-                            <span
-                              class="grid h-7 w-7 shrink-0 place-items-center rounded-full border transition"
-                              :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_16px_color-mix(in_srgb,var(--theme-accent)_45%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] text-transparent'"
-                            >
-                              <AppIcon name="check" :size="15" />
+                            <span class="block h-8 rounded-[12px] border shadow-inner" :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'" :style="{ background: option.gradient }"></span>
+                            <span class="mt-3 flex items-center justify-between gap-3">
+                              <span class="truncate text-sm font-semibold" :class="selectedPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
+                              <span
+                                class="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] border transition"
+                                :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_12px_color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] text-transparent'"
+                              >
+                                <AppIcon name="check" :size="13" />
+                              </span>
                             </span>
                           </button>
                         </div>
                       </div>
 
-                      <div class="theme-card-soft rounded-[24px] p-4">
+                      <div v-if="activeSection === 'displayRoi'" class="theme-card-soft rounded-[24px] p-4">
                         <div class="mb-2 text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.roiStatsTitle }}</div>
                         <div class="mb-4 text-xs leading-6 text-[var(--theme-text-secondary)]">{{ copy.roiStatsDesc }}</div>
                         <div class="grid gap-3 sm:grid-cols-2">
@@ -1672,6 +2210,160 @@ onMounted(async () => {
 .settings-content-scroll::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 52%, transparent), color-mix(in srgb, var(--theme-accent-warm) 28%, transparent));
   border-radius: 999px;
+}
+
+.settings-nav-search {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+  color: var(--theme-text-secondary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
+}
+
+.settings-nav-search:focus-within {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 86%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 7%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.settings-nav-search__input {
+  appearance: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+}
+
+.settings-nav-search__input:focus {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.settings-nav-item {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--industrial-radius-control, 4px) !important;
+  box-shadow: var(
+    --industrial-control-shadow,
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 4%, transparent),
+    0 4px 10px rgba(0, 0, 0, 0.16)
+  ) !important;
+}
+
+.settings-nav-item::before {
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+  content: "";
+}
+
+.settings-nav-item--active {
+  border-color: var(--industrial-active-border, color-mix(in srgb, var(--theme-accent) 34%, transparent)) !important;
+  background: var(
+    --industrial-active-surface,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card) 91%),
+      color-mix(in srgb, var(--theme-accent-strong) 7%, var(--theme-surface-card-soft) 93%)
+    )
+  ) !important;
+  color: var(--theme-active-foreground) !important;
+  box-shadow: var(
+    --industrial-active-shadow,
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent),
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 6px 14px rgba(0, 0, 0, 0.18)
+  ) !important;
+}
+
+.settings-nav-item--inactive {
+  border-color: color-mix(in srgb, var(--theme-text-muted) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 72%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 2%, transparent),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28) !important;
+  opacity: 0.68;
+}
+
+.settings-nav-item--inactive:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-card) 76%, var(--theme-accent) 4%) !important;
+  opacity: 0.92;
+}
+
+.settings-nav-item--active::before {
+  background: var(--theme-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 42%, transparent);
+}
+
+.settings-nav-icon {
+  border-radius: var(--industrial-radius-chip, 4px) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 82%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.settings-nav-item--active .settings-nav-icon {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-panel-strong)) !important;
+  color: var(--theme-active-foreground) !important;
+}
+
+.settings-nav-item--inactive .settings-nav-icon {
+  border-color: color-mix(in srgb, var(--theme-text-muted) 12%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 86%, transparent) !important;
+  color: color-mix(in srgb, var(--theme-text-muted) 76%, transparent) !important;
+}
+
+.settings-nav-chevron {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  color: var(--theme-text-secondary);
+}
+
+.settings-nav-chevron--open {
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  color: var(--theme-text-primary);
+  transform: rotate(0deg);
+}
+
+.settings-nav-chevron--closed {
+  background: color-mix(in srgb, var(--theme-surface-card) 68%, transparent);
+  transform: rotate(-90deg);
+}
+
+.settings-nav-sublist {
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+}
+
+.settings-nav-subitem {
+  border-color: transparent;
+  background: transparent;
+}
+
+.settings-nav-subitem:hover {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+}
+
+.settings-nav-subitem--active,
+.settings-nav-subitem--active:hover,
+.settings-nav-subitem--active:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card));
+}
+
+.settings-nav-subitem__dot {
+  background: color-mix(in srgb, var(--theme-text-muted) 62%, transparent);
+}
+
+.settings-nav-subitem--active .settings-nav-subitem__dot {
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 14%, transparent);
 }
 
 .settings-choice-card {

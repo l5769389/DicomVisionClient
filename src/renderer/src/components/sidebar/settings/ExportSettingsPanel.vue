@@ -3,6 +3,12 @@ import AppIcon from '../../AppIcon.vue'
 import { useExportSettings } from '../../../composables/settings/useExportSettings'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
+const props = withDefaults(defineProps<{
+  mode?: 'all' | 'dicom'
+}>(), {
+  mode: 'all'
+})
+
 const { settingsCopy: copy } = useUiLocale()
 const {
   canOpenDefaultExportLocation,
@@ -180,8 +186,8 @@ const {
             </div>
           </div>
 
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+          <div class="grid gap-4" :class="props.mode === 'dicom' ? 'md:grid-cols-1' : 'md:grid-cols-2'">
+            <div v-if="props.mode !== 'dicom'" class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
               <div class="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <div class="text-base font-semibold text-[var(--theme-text-primary)]">PNG</div>

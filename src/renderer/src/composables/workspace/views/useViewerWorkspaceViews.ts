@@ -1,5 +1,6 @@
 import { nextTick, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
+import { resolveBackendAssetUrl } from '../../../services/api'
 import { postApi } from '../../../services/typedApi'
 import {
   bindView,
@@ -38,7 +39,6 @@ import {
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
   createLayoutTab,
-  createLayoutTabKey,
   createTab,
   getSeriesDisplayName,
   isCompareStackPaneKey,
@@ -52,6 +52,10 @@ import {
   normalizeScaleBarInfo
 } from './viewerWorkspaceTabs'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
+import {
+  createSeededLayoutSlots,
+  getOwnedLayoutSlotImageSrcs
+} from '../layout/viewerLayoutSlotSeeds'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
 import {
   FourDPhaseRenderTracker,
@@ -149,6 +153,15 @@ interface CompareViewSizeUpdate {
   }
 }
 
+interface LayoutViewSizeUpdate {
+  slotId: string
+  viewId: string
+  size: {
+    width: number
+    height: number
+  }
+}
+
 export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const viewSizeCache = new Map<string, string>()
   const queuedFourDPreloadTabKeys = new Set<string>()
@@ -199,12 +212,148 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  function revokeLayoutSlotImages(slots: ViewerLayoutSlot[] | null | undefined): void {
-    slots?.forEach((slot) => {
-      if (slot.ownsImageSrc) {
-        revokeObjectUrlIfNeeded(slot.imageSrc)
+  function revokeLayoutSlotImages(slots: ViewerTabItem['layoutSlots']): void {
+    getOwnedLayoutSlotImageSrcs(slots).forEach(revokeObjectUrlIfNeeded)
+  }
+
+  function getLayoutSlotViewIds(tab: ViewerTabItem): string[] {
+    return (tab.layoutSlots ?? [])
+      .map((slot) => slot.viewId ?? '')
+      .filter((viewId): viewId is string => Boolean(viewId))
+  }
+
+  function releaseLayoutSlotViewIds(viewIds: string[]): void {
+    releaseBackendViews(viewIds)
+    viewIds.forEach((viewId) => {
+      viewSizeCache.delete(viewId)
+    })
+  }
+
+  function releaseDiscardedLayoutSlotViews(
+    previousSlots: ViewerLayoutSlot[] | null | undefined,
+    nextSlots: ViewerLayoutSlot[] | null | undefined
+  ): void {
+    const nextViewIds = new Set(
+      (nextSlots ?? [])
+        .map((slot) => slot.viewId ?? '')
+        .filter((viewId): viewId is string => Boolean(viewId))
+    )
+    const discardedViewIds = (previousSlots ?? [])
+      .map((slot) => slot.viewId ?? '')
+      .filter((viewId): viewId is string => Boolean(viewId) && !nextViewIds.has(viewId))
+    if (discardedViewIds.length) {
+      releaseLayoutSlotViewIds(discardedViewIds)
+    }
+  }
+
+  function releaseTabRenderResources(tab: ViewerTabItem): void {
+    releaseBackendViews([
+      tab.viewId,
+      ...Object.values(tab.compareViewIds ?? {}),
+      ...Object.values(tab.viewportViewIds ?? {}),
+      ...getFourDPhaseBackendViewIds(tab),
+      ...getLayoutSlotViewIds(tab)
+    ])
+    if (tab.viewId) {
+      options.clearPendingVolumeConfig(tab.viewId)
+      viewSizeCache.delete(tab.viewId)
+    }
+    Object.values(tab.compareViewIds ?? {}).forEach((viewId) => {
+      if (viewId) {
+        viewSizeCache.delete(viewId)
       }
     })
+    Object.values(tab.viewportViewIds ?? {}).forEach((viewId) => {
+      if (viewId) {
+        viewSizeCache.delete(viewId)
+      }
+    })
+    getFourDPhaseBackendViewIds(tab).forEach((viewId) => {
+      viewSizeCache.delete(viewId)
+    })
+    getLayoutSlotViewIds(tab).forEach((viewId) => {
+      viewSizeCache.delete(viewId)
+    })
+    revokeObjectUrlIfNeeded(tab.imageSrc)
+    Object.values(tab.compareImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
+      Object.values(phaseCache.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    })
+  }
+
+  function resolveSeriesLayoutPreviewSrc(series: FolderSeriesItem): string {
+    const phasePreview = series.fourDPhases?.find((phase) => phase.imageSrc || phase.viewportImages?.['mpr-ax'])
+    return resolveBackendAssetUrl(
+      series.thumbnailSrc ||
+        series.thumbnailUrl ||
+        phasePreview?.imageSrc ||
+        phasePreview?.viewportImages?.['mpr-ax'] ||
+        ''
+    )
+  }
+
+  function getSeriesLayoutSliceLabel(series: FolderSeriesItem): string {
+    const instanceCount = Number(series.instanceCount)
+    return Number.isFinite(instanceCount) && instanceCount > 0 ? `1 / ${instanceCount}` : ''
+  }
+
+  function getFirstLayoutViewportKey(tab: ViewerTabItem): string {
+    return tab.layoutSlots?.find((slot) => slot.viewId)?.id ?? tab.layoutSlots?.[0]?.id ?? 'layout'
+  }
+
+  function isLayoutStackSlot(slot: ViewerLayoutSlot): boolean {
+    return Boolean(
+      slot.seriesId &&
+        (slot.viewType === 'Stack' || slot.sourceViewType === 'Stack' || slot.sourceViewType === 'CompareStack')
+    )
+  }
+
+  async function createLayoutStackSlotView(slot: ViewerLayoutSlot, forceNewView: boolean): Promise<ViewerLayoutSlot> {
+    if (!isLayoutStackSlot(slot) || !slot.seriesId) {
+      return {
+        ...slot,
+        viewId: null
+      }
+    }
+
+    if (!forceNewView && slot.viewId) {
+      return slot
+    }
+
+    const data = await postApi('CreateViewApiV1ViewCreatePost', {
+      seriesId: slot.seriesId,
+      viewType: 'Stack'
+    })
+    const pseudocolorPreset = normalizePseudocolorPresetKey(slot.pseudocolorPreset ?? selectedPseudocolorKey.value)
+    return {
+      ...slot,
+      viewType: 'Stack',
+      sourceViewType: slot.sourceViewType ?? 'Stack',
+      viewportKey: slot.viewportKey ?? 'single',
+      viewId: data.viewId,
+      pseudocolorPreset,
+      transformState: slot.transformState ?? createDefaultTransformInfo()
+    }
+  }
+
+  async function hydrateLayoutStackSlots(slots: ViewerLayoutSlot[], forceNewViews: boolean): Promise<ViewerLayoutSlot[]> {
+    return await Promise.all(slots.map((slot) => createLayoutStackSlotView(slot, forceNewViews)))
+  }
+
+  async function emitLayoutPseudocolorOperations(slots: ViewerLayoutSlot[], presetOverride?: string): Promise<void> {
+    await Promise.all(
+      slots.map(async (slot) => {
+        if (!slot.viewId || !isLayoutStackSlot(slot)) {
+          return
+        }
+        await emitViewOperationWithAck({
+          viewId: slot.viewId,
+          opType: VIEW_OPERATION_TYPES.pseudocolor,
+          pseudocolorPreset: normalizePseudocolorPresetKey(presetOverride ?? slot.pseudocolorPreset ?? selectedPseudocolorKey.value)
+        })
+      })
+    )
   }
 
   function findTab(seriesId: string, viewType?: ViewType): ViewerTabItem | undefined {
@@ -219,6 +368,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         item.viewId === viewId ||
         Object.values(item.compareViewIds ?? {}).includes(viewId) ||
         Object.values(item.viewportViewIds ?? {}).includes(viewId) ||
+        getLayoutSlotViewIds(item).includes(viewId) ||
         Boolean(findFourDPhaseViewportByViewId(item, viewId))
     )
   }
@@ -239,6 +389,25 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     options.viewerTabs.value = [...options.viewerTabs.value, tab]
     options.activeTabKey.value = tab.key
     return tab.key
+  }
+
+  function createInlineLayoutTabKey(tab: ViewerTabItem): string {
+    if (tab.viewType === 'Layout') {
+      return tab.key
+    }
+
+    const baseKey = `${tab.key}::Layout`
+    if (!options.viewerTabs.value.some((item) => item.key === baseKey)) {
+      return baseKey
+    }
+
+    let suffix = 2
+    let candidateKey = `${baseKey}::${suffix}`
+    while (options.viewerTabs.value.some((item) => item.key === candidateKey)) {
+      suffix += 1
+      candidateKey = `${baseKey}::${suffix}`
+    }
+    return candidateKey
   }
 
   function resolveInitialTagIndex(seriesId: string): number {
@@ -506,10 +675,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
-  function resolveMprViewportElement(viewportKey: MprViewportKey): HTMLElement | null {
+  function resolveCachedViewportSurface(viewportKey: string): HTMLElement | null {
     const cachedElement = options.viewportElements.value[viewportKey] ?? null
-    if (cachedElement?.isConnected) {
+    if (!cachedElement?.isConnected) {
+      return null
+    }
+    if (cachedElement.dataset.activeRenderSurface && cachedElement.dataset.viewportKey === viewportKey) {
       return cachedElement
+    }
+    return cachedElement.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`)
+  }
+
+  function resolveMprViewportElement(viewportKey: MprViewportKey): HTMLElement | null {
+    const cachedSurface = resolveCachedViewportSurface(viewportKey)
+    if (cachedSurface) {
+      return cachedSurface
     }
 
     return (
@@ -527,8 +707,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const styles = window.getComputedStyle(element)
     const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0')
     const verticalPadding = parseFloat(styles.paddingTop || '0') + parseFloat(styles.paddingBottom || '0')
-    const width = element.clientWidth - horizontalPadding
-    const height = element.clientHeight - verticalPadding
+    const rect = element.getBoundingClientRect()
+    const width = (rect.width || element.clientWidth) - horizontalPadding
+    const height = (rect.height || element.clientHeight) - verticalPadding
 
     const nextWidth = Math.floor(width)
     const nextHeight = Math.floor(height)
@@ -563,6 +744,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         if (viewId) {
           bindView(viewId)
         }
+      })
+      getLayoutSlotViewIds(tab).forEach((viewId) => {
+        bindView(viewId)
       })
       getFourDPhaseBackendViewIds(tab).forEach((viewId) => {
         bindView(viewId)
@@ -1047,6 +1231,55 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
         : item.volumeRenderConfig
 
+      const layoutSlot = item.viewType === 'Layout'
+        ? item.layoutSlots?.find((slot) => slot.viewId === payload.viewId)
+        : null
+      if (layoutSlot) {
+        const expectedLayoutPseudocolorPreset = normalizePseudocolorPresetKey(
+          layoutSlot.pseudocolorPreset ?? item.pseudocolorPreset
+        )
+        const layoutPseudocolorPreset = normalizePseudocolorPresetKey(
+          payload.color?.pseudocolorPreset ?? layoutSlot.pseudocolorPreset ?? item.pseudocolorPreset
+        )
+        if (payload.color?.pseudocolorPreset && layoutPseudocolorPreset !== expectedLayoutPseudocolorPreset) {
+          revokeObjectUrlIfNeeded(imageSrc)
+          return item
+        }
+
+        const layoutSeriesCornerInfo =
+          options.seriesCornerInfoMap.value[layoutSlot.seriesId ?? item.seriesId] ??
+          options.seriesCornerInfoMap.value[item.seriesId] ??
+          createEmptyCornerInfo()
+
+        return {
+          ...item,
+          viewportMeasurements: {
+            ...(item.viewportMeasurements ?? {}),
+            [layoutSlot.id]: (payload.measurements ?? []) as MeasurementOverlay[]
+          },
+          layoutSlots: (item.layoutSlots ?? []).map((slot) => {
+            if (slot.id !== layoutSlot.id) {
+              return slot
+            }
+            if (slot.ownsImageSrc) {
+              revokeObjectUrlIfNeeded(slot.imageSrc)
+            }
+            return {
+              ...slot,
+              imageSrc,
+              ownsImageSrc: true,
+              sliceLabel,
+              windowLabel,
+              scaleBar,
+              cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo)),
+              orientation: orientationInfo,
+              transformState,
+              pseudocolorPreset: layoutPseudocolorPreset
+            }
+          })
+        }
+      }
+
       const compareViewportKey = Object.entries(item.compareViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
         | CompareStackPaneKey
         | undefined
@@ -1327,9 +1560,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }
 
   function resolveCompareViewportElement(viewportKey: CompareStackPaneKey): HTMLElement | null {
-    const cachedElement = options.viewportElements.value[viewportKey] ?? null
-    if (cachedElement?.isConnected) {
-      return cachedElement
+    const cachedSurface = resolveCachedViewportSurface(viewportKey)
+    if (cachedSurface) {
+      return cachedSurface
     }
 
     return (
@@ -1358,6 +1591,40 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return { viewportKey, viewId, size }
       })
       .filter((item): item is CompareViewSizeUpdate => Boolean(item))
+  }
+
+  function resolveLayoutViewportElement(slotId: string): HTMLElement | null {
+    const cachedSurface = resolveCachedViewportSurface(slotId)
+    if (cachedSurface) {
+      return cachedSurface
+    }
+
+    return (
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${slotId}"]`) ??
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-viewport-key="${slotId}"]`) ??
+      null
+    )
+  }
+
+  function collectLayoutViewSizeUpdates(
+    slots: ViewerLayoutSlot[] | undefined,
+    force = false
+  ): LayoutViewSizeUpdate[] {
+    return (slots ?? [])
+      .filter((slot) => Boolean(slot.viewId))
+      .map((slot) => {
+        const viewId = slot.viewId ?? ''
+        const size = getViewportSize(resolveLayoutViewportElement(slot.id))
+        if (!size) {
+          return null
+        }
+        const sizeChanged = hasViewSizeChanged(viewId, size)
+        if (!force && !sizeChanged) {
+          return null
+        }
+        return { slotId: slot.id, viewId, size }
+      })
+      .filter((item): item is LayoutViewSizeUpdate => Boolean(item))
   }
 
   function viewSizeUpdatesToViewIds(updates: MprViewSizeUpdate[]): Partial<Record<MprViewportKey, string>> {
@@ -1401,12 +1668,40 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
+  async function postLayoutViewSizeUpdates(updates: LayoutViewSizeUpdate[], renderOnBind = true): Promise<void> {
+    await Promise.all(
+      updates.map(async ({ viewId, size }) => {
+        if (renderOnBind) {
+          bindView(viewId)
+        } else {
+          await bindViewSilentlyWithAck(viewId)
+        }
+        await postApi('SetViewSizeApiV1ViewSetSizePost', {
+          opType: VIEW_OPERATION_TYPES.setSize,
+          size,
+          viewId
+        })
+      })
+    )
+  }
+
   async function waitForCompareViewportLayout(compareViewIds: Partial<Record<CompareStackPaneKey, string>>): Promise<void> {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       await nextTick()
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       const requiredKeys = (Object.keys(compareViewIds) as CompareStackPaneKey[]).filter((key) => Boolean(compareViewIds[key]))
       if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveCompareViewportElement(key))))) {
+        return
+      }
+    }
+  }
+
+  async function waitForLayoutViewportLayout(slots: ViewerLayoutSlot[]): Promise<void> {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const requiredSlotIds = slots.filter((slot) => Boolean(slot.viewId)).map((slot) => slot.id)
+      if (!requiredSlotIds.length || requiredSlotIds.every((slotId) => Boolean(getViewportSize(resolveLayoutViewportElement(slotId))))) {
         return
       }
     }
@@ -1455,6 +1750,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     if (tab.viewType === 'CompareStack') {
       await postCompareViewSizeUpdates(collectCompareViewSizeUpdates(tab.compareViewIds, force))
+      return
+    }
+
+    if (tab.viewType === 'Layout') {
+      await postLayoutViewSizeUpdates(collectLayoutViewSizeUpdates(tab.layoutSlots, force))
       return
     }
 
@@ -1816,7 +2116,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               compareSyncWindow: item.compareSyncWindow ?? true,
               compareSyncPseudocolor: item.compareSyncPseudocolor ?? true,
               compareSyncView: item.compareSyncView ?? true,
-              compareSyncTransform: item.compareSyncTransform ?? false
+              compareSyncTransform: item.compareSyncTransform ?? false,
+              compareSyncReset: item.compareSyncReset ?? true
             }
           : item
       )
@@ -1837,130 +2138,6 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  function mergeLayoutSlot(baseSlot: ViewerLayoutSlot, seedSlot: ViewerLayoutSlot): ViewerLayoutSlot {
-    return {
-      ...baseSlot,
-      ...seedSlot,
-      id: baseSlot.id,
-      row: baseSlot.row,
-      column: baseSlot.column,
-      rowSpan: baseSlot.rowSpan,
-      columnSpan: baseSlot.columnSpan
-    }
-  }
-
-  async function createStackLayoutSeedSlot(tab: ViewerTabItem): Promise<ViewerLayoutSlot> {
-    const clonedImage = await cloneLayoutImageSrc(tab.imageSrc)
-    return {
-      id: 'seed-stack',
-      row: 0,
-      column: 0,
-      rowSpan: 1,
-      columnSpan: 1,
-      seriesId: tab.seriesId,
-      seriesTitle: tab.seriesTitle,
-      viewType: tab.viewType,
-      sourceViewType: tab.viewType,
-      viewportKey: 'single',
-      viewId: tab.viewId,
-      imageSrc: clonedImage.imageSrc,
-      ownsImageSrc: clonedImage.ownsImageSrc,
-      sliceLabel: tab.sliceLabel,
-      windowLabel: tab.windowLabel
-    }
-  }
-
-  async function createMprLayoutSeedSlots(tab: ViewerTabItem): Promise<ViewerLayoutSlot[]> {
-    return await Promise.all(
-      MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
-        const clonedImage = await cloneLayoutImageSrc(tab.viewportImages?.[viewportKey])
-        return {
-          id: `seed-${viewportKey}`,
-          row: 0,
-          column: 0,
-          rowSpan: 1,
-          columnSpan: 1,
-          seriesId: tab.seriesId,
-          seriesTitle: tab.seriesTitle,
-          viewType: tab.viewType,
-          sourceViewType: tab.viewType,
-          viewportKey,
-          viewId: tab.viewportViewIds?.[viewportKey] ?? null,
-          imageSrc: clonedImage.imageSrc,
-          ownsImageSrc: clonedImage.ownsImageSrc,
-          sliceLabel: tab.viewportSliceLabels?.[viewportKey] ?? '',
-          windowLabel: tab.windowLabel
-        } satisfies ViewerLayoutSlot
-      })
-    )
-  }
-
-  async function createCompareLayoutSeedSlots(tab: ViewerTabItem): Promise<ViewerLayoutSlot[]> {
-    return await Promise.all(
-      COMPARE_STACK_PANE_KEYS.map(async (paneKey) => {
-        const clonedImage = await cloneLayoutImageSrc(tab.compareImages?.[paneKey])
-        return {
-          id: `seed-${paneKey}`,
-          row: 0,
-          column: 0,
-          rowSpan: 1,
-          columnSpan: 1,
-          seriesId: tab.compareSeriesIds?.[paneKey] ?? null,
-          seriesTitle: tab.compareSeriesTitles?.[paneKey] ?? null,
-          viewType: 'Stack',
-          sourceViewType: 'CompareStack',
-          viewportKey: paneKey,
-          viewId: tab.compareViewIds?.[paneKey] ?? null,
-          imageSrc: clonedImage.imageSrc,
-          ownsImageSrc: clonedImage.ownsImageSrc,
-          sliceLabel: tab.compareSliceLabels?.[paneKey] ?? '',
-          windowLabel: tab.compareWindowLabels?.[paneKey] ?? ''
-        } satisfies ViewerLayoutSlot
-      })
-    )
-  }
-
-  async function createLayoutSeedSlots(tab: ViewerTabItem | null): Promise<ViewerLayoutSlot[]> {
-    if (!tab) {
-      return []
-    }
-
-    if (tab.viewType === 'CompareStack') {
-      return await createCompareLayoutSeedSlots(tab)
-    }
-    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
-      return await createMprLayoutSeedSlots(tab)
-    }
-    if (tab.viewType === 'Stack' || tab.viewType === '3D') {
-      return [await createStackLayoutSeedSlot(tab)]
-    }
-    if (tab.viewType === 'Layout') {
-      return await Promise.all(
-        (tab.layoutSlots ?? []).map(async (slot) => {
-          const clonedImage = await cloneLayoutImageSrc(slot.imageSrc)
-          return {
-            ...slot,
-            imageSrc: clonedImage.imageSrc,
-            ownsImageSrc: clonedImage.ownsImageSrc
-          }
-        })
-      )
-    }
-    return []
-  }
-
-  async function createSeededLayoutSlots(
-    template: ViewerLayoutTemplate,
-    sourceTab: ViewerTabItem | null
-  ): Promise<ViewerLayoutSlot[]> {
-    const baseSlots = template.slots.map((slot) => ({ ...slot }))
-    const seedSlots = await createLayoutSeedSlots(sourceTab)
-    seedSlots.slice(0, baseSlots.length).forEach((seedSlot, index) => {
-      baseSlots[index] = mergeLayoutSlot(baseSlots[index]!, seedSlot)
-    })
-    return baseSlots
-  }
-
   async function openLayoutView(template: ViewerLayoutTemplate): Promise<void> {
     const activeTab = options.viewerTabs.value.find((item) => item.key === options.activeTabKey.value)
     const sourceSeriesId = activeTab?.seriesId ?? options.selectedSeriesId.value
@@ -1970,38 +2147,151 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     const layoutTemplate = cloneViewerLayoutTemplate(template)
-    const layoutSlots = await createSeededLayoutSlots(layoutTemplate, activeTab ?? null)
-    const tabKey = createLayoutTabKey(sourceSeries.seriesId, layoutTemplate.key)
-    const existingTab = options.viewerTabs.value.find((item) => item.key === tabKey)
-    if (existingTab) {
-      revokeLayoutSlotImages(existingTab.layoutSlots)
-    }
+    const seededLayoutSlots = await createSeededLayoutSlots(
+      layoutTemplate,
+      activeTab ?? null,
+      cloneLayoutImageSrc,
+      options.activeViewportKey.value
+    )
+    const layoutSlots = await hydrateLayoutStackSlots(seededLayoutSlots, activeTab?.viewType !== 'Layout')
+    const title = `${getSeriesDisplayName(sourceSeries, sourceSeries.seriesId)} - Layout ${layoutTemplate.label}`
+    let nextTabKey = ''
 
-    if (existingTab) {
+    if (activeTab) {
+      nextTabKey = createInlineLayoutTabKey(activeTab)
+      if (activeTab.viewType !== 'Layout') {
+        releaseTabRenderResources(activeTab)
+      } else {
+        releaseDiscardedLayoutSlotViews(activeTab.layoutSlots, layoutSlots)
+      }
+      revokeLayoutSlotImages(activeTab.layoutSlots)
       options.viewerTabs.value = options.viewerTabs.value.map((item) =>
-        item.key === tabKey
+        item.key === activeTab.key
           ? {
               ...item,
-              title: `${getSeriesDisplayName(sourceSeries, sourceSeries.seriesId)} · Layout ${layoutTemplate.label}`,
+              key: nextTabKey,
+              viewType: 'Layout',
+              title,
+              viewId: '',
+              imageSrc: '',
+              sliceLabel: '',
+              windowLabel: '',
+              compareViewIds: createEmptyCompareViewIds(),
+              compareImages: createEmptyCompareImages(),
+              compareSliceLabels: createEmptyCompareSliceLabels(),
+              compareWindowLabels: createEmptyCompareWindowLabels(),
+              viewportViewIds: createEmptyMprViewIds(),
+              viewportImages: createEmptyMprImages(),
+              viewportSliceLabels: createEmptyMprSliceLabels(),
+              fourDPhaseViewIds: {},
+              fourDPhaseCache: {},
+              fourDIsPlaying: false,
+              fourDIsPreloading: false,
               layoutTemplate,
               layoutSlots
             }
           : item
       )
+      options.activeTabKey.value = nextTabKey
     } else {
-      options.viewerTabs.value = [
-        ...options.viewerTabs.value,
-        {
-          ...createLayoutTab(sourceSeries, layoutTemplate),
-          layoutSlots
-        }
-      ]
+      const tab = {
+        ...createLayoutTab(sourceSeries, layoutTemplate),
+        title,
+        layoutSlots
+      }
+      options.viewerTabs.value = [...options.viewerTabs.value, tab]
+      options.activeTabKey.value = tab.key
+      nextTabKey = tab.key
     }
 
     options.selectedSeriesId.value = sourceSeries.seriesId
-    options.activeTabKey.value = tabKey
-    options.activeViewportKey.value = 'layout'
+    const refreshedTab = options.viewerTabs.value.find((item) => item.key === nextTabKey)
+    options.activeViewportKey.value = refreshedTab ? getFirstLayoutViewportKey(refreshedTab) : 'layout'
+    await nextTick()
+    await waitForLayoutViewportLayout(layoutSlots)
+    await renderTab(nextTabKey, true)
+    await emitLayoutPseudocolorOperations(layoutSlots)
     options.message.value = ''
+  }
+
+  async function setLayoutSlotSeries(payload: { tabKey: string; slotId: string; series: FolderSeriesItem; activateSlot?: boolean }): Promise<void> {
+    const seriesTitle = getSeriesDisplayName(payload.series, payload.series.seriesId)
+    const tab = options.viewerTabs.value.find((item) => item.key === payload.tabKey)
+    const previousSlot = tab?.layoutSlots?.find((slot) => slot.id === payload.slotId)
+    const seriesCornerInfo = await options.ensureSeriesCornerInfo(payload.series.seriesId)
+    if (previousSlot?.viewId) {
+      releaseBackendViews([previousSlot.viewId])
+      viewSizeCache.delete(previousSlot.viewId)
+    }
+    const nextSlot = await createLayoutStackSlotView(
+      {
+        ...(previousSlot ?? {
+          id: payload.slotId,
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          viewType: 'Stack'
+        }),
+        seriesId: payload.series.seriesId,
+        seriesTitle,
+        viewType: 'Stack',
+        sourceViewType: 'Stack',
+        viewportKey: 'single',
+        imageSrc: '',
+        ownsImageSrc: false,
+        sliceLabel: getSeriesLayoutSliceLabel(payload.series),
+        windowLabel: '',
+        cornerInfo: seriesCornerInfo,
+        orientation: createEmptyOrientationInfo(),
+        scaleBar: null,
+        transformState: createDefaultTransformInfo(),
+        pseudocolorPreset: normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+      },
+      true
+    )
+
+    options.viewerTabs.value = options.viewerTabs.value.map((item) => {
+      if (item.key !== payload.tabKey || item.viewType !== 'Layout') {
+        return item
+      }
+
+      return {
+        ...item,
+        viewportMeasurements: {
+          ...(item.viewportMeasurements ?? {}),
+          [payload.slotId]: []
+        },
+        mtfState: item.mtfState
+          ? {
+              items: item.mtfState.items.filter((mtfItem) => mtfItem.viewportKey !== payload.slotId),
+              selectedMtfId:
+                item.mtfState.selectedMtfId &&
+                item.mtfState.items.some((mtfItem) => mtfItem.viewportKey !== payload.slotId && mtfItem.mtfId === item.mtfState?.selectedMtfId)
+                  ? item.mtfState.selectedMtfId
+                  : null
+            }
+          : item.mtfState,
+        layoutSlots: (item.layoutSlots ?? []).map((slot) => {
+          if (slot.id !== payload.slotId) {
+            return slot
+          }
+
+          if (slot.ownsImageSrc) {
+            revokeObjectUrlIfNeeded(slot.imageSrc)
+          }
+
+          return nextSlot
+        })
+      }
+    })
+    if (payload.activateSlot !== false) {
+      options.activeViewportKey.value = payload.slotId
+    }
+    await nextTick()
+    await waitForLayoutViewportLayout([nextSlot])
+    await renderTab(payload.tabKey, true)
+    await emitLayoutPseudocolorOperations([nextSlot])
   }
 
   async function openView(viewType: ViewType): Promise<void> {
@@ -2023,7 +2313,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     const existingTab = findTab(seriesId, 'Stack') ?? findTab(seriesId)
-    options.activeTabKey.value = existingTab?.key ?? ''
+    if (existingTab) {
+      options.activeTabKey.value = existingTab.key
+    }
   }
 
   function activateTab(tabKey: string): void {
@@ -2039,7 +2331,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             : tab.viewType === 'CompareStack'
               ? COMPARE_STACK_SOURCE_PANE_KEY
               : tab.viewType === 'Layout'
-                ? 'layout'
+                ? getFirstLayoutViewportKey(tab)
                 : 'single'
     }
   }
@@ -2072,7 +2364,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       closingTab.viewId,
       ...Object.values(closingTab.compareViewIds ?? {}),
       ...Object.values(closingTab.viewportViewIds ?? {}),
-      ...getFourDPhaseBackendViewIds(closingTab)
+      ...getFourDPhaseBackendViewIds(closingTab),
+      ...getLayoutSlotViewIds(closingTab)
     ])
     if (closingTab.viewId) {
       options.clearPendingVolumeConfig(closingTab.viewId)
@@ -2089,6 +2382,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
     })
     getFourDPhaseBackendViewIds(closingTab).forEach((viewId) => {
+      viewSizeCache.delete(viewId)
+    })
+    getLayoutSlotViewIds(closingTab).forEach((viewId) => {
       viewSizeCache.delete(viewId)
     })
 
@@ -2160,6 +2456,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     removeSeries,
     renderTab,
     setFourDPhase,
+    setLayoutSlotSeries,
     setTagTabIndex,
     selectSeries,
     updateTabImage

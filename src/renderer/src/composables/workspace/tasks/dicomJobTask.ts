@@ -39,22 +39,29 @@ function waitForDelay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function toNonNegativeCount(value: unknown, fallback = 0): number {
+  const count = Number(value ?? fallback)
+  return Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : fallback
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
 export function getDicomJobProgress(job: DicomTagModifyJob, copy: DicomJobProgressCopy): DicomJobProgress {
-  const total = Math.max(0, Number(job.totalCount ?? 0))
+  const total = toNonNegativeCount(job.totalCount)
   const processedFallback = job.status === 'succeeded' ? total : 0
-  const processed = Math.max(
-    0,
-    Math.min(total || Number(job.processedCount ?? processedFallback), Number(job.processedCount ?? processedFallback))
-  )
+  const rawProcessed = toNonNegativeCount(job.processedCount, processedFallback)
+  const processed = total > 0 ? Math.min(total, rawProcessed) : rawProcessed
   const isProcessingComplete = total > 0 && processed >= total
   const percentFromJob = Number(job.progressPercent)
   const percent =
     isProcessingComplete || job.status === 'succeeded'
       ? 100
       : Number.isFinite(percentFromJob) && percentFromJob >= 0
-        ? Math.max(0, Math.min(100, Math.round(percentFromJob)))
+        ? clampPercent(percentFromJob)
         : total > 0
-          ? Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
+          ? clampPercent((processed / total) * 100)
           : 0
 
   return {

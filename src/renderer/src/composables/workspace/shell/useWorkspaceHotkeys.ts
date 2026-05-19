@@ -34,12 +34,15 @@ function getActiveSliceInfo(tab: ViewerTabItem | null, activeViewportKey: string
 
   const isMprLikeView = tab.viewType === 'MPR' || tab.viewType === '4D'
   const isCompareStack = tab.viewType === 'CompareStack'
+  const isLayout = tab.viewType === 'Layout'
   const raw =
     isMprLikeView
       ? tab.viewportSliceLabels?.[resolveMprViewportKey(activeViewportKey)] ?? tab.sliceLabel
       : isCompareStack
         ? tab.compareSliceLabels?.[resolveComparePaneKey(activeViewportKey)] ?? tab.sliceLabel
-      : tab.sliceLabel
+        : isLayout
+          ? (tab.layoutSlots?.find((slot) => slot.id === activeViewportKey)?.sliceLabel ?? tab.layoutSlots?.find((slot) => Boolean(slot.viewId))?.sliceLabel ?? tab.sliceLabel)
+          : tab.sliceLabel
   const match = raw.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
   if (!match) {
     return null
@@ -102,7 +105,7 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    if (tab.viewType !== 'Stack' && tab.viewType !== 'CompareStack' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
+    if (tab.viewType !== 'Stack' && tab.viewType !== 'CompareStack' && tab.viewType !== 'Layout' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
       return
     }
 

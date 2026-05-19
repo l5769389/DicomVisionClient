@@ -295,6 +295,10 @@ export interface SeriesSummary {
   seriesInstanceUid?: string | null
   studyInstanceUid?: string | null
   patientId?: string | null
+  patientName?: string | null
+  studyDate?: string | null
+  studyDescription?: string | null
+  accessionNumber?: string | null
   modality?: string | null
   seriesDescription?: string | null
   instanceCount: number

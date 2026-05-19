@@ -128,7 +128,8 @@ const compareSyncOptionValues: Record<CompareSyncSettingKey, string> = {
   window: 'compare-sync:window',
   pseudocolor: 'compare-sync:pseudocolor',
   view: 'compare-sync:view',
-  transform: 'compare-sync:transform'
+  transform: 'compare-sync:transform',
+  reset: 'compare-sync:reset'
 }
 
 const compareSyncOptionConfigs: Array<{
@@ -142,6 +143,7 @@ const compareSyncOptionConfigs: Array<{
   { key: 'pseudocolor', label: '伪彩', icon: 'pseudocolor', description: '同步伪彩方案' },
   { key: 'view', label: '缩放平移', icon: 'pan', description: '同步 zoom 和 pan' },
   { key: 'transform', label: '旋转翻转', icon: 'rotate', description: '同步 90° 旋转和镜像翻转' }
+  , { key: 'reset', label: 'Reset', icon: 'reset', description: 'Apply reset to every pane in this view.' }
 ]
 
 const compareSyncStateGetters: Record<CompareSyncSettingKey, (tab: ViewerTabItem) => boolean> = {
@@ -149,10 +151,21 @@ const compareSyncStateGetters: Record<CompareSyncSettingKey, (tab: ViewerTabItem
   window: (tab) => tab.compareSyncWindow !== false,
   pseudocolor: (tab) => tab.compareSyncPseudocolor !== false,
   view: (tab) => tab.compareSyncView !== false,
-  transform: (tab) => tab.compareSyncTransform === true
+  transform: (tab) => tab.compareSyncTransform === true,
+  reset: (tab) => tab.compareSyncReset !== false
+}
+
+const layoutSyncStateGetters: Record<CompareSyncSettingKey, (tab: ViewerTabItem) => boolean> = {
+  scroll: (tab) => tab.layoutSyncScroll === true,
+  window: (tab) => tab.layoutSyncWindow === true,
+  pseudocolor: (tab) => tab.layoutSyncPseudocolor === true,
+  view: (tab) => tab.layoutSyncView === true,
+  transform: (tab) => tab.layoutSyncTransform === true,
+  reset: (tab) => tab.layoutSyncReset === true
 }
 
 const stackTools: StackTool[] = [
+  layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
@@ -169,14 +182,13 @@ const stackTools: StackTool[] = [
     ]
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
-  layoutTool,
-  tagTool,
-  qaTool,
+  { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
+  pseudocolorTool,
   { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
   measureTool,
-  { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
+  qaTool,
   exportTool,
-  pseudocolorTool,
+  tagTool,
   {
     key: 'reset',
     label: 'Reset',
@@ -193,46 +205,51 @@ const stackTools: StackTool[] = [
   }
 ]
 
+function withoutMtfResetOption(tool: StackTool): StackTool {
+  if (tool.key !== 'reset') {
+    return tool
+  }
+
+  return {
+    ...tool,
+    options: tool.options
+      ?.filter((option) => option.value !== 'reset:mtf')
+      .map((option) =>
+        option.value === 'reset:all'
+          ? {
+              ...option,
+              description: 'Reset the view and clear measurements and annotations.'
+            }
+          : option
+      )
+  }
+}
+
 const compareStackTools: StackTool[] = stackTools
   .filter((tool) => tool.key !== 'play' && tool.key !== 'qa')
-  .map((tool) => {
-    if (tool.key !== 'reset') {
-      return tool
-    }
+  .map(withoutMtfResetOption)
 
-    return {
-      ...tool,
-      options: tool.options
-        ?.filter((option) => option.value !== 'reset:mtf')
-        .map((option) =>
-          option.value === 'reset:all'
-            ? {
-                ...option,
-                description: 'Reset the view and clear measurements and annotations.'
-              }
-            : option
-        )
-    }
-  })
+const layoutStackTools: StackTool[] = stackTools
+  .filter((tool) => tool.key !== 'qa')
+  .map(withoutMtfResetOption)
 
 const genericTools: StackTool[] = [
+  layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
-  layoutTool,
-  tagTool,
   measureTool,
   pseudocolorTool,
-  exportTool
+  exportTool,
+  tagTool
 ]
 
 const volumeTools: StackTool[] = [
+  layoutTool,
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
-  layoutTool,
-  tagTool,
   { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' },
   {
     key: 'volumePreset',
@@ -248,6 +265,7 @@ const volumeTools: StackTool[] = [
     ]
   },
   exportTool,
+  tagTool,
   {
     key: 'reset',
     label: 'Reset',
@@ -262,10 +280,17 @@ const volumeTools: StackTool[] = [
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
+  layoutTool,
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
-  ...genericTools,
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  measureTool,
+  pseudocolorTool,
+  exportTool,
+  tagTool,
   {
     key: 'reset',
     label: 'Reset',
@@ -366,7 +391,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }))
 
   function getCompareSyncEnabled(tab: ViewerTabItem | null | undefined, key: CompareSyncSettingKey): boolean {
-    if (!tab || tab.viewType !== 'CompareStack') {
+    if (!tab) {
+      return false
+    }
+    if (tab.viewType === 'Layout') {
+      return layoutSyncStateGetters[key](tab)
+    }
+    if (tab.viewType !== 'CompareStack') {
       return false
     }
     return compareSyncStateGetters[key](tab)
@@ -397,11 +428,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       : options.activeTab.value?.viewType === 'CompareStack'
         ? compareStackTools
             .map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-            .flatMap((tool) => (tool.key === 'page' ? [tool, compareSyncTool.value] : [tool]))
+            .flatMap((tool) => (tool.key === 'layout' ? [tool, compareSyncTool.value] : [tool]))
       : options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
         ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
         : options.activeTab.value?.viewType === 'Layout'
-          ? [layoutTool]
+          ? layoutStackTools
+              .map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+              .flatMap((tool) => (tool.key === 'layout' ? [tool, compareSyncTool.value] : [tool]))
         : options.activeTab.value?.viewType === '3D'
           ? volumeTools
           : genericTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
@@ -409,7 +442,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const areToolbarActionsDisabled = computed(
     () =>
-      (options.activeTab.value?.viewType === 'Stack' && (isPlaying.value || isPlaybackPaused.value)) ||
+      (supportsStackPlayback(options.activeTab.value?.viewType) && (isPlaying.value || isPlaybackPaused.value)) ||
       Boolean(options.activeTab.value?.viewType === '4D' && options.activeTab.value.fourDIsPlaying)
   )
 
@@ -441,10 +474,26 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return `${STACK_OPERATION_PREFIX}${toolKey}`
   }
 
-  function getDefaultToolbarToolKey(viewType: ViewerTabItem['viewType'] | undefined): string {
-    if (viewType === 'Layout') {
-      return 'layout'
+  function supportsStackPlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'Stack' || viewType === 'Layout'
+  }
+
+  function getActiveLayoutSlot(tab: ViewerTabItem): NonNullable<ViewerTabItem['layoutSlots']>[number] | null {
+    const slots = tab.layoutSlots ?? []
+    return slots.find((slot) => slot.id === options.activeViewportKey.value && slot.viewId) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
+  }
+
+  function getActiveSeriesIdForTab(tab: ViewerTabItem | null | undefined): string {
+    if (!tab) {
+      return ''
     }
+    if (tab.viewType === 'Layout') {
+      return getActiveLayoutSlot(tab)?.seriesId?.trim() ?? tab.seriesId?.trim() ?? ''
+    }
+    return tab.seriesId?.trim() ?? ''
+  }
+
+  function getDefaultToolbarToolKey(viewType: ViewerTabItem['viewType'] | undefined): string {
     if (viewType === 'MPR' || viewType === '4D') {
       return 'crosshair'
     }
@@ -463,9 +512,6 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getDefaultOperationValue(viewType: ViewerTabItem['viewType'] | undefined): string {
-    if (viewType === 'Layout') {
-      return ''
-    }
     if (viewType === 'MPR' || viewType === '4D') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`
     }
@@ -569,11 +615,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function getCurrentStackSliceInfo(): { current: number; total: number } | null {
     const activeTab = options.activeTab.value
-    if (!activeTab || activeTab.viewType !== 'Stack') {
+    if (!activeTab || !supportsStackPlayback(activeTab.viewType)) {
       return null
     }
 
-    const match = activeTab.sliceLabel.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
+    const sliceLabel = activeTab.viewType === 'Layout' ? (getActiveLayoutSlot(activeTab)?.sliceLabel ?? '') : activeTab.sliceLabel
+    const match = sliceLabel.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
     if (!match) {
       return null
     }
@@ -585,6 +632,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     return { current, total }
+  }
+
+  function getPlaybackViewportKey(): string {
+    const activeTab = options.activeTab.value
+    if (activeTab?.viewType === 'Layout') {
+      return getActiveLayoutSlot(activeTab)?.id ?? options.activeViewportKey.value
+    }
+    return 'single'
   }
 
   function tickPlayback(): void {
@@ -600,13 +655,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     options.emitViewportWheel({
-      viewportKey: 'single',
+      viewportKey: getPlaybackViewportKey(),
       deltaY: 1
     })
   }
 
   function startPlayback(): void {
-    if (options.activeTab.value?.viewType !== 'Stack') {
+    if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
       return
     }
     if (!getCurrentStackSliceInfo()) {
@@ -625,7 +680,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function resumePlayback(): void {
-    if (options.activeTab.value?.viewType !== 'Stack') {
+    if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
       stopPlayback()
       return
     }
@@ -781,7 +836,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'tag') {
-      const seriesId = options.activeTab.value?.seriesId?.trim() ?? ''
+      const seriesId = getActiveSeriesIdForTab(options.activeTab.value)
       if (seriesId) {
         options.emitOpenSeriesView(seriesId, 'Tag')
       }
@@ -812,7 +867,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (tool.key === 'compareSync') {
       const activeTab = options.activeTab.value
       const selectedOption = tool.options?.find((option) => option.value === optionValue)
-      if (!activeTab || activeTab.viewType !== 'CompareStack' || !selectedOption?.syncKey) {
+      if (!activeTab || (activeTab.viewType !== 'CompareStack' && activeTab.viewType !== 'Layout') || !selectedOption?.syncKey) {
         return
       }
       options.emitCompareSyncChange({
@@ -943,7 +998,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
               : viewType === 'CompareStack'
                 ? COMPARE_STACK_SOURCE_PANE_KEY
                 : viewType === 'Layout'
-                  ? 'layout'
+                  ? (options.activeTab.value?.layoutSlots?.find((slot) => Boolean(slot.viewId))?.id ?? 'layout')
                   : 'single'
         )
         restoreToolbarState(tabKey, viewType)

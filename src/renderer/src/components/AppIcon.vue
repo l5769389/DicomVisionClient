@@ -58,6 +58,7 @@ const mdiIconMap: Record<string, string> = {
   connecting: 'mdi-lan-pending',
   disconnected: 'mdi-lan-disconnect',
   menu: 'mdi-tune-variant',
+  search: 'mdi-magnify',
   settings: 'mdi-cog-outline',
   keyboard: 'mdi-keyboard-outline',
   language: 'mdi-translate',

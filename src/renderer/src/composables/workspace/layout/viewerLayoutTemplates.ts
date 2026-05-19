@@ -70,6 +70,10 @@ export function createViewerLayoutOptionValue(template: ViewerLayoutTemplate): s
   return `${VIEWER_LAYOUT_OPTION_PREFIX}${template.key}`
 }
 
+export function createCustomViewerLayoutOptionValue(rows: number, columns: number): string {
+  return `${VIEWER_LAYOUT_OPTION_PREFIX}custom:${clampGridSize(rows)}x${clampGridSize(columns)}`
+}
+
 export function cloneViewerLayoutTemplate(template: ViewerLayoutTemplate): ViewerLayoutTemplate {
   return {
     ...template,

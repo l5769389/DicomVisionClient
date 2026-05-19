@@ -54,6 +54,25 @@ describe('viewer viewport targets', () => {
         'compare-b'
       )
     ).toBe('view-b')
+    expect(
+      resolveViewIdForTabViewport(
+        createTab({
+          layoutSlots: [
+            {
+              id: 'slot-1-1',
+              row: 0,
+              column: 0,
+              rowSpan: 1,
+              columnSpan: 1,
+              viewType: 'Stack',
+              viewId: 'layout-view-a'
+            }
+          ],
+          viewType: 'Layout'
+        }),
+        'slot-1-1'
+      )
+    ).toBe('layout-view-a')
   })
 
   it('orders compare operation targets from the active pane', () => {
@@ -87,5 +106,64 @@ describe('viewer viewport targets', () => {
     })
 
     expect(resolveCompareOperationViewIds(tab, 'compare-b', VIEW_OPERATION_TYPES.scroll)).toEqual(['view-b'])
+  })
+
+  it('uses compare reset sync to decide whether reset targets one pane or both panes', () => {
+    const tab = createTab({
+      compareViewIds: {
+        'compare-a': 'view-a',
+        'compare-b': 'view-b'
+      },
+      viewType: 'CompareStack'
+    })
+
+    expect(resolveCompareOperationViewIds(tab, 'compare-b', VIEW_OPERATION_TYPES.reset)).toEqual([
+      'view-b',
+      'view-a'
+    ])
+    expect(resolveCompareOperationViewIds({ ...tab, compareSyncReset: false }, 'compare-b', VIEW_OPERATION_TYPES.reset)).toEqual(['view-b'])
+  })
+
+  it('keeps layout operation targets local until layout sync is enabled', () => {
+    const tab = createTab({
+      layoutSlots: [
+        {
+          id: 'slot-1-1',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          viewType: 'Stack',
+          viewId: 'layout-view-a'
+        },
+        {
+          id: 'slot-1-2',
+          row: 0,
+          column: 1,
+          rowSpan: 1,
+          columnSpan: 1,
+          viewType: 'Stack',
+          viewId: 'layout-view-b'
+        }
+      ],
+      viewType: 'Layout'
+    })
+
+    expect(resolveCompareOperationViewIds(tab, 'slot-1-2', VIEW_OPERATION_TYPES.scroll)).toEqual(['layout-view-b'])
+    expect(
+      resolveCompareOperationViewIds(
+        {
+          ...tab,
+          layoutSyncScroll: true
+        },
+        'slot-1-2',
+        VIEW_OPERATION_TYPES.scroll
+      )
+    ).toEqual(['layout-view-b', 'layout-view-a'])
+    expect(resolveCompareOperationViewIds(tab, 'slot-1-2', VIEW_OPERATION_TYPES.reset)).toEqual(['layout-view-b'])
+    expect(resolveCompareOperationViewIds({ ...tab, layoutSyncReset: true }, 'slot-1-2', VIEW_OPERATION_TYPES.reset)).toEqual([
+      'layout-view-b',
+      'layout-view-a'
+    ])
   })
 })

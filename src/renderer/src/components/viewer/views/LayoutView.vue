@@ -1,11 +1,58 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import AppIcon from '../../AppIcon.vue'
-import type { ViewerLayoutSlot, ViewerTabItem } from '../../../types/viewer'
+import { computed, ref, watch } from 'vue'
+import ViewerCanvasStage from './ViewerCanvasStage.vue'
+import { SERIES_DRAG_PAYLOAD_TYPE, SERIES_DRAG_TYPE, type SeriesDragPayload } from '../../../constants/dragDrop'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  DraftMeasurementMode,
+  MeasurementDraft,
+  MeasurementOverlay,
+  ViewerLayoutSlot,
+  ViewerTabItem
+} from '../../../types/viewer'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
+  activeOperation: string
+  activeViewportKey: string
+  getAnnotations: (viewportKey: string) => AnnotationOverlay[]
+  getCursorClass: (viewportKey: string) => string
+  getDraftAnnotation: (viewportKey: string) => AnnotationDraft | null
+  getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
+  getDraftMeasurement: (viewportKey: string) => MeasurementDraft | null
+  getMeasurements: (viewportKey: string) => MeasurementOverlay[]
 }>()
+
+const emit = defineEmits<{
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  copySelectedMeasurement: [viewportKey: string]
+  deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  imageLoaded: [viewportKey: string]
+  pointerCancel: [event: PointerEvent]
+  pointerDown: [event: PointerEvent, viewportKey: string]
+  pointerLeave: [viewportKey: string]
+  pointerMove: [event: PointerEvent]
+  pointerUp: [event: PointerEvent]
+  slotDicomDrop: [payload: { tabKey: string; slotId: string; files: File[] }]
+  slotSeriesDrop: [payload: { tabKey: string; slotId: string; seriesId: string; folderPath?: string; seriesInstanceUid?: string | null }]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
+  viewportClick: [viewportKey: string]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
+}>()
+
+interface SliceInfo {
+  current: number
+  total: number
+}
+
+const activeDropSlotId = ref<string | null>(null)
+const sliderValues = ref<Record<string, number>>({})
+const activeSliderIds = ref<Record<string, boolean>>({})
 
 const template = computed(() => props.activeTab.layoutTemplate ?? null)
 const rows = computed(() => Math.max(1, template.value?.rows ?? 1))
@@ -26,6 +73,13 @@ const slots = computed<ViewerLayoutSlot[]>(() => {
       ]
 })
 
+const sliceInfos = computed<Record<string, SliceInfo>>(() =>
+  slots.value.reduce<Record<string, SliceInfo>>((result, slot) => {
+    result[slot.id] = parseSliceInfo(slot.sliceLabel ?? '')
+    return result
+  }, {})
+)
+
 function getSlotStyle(slot: ViewerLayoutSlot): Record<string, string> {
   return {
     gridColumn: `${slot.column + 1} / span ${Math.max(1, slot.columnSpan)}`,
@@ -33,31 +87,214 @@ function getSlotStyle(slot: ViewerLayoutSlot): Record<string, string> {
   }
 }
 
-function getSlotBadge(slot: ViewerLayoutSlot): string {
-  if (slot.sourceViewType === 'CompareStack') {
-    return slot.viewportKey === 'compare-b' ? 'B' : 'A'
+function getSlotTitle(slot: ViewerLayoutSlot, index: number): string {
+  return slot.seriesTitle ?? `Slot ${index + 1}`
+}
+
+function isStackSlot(slot: ViewerLayoutSlot): boolean {
+  return Boolean(slot.viewId && (slot.viewType === 'Stack' || slot.sourceViewType === 'Stack' || slot.sourceViewType === 'CompareStack'))
+}
+
+function parseSliceInfo(sliceLabel: string): SliceInfo {
+  const match = sliceLabel.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
+  if (!match) {
+    return { current: 1, total: 1 }
   }
-  return slot.viewType ?? 'Slot'
+
+  const current = Number(match[1])
+  const total = Number(match[2])
+  return {
+    current: Number.isFinite(current) && current > 0 ? current : 1,
+    total: Number.isFinite(total) && total > 0 ? total : 1
+  }
+}
+
+function clampSliceValue(value: number, total: number): number {
+  return Math.min(Math.max(value, 1), total)
+}
+
+function syncInactiveSliderValues(values = sliceInfos.value): void {
+  const nextValues = { ...sliderValues.value }
+  slots.value.forEach((slot) => {
+    const sliceInfo = values[slot.id] ?? { current: 1, total: 1 }
+    if (!activeSliderIds.value[slot.id]) {
+      nextValues[slot.id] = clampSliceValue(sliceInfo.current, sliceInfo.total)
+    }
+  })
+  sliderValues.value = nextValues
+}
+
+watch(sliceInfos, (values) => syncInactiveSliderValues(values), { immediate: true })
+
+watch(
+  () => props.activeTab.key,
+  () => {
+    activeSliderIds.value = {}
+    syncInactiveSliderValues()
+  }
+)
+
+function beginSliceSliderDrag(slotId: string): void {
+  activeSliderIds.value = {
+    ...activeSliderIds.value,
+    [slotId]: true
+  }
+}
+
+function endSliceSliderDrag(slotId: string): void {
+  const sliceInfo = sliceInfos.value[slotId] ?? { current: 1, total: 1 }
+  sliderValues.value = {
+    ...sliderValues.value,
+    [slotId]: clampSliceValue(sliderValues.value[slotId] ?? sliceInfo.current, sliceInfo.total)
+  }
+  activeSliderIds.value = {
+    ...activeSliderIds.value,
+    [slotId]: false
+  }
+}
+
+function handleSliceSliderInput(event: Event, slot: ViewerLayoutSlot): void {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) {
+    return
+  }
+
+  beginSliceSliderDrag(slot.id)
+  const rawValue = Number(target.value)
+  if (!Number.isFinite(rawValue)) {
+    return
+  }
+  const sliceInfo = sliceInfos.value[slot.id] ?? { current: 1, total: 1 }
+  const nextValue = clampSliceValue(rawValue, sliceInfo.total)
+  const previousValue = sliderValues.value[slot.id] ?? sliceInfo.current
+  sliderValues.value = {
+    ...sliderValues.value,
+    [slot.id]: nextValue
+  }
+  const delta = nextValue - previousValue
+  if (!Number.isFinite(delta) || delta === 0) {
+    return
+  }
+
+  emit('viewportWheel', {
+    viewportKey: slot.id,
+    deltaY: delta,
+    exact: true
+  })
+}
+
+function isExternalFileDragEvent(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
+}
+
+function isSeriesDragEvent(event: DragEvent): boolean {
+  const types = Array.from(event.dataTransfer?.types ?? [])
+  return types.includes(SERIES_DRAG_PAYLOAD_TYPE) || types.includes(SERIES_DRAG_TYPE)
+}
+
+function resolveDraggedSeriesPayload(event: DragEvent): SeriesDragPayload | null {
+  const transfer = event.dataTransfer
+  if (!transfer) {
+    return null
+  }
+
+  const rawPayload = transfer.getData(SERIES_DRAG_PAYLOAD_TYPE)
+  if (rawPayload) {
+    try {
+      const payload = JSON.parse(rawPayload) as Partial<SeriesDragPayload>
+      const seriesId = typeof payload.seriesId === 'string' ? payload.seriesId.trim() : ''
+      if (seriesId) {
+        return {
+          seriesId,
+          folderPath: typeof payload.folderPath === 'string' ? payload.folderPath : undefined,
+          seriesInstanceUid: typeof payload.seriesInstanceUid === 'string' ? payload.seriesInstanceUid : null
+        }
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const seriesId = transfer.getData(SERIES_DRAG_TYPE).trim()
+  return seriesId ? { seriesId } : null
+}
+
+function canDropFilesIntoSlot(slot: ViewerLayoutSlot): boolean {
+  return !slot.imageSrc && !slot.viewId
+}
+
+function canHandleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): boolean {
+  return isSeriesDragEvent(event) || (canDropFilesIntoSlot(slot) && isExternalFileDragEvent(event))
+}
+
+function handleSlotDragEnter(event: DragEvent, slot: ViewerLayoutSlot): void {
+  if (!canHandleSlotDrop(event, slot)) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  activeDropSlotId.value = slot.id
+}
+
+function handleSlotDragOver(event: DragEvent, slot: ViewerLayoutSlot): void {
+  if (!canHandleSlotDrop(event, slot)) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  activeDropSlotId.value = slot.id
+}
+
+function handleSlotDragLeave(event: DragEvent, slot: ViewerLayoutSlot): void {
+  if (activeDropSlotId.value !== slot.id) {
+    return
+  }
+
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+    return
+  }
+  activeDropSlotId.value = null
+}
+
+function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
+  if (!canHandleSlotDrop(event, slot)) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  activeDropSlotId.value = null
+  const seriesPayload = resolveDraggedSeriesPayload(event)
+  if (seriesPayload) {
+    emit('slotSeriesDrop', {
+      tabKey: props.activeTab.key,
+      slotId: slot.id,
+      ...seriesPayload
+    })
+    return
+  }
+
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  if (!files.length) {
+    return
+  }
+
+  emit('slotDicomDrop', {
+    tabKey: props.activeTab.key,
+    slotId: slot.id,
+    files
+  })
 }
 </script>
 
 <template>
-  <div class="layout-view grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 text-[var(--theme-text-primary)]">
-    <header class="layout-view__header">
-      <div class="flex min-w-0 items-center gap-3">
-        <span class="layout-view__icon" aria-hidden="true">
-          <AppIcon name="layout" :size="18" />
-        </span>
-        <div class="min-w-0">
-          <div class="truncate text-sm font-semibold">{{ activeTab.title }}</div>
-          <div class="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">
-            {{ rows }} x {{ columns }} Layout
-          </div>
-        </div>
-      </div>
-      <span class="layout-view__count">{{ slots.length }} Slots</span>
-    </header>
-
+  <div class="layout-view h-full min-h-0 text-[var(--theme-text-primary)]">
     <div
       class="layout-view__grid"
       :style="{
@@ -69,24 +306,95 @@ function getSlotBadge(slot: ViewerLayoutSlot): string {
         v-for="(slot, index) in slots"
         :key="slot.id"
         class="layout-view__slot"
-        :class="{ 'layout-view__slot--filled': Boolean(slot.imageSrc) }"
+        :class="{
+          'layout-view__slot--filled': Boolean(slot.imageSrc || slot.viewId),
+          'layout-view__slot--active': activeViewportKey === slot.id,
+          'layout-view__slot--drop-target': canDropFilesIntoSlot(slot),
+          'layout-view__slot--drop-active': activeDropSlotId === slot.id
+        }"
         :style="getSlotStyle(slot)"
+        @dragenter="handleSlotDragEnter($event, slot)"
+        @dragover="handleSlotDragOver($event, slot)"
+        @dragleave="handleSlotDragLeave($event, slot)"
+        @drop="handleSlotDrop($event, slot)"
       >
-        <template v-if="slot.imageSrc">
-          <img class="layout-view__image" :src="slot.imageSrc" :alt="slot.seriesTitle ?? `Slot ${index + 1}`" draggable="false" />
-          <div class="layout-view__slot-overlay layout-view__slot-overlay--top">
-            <span class="layout-view__slot-pill">{{ getSlotBadge(slot) }}</span>
-            <span class="layout-view__slot-series">{{ slot.seriesTitle ?? `Slot ${index + 1}` }}</span>
+        <template v-if="isStackSlot(slot)">
+          <div class="layout-view__slot-body">
+            <ViewerCanvasStage
+              class="min-w-0"
+              :viewport-key="slot.id"
+              viewport-class="grid place-items-center"
+              :is-active="activeViewportKey === slot.id"
+              :render-surface-active="true"
+              :image-src="slot.imageSrc ?? ''"
+              :is-loading="Boolean(slot.viewId) && !slot.imageSrc"
+              loading-label="Loading layout view..."
+              :alt="getSlotTitle(slot, index)"
+              :active-operation="activeOperation"
+              placeholder="Layout viewport"
+              :annotations="getAnnotations(slot.id)"
+              :corner-info="slot.cornerInfo ?? activeTab.cornerInfo"
+              :cursor-class="getCursorClass(slot.id)"
+              :draft-annotation="getDraftAnnotation(slot.id)"
+              :draft-measurement-mode="getDraftMeasurementMode(slot.id)"
+              :draft-measurement="getDraftMeasurement(slot.id)"
+              :measurements="getMeasurements(slot.id)"
+              :scale-bar="slot.scaleBar ?? null"
+              :orientation="slot.orientation ?? activeTab.orientation"
+              @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
+              @copy-annotation="emit('copyAnnotation', $event)"
+              @delete-annotation="emit('deleteAnnotation', $event)"
+              @delete-selected-measurement="(viewportKey, measurementId) => emit('deleteSelectedMeasurement', viewportKey, measurementId)"
+              @click-viewport="emit('viewportClick', $event)"
+              @hover-viewport-change="emit('hoverViewportChange', $event)"
+              @image-loaded="emit('imageLoaded', $event)"
+              @wheel-viewport="emit('viewportWheel', $event)"
+              @pointer-down="(event) => emit('pointerDown', event, slot.id)"
+              @pointer-leave="emit('pointerLeave', $event)"
+              @pointer-move="emit('pointerMove', $event)"
+              @pointer-up="emit('pointerUp', $event)"
+              @pointer-cancel="emit('pointerCancel', $event)"
+              @update-annotation-color="emit('updateAnnotationColor', $event)"
+              @update-annotation-size="emit('updateAnnotationSize', $event)"
+              @update-annotation-text="emit('updateAnnotationText', $event)"
+            />
+
+            <div class="layout-view__slider theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
+              <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Slice</span>
+              <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[slot.id] ?? 1 }}</span>
+              <div class="my-2 flex min-h-0 flex-1 items-center">
+                <input
+                  class="layout-view__slice-slider h-full w-3 cursor-pointer"
+                  type="range"
+                  min="1"
+                  :max="sliceInfos[slot.id]?.total ?? 1"
+                  :value="sliderValues[slot.id] ?? 1"
+                  orient="vertical"
+                  aria-label="Change layout slice"
+                  @pointerdown="beginSliceSliderDrag(slot.id)"
+                  @pointerup="endSliceSliderDrag(slot.id)"
+                  @pointercancel="endSliceSliderDrag(slot.id)"
+                  @change="endSliceSliderDrag(slot.id)"
+                  @input="handleSliceSliderInput($event, slot)"
+                />
+              </div>
+              <span class="text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliceInfos[slot.id]?.total ?? 1 }}</span>
+            </div>
           </div>
+        </template>
+
+        <template v-else-if="slot.imageSrc">
+          <img class="layout-view__image" :src="slot.imageSrc" :alt="getSlotTitle(slot, index)" draggable="false" />
           <div v-if="slot.sliceLabel || slot.windowLabel" class="layout-view__slot-overlay layout-view__slot-overlay--bottom">
             <span v-if="slot.sliceLabel">{{ slot.sliceLabel }}</span>
             <span v-if="slot.windowLabel">{{ slot.windowLabel }}</span>
           </div>
         </template>
+
         <template v-else>
           <div class="layout-view__slot-badge">{{ index + 1 }}</div>
           <div class="layout-view__slot-title">Slot {{ index + 1 }}</div>
-          <div class="layout-view__slot-subtitle">Ready</div>
+          <div class="layout-view__slot-subtitle">Drop DICOM</div>
         </template>
       </section>
     </div>
@@ -94,45 +402,9 @@ function getSlotBadge(slot: ViewerLayoutSlot): string {
 </template>
 
 <style scoped>
-.layout-view__header {
-  display: flex;
-  min-height: 58px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 12px;
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--theme-surface-card) 76%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.layout-view__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border-soft));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
-  color: var(--theme-accent);
-}
-
-.layout-view__count {
-  flex: 0 0 auto;
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 999px;
-  padding: 6px 10px;
-  color: var(--theme-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
 .layout-view__grid {
   display: grid;
+  height: 100%;
   min-height: 0;
   gap: 8px;
 }
@@ -163,10 +435,54 @@ function getSlotBadge(slot: ViewerLayoutSlot): string {
   pointer-events: none;
 }
 
+.layout-view__slot--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.layout-view__slot--drop-target {
+  cursor: copy;
+}
+
+.layout-view__slot--drop-active {
+  border-color: color-mix(in srgb, var(--theme-accent) 68%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card-soft));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 28%, transparent),
+    0 18px 38px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+}
+
+.layout-view__slot--drop-active:not(.layout-view__slot--filled)::before {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, transparent);
+}
+
 .layout-view__slot--filled {
   place-items: stretch;
   align-content: stretch;
   background: #000;
+}
+
+.layout-view__slot-body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 8px;
+}
+
+.layout-view__slider {
+  align-self: stretch;
+}
+
+.layout-view__slice-slider {
+  appearance: slider-vertical;
+  writing-mode: bt-lr;
+  transform: rotate(180deg);
+  accent-color: var(--theme-accent);
 }
 
 .layout-view__image {
@@ -191,10 +507,6 @@ function getSlotBadge(slot: ViewerLayoutSlot): string {
   pointer-events: none;
 }
 
-.layout-view__slot-overlay--top {
-  top: 10px;
-}
-
 .layout-view__slot-overlay--bottom {
   bottom: 10px;
   justify-content: space-between;
@@ -202,33 +514,6 @@ function getSlotBadge(slot: ViewerLayoutSlot): string {
   font-size: 11px;
   font-weight: 700;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
-}
-
-.layout-view__slot-pill {
-  display: inline-flex;
-  min-width: 30px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 82%, transparent);
-  color: var(--theme-accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  backdrop-filter: blur(10px);
-}
-
-.layout-view__slot-series {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--theme-text-primary);
-  font-size: 13px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.78);
-  white-space: nowrap;
 }
 
 .layout-view__slot-badge {

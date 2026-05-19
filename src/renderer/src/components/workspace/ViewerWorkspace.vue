@@ -98,6 +98,8 @@ const emit = defineEmits<{
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
   openLayoutView: [template: ViewerLayoutTemplate]
+  layoutSlotDicomDrop: [payload: { tabKey: string; slotId: string; files: File[] }]
+  layoutSlotSeriesDrop: [payload: { tabKey: string; slotId: string; seriesId: string; folderPath?: string; seriesInstanceUid?: string | null }]
   toggleSidebar: []
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
@@ -524,6 +526,15 @@ function isCompareStackViewType(viewType: ViewerTabItem['viewType'] | null | und
   return viewType === 'CompareStack'
 }
 
+function isLayoutViewType(viewType: ViewerTabItem['viewType'] | null | undefined): boolean {
+  return viewType === 'Layout'
+}
+
+function resolveLayoutSlot(tab: ViewerTabItem, viewportKey: string) {
+  const slots = tab.layoutSlots ?? []
+  return slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
+}
+
 function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): CornerInfo {
   if (isMprLikeViewType(tab.viewType)) {
     return getMprCornerInfo(viewportKey)
@@ -534,6 +545,9 @@ function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): 
         ? COMPARE_STACK_TARGET_PANE_KEY
         : COMPARE_STACK_SOURCE_PANE_KEY
     return tab.compareCornerInfos?.[paneKey] ?? tab.cornerInfo
+  }
+  if (isLayoutViewType(tab.viewType)) {
+    return resolveLayoutSlot(tab, viewportKey)?.cornerInfo ?? tab.cornerInfo
   }
   return tab.cornerInfo
 }
@@ -627,10 +641,10 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
     }
 
     const exportViewportKey =
-      isMprLikeViewType(props.activeTab?.viewType) || isCompareStackViewType(props.activeTab?.viewType)
+      isMprLikeViewType(props.activeTab?.viewType) || isCompareStackViewType(props.activeTab?.viewType) || isLayoutViewType(props.activeTab?.viewType)
         ? activeViewportKey.value
         : 'single'
-    const defaultFileNameStem = buildExportFileStem(props.activeTab, activeViewportKey.value)
+    const defaultFileNameStem = buildExportFileStem(props.activeTab, exportViewportKey)
     let customFileNameStem: string | null = null
     if (!exportPreference.value.useDefaultFileName) {
       customFileNameStem = await requestExportFileName(format, defaultFileNameStem)
@@ -662,7 +676,7 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
     const pngData = shouldComposePng ? await buildAnnotatedPngData(exportViewportKey, exportOverlays) : null
     const result = await exportCurrentView({
       activeTab: props.activeTab,
-      activeViewportKey: activeViewportKey.value,
+      activeViewportKey: exportViewportKey,
       data: pngData,
       exportFormat: format,
       exportPreference: exportPreference.value,
@@ -687,6 +701,7 @@ function isAnnotationOperationEnabled(): boolean {
   return (
     (props.activeTab?.viewType === 'Stack' ||
       isCompareStackViewType(props.activeTab?.viewType) ||
+      isLayoutViewType(props.activeTab?.viewType) ||
       isMprLikeViewType(props.activeTab?.viewType)) &&
     props.activeOperation.startsWith('stack:annotate')
   )
@@ -807,7 +822,7 @@ function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
   if (!props.activeTab) {
     return []
   }
-  if (isMprLikeViewType(props.activeTab.viewType) || isCompareStackViewType(props.activeTab.viewType)) {
+  if (isMprLikeViewType(props.activeTab.viewType) || isCompareStackViewType(props.activeTab.viewType) || isLayoutViewType(props.activeTab.viewType)) {
     return props.activeTab.viewportMeasurements?.[viewportKey] ?? []
   }
   return props.activeTab.measurements ?? []
@@ -1673,6 +1688,31 @@ onBeforeUnmount(() => {
         <LayoutView
           v-else-if="activeTab.viewType === 'Layout'"
           :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :get-annotations="getViewportAnnotations"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
+          @viewport-click="handleViewportClick"
+          @viewport-wheel="handleViewportWheel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @slot-dicom-drop="emit('layoutSlotDicomDrop', $event)"
+          @slot-series-drop="emit('layoutSlotSeriesDrop', $event)"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
         />
 
         <StackView

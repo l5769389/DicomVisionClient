@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { VBtn, VCard, VChip, VDialog, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
+import SeriesListCard from './SeriesListCard.vue'
 import { isFourDSeriesItem, type FolderSeriesItem, type ViewType } from '../../types/viewer'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
@@ -22,6 +23,8 @@ import {
   dispatchWorkspaceStatusToast,
   resolveBackendErrorDetail
 } from '../../composables/workspace/tasks/workspaceStatus'
+import { SERIES_DRAG_PAYLOAD_TYPE, SERIES_DRAG_TYPE, type SeriesDragPayload } from '../../constants/dragDrop'
+import { buildSeriesTreeGroups, type SeriesTreePatientGroup, type SeriesTreeStudyGroup } from './seriesGrouping'
 import { getSeriesMetaLabel, getSeriesValueMetaLabel } from './seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
@@ -38,7 +41,6 @@ const emit = defineEmits<{
   selectSeries: [seriesId: string]
 }>()
 
-const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
 const DEIDENTIFY_EXPORT_ROOT = 'DicomVisionDeidentified'
 
 type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'compare' | 'deidentify' | 'delete'
@@ -51,6 +53,8 @@ const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
 const compareSourceSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
+const collapsedPatientGroupKeys = ref<string[]>([])
+const collapsedStudyGroupKeys = ref<string[]>([])
 
 const contextMenuAnchorStyle = computed(() => ({
   left: `${contextMenuPosition.value.x}px`,
@@ -58,6 +62,9 @@ const contextMenuAnchorStyle = computed(() => ({
 }))
 
 const isZh = computed(() => locale.value === 'zh-CN')
+const collapsedPatientGroupKeySet = computed(() => new Set(collapsedPatientGroupKeys.value))
+const collapsedStudyGroupKeySet = computed(() => new Set(collapsedStudyGroupKeys.value))
+const seriesTreeGroups = computed(() => buildSeriesTreeGroups(props.seriesList, locale.value))
 const selectedDeidentifyFieldCount = computed(() => dicomDeidentifyPreference.value.selectedFieldKeys.length)
 const deidentifyCopy = computed(() => ({
   actionTitle: isZh.value ? '脱敏导出' : 'De-identify Export',
@@ -161,6 +168,42 @@ const compareCandidates = computed(() =>
 
 function isFourDSeries(series: FolderSeriesItem): boolean {
   return isFourDSeriesItem(series)
+}
+
+function isPatientGroupCollapsed(group: SeriesTreePatientGroup): boolean {
+  return collapsedPatientGroupKeySet.value.has(group.key)
+}
+
+function isStudyGroupCollapsed(group: SeriesTreeStudyGroup): boolean {
+  return collapsedStudyGroupKeySet.value.has(group.key)
+}
+
+function isPatientGroupActive(group: SeriesTreePatientGroup): boolean {
+  return group.studies.some((study) => isStudyGroupActive(study))
+}
+
+function isStudyGroupActive(group: SeriesTreeStudyGroup): boolean {
+  return group.series.some((series) => series.seriesId === props.selectedSeriesId)
+}
+
+function togglePatientGroup(group: SeriesTreePatientGroup): void {
+  const collapsedKeys = new Set(collapsedPatientGroupKeys.value)
+  if (collapsedKeys.has(group.key)) {
+    collapsedKeys.delete(group.key)
+  } else {
+    collapsedKeys.add(group.key)
+  }
+  collapsedPatientGroupKeys.value = [...collapsedKeys]
+}
+
+function toggleStudyGroup(group: SeriesTreeStudyGroup): void {
+  const collapsedKeys = new Set(collapsedStudyGroupKeys.value)
+  if (collapsedKeys.has(group.key)) {
+    collapsedKeys.delete(group.key)
+  } else {
+    collapsedKeys.add(group.key)
+  }
+  collapsedStudyGroupKeys.value = [...collapsedKeys]
 }
 
 function closeContextMenu(): void {
@@ -342,15 +385,20 @@ async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: 
   }
 }
 
-function handleSeriesDragStart(event: DragEvent, seriesId: string): void {
+function handleSeriesDragStart(event: DragEvent, series: FolderSeriesItem): void {
   if (!event.dataTransfer) {
     return
   }
 
+  const payload: SeriesDragPayload = {
+    seriesId: series.seriesId,
+    folderPath: series.folderPath,
+    seriesInstanceUid: series.seriesInstanceUid ?? null
+  }
   event.dataTransfer.effectAllowed = 'copy'
-  event.dataTransfer.setData(SERIES_DRAG_TYPE, seriesId)
-  event.dataTransfer.setData('text/plain', seriesId)
-  emit('selectSeries', seriesId)
+  event.dataTransfer.setData(SERIES_DRAG_PAYLOAD_TYPE, JSON.stringify(payload))
+  event.dataTransfer.setData(SERIES_DRAG_TYPE, series.seriesId)
+  event.dataTransfer.setData('text/plain', series.seriesId)
 }
 
 function handleSeriesDragEnd(): void {
@@ -379,43 +427,69 @@ function handleSeriesDragEnd(): void {
         <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_12%,transparent)]" aria-hidden="true"></span>
         <span>{{ t('loadingSeries') }}</span>
       </div>
-      <div v-else-if="seriesList.length" class="flex flex-col gap-3">
-        <VCard
-          v-for="series in seriesList"
-          :key="series.seriesId"
-          draggable="true"
-          class="series-list-card group relative rounded-2xl! border! px-3! py-3! transition duration-150"
-          :class="series.seriesId === selectedSeriesId ? 'theme-active-surface' : 'theme-card-soft border! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
-          @contextmenu="handleSeriesContextMenu($event, series)"
-          @dragstart="handleSeriesDragStart($event, series.seriesId)"
-          @dragend="handleSeriesDragEnd"
+      <div v-else-if="seriesList.length" class="series-tree-list">
+        <section
+          v-for="patientGroup in seriesTreeGroups"
+          :key="patientGroup.key"
+          class="series-tree-patient"
+          :class="{ 'series-tree-patient--active': isPatientGroupActive(patientGroup) }"
         >
-          <button class="grid min-w-0 w-full grid-cols-[64px_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-1 text-left" type="button" draggable="true" @click="emit('selectSeries', series.seriesId)" @dblclick="emit('openSeriesView', series.seriesId, 'Stack')" @dragstart="handleSeriesDragStart($event, series.seriesId)" @dragend="handleSeriesDragEnd">
-            <span class="series-thumbnail col-start-1 row-span-3" :class="{ 'series-thumbnail--active': series.seriesId === selectedSeriesId }">
-              <img v-if="getSeriesThumbnailSrc(series)" :src="getSeriesThumbnailSrc(series)" :alt="series.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
-              <span v-else class="series-thumbnail__fallback">{{ getSeriesFallbackLabel(series) }}</span>
-              <span class="series-thumbnail__scanline" aria-hidden="true"></span>
-              <span class="series-thumbnail__dot" :class="{ 'series-thumbnail__dot--active': series.seriesId === selectedSeriesId }" aria-hidden="true"></span>
-            </span>
-            <span class="col-start-2 flex min-w-0 items-center gap-2">
-              <span class="min-w-0 flex-1 truncate text-sm font-semibold" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
-              <span class="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-secondary)]'">{{ series.modality || 'N/A' }}</span>
-              <span v-if="isFourDSeries(series)" class="series-four-d-chip" :class="{ 'series-four-d-chip--active': series.seriesId === selectedSeriesId }">4D</span>
-            </span>
-            <span class="col-start-2 block truncate pr-10 text-[11px] leading-5" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ getSeriesValueMetaLabel(series) }}</span>
-            <span class="col-start-2 block truncate pr-10 text-[11px] leading-5" :title="series.seriesId" :class="series.seriesId === selectedSeriesId ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
-          </button>
-          <VBtn
-            variant="flat"
-            class="series-delete-button absolute bottom-3 right-3 h-8! w-8! min-w-0! rounded-lg! border!"
-            :class="series.seriesId === selectedSeriesId ? 'border-white/18! bg-white/12! text-white!' : 'border-rose-300/14! bg-rose-400/8! text-rose-100!'"
-            :aria-label="t('deleteSeries')"
-            :title="t('deleteSeries')"
-            @click="emit('removeSeries', series.seriesId)"
+          <button
+            type="button"
+            class="series-tree-group-header"
+            :class="{ 'series-tree-group-header--active': isPatientGroupActive(patientGroup) }"
+            @click="togglePatientGroup(patientGroup)"
           >
-            <AppIcon name="trash" :size="14" />
-          </VBtn>
-        </VCard>
+            <span class="series-tree-chevron" :class="{ 'series-tree-chevron--collapsed': isPatientGroupCollapsed(patientGroup) }">
+              <AppIcon name="chevron-down" :size="15" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-xs font-semibold text-[var(--theme-text-primary)]">{{ patientGroup.title }}</span>
+              <span v-if="patientGroup.subtitle" class="mt-0.5 block truncate text-[10px] text-[var(--theme-text-muted)]">{{ patientGroup.subtitle }}</span>
+            </span>
+            <span class="series-tree-count">{{ patientGroup.count }}</span>
+          </button>
+
+          <div v-if="!isPatientGroupCollapsed(patientGroup)" class="series-tree-study-list">
+            <section
+              v-for="studyGroup in patientGroup.studies"
+              :key="studyGroup.key"
+              class="series-tree-study"
+              :class="{ 'series-tree-study--active': isStudyGroupActive(studyGroup) }"
+            >
+              <button
+                type="button"
+                class="series-tree-study-header"
+                :class="{ 'series-tree-study-header--active': isStudyGroupActive(studyGroup) }"
+                @click="toggleStudyGroup(studyGroup)"
+              >
+                <span class="series-tree-chevron series-tree-chevron--small" :class="{ 'series-tree-chevron--collapsed': isStudyGroupCollapsed(studyGroup) }">
+                  <AppIcon name="chevron-down" :size="13" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-[11px] font-semibold text-[var(--theme-text-primary)]">{{ studyGroup.title }}</span>
+                  <span v-if="studyGroup.subtitle" class="mt-0.5 block truncate text-[10px] text-[var(--theme-text-muted)]">{{ studyGroup.subtitle }}</span>
+                </span>
+                <span class="series-tree-count series-tree-count--small">{{ studyGroup.count }}</span>
+              </button>
+
+              <div v-if="!isStudyGroupCollapsed(studyGroup)" class="series-tree-series-list">
+                <SeriesListCard
+                  v-for="series in studyGroup.series"
+                  :key="series.seriesId"
+                  :selected="series.seriesId === selectedSeriesId"
+                  :series="series"
+                  @open-stack="emit('openSeriesView', $event, 'Stack')"
+                  @remove="emit('removeSeries', $event)"
+                  @select="emit('selectSeries', $event)"
+                  @series-context-menu="handleSeriesContextMenu"
+                  @series-drag-end="handleSeriesDragEnd"
+                  @series-drag-start="handleSeriesDragStart"
+                />
+              </div>
+            </section>
+          </div>
+        </section>
       </div>
       <div v-else class="theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm leading-6 text-[var(--theme-text-muted)]">{{ t('noSeriesDesc') }}</div>
     </div>
@@ -547,86 +621,156 @@ function handleSeriesDragEnd(): void {
 </template>
 
 <style scoped>
-.series-thumbnail {
-  position: relative;
+.series-tree-list {
+  --series-active-border: color-mix(in srgb, var(--theme-accent) 34%, transparent);
+  --series-active-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card) 91%),
+      color-mix(in srgb, var(--theme-accent-strong) 7%, var(--theme-surface-card-soft) 93%)
+    );
+  --series-active-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent),
+    0 0 0 1px rgba(0, 0, 0, 0.22),
+    0 6px 14px rgba(0, 0, 0, 0.18);
+
   display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--theme-accent) 16%, transparent), transparent 46%),
-    linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 10px 20px rgba(0, 0, 0, 0.2);
+  gap: 12px;
 }
 
-.series-thumbnail--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 58%, white 6%);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 20%, transparent),
-    0 0 0 2px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+.series-tree-patient {
+  position: relative;
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 54%, transparent);
+  padding-left: 7px;
 }
 
-.series-thumbnail img {
+.series-tree-patient--active {
+  border-left-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-soft));
+}
+
+.series-tree-group-header,
+.series-tree-study-header {
+  position: relative;
+  display: flex;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 54%, transparent);
+  color: var(--theme-text-primary);
+  text-align: left;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
-.series-thumbnail__fallback {
-  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-}
-
-.series-thumbnail__scanline {
+.series-tree-group-header::before,
+.series-tree-study-header::before {
   position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(180deg, transparent 0, transparent 5px, rgba(255, 255, 255, 0.035) 6px);
-  pointer-events: none;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+  content: "";
 }
 
-.series-thumbnail__dot {
-  position: absolute;
-  right: 6px;
-  top: 6px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-text-muted) 46%, transparent);
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.24);
+.series-tree-group-header {
+  min-height: 42px;
+  border-radius: 13px;
+  padding: 7px 9px;
 }
 
-.series-thumbnail__dot--active {
+.series-tree-study-header {
+  min-height: 38px;
+  border-radius: 12px;
+  padding: 6px 8px;
+}
+
+.series-tree-group-header:hover,
+.series-tree-study-header:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface-card));
+}
+
+.series-tree-group-header--active,
+.series-tree-study-header--active {
+  border-color: var(--series-active-border);
+  background: var(--series-active-surface);
+  box-shadow: var(--series-active-shadow);
+}
+
+.series-tree-group-header--active::before,
+.series-tree-study-header--active::before {
   background: var(--theme-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 34%, transparent);
 }
 
-.series-four-d-chip {
+.series-tree-study-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  margin-left: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 48%, transparent);
+  padding-left: 8px;
+}
+
+.series-tree-study {
+  min-width: 0;
+}
+
+.series-tree-study--active {
+  border-left-color: color-mix(in srgb, var(--theme-accent) 68%, var(--theme-border-strong));
+}
+
+.series-tree-series-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 7px;
+}
+
+.series-tree-chevron {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 56%, transparent);
+  color: var(--theme-text-secondary);
+  transition: transform 150ms ease;
+}
+
+.series-tree-chevron--small {
+  width: 21px;
+  height: 21px;
+  border-radius: 8px;
+}
+
+.series-tree-chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.series-tree-count {
   display: inline-flex;
+  min-width: 24px;
+  height: 22px;
   align-items: center;
   justify-content: center;
-  min-height: 20px;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
-  padding: 0 8px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 52%, transparent);
   color: var(--theme-text-secondary);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 800;
 }
 
-.series-four-d-chip--active {
-  border-color: var(--theme-active-pill-border);
-  background: var(--theme-active-pill-bg);
-  color: var(--theme-active-foreground);
+.series-tree-count--small {
+  min-width: 22px;
+  height: 20px;
 }
 
 .series-context-menu {

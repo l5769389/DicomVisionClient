@@ -23,6 +23,12 @@ import {
   dispatchWorkspaceStatusToast,
   resolveBackendErrorDetail
 } from '../../../composables/workspace/tasks/workspaceStatus'
+import {
+  createDicomTagEditInputValue,
+  getDicomTagVrEditSpec,
+  serializeDicomTagEditValue,
+  validateDicomTagEditValue
+} from '../../../composables/dicom/dicomTagVrEdit'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -243,6 +249,12 @@ const tagEditPreview = computed(() => {
   }
 })
 
+const tagEditVrSpec = computed(() => getDicomTagVrEditSpec(tagEditItem.value?.vr ?? '', isZh.value, tagEditValue.value))
+const tagEditValidationError = computed(() =>
+  tagEditItem.value ? validateDicomTagEditValue(tagEditItem.value, tagEditValue.value, isZh.value) : ''
+)
+const canSubmitTagEdit = computed(() => !isSavingTagEdit.value && !tagEditValidationError.value)
+
 watch(
   () => [props.activeTab.key, props.activeTab.tagIndex, props.activeTab.tagTotal] as const,
   () => {
@@ -366,7 +378,7 @@ function openTagEditDialog(item: DicomTagItem): void {
   }
 
   tagEditItem.value = item
-  tagEditValue.value = item.value ?? ''
+  tagEditValue.value = createDicomTagEditInputValue(item)
   tagEditScope.value = 'current'
   tagEditDialogError.value = ''
   isTagEditDialogOpen.value = true
@@ -446,7 +458,13 @@ async function submitTagEdit(): Promise<void> {
   }
 
   isSavingTagEdit.value = true
-  tagEditDialogError.value = ''
+  tagEditDialogError.value = tagEditValidationError.value
+  if (tagEditDialogError.value) {
+    isSavingTagEdit.value = false
+    return
+  }
+
+  const serializedTagEditValue = serializeDicomTagEditValue(item.vr, tagEditValue.value)
 
   if (tagEditScope.value === 'series') {
     tagEditNotice.value = null
@@ -455,7 +473,7 @@ async function submitTagEdit(): Promise<void> {
         seriesId: props.activeTab.seriesId,
         index: props.activeTab.tagIndex ?? 0,
         tagPath: item.tagPath,
-        value: tagEditValue.value,
+        value: serializedTagEditValue,
         scope: 'series'
       })
       showTagEditJobProgress(job)
@@ -476,7 +494,7 @@ async function submitTagEdit(): Promise<void> {
       seriesId: props.activeTab.seriesId,
       index: props.activeTab.tagIndex ?? 0,
       tagPath: item.tagPath,
-      value: tagEditValue.value,
+      value: serializedTagEditValue,
       scope: tagEditScope.value
     })
     const savedFile = await saveBinaryFile({
@@ -1084,6 +1102,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           <div class="tag-edit-field-block">
             <div class="tag-edit-field-label">{{ tagEditCopy.newValue }}</div>
             <VTextarea
+              v-if="tagEditVrSpec.kind === 'textarea'"
               v-model="tagEditValue"
               class="tag-edit-textarea"
               :disabled="isSavingTagEdit"
@@ -1093,6 +1112,23 @@ async function handleContextAction(action: ContextAction): Promise<void> {
               hide-details
               variant="outlined"
             />
+            <VTextField
+              v-else
+              v-model="tagEditValue"
+              class="tag-edit-textarea tag-edit-input"
+              :disabled="isSavingTagEdit"
+              :placeholder="tagEditCopy.newValue"
+              :type="tagEditVrSpec.inputType"
+              :step="tagEditVrSpec.step"
+              hide-details
+              variant="outlined"
+            />
+            <div class="tag-edit-vr-hint mt-2 text-xs leading-5">
+              {{ tagEditVrSpec.hint }}
+            </div>
+            <div v-if="tagEditValidationError" class="tag-edit-inline-error mt-2 text-xs leading-5">
+              {{ tagEditValidationError }}
+            </div>
           </div>
 
           <div class="tag-edit-scope rounded-[18px] border px-4 py-4">
@@ -1139,7 +1175,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
             <VBtn variant="text" class="tag-edit-action-button" :disabled="isSavingTagEdit" @click="closeTagEditDialog">
               {{ tagEditCopy.cancel }}
             </VBtn>
-            <VBtn variant="flat" class="tag-edit-action-button tag-edit-action-button--primary" :loading="isSavingTagEdit" @click="submitTagEdit">
+            <VBtn variant="flat" class="tag-edit-action-button tag-edit-action-button--primary" :disabled="!canSubmitTagEdit" :loading="isSavingTagEdit" @click="submitTagEdit">
               <span class="inline-flex items-center gap-2">
                 <AppIcon v-if="!isSavingTagEdit" name="check" :size="14" />
                 {{ isSavingTagEdit ? tagEditCopy.saving : tagEditCopy.confirm }}
@@ -1445,6 +1481,18 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1.6;
+}
+
+:deep(.tag-edit-input .v-field__input) {
+  min-height: 48px;
+}
+
+.tag-edit-vr-hint {
+  color: var(--theme-text-secondary);
+}
+
+.tag-edit-inline-error {
+  color: color-mix(in srgb, #ef7777 78%, var(--theme-text-primary));
 }
 
 :deep(.tag-edit-textarea .v-field__input::placeholder) {

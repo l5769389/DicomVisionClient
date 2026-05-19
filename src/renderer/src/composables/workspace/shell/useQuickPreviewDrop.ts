@@ -1,6 +1,5 @@
 import { computed, ref, type ComputedRef } from 'vue'
-
-const SERIES_DRAG_TYPE = 'application/x-dicomvision-series-id'
+import { SERIES_DRAG_TYPE } from '../../../constants/dragDrop'
 
 export interface UseQuickPreviewDropOptions {
   canAcceptDrop: ComputedRef<boolean>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
+import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
-import type { StackTool, StackToolOption } from './toolbarTypes'
+import type { StackTool } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 defineProps<{
@@ -31,36 +31,27 @@ const emit = defineEmits<{
 }>()
 
 const { toolbarCopy: copy } = useUiLocale()
-const customLayoutHover = ref({ rows: 2, columns: 2 })
-const customLayoutCells = computed(() =>
-  Array.from({ length: 36 }, (_, index) => ({
-    row: Math.floor(index / 6) + 1,
-    column: (index % 6) + 1
-  }))
-)
 
-function getLayoutOptionRows(option: StackToolOption): number {
-  return Math.max(1, option.layoutRows ?? 1)
+function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
+  return viewType === 'Stack' || viewType === 'Layout'
 }
 
-function getLayoutOptionColumns(option: StackToolOption): number {
-  return Math.max(1, option.layoutColumns ?? 1)
+function hasSyncBesideLayout(viewType: ViewerTabItem['viewType']): boolean {
+  return viewType === 'CompareStack' || viewType === 'Layout'
 }
 
-function getLayoutIconCells(option: StackToolOption): number[] {
-  return Array.from({ length: getLayoutOptionRows(option) * getLayoutOptionColumns(option) }, (_, index) => index)
+function getActiveLayoutRows(activeTab: ViewerTabItem): number {
+  if (activeTab.viewType === 'Layout') {
+    return activeTab.layoutTemplate?.rows ?? 1
+  }
+  return 1
 }
 
-function isCustomLayoutCellActive(row: number, column: number): boolean {
-  return row <= customLayoutHover.value.rows && column <= customLayoutHover.value.columns
-}
-
-function setCustomLayoutHover(row: number, column: number): void {
-  customLayoutHover.value = { rows: row, columns: column }
-}
-
-function createCustomLayoutOptionValue(row: number, column: number): string {
-  return `layout:custom:${row}x${column}`
+function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
+  if (activeTab.viewType === 'Layout') {
+    return activeTab.layoutTemplate?.columns ?? 1
+  }
+  return 1
 }
 </script>
 
@@ -77,9 +68,24 @@ function createCustomLayoutOptionValue(row: number, column: number): string {
         v-for="tool in activeTools"
         :key="tool.key"
         class="toolbar-tool-group relative flex items-center overflow-visible"
-        :class="tool.key === 'play' ? (activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused) ? 'rounded-xl border border-[var(--theme-border-strong)]' : '') : tool.options ? 'rounded-xl border border-[var(--theme-border-soft)]' : ''"
+        :class="[
+          tool.key === 'play'
+            ? supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)
+              ? 'rounded-xl border border-[var(--theme-border-strong)]'
+              : ''
+            : tool.options
+              ? 'rounded-xl border border-[var(--theme-border-soft)]'
+              : '',
+          tool.key === 'layout'
+            ? hasSyncBesideLayout(activeTab.viewType)
+              ? 'toolbar-tool-group--layout-lead'
+              : 'toolbar-tool-group--layout-anchor'
+            : '',
+          tool.key === 'compareSync' ? 'toolbar-tool-group--sync-anchor' : '',
+          tool.key === 'tag' ? 'toolbar-tool-group--secondary-action' : ''
+        ]"
       >
-        <template v-if="tool.key === 'play' && activeTab.viewType === 'Stack' && (isPlaying || isPlaybackPaused)">
+        <template v-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
           <VBtn
             variant="flat"
             class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
@@ -103,7 +109,7 @@ function createCustomLayoutOptionValue(row: number, column: number): string {
             variant="flat"
             type="button"
             class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
-            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && activeTab.viewType === 'Stack')"
+            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType))"
             :active="isToolSelected(tool) || openMenuKey === tool.key"
             :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) || openMenuKey === tool.key }"
             :title="tool.label"
@@ -150,47 +156,12 @@ function createCustomLayoutOptionValue(row: number, column: number): string {
             >
               <div class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
               <template v-if="tool.menuKind === 'layout'">
-                <div class="layout-menu-panel">
-                  <div class="layout-preset-grid">
-                    <button
-                      v-for="option in tool.options"
-                      :key="option.value"
-                      type="button"
-                      class="layout-preset-button"
-                      :title="option.label"
-                      @click="emit('selectToolOption', tool, option.value)"
-                    >
-                      <span
-                        class="layout-preset-icon"
-                        :style="{
-                          gridTemplateColumns: `repeat(${getLayoutOptionColumns(option)}, minmax(0, 1fr))`,
-                          gridTemplateRows: `repeat(${getLayoutOptionRows(option)}, minmax(0, 1fr))`
-                        }"
-                      >
-                        <span
-                          v-for="cell in getLayoutIconCells(option)"
-                          :key="cell"
-                          class="layout-preset-icon__cell"
-                        />
-                      </span>
-                    </button>
-                  </div>
-
-                  <div class="layout-custom-grid" @mouseleave="setCustomLayoutHover(2, 2)">
-                    <button
-                      v-for="cell in customLayoutCells"
-                      :key="`${cell.row}-${cell.column}`"
-                      type="button"
-                      class="layout-custom-cell"
-                      :class="{ 'layout-custom-cell--active': isCustomLayoutCellActive(cell.row, cell.column) }"
-                      :title="`${cell.row} x ${cell.column}`"
-                      @mouseenter="setCustomLayoutHover(cell.row, cell.column)"
-                      @focus="setCustomLayoutHover(cell.row, cell.column)"
-                      @click="emit('selectToolOption', tool, createCustomLayoutOptionValue(cell.row, cell.column))"
-                    />
-                  </div>
-                  <div class="layout-custom-label">{{ customLayoutHover.rows }} x {{ customLayoutHover.columns }}</div>
-                </div>
+                <LayoutMenuPanel
+                  :options="tool.options ?? []"
+                  :active-rows="getActiveLayoutRows(activeTab)"
+                  :active-columns="getActiveLayoutColumns(activeTab)"
+                  @select="emit('selectToolOption', tool, $event)"
+                />
               </template>
               <template v-else>
                 <template
@@ -274,111 +245,32 @@ function createCustomLayoutOptionValue(row: number, column: number): string {
   padding: 0 !important;
 }
 
-.layout-menu-panel {
-  display: grid;
-  gap: 0;
+.toolbar-tool-group--layout-anchor {
+  margin-right: 0.75rem;
 }
 
-.layout-preset-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px 20px;
-  padding: 28px 34px 24px;
-  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
-  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+.toolbar-tool-group--layout-lead {
+  margin-right: 0;
 }
 
-.layout-preset-button,
-.layout-custom-cell {
-  appearance: none;
-  border: 0;
-  font: inherit;
+.toolbar-tool-group--layout-anchor::after,
+.toolbar-tool-group--sync-anchor::after {
+  content: '';
+  position: absolute;
+  top: 0.35rem;
+  right: -0.5rem;
+  bottom: 0.35rem;
+  width: 1px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-surface-panel) 34%, transparent);
 }
 
-.layout-preset-button {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: color-mix(in srgb, var(--theme-text-secondary) 88%, var(--theme-text-primary));
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease,
-    transform 120ms ease;
+.toolbar-tool-group--sync-anchor {
+  margin-right: 0.75rem;
 }
 
-.layout-preset-button:hover,
-.layout-preset-button:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-soft));
-  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
-  color: var(--theme-text-primary);
-  outline: none;
-}
-
-.layout-preset-button:active {
-  transform: translateY(1px);
-}
-
-.layout-preset-icon {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  gap: 2px;
-}
-
-.layout-preset-icon__cell {
-  min-width: 0;
-  min-height: 0;
-  border: 2px solid currentColor;
-  border-radius: 1px;
-  opacity: 0.9;
-}
-
-.layout-custom-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 3px;
-  padding: 8px;
-  background: color-mix(in srgb, var(--theme-surface-card-soft) 76%, transparent);
-}
-
-.layout-custom-cell {
-  aspect-ratio: 1 / 1;
-  min-height: 40px;
-  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 78%, transparent);
-  cursor: pointer;
-  transition:
-    background 90ms ease,
-    border-color 90ms ease;
-}
-
-.layout-custom-cell--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-surface-card));
-}
-
-.layout-custom-cell:focus-visible {
-  outline: none;
-  box-shadow: var(--theme-focus-ring);
-}
-
-.layout-custom-label {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  justify-content: center;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
-  color: var(--theme-text-muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+.toolbar-tool-group--secondary-action {
+  margin-left: 0.25rem;
 }
 </style>

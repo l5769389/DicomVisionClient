@@ -7,7 +7,8 @@ import {
   MPR_PRIMARY_VIEWPORT_KEY,
   isMprLikeViewType,
   resolveComparePaneKey,
-  resolveMprViewportKey
+  resolveMprViewportKey,
+  resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
 
 export type ViewerExportFormat = 'png' | 'dicom'
@@ -56,10 +57,18 @@ function resolveExportViewportKey(activeViewportKey: string): MprViewportKey {
 }
 
 export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey: string): string {
-  const safeTitle = activeTab.seriesTitle.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
+  const activeLayoutSlot =
+    activeTab.viewType === 'Layout'
+      ? activeTab.layoutSlots?.find((slot) => slot.id === activeViewportKey) ?? activeTab.layoutSlots?.find((slot) => Boolean(slot.viewId))
+      : null
+  const safeTitle = (activeLayoutSlot?.seriesTitle ?? activeTab.seriesTitle).replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'dicom-view'
   if (activeTab.viewType === 'CompareStack') {
     const viewportLabel = resolveComparePaneKey(activeViewportKey) === COMPARE_STACK_TARGET_PANE_KEY ? 'b' : 'a'
     return `${safeTitle}-compare-${viewportLabel}`
+  }
+  if (activeTab.viewType === 'Layout') {
+    const slotLabel = activeLayoutSlot?.id.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'slot'
+    return `${safeTitle}-layout-${slotLabel}`
   }
   if (!isMprLikeViewType(activeTab.viewType)) {
     return `${safeTitle}-${activeTab.viewType.toLowerCase()}`
@@ -74,6 +83,10 @@ export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey:
 function resolveExportViewId(activeTab: ViewerTabItem, activeViewportKey: string): string | null {
   if (activeTab.viewType === 'CompareStack') {
     return activeTab.compareViewIds?.[resolveComparePaneKey(activeViewportKey)] ?? null
+  }
+
+  if (activeTab.viewType === 'Layout') {
+    return resolveViewIdForTabViewport(activeTab, activeViewportKey) || null
   }
 
   if (!isMprLikeViewType(activeTab.viewType)) {
@@ -94,7 +107,7 @@ export async function exportCurrentView(params: {
   overlays?: ViewerExportOverlays
 }): Promise<ExportedFileResult | null> {
   const { activeTab, activeViewportKey, data, exportFormat, exportPreference, fileNameStem, overlays } = params
-  if (!activeTab || activeTab.viewType === 'Tag' || activeTab.viewType === 'Layout') {
+  if (!activeTab || activeTab.viewType === 'Tag') {
     return null
   }
 

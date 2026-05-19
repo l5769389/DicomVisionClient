@@ -61,4 +61,32 @@ describe('dicom job progress', () => {
     expect(progress.percent).toBe(100)
     expect(progress.processed).toBe(10)
   })
+
+  it('clamps processed count to the reported total', () => {
+    const progress = getDicomJobProgress(
+      createJob({
+        processedCount: 12,
+        totalCount: 10
+      }),
+      copy
+    )
+
+    expect(progress.processed).toBe(10)
+    expect(progress.percent).toBe(100)
+    expect(progress.label).toBe('Packaging')
+  })
+
+  it('falls back to calculated percent when backend percent is not finite', () => {
+    const progress = getDicomJobProgress(
+      createJob({
+        processedCount: 3,
+        progressPercent: Number.NaN,
+        totalCount: 10
+      }),
+      copy
+    )
+
+    expect(progress.percent).toBe(30)
+    expect(progress.label).toBe('3/10 30%')
+  })
 })

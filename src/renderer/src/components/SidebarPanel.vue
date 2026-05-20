@@ -91,10 +91,10 @@ function hideSeriesHoverCard(): void {
 </script>
 
 <template>
-  <aside class="theme-shell-panel min-h-0 min-w-0 rounded-[26px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_48px_rgba(0,0,0,0.28)] backdrop-blur max-[900px]:max-h-[460px]">
-    <div class="flex h-full flex-col gap-3">
+  <aside class="theme-shell-panel min-h-0 min-w-0 rounded-[24px] border p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_48px_rgba(0,0,0,0.28)] backdrop-blur max-[900px]:max-h-[460px]">
+    <div class="flex h-full flex-col gap-2.5">
       <template v-if="!isSidebarCollapsed">
-        <SidebarBrandPanel />
+        <SidebarBrandPanel :viewer-platform="viewerPlatform" />
         <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder')" @open-view="emit('openView', $event)" />
         <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />

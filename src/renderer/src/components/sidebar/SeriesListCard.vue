@@ -26,19 +26,19 @@ const { t } = useUiLocale()
 <template>
   <VCard
     draggable="true"
-    class="series-list-card group relative rounded-2xl! border! px-3! py-3! transition duration-150"
-    :class="selected ? 'theme-active-surface' : 'theme-card-soft border! shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_18px_rgba(0,0,0,0.08)] hover:theme-hover-surface'"
+    class="series-list-card group relative rounded-xl! border! px-2! py-2! transition duration-150"
+    :class="{ 'series-list-card--selected': selected }"
     @contextmenu="emit('seriesContextMenu', $event, series)"
     @dragstart="emit('seriesDragStart', $event, series)"
     @dragend="emit('seriesDragEnd')"
   >
     <button
-      class="grid min-w-0 w-full grid-cols-[64px_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-1 text-left"
+      class="grid min-w-0 w-full grid-cols-[46px_minmax(0,1fr)] grid-rows-[auto_auto] items-center gap-x-2.5 gap-y-0.5 pr-8 text-left"
       type="button"
       @click="emit('select', series.seriesId)"
       @dblclick="emit('openStack', series.seriesId)"
     >
-      <span class="series-thumbnail col-start-1 row-span-3" :class="{ 'series-thumbnail--active': selected }">
+      <span class="series-thumbnail col-start-1 row-span-2" :class="{ 'series-thumbnail--active': selected }">
         <img
           v-if="getSeriesThumbnailSrc(series)"
           :src="getSeriesThumbnailSrc(series)"
@@ -51,45 +51,58 @@ const { t } = useUiLocale()
         <span class="series-thumbnail__scanline" aria-hidden="true"></span>
         <span class="series-thumbnail__dot" :class="{ 'series-thumbnail__dot--active': selected }" aria-hidden="true"></span>
       </span>
-      <span class="col-start-2 flex min-w-0 items-center gap-2">
+      <span class="col-start-2 row-start-1 flex min-w-0 items-center gap-2">
         <span class="min-w-0 flex-1 truncate text-sm font-semibold" :class="selected ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
-        <span class="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]" :class="selected ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-secondary)]'">{{ series.modality || 'N/A' }}</span>
-        <span v-if="isFourDSeriesItem(series)" class="series-four-d-chip" :class="{ 'series-four-d-chip--active': selected }">4D</span>
       </span>
-      <span class="col-start-2 block truncate pr-10 text-[11px] leading-5" :class="selected ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ getSeriesValueMetaLabel(series) }}</span>
-      <span class="col-start-2 block truncate pr-10 text-[11px] leading-5" :title="series.seriesId" :class="selected ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'">{{ series.seriesId }}</span>
+      <span class="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
+        <span class="min-w-0 flex-1 truncate text-[11px] leading-5" :class="selected ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ getSeriesValueMetaLabel(series) }}</span>
+        <span v-if="isFourDSeriesItem(series)" class="series-four-d-chip" :class="{ 'series-four-d-chip--active': selected }">4D</span>
+        <span class="series-modality-chip" :class="{ 'series-modality-chip--active': selected }">{{ series.modality || 'N/A' }}</span>
+      </span>
     </button>
 
     <VBtn
       variant="flat"
-      class="series-delete-button absolute bottom-3 right-3 h-8! w-8! min-w-0! rounded-lg! border!"
-      :class="selected ? 'border-white/18! bg-white/12! text-white!' : 'border-rose-300/14! bg-rose-400/8! text-rose-100!'"
-      :aria-label="t('deleteSeries')"
-      :title="t('deleteSeries')"
-      @click="emit('remove', series.seriesId)"
+      class="series-more-button absolute right-2 top-1/2 h-7! w-7! min-w-0! -translate-y-1/2 rounded-lg! border!"
+      :aria-label="t('seriesActions')"
+      :title="t('seriesActions')"
+      @click.stop="emit('seriesContextMenu', $event, series)"
     >
-      <AppIcon name="trash" :size="14" />
+      <AppIcon name="menu" :size="14" />
     </VBtn>
   </VCard>
 </template>
 
 <style scoped>
-.series-list-card.theme-active-surface {
+.series-list-card {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--theme-border-soft) 68%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 84%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.series-list-card:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border-soft)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface-card-soft)) !important;
+}
+
+.series-list-card--selected {
   position: relative;
   border-color: var(--series-active-border) !important;
   background: var(--series-active-surface) !important;
   box-shadow: var(--series-active-shadow) !important;
 }
 
-.series-list-card.theme-active-surface:hover {
+.series-list-card--selected:hover {
   border-color: var(--series-active-border) !important;
   background: var(--series-active-surface) !important;
   box-shadow: var(--series-active-shadow) !important;
 }
 
-.series-list-card.theme-active-surface::before {
+.series-list-card--selected::before {
   position: absolute;
-  inset: 8px auto 8px 0;
+  inset: 7px auto 7px 0;
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: var(--theme-accent);
@@ -100,12 +113,12 @@ const { t } = useUiLocale()
 .series-thumbnail {
   position: relative;
   display: grid;
-  width: 58px;
-  height: 58px;
+  width: 46px;
+  height: 46px;
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
-  border-radius: 18px;
+  border-radius: 15px;
   background:
     radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--theme-accent) 16%, transparent), transparent 46%),
     linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));
@@ -161,13 +174,13 @@ const { t } = useUiLocale()
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 20px;
+  min-height: 18px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
-  padding: 0 8px;
+  padding: 0 6px;
   color: var(--theme-text-secondary);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -177,5 +190,49 @@ const { t } = useUiLocale()
   border-color: var(--theme-active-pill-border);
   background: var(--theme-active-pill-bg);
   color: var(--theme-active-foreground);
+}
+
+.series-modality-chip {
+  min-width: 22px;
+  text-align: right;
+  color: var(--theme-text-secondary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.series-modality-chip--active {
+  color: var(--theme-active-foreground-secondary);
+}
+
+.series-more-button {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 72%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 74%, transparent) !important;
+  color: var(--theme-text-secondary) !important;
+  opacity: 0;
+  transform: translateY(-50%) translateX(4px);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.series-list-card:hover .series-more-button,
+.series-list-card:focus-within .series-more-button,
+.series-list-card--selected .series-more-button {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.series-more-button:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft)) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+:deep(.series-more-button .v-btn__overlay),
+:deep(.series-more-button .v-btn__underlay) {
+  opacity: 0 !important;
 }
 </style>

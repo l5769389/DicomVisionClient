@@ -53,6 +53,7 @@ const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
 const compareSourceSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
+const seriesSearch = ref('')
 const collapsedPatientGroupKeys = ref<string[]>([])
 const collapsedStudyGroupKeys = ref<string[]>([])
 
@@ -64,7 +65,17 @@ const contextMenuAnchorStyle = computed(() => ({
 const isZh = computed(() => locale.value === 'zh-CN')
 const collapsedPatientGroupKeySet = computed(() => new Set(collapsedPatientGroupKeys.value))
 const collapsedStudyGroupKeySet = computed(() => new Set(collapsedStudyGroupKeys.value))
-const seriesTreeGroups = computed(() => buildSeriesTreeGroups(props.seriesList, locale.value))
+const normalizedSeriesSearch = computed(() => normalizeSeriesSearch(seriesSearch.value))
+const hasSeriesSearch = computed(() => normalizedSeriesSearch.value.length > 0)
+const filteredSeriesList = computed(() =>
+  hasSeriesSearch.value
+    ? props.seriesList.filter((series) => doesSeriesMatchSearch(series, normalizedSeriesSearch.value))
+    : props.seriesList
+)
+const seriesTreeGroups = computed(() => buildSeriesTreeGroups(filteredSeriesList.value, locale.value))
+const seriesCountLabel = computed(() =>
+  hasSeriesSearch.value ? `${filteredSeriesList.value.length}/${props.seriesList.length}` : String(props.seriesList.length)
+)
 const selectedDeidentifyFieldCount = computed(() => dicomDeidentifyPreference.value.selectedFieldKeys.length)
 const deidentifyCopy = computed(() => ({
   actionTitle: isZh.value ? '脱敏导出' : 'De-identify Export',
@@ -178,6 +189,14 @@ function isStudyGroupCollapsed(group: SeriesTreeStudyGroup): boolean {
   return collapsedStudyGroupKeySet.value.has(group.key)
 }
 
+function shouldShowPatientGroup(group: SeriesTreePatientGroup): boolean {
+  return hasSeriesSearch.value || !isPatientGroupCollapsed(group)
+}
+
+function shouldShowStudyGroup(group: SeriesTreeStudyGroup): boolean {
+  return hasSeriesSearch.value || !isStudyGroupCollapsed(group)
+}
+
 function isPatientGroupActive(group: SeriesTreePatientGroup): boolean {
   return group.studies.some((study) => isStudyGroupActive(study))
 }
@@ -204,6 +223,42 @@ function toggleStudyGroup(group: SeriesTreeStudyGroup): void {
     collapsedKeys.add(group.key)
   }
   collapsedStudyGroupKeys.value = [...collapsedKeys]
+}
+
+function normalizeSeriesSearch(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+function getSeriesSearchTerms(series: FolderSeriesItem): string {
+  return [
+    series.seriesDescription,
+    series.modality,
+    series.seriesId,
+    series.seriesInstanceUid,
+    series.studyInstanceUid,
+    series.patientName,
+    series.patientId,
+    series.studyDate,
+    series.studyDescription,
+    series.accessionNumber,
+    series.folderPath,
+    series.width,
+    series.height,
+    series.instanceCount
+  ]
+    .map((value) => normalizeSeriesSearch(value))
+    .filter(Boolean)
+    .join(' ')
+}
+
+function doesSeriesMatchSearch(series: FolderSeriesItem, query: string): boolean {
+  if (!query) {
+    return true
+  }
+  return query.split(' ').every((token) => getSeriesSearchTerms(series).includes(token))
 }
 
 function closeContextMenu(): void {
@@ -407,14 +462,34 @@ function handleSeriesDragEnd(): void {
 </script>
 
 <template>
-  <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+  <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
     <div class="shrink-0">
-      <div class="mb-4 flex items-center justify-between gap-2">
+      <div class="mb-2.5 flex items-center justify-between gap-2">
         <div>
           <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ t('seriesList') }}</div>
           <div class="mt-1 text-xs text-[var(--theme-text-muted)]">{{ t('seriesListSubtitle') }}</div>
         </div>
-        <VChip v-if="seriesList.length" size="small" class="theme-card-soft rounded-full! border! px-2.5! py-1! text-xs! font-semibold! text-[var(--theme-text-secondary)]!" variant="flat">{{ seriesList.length }}</VChip>
+        <VChip v-if="seriesList.length" size="small" class="theme-card-soft rounded-full! border! px-2.5! py-1! text-xs! font-semibold! text-[var(--theme-text-secondary)]!" variant="flat">{{ seriesCountLabel }}</VChip>
+      </div>
+      <label v-if="seriesList.length" class="series-list-search mb-2.5 flex items-center gap-2">
+        <AppIcon name="search" :size="15" />
+        <input
+          v-model="seriesSearch"
+          type="search"
+          :placeholder="isZh ? '搜索患者 / 检查 / 序列' : 'Search patient / study / series'"
+        />
+        <button
+          v-if="seriesSearch"
+          type="button"
+          class="series-list-search__clear"
+          :aria-label="isZh ? '清空搜索' : 'Clear search'"
+          @click="seriesSearch = ''"
+        >
+          <AppIcon name="close" :size="13" />
+        </button>
+      </label>
+      <div v-if="hasSeriesSearch" class="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+        {{ isZh ? `匹配 ${filteredSeriesList.length} / ${seriesList.length}` : `${filteredSeriesList.length} / ${seriesList.length} matched` }}
       </div>
       <div v-if="isLoadingFolder && seriesList.length" class="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_8%,transparent)] px-4 py-2.5 text-xs text-[var(--theme-text-secondary)]">
         <span class="h-2 w-2 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_5px_color-mix(in_srgb,var(--theme-accent)_12%,transparent)]" aria-hidden="true"></span>
@@ -427,7 +502,7 @@ function handleSeriesDragEnd(): void {
         <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_12%,transparent)]" aria-hidden="true"></span>
         <span>{{ t('loadingSeries') }}</span>
       </div>
-      <div v-else-if="seriesList.length" class="series-tree-list">
+      <div v-else-if="filteredSeriesList.length" class="series-tree-list">
         <section
           v-for="patientGroup in seriesTreeGroups"
           :key="patientGroup.key"
@@ -450,7 +525,7 @@ function handleSeriesDragEnd(): void {
             <span class="series-tree-count">{{ patientGroup.count }}</span>
           </button>
 
-          <div v-if="!isPatientGroupCollapsed(patientGroup)" class="series-tree-study-list">
+          <div v-if="shouldShowPatientGroup(patientGroup)" class="series-tree-study-list">
             <section
               v-for="studyGroup in patientGroup.studies"
               :key="studyGroup.key"
@@ -473,7 +548,7 @@ function handleSeriesDragEnd(): void {
                 <span class="series-tree-count series-tree-count--small">{{ studyGroup.count }}</span>
               </button>
 
-              <div v-if="!isStudyGroupCollapsed(studyGroup)" class="series-tree-series-list">
+              <div v-if="shouldShowStudyGroup(studyGroup)" class="series-tree-series-list">
                 <SeriesListCard
                   v-for="series in studyGroup.series"
                   :key="series.seriesId"
@@ -490,6 +565,9 @@ function handleSeriesDragEnd(): void {
             </section>
           </div>
         </section>
+      </div>
+      <div v-else-if="seriesList.length" class="theme-card-soft rounded-xl border border-dashed px-3 py-4 text-xs leading-6 text-[var(--theme-text-muted)]">
+        {{ isZh ? '没有匹配的序列。' : 'No matching series.' }}
       </div>
       <div v-else class="theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm leading-6 text-[var(--theme-text-muted)]">{{ t('noSeriesDesc') }}</div>
     </div>
@@ -635,17 +713,76 @@ function handleSeriesDragEnd(): void {
     0 6px 14px rgba(0, 0, 0, 0.18);
 
   display: grid;
-  gap: 12px;
+  gap: 10px;
+}
+
+.series-list-search {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 78%, transparent);
+  padding: 0 9px;
+  color: var(--theme-text-muted);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.series-list-search:focus-within {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 88%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.series-list-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.series-list-search input::placeholder {
+  color: var(--theme-text-muted);
+}
+
+.series-list-search__clear {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 66%, transparent);
+  color: var(--theme-text-secondary);
+}
+
+.series-list-search__clear:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
+  color: var(--theme-text-primary);
 }
 
 .series-tree-patient {
   position: relative;
-  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 54%, transparent);
-  padding-left: 7px;
+  padding-left: 9px;
 }
 
-.series-tree-patient--active {
-  border-left-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-soft));
+.series-tree-patient::before {
+  position: absolute;
+  inset: 3px auto 4px 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--theme-border-soft) 60%, transparent);
+  content: "";
+}
+
+.series-tree-patient--active::before {
+  width: 2px;
+  background: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-soft));
 }
 
 .series-tree-group-header,
@@ -656,8 +793,8 @@ function handleSeriesDragEnd(): void {
   min-width: 0;
   align-items: center;
   gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
-  background: color-mix(in srgb, var(--theme-surface-card) 54%, transparent);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--theme-text-primary);
   text-align: left;
   transition:
@@ -677,15 +814,15 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-tree-group-header {
-  min-height: 42px;
-  border-radius: 13px;
-  padding: 7px 9px;
+  min-height: 34px;
+  border-radius: 11px;
+  padding: 5px 7px;
 }
 
 .series-tree-study-header {
-  min-height: 38px;
-  border-radius: 12px;
-  padding: 6px 8px;
+  min-height: 31px;
+  border-radius: 10px;
+  padding: 4px 6px;
 }
 
 .series-tree-group-header:hover,
@@ -696,9 +833,9 @@ function handleSeriesDragEnd(): void {
 
 .series-tree-group-header--active,
 .series-tree-study-header--active {
-  border-color: var(--series-active-border);
-  background: var(--series-active-surface);
-  box-shadow: var(--series-active-shadow);
+  border-color: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface-card-soft));
+  box-shadow: none;
 }
 
 .series-tree-group-header--active::before,
@@ -709,11 +846,11 @@ function handleSeriesDragEnd(): void {
 
 .series-tree-study-list {
   display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  margin-left: 12px;
-  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 48%, transparent);
-  padding-left: 8px;
+  gap: 7px;
+  margin-top: 5px;
+  margin-left: 14px;
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 42%, transparent);
+  padding-left: 7px;
 }
 
 .series-tree-study {
@@ -726,15 +863,15 @@ function handleSeriesDragEnd(): void {
 
 .series-tree-series-list {
   display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  padding-left: 7px;
+  gap: 7px;
+  margin-top: 6px;
+  padding-left: 5px;
 }
 
 .series-tree-chevron {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
@@ -745,8 +882,8 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-tree-chevron--small {
-  width: 21px;
-  height: 21px;
+  width: 19px;
+  height: 19px;
   border-radius: 8px;
 }
 
@@ -756,8 +893,8 @@ function handleSeriesDragEnd(): void {
 
 .series-tree-count {
   display: inline-flex;
-  min-width: 24px;
-  height: 22px;
+  min-width: 22px;
+  height: 20px;
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
@@ -769,8 +906,8 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-tree-count--small {
-  min-width: 22px;
-  height: 20px;
+  min-width: 20px;
+  height: 18px;
 }
 
 .series-context-menu {

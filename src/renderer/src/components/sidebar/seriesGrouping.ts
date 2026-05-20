@@ -81,16 +81,15 @@ function getPatientTitle(series: GroupableSeriesItem, locale: SeriesGroupLocale)
 }
 
 function getStudyKey(series: GroupableSeriesItem): string {
-  const studyInstanceUid = cleanText(series.studyInstanceUid)
-  if (studyInstanceUid) return `study:${studyInstanceUid}`
-
   const studyDate = cleanText(series.studyDate)
   const studyDescription = cleanText(series.studyDescription)
-  if (studyDate || studyDescription) {
-    return `study-meta:${studyDate}:${studyDescription}`
+  const accessionNumber = cleanText(series.accessionNumber)
+  if (studyDate || studyDescription || accessionNumber) {
+    return `study-meta:${studyDate}:${accessionNumber}:${studyDescription}`
   }
 
-  return 'study:unknown'
+  const studyInstanceUid = cleanText(series.studyInstanceUid)
+  return studyInstanceUid ? `study:${studyInstanceUid}` : 'study:unknown'
 }
 
 function getStudyTitle(series: GroupableSeriesItem, locale: SeriesGroupLocale): string {

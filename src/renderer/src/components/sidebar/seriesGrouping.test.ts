@@ -74,6 +74,33 @@ describe('seriesGrouping', () => {
     expect(groups[0].studies.map((study) => study.title)).toEqual(['2026-05-20', '2026-05-18'])
   })
 
+  it('merges studies with the same visible date and accession even when UIDs differ', () => {
+    const groups = buildSeriesTreeGroups(
+      [
+        createSeries({
+          accessionNumber: 'ACC-0',
+          seriesId: 'series-a',
+          studyDate: '20250316',
+          studyDescription: '',
+          studyInstanceUid: 'uid-a'
+        }),
+        createSeries({
+          accessionNumber: 'ACC-0',
+          seriesId: 'series-b',
+          studyDate: '20250316',
+          studyDescription: '',
+          studyInstanceUid: 'uid-b'
+        })
+      ],
+      'en-US'
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].studies).toHaveLength(1)
+    expect(groups[0].studies[0].count).toBe(2)
+    expect(groups[0].studies[0].series.map((series) => series.seriesId)).toEqual(['series-a', 'series-b'])
+  })
+
   it('uses localized fallback labels when patient and study fields are missing', () => {
     const groups = buildSeriesTreeGroups(
       [

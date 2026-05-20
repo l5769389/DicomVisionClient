@@ -2,6 +2,7 @@
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
 import LayoutMenuPanel from './LayoutMenuPanel.vue'
+import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
@@ -76,7 +77,7 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
             : tool.options
               ? 'rounded-xl border border-[var(--theme-border-soft)]'
               : '',
-          tool.key === 'layout'
+          tool.key === 'layout' || tool.key === 'mprLayout'
             ? hasSyncBesideLayout(activeTab.viewType)
               ? 'toolbar-tool-group--layout-lead'
               : 'toolbar-tool-group--layout-anchor'
@@ -133,7 +134,7 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
             location="bottom end"
             :offset="8"
             scroll-strategy="reposition"
-            :close-on-content-click="tool.key !== 'compareSync' && tool.menuKind !== 'layout'"
+            :close-on-content-click="tool.key !== 'compareSync' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'"
             @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
           >
             <template #activator="{ props: menuProps }">
@@ -152,7 +153,7 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
             <div
               data-tool-menu-root
               class="theme-shell-panel relative inline-flex min-w-[220px] max-w-[320px] flex-col overflow-hidden rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-              :class="{ 'toolbar-layout-menu': tool.menuKind === 'layout' }"
+              :class="{ 'toolbar-layout-menu': tool.menuKind === 'layout', 'toolbar-mpr-layout-menu': tool.menuKind === 'mprLayout' }"
             >
               <div class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
               <template v-if="tool.menuKind === 'layout'">
@@ -160,6 +161,13 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
                   :options="tool.options ?? []"
                   :active-rows="getActiveLayoutRows(activeTab)"
                   :active-columns="getActiveLayoutColumns(activeTab)"
+                  @select="emit('selectToolOption', tool, $event)"
+                />
+              </template>
+              <template v-else-if="tool.menuKind === 'mprLayout'">
+                <MprLayoutMenuPanel
+                  :options="tool.options ?? []"
+                  :active-value="stackToolSelections[tool.key]"
                   @select="emit('selectToolOption', tool, $event)"
                 />
               </template>
@@ -240,8 +248,15 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
 
 <style scoped>
 .toolbar-layout-menu {
-  width: min(368px, calc(100vw - 32px));
-  max-width: min(368px, calc(100vw - 32px)) !important;
+  width: min(232px, calc(100vw - 32px));
+  max-width: min(232px, calc(100vw - 32px)) !important;
+  padding: 0 !important;
+}
+
+.toolbar-mpr-layout-menu {
+  width: min(220px, calc(100vw - 32px));
+  max-width: min(220px, calc(100vw - 32px)) !important;
+  min-width: 0 !important;
   padding: 0 !important;
 }
 

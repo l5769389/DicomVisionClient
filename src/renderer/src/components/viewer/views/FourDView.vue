@@ -13,6 +13,7 @@ import type {
   FourDPhaseItem,
   MeasurementDraft,
   MeasurementOverlay,
+  MprLayoutKey,
   MprViewportKey,
   ViewerMtfItem,
   ViewerTabItem
@@ -35,6 +36,7 @@ const props = defineProps<{
   getMtfItems: (viewportKey: MprViewportKey) => ViewerMtfItem[]
   selectedMtfId?: string | null
   getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
+  mprLayoutKey?: MprLayoutKey | null
   isToolSelected: (tool: StackTool) => boolean
   menuIconSize: number
   openMenuKey: string | null
@@ -397,6 +399,7 @@ watch(
           :active-operation="interactionLocked ? '' : activeOperation"
           :active-viewport-key="activeViewportKey"
           :allow-viewport-maximize="!interactionLocked"
+          :layout-key="mprLayoutKey"
           :get-annotations="getAnnotations"
           :get-cursor-class="getCursorClass"
           :get-draft-annotation="getDraftAnnotation"

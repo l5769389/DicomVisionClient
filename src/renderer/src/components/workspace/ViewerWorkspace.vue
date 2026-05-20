@@ -48,6 +48,7 @@ import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type V
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
 import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
 import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
+import { DEFAULT_MPR_LAYOUT_KEY, parseMprLayoutSelectionValue } from '../../composables/workspace/layout/mprLayoutOptions'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
   COMPARE_STACK_TARGET_PANE_KEY
@@ -94,6 +95,7 @@ const emit = defineEmits<{
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
+  viewportLayoutChange: []
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
@@ -113,7 +115,7 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t, workspaceExportCopy } = useUiLocale()
-const { exportPreference, qaWaterMetrics, roiStatOptions } = useUiPreferences()
+const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions } = useUiPreferences()
 const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
 const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
@@ -220,6 +222,11 @@ const {
   cleanupPointerInteractions,
   stopViewportDrag: () => stopViewportDrag(),
   setActiveViewport
+})
+
+const activeMprLayoutKey = computed(() => {
+  const selectedLayout = parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout)
+  return selectedLayout && selectedLayout !== 'mpr-3d' ? selectedLayout : mprDefaultLayoutKey.value ?? DEFAULT_MPR_LAYOUT_KEY
 })
 
 const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
@@ -1515,7 +1522,7 @@ watch(
   }
 )
 
-const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, tabStripRef, updateTabScrollState } =
+const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorkspaceReady, scrollTabs, tabStripRef, updateTabScrollState } =
   useViewerWorkspaceShell({
     activeTab: activeTabRef,
     activeTabKey: activeTabKeyRef,
@@ -1528,6 +1535,21 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, scrollTabs, 
     viewerTabs: viewerTabsRef,
     viewportHostRef
   })
+
+watch(activeMprLayoutKey, async (value, previousValue) => {
+  if (!previousValue || value === previousValue) {
+    return
+  }
+
+  const viewType = activeTabRef.value?.viewType
+  if (viewType !== 'MPR' && viewType !== '4D') {
+    return
+  }
+
+  await nextTick()
+  notifyWorkspaceReady()
+  emit('viewportLayoutChange')
+})
 
 useWorkspaceHotkeys({
   activeOperation: activeOperationRef,
@@ -1757,6 +1779,7 @@ onBeforeUnmount(() => {
           :active-tab="activeTab"
           :active-operation="props.activeOperation"
           :active-viewport-key="activeViewportKey"
+          :layout-key="activeMprLayoutKey"
           :get-annotations="getViewportAnnotations"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
           :get-draft-annotation="getViewportDraftAnnotation"
@@ -1822,6 +1845,7 @@ onBeforeUnmount(() => {
           :menu-icon-size="menuIconSize"
           :open-menu-key="openMenuKey"
           :stack-tool-selections="stackToolSelections"
+          :mpr-layout-key="activeMprLayoutKey"
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
           @apply-tool="applyTool"

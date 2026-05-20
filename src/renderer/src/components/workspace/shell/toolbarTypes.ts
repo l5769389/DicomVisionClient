@@ -1,4 +1,4 @@
-import type { CompareSyncSettingKey } from '../../../types/viewer'
+import type { CompareSyncSettingKey, MprLayoutKey } from '../../../types/viewer'
 
 export interface StackToolOption {
   value: string
@@ -11,6 +11,8 @@ export interface StackToolOption {
   badge?: string
   group?: string
   checked?: boolean
+  disabled?: boolean
+  mprLayoutKey?: MprLayoutKey
   syncKey?: CompareSyncSettingKey
 }
 
@@ -20,7 +22,7 @@ export interface StackTool {
   icon: string
   swatchKey?: string
   kind?: 'mode' | 'action'
-  menuKind?: 'options' | 'layout'
+  menuKind?: 'options' | 'layout' | 'mprLayout'
   options?: StackToolOption[]
   showSelectedOptionIcon?: boolean
 }

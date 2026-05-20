@@ -287,6 +287,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @compare-sync-change="viewer.handleCompareSyncChange"
           @volume-config-change="viewer.handleVolumeConfigChange"
           @viewport-drag="viewer.handleViewportDrag"
+          @viewport-layout-change="viewer.handleViewportLayoutChange"
           @viewport-wheel="viewer.handleViewportWheel"
           @workspace-ready="viewer.setViewerStage"
         />

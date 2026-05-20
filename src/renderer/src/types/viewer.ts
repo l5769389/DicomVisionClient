@@ -51,6 +51,7 @@ export interface WorkspaceReadyPayload {
 }
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+export type MprLayoutKey = 'three-columns' | 'right-primary' | 'three-rows' | 'quad' | 'mpr-3d'
 export type CompareStackPaneKey = 'compare-a' | 'compare-b'
 export type ViewSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform' | 'reset'
 export type CompareSyncSettingKey = ViewSyncSettingKey

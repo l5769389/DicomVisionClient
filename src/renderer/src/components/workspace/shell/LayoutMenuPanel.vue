@@ -16,10 +16,32 @@ const emit = defineEmits<{
   select: [optionValue: string]
 }>()
 
+interface LayoutPresetOption {
+  value: string
+  label: string
+  rows: number
+  columns: number
+  cells: number[]
+}
+
 const defaultCustomLayout = { rows: 2, columns: 2 }
 const previewLayout = ref<{ rows: number; columns: number } | null>(null)
 const activeLayout = computed(() => normalizeLayoutSize(props.activeRows, props.activeColumns) ?? defaultCustomLayout)
 const displayedLayout = computed(() => previewLayout.value ?? activeLayout.value)
+const presetOptions = computed<LayoutPresetOption[]>(() =>
+  props.options.map((option) => {
+    const rows = getLayoutOptionRows(option)
+    const columns = getLayoutOptionColumns(option)
+
+    return {
+      value: option.value,
+      label: option.label,
+      rows,
+      columns,
+      cells: Array.from({ length: rows * columns }, (_, index) => index)
+    }
+  })
+)
 const customGridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${VIEWER_LAYOUT_CUSTOM_GRID_SIZE}, minmax(0, 1fr))`
 }))
@@ -38,10 +60,6 @@ function getLayoutOptionColumns(option: StackToolOption): number {
   return Math.max(1, option.layoutColumns ?? 1)
 }
 
-function getLayoutIconCells(option: StackToolOption): number[] {
-  return Array.from({ length: getLayoutOptionRows(option) * getLayoutOptionColumns(option) }, (_, index) => index)
-}
-
 function normalizeLayoutSize(rows?: number | null, columns?: number | null): { rows: number; columns: number } | null {
   if (!Number.isFinite(rows) || !Number.isFinite(columns)) {
     return null
@@ -57,8 +75,12 @@ function isSameLayout(rows: number, columns: number, target = displayedLayout.va
   return target.rows === rows && target.columns === columns
 }
 
-function isPresetLayoutActive(option: StackToolOption): boolean {
-  return isSameLayout(getLayoutOptionRows(option), getLayoutOptionColumns(option))
+function isPresetLayoutActive(option: LayoutPresetOption): boolean {
+  return isSameLayout(option.rows, option.columns, activeLayout.value)
+}
+
+function isPresetLayoutPreview(option: LayoutPresetOption): boolean {
+  return Boolean(previewLayout.value && isSameLayout(option.rows, option.columns))
 }
 
 function isCustomLayoutCellActive(row: number, column: number): boolean {
@@ -79,26 +101,29 @@ function clearPreviewLayout(): void {
   <div class="layout-menu-panel">
     <div class="layout-preset-grid" @mouseleave="clearPreviewLayout">
       <button
-        v-for="option in options"
+        v-for="option in presetOptions"
         :key="option.value"
         type="button"
         class="layout-preset-button"
-        :class="{ 'layout-preset-button--active': isPresetLayoutActive(option) }"
+        :class="{
+          'layout-preset-button--active': isPresetLayoutActive(option),
+          'layout-preset-button--preview': isPresetLayoutPreview(option)
+        }"
         :title="option.label"
-        @mouseenter="setPreviewLayout(getLayoutOptionRows(option), getLayoutOptionColumns(option))"
-        @focus="setPreviewLayout(getLayoutOptionRows(option), getLayoutOptionColumns(option))"
+        @mouseenter="setPreviewLayout(option.rows, option.columns)"
+        @focus="setPreviewLayout(option.rows, option.columns)"
         @blur="clearPreviewLayout"
         @click="emit('select', option.value)"
       >
         <span
           class="layout-preset-icon"
           :style="{
-            gridTemplateColumns: `repeat(${getLayoutOptionColumns(option)}, minmax(0, 1fr))`,
-            gridTemplateRows: `repeat(${getLayoutOptionRows(option)}, minmax(0, 1fr))`
+            gridTemplateColumns: `repeat(${option.columns}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${option.rows}, minmax(0, 1fr))`
           }"
         >
           <span
-            v-for="cell in getLayoutIconCells(option)"
+            v-for="cell in option.cells"
             :key="cell"
             class="layout-preset-icon__cell"
           />
@@ -134,8 +159,8 @@ function clearPreviewLayout(): void {
 .layout-preset-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px 22px;
-  padding: 20px 28px 18px;
+  gap: 6px 8px;
+  padding: 8px 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
   background: color-mix(in srgb, var(--theme-surface-card) 62%, transparent);
 }
@@ -148,12 +173,13 @@ function clearPreviewLayout(): void {
 }
 
 .layout-preset-button {
+  position: relative;
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: 8px;
   background: transparent;
   color: color-mix(in srgb, var(--theme-text-secondary) 88%, var(--theme-text-primary));
   cursor: pointer;
@@ -166,16 +192,32 @@ function clearPreviewLayout(): void {
 
 .layout-preset-button:hover,
 .layout-preset-button:focus-visible,
-.layout-preset-button--active {
+.layout-preset-button--preview {
   border-color: transparent;
-  background: color-mix(in srgb, var(--theme-text-primary) 10%, var(--theme-surface-muted));
+  background: color-mix(in srgb, var(--theme-text-primary) 8%, var(--theme-surface-muted));
   color: var(--theme-text-primary);
   outline: none;
 }
 
 .layout-preset-button--active {
-  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-muted));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-muted));
+  color: var(--theme-text-primary);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent);
+}
+
+.layout-preset-button--active::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
 }
 
 .layout-preset-button:active {
@@ -184,31 +226,31 @@ function clearPreviewLayout(): void {
 
 .layout-preset-icon {
   display: grid;
-  width: 31px;
-  height: 31px;
-  gap: 2px;
+  width: 21px;
+  height: 21px;
+  gap: 1.5px;
 }
 
 .layout-preset-icon__cell {
   min-width: 0;
   min-height: 0;
-  border: 2px solid currentColor;
+  border: 1.35px solid currentColor;
   border-radius: 1px;
   opacity: 0.9;
 }
 
 .layout-custom-grid {
   display: grid;
-  gap: 3px;
-  padding: 8px 10px;
+  gap: 1.5px;
+  padding: 4px 6px;
   background: color-mix(in srgb, var(--theme-surface-panel) 72%, transparent);
 }
 
 .layout-custom-cell {
   aspect-ratio: 1 / 1;
-  min-height: 40px;
+  min-height: 22px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
-  border-radius: 3px;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--theme-surface-panel-strong) 78%, transparent);
   cursor: pointer;
   transition:
@@ -217,8 +259,11 @@ function clearPreviewLayout(): void {
 }
 
 .layout-custom-cell--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-surface-card));
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 20%, transparent), transparent 58%),
+    color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent);
 }
 
 .layout-custom-cell:focus-visible {
@@ -228,12 +273,12 @@ function clearPreviewLayout(): void {
 
 .layout-custom-label {
   display: flex;
-  min-height: 30px;
+  min-height: 20px;
   align-items: center;
   justify-content: center;
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 9.5px;
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;

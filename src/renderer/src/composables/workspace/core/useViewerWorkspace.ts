@@ -128,6 +128,7 @@ interface ViewerWorkspaceState {
   handleFourDFpsChange: (payload: { tabKey: string; fps: number }) => void
   handleFourDPlaybackChange: (payload: { tabKey: string; isPlaying: boolean }) => void
   handleCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
+  handleViewportLayoutChange: () => Promise<void>
   handleLayoutSlotDicomDrop: (payload: { tabKey: string; slotId: string; files: File[] }) => Promise<void>
   handleLayoutSlotSeriesDrop: (payload: {
     tabKey: string
@@ -1231,6 +1232,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
       return { ...item, compareSyncReset: payload.value }
     })
+  }
+
+  async function handleViewportLayoutChange(): Promise<void> {
+    const tab = activeTab.value
+    if (!tab || isViewLoading.value) {
+      return
+    }
+
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    await views.renderTab(tab.key, true)
   }
 
   function setActiveViewportKey(viewportKey: string): void {
@@ -2416,6 +2427,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleFourDPlaybackChange,
     handleMprCrosshair,
     handleCompareSyncChange,
+    handleViewportLayoutChange,
     handleLayoutSlotDicomDrop,
     handleLayoutSlotSeriesDrop,
     handleVolumeConfigChange,

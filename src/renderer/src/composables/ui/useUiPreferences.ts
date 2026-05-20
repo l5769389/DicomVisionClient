@@ -1,6 +1,11 @@
 import { computed, reactive, watch } from 'vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { loadUiPreferencesFromStorage, saveUiPreferencesToStorage } from '../../platform/preferencesStorage'
+import {
+  DEFAULT_MPR_LAYOUT_KEY,
+  isMprLayoutKey,
+  type MprDefaultLayoutKey
+} from '../workspace/layout/mprLayoutOptions'
 import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
 
 export type AppLocale = 'zh-CN' | 'en-US'
@@ -126,6 +131,7 @@ interface UiPreferencesState {
   locale: AppLocale
   themeId: string
   selectedPseudocolorKey: string
+  mprDefaultLayoutKey: MprDefaultLayoutKey
   dicomTagDisplayMode: DicomTagDisplayMode
   selectedWindowPresetId: string
   crosshairConfigs: CrosshairViewportPreference[]
@@ -140,7 +146,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 10
+const CURRENT_PREFERENCES_VERSION = 11
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -288,6 +294,7 @@ function createDefaultState(): UiPreferencesState {
     locale: 'zh-CN',
     themeId: DEFAULT_THEME_ID,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
+    mprDefaultLayoutKey: DEFAULT_MPR_LAYOUT_KEY,
     dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
     crosshairConfigs: createDefaultCrosshairConfigs(),
@@ -428,6 +435,10 @@ function normalizeDicomDeidentifyPreference(value: unknown): DicomDeidentifyPref
     selectedFieldKeys,
     replacementPrefix
   }
+}
+
+function normalizeMprDefaultLayoutKey(value: unknown): MprDefaultLayoutKey {
+  return isMprLayoutKey(value) && value !== 'mpr-3d' ? value : DEFAULT_MPR_LAYOUT_KEY
 }
 
 function normalizeHangingProtocolModality(value: unknown): string {
@@ -617,6 +628,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.locale = nextState.locale
   state.themeId = nextState.themeId
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
+  state.mprDefaultLayoutKey = nextState.mprDefaultLayoutKey
   state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
   state.crosshairConfigs = nextState.crosshairConfigs
@@ -638,6 +650,7 @@ function serializeState(): UiPreferencesState {
     locale: state.locale,
     themeId: state.themeId,
     selectedPseudocolorKey: state.selectedPseudocolorKey,
+    mprDefaultLayoutKey: state.mprDefaultLayoutKey,
     dicomTagDisplayMode: state.dicomTagDisplayMode,
     selectedWindowPresetId: state.selectedWindowPresetId,
     crosshairConfigs: state.crosshairConfigs.map((item) => ({ ...item })),
@@ -726,6 +739,7 @@ async function hydrateState(): Promise<void> {
         locale: normalizeLocale(parsed.locale),
         themeId: normalizeThemeId(parsed.themeId),
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
+        mprDefaultLayoutKey: normalizeMprDefaultLayoutKey(parsed.mprDefaultLayoutKey),
         dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
@@ -793,6 +807,13 @@ export function useUiPreferences() {
       void persistState()
     }
   })
+  const mprDefaultLayoutKey = computed({
+    get: () => state.mprDefaultLayoutKey,
+    set: (value: MprDefaultLayoutKey) => {
+      state.mprDefaultLayoutKey = normalizeMprDefaultLayoutKey(value)
+      void persistState()
+    }
+  })
   const dicomTagDisplayMode = computed({
     get: () => state.dicomTagDisplayMode,
     set: (value: DicomTagDisplayMode) => {
@@ -810,6 +831,11 @@ export function useUiPreferences() {
 
   function setLocale(locale: AppLocale): void {
     state.locale = locale
+    void persistState()
+  }
+
+  function setMprDefaultLayoutKey(value: MprDefaultLayoutKey): void {
+    state.mprDefaultLayoutKey = normalizeMprDefaultLayoutKey(value)
     void persistState()
   }
 
@@ -953,6 +979,7 @@ export function useUiPreferences() {
     exportPreference: computed(() => state.exportPreference),
     hangingProtocolRules: computed(() => state.hangingProtocolRules),
     measurementStylePreference: computed(() => state.measurementStylePreference),
+    mprDefaultLayoutKey,
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
@@ -965,6 +992,7 @@ export function useUiPreferences() {
     setHangingProtocolRules,
     setLocale,
     setMeasurementStylePreference,
+    setMprDefaultLayoutKey,
     setQaWaterMetrics,
     setScaleBarPreference,
     setRoiStatOptions,

@@ -8,11 +8,13 @@ import type {
   DraftMeasurementMode,
   MeasurementDraft,
   MeasurementOverlay,
+  MprLayoutKey,
   MprViewportKey,
   ScaleBarInfo,
   ViewerMtfItem,
   ViewerTabItem
 } from '../../../types/viewer'
+import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
 
 const props = withDefaults(
   defineProps<{
@@ -20,6 +22,7 @@ const props = withDefaults(
     activeOperation: string
     activeViewportKey: string
     allowViewportMaximize?: boolean
+    layoutKey?: MprLayoutKey | null
     getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
     getCursorClass: (viewportKey: MprViewportKey) => string
     getDraftAnnotation: (viewportKey: MprViewportKey) => AnnotationDraft | null
@@ -34,6 +37,7 @@ const props = withDefaults(
   }>(),
   {
     allowViewportMaximize: true,
+    layoutKey: DEFAULT_MPR_LAYOUT_KEY,
     selectedMtfId: null
   }
 )
@@ -60,11 +64,63 @@ const emit = defineEmits<{
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
 
-const viewportItems = computed(() => [
-  { key: 'mpr-ax' as const, label: 'Axial', className: 'col-start-1 row-start-1' },
-  { key: 'mpr-sag' as const, label: 'Sagittal', className: 'col-start-1 row-start-2' },
-  { key: 'mpr-cor' as const, label: 'Coronal', className: 'col-start-2 row-span-2 row-start-1' }
-])
+interface MprViewportLayoutItem {
+  key: MprViewportKey
+  label: string
+  className: string
+}
+
+interface MprViewportLayoutConfig {
+  containerClass: string
+  items: MprViewportLayoutItem[]
+}
+
+const MPR_LAYOUT_CONFIGS: Record<Exclude<MprLayoutKey, 'mpr-3d'>, MprViewportLayoutConfig> = {
+  'three-columns': {
+    containerClass: 'grid-cols-3 grid-rows-1',
+    items: [
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-3 row-start-1' }
+    ]
+  },
+  'right-primary': {
+    containerClass: 'grid-cols-2 grid-rows-2',
+    items: [
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-span-2 row-start-1' }
+    ]
+  },
+  'three-rows': {
+    containerClass: 'grid-cols-1 grid-rows-3',
+    items: [
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-1 row-start-2' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-3' }
+    ]
+  },
+  quad: {
+    containerClass: 'grid-cols-2 grid-rows-2',
+    items: [
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2' }
+    ]
+  }
+}
+
+const normalizedLayoutKey = computed<Exclude<MprLayoutKey, 'mpr-3d'>>(() => {
+  const layoutKey = props.layoutKey
+  if (layoutKey && layoutKey !== 'mpr-3d' && layoutKey in MPR_LAYOUT_CONFIGS) {
+    return layoutKey
+  }
+
+  return DEFAULT_MPR_LAYOUT_KEY
+})
+
+const activeLayoutConfig = computed(() => MPR_LAYOUT_CONFIGS[normalizedLayoutKey.value])
+const viewportItems = computed(() => activeLayoutConfig.value.items)
 
 const maximizedViewportKey = ref<MprViewportKey | null>(null)
 
@@ -164,7 +220,7 @@ watch(
 <template>
   <div
     class="grid h-full w-full gap-2"
-    :class="isViewportMaximized ? 'grid-cols-1 grid-rows-1' : 'grid-cols-2 grid-rows-2'"
+    :class="isViewportMaximized ? 'grid-cols-1 grid-rows-1' : activeLayoutConfig.containerClass"
   >
     <ViewerCanvasStage
       v-for="item in visibleViewportItems"

@@ -10,6 +10,11 @@ import {
   VIEWER_LAYOUT_PRESETS
 } from '../layout/viewerLayoutTemplates'
 import {
+  MPR_LAYOUT_OPTIONS,
+  parseMprLayoutSelectionValue,
+  toMprLayoutSelectionValue
+} from '../layout/mprLayoutOptions'
+import {
   createMenuController,
   createPlaybackController,
   createToolbarActivationController
@@ -102,6 +107,22 @@ const layoutTool: StackTool = {
     icon: 'layout',
     layoutRows: template.rows,
     layoutColumns: template.columns
+  }))
+}
+
+const mprLayoutTool: StackTool = {
+  key: 'mprLayout',
+  label: 'MPR Layout',
+  icon: 'layout',
+  kind: 'action',
+  menuKind: 'mprLayout',
+  showSelectedOptionIcon: false,
+  options: MPR_LAYOUT_OPTIONS.map((option) => ({
+    value: toMprLayoutSelectionValue(option.key),
+    label: option.label,
+    icon: 'layout',
+    disabled: option.disabled,
+    mprLayoutKey: option.key
   }))
 }
 
@@ -280,7 +301,7 @@ const volumeTools: StackTool[] = [
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
-  layoutTool,
+  mprLayoutTool,
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
@@ -334,7 +355,7 @@ interface StoredToolbarState {
 }
 
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
-  const { getWindowPresetLabel, locale, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
+  const { getWindowPresetLabel, locale, mprDefaultLayoutKey, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
   const playbackController = createPlaybackController()
   const menuController = createMenuController()
   const toolbarActivationController = createToolbarActivationController('window')
@@ -354,6 +375,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     export: 'png',
     volumePreset: 'volumePreset:aaa',
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
+    mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
     reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
@@ -511,6 +533,33 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return activeTools.value.some((tool) => tool.key === toolKey)
   }
 
+  function isMprLayoutView(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'MPR' || viewType === '4D'
+  }
+
+  function getDefaultMprLayoutSelectionValue(): string {
+    return toMprLayoutSelectionValue(mprDefaultLayoutKey.value)
+  }
+
+  function withViewDefaultSelections(
+    selections: Partial<Record<string, string>>,
+    viewType: ViewerTabItem['viewType'] | undefined
+  ): Partial<Record<string, string>> {
+    if (!isMprLayoutView(viewType)) {
+      return selections
+    }
+
+    const selectedMprLayout = parseMprLayoutSelectionValue(selections.mprLayout)
+    if (selectedMprLayout && selectedMprLayout !== 'mpr-3d') {
+      return selections
+    }
+
+    return {
+      ...selections,
+      mprLayout: getDefaultMprLayoutSelectionValue()
+    }
+  }
+
   function getDefaultOperationValue(viewType: ViewerTabItem['viewType'] | undefined): string {
     if (viewType === 'MPR' || viewType === '4D') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.crosshair}`
@@ -535,16 +584,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (savedState) {
       const defaultToolKey = getDefaultToolbarToolKey(viewType)
       const activeToolKey = isToolAvailable(savedState.activeToolKey) ? savedState.activeToolKey : defaultToolKey
-      stackToolSelections.value = {
+      stackToolSelections.value = withViewDefaultSelections({
         ...stackToolSelections.value,
         ...savedState.selections
-      }
+      }, viewType)
       setToolbarToolActive(activeToolKey)
       options.emitSetActiveOperation(activeToolKey === savedState.activeToolKey && savedState.activeOperation ? savedState.activeOperation : getDefaultOperationValue(viewType))
       return
     }
 
     const defaultToolKey = getDefaultToolbarToolKey(viewType)
+    stackToolSelections.value = isMprLayoutView(viewType)
+      ? {
+          ...stackToolSelections.value,
+          mprLayout: getDefaultMprLayoutSelectionValue()
+        }
+      : stackToolSelections.value
     setToolbarToolActive(defaultToolKey)
     options.emitSetActiveOperation(getDefaultOperationValue(viewType))
   }
@@ -739,7 +794,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'layout') {
+    if (tool.key === 'layout' || tool.key === 'mprLayout') {
       setMenuOpen(openMenuKey.value === tool.key ? null : tool.key)
       return
     }
@@ -849,6 +904,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string): void {
+    if (tool.key === 'mprLayout') {
+      const layoutKey = parseMprLayoutSelectionValue(optionValue)
+      const selectedOption = tool.options?.find((option) => option.value === optionValue)
+      if (!layoutKey || selectedOption?.disabled) {
+        return
+      }
+
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        mprLayout: optionValue
+      }
+      closeMenus()
+      return
+    }
+
     if (tool.key === 'layout') {
       const template = parseViewerLayoutOptionValue(optionValue)
       if (!template) {
@@ -1054,6 +1124,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       }
     },
     { immediate: true }
+  )
+
+  watch(
+    () => mprDefaultLayoutKey.value,
+    (value) => {
+      if (!isMprLayoutView(options.activeTab.value?.viewType) && options.activeTab.value) {
+        return
+      }
+
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        mprLayout: toMprLayoutSelectionValue(value)
+      }
+    }
   )
 
   watch(

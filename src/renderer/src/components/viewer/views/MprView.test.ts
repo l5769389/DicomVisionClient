@@ -105,6 +105,29 @@ describe('MprView', () => {
     wrapper.unmount()
   })
 
+  it('applies the selected MPR viewport layout', () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        layoutKey: 'three-rows'
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.findAll('.viewer-stage-stub').map((stage) => stage.attributes('data-viewport-key'))).toEqual([
+      'mpr-ax',
+      'mpr-cor',
+      'mpr-sag'
+    ])
+    expect(wrapper.findAll('.viewer-stage-stub').map((stage) => stage.attributes('data-viewport-class'))).toEqual([
+      'col-start-1 row-start-1',
+      'col-start-1 row-start-2',
+      'col-start-1 row-start-3'
+    ])
+    wrapper.unmount()
+  })
+
   it('maximizes a viewport on double click and restores the three viewport layout on the next double click', async () => {
     const wrapper = mount(MprView, {
       props: createMprProps(),

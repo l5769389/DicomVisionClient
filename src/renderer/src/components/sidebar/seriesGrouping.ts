@@ -30,13 +30,20 @@ export interface SeriesTreePatientGroup {
   studies: SeriesTreeStudyGroup[]
 }
 
+const SUBTITLE_SEPARATOR = ' \u00b7 '
+
 function cleanText(value: unknown): string {
   return String(value ?? '').trim()
 }
 
 function formatPatientName(value: string | null | undefined): string {
   const text = cleanText(value)
-  const formatted = text.split('^').map((part) => part.trim()).filter(Boolean).join(' ')
+  const formatted = text
+    .split('^')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+
   return formatted || text
 }
 
@@ -45,16 +52,17 @@ function isZh(locale: SeriesGroupLocale): boolean {
 }
 
 function unknownPatientLabel(locale: SeriesGroupLocale): string {
-  return isZh(locale) ? '未知患者' : 'Unknown Patient'
+  return isZh(locale) ? '\u672a\u77e5\u60a3\u8005' : 'Unknown Patient'
 }
 
 function unknownStudyLabel(locale: SeriesGroupLocale): string {
-  return isZh(locale) ? '未知检查' : 'Unknown Study'
+  return isZh(locale) ? '\u672a\u77e5\u68c0\u67e5' : 'Unknown Study'
 }
 
 function formatDicomDate(value: string | null | undefined): string {
   const text = cleanText(value)
   const match = /^(\d{4})(\d{2})(\d{2})$/.exec(text)
+
   return match ? `${match[1]}-${match[2]}-${match[3]}` : text
 }
 
@@ -62,7 +70,7 @@ function getPatientKey(series: GroupableSeriesItem): string {
   const patientId = cleanText(series.patientId)
   if (patientId) return `patient:${patientId}`
 
-  const patientName = cleanText(series.patientName)
+  const patientName = formatPatientName(series.patientName)
   if (patientName) return `patient-name:${patientName}`
 
   return 'patient:unknown'
@@ -70,11 +78,6 @@ function getPatientKey(series: GroupableSeriesItem): string {
 
 function getPatientTitle(series: GroupableSeriesItem, locale: SeriesGroupLocale): string {
   return formatPatientName(series.patientName) || cleanText(series.patientId) || unknownPatientLabel(locale)
-}
-
-function getPatientSubtitle(series: GroupableSeriesItem): string {
-  void series
-  return ''
 }
 
 function getStudyKey(series: GroupableSeriesItem): string {
@@ -87,7 +90,7 @@ function getStudyKey(series: GroupableSeriesItem): string {
     return `study-meta:${studyDate}:${studyDescription}`
   }
 
-  return `study:unknown:${getPatientKey(series)}`
+  return 'study:unknown'
 }
 
 function getStudyTitle(series: GroupableSeriesItem, locale: SeriesGroupLocale): string {
@@ -95,12 +98,14 @@ function getStudyTitle(series: GroupableSeriesItem, locale: SeriesGroupLocale): 
 }
 
 function getStudySubtitle(series: GroupableSeriesItem): string {
-  const parts = [
-    cleanText(series.studyDate) ? cleanText(series.studyDescription) : '',
-    cleanText(series.accessionNumber) ? `ACC ${cleanText(series.accessionNumber)}` : ''
-  ].filter(Boolean)
+  const hasStudyDate = Boolean(cleanText(series.studyDate))
+  const studyDescription = cleanText(series.studyDescription)
+  const accessionNumber = cleanText(series.accessionNumber)
 
-  return parts.join(' · ')
+  return [
+    hasStudyDate ? studyDescription : '',
+    accessionNumber ? `ACC ${accessionNumber}` : ''
+  ].filter(Boolean).join(SUBTITLE_SEPARATOR)
 }
 
 function compareStudyGroups(a: SeriesTreeStudyGroup, b: SeriesTreeStudyGroup): number {
@@ -110,6 +115,7 @@ function compareStudyGroups(a: SeriesTreeStudyGroup, b: SeriesTreeStudyGroup): n
 
   if (a.sortDate && !b.sortDate) return -1
   if (!a.sortDate && b.sortDate) return 1
+
   return a.order - b.order
 }
 
@@ -126,7 +132,7 @@ export function buildSeriesTreeGroups(seriesList: FolderSeriesItem[], locale: Se
       patientGroup = {
         key: patientKey,
         title: getPatientTitle(groupableSeries, locale),
-        subtitle: getPatientSubtitle(groupableSeries),
+        subtitle: '',
         count: 0,
         order: index,
         studies: []

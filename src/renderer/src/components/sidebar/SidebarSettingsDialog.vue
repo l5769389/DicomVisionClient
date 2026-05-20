@@ -9,6 +9,14 @@ import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
 import { viewerRuntime } from '../../platform/runtime'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
+import MprLayoutMenuPanel from '../workspace/shell/MprLayoutMenuPanel.vue'
+import {
+  DEFAULT_MPR_LAYOUT_KEY,
+  MPR_LAYOUT_OPTIONS,
+  parseMprLayoutSelectionValue,
+  toMprLayoutSelectionValue,
+  type MprDefaultLayoutKey
+} from '../../composables/workspace/layout/mprLayoutOptions'
 
 defineProps<{
   isOpen: boolean
@@ -28,6 +36,7 @@ type SettingsSection =
   | 'dicomExport'
   | 'deidentifyExport'
   | 'displayCrosshair'
+  | 'displayMprLayout'
   | 'displayScaleBar'
   | 'displayMeasurement'
   | 'displayPseudocolor'
@@ -109,6 +118,7 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   dicomExport: ['dicom导出', '导出', '保存', '位置', 'dicom', 'export', 'save', 'location'],
   deidentifyExport: ['脱敏', '匿名', '隐私', 'deidentify', 'de-identify', 'anonymize', 'anonymous', 'privacy'],
   displayCrosshair: ['十字线', 'mpr', 'crosshair', 'axis', '定位线'],
+  displayMprLayout: ['mpr', '布局', '重建', '宫格', 'layout', 'grid', 'viewport'],
   displayScaleBar: ['比例尺', '标尺', 'scale', 'scalebar', 'ruler'],
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
   displayPseudocolor: ['伪彩', '色图', '色带', '默认伪彩', 'pseudocolor', 'colormap', 'color', 'palette', 'bw', 'rainbow', 'pet', 'cardiac'],
@@ -295,6 +305,7 @@ const {
   getWindowPresetLabel,
   hangingProtocolRules,
   measurementStylePreference,
+  mprDefaultLayoutKey,
   qaWaterMetrics,
   removeHangingProtocolRule,
   removeCustomWindowPresets,
@@ -308,6 +319,7 @@ const {
   setHangingProtocolRules,
   updateHangingProtocolRule,
   setMeasurementStylePreference,
+  setMprDefaultLayoutKey,
   setQaWaterMetrics,
   setScaleBarPreference,
   systemWindowPresets,
@@ -343,6 +355,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'language' as const, title: isZh.value ? '语言与主题' : 'Language & Theme', subtitle: isZh.value ? '界面偏好' : 'UI preferences', icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
+  { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
   { key: 'displayCrosshair' as const, title: copy.value.crosshairTitle, subtitle: isZh.value ? 'MPR 十字线' : 'MPR crosshair', icon: 'crosshair' },
   { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
@@ -374,6 +387,7 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
       icon: 'crosshair',
       items: [
         getSection('displayPseudocolor'),
+        getSection('displayMprLayout'),
         getSection('windowPresets'),
         getSection('displayCrosshair'),
         getSection('displayScaleBar'),
@@ -447,6 +461,16 @@ const customPresetLimitLabel = computed(() => `${displayCustomWindowPresets.valu
 const hangingProtocolRuleCountLabel = computed(() => `${hangingProtocolRules.value.length}/${MAX_HANGING_PROTOCOL_RULES}`)
 const canAddHangingProtocolRule = computed(() => hangingProtocolRules.value.length < MAX_HANGING_PROTOCOL_RULES)
 const hangingProtocolModalityOptions = ['ALL', 'CT', 'MR', 'PT', 'US', 'XA', 'CR', 'DX', 'OT']
+const mprDefaultLayoutSelectionValue = computed(() => toMprLayoutSelectionValue(mprDefaultLayoutKey.value))
+const mprDefaultLayoutOptions = computed(() =>
+  MPR_LAYOUT_OPTIONS.map((option) => ({
+    value: toMprLayoutSelectionValue(option.key),
+    label: getMprLayoutLabel(option.key),
+    icon: 'layout',
+    disabled: option.disabled,
+    mprLayoutKey: option.key
+  }))
+)
 const enabledQaWaterMetricCount = computed(() => qaWaterMetrics.value.filter((item) => item.enabled).length)
 const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; title: string; description: string; badge: string }>>(() => [
   {
@@ -602,6 +626,31 @@ function getSettingsGroupSearchTerms(group: SettingsNavGroup): string[] {
 
 function getSettingsSectionSearchTerms(item: SettingsNavItem): string[] {
   return [item.key, item.title, item.subtitle, ...SETTINGS_SECTION_SEARCH_ALIASES[item.key]]
+}
+
+function getMprLayoutLabel(key: string): string {
+  if (key === 'three-columns') {
+    return isZh.value ? '三列均分' : '3 columns'
+  }
+  if (key === 'right-primary') {
+    return isZh.value ? '右侧主视图' : 'Primary right'
+  }
+  if (key === 'three-rows') {
+    return isZh.value ? '三行均分' : '3 rows'
+  }
+  if (key === 'quad') {
+    return isZh.value ? '2 x 2 宫格' : '2 x 2 grid'
+  }
+  return isZh.value ? 'MPR + 3D' : 'MPR + 3D'
+}
+
+function handleSelectMprDefaultLayout(optionValue: string): void {
+  const layoutKey = parseMprLayoutSelectionValue(optionValue)
+  if (!layoutKey || layoutKey === 'mpr-3d') {
+    return
+  }
+
+  setMprDefaultLayoutKey(layoutKey as MprDefaultLayoutKey)
 }
 
 function isNavigationGroupActive(group: SettingsNavGroup): boolean {
@@ -896,6 +945,10 @@ function resetDisplaySubSection(section: SettingsSection): void {
     setCrosshairConfigs(createDefaultCrosshairConfigs())
     return
   }
+  if (section === 'displayMprLayout') {
+    setMprDefaultLayoutKey(DEFAULT_MPR_LAYOUT_KEY)
+    return
+  }
   if (section === 'displayScaleBar') {
     setScaleBarPreference(createDefaultScaleBarPreference())
     return
@@ -964,6 +1017,7 @@ function resetCurrentSection(): void {
   }
   if (
     activeSection.value === 'displayCrosshair' ||
+    activeSection.value === 'displayMprLayout' ||
     activeSection.value === 'displayScaleBar' ||
     activeSection.value === 'displayMeasurement' ||
     activeSection.value === 'displayPseudocolor' ||
@@ -1823,6 +1877,7 @@ onMounted(async () => {
                 <template
                   v-else-if="
                     activeSection === 'displayCrosshair' ||
+                    activeSection === 'displayMprLayout' ||
                     activeSection === 'displayScaleBar' ||
                     activeSection === 'displayMeasurement' ||
                     activeSection === 'displayPseudocolor' ||
@@ -1903,6 +1958,38 @@ onMounted(async () => {
                               </div>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="activeSection === 'displayMprLayout'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="layout" :size="18" />
+                            <span class="text-sm font-semibold">{{ isZh ? 'MPR 默认布局' : 'Default MPR Layout' }}</span>
+                          </div>
+                          <div class="mt-2 max-w-2xl text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '新打开的 MPR / 4D MPR 默认使用该视口排布；当前 MPR 视图也会立即应用。' : 'New MPR and 4D MPR views use this viewport arrangement by default. The active MPR view updates immediately.' }}
+                          </div>
+                        </div>
+                        <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
+                          {{ getMprLayoutLabel(mprDefaultLayoutKey) }}
+                        </div>
+                      </div>
+
+                      <div class="mt-5 flex flex-col gap-4 xl:flex-row xl:items-center">
+                        <MprLayoutMenuPanel
+                          class="settings-mpr-layout-panel"
+                          :options="mprDefaultLayoutOptions"
+                          :active-value="mprDefaultLayoutSelectionValue"
+                          @select="handleSelectMprDefaultLayout"
+                        />
+                        <div class="grid gap-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                          <div class="font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">
+                            {{ isZh ? '可选布局' : 'Available layouts' }}
+                          </div>
+                          <div>{{ isZh ? '三列、右侧主视图、三行、2 x 2。MPR + 3D 入口保留，后续接入 3D 视图后启用。' : '3 columns, primary-right, 3 rows, and 2 x 2. MPR + 3D is reserved until 3D embedding is enabled.' }}</div>
                         </div>
                       </div>
                     </div>
@@ -2412,5 +2499,14 @@ onMounted(async () => {
   background: var(--theme-accent);
   color: var(--theme-accent-contrast);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+}
+
+.settings-mpr-layout-panel {
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 84%, transparent);
 }
 </style>

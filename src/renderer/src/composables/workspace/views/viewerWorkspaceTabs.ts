@@ -19,6 +19,7 @@ import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
+import { createCompareSyncDefaults, createLayoutSyncDefaults } from '../sync/viewSyncConfig'
 
 const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
 export const COMPARE_STACK_SOURCE_PANE_KEY: CompareStackPaneKey = 'compare-a'
@@ -517,18 +518,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     compareOrientations: createEmptyCompareOrientations(),
     compareTransformStates: createEmptyCompareTransformStates(),
     comparePseudocolorPresets: createEmptyComparePseudocolorPresets(),
-    compareSyncScroll: true,
-    compareSyncWindow: true,
-    compareSyncPseudocolor: true,
-    compareSyncView: true,
-    compareSyncTransform: false,
-    compareSyncReset: true,
-    layoutSyncScroll: false,
-    layoutSyncWindow: false,
-    layoutSyncPseudocolor: false,
-    layoutSyncView: false,
-    layoutSyncTransform: false,
-    layoutSyncReset: false,
+    ...createCompareSyncDefaults(),
+    ...createLayoutSyncDefaults(),
     viewportViewIds: createEmptyMprViewIds(),
     viewportImages: createEmptyMprImages(),
     viewportSliceLabels: createEmptyMprSliceLabels(),

@@ -128,6 +128,29 @@ describe('MprView', () => {
     wrapper.unmount()
   })
 
+  it('renders the MPR plus 3D viewport layout', () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeTab: createMprTab({
+          viewId: 'volume-view-1',
+          imageSrc: 'volume.png'
+        }),
+        layoutKey: 'mpr-3d'
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.findAll('.viewer-stage-stub').map((stage) => stage.attributes('data-viewport-key'))).toEqual([
+      'mpr-ax',
+      'mpr-cor',
+      'mpr-sag',
+      'volume'
+    ])
+    wrapper.unmount()
+  })
+
   it('maximizes a viewport on double click and restores the three viewport layout on the next double click', async () => {
     const wrapper = mount(MprView, {
       props: createMprProps(),

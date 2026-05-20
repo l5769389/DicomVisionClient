@@ -16,6 +16,8 @@ import type {
 } from '../../../types/viewer'
 import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
 
+type MprDisplayViewportKey = MprViewportKey | 'volume'
+
 const props = withDefaults(
   defineProps<{
     activeTab: ViewerTabItem
@@ -65,9 +67,10 @@ const emit = defineEmits<{
 }>()
 
 interface MprViewportLayoutItem {
-  key: MprViewportKey
+  key: MprDisplayViewportKey
   label: string
   className: string
+  kind: 'mpr' | 'volume'
 }
 
 interface MprViewportLayoutConfig {
@@ -75,44 +78,53 @@ interface MprViewportLayoutConfig {
   items: MprViewportLayoutItem[]
 }
 
-const MPR_LAYOUT_CONFIGS: Record<Exclude<MprLayoutKey, 'mpr-3d'>, MprViewportLayoutConfig> = {
+const MPR_LAYOUT_CONFIGS: Record<MprLayoutKey, MprViewportLayoutConfig> = {
   'three-columns': {
     containerClass: 'grid-cols-3 grid-rows-1',
     items: [
-      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
-      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1' },
-      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-3 row-start-1' }
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1', kind: 'mpr' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1', kind: 'mpr' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-3 row-start-1', kind: 'mpr' }
     ]
   },
   'right-primary': {
     containerClass: 'grid-cols-2 grid-rows-2',
     items: [
-      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
-      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2' },
-      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-span-2 row-start-1' }
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1', kind: 'mpr' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2', kind: 'mpr' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-span-2 row-start-1', kind: 'mpr' }
     ]
   },
   'three-rows': {
     containerClass: 'grid-cols-1 grid-rows-3',
     items: [
-      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
-      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-1 row-start-2' },
-      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-3' }
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1', kind: 'mpr' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-1 row-start-2', kind: 'mpr' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-3', kind: 'mpr' }
     ]
   },
   quad: {
     containerClass: 'grid-cols-2 grid-rows-2',
     items: [
-      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1' },
-      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1' },
-      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2' }
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1', kind: 'mpr' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1', kind: 'mpr' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2', kind: 'mpr' }
+    ]
+  },
+  'mpr-3d': {
+    containerClass: 'grid-cols-2 grid-rows-2',
+    items: [
+      { key: 'mpr-ax', label: 'Axial', className: 'col-start-1 row-start-1', kind: 'mpr' },
+      { key: 'mpr-cor', label: 'Coronal', className: 'col-start-2 row-start-1', kind: 'mpr' },
+      { key: 'mpr-sag', label: 'Sagittal', className: 'col-start-1 row-start-2', kind: 'mpr' },
+      { key: 'volume', label: '3D', className: 'col-start-2 row-start-2', kind: 'volume' }
     ]
   }
 }
 
-const normalizedLayoutKey = computed<Exclude<MprLayoutKey, 'mpr-3d'>>(() => {
+const normalizedLayoutKey = computed<MprLayoutKey>(() => {
   const layoutKey = props.layoutKey
-  if (layoutKey && layoutKey !== 'mpr-3d' && layoutKey in MPR_LAYOUT_CONFIGS) {
+  if (layoutKey && layoutKey in MPR_LAYOUT_CONFIGS) {
     return layoutKey
   }
 
@@ -122,7 +134,7 @@ const normalizedLayoutKey = computed<Exclude<MprLayoutKey, 'mpr-3d'>>(() => {
 const activeLayoutConfig = computed(() => MPR_LAYOUT_CONFIGS[normalizedLayoutKey.value])
 const viewportItems = computed(() => activeLayoutConfig.value.items)
 
-const maximizedViewportKey = ref<MprViewportKey | null>(null)
+const maximizedViewportKey = ref<MprDisplayViewportKey | null>(null)
 
 const isViewportMaximized = computed(() => maximizedViewportKey.value != null)
 
@@ -150,6 +162,23 @@ const canToggleViewportMaximize = computed(() => {
   )
 })
 
+const emptyVolumeCornerInfo: CornerInfo = {
+  topLeft: [],
+  topRight: [],
+  bottomLeft: [],
+  bottomRight: []
+}
+
+type MprOnlyLayoutItem = MprViewportLayoutItem & { key: MprViewportKey; kind: 'mpr' }
+
+function isMprLayoutItem(item: MprViewportLayoutItem): item is MprOnlyLayoutItem {
+  return item.kind === 'mpr' && isMprViewportKey(item.key)
+}
+
+function asMprViewportKey(item: MprViewportLayoutItem): MprViewportKey | null {
+  return isMprLayoutItem(item) ? item.key : null
+}
+
 function getViewportImage(viewportKey: MprViewportKey): string {
   return props.activeTab.viewportImages?.[viewportKey] ?? ''
 }
@@ -174,15 +203,99 @@ function isViewportLoading(viewportKey: MprViewportKey): boolean {
   return Boolean(props.activeTab.viewportViewIds?.[viewportKey]) && !getViewportImage(viewportKey)
 }
 
+function getItemAnnotations(item: MprViewportLayoutItem): AnnotationOverlay[] {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getAnnotations(viewportKey) : []
+}
+
+function getItemCursorClass(item: MprViewportLayoutItem): string {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getCursorClass(viewportKey) : ''
+}
+
+function getItemDraftAnnotation(item: MprViewportLayoutItem): AnnotationDraft | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getDraftAnnotation(viewportKey) : null
+}
+
+function getItemImage(item: MprViewportLayoutItem): string {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportImage(viewportKey) : props.activeTab.imageSrc
+}
+
+function isItemLoading(item: MprViewportLayoutItem): boolean {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? isViewportLoading(viewportKey) : Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc
+}
+
+function getItemCornerInfo(item: MprViewportLayoutItem): CornerInfo {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getCornerInfo(viewportKey) : emptyVolumeCornerInfo
+}
+
+function getItemDraftMeasurementMode(item: MprViewportLayoutItem): DraftMeasurementMode | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getDraftMeasurementMode(viewportKey) : null
+}
+
+function getItemDraftMeasurement(item: MprViewportLayoutItem): MeasurementDraft | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getDraftMeasurement(viewportKey) : null
+}
+
+function getItemMeasurements(item: MprViewportLayoutItem): MeasurementOverlay[] {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getMeasurements(viewportKey) : []
+}
+
+function getItemMtfDraftMode(item: MprViewportLayoutItem): DraftMeasurementMode | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getMtfDraftMode(viewportKey) : null
+}
+
+function getItemMtfDraft(item: MprViewportLayoutItem): { mtfId?: string; points: { x: number; y: number }[] } | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getMtfDraft(viewportKey) : null
+}
+
+function getItemMtfItems(item: MprViewportLayoutItem): ViewerMtfItem[] {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.getMtfItems(viewportKey) : []
+}
+
+function getItemCrosshair(item: MprViewportLayoutItem) {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportCrosshair(viewportKey) : null
+}
+
+function getItemFrame(item: MprViewportLayoutItem) {
+  return asMprViewportKey(item) ? props.activeTab.mprFrame ?? null : null
+}
+
+function getItemPlane(item: MprViewportLayoutItem) {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportPlane(viewportKey) : null
+}
+
+function getItemScaleBar(item: MprViewportLayoutItem): ScaleBarInfo | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportScaleBar(viewportKey) : null
+}
+
+function getItemOrientation(item: MprViewportLayoutItem) {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportOrientation(viewportKey) : props.activeTab.orientation
+}
+
 function normalizeOperation(operation: string): string {
   return operation.startsWith('stack:') ? operation.slice('stack:'.length) : operation
 }
 
-function getViewportClass(viewportKey: MprViewportKey, className: string): string {
+function getViewportClass(viewportKey: MprDisplayViewportKey, className: string): string {
   return maximizedViewportKey.value === viewportKey ? 'col-start-1 row-start-1' : className
 }
 
-function isViewportActive(viewportKey: MprViewportKey): boolean {
+function isViewportActive(viewportKey: MprDisplayViewportKey): boolean {
   return (maximizedViewportKey.value ?? props.activeViewportKey) === viewportKey
 }
 
@@ -193,7 +306,7 @@ function isMprViewportKey(viewportKey: string): viewportKey is MprViewportKey {
 function handleViewportDoubleClick(viewportKey: string): void {
   emit('viewportClick', viewportKey)
 
-  if (!isMprViewportKey(viewportKey) || !canToggleViewportMaximize.value) {
+  if (!(isMprViewportKey(viewportKey) || viewportKey === 'volume') || !canToggleViewportMaximize.value) {
     return
   }
 
@@ -228,29 +341,30 @@ watch(
       :viewport-key="item.key"
       :viewport-class="getViewportClass(item.key, item.className)"
       :is-active="isViewportActive(item.key)"
-      :annotations="props.getAnnotations(item.key)"
-      :cursor-class="props.getCursorClass(item.key)"
-      :draft-annotation="props.getDraftAnnotation(item.key)"
+      :annotations="getItemAnnotations(item)"
+      :cursor-class="getItemCursorClass(item)"
+      :draft-annotation="getItemDraftAnnotation(item)"
       :render-surface-active="isViewportActive(item.key)"
-      :image-src="getViewportImage(item.key)"
+      :image-src="getItemImage(item)"
       :active-operation="props.activeOperation"
-      :is-loading="isViewportLoading(item.key)"
-      loading-label="正在加载 MPR 视图..."
+      :is-loading="isItemLoading(item)"
+      :loading-label="item.kind === 'volume' ? '正在加载 3D 视图...' : '正在加载 MPR 视图...'"
       :alt="item.label"
       :placeholder="`${item.label} 预览`"
-      :corner-info="props.getCornerInfo(item.key)"
-      :draft-measurement-mode="props.getDraftMeasurementMode(item.key)"
-      :draft-measurement="props.getDraftMeasurement(item.key)"
-      :measurements="props.getMeasurements(item.key)"
-      :mtf-draft-mode="props.getMtfDraftMode(item.key)"
-      :mtf-draft="props.getMtfDraft(item.key)"
-      :mtf-items="props.getMtfItems(item.key)"
-      :selected-mtf-id="props.selectedMtfId ?? null"
-      :mpr-crosshair="getViewportCrosshair(item.key)"
-      :mpr-frame="props.activeTab.mprFrame ?? null"
-      :mpr-plane="getViewportPlane(item.key)"
-      :scale-bar="getViewportScaleBar(item.key)"
-      :orientation="getViewportOrientation(item.key)"
+      :corner-info="getItemCornerInfo(item)"
+      :draft-measurement-mode="getItemDraftMeasurementMode(item)"
+      :draft-measurement="getItemDraftMeasurement(item)"
+      :measurements="getItemMeasurements(item)"
+      :mtf-draft-mode="getItemMtfDraftMode(item)"
+      :mtf-draft="getItemMtfDraft(item)"
+      :mtf-items="getItemMtfItems(item)"
+      :selected-mtf-id="item.kind === 'volume' ? null : props.selectedMtfId ?? null"
+      :mpr-crosshair="getItemCrosshair(item)"
+      :mpr-frame="getItemFrame(item)"
+      :mpr-plane="getItemPlane(item)"
+      :scale-bar="getItemScaleBar(item)"
+      :orientation="getItemOrientation(item)"
+      :soft-image="item.kind === 'volume'"
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"

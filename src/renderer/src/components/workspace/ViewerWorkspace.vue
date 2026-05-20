@@ -11,6 +11,7 @@ import type {
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementOverlay,
+  MprLayoutKey,
   MprCrosshairInteractionPayload,
   MprMipConfig,
   QaWaterAnalysis,
@@ -40,6 +41,7 @@ import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
+import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
@@ -91,11 +93,11 @@ const emit = defineEmits<{
   compareSyncChange: [payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }]
   setActiveOperation: [value: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
-  triggerViewAction: [payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }]
+  triggerViewAction: [payload: ViewerToolbarActionPayload]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
-  viewportLayoutChange: []
+  viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
@@ -226,7 +228,17 @@ const {
 
 const activeMprLayoutKey = computed(() => {
   const selectedLayout = parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout)
-  return selectedLayout && selectedLayout !== 'mpr-3d' ? selectedLayout : mprDefaultLayoutKey.value ?? DEFAULT_MPR_LAYOUT_KEY
+  if (activeTabRef.value?.viewType === '4D' && selectedLayout === 'mpr-3d') {
+    return DEFAULT_MPR_LAYOUT_KEY
+  }
+  return selectedLayout ?? mprDefaultLayoutKey.value ?? DEFAULT_MPR_LAYOUT_KEY
+})
+
+const isVolumeConfigPanelAvailable = computed(() => {
+  if (!activeTabRef.value) {
+    return false
+  }
+  return activeTabRef.value.viewType === '3D' || (activeTabRef.value.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
 })
 
 const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
@@ -756,7 +768,7 @@ function clearAllAnnotationsForActiveTab(): void {
   annotationInteraction.value = { kind: 'idle' }
 }
 
-function handleToolbarViewAction(payload: { action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'; value?: string; config?: MprMipConfig }): void {
+function handleToolbarViewAction(payload: ViewerToolbarActionPayload): void {
   if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
     clearAllAnnotationsForActiveTab()
     if (payload.action === 'clearAnnotations') {
@@ -1536,20 +1548,27 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorksp
     viewportHostRef
   })
 
-watch(activeMprLayoutKey, async (value, previousValue) => {
-  if (!previousValue || value === previousValue) {
-    return
-  }
+watch(
+  () => [activeMprLayoutKey.value, props.activeTabKey] as const,
+  async ([layoutKey, tabKey], previousValue) => {
+    const [previousLayoutKey, previousTabKey] = previousValue ?? []
+    if (!tabKey || (layoutKey === previousLayoutKey && tabKey === previousTabKey)) {
+      return
+    }
 
-  const viewType = activeTabRef.value?.viewType
-  if (viewType !== 'MPR' && viewType !== '4D') {
-    return
-  }
+    const viewType = activeTabRef.value?.viewType
+    if (viewType !== 'MPR' && viewType !== '4D') {
+      return
+    }
 
-  await nextTick()
-  notifyWorkspaceReady()
-  emit('viewportLayoutChange')
-})
+    if (layoutKey !== 'mpr-3d' && activeViewportKey.value === 'volume') {
+      setActiveViewport('mpr-ax')
+    }
+    await nextTick()
+    notifyWorkspaceReady()
+    emit('viewportLayoutChange', { layoutKey })
+  }
+)
 
 useWorkspaceHotkeys({
   activeOperation: activeOperationRef,
@@ -1659,7 +1678,7 @@ onBeforeUnmount(() => {
         class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2.5"
       >
         <div
-          v-if="activeTab.viewType === '3D' && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
+          v-if="isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
           class="absolute right-5 top-5 z-[20]"
         >
           <VolumeRenderConfigPanel

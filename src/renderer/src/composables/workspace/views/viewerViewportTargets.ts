@@ -1,4 +1,4 @@
-import { VIEW_OPERATION_TYPES, type ViewOperationType } from '@shared/viewerConstants'
+import type { ViewOperationType } from '@shared/viewerConstants'
 import type { CompareStackPaneKey, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
@@ -6,10 +6,19 @@ import {
   isCompareStackPaneKey,
   isMprViewportKey
 } from './viewerWorkspaceTabs'
+import { shouldSyncViewOperation } from '../sync/viewSyncConfig'
 
 export { COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY } from './viewerWorkspaceTabs'
 
 export const MPR_PRIMARY_VIEWPORT_KEY: MprViewportKey = 'mpr-ax'
+
+export type ViewportOperationTargetKind = 'single' | 'compare' | 'layout' | 'mpr' | 'mpr-volume'
+
+export interface ViewportOperationTarget {
+  viewId: string
+  viewportKey: string
+  kind: ViewportOperationTargetKind
+}
 
 export function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
   return viewType === 'MPR' || viewType === '4D'
@@ -29,20 +38,23 @@ export function resolveComparePaneKey(viewportKey: string): CompareStackPaneKey 
 
 export function resolveViewIdForTabViewport(tab: ViewerTabItem, viewportKey: string): string {
   if (isMprLikeViewType(tab.viewType)) {
+    if (tab.viewType === 'MPR' && viewportKey === 'volume') {
+      return tab.viewId
+    }
     return tab.viewportViewIds?.[resolveMprViewportKey(viewportKey)] ?? ''
   }
   if (tab.viewType === 'CompareStack') {
     return tab.compareViewIds?.[resolveComparePaneKey(viewportKey)] ?? ''
   }
   if (tab.viewType === 'Layout') {
-    return resolveLayoutSlot(tab, viewportKey)?.viewId ?? ''
+    return resolveLayoutSlotForViewport(tab, viewportKey)?.viewId ?? ''
   }
   return tab.viewId
 }
 
 export function hasOperableView(tab: ViewerTabItem): boolean {
   if (isMprLikeViewType(tab.viewType)) {
-    return Object.values(tab.viewportViewIds ?? {}).some(Boolean)
+    return Object.values(tab.viewportViewIds ?? {}).some(Boolean) || Boolean(tab.viewType === 'MPR' && tab.viewId)
   }
   if (tab.viewType === 'CompareStack') {
     return Object.values(tab.compareViewIds ?? {}).some(Boolean)
@@ -53,75 +65,9 @@ export function hasOperableView(tab: ViewerTabItem): boolean {
   return Boolean(tab.viewId)
 }
 
-function resolveLayoutSlot(tab: ViewerTabItem, viewportKey: string) {
+export function resolveLayoutSlotForViewport(tab: ViewerTabItem, viewportKey: string) {
   const slots = tab.layoutSlots ?? []
   return slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
-}
-
-function shouldSyncLayoutOperation(tab: ViewerTabItem, opType: ViewOperationType | string): boolean {
-  if (opType === VIEW_OPERATION_TYPES.scroll) {
-    return tab.layoutSyncScroll === true
-  }
-  if (opType === VIEW_OPERATION_TYPES.window) {
-    return tab.layoutSyncWindow === true
-  }
-  if (opType === VIEW_OPERATION_TYPES.pseudocolor) {
-    return tab.layoutSyncPseudocolor === true
-  }
-  if (opType === VIEW_OPERATION_TYPES.pan || opType === VIEW_OPERATION_TYPES.zoom) {
-    return tab.layoutSyncView === true
-  }
-  if (opType === VIEW_OPERATION_TYPES.transform2d) {
-    return tab.layoutSyncTransform === true
-  }
-  if (opType === VIEW_OPERATION_TYPES.reset) {
-    return tab.layoutSyncReset === true
-  }
-  return false
-}
-
-function resolveLayoutOperationViewIds(
-  tab: ViewerTabItem,
-  viewportKey: string,
-  opType: ViewOperationType | string
-): string[] {
-  const activeSlot = resolveLayoutSlot(tab, viewportKey)
-  if (!activeSlot?.viewId) {
-    return []
-  }
-  if (!shouldSyncLayoutOperation(tab, opType)) {
-    return [activeSlot.viewId]
-  }
-
-  return [
-    activeSlot.viewId,
-    ...(tab.layoutSlots ?? [])
-      .filter((slot) => slot.id !== activeSlot.id)
-      .map((slot) => slot.viewId ?? '')
-      .filter((viewId): viewId is string => Boolean(viewId))
-  ]
-}
-
-export function shouldSyncCompareOperation(tab: ViewerTabItem, opType: ViewOperationType | string): boolean {
-  if (opType === VIEW_OPERATION_TYPES.scroll) {
-    return tab.compareSyncScroll !== false
-  }
-  if (opType === VIEW_OPERATION_TYPES.window) {
-    return tab.compareSyncWindow !== false
-  }
-  if (opType === VIEW_OPERATION_TYPES.pseudocolor) {
-    return tab.compareSyncPseudocolor !== false
-  }
-  if (opType === VIEW_OPERATION_TYPES.pan || opType === VIEW_OPERATION_TYPES.zoom) {
-    return tab.compareSyncView !== false
-  }
-  if (opType === VIEW_OPERATION_TYPES.transform2d) {
-    return tab.compareSyncTransform === true
-  }
-  if (opType === VIEW_OPERATION_TYPES.reset) {
-    return tab.compareSyncReset !== false
-  }
-  return false
 }
 
 export function resolveCompareOperationPaneKeys(
@@ -130,7 +76,7 @@ export function resolveCompareOperationPaneKeys(
   opType: ViewOperationType | string
 ): CompareStackPaneKey[] {
   const paneKey = resolveComparePaneKey(viewportKey)
-  if (tab.viewType !== 'CompareStack' || !shouldSyncCompareOperation(tab, opType)) {
+  if (tab.viewType !== 'CompareStack' || !shouldSyncViewOperation(tab, opType)) {
     return [paneKey]
   }
 
@@ -144,16 +90,74 @@ export function resolveCompareOperationViewIds(
   viewportKey: string,
   opType: ViewOperationType | string
 ): string[] {
+  return resolveOperationTargets(tab, viewportKey, opType).map((target) => target.viewId)
+}
+
+export function resolveOperationTargets(
+  tab: ViewerTabItem,
+  viewportKey: string,
+  opType: ViewOperationType | string
+): ViewportOperationTarget[] {
   if (tab.viewType === 'Layout') {
-    return resolveLayoutOperationViewIds(tab, viewportKey, opType)
+    const activeSlot = resolveLayoutSlotForViewport(tab, viewportKey)
+    if (!activeSlot?.viewId) {
+      return []
+    }
+
+    const slots = shouldSyncViewOperation(tab, opType)
+      ? [
+          activeSlot,
+          ...(tab.layoutSlots ?? []).filter((slot) => slot.id !== activeSlot.id && Boolean(slot.viewId))
+        ]
+      : [activeSlot]
+
+    return slots.flatMap((slot): ViewportOperationTarget[] =>
+      slot.viewId
+        ? [
+            {
+              viewId: slot.viewId,
+              viewportKey: slot.id,
+              kind: 'layout'
+            }
+          ]
+        : []
+    )
   }
 
   if (tab.viewType !== 'CompareStack') {
     const viewId = resolveViewIdForTabViewport(tab, viewportKey)
-    return viewId ? [viewId] : []
+    if (!viewId) {
+      return []
+    }
+
+    return [
+      {
+        viewId,
+        viewportKey: isMprLikeViewType(tab.viewType)
+          ? tab.viewType === 'MPR' && viewportKey === 'volume'
+            ? 'volume'
+            : resolveMprViewportKey(viewportKey)
+          : viewportKey || 'single',
+        kind: isMprLikeViewType(tab.viewType)
+          ? tab.viewType === 'MPR' && viewportKey === 'volume'
+            ? 'mpr-volume'
+            : 'mpr'
+          : 'single'
+      }
+    ]
   }
 
   return resolveCompareOperationPaneKeys(tab, viewportKey, opType)
-    .map((paneKey) => tab.compareViewIds?.[paneKey] ?? '')
-    .filter((viewId): viewId is string => Boolean(viewId))
+    .flatMap((paneKey): ViewportOperationTarget[] => {
+      const viewId = tab.compareViewIds?.[paneKey] ?? ''
+      return viewId
+        ? [
+            {
+              viewId,
+              viewportKey: paneKey,
+              kind: 'compare'
+            }
+          ]
+        : []
+    })
 }

@@ -438,7 +438,7 @@ function normalizeDicomDeidentifyPreference(value: unknown): DicomDeidentifyPref
 }
 
 function normalizeMprDefaultLayoutKey(value: unknown): MprDefaultLayoutKey {
-  return isMprLayoutKey(value) && value !== 'mpr-3d' ? value : DEFAULT_MPR_LAYOUT_KEY
+  return isMprLayoutKey(value) ? value : DEFAULT_MPR_LAYOUT_KEY
 }
 
 function normalizeHangingProtocolModality(value: unknown): string {

@@ -646,7 +646,7 @@ function getMprLayoutLabel(key: string): string {
 
 function handleSelectMprDefaultLayout(optionValue: string): void {
   const layoutKey = parseMprLayoutSelectionValue(optionValue)
-  if (!layoutKey || layoutKey === 'mpr-3d') {
+  if (!layoutKey) {
     return
   }
 
@@ -1989,7 +1989,7 @@ onMounted(async () => {
                           <div class="font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">
                             {{ isZh ? '可选布局' : 'Available layouts' }}
                           </div>
-                          <div>{{ isZh ? '三列、右侧主视图、三行、2 x 2。MPR + 3D 入口保留，后续接入 3D 视图后启用。' : '3 columns, primary-right, 3 rows, and 2 x 2. MPR + 3D is reserved until 3D embedding is enabled.' }}</div>
+                          <div>{{ isZh ? '三列、右侧主视图、三行、2 x 2，以及 MPR + 3D 组合布局。' : '3 columns, primary-right, 3 rows, 2 x 2, and the combined MPR + 3D layout.' }}</div>
                         </div>
                       </div>
                     </div>

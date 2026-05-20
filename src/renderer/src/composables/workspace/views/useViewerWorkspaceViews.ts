@@ -90,6 +90,7 @@ import {
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
 } from '../volume/volumeRenderConfig'
+import { COMPARE_SYNC_DEFAULTS } from '../sync/viewSyncConfig'
 import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createKeyedLatestRequestGuard } from '../requests/latestRequest'
@@ -137,6 +138,14 @@ interface SetFourDPhaseOptions {
 
 interface MprViewSizeUpdate {
   viewportKey: MprViewportKey
+  viewId: string
+  size: {
+    width: number
+    height: number
+  }
+}
+
+interface ViewSizeUpdate {
   viewId: string
   size: {
     width: number
@@ -695,6 +704,19 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return (
       options.viewerStage.value?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`) ??
       options.viewerStage.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
+      null
+    )
+  }
+
+  function resolveVolumeViewportElement(): HTMLElement | null {
+    const cachedSurface = resolveCachedViewportSurface('volume')
+    if (cachedSurface) {
+      return cachedSurface
+    }
+
+    return (
+      options.viewerStage.value?.querySelector<HTMLElement>('[data-active-render-surface][data-viewport-key="volume"]') ??
+      options.viewerStage.value?.querySelector<HTMLElement>('[data-viewport-key="volume"]') ??
       null
     )
   }
@@ -1546,15 +1568,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return entries
       .filter(([, viewId]) => Boolean(viewId))
       .map(([viewportKey, viewId]) => {
-        const size = getViewportSize(resolveMprViewportElement(viewportKey))
-        if (!size) {
+        const update = collectViewSizeUpdate(viewId, resolveMprViewportElement(viewportKey), force)
+        if (!update) {
           return null
         }
-        const sizeChanged = hasViewSizeChanged(viewId, size)
-        if (!force && !sizeChanged) {
-          return null
-        }
-        return { viewportKey, viewId, size }
+        return { viewportKey, ...update }
       })
       .filter((item): item is MprViewSizeUpdate => Boolean(item))
   }
@@ -1580,15 +1598,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return entries
       .filter(([viewportKey, viewId]) => isCompareStackPaneKey(viewportKey) && Boolean(viewId))
       .map(([viewportKey, viewId]) => {
-        const size = getViewportSize(resolveCompareViewportElement(viewportKey))
-        if (!size) {
+        const update = collectViewSizeUpdate(viewId, resolveCompareViewportElement(viewportKey), force)
+        if (!update) {
           return null
         }
-        const sizeChanged = hasViewSizeChanged(viewId, size)
-        if (!force && !sizeChanged) {
-          return null
-        }
-        return { viewportKey, viewId, size }
+        return { viewportKey, ...update }
       })
       .filter((item): item is CompareViewSizeUpdate => Boolean(item))
   }
@@ -1613,18 +1627,35 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return (slots ?? [])
       .filter((slot) => Boolean(slot.viewId))
       .map((slot) => {
-        const viewId = slot.viewId ?? ''
-        const size = getViewportSize(resolveLayoutViewportElement(slot.id))
-        if (!size) {
+        const update = collectViewSizeUpdate(slot.viewId, resolveLayoutViewportElement(slot.id), force)
+        if (!update) {
           return null
         }
-        const sizeChanged = hasViewSizeChanged(viewId, size)
-        if (!force && !sizeChanged) {
-          return null
-        }
-        return { slotId: slot.id, viewId, size }
+        return { slotId: slot.id, ...update }
       })
       .filter((item): item is LayoutViewSizeUpdate => Boolean(item))
+  }
+
+  function collectViewSizeUpdate(
+    viewId: string | null | undefined,
+    element: HTMLElement | null,
+    force = false
+  ): ViewSizeUpdate | null {
+    if (!viewId) {
+      return null
+    }
+
+    const size = getViewportSize(element)
+    if (!size) {
+      return null
+    }
+
+    const sizeChanged = hasViewSizeChanged(viewId, size)
+    if (!force && !sizeChanged) {
+      return null
+    }
+
+    return { viewId, size }
   }
 
   function viewSizeUpdatesToViewIds(updates: MprViewSizeUpdate[]): Partial<Record<MprViewportKey, string>> {
@@ -1635,54 +1666,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }
 
   async function postMprViewSizeUpdates(updates: MprViewSizeUpdate[], renderOnBind = true): Promise<void> {
-    await Promise.all(
-      updates.map(async ({ viewId, size }) => {
-        if (renderOnBind) {
-          bindView(viewId)
-        } else {
-          await bindViewSilentlyWithAck(viewId)
-        }
-        await postApi('SetViewSizeApiV1ViewSetSizePost', {
-          opType: VIEW_OPERATION_TYPES.setSize,
-          size,
-          viewId
-        })
-      })
-    )
+    await postViewSizeUpdates(updates, renderOnBind)
   }
 
   async function postCompareViewSizeUpdates(updates: CompareViewSizeUpdate[], renderOnBind = true): Promise<void> {
-    await Promise.all(
-      updates.map(async ({ viewId, size }) => {
-        if (renderOnBind) {
-          bindView(viewId)
-        } else {
-          await bindViewSilentlyWithAck(viewId)
-        }
-        await postApi('SetViewSizeApiV1ViewSetSizePost', {
-          opType: VIEW_OPERATION_TYPES.setSize,
-          size,
-          viewId
-        })
-      })
-    )
+    await postViewSizeUpdates(updates, renderOnBind)
   }
 
   async function postLayoutViewSizeUpdates(updates: LayoutViewSizeUpdate[], renderOnBind = true): Promise<void> {
-    await Promise.all(
-      updates.map(async ({ viewId, size }) => {
-        if (renderOnBind) {
-          bindView(viewId)
-        } else {
-          await bindViewSilentlyWithAck(viewId)
-        }
-        await postApi('SetViewSizeApiV1ViewSetSizePost', {
-          opType: VIEW_OPERATION_TYPES.setSize,
-          size,
-          viewId
-        })
-      })
-    )
+    await postViewSizeUpdates(updates, renderOnBind)
+  }
+
+  async function postViewSizeUpdates(updates: ViewSizeUpdate[], renderOnBind = true): Promise<void> {
+    await Promise.all(updates.map((update) => postViewSizeUpdate(update, renderOnBind)))
+  }
+
+  async function postViewSizeUpdate(update: ViewSizeUpdate | null, renderOnBind = true): Promise<void> {
+    if (!update) {
+      return
+    }
+
+    if (renderOnBind) {
+      bindView(update.viewId)
+    } else {
+      await bindViewSilentlyWithAck(update.viewId)
+    }
+    await postApi('SetViewSizeApiV1ViewSetSizePost', {
+      opType: VIEW_OPERATION_TYPES.setSize,
+      size: update.size,
+      viewId: update.viewId
+    })
   }
 
   async function waitForCompareViewportLayout(compareViewIds: Partial<Record<CompareStackPaneKey, string>>): Promise<void> {
@@ -1745,6 +1758,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     if (tab.viewType === 'MPR' || tab.viewType === '4D') {
       await renderMprViewIds(tab.viewportViewIds, force)
+      if (tab.viewType === 'MPR' && tab.viewId) {
+        await postViewSizeUpdate(collectViewSizeUpdate(tab.viewId, resolveVolumeViewportElement(), force))
+      }
       return
     }
 
@@ -1777,6 +1793,35 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       size,
       viewId: tab.viewId
     })
+  }
+
+  async function ensureMprVolumeView(tabKey: string): Promise<void> {
+    const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (!tab || tab.viewType !== 'MPR' || tab.viewId) {
+      return
+    }
+
+    const data = await postApi('CreateViewApiV1ViewCreatePost', {
+      seriesId: tab.seriesId,
+      viewType: '3D'
+    })
+    const volumeConfig = tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig(tab.volumePreset ?? 'aaa')
+    const volumePreset = tab.volumePreset ?? `volumePreset:${normalizeVolumePresetKey(volumeConfig.preset)}`
+
+    options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+      item.key === tabKey && item.viewType === 'MPR'
+        ? {
+            ...item,
+            viewId: data.viewId,
+            imageSrc: '',
+            orientation: createEmptyOrientationInfo(),
+            transformState: createDefaultTransformInfo(),
+            volumePreset,
+            volumeRenderConfig: volumeConfig
+          }
+        : item
+    )
+    bindView(data.viewId)
   }
 
   async function openSeriesView(seriesId: string, viewType: ViewType): Promise<void> {
@@ -2112,12 +2157,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               compareOrientations: createEmptyCompareOrientations(),
               compareTransformStates: createEmptyCompareTransformStates(),
               comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset),
-              compareSyncScroll: item.compareSyncScroll ?? true,
-              compareSyncWindow: item.compareSyncWindow ?? true,
-              compareSyncPseudocolor: item.compareSyncPseudocolor ?? true,
-              compareSyncView: item.compareSyncView ?? true,
-              compareSyncTransform: item.compareSyncTransform ?? false,
-              compareSyncReset: item.compareSyncReset ?? true
+              compareSyncScroll: item.compareSyncScroll ?? COMPARE_SYNC_DEFAULTS.scroll,
+              compareSyncWindow: item.compareSyncWindow ?? COMPARE_SYNC_DEFAULTS.window,
+              compareSyncPseudocolor: item.compareSyncPseudocolor ?? COMPARE_SYNC_DEFAULTS.pseudocolor,
+              compareSyncView: item.compareSyncView ?? COMPARE_SYNC_DEFAULTS.view,
+              compareSyncTransform: item.compareSyncTransform ?? COMPARE_SYNC_DEFAULTS.transform,
+              compareSyncReset: item.compareSyncReset ?? COMPARE_SYNC_DEFAULTS.reset
             }
           : item
       )
@@ -2445,6 +2490,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   return {
     activateTab,
     closeTab,
+    ensureMprVolumeView,
     findTabByViewId,
     invalidateFourDMprState,
     openLayoutView,

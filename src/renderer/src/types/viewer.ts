@@ -522,6 +522,39 @@ export interface ViewerTabItem {
   fourDIsPreloading?: boolean
 }
 
+export type StackViewerTabItem = ViewerTabItem & { viewType: 'Stack' }
+export type CompareStackViewerTabItem = ViewerTabItem & { viewType: 'CompareStack' }
+export type MprViewerTabItem = ViewerTabItem & { viewType: 'MPR' }
+export type VolumeViewerTabItem = ViewerTabItem & { viewType: '3D' }
+export type FourDViewerTabItem = ViewerTabItem & { viewType: '4D' }
+export type TagViewerTabItem = ViewerTabItem & { viewType: 'Tag' }
+export type LayoutViewerTabItem = ViewerTabItem & { viewType: 'Layout' }
+
+export type DiscriminatedViewerTabItem =
+  | StackViewerTabItem
+  | CompareStackViewerTabItem
+  | MprViewerTabItem
+  | VolumeViewerTabItem
+  | FourDViewerTabItem
+  | TagViewerTabItem
+  | LayoutViewerTabItem
+
+export function isCompareStackViewerTab(tab: ViewerTabItem | null | undefined): tab is CompareStackViewerTabItem {
+  return tab?.viewType === 'CompareStack'
+}
+
+export function isLayoutViewerTab(tab: ViewerTabItem | null | undefined): tab is LayoutViewerTabItem {
+  return tab?.viewType === 'Layout'
+}
+
+export function isMprViewerTab(tab: ViewerTabItem | null | undefined): tab is MprViewerTabItem {
+  return tab?.viewType === 'MPR'
+}
+
+export function isStackViewerTab(tab: ViewerTabItem | null | undefined): tab is StackViewerTabItem {
+  return tab?.viewType === 'Stack'
+}
+
 export interface ViewerOperationItem {
   value: string
   icon: string

@@ -1,7 +1,7 @@
 import type { MprLayoutKey } from '../../../types/viewer'
 
 export const MPR_LAYOUT_OPTION_PREFIX = 'mpr-layout:'
-export type MprDefaultLayoutKey = Exclude<MprLayoutKey, 'mpr-3d'>
+export type MprDefaultLayoutKey = MprLayoutKey
 
 export const DEFAULT_MPR_LAYOUT_KEY: MprDefaultLayoutKey = 'right-primary'
 
@@ -16,7 +16,7 @@ export const MPR_LAYOUT_OPTIONS: MprLayoutOption[] = [
   { key: 'right-primary', label: 'Primary Right' },
   { key: 'three-rows', label: '3 Rows' },
   { key: 'quad', label: '2 x 2' },
-  { key: 'mpr-3d', label: 'MPR + 3D', disabled: true }
+  { key: 'mpr-3d', label: 'MPR + 3D' }
 ]
 
 export function toMprLayoutSelectionValue(key: MprLayoutKey): string {

@@ -5,6 +5,7 @@ import {
   resolveCompareOperationPaneKeys,
   resolveCompareOperationViewIds,
   resolveComparePaneKey,
+  resolveOperationTargets,
   resolveMprViewportKey,
   resolveViewIdForTabViewport
 } from './viewerViewportTargets'
@@ -73,6 +74,27 @@ describe('viewer viewport targets', () => {
         'slot-1-1'
       )
     ).toBe('layout-view-a')
+  })
+
+  it('keeps MPR + 3D volume operations on the volume view id', () => {
+    const tab = createTab({
+      viewType: 'MPR',
+      viewId: 'volume-view',
+      viewportViewIds: {
+        'mpr-ax': 'axial-view',
+        'mpr-cor': 'coronal-view',
+        'mpr-sag': 'sagittal-view'
+      }
+    })
+
+    expect(resolveViewIdForTabViewport(tab, 'volume')).toBe('volume-view')
+    expect(resolveOperationTargets(tab, 'volume', VIEW_OPERATION_TYPES.rotate3d)).toEqual([
+      {
+        viewId: 'volume-view',
+        viewportKey: 'volume',
+        kind: 'mpr-volume'
+      }
+    ])
   })
 
   it('orders compare operation targets from the active pane', () => {

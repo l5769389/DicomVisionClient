@@ -23,6 +23,8 @@ import {
   COMPARE_STACK_SOURCE_PANE_KEY,
   COMPARE_STACK_TARGET_PANE_KEY
 } from '../views/viewerWorkspaceTabs'
+import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../sync/viewSyncConfig'
+import type { ViewerToolbarActionPayload } from '../operations/viewActionTypes'
 import {
   createDefaultMprMipConfig,
   normalizeMprMipConfig,
@@ -144,47 +146,6 @@ const exportTool: StackTool = {
   ]
 }
 
-const compareSyncOptionValues: Record<CompareSyncSettingKey, string> = {
-  scroll: 'compare-sync:scroll',
-  window: 'compare-sync:window',
-  pseudocolor: 'compare-sync:pseudocolor',
-  view: 'compare-sync:view',
-  transform: 'compare-sync:transform',
-  reset: 'compare-sync:reset'
-}
-
-const compareSyncOptionConfigs: Array<{
-  key: CompareSyncSettingKey
-  label: string
-  icon: string
-  description: string
-}> = [
-  { key: 'scroll', label: '翻页', icon: 'page', description: '同步切片滚动' },
-  { key: 'window', label: '窗宽窗位', icon: 'window', description: '同步 WW / WL 调整' },
-  { key: 'pseudocolor', label: '伪彩', icon: 'pseudocolor', description: '同步伪彩方案' },
-  { key: 'view', label: '缩放平移', icon: 'pan', description: '同步 zoom 和 pan' },
-  { key: 'transform', label: '旋转翻转', icon: 'rotate', description: '同步 90° 旋转和镜像翻转' }
-  , { key: 'reset', label: 'Reset', icon: 'reset', description: 'Apply reset to every pane in this view.' }
-]
-
-const compareSyncStateGetters: Record<CompareSyncSettingKey, (tab: ViewerTabItem) => boolean> = {
-  scroll: (tab) => tab.compareSyncScroll !== false,
-  window: (tab) => tab.compareSyncWindow !== false,
-  pseudocolor: (tab) => tab.compareSyncPseudocolor !== false,
-  view: (tab) => tab.compareSyncView !== false,
-  transform: (tab) => tab.compareSyncTransform === true,
-  reset: (tab) => tab.compareSyncReset !== false
-}
-
-const layoutSyncStateGetters: Record<CompareSyncSettingKey, (tab: ViewerTabItem) => boolean> = {
-  scroll: (tab) => tab.layoutSyncScroll === true,
-  window: (tab) => tab.layoutSyncWindow === true,
-  pseudocolor: (tab) => tab.layoutSyncPseudocolor === true,
-  view: (tab) => tab.layoutSyncView === true,
-  transform: (tab) => tab.layoutSyncTransform === true,
-  reset: (tab) => tab.layoutSyncReset === true
-}
-
 const stackTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -265,26 +226,30 @@ const genericTools: StackTool[] = [
   tagTool
 ]
 
+const volumeParamsTool: StackTool = { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' }
+
+const volumePresetTool: StackTool = {
+  key: 'volumePreset',
+  label: 'Preset',
+  icon: 'volumePreset',
+  kind: 'action',
+  options: [
+    { value: 'volumePreset:aaa', label: 'AAA', icon: 'volume-preset-aaa' },
+    { value: 'volumePreset:red', label: 'Red', icon: 'volume-preset-red' },
+    { value: 'volumePreset:cardiac', label: 'Cardiac', icon: 'volume-preset-cardiac' },
+    { value: 'volumePreset:muscle', label: 'Muscle', icon: 'volume-preset-muscle' },
+    { value: 'volumePreset:mip', label: 'MIP', icon: 'volume-preset-mip' }
+  ]
+}
+
 const volumeTools: StackTool[] = [
   layoutTool,
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
-  { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' },
-  {
-    key: 'volumePreset',
-    label: 'Preset',
-    icon: 'volumePreset',
-    kind: 'action',
-    options: [
-      { value: 'volumePreset:aaa', label: 'AAA', icon: 'volume-preset-aaa' },
-      { value: 'volumePreset:red', label: 'Red', icon: 'volume-preset-red' },
-      { value: 'volumePreset:cardiac', label: 'Cardiac', icon: 'volume-preset-cardiac' },
-      { value: 'volumePreset:muscle', label: 'Muscle', icon: 'volume-preset-muscle' },
-      { value: 'volumePreset:mip', label: 'MIP', icon: 'volume-preset-mip' }
-    ]
-  },
+  volumeParamsTool,
+  volumePresetTool,
   exportTool,
   tagTool,
   {
@@ -328,15 +293,15 @@ const genericToolsWithCrosshair: StackTool[] = [
   }
 ]
 
+const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
+  tool.key === 'mprMip' ? [tool, volumeParamsTool, volumePresetTool] : [tool]
+)
+
 interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
   activeTab: ComputedRef<ViewerTabItem | null>
   emitSetActiveOperation: (value: string) => void
-  emitTriggerViewAction: (payload: {
-    action: 'reset' | 'clearMeasurements' | 'clearMtf' | 'clearAnnotations' | 'resetAll' | 'volumePreset' | 'rotate' | 'pseudocolor' | 'windowPreset' | 'mprMipConfig'
-    value?: string
-    config?: MprMipConfig
-  }) => void
+  emitTriggerViewAction: (payload: ViewerToolbarActionPayload) => void
   emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   emitOpenLayoutView: (template: ViewerLayoutTemplate) => void | Promise<void>
   emitViewportWheel: (payload: { viewportKey: string; deltaY: number }) => void
@@ -413,16 +378,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }))
 
   function getCompareSyncEnabled(tab: ViewerTabItem | null | undefined, key: CompareSyncSettingKey): boolean {
-    if (!tab) {
-      return false
-    }
-    if (tab.viewType === 'Layout') {
-      return layoutSyncStateGetters[key](tab)
-    }
-    if (tab.viewType !== 'CompareStack') {
-      return false
-    }
-    return compareSyncStateGetters[key](tab)
+    return tab ? getViewSyncEnabled(tab, key) : false
   }
 
   const compareSyncTool = computed<StackTool>(() => {
@@ -433,8 +389,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       icon: 'sync',
       kind: 'action',
       showSelectedOptionIcon: false,
-      options: compareSyncOptionConfigs.map(({ key, label, icon, description }) => ({
-        value: compareSyncOptionValues[key],
+      options: VIEW_SYNC_OPTION_CONFIGS.map(({ key, value, label, icon, description }) => ({
+        value,
         label,
         icon,
         description,
@@ -444,23 +400,38 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
   })
 
-  const activeTools = computed(() =>
-    options.activeTab.value?.viewType === 'Stack'
-      ? stackTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-      : options.activeTab.value?.viewType === 'CompareStack'
-        ? compareStackTools
-            .map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-            .flatMap((tool) => (tool.key === 'layout' ? [tool, compareSyncTool.value] : [tool]))
-      : options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
-        ? genericToolsWithCrosshair.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-        : options.activeTab.value?.viewType === 'Layout'
-          ? layoutStackTools
-              .map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-              .flatMap((tool) => (tool.key === 'layout' ? [tool, compareSyncTool.value] : [tool]))
-        : options.activeTab.value?.viewType === '3D'
-          ? volumeTools
-          : genericTools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
-  )
+  const activeMprLayoutKey = computed(() => parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout))
+  const isActiveMpr3dLayout = computed(() => options.activeTab.value?.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
+
+  function withDynamicWindowTool(tools: StackTool[]): StackTool[] {
+    return tools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+  }
+
+  function withSyncToolAfterLayout(tools: StackTool[]): StackTool[] {
+    return tools.flatMap((tool) => (tool.key === 'layout' ? [tool, compareSyncTool.value] : [tool]))
+  }
+
+  function getBaseToolsForActiveTab(): StackTool[] {
+    const viewType = options.activeTab.value?.viewType
+    switch (viewType) {
+      case 'Stack':
+        return stackTools
+      case 'CompareStack':
+        return withSyncToolAfterLayout(compareStackTools)
+      case 'MPR':
+        return isActiveMpr3dLayout.value ? mprWithVolumeTools : genericToolsWithCrosshair
+      case '4D':
+        return genericToolsWithCrosshair
+      case 'Layout':
+        return withSyncToolAfterLayout(layoutStackTools)
+      case '3D':
+        return volumeTools
+      default:
+        return genericTools
+    }
+  }
+
+  const activeTools = computed(() => withDynamicWindowTool(getBaseToolsForActiveTab()))
 
   const areToolbarActionsDisabled = computed(
     () =>
@@ -468,11 +439,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       Boolean(options.activeTab.value?.viewType === '4D' && options.activeTab.value.fourDIsPlaying)
   )
 
-  const activeVolumeRenderConfig = computed(() =>
-    options.activeTab.value?.viewType === '3D'
-      ? options.activeTab.value.volumeRenderConfig ?? createDefaultVolumeRenderConfig('aaa')
-      : null
-  )
+  const activeVolumeRenderConfig = computed(() => {
+    const tab = options.activeTab.value
+    if (!tab || (tab.viewType !== '3D' && !isActiveMpr3dLayout.value)) {
+      return null
+    }
+
+    return tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig('aaa')
+  })
 
   const activeMprMipConfig = computed(() => {
     const activeTab = options.activeTab.value
@@ -550,7 +524,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     const selectedMprLayout = parseMprLayoutSelectionValue(selections.mprLayout)
-    if (selectedMprLayout && selectedMprLayout !== 'mpr-3d') {
+    if (selectedMprLayout) {
       return selections
     }
 
@@ -784,123 +758,112 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.emitTriggerViewAction({ action: 'mprMipConfig', config })
   }
 
+  function activateModeTool(tool: StackTool): void {
+    closeMenus()
+    options.stopViewportDrag()
+    setToolbarToolActive(tool.key)
+    if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
+      activateSelectedOption(tool.key)
+    } else {
+      options.emitSetActiveOperation(getModeOperationValue(tool.key))
+    }
+  }
+
+  function toggleToolMenu(tool: StackTool): void {
+    setMenuOpen(openMenuKey.value === tool.key ? null : tool.key)
+  }
+
+  function applyResetTool(): void {
+    closeMenus()
+    options.stopViewportDrag()
+    stackToolSelections.value = {
+      ...stackToolSelections.value,
+      reset: 'reset:view'
+    }
+    if (options.activeTab.value?.viewType === '3D' || (isActiveMpr3dLayout.value && options.activeViewportKey.value === 'volume')) {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        volumePreset: 'volumePreset:aaa'
+      }
+    }
+    options.emitTriggerViewAction({ action: 'reset' })
+    const defaultToolKey = getDefaultToolbarToolKey(options.activeTab.value?.viewType)
+    flashToolActive('reset', defaultToolKey, () => {
+      options.emitSetActiveOperation(getModeOperationValue(defaultToolKey))
+    })
+  }
+
+  function applySelectedViewAction(
+    tool: StackTool,
+    action: 'volumePreset' | 'rotate' | 'pseudocolor'
+  ): void {
+    closeMenus()
+    const selectedOption = getSelectedOption(tool.key)
+    if (!selectedOption) {
+      return
+    }
+    flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+      options.emitTriggerViewAction({ action, value: selectedOption.value })
+    })
+  }
+
+  function applySelectedModeTool(tool: StackTool): void {
+    closeMenus()
+    if (!getSelectedOption(tool.key)) {
+      return
+    }
+    if (activeToolbarToolKey.value !== tool.key) {
+      setToolbarToolActive(tool.key)
+      activateSelectedOption(tool.key)
+    }
+  }
+
+  const toolApplyHandlers: Record<string, (tool: StackTool) => void> = {
+    compareSync: toggleToolMenu,
+    layout: toggleToolMenu,
+    mprLayout: toggleToolMenu,
+    reset: () => applyResetTool(),
+    volumeParams: () => {
+      closeMenus()
+      isVolumeConfigPanelOpen.value = !isVolumeConfigPanelOpen.value
+    },
+    mprMip: () => {
+      closeMenus()
+      isMprMipPanelOpen.value = !isMprMipPanelOpen.value
+    },
+    volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
+    rotate: (tool) => applySelectedViewAction(tool, 'rotate'),
+    pseudocolor: (tool) => applySelectedViewAction(tool, 'pseudocolor'),
+    measure: applySelectedModeTool,
+    qa: applySelectedModeTool,
+    play: () => {
+      closeMenus()
+      startPlayback()
+    },
+    tag: () => {
+      closeMenus()
+      const seriesId = getActiveSeriesIdForTab(options.activeTab.value)
+      if (seriesId) {
+        options.emitOpenSeriesView(seriesId, 'Tag')
+      }
+    },
+    export: () => {
+      closeMenus()
+      options.exportCurrentView((stackToolSelections.value.export as ViewerExportFormat | undefined) ?? 'png')
+    }
+  }
+
   function applyTool(tool: StackTool): void {
     if (areToolbarActionsDisabled.value && tool.key !== 'play') {
       return
     }
 
-    if (tool.key === 'compareSync') {
-      setMenuOpen(openMenuKey.value === tool.key ? null : tool.key)
-      return
-    }
-
-    if (tool.key === 'layout' || tool.key === 'mprLayout') {
-      setMenuOpen(openMenuKey.value === tool.key ? null : tool.key)
-      return
-    }
-
-    closeMenus()
     if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
-      options.stopViewportDrag()
-      setToolbarToolActive(tool.key)
-      if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
-        activateSelectedOption(tool.key)
-      } else {
-        options.emitSetActiveOperation(getModeOperationValue(tool.key))
-      }
+      activateModeTool(tool)
       return
     }
 
-    if (tool.key === 'reset') {
-      options.stopViewportDrag()
-      stackToolSelections.value = {
-        ...stackToolSelections.value,
-        reset: 'reset:view'
-      }
-      if (options.activeTab.value?.viewType === '3D') {
-        stackToolSelections.value = {
-          ...stackToolSelections.value,
-          volumePreset: 'volumePreset:aaa'
-        }
-      }
-      options.emitTriggerViewAction({ action: 'reset' })
-      const defaultToolKey = getDefaultToolbarToolKey(options.activeTab.value?.viewType)
-      flashToolActive('reset', defaultToolKey, () => {
-        options.emitSetActiveOperation(getModeOperationValue(defaultToolKey))
-      })
-      return
-    }
-
-    if (tool.key === 'volumeParams') {
-      isVolumeConfigPanelOpen.value = !isVolumeConfigPanelOpen.value
-      return
-    }
-
-    if (tool.key === 'mprMip') {
-      isMprMipPanelOpen.value = !isMprMipPanelOpen.value
-      return
-    }
-
-    if (tool.key === 'volumePreset') {
-      const selectedOption = getSelectedOption(tool.key)
-      if (!selectedOption) {
-        return
-      }
-      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.emitTriggerViewAction({ action: 'volumePreset', value: selectedOption.value })
-      })
-      return
-    }
-
-    if (tool.key === 'rotate') {
-      const selectedOption = getSelectedOption(tool.key)
-      if (!selectedOption) {
-        return
-      }
-      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.emitTriggerViewAction({ action: 'rotate', value: selectedOption.value })
-      })
-      return
-    }
-
-    if (tool.key === 'pseudocolor') {
-      const selectedOption = getSelectedOption(tool.key)
-      if (!selectedOption) {
-        return
-      }
-      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.emitTriggerViewAction({ action: 'pseudocolor', value: selectedOption.value })
-      })
-      return
-    }
-
-    if (tool.key === 'measure' || tool.key === 'qa') {
-      if (!getSelectedOption(tool.key)) {
-        return
-      }
-      if (activeToolbarToolKey.value !== tool.key) {
-        setToolbarToolActive(tool.key)
-        activateSelectedOption(tool.key)
-      }
-      return
-    }
-
-    if (tool.key === 'play') {
-      startPlayback()
-      return
-    }
-
-    if (tool.key === 'tag') {
-      const seriesId = getActiveSeriesIdForTab(options.activeTab.value)
-      if (seriesId) {
-        options.emitOpenSeriesView(seriesId, 'Tag')
-      }
-      return
-    }
-
-    if (tool.key === 'export') {
-      options.exportCurrentView((stackToolSelections.value.export as ViewerExportFormat | undefined) ?? 'png')
-    }
+    toolApplyHandlers[tool.key]?.(tool)
   }
 
   function selectToolOption(tool: StackTool, optionValue: string): void {
@@ -1159,7 +1122,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   watch(
     () => options.activeTab.value?.volumePreset,
     (value) => {
-      if (options.activeTab.value?.viewType !== '3D') {
+      if (options.activeTab.value?.viewType !== '3D' && !isActiveMpr3dLayout.value) {
         return
       }
       stackToolSelections.value = {

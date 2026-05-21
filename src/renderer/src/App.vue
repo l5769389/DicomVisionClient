@@ -8,6 +8,7 @@ import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 import { openExportLocation } from './platform/exporting'
+import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
 
 const viewer = useViewerWorkspace()
@@ -158,7 +159,7 @@ const handleQuickPreviewSelectedSeries = (): void => {
   void viewer.openSeriesView(viewer.selectedSeriesId.value, 'Stack')
 }
 
-const handleLayoutSlotDicomDrop = (payload: { tabKey: string; slotId: string; files: File[] }): void => {
+const handleLayoutSlotDicomDrop = (payload: { tabKey: string; slotId: string; drop: DicomDropInput }): void => {
   isDicomFileDropActive.value = false
   void viewer.handleLayoutSlotDicomDrop(payload)
 }
@@ -270,7 +271,10 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   updateDicomDropPreview(event)
   isDicomFileDropActive.value = false
   const files = Array.from(event.dataTransfer?.files ?? [])
-  void viewer.loadDroppedDicomFiles(files)
+  void viewer.loadDroppedDicomFiles({
+    dataTransfer: event.dataTransfer,
+    files
+  })
 }
 </script>
 

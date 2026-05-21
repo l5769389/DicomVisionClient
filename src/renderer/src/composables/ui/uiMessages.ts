@@ -297,6 +297,9 @@ export interface WorkspaceStatusCopy {
   mtfAnalysisFailed: string
   noUsableSeries: string
   folderLoadFailed: string
+  uploadDicomProgress: string
+  uploadDicomParsing: string
+  uploadDicomComplete: string
   tagLoadFailed: string
   notFourDSeries: string
   fourDMetadataUnavailable: string
@@ -316,6 +319,10 @@ export const uiMessages = {
       loadSample: '加载示例',
       inputPath: '输入路径',
       uploadDicom: '上传 DICOM',
+      uploadFolder: '上传文件夹',
+      uploadFolderHint: '保留目录结构，适合整套检查。',
+      uploadFiles: '上传文件',
+      uploadFilesHint: '选择一个或多个 DICOM 文件。',
       loadFolder: '加载文件夹',
       quickPreview: '快速浏览',
       webSampleHint: 'Web 版本当前会直接加载服务端本地配置的 sample DICOM 目录。',
@@ -635,6 +642,9 @@ export const uiMessages = {
       mtfAnalysisFailed: 'MTF 分析失败',
       noUsableSeries: '所选路径中未找到可用序列。',
       folderLoadFailed: 'DICOM 加载失败。',
+      uploadDicomProgress: '正在上传 DICOM 文件...',
+      uploadDicomParsing: '上传完成，正在解析 DICOM...',
+      uploadDicomComplete: 'DICOM 上传并解析完成。',
       tagLoadFailed: 'DICOM Tag 加载失败。',
       notFourDSeries: '当前序列不是 4D 序列。',
       fourDMetadataUnavailable: '当前序列没有可用的 4D phase 元数据。',
@@ -653,6 +663,10 @@ export const uiMessages = {
       loadSample: 'Load Sample',
       inputPath: 'Input Path',
       uploadDicom: 'Upload DICOM',
+      uploadFolder: 'Upload Folder',
+      uploadFolderHint: 'Preserve folder structure for a full study.',
+      uploadFiles: 'Upload Files',
+      uploadFilesHint: 'Choose one or more DICOM files.',
       loadFolder: 'Load Folder',
       quickPreview: 'Quick Preview',
       webSampleHint: 'The web build currently loads the sample DICOM directory configured on the server.',
@@ -972,6 +986,9 @@ export const uiMessages = {
       mtfAnalysisFailed: 'MTF analysis failed',
       noUsableSeries: 'No usable series were found in the selected path.',
       folderLoadFailed: 'DICOM loading failed.',
+      uploadDicomProgress: 'Uploading DICOM files...',
+      uploadDicomParsing: 'Upload complete. Parsing DICOM files...',
+      uploadDicomComplete: 'DICOM upload and parsing completed.',
       tagLoadFailed: 'DICOM Tag loading failed.',
       notFourDSeries: 'The current series is not a 4D series.',
       fourDMetadataUnavailable: '4D phase metadata is not available for this series.',

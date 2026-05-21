@@ -9,6 +9,7 @@ import SidebarSettingsDialog from './sidebar/SidebarSettingsDialog.vue'
 import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
 import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
+import type { WebUploadPickMode } from '../platform/runtime'
 
 const props = defineProps<{
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
@@ -24,7 +25,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   compareSeries: [sourceSeriesId: string, targetSeriesId: string]
-  chooseFolder: []
+  chooseFolder: [mode?: WebUploadPickMode]
   openView: [viewType: ViewType]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
@@ -95,7 +96,7 @@ function hideSeriesHoverCard(): void {
     <div class="flex h-full flex-col gap-2.5">
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
-        <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder')" @open-view="emit('openView', $event)" />
+        <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
         <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>

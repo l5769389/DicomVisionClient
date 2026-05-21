@@ -39,6 +39,12 @@ export interface DicomUploadItem {
   relativePath: string
 }
 
+export interface DicomUploadProgress {
+  lengthComputable: boolean
+  loaded: number
+  total: number | null
+}
+
 export interface DicomTagModifyArtifact {
   artifactKind: 'dicom' | 'zip'
   data: Uint8Array
@@ -190,7 +196,8 @@ export async function postDicomDeidentifyArtifact(
 
 export async function postDicomUpload(
   files: DicomUploadItem[],
-  config?: AxiosRequestConfig
+  config?: AxiosRequestConfig,
+  onProgress?: (progress: DicomUploadProgress) => void
 ): Promise<LoadFolderResponse> {
   const formData = new FormData()
   for (const item of files) {
@@ -200,7 +207,15 @@ export async function postDicomUpload(
 
   const response = await api.post<LoadFolderResponse>(toApiBaseRelativePath('/api/v1/dicom/upload'), formData, {
     timeout: 0,
-    ...config
+    ...config,
+    onUploadProgress: (event) => {
+      onProgress?.({
+        lengthComputable: event.lengthComputable,
+        loaded: event.loaded,
+        total: typeof event.total === 'number' && Number.isFinite(event.total) ? event.total : null
+      })
+      config?.onUploadProgress?.(event)
+    }
   })
   return response.data
 }

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { VBtn, VCard } from 'vuetify/components'
+import { VBtn, VCard, VMenu } from 'vuetify/components'
 import type { ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import type { WebUploadPickMode } from '../../platform/runtime'
 import folderIcon from '../../assets/dicom-action-icons/open-folder.svg?raw'
 
 type QuickViewAction = {
@@ -21,13 +22,14 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  chooseFolder: []
+  chooseFolder: [mode?: WebUploadPickMode]
   openView: [viewType: ViewType]
 }>()
 
 const { t } = useUiLocale()
 
 const normalizedFolderIcon = computed(() => normalizeIconSvg(folderIcon))
+const isWebUploadMode = computed(() => props.viewerFolderSourceMode === 'web-upload')
 
 const folderActionLabel = computed(() => {
   if (props.viewerFolderSourceMode === 'server-sample') {
@@ -35,6 +37,19 @@ const folderActionLabel = computed(() => {
   }
   return props.viewerPlatform === 'web' ? t('uploadDicom') : t('loadFolder')
 })
+
+const uploadModeActions = computed<{ label: string; hint: string; mode: WebUploadPickMode }[]>(() => [
+  {
+    label: t('uploadFolder'),
+    hint: t('uploadFolderHint'),
+    mode: 'folder'
+  },
+  {
+    label: t('uploadFiles'),
+    hint: t('uploadFilesHint'),
+    mode: 'files'
+  }
+])
 
 const quickViewActions = computed<QuickViewAction[]>(() => [
   {
@@ -83,7 +98,40 @@ function normalizeIconSvg(svg: string): string {
 <template>
   <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
-      <VBtn variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
+      <VMenu
+        v-if="isWebUploadMode"
+        location="bottom start"
+        :offset="8"
+        :close-on-content-click="true"
+        scroll-strategy="reposition"
+      >
+        <template #activator="{ props: menuProps }">
+          <VBtn
+            v-bind="menuProps"
+            variant="flat"
+            class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]"
+            :aria-label="folderActionLabel"
+            :title="folderActionLabel"
+          >
+            <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
+          </VBtn>
+        </template>
+
+        <div class="quick-upload-menu theme-shell-panel min-w-[220px] rounded-2xl border p-2 shadow-[0_22px_46px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl">
+          <button
+            v-for="action in uploadModeActions"
+            :key="action.mode"
+            type="button"
+            class="quick-upload-menu__item w-full rounded-xl border border-transparent px-3 py-2.5 text-left transition"
+            @click="emit('chooseFolder', action.mode)"
+          >
+            <span class="block text-sm font-semibold text-[var(--theme-text-primary)]">{{ action.label }}</span>
+            <span class="mt-0.5 block text-xs leading-5 text-[var(--theme-text-secondary)]">{{ action.hint }}</span>
+          </button>
+        </div>
+      </VMenu>
+
+      <VBtn v-else variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
         <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
       </VBtn>
       <VBtn
@@ -139,6 +187,11 @@ function normalizeIconSvg(svg: string): string {
   border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong)) !important;
   background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface-card-soft)) !important;
   color: color-mix(in srgb, var(--theme-accent) 88%, var(--theme-text-primary)) !important;
+}
+
+.quick-upload-menu__item:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
 }
 
 .quick-action-glyph {

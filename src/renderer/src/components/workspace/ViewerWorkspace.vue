@@ -47,6 +47,7 @@ import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { analyzeWaterPhantomView } from '../../composables/qa/waterPhantomQa'
 import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
+import type { DicomDropInput } from '../../platform/runtime'
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
 import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
 import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
@@ -102,7 +103,7 @@ const emit = defineEmits<{
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
   openLayoutView: [template: ViewerLayoutTemplate]
-  layoutSlotDicomDrop: [payload: { tabKey: string; slotId: string; files: File[] }]
+  layoutSlotDicomDrop: [payload: { tabKey: string; slotId: string; drop: DicomDropInput }]
   layoutSlotSeriesDrop: [payload: { tabKey: string; slotId: string; seriesId: string; folderPath?: string; seriesInstanceUid?: string | null }]
   toggleSidebar: []
   workspaceReady: [payload: WorkspaceReadyPayload]

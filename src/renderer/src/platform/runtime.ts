@@ -3,10 +3,16 @@ import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfi
 type ViewerPlatform = 'desktop' | 'web'
 type WebAppMode = 'demo-web' | 'web'
 type FolderSourceMode = 'desktop-picker' | 'web-upload' | 'server-sample'
+export type WebUploadPickMode = 'files' | 'folder'
 
 export interface DicomUploadItem {
   file: File
   relativePath: string
+}
+
+export interface DicomDropInput {
+  dataTransfer?: DataTransfer | null
+  files: File[]
 }
 
 export type DicomLoadSource =
@@ -17,14 +23,38 @@ export type DicomLoadSource =
 export interface ViewerRuntimeApi {
   canChooseFolder: boolean
   folderSourceMode: FolderSourceMode
-  chooseFolder: () => Promise<DicomLoadSource | null>
+  chooseFolder: (mode?: WebUploadPickMode) => Promise<DicomLoadSource | null>
   getBackendOrigin: () => Promise<string>
   platform: ViewerPlatform
   webAppMode: WebAppMode | null
-  resolveDroppedDicomSources: (files: File[]) => Promise<DicomLoadSource[]>
+  resolveDroppedDicomSources: (drop: DicomDropInput) => Promise<DicomLoadSource[]>
 }
 
 const WEB_FILE_INPUT_ACCEPT = '.dcm,.dicom,application/dicom,*/*'
+
+interface WebFileSystemEntry {
+  fullPath?: string
+  isDirectory: boolean
+  isFile: boolean
+  name: string
+}
+
+interface WebFileSystemFileEntry extends WebFileSystemEntry {
+  file: (successCallback: (file: File) => void, errorCallback?: (error: DOMException) => void) => void
+}
+
+interface WebFileSystemDirectoryEntry extends WebFileSystemEntry {
+  createReader: () => {
+    readEntries: (
+      successCallback: (entries: WebFileSystemEntry[]) => void,
+      errorCallback?: (error: DOMException) => void
+    ) => void
+  }
+}
+
+type DataTransferItemWithEntry = DataTransferItem & {
+  webkitGetAsEntry?: () => unknown
+}
 
 function getTrimmedEnvValue(value: string | undefined): string | null {
   if (!value) {
@@ -69,6 +99,20 @@ function getFileRelativePath(file: File): string {
   return browserRelativePath || file.name || 'dicom-file'
 }
 
+function normalizeRelativeUploadPath(path: string | undefined): string {
+  return (path ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter((part) => part && part !== '.' && part !== '..' && !part.endsWith(':'))
+    .join('/')
+}
+
+function joinUploadPath(...parts: string[]): string {
+  return normalizeRelativeUploadPath(parts.filter(Boolean).join('/'))
+}
+
 function toUploadItems(files: File[]): DicomUploadItem[] {
   return files
     .filter((file) => file && file.size > 0)
@@ -78,9 +122,73 @@ function toUploadItems(files: File[]): DicomUploadItem[] {
     }))
 }
 
-function chooseWebUploadMode(): 'files' | 'folder' | null {
-  const chooseFolder = window.confirm('选择 DICOM 文件夹？\n确定：选择文件夹\n取消：选择一个或多个 DICOM 文件')
-  return chooseFolder ? 'folder' : 'files'
+function readFileSystemFile(entry: WebFileSystemFileEntry, parentPath: string): Promise<DicomUploadItem | null> {
+  return new Promise((resolve) => {
+    entry.file(
+      (file) => {
+        const relativePath = normalizeRelativeUploadPath(entry.fullPath) || joinUploadPath(parentPath, entry.name || file.name)
+        resolve(file.size > 0 ? { file, relativePath: relativePath || file.name || 'dicom-file' } : null)
+      },
+      () => resolve(null)
+    )
+  })
+}
+
+async function readAllDirectoryEntries(entry: WebFileSystemDirectoryEntry): Promise<WebFileSystemEntry[]> {
+  const reader = entry.createReader()
+  const entries: WebFileSystemEntry[] = []
+
+  while (true) {
+    const batch = await new Promise<WebFileSystemEntry[]>((resolve) => {
+      reader.readEntries(resolve, () => resolve([]))
+    })
+    if (!batch.length) {
+      break
+    }
+    entries.push(...batch)
+  }
+
+  return entries
+}
+
+async function readFileSystemEntry(entry: WebFileSystemEntry, parentPath = ''): Promise<DicomUploadItem[]> {
+  if (entry.isFile) {
+    const item = await readFileSystemFile(entry as WebFileSystemFileEntry, parentPath)
+    return item ? [item] : []
+  }
+
+  if (!entry.isDirectory) {
+    return []
+  }
+
+  const directoryEntry = entry as WebFileSystemDirectoryEntry
+  const directoryPath = normalizeRelativeUploadPath(directoryEntry.fullPath) || joinUploadPath(parentPath, directoryEntry.name)
+  const childEntries = await readAllDirectoryEntries(directoryEntry)
+  const nestedItems = await Promise.all(childEntries.map((childEntry) => readFileSystemEntry(childEntry, directoryPath)))
+  return nestedItems.flat()
+}
+
+function getDroppedFileSystemEntries(dataTransfer: DataTransfer | null | undefined): WebFileSystemEntry[] {
+  const entries: WebFileSystemEntry[] = []
+  for (const item of Array.from(dataTransfer?.items ?? [])) {
+    const entry = (item as DataTransferItemWithEntry).webkitGetAsEntry?.()
+    if (entry) {
+      entries.push(entry as WebFileSystemEntry)
+    }
+  }
+  return entries
+}
+
+async function resolveWebDroppedUploadItems(drop: DicomDropInput): Promise<DicomUploadItem[]> {
+  const entries = getDroppedFileSystemEntries(drop.dataTransfer)
+  if (entries.length) {
+    const uploadItems = (await Promise.all(entries.map((entry) => readFileSystemEntry(entry)))).flat()
+    if (uploadItems.length) {
+      return uploadItems
+    }
+  }
+
+  return toUploadItems(drop.files)
 }
 
 function pickFilesFromBrowser(options: { directory: boolean }): Promise<DicomUploadItem[] | null> {
@@ -116,8 +224,7 @@ function pickFilesFromBrowser(options: { directory: boolean }): Promise<DicomUpl
   })
 }
 
-async function chooseWebUploadFiles(): Promise<DicomLoadSource | null> {
-  const mode = chooseWebUploadMode()
+async function chooseWebUploadFiles(mode: WebUploadPickMode = 'folder'): Promise<DicomLoadSource | null> {
   if (!mode) {
     return null
   }
@@ -138,14 +245,14 @@ function createDesktopRuntime(): ViewerRuntimeApi {
     },
     getBackendOrigin: () =>
       window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN),
-    resolveDroppedDicomSources: async (files) => {
+    resolveDroppedDicomSources: async (drop) => {
       const api = window.viewerApi
       if (!api) {
         return []
       }
 
       const preloadCapturedPaths = api.consumeLatestDroppedFilePaths()
-      const fallbackFilePaths = files.flatMap((file) => {
+      const fallbackFilePaths = drop.files.flatMap((file) => {
         try {
           const path = api.getPathForFile(file).trim()
           return path ? [path] : []
@@ -168,16 +275,16 @@ function createWebRuntime(): ViewerRuntimeApi {
     webAppMode,
     canChooseFolder: true,
     folderSourceMode: useServerSample ? 'server-sample' : 'web-upload',
-    chooseFolder: async () => {
+    chooseFolder: async (mode) => {
       if (useServerSample) {
         return { kind: 'server-sample' }
       }
 
-      return chooseWebUploadFiles()
+      return chooseWebUploadFiles(mode)
     },
     getBackendOrigin: async () => resolveWebBackendOrigin(),
-    resolveDroppedDicomSources: async (files) => {
-      const uploadItems = toUploadItems(files)
+    resolveDroppedDicomSources: async (drop) => {
+      const uploadItems = await resolveWebDroppedUploadItems(drop)
       return uploadItems.length ? [{ kind: 'files', files: uploadItems }] : []
     }
   }

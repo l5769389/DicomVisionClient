@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import { SERIES_DRAG_PAYLOAD_TYPE, SERIES_DRAG_TYPE, type SeriesDragPayload } from '../../../constants/dragDrop'
+import type { DicomDropInput } from '../../../platform/runtime'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -36,7 +37,7 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
-  slotDicomDrop: [payload: { tabKey: string; slotId: string; files: File[] }]
+  slotDicomDrop: [payload: { tabKey: string; slotId: string; drop: DicomDropInput }]
   slotSeriesDrop: [payload: { tabKey: string; slotId: string; seriesId: string; folderPath?: string; seriesInstanceUid?: string | null }]
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
@@ -288,7 +289,10 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
   emit('slotDicomDrop', {
     tabKey: props.activeTab.key,
     slotId: slot.id,
-    files
+    drop: {
+      dataTransfer: event.dataTransfer,
+      files
+    }
   })
 }
 </script>

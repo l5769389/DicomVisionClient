@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { postApi, postDicomUpload } from '../../../services/typedApi'
+import { postApi, postDicomUpload, type DicomUploadProgress } from '../../../services/typedApi'
 import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
@@ -53,7 +53,7 @@ import {
   findMatchingHangingProtocolRule
 } from '../layout/hangingProtocolRules'
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
-import { viewerRuntime, type DicomLoadSource } from '../../../platform/runtime'
+import { viewerRuntime, type DicomDropInput, type DicomLoadSource, type WebUploadPickMode } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -97,7 +97,7 @@ interface ViewerWorkspaceState {
   activeTab: ComputedRef<ViewerTabItem | null>
   activeTabKey: Ref<string>
   activateTab: (tabKey: string) => void
-  chooseFolder: () => Promise<void>
+  chooseFolder: (mode?: WebUploadPickMode) => Promise<void>
   closeTab: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
   hasSelectedSeries: ComputedRef<boolean>
@@ -135,7 +135,7 @@ interface ViewerWorkspaceState {
   handleFourDPlaybackChange: (payload: { tabKey: string; isPlaying: boolean }) => void
   handleCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   handleViewportLayoutChange: (payload?: { layoutKey?: MprLayoutKey | null }) => Promise<void>
-  handleLayoutSlotDicomDrop: (payload: { tabKey: string; slotId: string; files: File[] }) => Promise<void>
+  handleLayoutSlotDicomDrop: (payload: { tabKey: string; slotId: string; drop: DicomDropInput }) => Promise<void>
   handleLayoutSlotSeriesDrop: (payload: {
     tabKey: string
     slotId: string
@@ -147,7 +147,7 @@ interface ViewerWorkspaceState {
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
-  loadDroppedDicomFiles: (files: File[]) => Promise<void>
+  loadDroppedDicomFiles: (drop: DicomDropInput) => Promise<void>
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
   openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
@@ -199,6 +199,12 @@ interface WorkspaceStatusToastOptions {
 
 interface LoadFolderSeriesOptions {
   selectLoadedSeries?: boolean
+}
+
+interface DicomUploadToastProgress {
+  loaded: number
+  total: number
+  percent: number | null
 }
 
 export function useViewerWorkspace(): ViewerWorkspaceState {
@@ -317,6 +323,52 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const fallbackMessage = workspaceStatusCopy.value.folderLoadFailed
     const detail = resolveBackendErrorDetail(error)
     return detail ? `${fallbackMessage} ${detail}` : fallbackMessage
+  }
+
+  function formatUploadBytes(value: number): string {
+    const safeValue = Math.max(0, Number.isFinite(value) ? value : 0)
+    const units = ['B', 'KB', 'MB', 'GB']
+    let nextValue = safeValue
+    let unitIndex = 0
+    while (nextValue >= 1024 && unitIndex < units.length - 1) {
+      nextValue /= 1024
+      unitIndex += 1
+    }
+    const fractionDigits = unitIndex === 0 || nextValue >= 100 ? 0 : 1
+    return `${nextValue.toFixed(fractionDigits)} ${units[unitIndex]}`
+  }
+
+  function getUploadSourceTotalBytes(source: DicomLoadSource): number {
+    if (source.kind !== 'files') {
+      return 0
+    }
+    return source.files.reduce((total, item) => total + Math.max(0, item.file.size || 0), 0)
+  }
+
+  function normalizeUploadProgress(progress: DicomUploadProgress, fallbackTotal: number): DicomUploadToastProgress {
+    const loaded = Math.max(0, progress.loaded || 0)
+    const total = Math.max(0, progress.total ?? fallbackTotal)
+    return {
+      loaded,
+      total,
+      percent: total > 0 ? Math.max(0, Math.min(100, Math.round((loaded / total) * 100))) : null
+    }
+  }
+
+  function showDicomUploadToast(progress: DicomUploadToastProgress): void {
+    const isUploadComplete = progress.percent != null && progress.percent >= 100
+    showStatusToast(
+      isUploadComplete ? workspaceStatusCopy.value.uploadDicomParsing : workspaceStatusCopy.value.uploadDicomProgress,
+      'info',
+      {
+        busy: true,
+        progressPercent: progress.percent,
+        progressLabel: progress.total > 0
+          ? `${formatUploadBytes(progress.loaded)} / ${formatUploadBytes(progress.total)}`
+          : formatUploadBytes(progress.loaded),
+        durationMs: 0
+      }
+    )
   }
 
   function getActiveViewIdForTab(tab: ViewerTabItem, viewportKey = activeViewportKey.value): string {
@@ -1949,8 +2001,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return !selectedSeriesId.value
   }
 
-  async function chooseFolder(): Promise<void> {
-    const source = await viewerRuntime.chooseFolder()
+  async function chooseFolder(mode?: WebUploadPickMode): Promise<void> {
+    const source = await viewerRuntime.chooseFolder(mode)
     if (!source) {
       return
     }
@@ -1958,8 +2010,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await loadDicomSource(source, { selectLoadedSeries: shouldAutoSelectLoadedSeries() })
   }
 
-  async function loadDroppedDicomFiles(files: File[]): Promise<void> {
-    const sources = await viewerRuntime.resolveDroppedDicomSources(files)
+  async function loadDroppedDicomFiles(drop: DicomDropInput): Promise<void> {
+    const sources = await viewerRuntime.resolveDroppedDicomSources(drop)
     if (!sources.length) {
       message.value = ''
       showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
@@ -1975,8 +2027,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
-  async function handleLayoutSlotDicomDrop(payload: { tabKey: string; slotId: string; files: File[] }): Promise<void> {
-    const sources = await viewerRuntime.resolveDroppedDicomSources(payload.files)
+  async function handleLayoutSlotDicomDrop(payload: { tabKey: string; slotId: string; drop: DicomDropInput }): Promise<void> {
+    const sources = await viewerRuntime.resolveDroppedDicomSources(payload.drop)
     if (!sources.length) {
       message.value = ''
       showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
@@ -2048,10 +2100,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   async function loadDicomSource(source: DicomLoadSource, options: LoadFolderSeriesOptions = {}): Promise<FolderSeriesItem[]> {
     const { selectLoadedSeries = true } = options
     const request = folderLoadRequestGuard.start()
+    const uploadTotalBytes = getUploadSourceTotalBytes(source)
     isLoadingFolder.value = true
 
     try {
-      const data = await loadDicomSourceData(source, request.signal)
+      if (source.kind === 'files') {
+        showDicomUploadToast({ loaded: 0, total: uploadTotalBytes, percent: uploadTotalBytes > 0 ? 0 : null })
+      }
+
+      const data = await loadDicomSourceData(source, request.signal, (progress) => {
+        if (!folderLoadRequestGuard.isCurrent(request.token)) {
+          return
+        }
+        showDicomUploadToast(normalizeUploadProgress(progress, uploadTotalBytes))
+      })
 
       if (!folderLoadRequestGuard.isCurrent(request.token)) {
         return []
@@ -2075,6 +2137,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         views.selectSeries(nextSeriesId)
       }
 
+      if (source.kind === 'files') {
+        showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
+          progressPercent: 100,
+          progressLabel: `${loadedSeries.length} series`,
+          durationMs: 3600
+        })
+      }
+
       message.value = ''
       return loadedSeries
     } catch (error) {
@@ -2093,13 +2163,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
-  async function loadDicomSourceData(source: DicomLoadSource, signal: AbortSignal) {
+  async function loadDicomSourceData(
+    source: DicomLoadSource,
+    signal: AbortSignal,
+    onUploadProgress?: (progress: DicomUploadProgress) => void
+  ) {
     if (source.kind === 'server-sample') {
       return postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined, { signal })
     }
 
     if (source.kind === 'files') {
-      return postDicomUpload(source.files, { signal })
+      return postDicomUpload(source.files, { signal }, onUploadProgress)
     }
 
     return postApi(

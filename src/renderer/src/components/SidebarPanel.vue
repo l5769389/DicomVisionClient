@@ -11,7 +11,7 @@ import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
 
 const props = defineProps<{
-  viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
+  viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   connectionState: ConnectionState
   hasSelectedSeries: boolean

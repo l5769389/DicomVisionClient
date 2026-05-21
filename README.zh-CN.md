@@ -173,7 +173,7 @@ npm run preview:web
 
 ```env
 VITE_BACKEND_ORIGIN=https://your-backend.example.com
-VITE_WEB_USE_SERVER_SAMPLE=true
+VITE_WEB_APP_MODE=web
 ```
 
 部署说明：
@@ -181,7 +181,7 @@ VITE_WEB_USE_SERVER_SAMPLE=true
 - 将 `DicomVisionServer` 部署为 HTTP + Socket.IO 后端；服务端仓库内已有面向 Render 的配置。
 - 将客户端 `dist-web/` 目录部署到 Vercel、静态托管或其它支持 SPA 的平台。
 - 将 Web 前端域名加入服务端 `CORS_ORIGINS`。
-- 当 `VITE_WEB_USE_SERVER_SAMPLE=true` 时，Web 客户端会调用服务端示例数据接口，而不是提示输入本地文件系统路径。
+- 使用 `VITE_WEB_APP_MODE=web` 启用浏览器文件 / 文件夹上传；使用 `VITE_WEB_APP_MODE=demo-web` 启用公开演示版并加载后端 sample 数据。
 
 ## 桌面端打包
 

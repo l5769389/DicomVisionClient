@@ -174,7 +174,7 @@ Production web variables:
 
 ```env
 VITE_BACKEND_ORIGIN=https://your-backend.example.com
-VITE_WEB_USE_SERVER_SAMPLE=true
+VITE_WEB_APP_MODE=web
 ```
 
 Deployment notes:
@@ -182,7 +182,7 @@ Deployment notes:
 - Deploy `DicomVisionServer` as an HTTP + Socket.IO backend. The server repository includes Render-oriented configuration.
 - Deploy the client web build output from `dist-web/` to Vercel, static hosting, or any SPA-compatible host.
 - Add the web frontend origin to the backend `CORS_ORIGINS`.
-- When `VITE_WEB_USE_SERVER_SAMPLE=true`, the web client uses the backend sample loading endpoint instead of asking for a local filesystem path.
+- Use `VITE_WEB_APP_MODE=web` for browser file/folder upload. Use `VITE_WEB_APP_MODE=demo-web` for the public demo that loads backend sample data.
 
 ## Desktop Packaging
 

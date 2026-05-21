@@ -16,7 +16,7 @@ type QuickViewAction = {
 const props = defineProps<{
   hasSelectedSeries: boolean
   isSelectedSeriesFourD: boolean
-  viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
+  viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
 }>()
 
@@ -33,7 +33,7 @@ const folderActionLabel = computed(() => {
   if (props.viewerFolderSourceMode === 'server-sample') {
     return t('loadSample')
   }
-  return props.viewerPlatform === 'web' ? t('inputPath') : t('loadFolder')
+  return props.viewerPlatform === 'web' ? t('uploadDicom') : t('loadFolder')
 })
 
 const quickViewActions = computed<QuickViewAction[]>(() => [
@@ -106,7 +106,7 @@ function normalizeIconSvg(svg: string): string {
       {{
         viewerFolderSourceMode === 'server-sample'
           ? t('webSampleHint')
-          : t('webPathHint')
+          : t('webUploadHint')
       }}
     </div>
   </VCard>

@@ -31,7 +31,13 @@ type OperationRequest<K extends SupportedOperationKey> = ApiOperations[K]['reque
 type OperationResponse<K extends SupportedOperationKey> = ApiOperations[K]['response']
 type DicomDeidentifyRequest = ApiOperations['DeidentifyDicomSeriesApiV1DicomDeidentifyPost']['request']
 type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPost']['request']
+type LoadFolderResponse = ApiOperations['LoadFolderApiV1DicomLoadFolderPost']['response']
 type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+
+export interface DicomUploadItem {
+  file: File
+  relativePath: string
+}
 
 export interface DicomTagModifyArtifact {
   artifactKind: 'dicom' | 'zip'
@@ -180,6 +186,23 @@ export async function postDicomDeidentifyArtifact(
     dicomFileName: 'dicom-deidentified.dcm',
     zipFileName: 'dicom-deidentified.zip'
   })
+}
+
+export async function postDicomUpload(
+  files: DicomUploadItem[],
+  config?: AxiosRequestConfig
+): Promise<LoadFolderResponse> {
+  const formData = new FormData()
+  for (const item of files) {
+    formData.append('files', item.file, item.relativePath || item.file.name || 'dicom-file')
+    formData.append('relativePaths', item.relativePath || item.file.name || 'dicom-file')
+  }
+
+  const response = await api.post<LoadFolderResponse>(toApiBaseRelativePath('/api/v1/dicom/upload'), formData, {
+    timeout: 0,
+    ...config
+  })
+  return response.data
 }
 
 export async function postDicomDeidentifyJob(

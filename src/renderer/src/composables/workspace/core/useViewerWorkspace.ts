@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { postApi } from '../../../services/typedApi'
+import { postApi, postDicomUpload } from '../../../services/typedApi'
 import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
@@ -53,7 +53,7 @@ import {
   findMatchingHangingProtocolRule
 } from '../layout/hangingProtocolRules'
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
-import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
+import { viewerRuntime, type DicomLoadSource } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -165,7 +165,7 @@ interface ViewerWorkspaceState {
   showStatusToast: (messageText: string, tone?: WorkspaceStatusToastTone, options?: WorkspaceStatusToastOptions) => void
   toggleSidebar: () => void
   triggerViewAction: (payload: ViewerToolbarActionPayload) => void
-  viewerFolderSourceMode: 'desktop-picker' | 'web-prompt' | 'server-sample'
+  viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
   viewerTabs: Ref<ViewerTabItem[]>
@@ -1950,25 +1950,25 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function chooseFolder(): Promise<void> {
-    const picked = await viewerRuntime.chooseFolder()
-    if (!picked) {
+    const source = await viewerRuntime.chooseFolder()
+    if (!source) {
       return
     }
 
-    await loadFolderSeries(picked, { selectLoadedSeries: shouldAutoSelectLoadedSeries() })
+    await loadDicomSource(source, { selectLoadedSeries: shouldAutoSelectLoadedSeries() })
   }
 
   async function loadDroppedDicomFiles(files: File[]): Promise<void> {
-    const scanPaths = await viewerRuntime.resolveDroppedFileScanPaths(files)
-    if (!scanPaths.length) {
+    const sources = await viewerRuntime.resolveDroppedDicomSources(files)
+    if (!sources.length) {
       message.value = ''
       showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
       return
     }
 
     let shouldSelectLoadedSeries = shouldAutoSelectLoadedSeries()
-    for (const path of scanPaths) {
-      const loadedSeries = await loadFolderSeries(path, { selectLoadedSeries: shouldSelectLoadedSeries })
+    for (const source of sources) {
+      const loadedSeries = await loadDicomSource(source, { selectLoadedSeries: shouldSelectLoadedSeries })
       if (loadedSeries.length && shouldSelectLoadedSeries) {
         shouldSelectLoadedSeries = false
       }
@@ -1976,15 +1976,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function handleLayoutSlotDicomDrop(payload: { tabKey: string; slotId: string; files: File[] }): Promise<void> {
-    const scanPaths = await viewerRuntime.resolveDroppedFileScanPaths(payload.files)
-    if (!scanPaths.length) {
+    const sources = await viewerRuntime.resolveDroppedDicomSources(payload.files)
+    if (!sources.length) {
       message.value = ''
       showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
       return
     }
 
-    for (const path of scanPaths) {
-      const loadedSeries = await loadFolderSeries(path, { selectLoadedSeries: false })
+    for (const source of sources) {
+      const loadedSeries = await loadDicomSource(source, { selectLoadedSeries: false })
       const nextSeries = loadedSeries[0] ?? null
       if (!nextSeries) {
         continue
@@ -2045,24 +2045,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     showStatusToast('Layout slot loaded', 'success')
   }
 
-  async function loadFolderSeries(path: string, options: LoadFolderSeriesOptions = {}): Promise<FolderSeriesItem[]> {
+  async function loadDicomSource(source: DicomLoadSource, options: LoadFolderSeriesOptions = {}): Promise<FolderSeriesItem[]> {
     const { selectLoadedSeries = true } = options
     const request = folderLoadRequestGuard.start()
     isLoadingFolder.value = true
 
     try {
-      const data =
-        path === WEB_SAMPLE_FOLDER_SENTINEL
-          ? await postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined, { signal: request.signal })
-          : await postApi(
-              'LoadFolderApiV1DicomLoadFolderPost',
-              {
-                folderPath: path
-              },
-              {
-                signal: request.signal
-              }
-            )
+      const data = await loadDicomSourceData(source, request.signal)
 
       if (!folderLoadRequestGuard.isCurrent(request.token)) {
         return []
@@ -2102,6 +2091,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         folderLoadRequestGuard.finish(request.token)
       }
     }
+  }
+
+  async function loadDicomSourceData(source: DicomLoadSource, signal: AbortSignal) {
+    if (source.kind === 'server-sample') {
+      return postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined, { signal })
+    }
+
+    if (source.kind === 'files') {
+      return postDicomUpload(source.files, { signal })
+    }
+
+    return postApi(
+      'LoadFolderApiV1DicomLoadFolderPost',
+      {
+        folderPath: source.path
+      },
+      {
+        signal
+      }
+    )
   }
 
   function setupResizeObserver(): void {

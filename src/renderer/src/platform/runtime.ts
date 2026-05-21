@@ -1,18 +1,30 @@
 import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
 
 type ViewerPlatform = 'desktop' | 'web'
-type FolderSourceMode = 'desktop-picker' | 'web-prompt' | 'server-sample'
+type WebAppMode = 'demo-web' | 'web'
+type FolderSourceMode = 'desktop-picker' | 'web-upload' | 'server-sample'
+
+export interface DicomUploadItem {
+  file: File
+  relativePath: string
+}
+
+export type DicomLoadSource =
+  | { kind: 'path'; path: string }
+  | { kind: 'server-sample' }
+  | { kind: 'files'; files: DicomUploadItem[] }
 
 export interface ViewerRuntimeApi {
   canChooseFolder: boolean
   folderSourceMode: FolderSourceMode
-  chooseFolder: () => Promise<string | null>
+  chooseFolder: () => Promise<DicomLoadSource | null>
   getBackendOrigin: () => Promise<string>
   platform: ViewerPlatform
-  resolveDroppedFileScanPaths: (files: File[]) => Promise<string[]>
+  webAppMode: WebAppMode | null
+  resolveDroppedDicomSources: (files: File[]) => Promise<DicomLoadSource[]>
 }
 
-const WEB_SAMPLE_FOLDER_SENTINEL = '__server_sample__'
+const WEB_FILE_INPUT_ACCEPT = '.dcm,.dicom,application/dicom,*/*'
 
 function getTrimmedEnvValue(value: string | undefined): string | null {
   if (!value) {
@@ -28,6 +40,11 @@ function normalizeOrigin(origin: string): string {
 }
 
 function resolveWebBackendOrigin(): string {
+  const configuredOrigin = getTrimmedEnvValue(import.meta.env.VITE_BACKEND_ORIGIN)
+  if (configuredOrigin) {
+    return normalizeOrigin(configuredOrigin)
+  }
+
   if (import.meta.env.DEV) {
     return APP_BACKEND_CONFIG.web.devOrigin
   }
@@ -35,23 +52,93 @@ function resolveWebBackendOrigin(): string {
   return APP_BACKEND_CONFIG.web.prodOrigin
 }
 
-function resolveWebFolderPrompt(): string {
-  return getTrimmedEnvValue(import.meta.env.VITE_WEB_FOLDER_PROMPT) ?? '请输入服务端可访问的 DICOM 文件夹路径'
+function resolveWebAppMode(): WebAppMode {
+  const explicitMode = getTrimmedEnvValue(import.meta.env.VITE_WEB_APP_MODE)?.toLowerCase()
+  if (explicitMode === 'demo-web' || explicitMode === 'web') {
+    return explicitMode
+  }
+
+  // Backward-compatible Vercel/demo switch. New deployments should prefer
+  // VITE_WEB_APP_MODE=demo-web or VITE_WEB_APP_MODE=web.
+  const useServerSample = getTrimmedEnvValue(import.meta.env.VITE_WEB_USE_SERVER_SAMPLE)?.toLowerCase() === 'true'
+  return useServerSample ? 'demo-web' : 'web'
 }
 
-function shouldUseServerSample(): boolean {
-  return getTrimmedEnvValue(import.meta.env.VITE_WEB_USE_SERVER_SAMPLE)?.toLowerCase() === 'true'
+function getFileRelativePath(file: File): string {
+  const browserRelativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim()
+  return browserRelativePath || file.name || 'dicom-file'
+}
+
+function toUploadItems(files: File[]): DicomUploadItem[] {
+  return files
+    .filter((file) => file && file.size > 0)
+    .map((file) => ({
+      file,
+      relativePath: getFileRelativePath(file)
+    }))
+}
+
+function chooseWebUploadMode(): 'files' | 'folder' | null {
+  const chooseFolder = window.confirm('选择 DICOM 文件夹？\n确定：选择文件夹\n取消：选择一个或多个 DICOM 文件')
+  return chooseFolder ? 'folder' : 'files'
+}
+
+function pickFilesFromBrowser(options: { directory: boolean }): Promise<DicomUploadItem[] | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = WEB_FILE_INPUT_ACCEPT
+    input.multiple = true
+    input.style.position = 'fixed'
+    input.style.left = '-9999px'
+    input.style.opacity = '0'
+    if (options.directory) {
+      input.setAttribute('webkitdirectory', '')
+      input.setAttribute('directory', '')
+    }
+
+    const cleanup = (): void => {
+      input.remove()
+    }
+
+    input.addEventListener(
+      'change',
+      () => {
+        const items = toUploadItems(Array.from(input.files ?? []))
+        cleanup()
+        resolve(items.length ? items : null)
+      },
+      { once: true }
+    )
+
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+async function chooseWebUploadFiles(): Promise<DicomLoadSource | null> {
+  const mode = chooseWebUploadMode()
+  if (!mode) {
+    return null
+  }
+
+  const files = await pickFilesFromBrowser({ directory: mode === 'folder' })
+  return files?.length ? { kind: 'files', files } : null
 }
 
 function createDesktopRuntime(): ViewerRuntimeApi {
   return {
     platform: 'desktop',
+    webAppMode: null,
     canChooseFolder: true,
     folderSourceMode: 'desktop-picker',
-    chooseFolder: () => window.viewerApi?.chooseFolder?.() ?? Promise.resolve(null),
+    chooseFolder: async () => {
+      const path = await (window.viewerApi?.chooseFolder?.() ?? Promise.resolve(null))
+      return path ? { kind: 'path', path } : null
+    },
     getBackendOrigin: () =>
       window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN),
-    resolveDroppedFileScanPaths: async (files) => {
+    resolveDroppedDicomSources: async (files) => {
       const api = window.viewerApi
       if (!api) {
         return []
@@ -66,33 +153,35 @@ function createDesktopRuntime(): ViewerRuntimeApi {
           return []
         }
       })
-      return api.normalizeDroppedPaths(preloadCapturedPaths.length ? preloadCapturedPaths : fallbackFilePaths)
+      const scanPaths = await api.normalizeDroppedPaths(preloadCapturedPaths.length ? preloadCapturedPaths : fallbackFilePaths)
+      return scanPaths.map((path) => ({ kind: 'path', path }))
     }
   }
 }
 
 function createWebRuntime(): ViewerRuntimeApi {
-  const useServerSample = shouldUseServerSample()
+  const webAppMode = resolveWebAppMode()
+  const useServerSample = webAppMode === 'demo-web'
 
   return {
     platform: 'web',
+    webAppMode,
     canChooseFolder: true,
-    folderSourceMode: useServerSample ? 'server-sample' : 'web-prompt',
+    folderSourceMode: useServerSample ? 'server-sample' : 'web-upload',
     chooseFolder: async () => {
       if (useServerSample) {
-        return WEB_SAMPLE_FOLDER_SENTINEL
+        return { kind: 'server-sample' }
       }
 
-      const enteredPath = window.prompt(resolveWebFolderPrompt(), '')
-      const trimmedPath = enteredPath?.trim() ?? ''
-      return trimmedPath.length ? trimmedPath : null
+      return chooseWebUploadFiles()
     },
     getBackendOrigin: async () => resolveWebBackendOrigin(),
-    resolveDroppedFileScanPaths: async () => []
+    resolveDroppedDicomSources: async (files) => {
+      const uploadItems = toUploadItems(files)
+      return uploadItems.length ? [{ kind: 'files', files: uploadItems }] : []
+    }
   }
 }
 
 export const viewerRuntime: ViewerRuntimeApi =
   typeof window !== 'undefined' && window.viewerApi ? createDesktopRuntime() : createWebRuntime()
-
-export { WEB_SAMPLE_FOLDER_SENTINEL }

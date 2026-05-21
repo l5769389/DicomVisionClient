@@ -3,6 +3,11 @@
 //   uv run python scripts/generate_openapi_types.py --output ../DicomVisionClient/src/shared/generated/backendApi.ts
 
 
+export interface Body_upload_dicom_files_api_v1_dicom_upload_post {
+  files: string[]
+  relativePaths?: string[] | null
+}
+
 export interface CornerInfoPayload {
   topLeft?: string[]
   topRight?: string[]
@@ -529,6 +534,7 @@ export interface ApiOperations {
   GetModifyDicomTagJobArtifactApiV1DicomModifyTagJobsJobIdArtifactGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}/artifact'; request: never; response: unknown }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
   GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }
+  UploadDicomFilesApiV1DicomUploadPost: { method: 'POST'; path: '/api/v1/dicom/upload'; request: never; response: LoadFolderResponse }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }
   CreateViewApiV1ViewCreatePost: { method: 'POST'; path: '/api/v1/view/create'; request: ViewCreateRequest; response: ViewCreateResponse }
   ExportViewApiV1ViewExportPost: { method: 'POST'; path: '/api/v1/view/export'; request: ViewExportRequest; response: unknown }

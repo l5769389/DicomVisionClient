@@ -40,6 +40,8 @@ const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d'
 const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate'])
 const DEFAULT_QA_OPERATION = 'qa:mtf'
 const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
+const STACK_PLAYBACK_DEFAULT_FPS = 5
+const STACK_PLAYBACK_FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
 
 const measureTool: StackTool = {
   key: 'measure',
@@ -146,6 +148,19 @@ const exportTool: StackTool = {
   ]
 }
 
+const playTool: StackTool = {
+  key: 'play',
+  label: 'Play',
+  icon: 'play',
+  kind: 'action',
+  showSelectedOptionIcon: false,
+  options: STACK_PLAYBACK_FPS_OPTIONS.map((fps) => ({
+    value: `playbackFps:${fps}`,
+    label: `FPS ${fps}`,
+    icon: 'play'
+  }))
+}
+
 const stackTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -164,7 +179,7 @@ const stackTools: StackTool[] = [
     ]
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
-  { key: 'play', label: 'Play', icon: 'play', kind: 'action' },
+  playTool,
   pseudocolorTool,
   { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
   measureTool,
@@ -336,6 +351,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     measure: 'measure:line',
     annotate: 'annotate:arrow',
     qa: DEFAULT_QA_OPERATION,
+    play: `playbackFps:${STACK_PLAYBACK_DEFAULT_FPS}`,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     export: 'png',
     volumePreset: 'volumePreset:aaa',
@@ -354,6 +370,27 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function formatWindowPresetValue(ww: number, wl: number): string {
     return `${ww}|${wl}`
+  }
+
+  function clampStackPlaybackFps(value: number | null | undefined): number {
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue)) {
+      return STACK_PLAYBACK_DEFAULT_FPS
+    }
+    return Math.max(1, Math.min(30, Math.trunc(numericValue)))
+  }
+
+  function parseStackPlaybackFps(value: string | null | undefined): number {
+    const match = String(value ?? '').match(/^playbackFps:(\d+)$/)
+    return clampStackPlaybackFps(match ? Number(match[1]) : STACK_PLAYBACK_DEFAULT_FPS)
+  }
+
+  function getStackPlaybackFps(): number {
+    return parseStackPlaybackFps(stackToolSelections.value.play)
+  }
+
+  function getStackPlaybackIntervalMs(): number {
+    return Math.max(33, Math.round(1000 / getStackPlaybackFps()))
   }
 
   const isPlaying = computed(() => playbackSnapshot.value.matches('playing'))
@@ -642,6 +679,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     playbackController.stop()
   }
 
+  function startPlaybackTimer(): void {
+    if (playbackTimer != null) {
+      window.clearInterval(playbackTimer)
+    }
+    playbackTimer = window.setInterval(() => {
+      tickPlayback()
+    }, getStackPlaybackIntervalMs())
+  }
+
+  function restartPlaybackTimerIfActive(): void {
+    if (!isPlaying.value) {
+      return
+    }
+    startPlaybackTimer()
+  }
+
   function getCurrentStackSliceInfo(): { current: number; total: number } | null {
     const activeTab = options.activeTab.value
     if (!activeTab || !supportsStackPlayback(activeTab.viewType)) {
@@ -697,15 +750,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (playbackTimer != null) {
-      window.clearInterval(playbackTimer)
-      playbackTimer = null
-    }
     closeMenus()
     playbackController.start()
-    playbackTimer = window.setInterval(() => {
-      tickPlayback()
-    }, 180)
+    startPlaybackTimer()
   }
 
   function resumePlayback(): void {
@@ -718,15 +765,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (playbackTimer != null) {
-      window.clearInterval(playbackTimer)
-      playbackTimer = null
-    }
     closeMenus()
     playbackController.resume()
-    playbackTimer = window.setInterval(() => {
-      tickPlayback()
-    }, 180)
+    startPlaybackTimer()
   }
 
   function pausePlayback(): void {
@@ -908,6 +949,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         key: selectedOption.syncKey,
         value: !selectedOption.checked
       })
+      return
+    }
+
+    if (tool.key === 'play') {
+      const fps = parseStackPlaybackFps(optionValue)
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        play: `playbackFps:${fps}`
+      }
+      closeMenus()
+      restartPlaybackTimerIfActive()
       return
     }
 

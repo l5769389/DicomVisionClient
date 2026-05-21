@@ -4,17 +4,52 @@ import { VApp, VMain } from 'vuetify/components'
 import AppIcon from './components/AppIcon.vue'
 import SidebarPanel from './components/SidebarPanel.vue'
 import ViewerWorkspace from './components/workspace/ViewerWorkspace.vue'
+import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
+import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 import { openExportLocation } from './platform/exporting'
 import { isFourDSeriesItem } from './types/viewer'
 
 const viewer = useViewerWorkspace()
 type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
+type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
+
 const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
 const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' && Boolean(window.viewerApi))
 const isDicomFileDropActive = ref(false)
+const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
+const dicomDropPreviewIcon = computed(() =>
+  normalizeDropIconSvg(dicomDropPreviewKind.value === 'folder' ? folderIcon : dicomFileIcon)
+)
+const dicomDropPreviewEyebrow = computed(() => {
+  if (dicomDropPreviewKind.value === 'folder') {
+    return 'DICOM Folder'
+  }
+  if (dicomDropPreviewKind.value === 'mixed') {
+    return 'DICOM Import'
+  }
+  return 'DICOM File'
+})
+const dicomDropPreviewTitle = computed(() => {
+  if (dicomDropPreviewKind.value === 'folder') {
+    return 'Drop folder to load series'
+  }
+  if (dicomDropPreviewKind.value === 'mixed') {
+    return 'Drop files and folders to load series'
+  }
+  return 'Drop DICOM file to load series'
+})
+const dicomDropPreviewHint = computed(() => {
+  if (dicomDropPreviewKind.value === 'folder') {
+    return 'Folder contents will be scanned for DICOM series.'
+  }
+  if (dicomDropPreviewKind.value === 'mixed') {
+    return 'Each dropped path will be parsed independently.'
+  }
+  return 'Single or multiple DICOM files are supported.'
+})
 const statusToastIcon = computed(() => {
   switch (viewer.statusToast.value?.tone) {
     case 'success':
@@ -156,6 +191,37 @@ const isExternalFileDragEvent = (event: DragEvent): boolean => {
   return types.includes('Files')
 }
 
+function normalizeDropIconSvg(svg: string): string {
+  return svg
+    .replace(/\s(width|height)="256"/g, '')
+    .replace(/\scolor="black"/g, '')
+    .replace(/\saria-label="[^"]*"/g, '')
+    .replace('<svg ', '<svg focusable="false" ')
+}
+
+function getExternalDropPreviewKind(event: DragEvent): DicomDropPreviewKind {
+  const items = Array.from(event.dataTransfer?.items ?? [])
+  const entries = items
+    .map((item) => item.webkitGetAsEntry?.() ?? null)
+    .filter((entry): entry is FileSystemEntry => entry != null)
+  const hasDirectory = entries.some((entry) => entry.isDirectory)
+  const hasEntryFile = entries.some((entry) => entry.isFile)
+  const hasDataTransferFile = Array.from(event.dataTransfer?.files ?? []).some((file) => file.name.trim())
+  const hasFile = hasEntryFile || hasDataTransferFile || (items.length > 0 && !hasDirectory)
+
+  if (hasDirectory && hasFile) {
+    return 'mixed'
+  }
+  if (hasDirectory) {
+    return 'folder'
+  }
+  return 'file'
+}
+
+function updateDicomDropPreview(event: DragEvent): void {
+  dicomDropPreviewKind.value = getExternalDropPreviewKind(event)
+}
+
 const handleDicomFileDragEnter = (event: DragEvent): void => {
   if (!isExternalFileDragEvent(event)) {
     return
@@ -163,6 +229,7 @@ const handleDicomFileDragEnter = (event: DragEvent): void => {
 
   event.preventDefault()
   event.stopPropagation()
+  updateDicomDropPreview(event)
   isDicomFileDropActive.value = true
 }
 
@@ -176,6 +243,7 @@ const handleDicomFileDragOver = (event: DragEvent): void => {
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'copy'
   }
+  updateDicomDropPreview(event)
   isDicomFileDropActive.value = true
 }
 
@@ -199,6 +267,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 
   event.preventDefault()
   event.stopPropagation()
+  updateDicomDropPreview(event)
   isDicomFileDropActive.value = false
   const files = Array.from(event.dataTransfer?.files ?? [])
   void viewer.loadDroppedDicomFiles(files)
@@ -294,9 +363,10 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       </div>
       <div v-if="isDicomFileDropActive" class="dicom-file-drop-overlay" aria-live="polite">
         <div class="dicom-file-drop-overlay__panel">
-          <AppIcon name="folder-import" :size="30" />
-          <div class="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">DICOM Import</div>
-          <div class="text-2xl font-semibold text-[var(--theme-text-primary)]">Drop files or folders to load series</div>
+          <div class="dicom-file-drop-overlay__icon" :data-kind="dicomDropPreviewKind" aria-hidden="true" v-html="dicomDropPreviewIcon" />
+          <div class="dicom-file-drop-overlay__eyebrow">{{ dicomDropPreviewEyebrow }}</div>
+          <div class="dicom-file-drop-overlay__title">{{ dicomDropPreviewTitle }}</div>
+          <div class="dicom-file-drop-overlay__hint">{{ dicomDropPreviewHint }}</div>
         </div>
       </div>
       <div
@@ -415,11 +485,11 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at top, color-mix(in srgb, var(--theme-accent) 18%, transparent), transparent 42%),
-    rgba(2, 7, 14, 0.42);
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--theme-accent) 18%, transparent), transparent 34%),
+    rgba(2, 7, 14, 0.54);
   pointer-events: none;
   -webkit-app-region: no-drag;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(5px);
 }
 
 .dicom-file-drop-overlay__panel {
@@ -427,15 +497,75 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   max-width: min(520px, calc(100vw - 48px));
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 26px 30px;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft));
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 92%, transparent);
+  gap: 10px;
+  padding: 28px 34px 30px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-soft));
+  border-radius: 26px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-panel-strong) 94%, white 3%),
+      color-mix(in srgb, var(--theme-surface-panel) 94%, black 5%)
+    );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 28px 70px rgba(0, 0, 0, 0.42);
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent),
+    0 30px 78px rgba(0, 0, 0, 0.46);
   text-align: center;
+}
+
+.dicom-file-drop-overlay__icon {
+  display: grid;
+  width: 96px;
+  height: 96px;
+  place-items: center;
+  margin-bottom: 2px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border-soft));
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 64% 30%, color-mix(in srgb, var(--theme-accent) 18%, transparent), transparent 40%),
+    color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 16px 34px rgba(0, 0, 0, 0.28);
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
+}
+
+.dicom-file-drop-overlay__icon :deep(svg) {
+  display: block;
+  width: 72px;
+  height: 72px;
+  color: currentColor;
+  overflow: visible;
+}
+
+.dicom-file-drop-overlay__icon[data-kind="folder"] :deep(svg) {
+  width: 76px;
+  height: 76px;
+}
+
+.dicom-file-drop-overlay__eyebrow {
+  font-family: var(--theme-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-text-muted));
+}
+
+.dicom-file-drop-overlay__title {
+  font-size: 25px;
+  font-weight: 760;
+  line-height: 1.16;
+  color: var(--theme-text-primary);
+}
+
+.dicom-file-drop-overlay__hint {
+  max-width: 390px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--theme-text-secondary);
 }
 
 .app-status-toast {

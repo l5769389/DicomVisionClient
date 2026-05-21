@@ -2,28 +2,24 @@
 
 [English](./README.md)
 
-DicomVision 是一套面向 DICOM 影像浏览、重建、测量、质量分析、元数据检查、对比阅片与脱敏导出的 C/S 阅片工具，支持 Stack 切片阅览、Stack 双序列对比、MPR/斜切 MPR、4D 时相播放、服务端 3D 体渲染、DICOM 标签检查与修改、DICOM 脱敏导出、ROI 测量、MTF/FWHM 分析、水模 QA、图像导出、深浅主题切换，并可分别部署为浏览器 Web 应用或包含内置后端的 Windows 桌面应用。
+DicomVision 是一套 C/S 架构的 DICOM Viewer，面向影像浏览、重建、测量、QA、元数据审阅、序列对比与脱敏导出。软件支持 Stack、MPR/斜切 MPR、3D 体渲染、4D 时相播放、布局阅片、同步对比、DICOM Tag 修改与 Web / Windows 桌面部署。
 
-## v1.2.0 更新内容
+## 核心亮点
 
-- 新增 Stack Compare 双序列对比：在序列右键菜单选择 Compare，再选择目标序列，即可打开并排对比标签页。
-- 新增 Compare Sync 控制，可按需同步翻页、窗宽窗位、伪彩、缩放平移、旋转翻转，测量和标注仍按 A/B 视图独立保存。
-- 优化 Compare 渲染链路：两侧视图会使用设置中的默认伪彩，Reset 会同时重置 A/B 视图，并支持测量和标注操作。
-- 精简 Compare 界面：隐藏 QA 专用内容，移除冗余的视图信息，并在翻页同步开启时使用单个共享 slice 拖拽条。
-- 保留近期 DICOM Tag 树形/修改、脱敏导出、拖拽加载、后台任务进度和多主题一致性优化。
+- 支持患者 / 检查层级的序列管理、拖拽导入、标签页阅片和可配置布局。
+- 覆盖 Stack、Compare、MPR、MPR + 3D、3D 体渲染和 4D 时相工作流。
+- 提供测量、标注、MTF/FWHM、水模 QA 等影像评估能力。
+- 支持 DICOM Tag 树形查看、VR 感知修改、批量修改和脱敏导出。
+- 支持主题、布局、伪彩、测量、ROI、导出和 Hanging Protocol 等偏好设置。
 
 ## 功能总览
 
-- **影像加载与序列管理**：加载本地 DICOM 文件夹、拖拽桌面端文件/文件夹、服务端示例数据或服务端可访问路径，自动发现序列并在侧边栏中管理。
-- **Stack 阅片**：支持逐层浏览、窗宽窗位、缩放、平移、滚动、旋转、翻转、重置、伪彩和角标信息显示。
-- **Stack 双序列对比**：支持两个 series 并排阅片，可同步翻页、窗宽窗位、伪彩、缩放平移、旋转翻转，同时让测量和标注按视图独立管理。
-- **MPR 与斜切 MPR**：支持轴位、冠状位、矢状位三视口联动，十字线同步，斜切旋转，MIP 配置，方向标和比例尺叠加。
-- **4D 时相播放**：支持多时相预览、时相切换、播放控制、FPS 调整和多视口时相缓存。
-- **3D 体渲染**：后端基于 VTK 执行体渲染，支持预设、传输函数、不透明度、颜色、光照、插值和图层配置。
-- **测量与分析**：支持线段、矩形、椭圆、角度、曲线、自由形状测量，并提供 MTF/FWHM 与水模 QA 分析流程。
-- **DICOM 标签工具**：按实例以平铺或树形方式查看 tag、VR、名称和值，并支持将 Tag 修改导出为当前 DICOM 或整个 series 的新副本。
-- **DICOM 脱敏导出**：按设置中的脱敏项清除隐私字段，为 series 生成新的脱敏 DICOM 副本，不覆盖原始文件。
-- **Web 与桌面双形态**：Web 端可部署为静态前端连接远程后端；桌面端可打包 Electron 应用并内置服务端 bundle。
+- **加载与工作区**：导入 DICOM 文件 / 文件夹，按患者和检查组织序列，并以多标签页管理不同阅片任务。
+- **2D 与对比阅片**：Stack 支持播放速度、伪彩、窗宽窗位、变换工具和布局；Compare/Layout 可按需同步关键操作。
+- **重建与渲染**：支持 MPR、斜切 MPR、MPR + 3D、服务端 3D 体渲染和 4D 时相播放。
+- **测量与 QA**：支持线段、矩形、椭圆、角度、曲线、自由形状测量，以及 MTF/FWHM 和水模 QA。
+- **DICOM 数据操作**：支持 Tag 树形审阅、VR 感知修改、批量 Tag 修改、脱敏导出和图像 / DICOM 导出。
+- **部署形态**：Web 端可连接远程后端；桌面端可打包为内置后端的 Windows Electron 应用。
 
 ## Web端演示
 https://dicom-vision-client.vercel.app/
@@ -35,37 +31,41 @@ https://dicom-vision-client.vercel.app/
 
 ## 项目截图
 
-| Stack 阅片 | MPR 重建 |
+| 工作区首页 | 已加载序列 |
 | --- | --- |
-| <img src="./screenshots/stack.png" alt="Stack 阅片" width="420"> | <img src="./screenshots/mpr.png" alt="MPR 重建" width="420"> |
+| <img src="./screenshots/home_page.png" alt="DicomVision 工作区首页" width="420"> | <img src="./screenshots/home_page_loaded_series.png" alt="已加载 DICOM 序列" width="420"> |
+
+| 布局阅片 | Stack 对比 |
+| --- | --- |
+| <img src="./screenshots/view_layout.png" alt="多视口布局阅片" width="420"> | <img src="./screenshots/compare_view.png" alt="Stack 双序列对比" width="420"> |
 
 | 斜切 MPR / 十字线旋转 | 4D 时相播放 |
 | --- | --- |
 | <img src="./screenshots/mpr_rotate.png" alt="斜切 MPR 与十字线旋转" width="420"> | <img src="./screenshots/4D.png" alt="4D 时相播放" width="420"> |
 
-| 测量工具 | DICOM 标签 |
+| 基础测量 | 曲线 / 自由形状测量 |
 | --- | --- |
-| <img src="./screenshots/measure.png" alt="测量工具" width="420"> | <img src="./screenshots/dicomTags.png" alt="DICOM 标签" width="420"> |
+| <img src="./screenshots/measure_line_angle_rect_ellipse.png" alt="线段、角度、矩形和椭圆测量" width="420"> | <img src="./screenshots/measure_curve_freedom.png" alt="曲线和自由形状测量" width="420"> |
 
-| Stack 双序列对比 | DICOM Tag 批量修改 |
+| DICOM 标签 | DICOM Tag 批量修改 |
 | --- | --- |
-| <img src="./screenshots/compare_stack.png" alt="Stack 双序列对比" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="DICOM Tag 批量修改" width="420"> |
+| <img src="./screenshots/dicomTags.png" alt="DICOM Tag 树形审阅" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="DICOM Tag 批量修改" width="420"> |
 
 | MTF 分析 | FWHM 结果 |
 | --- | --- |
-| <img src="./screenshots/mtf.png" alt="MTF 分析" width="420"> | <img src="./screenshots/mtf_fwhm.png" alt="FWHM 结果" width="420"> |
+| <img src="./screenshots/mtf_fwhm_1.png" alt="MTF 分析流程" width="420"> | <img src="./screenshots/mtf_fwhm_2.png" alt="FWHM 分析结果" width="420"> |
 
 | 水模 QA | 设置面板 |
 | --- | --- |
 | <img src="./screenshots/water_phantom_qa.png" alt="水模 QA" width="420"> | <img src="./screenshots/settings.png" alt="设置面板" width="420"> |
 
-| 深色主题 | 浅色主题 |
+| 工业深色主题 | 冷蓝深色主题 |
 | --- | --- |
-| <img src="./screenshots/theme.png" alt="深色主题" width="420"> | <img src="./screenshots/theme_light.png" alt="浅色主题" width="420"> |
+| <img src="./screenshots/theme.png" alt="工业深色主题" width="420"> | <img src="./screenshots/theme_blue.png" alt="冷蓝深色主题" width="420"> |
 
 | 拖拽导入 | 脱敏导出 |
 | --- | --- |
-| <img src="./screenshots/drag_import.png" alt="拖拽导入 DICOM" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM 脱敏导出" width="420"> |
+| <img src="./screenshots/drap_import.png" alt="拖拽导入 DICOM" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM 脱敏导出" width="420"> |
 
 ## 系统架构
 

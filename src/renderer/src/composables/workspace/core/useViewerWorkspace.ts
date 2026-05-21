@@ -52,6 +52,7 @@ import {
   createLayoutTemplateFromHangingProtocolRule,
   findMatchingHangingProtocolRule
 } from '../layout/hangingProtocolRules'
+import { mergeLoadedFolderSeries } from './folderSeriesMerge'
 import { viewerRuntime, WEB_SAMPLE_FOLDER_SENTINEL } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
@@ -1920,10 +1921,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }))
   }
 
-  function getSeriesDedupKey(series: FolderSeriesItem): string {
-    return series.seriesInstanceUid || `${series.folderPath}::${series.seriesId}`
-  }
-
   async function openSeriesViewWithHangingProtocol(seriesId: string, viewType: ViewType): Promise<void> {
     if (viewType !== 'Stack') {
       await views.openSeriesView(seriesId, viewType)
@@ -2078,20 +2075,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return []
       }
 
-      const existingSeriesByKey = new Map(seriesList.value.map((item) => [getSeriesDedupKey(item), item] as const))
-      const appendedSeries = incomingSeries.filter((item) => {
-        const seriesKey = getSeriesDedupKey(item)
-        if (existingSeriesByKey.has(seriesKey)) {
-          return false
-        }
-        existingSeriesByKey.set(seriesKey, item)
-        return true
-      })
-      const loadedSeries = incomingSeries.map((item) => existingSeriesByKey.get(getSeriesDedupKey(item)) ?? item)
-
-      if (appendedSeries.length) {
-        seriesList.value = [...seriesList.value, ...appendedSeries]
-      }
+      const { seriesList: nextSeriesList, loadedSeries, appendedSeries } = mergeLoadedFolderSeries(
+        seriesList.value,
+        incomingSeries
+      )
+      seriesList.value = nextSeriesList
 
       const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
       if (selectLoadedSeries && nextSeriesId) {

@@ -2,28 +2,24 @@
 
 [中文说明](./README.zh-CN.md)
 
-DicomVision is a client/server DICOM viewing and analysis tool for image browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export workflows. It supports Stack viewing, side-by-side Stack compare, MPR and oblique MPR, 4D phase playback, server-side 3D volume rendering, DICOM tag inspection/editing, DICOM de-identification export, ROI measurement, MTF/FWHM analysis, water phantom QA, image export, dark/light themes, and separate web or Windows desktop deployment.
+DicomVision is a client/server DICOM viewer for diagnostic-style browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export. It provides Stack, MPR/oblique MPR, 3D volume rendering, 4D phase playback, layout workspaces, synchronized comparison, DICOM tag editing, de-identification export, and web or Windows desktop deployment.
 
-## Version 1.2.0 Updates
+## Highlights
 
-- Added side-by-side Stack Compare: right-click a source series, choose Compare, select a target series, and open a synchronized comparison tab.
-- Added Compare Sync controls for slice scrolling, window/level, pseudocolor, zoom/pan, and rotate/flip, with measurement and annotation overlays kept independent per pane.
-- Improved Compare rendering so both panes use the configured default pseudocolor, reset together, and support measurement and annotation workflows.
-- Refined the Compare UI by hiding QA-only controls, removing redundant pane metadata, and using a single shared slice slider when slice sync is enabled.
-- Kept the recent DICOM Tag tree/editing, de-identification export, drag-and-drop loading, background task progress, and theme consistency improvements.
+- Multi-series workspace with grouped series navigation, drag-and-drop import, tabbed views, and configurable layouts.
+- Stack, Compare, MPR, MPR + 3D, 3D volume rendering, and 4D phase workflows.
+- Measurement, annotation, MTF/FWHM, and water phantom QA tools for image evaluation.
+- DICOM Tag tree browsing, VR-aware editing, batch modification, and de-identification export.
+- Theme, layout, pseudocolor, measurement, ROI, export, and Hanging Protocol preferences.
 
 ## Feature Overview
 
-- **Image loading and series management**: load local DICOM folders, drag files/folders into the desktop app, use server-side sample data, or enter backend-accessible paths, then browse discovered series from the sidebar.
-- **Stack viewing**: slice scrolling, window/level, zoom, pan, rotate, flip, reset, pseudocolor presets, and corner metadata overlays.
-- **Stack Compare**: open two series side by side, optionally synchronize slice scrolling, WW/WL, pseudocolor, zoom/pan, and rotate/flip, while keeping measurements and annotations independent.
-- **MPR and oblique MPR**: axial, coronal, and sagittal synchronized viewports with crosshair navigation, oblique rotation, MIP configuration, orientation overlays, and scale bars.
-- **4D phase playback**: phase previews, phase switching, playback controls, FPS control, and cached multi-viewport phase images.
-- **3D volume rendering**: VTK-backed backend rendering with presets, transfer functions, opacity, color, lighting, interpolation, and layer controls.
-- **Measurement and analysis**: line, rectangle, ellipse, angle, curve, and freeform measurements, plus MTF/FWHM and water phantom QA workflows.
-- **DICOM tag tools**: instance-level tag, VR, name, and value browsing in flat or tree mode, plus editable tag export for current DICOM or full series.
-- **De-identification export**: configurable privacy-field removal for DICOM series, saved as new copies without overwriting source files.
-- **Web and desktop delivery**: deploy the web client as a static app connected to a remote backend, or package a Windows Electron desktop app with an embedded backend bundle.
+- **Loading and workspace**: import DICOM files or folders, group discovered series by patient/study, and open multiple view tabs without disrupting the active workflow.
+- **2D and comparison**: Stack viewing with playback speed control, pseudocolor, WW/WL, transform tools, layouts, and optional synchronization across Compare/Layout panes.
+- **Reconstruction**: MPR, oblique MPR, MPR + 3D layout, server-side 3D volume rendering, and 4D phase playback with FPS control.
+- **Measurement and QA**: line, rectangle, ellipse, angle, curve, freeform measurement, MTF/FWHM analysis, and water phantom QA.
+- **DICOM operations**: tree-based tag review, VR-aware tag editing, batch tag modification, de-identification export, and image/DICOM export.
+- **Product delivery**: static web client for remote backends and Windows Electron desktop packaging with an embedded backend bundle.
 
 ## Web Preview
 https://dicom-vision-client.vercel.app/
@@ -36,37 +32,41 @@ https://dicom-vision-client.vercel.app/
 
 ## Screenshots
 
-| Stack viewing | MPR reconstruction |
+| Workspace home | Loaded series |
 | --- | --- |
-| <img src="./screenshots/stack.png" alt="Stack viewing" width="420"> | <img src="./screenshots/mpr.png" alt="MPR reconstruction" width="420"> |
+| <img src="./screenshots/home_page.png" alt="DicomVision home workspace" width="420"> | <img src="./screenshots/home_page_loaded_series.png" alt="Loaded DICOM series workspace" width="420"> |
+
+| Layout workspace | Stack Compare |
+| --- | --- |
+| <img src="./screenshots/view_layout.png" alt="Configurable multi-viewport layout" width="420"> | <img src="./screenshots/compare_view.png" alt="Side-by-side Stack Compare" width="420"> |
 
 | Oblique MPR / crosshair rotation | 4D phase playback |
 | --- | --- |
 | <img src="./screenshots/mpr_rotate.png" alt="Oblique MPR and crosshair rotation" width="420"> | <img src="./screenshots/4D.png" alt="4D phase playback" width="420"> |
 
-| Measurement tools | DICOM tags |
+| Measurement tools | Curve and freeform measurement |
 | --- | --- |
-| <img src="./screenshots/measure.png" alt="Measurement tools" width="420"> | <img src="./screenshots/dicomTags.png" alt="DICOM tags" width="420"> |
+| <img src="./screenshots/measure_line_angle_rect_ellipse.png" alt="Line, angle, rectangle, and ellipse measurements" width="420"> | <img src="./screenshots/measure_curve_freedom.png" alt="Curve and freeform measurements" width="420"> |
 
-| Stack Compare | Batch DICOM tag editing |
+| DICOM tags | Batch DICOM tag editing |
 | --- | --- |
-| <img src="./screenshots/compare_stack.png" alt="Side-by-side Stack Compare" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="Batch DICOM tag editing" width="420"> |
+| <img src="./screenshots/dicomTags.png" alt="DICOM tag tree and metadata review" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="Batch DICOM tag editing" width="420"> |
 
 | MTF analysis | FWHM result |
 | --- | --- |
-| <img src="./screenshots/mtf.png" alt="MTF analysis" width="420"> | <img src="./screenshots/mtf_fwhm.png" alt="FWHM result" width="420"> |
+| <img src="./screenshots/mtf_fwhm_1.png" alt="MTF analysis workflow" width="420"> | <img src="./screenshots/mtf_fwhm_2.png" alt="FWHM analysis result" width="420"> |
 
 | Water phantom QA | Settings |
 | --- | --- |
 | <img src="./screenshots/water_phantom_qa.png" alt="Water phantom QA" width="420"> | <img src="./screenshots/settings.png" alt="Settings" width="420"> |
 
-| Dark theme | Light theme |
+| Dark theme | Blue theme |
 | --- | --- |
-| <img src="./screenshots/theme.png" alt="Dark theme" width="420"> | <img src="./screenshots/theme_light.png" alt="Light theme" width="420"> |
+| <img src="./screenshots/theme.png" alt="Industrial dark theme" width="420"> | <img src="./screenshots/theme_blue.png" alt="Cool deep blue theme" width="420"> |
 
 | Drag-and-drop import | De-identification export |
 | --- | --- |
-| <img src="./screenshots/drag_import.png" alt="Drag-and-drop DICOM import" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM de-identification export" width="420"> |
+| <img src="./screenshots/drap_import.png" alt="Drag-and-drop DICOM import" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM de-identification export" width="420"> |
 
 ## Architecture
 

@@ -73,6 +73,25 @@ export function mergeFourDManifestIntoSeriesList(
   })
 }
 
+export function mergeFourDSeriesMetadataIntoSeriesList(
+  seriesList: FolderSeriesItem[],
+  sourceSeriesList: FolderSeriesItem[]
+): FolderSeriesItem[] {
+  return sourceSeriesList.reduce((nextSeriesList, sourceSeries) => {
+    const normalizedPhases = normalizeFourDPhaseItems(sourceSeries.fourDPhases)
+    if (!sourceSeries.isFourDSeries && !normalizedPhases.length) {
+      return nextSeriesList
+    }
+
+    return mergeFourDManifestIntoSeriesList(nextSeriesList, sourceSeries.seriesId, {
+      seriesId: sourceSeries.seriesId,
+      isFourDSeries: Boolean(sourceSeries.isFourDSeries || normalizedPhases.length),
+      fourDPhaseCount: sourceSeries.fourDPhaseCount ?? normalizedPhases.length,
+      fourDPhases: normalizedPhases
+    })
+  }, seriesList)
+}
+
 export function resolveFourDPhasePlan(
   series: FolderSeriesItem | undefined,
   manifest: FourDPhasesResponse | null,

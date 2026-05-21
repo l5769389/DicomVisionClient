@@ -3,54 +3,14 @@ import { computed } from 'vue'
 import { VBtn, VCard } from 'vuetify/components'
 import type { ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { useUiPreferences } from '../../composables/ui/useUiPreferences'
-import clinicalLight2dIcon from '../../assets/theme-action-icons/clinical_light/2d.png'
-import clinicalLight3dIcon from '../../assets/theme-action-icons/clinical_light/3d.png'
-import clinicalLight4dIcon from '../../assets/theme-action-icons/clinical_light/4d.png'
-import clinicalLightMprIcon from '../../assets/theme-action-icons/clinical_light/mpr.png'
-import clinicalLightFolderIcon from '../../assets/theme-action-icons/clinical_light/open_folder.png'
-import clinicalLightTagIcon from '../../assets/theme-action-icons/clinical_light/tag.png'
-import coolDeepBlue2dIcon from '../../assets/theme-action-icons/cool_deep_blue/2d.png'
-import coolDeepBlue3dIcon from '../../assets/theme-action-icons/cool_deep_blue/3d.png'
-import coolDeepBlue4dIcon from '../../assets/theme-action-icons/cool_deep_blue/4d.png'
-import coolDeepBlueMprIcon from '../../assets/theme-action-icons/cool_deep_blue/mpr.png'
-import coolDeepBlueFolderIcon from '../../assets/theme-action-icons/cool_deep_blue/open_folder.png'
-import coolDeepBlueTagIcon from '../../assets/theme-action-icons/cool_deep_blue/tag.png'
-import industrialDark2dIcon from '../../assets/theme-action-icons/industrial_dark/2d.png'
-import industrialDark3dIcon from '../../assets/theme-action-icons/industrial_dark/3d.png'
-import industrialDark4dIcon from '../../assets/theme-action-icons/industrial_dark/4d.png'
-import industrialDarkMprIcon from '../../assets/theme-action-icons/industrial_dark/mpr.png'
-import industrialDarkFolderIcon from '../../assets/theme-action-icons/industrial_dark/open_folder.png'
-import industrialDarkTagIcon from '../../assets/theme-action-icons/industrial_dark/tag.png'
+import folderIcon from '../../assets/dicom-action-icons/open-folder.svg?raw'
 
-type ThemeIconSet = 'clinical_light' | 'cool_deep_blue' | 'industrial_dark'
-type QuickActionIconKey = 'folder' | 'stack' | 'volume' | 'fourD' | 'tag' | 'mpr'
-
-const quickActionIcons: Record<ThemeIconSet, Record<QuickActionIconKey, string>> = {
-  clinical_light: {
-    folder: clinicalLightFolderIcon,
-    stack: clinicalLight2dIcon,
-    volume: clinicalLight3dIcon,
-    fourD: clinicalLight4dIcon,
-    tag: clinicalLightTagIcon,
-    mpr: clinicalLightMprIcon
-  },
-  cool_deep_blue: {
-    folder: coolDeepBlueFolderIcon,
-    stack: coolDeepBlue2dIcon,
-    volume: coolDeepBlue3dIcon,
-    fourD: coolDeepBlue4dIcon,
-    tag: coolDeepBlueTagIcon,
-    mpr: coolDeepBlueMprIcon
-  },
-  industrial_dark: {
-    folder: industrialDarkFolderIcon,
-    stack: industrialDark2dIcon,
-    volume: industrialDark3dIcon,
-    fourD: industrialDark4dIcon,
-    tag: industrialDarkTagIcon,
-    mpr: industrialDarkMprIcon
-  }
+type QuickViewAction = {
+  label: string
+  title: string
+  viewType: ViewType
+  disabled: boolean
+  wide?: boolean
 }
 
 const props = defineProps<{
@@ -66,17 +26,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useUiLocale()
-const { themeId } = useUiPreferences()
 
-const themeIconSet = computed<ThemeIconSet>(() => {
-  if (themeId.value === 'clinical-light') {
-    return 'clinical_light'
-  }
-  if (themeId.value === 'aurora') {
-    return 'cool_deep_blue'
-  }
-  return 'industrial_dark'
-})
+const normalizedFolderIcon = computed(() => normalizeIconSvg(folderIcon))
 
 const folderActionLabel = computed(() => {
   if (props.viewerFolderSourceMode === 'server-sample') {
@@ -85,8 +36,47 @@ const folderActionLabel = computed(() => {
   return props.viewerPlatform === 'web' ? t('inputPath') : t('loadFolder')
 })
 
-function getQuickActionIcon(key: QuickActionIconKey): string {
-  return quickActionIcons[themeIconSet.value][key]
+const quickViewActions = computed<QuickViewAction[]>(() => [
+  {
+    label: '2D',
+    title: t('quickPreview'),
+    viewType: 'Stack',
+    disabled: !props.hasSelectedSeries
+  },
+  {
+    label: '3D',
+    title: '3D',
+    viewType: '3D',
+    disabled: !props.hasSelectedSeries
+  },
+  {
+    label: '4D',
+    title: '4D',
+    viewType: '4D',
+    disabled: !props.hasSelectedSeries || !props.isSelectedSeriesFourD
+  },
+  {
+    label: 'TAG',
+    title: 'DICOM Tags',
+    viewType: 'Tag',
+    disabled: !props.hasSelectedSeries,
+    wide: true
+  },
+  {
+    label: 'MPR',
+    title: 'MPR',
+    viewType: 'MPR',
+    disabled: !props.hasSelectedSeries,
+    wide: true
+  }
+])
+
+function normalizeIconSvg(svg: string): string {
+  return svg
+    .replace(/\s(width|height)="256"/g, '')
+    .replace(/\scolor="black"/g, '')
+    .replace(/\saria-label="[^"]*"/g, '')
+    .replace('<svg ', '<svg focusable="false" ')
 }
 </script>
 
@@ -94,22 +84,21 @@ function getQuickActionIcon(key: QuickActionIconKey): string {
   <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
       <VBtn variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
-        <img class="quick-action-image" :src="getQuickActionIcon('folder')" alt="" draggable="false" />
+        <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
       </VBtn>
-      <VBtn variant="flat" class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!" :disabled="!hasSelectedSeries" :aria-label="t('quickPreview')" :title="t('quickPreview')" @click="emit('openView', 'Stack')">
-        <img class="quick-action-image" :src="getQuickActionIcon('stack')" alt="" draggable="false" />
-      </VBtn>
-      <VBtn variant="flat" class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!" :disabled="!hasSelectedSeries" aria-label="3D" title="3D" @click="emit('openView', '3D')">
-        <img class="quick-action-image" :src="getQuickActionIcon('volume')" alt="" draggable="false" />
-      </VBtn>
-      <VBtn variant="flat" class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!" :disabled="!hasSelectedSeries || !isSelectedSeriesFourD" aria-label="4D" title="4D" @click="emit('openView', '4D')">
-        <img class="quick-action-image" :src="getQuickActionIcon('fourD')" alt="" draggable="false" />
-      </VBtn>
-      <VBtn variant="flat" class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!" :disabled="!hasSelectedSeries" aria-label="DICOM Tags" title="DICOM Tags" @click="emit('openView', 'Tag')">
-        <img class="quick-action-image" :src="getQuickActionIcon('tag')" alt="" draggable="false" />
-      </VBtn>
-      <VBtn variant="flat" class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!" :disabled="!hasSelectedSeries" aria-label="MPR" title="MPR" @click="emit('openView', 'MPR')">
-        <img class="quick-action-image" :src="getQuickActionIcon('mpr')" alt="" draggable="false" />
+      <VBtn
+        v-for="action in quickViewActions"
+        :key="action.viewType"
+        variant="flat"
+        class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!"
+        :disabled="action.disabled"
+        :aria-label="action.title"
+        :title="action.title"
+        @click="emit('openView', action.viewType)"
+      >
+        <span class="quick-action-label" :class="{ 'quick-action-label--wide': action.wide }">
+          {{ action.label }}
+        </span>
       </VBtn>
     </div>
 
@@ -124,18 +113,78 @@ function getQuickActionIcon(key: QuickActionIconKey): string {
 </template>
 
 <style scoped>
-.quick-action-button {
-  overflow: hidden;
+.quick-action-icon-grid {
+  align-items: center;
+  justify-items: center;
 }
 
-.quick-action-image {
+.quick-action-button {
+  width: min(42px, 100%) !important;
+  height: 42px !important;
+  inline-size: min(42px, 100%) !important;
+  block-size: 42px !important;
+  min-inline-size: 0 !important;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--theme-border-strong) 72%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-card) 74%, transparent) !important;
+  color: color-mix(in srgb, var(--theme-accent) 74%, var(--theme-text-primary)) !important;
+  box-shadow: none !important;
+}
+
+.quick-action-button--primary {
+  color: color-mix(in srgb, var(--theme-accent) 86%, var(--theme-text-primary)) !important;
+}
+
+.quick-action-button:hover:not(.v-btn--disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface-card-soft)) !important;
+  color: color-mix(in srgb, var(--theme-accent) 88%, var(--theme-text-primary)) !important;
+}
+
+.quick-action-glyph {
+  display: block;
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.quick-action-button--primary .quick-action-glyph {
+  width: 35px;
+  height: 35px;
+}
+
+.quick-action-glyph :deep(svg) {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: inherit;
-  object-fit: cover;
-  pointer-events: none;
-  user-select: none;
+  color: currentColor;
+  overflow: visible;
+}
+
+.quick-action-button.v-btn--disabled .quick-action-glyph {
+  opacity: 0.34;
+}
+
+.quick-action-label {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  font-family: var(--theme-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: currentColor;
+}
+
+.quick-action-label--wide {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.quick-action-button.v-btn--disabled .quick-action-label {
+  opacity: 0.4;
 }
 
 :deep(.quick-action-button .v-btn__content) {

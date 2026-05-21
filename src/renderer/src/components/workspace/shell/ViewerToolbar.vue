@@ -54,6 +54,11 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
   }
   return 1
 }
+
+function getSelectedPlaybackFps(value: string | undefined): string {
+  const match = String(value ?? '').match(/^playbackFps:(\d+)$/)
+  return match?.[1] ?? '5'
+}
 </script>
 
 <template>
@@ -95,6 +100,52 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
           >
             <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="toolbarIconSize" />
           </VBtn>
+          <VMenu
+            v-if="tool.options"
+            :model-value="openMenuKey === tool.key"
+            location="bottom end"
+            :offset="8"
+            scroll-strategy="reposition"
+            :close-on-content-click="true"
+            @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
+          >
+            <template #activator="{ props: menuProps }">
+              <VBtn
+                v-bind="menuProps"
+                variant="flat"
+                class="toolbar-playback-button toolbar-playback-fps-button inline-flex! h-9! min-w-0! items-center! justify-center! rounded-none! border-l! border-white/8! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-surface-card)_42%),color-mix(in_srgb,var(--theme-accent-strong)_46%,var(--theme-surface-panel)_54%))]! px-2.5! text-[var(--theme-accent-contrast)]! transition hover:brightness-110"
+                :aria-expanded="openMenuKey === tool.key"
+                :title="copy.toolOptions('FPS')"
+              >
+                <span class="toolbar-playback-fps-button__label">FPS</span>
+                <span class="toolbar-playback-fps-button__value">{{ getSelectedPlaybackFps(stackToolSelections.play) }}</span>
+                <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
+              </VBtn>
+            </template>
+
+            <div
+              data-tool-menu-root
+              class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[22px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+            >
+              <button
+                v-for="option in tool.options"
+                :key="option.value"
+                type="button"
+                class="toolbar-menu-option group relative inline-flex items-center justify-between gap-3 overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+                :class="{
+                  'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
+                }"
+                @click="emit('selectToolOption', tool, option.value)"
+              >
+                <div
+                  class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
+                  :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
+                />
+                <span>{{ option.label }}</span>
+                <AppIcon v-if="stackToolSelections[tool.key] === option.value" name="check" :size="14" />
+              </button>
+            </div>
+          </VMenu>
           <VBtn
             variant="flat"
             class="toolbar-playback-button toolbar-playback-button--stop inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-r-xl! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
@@ -287,5 +338,24 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
 
 .toolbar-tool-group--secondary-action {
   margin-left: 0.25rem;
+}
+
+.toolbar-playback-fps-button {
+  gap: 0.28rem;
+  letter-spacing: 0.04em;
+}
+
+.toolbar-playback-fps-button__label {
+  font-size: 9px;
+  font-weight: 800;
+  opacity: 0.72;
+}
+
+.toolbar-playback-fps-button__value {
+  min-width: 1.05rem;
+  font-family: var(--theme-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
 }
 </style>

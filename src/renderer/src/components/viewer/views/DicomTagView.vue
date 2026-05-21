@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { VBtn, VCard, VChip, VDialog, VDivider, VList, VListItem, VMenu, VPagination, VTextarea, VTextField } from 'vuetify/components'
+import { VBtn, VCard, VChip, VDialog, VDivider, VList, VListItem, VLocaleProvider, VMenu, VPagination, VTextarea, VTextField } from 'vuetify/components'
+import { VDateInput } from 'vuetify/labs/VDateInput'
+import { zhHans } from 'vuetify/locale'
 import AppIcon from '../../AppIcon.vue'
 import type { DicomTagItem, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
@@ -250,6 +252,14 @@ const tagEditPreview = computed(() => {
 })
 
 const tagEditVrSpec = computed(() => getDicomTagVrEditSpec(tagEditItem.value?.vr ?? '', isZh.value, tagEditValue.value))
+const tagEditDateModel = computed<Date | null>({
+  get: () => parseTagEditDateValue(tagEditValue.value),
+  set: (value) => {
+    tagEditValue.value = formatTagEditDateValue(value)
+  }
+})
+const tagEditVuetifyLocale = computed(() => (isZh.value ? 'zhHans' : 'en'))
+const tagEditVuetifyLocaleMessages = { zhHans }
 const tagEditValidationError = computed(() =>
   tagEditItem.value ? validateDicomTagEditValue(tagEditItem.value, tagEditValue.value, isZh.value) : ''
 )
@@ -382,6 +392,38 @@ function openTagEditDialog(item: DicomTagItem): void {
   tagEditScope.value = 'current'
   tagEditDialogError.value = ''
   isTagEditDialogOpen.value = true
+}
+
+function parseTagEditDateValue(value: string): Date | null {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) {
+    return null
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null
+  }
+  return date
+}
+
+function formatTagEditDateValue(value: unknown): string {
+  if (!value) {
+    return ''
+  }
+
+  const date = value instanceof Date ? value : new Date(value as string | number)
+  if (!Number.isFinite(date.getTime())) {
+    return ''
+  }
+
+  const year = String(date.getFullYear()).padStart(4, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function closeTagEditDialog(): void {
@@ -1101,8 +1143,28 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
           <div class="tag-edit-field-block">
             <div class="tag-edit-field-label">{{ tagEditCopy.newValue }}</div>
+            <VLocaleProvider
+              v-if="tagEditVrSpec.kind === 'date'"
+              :locale="tagEditVuetifyLocale"
+              fallback-locale="en"
+              :messages="tagEditVuetifyLocaleMessages"
+            >
+              <VDateInput
+                v-model="tagEditDateModel"
+                class="tag-edit-textarea tag-edit-input tag-edit-date-input"
+                :disabled="isSavingTagEdit"
+                :placeholder="tagEditCopy.newValue"
+                :input-format="'yyyy-mm-dd'"
+                :display-format="formatTagEditDateValue"
+                :menu-props="{ contentClass: 'tag-edit-date-menu' }"
+                clearable
+                hide-details
+                variant="outlined"
+                prepend-icon=""
+              />
+            </VLocaleProvider>
             <VTextarea
-              v-if="tagEditVrSpec.kind === 'textarea'"
+              v-else-if="tagEditVrSpec.kind === 'textarea'"
               v-model="tagEditValue"
               class="tag-edit-textarea"
               :disabled="isSavingTagEdit"
@@ -1487,6 +1549,31 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   min-height: 48px;
 }
 
+:deep(.tag-edit-date-input .v-field) {
+  min-height: 54px;
+  align-items: center;
+}
+
+:deep(.tag-edit-date-input .v-field__input) {
+  min-height: 52px;
+  align-items: center;
+  padding: 0 14px;
+}
+
+:deep(.tag-edit-date-input .v-field__input input) {
+  min-height: 0;
+  padding: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--theme-text-primary);
+  font: inherit;
+  line-height: 1.4;
+}
+
+:deep(.tag-edit-date-input .v-field__clearable) {
+  color: var(--theme-text-secondary);
+}
+
 .tag-edit-vr-hint {
   color: var(--theme-text-secondary);
 }
@@ -1509,6 +1596,27 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--theme-accent) 46%, transparent),
     0 0 0 4px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+}
+
+:global(.tag-edit-date-menu .v-overlay__content),
+:global(.tag-edit-date-menu) {
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--theme-surface-panel-strong);
+  color: var(--theme-text-primary);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.42);
+}
+
+:global(.tag-edit-date-menu .v-picker),
+:global(.tag-edit-date-menu .v-date-picker) {
+  background: var(--theme-surface-panel-strong);
+  color: var(--theme-text-primary);
+}
+
+:global(.tag-edit-date-menu .v-date-picker-month__day--selected .v-btn) {
+  background: color-mix(in srgb, var(--theme-accent) 74%, var(--theme-surface-card)) !important;
+  color: var(--theme-accent-contrast) !important;
 }
 
 .tag-edit-scope-grid {

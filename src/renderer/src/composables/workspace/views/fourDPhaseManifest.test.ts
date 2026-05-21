@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FolderSeriesItem, FourDPhasesResponse } from '../../../types/viewer'
 import {
   mergeFourDManifestIntoSeriesList,
+  mergeFourDSeriesMetadataIntoSeriesList,
   normalizeFourDManifestResponse,
   resolveFourDPhasePlan
 } from './fourDPhaseManifest'
@@ -92,6 +93,31 @@ describe('fourDPhaseManifest', () => {
     )
 
     expect(merged[0]?.fourDPhases).toBe(existingPhases)
+  })
+
+  it('propagates metadata from a newly loaded phase series to an existing phase mate', () => {
+    const phaseManifest = createManifest({
+      seriesId: 'phase-1',
+      fourDPhases: [
+        { phaseIndex: 0, label: 'P0', seriesId: 'phase-0' },
+        { phaseIndex: 1, label: 'P1', seriesId: 'phase-1' }
+      ]
+    })
+
+    const merged = mergeFourDSeriesMetadataIntoSeriesList(
+      [createSeries('phase-0'), createSeries('phase-1')],
+      [
+        createSeries('phase-1', {
+          isFourDSeries: phaseManifest.isFourDSeries,
+          fourDPhaseCount: phaseManifest.fourDPhaseCount,
+          fourDPhases: phaseManifest.fourDPhases
+        })
+      ]
+    )
+
+    expect(merged.find((series) => series.seriesId === 'phase-0')?.isFourDSeries).toBe(true)
+    expect(merged.find((series) => series.seriesId === 'phase-0')?.fourDPhaseCount).toBe(2)
+    expect(merged.find((series) => series.seriesId === 'phase-1')?.fourDPhases?.[0]?.seriesId).toBe('phase-0')
   })
 
   it('resolves backend, series, and default phase plans in priority order', () => {

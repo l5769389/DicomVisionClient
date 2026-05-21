@@ -1442,12 +1442,68 @@
     border-radius: var(--industrial-radius-control) !important;
   }
 
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) {
+    border: 1px solid rgba(142, 157, 170, 0.16) !important;
+    background: #151b21 !important;
+    box-shadow: var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) .toolbar-tool-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) .toolbar-tool-menu-button {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) .toolbar-tool-button {
+    border-radius: calc(var(--industrial-radius-control) - 1px) 0 0 calc(var(--industrial-radius-control) - 1px) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) .toolbar-tool-menu-button {
+    border-left: 1px solid rgba(142, 157, 170, 0.18) !important;
+    border-radius: 0 calc(var(--industrial-radius-control) - 1px) calc(var(--industrial-radius-control) - 1px) 0 !important;
+    background: rgba(255, 255, 255, 0.015) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button:hover),
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button:hover):has(.toolbar-tool-menu-button) {
+    border-color: rgba(111, 169, 196, 0.26) !important;
+    background: #1a242b !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) .toolbar-tool-button:hover,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button) .toolbar-tool-menu-button:hover {
+    border-color: transparent !important;
+    background: rgba(111, 169, 196, 0.08) !important;
+    box-shadow: none !important;
+  }
+
   :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active) {
     border-color: rgba(111, 169, 196, 0.26) !important;
     background: #0e1419 !important;
     box-shadow:
       inset 0 0 0 1px rgba(111, 169, 196, 0.08),
       var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active):has(.toolbar-tool-menu-button) {
+    background: #101820 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active):has(.toolbar-tool-menu-button) .toolbar-tool-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active):has(.toolbar-tool-menu-button) .toolbar-tool-menu-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) .toolbar-tool-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) .toolbar-tool-menu-button {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: #e2edf2 !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active):has(.toolbar-tool-menu-button) .toolbar-tool-menu-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) .toolbar-tool-menu-button {
+    border-left-color: rgba(111, 169, 196, 0.24) !important;
+    background: rgba(111, 169, 196, 0.06) !important;
   }
 
   :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-button--active)::after {
@@ -1466,6 +1522,26 @@
       var(--industrial-control-shadow) !important;
   }
 
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) {
+    border-color: rgba(111, 169, 196, 0.34) !important;
+    background: #101820 !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(111, 169, 196, 0.1),
+      var(--industrial-control-shadow) !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) .toolbar-tool-button,
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) .toolbar-tool-menu-button {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-tool-group:has(.toolbar-tool-menu-button[aria-expanded="true"]) .toolbar-tool-menu-button {
+    border-left-color: rgba(111, 169, 196, 0.24) !important;
+    background: rgba(111, 169, 196, 0.06) !important;
+  }
+
   :root[data-theme="industrial-utility"] button.four-d-fps-button[aria-expanded="true"] {
     border-color: rgba(111, 169, 196, 0.34) !important;
     background: #17242b !important;
@@ -1481,12 +1557,28 @@
   }
 
   :root[data-theme="industrial-utility"] .toolbar-playback-button--pause {
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
     border-color: rgba(111, 169, 196, 0.34) !important;
     background: #203c48 !important;
     color: #eef6f9 !important;
   }
 
+  :root[data-theme="industrial-utility"] .toolbar-playback-fps-button {
+    border-radius: 0 !important;
+    border-color: rgba(111, 169, 196, 0.28) !important;
+    background: #1a3039 !important;
+    color: #eef6f9 !important;
+  }
+
+  :root[data-theme="industrial-utility"] .toolbar-playback-fps-button[aria-expanded="true"] {
+    background: #17242b !important;
+    color: #e2edf2 !important;
+  }
+
   :root[data-theme="industrial-utility"] .toolbar-playback-button--stop {
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
     border-color: rgba(201, 138, 66, 0.28) !important;
     background: #352017 !important;
     color: #f1d6bc !important;

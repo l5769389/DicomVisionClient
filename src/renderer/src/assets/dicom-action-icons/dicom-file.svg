@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" color="black" aria-label="DICOM file icon">
+  <g fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M65 27h83l43 43v159H65c-12.2 0-22-9.8-22-22V49c0-12.2 9.8-22 22-22Z"/>
+    <path d="M148 28v43h43"/>
+    <path d="M80 158c0-27 21-48 48-48s48 21 48 48-21 48-48 48-48-21-48-48Z"/>
+    <path d="M104 158h48"/>
+    <path d="M128 134v48"/>
+    <path d="M86 82h38"/>
+    <path d="M86 104h56"/>
+  </g>
+</svg>

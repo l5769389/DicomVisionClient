@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import type { ConnectionState, FolderSeriesItem, ViewType } from '../types/viewer'
 import SidebarBrandPanel from './sidebar/SidebarBrandPanel.vue'
 import SidebarCollapsedRail from './sidebar/SidebarCollapsedRail.vue'
 import SidebarQuickActions from './sidebar/SidebarQuickActions.vue'
 import SidebarSeriesList from './sidebar/SidebarSeriesList.vue'
-import SidebarSettingsDialog from './sidebar/SidebarSettingsDialog.vue'
 import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
 import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
 import type { WebUploadPickMode } from '../platform/runtime'
+
+const SidebarSettingsDialog = defineAsyncComponent(() => import('./sidebar/SidebarSettingsDialog.vue'))
 
 const props = defineProps<{
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'

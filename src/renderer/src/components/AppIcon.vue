@@ -1,101 +1,177 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
+import {
+  mdiAlertCircleOutline,
+  mdiAlertOutline,
+  mdiAngleAcute,
+  mdiArmFlexOutline,
+  mdiBellOutline,
+  mdiBone,
+  mdiChartBellCurveCumulative,
+  mdiCheckBold,
+  mdiCheckCircleOutline,
+  mdiChevronDown,
+  mdiChevronLeft,
+  mdiChevronRight,
+  mdiCircleHalfFull,
+  mdiClipboardPulseOutline,
+  mdiClose,
+  mdiCogOutline,
+  mdiContentCopy,
+  mdiContrastCircle,
+  mdiCrosshairsGps,
+  mdiCursorMove,
+  mdiEllipseOutline,
+  mdiExportVariant,
+  mdiFire,
+  mdiFlipHorizontal,
+  mdiFlipVertical,
+  mdiFolderDownloadOutline,
+  mdiFormatColorFill,
+  mdiFullscreen,
+  mdiHeartPulse,
+  mdiHelpCircleOutline,
+  mdiInformationOutline,
+  mdiInvertColors,
+  mdiKeyboardOutline,
+  mdiLanConnect,
+  mdiLanDisconnect,
+  mdiLanPending,
+  mdiLayersTriple,
+  mdiLoupe,
+  mdiMagnify,
+  mdiMolecule,
+  mdiPaletteOutline,
+  mdiPaletteSwatchOutline,
+  mdiPause,
+  mdiPencil,
+  mdiPlay,
+  mdiRectangleOutline,
+  mdiRestore,
+  mdiRocketLaunchOutline,
+  mdiRotate3dVariant,
+  mdiRotateLeftVariant,
+  mdiRotateRight,
+  mdiRotateRightVariant,
+  mdiRuler,
+  mdiShapePolygonPlus,
+  mdiShieldCheckOutline,
+  mdiStop,
+  mdiSwapVertical,
+  mdiSync,
+  mdiTagTextOutline,
+  mdiTimelineClockOutline,
+  mdiTranslate,
+  mdiTrashCanOutline,
+  mdiTuneVariant,
+  mdiVectorPolyline,
+  mdiViewDashboardOutline,
+  mdiWaterCircle,
+  mdiWaterOutline,
+  mdiWindowMinimize
+} from '@mdi/js'
 import { computed } from 'vue'
 
 const props = defineProps<{
   name: string
   size?: number
-  strokeWidth?: number
 }>()
 
 const mdiIconMap: Record<string, string> = {
-  pan: 'mdi-cursor-move',
-  zoom: 'mdi-loupe',
-  window: 'mdi-circle-half-full',
-  crosshair: 'mdi-crosshairs-gps',
-  mip: 'mdi-layers-triple',
-  rotate: 'mdi-rotate-right',
-  rotate3d: 'mdi-rotate-3d-variant',
-  volumePreset: 'mdi-tune-variant',
-  'volume-preset-aaa': 'mdi-rocket-launch-outline',
-  'volume-preset-red': 'mdi-water-outline',
-  'volume-preset-cardiac': 'mdi-heart-pulse',
-  'volume-preset-muscle': 'mdi-arm-flex-outline',
-  'volume-preset-mip': 'mdi-bone',
-  'rotate-cw90': 'mdi-rotate-right-variant',
-  'rotate-ccw90': 'mdi-rotate-left-variant',
-  'mirror-h': 'mdi-flip-horizontal',
-  'mirror-v': 'mdi-flip-vertical',
-  reset: 'mdi-restore',
-  sync: 'mdi-sync',
-  page: 'mdi-swap-vertical',
-  annotate: 'mdi-pencil',
-  measure: 'mdi-ruler',
-  'measure-line': 'mdi-ruler',
-  'measure-rect': 'mdi-rectangle-outline',
-  'measure-ellipse': 'mdi-ellipse-outline',
-  'measure-angle': 'mdi-angle-acute',
-  'measure-curve': 'mdi-vector-polyline',
-  'measure-freeform': 'mdi-shape-polygon-plus',
-  qa: 'mdi-clipboard-pulse-outline',
-  mtf: 'mdi-chart-bell-curve-cumulative',
-  'water-phantom': 'mdi-water-circle',
-  play: 'mdi-play',
-  pause: 'mdi-pause',
-  stop: 'mdi-stop',
-  'four-d': 'mdi-timeline-clock-outline',
-  layout: 'mdi-view-dashboard-outline',
-  tag: 'mdi-tag-text-outline',
-  export: 'mdi-export-variant',
-  pseudocolor: 'mdi-palette-outline',
-  'pseudocolor-gray': 'mdi-invert-colors',
-  'pseudocolor-hot': 'mdi-fire',
-  'pseudocolor-pet': 'mdi-molecule',
-  'pseudocolor-rainbow': 'mdi-format-color-fill',
-  'chevron-down': 'mdi-chevron-down',
-  'chevron-left': 'mdi-chevron-left',
-  'chevron-right': 'mdi-chevron-right',
-  connected: 'mdi-lan-connect',
-  connecting: 'mdi-lan-pending',
-  disconnected: 'mdi-lan-disconnect',
-  menu: 'mdi-tune-variant',
-  search: 'mdi-magnify',
-  settings: 'mdi-cog-outline',
-  keyboard: 'mdi-keyboard-outline',
-  language: 'mdi-translate',
-  contrast: 'mdi-contrast-circle',
-  palette: 'mdi-palette-swatch-outline',
-  bell: 'mdi-bell-outline',
-  shield: 'mdi-shield-check-outline',
-  copy: 'mdi-content-copy',
-  error: 'mdi-alert-circle-outline',
-  info: 'mdi-information-outline',
-  trash: 'mdi-trash-can-outline',
-  check: 'mdi-check-bold',
-  close: 'mdi-close',
-  'folder-import': 'mdi-folder-download-outline',
-  fullscreen: 'mdi-fullscreen',
-  minimize: 'mdi-window-minimize',
-  success: 'mdi-check-circle-outline',
-  warning: 'mdi-alert-outline'
+  pan: mdiCursorMove,
+  zoom: mdiLoupe,
+  window: mdiCircleHalfFull,
+  crosshair: mdiCrosshairsGps,
+  mip: mdiLayersTriple,
+  rotate: mdiRotateRight,
+  rotate3d: mdiRotate3dVariant,
+  volumePreset: mdiTuneVariant,
+  'volume-preset-aaa': mdiRocketLaunchOutline,
+  'volume-preset-red': mdiWaterOutline,
+  'volume-preset-cardiac': mdiHeartPulse,
+  'volume-preset-muscle': mdiArmFlexOutline,
+  'volume-preset-mip': mdiBone,
+  'rotate-cw90': mdiRotateRightVariant,
+  'rotate-ccw90': mdiRotateLeftVariant,
+  'mirror-h': mdiFlipHorizontal,
+  'mirror-v': mdiFlipVertical,
+  reset: mdiRestore,
+  sync: mdiSync,
+  page: mdiSwapVertical,
+  annotate: mdiPencil,
+  measure: mdiRuler,
+  'measure-line': mdiRuler,
+  'measure-rect': mdiRectangleOutline,
+  'measure-ellipse': mdiEllipseOutline,
+  'measure-angle': mdiAngleAcute,
+  'measure-curve': mdiVectorPolyline,
+  'measure-freeform': mdiShapePolygonPlus,
+  qa: mdiClipboardPulseOutline,
+  mtf: mdiChartBellCurveCumulative,
+  'water-phantom': mdiWaterCircle,
+  play: mdiPlay,
+  pause: mdiPause,
+  stop: mdiStop,
+  'four-d': mdiTimelineClockOutline,
+  layout: mdiViewDashboardOutline,
+  tag: mdiTagTextOutline,
+  export: mdiExportVariant,
+  pseudocolor: mdiPaletteOutline,
+  'pseudocolor-gray': mdiInvertColors,
+  'pseudocolor-hot': mdiFire,
+  'pseudocolor-pet': mdiMolecule,
+  'pseudocolor-rainbow': mdiFormatColorFill,
+  'chevron-down': mdiChevronDown,
+  'chevron-left': mdiChevronLeft,
+  'chevron-right': mdiChevronRight,
+  connected: mdiLanConnect,
+  connecting: mdiLanPending,
+  disconnected: mdiLanDisconnect,
+  menu: mdiTuneVariant,
+  search: mdiMagnify,
+  settings: mdiCogOutline,
+  keyboard: mdiKeyboardOutline,
+  language: mdiTranslate,
+  contrast: mdiContrastCircle,
+  palette: mdiPaletteSwatchOutline,
+  bell: mdiBellOutline,
+  shield: mdiShieldCheckOutline,
+  copy: mdiContentCopy,
+  error: mdiAlertCircleOutline,
+  info: mdiInformationOutline,
+  trash: mdiTrashCanOutline,
+  check: mdiCheckBold,
+  close: mdiClose,
+  'folder-import': mdiFolderDownloadOutline,
+  fullscreen: mdiFullscreen,
+  minimize: mdiWindowMinimize,
+  success: mdiCheckCircleOutline,
+  warning: mdiAlertOutline
 }
 
-const mdiClassName = computed(() => mdiIconMap[props.name] ?? 'mdi-help-circle-outline')
+const iconPath = computed(() => mdiIconMap[props.name] ?? mdiHelpCircleOutline)
+const iconSize = computed(() => props.size ?? 24)
 </script>
 
 <template>
-  <i
-    class="mdi app-icon-font"
-    :class="mdiClassName"
-    :style="{ fontSize: `${size ?? 24}px` }"
+  <svg
+    class="app-icon-svg"
+    :width="iconSize"
+    :height="iconSize"
+    viewBox="0 0 24 24"
+    focusable="false"
     aria-hidden="true"
-  ></i>
+  >
+    <path :d="iconPath" />
+  </svg>
 </template>
 
 <style scoped>
-.app-icon-font {
+.app-icon-svg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
+  fill: currentColor;
   line-height: 1;
 }
 </style>

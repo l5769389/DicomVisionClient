@@ -4,6 +4,7 @@ import { VBtn, VCard, VMenu } from 'vuetify/components'
 import type { ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import type { WebUploadPickMode } from '../../platform/runtime'
+import { normalizeInlineSvg } from '../../utils/svg'
 import folderIcon from '../../assets/dicom-action-icons/open-folder.svg?raw'
 
 type QuickViewAction = {
@@ -28,7 +29,7 @@ const emit = defineEmits<{
 
 const { t } = useUiLocale()
 
-const normalizedFolderIcon = computed(() => normalizeIconSvg(folderIcon))
+const normalizedFolderIcon = computed(() => normalizeInlineSvg(folderIcon))
 const isWebUploadMode = computed(() => props.viewerFolderSourceMode === 'web-upload')
 
 const folderActionLabel = computed(() => {
@@ -86,13 +87,6 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   }
 ])
 
-function normalizeIconSvg(svg: string): string {
-  return svg
-    .replace(/\s(width|height)="256"/g, '')
-    .replace(/\scolor="black"/g, '')
-    .replace(/\saria-label="[^"]*"/g, '')
-    .replace('<svg ', '<svg focusable="false" ')
-}
 </script>
 
 <template>

@@ -28,13 +28,6 @@ import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferen
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
-import CompareStackView from '../viewer/views/CompareStackView.vue'
-import FourDView from '../viewer/views/FourDView.vue'
-import LayoutView from '../viewer/views/LayoutView.vue'
-import MprView from '../viewer/views/MprView.vue'
-import StackView from '../viewer/views/StackView.vue'
-import DicomTagView from '../viewer/views/DicomTagView.vue'
-import VolumeView from '../viewer/views/VolumeView.vue'
 import MprMipConfigPanel from './MprMipConfigPanel.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
@@ -56,6 +49,15 @@ import {
   COMPARE_STACK_SOURCE_PANE_KEY,
   COMPARE_STACK_TARGET_PANE_KEY
 } from '../../composables/workspace/views/viewerWorkspaceTabs'
+import {
+  CompareStackView,
+  DicomTagView,
+  FourDView,
+  LayoutView,
+  MprView,
+  StackView,
+  VolumeView
+} from './asyncWorkspaceViews'
 
 const props = defineProps<{
   activeOperation: string

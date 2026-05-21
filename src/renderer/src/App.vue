@@ -10,6 +10,7 @@ import { useViewerWorkspace } from './composables/workspace/core/useViewerWorksp
 import { openExportLocation } from './platform/exporting'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
+import { normalizeInlineSvg } from './utils/svg'
 
 const viewer = useViewerWorkspace()
 type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
@@ -22,7 +23,7 @@ const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' &&
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
 const dicomDropPreviewIcon = computed(() =>
-  normalizeDropIconSvg(dicomDropPreviewKind.value === 'folder' ? folderIcon : dicomFileIcon)
+  normalizeInlineSvg(dicomDropPreviewKind.value === 'folder' ? folderIcon : dicomFileIcon)
 )
 const dicomDropPreviewEyebrow = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
@@ -190,14 +191,6 @@ const closeWindow = (): void => {
 const isExternalFileDragEvent = (event: DragEvent): boolean => {
   const types = Array.from(event.dataTransfer?.types ?? [])
   return types.includes('Files')
-}
-
-function normalizeDropIconSvg(svg: string): string {
-  return svg
-    .replace(/\s(width|height)="256"/g, '')
-    .replace(/\scolor="black"/g, '')
-    .replace(/\saria-label="[^"]*"/g, '')
-    .replace('<svg ', '<svg focusable="false" ')
 }
 
 function getExternalDropPreviewKind(event: DragEvent): DicomDropPreviewKind {

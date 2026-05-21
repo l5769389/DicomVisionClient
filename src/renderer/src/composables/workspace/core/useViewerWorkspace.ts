@@ -207,6 +207,20 @@ interface DicomUploadToastProgress {
   percent: number | null
 }
 
+type SeriesCompatibilityIssue = NonNullable<FolderSeriesItem['compatibilityIssues']>[number]
+
+const DICOM_COMPATIBILITY_TITLE_ZH: Record<string, string> = {
+  'missing-image-size': '缺少图像尺寸',
+  'mixed-image-size': '序列内图像尺寸不一致',
+  'compressed-transfer-syntax': '压缩传输语法',
+  'missing-transfer-syntax': '缺少传输语法',
+  'unsupported-photometric': '非单色像素数据',
+  'multiframe-first-frame': '多帧 DICOM',
+  'missing-pixel-spacing': '缺少像素间距',
+  'missing-spatial-geometry': '缺少空间几何信息',
+  'missing-rescale': '缺少重采样元数据'
+}
+
 export function useViewerWorkspace(): ViewerWorkspaceState {
   // These operations can be adjusted continuously from sliders/draggers. The UI
   // stays optimistic, while the backend receives only the last value in a burst.
@@ -241,7 +255,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     verFlip: false
   }
   const { hangingProtocolRules, selectedPseudocolorKey } = useUiPreferences()
-  const { workspaceStatusCopy } = useUiLocale()
+  const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
 
@@ -323,6 +337,37 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const fallbackMessage = workspaceStatusCopy.value.folderLoadFailed
     const detail = resolveBackendErrorDetail(error)
     return detail ? `${fallbackMessage} ${detail}` : fallbackMessage
+  }
+
+  function resolveCompatibilityIssueTitle(issue: SeriesCompatibilityIssue, isZh: boolean): string {
+    if (isZh) {
+      return DICOM_COMPATIBILITY_TITLE_ZH[issue.code] ?? issue.title ?? issue.code
+    }
+    return issue.title || issue.code
+  }
+
+  function buildDicomCompatibilityToast(seriesItems: FolderSeriesItem[]): {
+    detail: string
+    message: string
+    tone: WorkspaceStatusToastTone
+  } | null {
+    const affectedSeries = seriesItems.filter((series) => (series.compatibilityIssues?.length ?? 0) > 0)
+    if (!affectedSeries.length) {
+      return null
+    }
+
+    const issues = affectedSeries.flatMap((series) => series.compatibilityIssues ?? [])
+    const firstSeries = affectedSeries[0]
+    const firstIssue = issues[0]
+    const isZh = locale.value === 'zh-CN'
+    const seriesLabel = firstSeries.seriesDescription || firstSeries.modality || firstSeries.seriesId
+    const issueTitle = firstIssue ? resolveCompatibilityIssueTitle(firstIssue, isZh) : ''
+    const message = isZh ? 'DICOM 已加载，但存在兼容性提示' : 'DICOM loaded with compatibility notices'
+    const detail = isZh
+      ? `${affectedSeries.length} 个 series 存在 ${issues.length} 项提示。${seriesLabel}: ${issueTitle}`
+      : `${affectedSeries.length} series with ${issues.length} notice(s). ${seriesLabel}: ${issueTitle}`
+    const tone = issues.some((issue) => issue.severity === 'error') ? 'error' : 'warning'
+    return { detail, message, tone }
   }
 
   function formatUploadBytes(value: number): string {
@@ -2137,7 +2182,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         views.selectSeries(nextSeriesId)
       }
 
-      if (source.kind === 'files') {
+      const compatibilityToast = buildDicomCompatibilityToast(loadedSeries)
+      if (compatibilityToast) {
+        showStatusToast(compatibilityToast.message, compatibilityToast.tone, {
+          detail: compatibilityToast.detail,
+          progressPercent: source.kind === 'files' ? 100 : null,
+          progressLabel: `${loadedSeries.length} series`,
+          durationMs: 10000
+        })
+      } else if (source.kind === 'files') {
         showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
           progressPercent: 100,
           progressLabel: `${loadedSeries.length} series`,

@@ -23,6 +23,14 @@ export interface CornerInfoResponse {
   cornerInfo: CornerInfoPayload
 }
 
+export interface DicomCompatibilityIssue {
+  code: string
+  severity?: 'info' | 'warning' | 'error'
+  title: string
+  detail?: string | null
+  affectedInstances?: number
+}
+
 export interface DicomDeidentifyRequest {
   seriesId: string
   fieldKeys?: ('patientIdentity' | 'patientDemographics' | 'datesAndTimes' | 'accessionInstitution' | 'physiciansOperators' | 'descriptions' | 'deviceInfo' | 'privateTags' | 'uids')[]
@@ -315,6 +323,7 @@ export interface SeriesSummary {
   isFourDSeries?: boolean
   fourDPhaseCount?: number | null
   fourDPhases?: FourDPhaseItem[] | null
+  compatibilityIssues?: DicomCompatibilityIssue[]
 }
 
 export interface SliceInfo {

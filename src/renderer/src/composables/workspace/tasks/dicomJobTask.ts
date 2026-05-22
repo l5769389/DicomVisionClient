@@ -26,11 +26,11 @@ export interface DicomJobProgress {
   total: number
 }
 
-export interface WaitForDicomJobOptions {
+export interface WaitForDicomJobOptions<TJob extends DicomTagModifyJob = DicomTagModifyJob> {
   intervalMs?: number
   maxPolls?: number
   maxStatusErrors?: number
-  onProgress?: (job: DicomTagModifyJob) => void
+  onProgress?: (job: TJob) => void
   statusTimeoutMs?: number
   timeoutMessage: string
 }
@@ -92,11 +92,11 @@ export function showDicomJobProgressToast(
   })
 }
 
-export async function waitForDicomJob(
-  initialJob: DicomTagModifyJob,
-  fetchJob: (jobId: string, config: { timeout: number }) => Promise<DicomTagModifyJob>,
-  options: WaitForDicomJobOptions
-): Promise<DicomTagModifyJob> {
+export async function waitForDicomJob<TJob extends DicomTagModifyJob>(
+  initialJob: TJob,
+  fetchJob: (jobId: string, config: { timeout: number }) => Promise<TJob>,
+  options: WaitForDicomJobOptions<TJob>
+): Promise<TJob> {
   const intervalMs = options.intervalMs ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.intervalMs
   const maxPolls = options.maxPolls ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.maxPolls
   const maxStatusErrors = options.maxStatusErrors ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.maxStatusErrors

@@ -51,7 +51,28 @@ describe('useUiPreferences', () => {
           rows: 99,
           columns: 0
         }
-      ]
+      ],
+      pacsPreference: {
+        localSourceEnabled: false,
+        enabled: true,
+        activeProfileId: 'pacs-1',
+        profiles: [
+          {
+            id: 'pacs-1',
+            name: ' Hospital PACS ',
+            enabled: true,
+            preset: 'orthanc',
+            baseUrl: 'http://localhost:8042/',
+            qidoPath: 'dicom-web',
+            wadoPath: '/dicom-web',
+            authType: 'basic',
+            username: 'user',
+            password: 'secret',
+            bearerToken: '',
+            timeoutSeconds: 90
+          }
+        ]
+      }
     })
 
     expect(preferences.locale.value).toBe('en-US')
@@ -74,6 +95,16 @@ describe('useUiPreferences', () => {
         columns: 1
       }
     ])
+    expect(preferences.pacsPreference.value.enabled).toBe(true)
+    expect(preferences.pacsPreference.value.localSourceEnabled).toBe(false)
+    expect(preferences.pacsPreference.value.activeProfileId).toBe('pacs-1')
+    expect(preferences.pacsPreference.value.profiles[0]).toMatchObject({
+      name: 'Hospital PACS',
+      baseUrl: 'http://localhost:8042',
+      qidoPath: '/dicom-web',
+      authType: 'basic',
+      timeoutSeconds: 60
+    })
   })
 
   it('persists user changes after hydration', async () => {
@@ -92,6 +123,27 @@ describe('useUiPreferences', () => {
         columns: 2
       }
     ])
+    preferences.setPacsPreference({
+      localSourceEnabled: true,
+      enabled: true,
+      activeProfileId: 'pacs-2',
+      profiles: [
+        {
+          id: 'pacs-2',
+          name: 'Remote PACS',
+          enabled: true,
+          preset: 'custom',
+          baseUrl: 'https://pacs.example.com',
+          qidoPath: '/dicom-web',
+          wadoPath: '/dicom-web',
+          authType: 'bearer',
+          username: '',
+          password: '',
+          bearerToken: 'token',
+          timeoutSeconds: 12
+        }
+      ]
+    })
     await flushPreferences()
 
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
@@ -108,5 +160,10 @@ describe('useUiPreferences', () => {
         columns: 2
       }
     ])
+    expect(saved.pacsPreference).toMatchObject({
+      localSourceEnabled: true,
+      enabled: true,
+      activeProfileId: 'pacs-2'
+    })
   })
 })

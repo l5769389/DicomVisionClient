@@ -248,6 +248,102 @@ export interface OrientationInfo {
   volumeQuaternion?: [number, number, number, number] | null
 }
 
+export interface PacsDicomwebProfile {
+  id: string
+  name: string
+  baseUrl: string
+  qidoPath?: string
+  wadoPath?: string
+  authType?: 'none' | 'basic' | 'bearer'
+  username?: string | null
+  password?: string | null
+  bearerToken?: string | null
+  timeoutSeconds?: number
+  preset?: 'orthanc' | 'dcm4chee' | 'custom'
+}
+
+export interface PacsDicomwebTestRequest {
+  profile: PacsDicomwebProfile
+}
+
+export interface PacsDicomwebTestResponse {
+  ok: boolean
+  statusCode?: number | null
+  message: string
+}
+
+export interface PacsQidoSeriesQueryRequest {
+  profile: PacsDicomwebProfile
+  studyInstanceUid: string
+  modality?: string | null
+  limit?: number
+}
+
+export interface PacsQidoSeriesQueryResponse {
+  items?: PacsSeriesItem[]
+}
+
+export interface PacsQidoStudyQueryRequest {
+  profile: PacsDicomwebProfile
+  patientId?: string | null
+  patientName?: string | null
+  accessionNumber?: string | null
+  studyDateFrom?: string | null
+  studyDateTo?: string | null
+  modality?: string | null
+  limit?: number
+}
+
+export interface PacsQidoStudyQueryResponse {
+  items?: PacsStudyItem[]
+}
+
+export interface PacsSeriesItem {
+  studyInstanceUid: string
+  seriesInstanceUid: string
+  seriesNumber?: string | null
+  modality?: string | null
+  seriesDescription?: string | null
+  bodyPartExamined?: string | null
+  numberOfSeriesRelatedInstances?: number | null
+  raw?: Record<string, unknown>
+}
+
+export interface PacsStudyItem {
+  studyInstanceUid: string
+  patientName?: string | null
+  patientId?: string | null
+  studyDate?: string | null
+  studyTime?: string | null
+  accessionNumber?: string | null
+  studyDescription?: string | null
+  modalitiesInStudy?: string[]
+  numberOfStudyRelatedSeries?: number | null
+  numberOfStudyRelatedInstances?: number | null
+  raw?: Record<string, unknown>
+}
+
+export interface PacsWadoSeriesDownloadJobStatusResponse {
+  jobId: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed'
+  statusUrl: string
+  error?: string | null
+  folderPath?: string | null
+  processedCount?: number
+  progressPercent?: number
+  seriesId?: string | null
+  seriesList?: SeriesSummary[]
+  totalCount?: number
+  createdAt: string
+  completedAt?: string | null
+}
+
+export interface PacsWadoSeriesDownloadRequest {
+  profile: PacsDicomwebProfile
+  studyInstanceUid: string
+  seriesInstanceUid: string
+}
+
 export interface QaWaterAccuracyMetricsPayload {
   centerMean: number
   deviationHu: number
@@ -544,6 +640,11 @@ export interface ApiOperations {
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
   GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }
   UploadDicomFilesApiV1DicomUploadPost: { method: 'POST'; path: '/api/v1/dicom/upload'; request: never; response: LoadFolderResponse }
+  CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/downloadSeries/jobs'; request: PacsWadoSeriesDownloadRequest; response: PacsWadoSeriesDownloadJobStatusResponse }
+  GetDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsJobIdGet: { method: 'GET'; path: '/api/v1/pacs/dicomweb/downloadSeries/jobs/{job_id}'; request: never; response: PacsWadoSeriesDownloadJobStatusResponse }
+  QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/series'; request: PacsQidoSeriesQueryRequest; response: PacsQidoSeriesQueryResponse }
+  QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/studies'; request: PacsQidoStudyQueryRequest; response: PacsQidoStudyQueryResponse }
+  TestDicomwebConnectionApiV1PacsDicomwebTestPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/test'; request: PacsDicomwebTestRequest; response: PacsDicomwebTestResponse }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }
   CreateViewApiV1ViewCreatePost: { method: 'POST'; path: '/api/v1/view/create'; request: ViewCreateRequest; response: ViewCreateResponse }
   ExportViewApiV1ViewExportPost: { method: 'POST'; path: '/api/v1/view/export'; request: ViewExportRequest; response: unknown }

@@ -124,6 +124,7 @@ const mdiIconMap: Record<string, string> = {
   'chevron-left': mdiChevronLeft,
   'chevron-right': mdiChevronRight,
   connected: mdiLanConnect,
+  pacs: mdiLanConnect,
   connecting: mdiLanPending,
   disconnected: mdiLanDisconnect,
   menu: mdiTuneVariant,

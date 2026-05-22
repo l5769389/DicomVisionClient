@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { postApi, postDicomUpload, type DicomUploadProgress } from '../../../services/typedApi'
+import { postApi, postDicomUpload, type DicomUploadProgress, type LoadFolderResponse } from '../../../services/typedApi'
 import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
@@ -97,6 +97,7 @@ interface ViewerWorkspaceState {
   activeTab: ComputedRef<ViewerTabItem | null>
   activeTabKey: Ref<string>
   activateTab: (tabKey: string) => void
+  applyLoadedDicomSeries: (data: LoadFolderResponse, options?: LoadFolderSeriesOptions) => Promise<FolderSeriesItem[]>
   chooseFolder: (mode?: WebUploadPickMode) => Promise<void>
   closeTab: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
@@ -198,6 +199,7 @@ interface WorkspaceStatusToastOptions {
 }
 
 interface LoadFolderSeriesOptions {
+  openFirstSeriesView?: boolean
   selectLoadedSeries?: boolean
 }
 
@@ -2142,8 +2144,48 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     showStatusToast('Layout slot loaded', 'success')
   }
 
+  async function applyLoadedDicomSeries(
+    data: LoadFolderResponse,
+    options: LoadFolderSeriesOptions = {}
+  ): Promise<FolderSeriesItem[]> {
+    const { openFirstSeriesView = false, selectLoadedSeries = true } = options
+    const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
+    if (!incomingSeries.length) {
+      message.value = ''
+      showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+      return []
+    }
+
+    const { seriesList: nextSeriesList, loadedSeries, appendedSeries } = mergeLoadedFolderSeries(
+      seriesList.value,
+      incomingSeries
+    )
+    seriesList.value = nextSeriesList
+
+    const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
+    if (selectLoadedSeries && nextSeriesId) {
+      views.selectSeries(nextSeriesId)
+    }
+
+    const compatibilityToast = buildDicomCompatibilityToast(loadedSeries)
+    if (compatibilityToast) {
+      showStatusToast(compatibilityToast.message, compatibilityToast.tone, {
+        detail: compatibilityToast.detail,
+        progressPercent: 100,
+        progressLabel: `${loadedSeries.length} series`,
+        durationMs: 10000
+      })
+    }
+
+    if (openFirstSeriesView && nextSeriesId) {
+      await openSeriesViewWithHangingProtocol(nextSeriesId, 'Stack')
+    }
+
+    message.value = ''
+    return loadedSeries
+  }
+
   async function loadDicomSource(source: DicomLoadSource, options: LoadFolderSeriesOptions = {}): Promise<FolderSeriesItem[]> {
-    const { selectLoadedSeries = true } = options
     const request = folderLoadRequestGuard.start()
     const uploadTotalBytes = getUploadSourceTotalBytes(source)
     isLoadingFolder.value = true
@@ -2164,33 +2206,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return []
       }
 
-      const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
-      if (!incomingSeries.length) {
-        message.value = ''
-        showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+      const loadedSeries = await applyLoadedDicomSeries(data, options)
+      if (!loadedSeries.length) {
         return []
       }
-
-      const { seriesList: nextSeriesList, loadedSeries, appendedSeries } = mergeLoadedFolderSeries(
-        seriesList.value,
-        incomingSeries
-      )
-      seriesList.value = nextSeriesList
-
-      const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
-      if (selectLoadedSeries && nextSeriesId) {
-        views.selectSeries(nextSeriesId)
-      }
-
-      const compatibilityToast = buildDicomCompatibilityToast(loadedSeries)
-      if (compatibilityToast) {
-        showStatusToast(compatibilityToast.message, compatibilityToast.tone, {
-          detail: compatibilityToast.detail,
-          progressPercent: source.kind === 'files' ? 100 : null,
-          progressLabel: `${loadedSeries.length} series`,
-          durationMs: 10000
-        })
-      } else if (source.kind === 'files') {
+      const hasCompatibilityToast = Boolean(buildDicomCompatibilityToast(loadedSeries))
+      if (!hasCompatibilityToast && source.kind === 'files') {
         showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
           progressPercent: 100,
           progressLabel: `${loadedSeries.length} series`,
@@ -2297,6 +2318,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeTab,
     activeTabKey,
     activateTab: views.activateTab,
+    applyLoadedDicomSeries,
     chooseFolder,
     closeTab: views.closeTab,
     connectionState,

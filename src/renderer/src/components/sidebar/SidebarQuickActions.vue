@@ -17,6 +17,7 @@ type QuickViewAction = {
 
 const props = defineProps<{
   hasSelectedSeries: boolean
+  isLocalSourceEnabled: boolean
   isSelectedSeriesFourD: boolean
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
@@ -93,7 +94,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
       <VMenu
-        v-if="isWebUploadMode"
+        v-if="isLocalSourceEnabled && isWebUploadMode"
         location="bottom start"
         :offset="8"
         :close-on-content-click="true"
@@ -125,7 +126,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
         </div>
       </VMenu>
 
-      <VBtn v-else variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
+      <VBtn v-else-if="isLocalSourceEnabled" variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
         <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
       </VBtn>
       <VBtn

@@ -310,6 +310,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @choose-folder="viewer.chooseFolder"
           @open-view="viewer.openView"
           @open-series-view="viewer.openSeriesView"
+          @pacs-series-loaded="viewer.applyLoadedDicomSeries($event, { selectLoadedSeries: true, openFirstSeriesView: true })"
           @remove-series="viewer.removeSeries"
           @select-series="viewer.selectSeries"
           @toggle-sidebar="viewer.toggleSidebar"

@@ -104,6 +104,31 @@ export interface HangingProtocolRule {
   columns: number
 }
 
+export type PacsAuthType = 'none' | 'basic' | 'bearer'
+export type PacsProfilePreset = 'orthanc' | 'dcm4chee' | 'custom'
+
+export interface PacsDicomwebProfile {
+  id: string
+  name: string
+  enabled: boolean
+  preset: PacsProfilePreset
+  baseUrl: string
+  qidoPath: string
+  wadoPath: string
+  authType: PacsAuthType
+  username: string
+  password: string
+  bearerToken: string
+  timeoutSeconds: number
+}
+
+export interface PacsPreference {
+  localSourceEnabled: boolean
+  enabled: boolean
+  activeProfileId: string
+  profiles: PacsDicomwebProfile[]
+}
+
 export interface RoiStatPreference {
   key: string
   label: string
@@ -140,13 +165,14 @@ interface UiPreferencesState {
   dicomTagEditSavePreference: DicomTagEditSavePreference
   dicomDeidentifyPreference: DicomDeidentifyPreference
   hangingProtocolRules: HangingProtocolRule[]
+  pacsPreference: PacsPreference
   exportPreference: ExportPreference
   qaWaterMetrics: QaWaterMetricPreference[]
   roiStatOptions: RoiStatPreference[]
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 11
+const CURRENT_PREFERENCES_VERSION = 12
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -268,6 +294,30 @@ function createDefaultHangingProtocolRules(): HangingProtocolRule[] {
   return []
 }
 
+function createDefaultPacsPreference(): PacsPreference {
+  return {
+    localSourceEnabled: true,
+    enabled: false,
+    activeProfileId: 'orthanc-local',
+    profiles: [
+      {
+        id: 'orthanc-local',
+        name: 'Orthanc Local',
+        enabled: true,
+        preset: 'orthanc',
+        baseUrl: 'http://127.0.0.1:8042',
+        qidoPath: '/dicom-web',
+        wadoPath: '/dicom-web',
+        authType: 'none',
+        username: '',
+        password: '',
+        bearerToken: '',
+        timeoutSeconds: 8
+      }
+    ]
+  }
+}
+
 function createDefaultRoiStatOptions(): RoiStatPreference[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -303,6 +353,7 @@ function createDefaultState(): UiPreferencesState {
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
     hangingProtocolRules: createDefaultHangingProtocolRules(),
+    pacsPreference: createDefaultPacsPreference(),
     exportPreference: createDefaultExportPreference(),
     qaWaterMetrics: createDefaultQaWaterMetrics(),
     roiStatOptions: createDefaultRoiStatOptions(),
@@ -477,6 +528,64 @@ function normalizeHangingProtocolRules(value: unknown): HangingProtocolRule[] {
   })
 }
 
+function normalizePacsAuthType(value: unknown): PacsAuthType {
+  return value === 'basic' || value === 'bearer' ? value : 'none'
+}
+
+function normalizePacsProfilePreset(value: unknown): PacsProfilePreset {
+  return value === 'orthanc' || value === 'dcm4chee' ? value : 'custom'
+}
+
+function normalizePacsPath(value: unknown, fallback: string): string {
+  const normalized = typeof value === 'string' && value.trim() ? value.trim() : fallback
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+function normalizePacsProfile(value: unknown, index: number): PacsDicomwebProfile {
+  const defaults = createDefaultPacsPreference().profiles[0]!
+  const record = value && typeof value === 'object' ? (value as Partial<PacsDicomwebProfile>) : {}
+  const fallbackId = index === 0 ? defaults.id : `pacs-${index + 1}`
+  const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : fallbackId
+  return {
+    id,
+    name: typeof record.name === 'string' && record.name.trim() ? record.name.trim().slice(0, 48) : `PACS ${index + 1}`,
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : true,
+    preset: normalizePacsProfilePreset(record.preset),
+    baseUrl:
+      typeof record.baseUrl === 'string' && record.baseUrl.trim() ? record.baseUrl.trim().replace(/\/+$/, '') : defaults.baseUrl,
+    qidoPath: normalizePacsPath(record.qidoPath, defaults.qidoPath),
+    wadoPath: normalizePacsPath(record.wadoPath, defaults.wadoPath),
+    authType: normalizePacsAuthType(record.authType),
+    username: typeof record.username === 'string' ? record.username.slice(0, 128) : '',
+    password: typeof record.password === 'string' ? record.password.slice(0, 256) : '',
+    bearerToken: typeof record.bearerToken === 'string' ? record.bearerToken.slice(0, 512) : '',
+    timeoutSeconds: Math.min(60, Math.max(1, normalizeNumber(record.timeoutSeconds, defaults.timeoutSeconds)))
+  }
+}
+
+function normalizePacsPreference(value: unknown): PacsPreference {
+  const defaults = createDefaultPacsPreference()
+  const record = value && typeof value === 'object' ? (value as Partial<PacsPreference>) : null
+  const parsedProfiles = Array.isArray(record?.profiles) ? record.profiles : defaults.profiles
+  const profileMap = new Map<string, PacsDicomwebProfile>()
+  parsedProfiles.slice(0, 12).forEach((item, index) => {
+    const profile = normalizePacsProfile(item, index)
+    profileMap.set(profile.id, profile)
+  })
+  const profiles = [...profileMap.values()]
+  const activeProfileId =
+    typeof record?.activeProfileId === 'string' && profiles.some((profile) => profile.id === record.activeProfileId)
+      ? record.activeProfileId
+      : profiles[0]?.id ?? defaults.activeProfileId
+
+  return {
+    localSourceEnabled: typeof record?.localSourceEnabled === 'boolean' ? record.localSourceEnabled : defaults.localSourceEnabled,
+    enabled: typeof record?.enabled === 'boolean' ? record.enabled : defaults.enabled,
+    activeProfileId,
+    profiles: profiles.length ? profiles : defaults.profiles
+  }
+}
+
 function normalizeHexColor(value: unknown, fallback: string): string {
   if (typeof value !== 'string') {
     return fallback
@@ -637,6 +746,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
   state.hangingProtocolRules = nextState.hangingProtocolRules
+  state.pacsPreference = nextState.pacsPreference
   state.exportPreference = nextState.exportPreference
   state.qaWaterMetrics = nextState.qaWaterMetrics
   state.roiStatOptions = nextState.roiStatOptions
@@ -674,6 +784,12 @@ function serializeState(): UiPreferencesState {
       replacementPrefix: state.dicomDeidentifyPreference.replacementPrefix
     },
     hangingProtocolRules: state.hangingProtocolRules.map((item) => ({ ...item })),
+    pacsPreference: {
+      localSourceEnabled: state.pacsPreference.localSourceEnabled,
+      enabled: state.pacsPreference.enabled,
+      activeProfileId: state.pacsPreference.activeProfileId,
+      profiles: state.pacsPreference.profiles.map((item) => ({ ...item }))
+    },
     exportPreference: {
       locationMode: state.exportPreference.locationMode,
       desktopDirectory: state.exportPreference.desktopDirectory,
@@ -748,6 +864,7 @@ async function hydrateState(): Promise<void> {
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
         hangingProtocolRules: normalizeHangingProtocolRules(parsed.hangingProtocolRules),
+        pacsPreference: normalizePacsPreference(parsed.pacsPreference),
         exportPreference: normalizeExportPreference(parsed.exportPreference),
         qaWaterMetrics: normalizeQaWaterMetrics(parsed.qaWaterMetrics),
         roiStatOptions: normalizeRoiStatOptions(parsed.roiStatOptions),
@@ -907,6 +1024,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setPacsPreference(nextValue: PacsPreference): void {
+    state.pacsPreference = normalizePacsPreference(nextValue)
+    void persistState()
+  }
+
   function addHangingProtocolRule(input: Omit<HangingProtocolRule, 'id'>): string {
     if (state.hangingProtocolRules.length >= MAX_HANGING_PROTOCOL_RULES) {
       return state.hangingProtocolRules[state.hangingProtocolRules.length - 1]?.id ?? ''
@@ -980,6 +1102,7 @@ export function useUiPreferences() {
     hangingProtocolRules: computed(() => state.hangingProtocolRules),
     measurementStylePreference: computed(() => state.measurementStylePreference),
     mprDefaultLayoutKey,
+    pacsPreference: computed(() => state.pacsPreference),
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
@@ -990,6 +1113,7 @@ export function useUiPreferences() {
     setDicomTagEditSavePreference,
     setExportPreference,
     setHangingProtocolRules,
+    setPacsPreference,
     setLocale,
     setMeasurementStylePreference,
     setMprDefaultLayoutKey,

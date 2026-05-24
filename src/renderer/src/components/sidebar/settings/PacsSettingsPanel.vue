@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import PacsProfileForm from './PacsProfileForm.vue'
-import { toApiPacsDicomwebProfile } from '../../../composables/pacs/pacsProfileApi'
+import { toApiPacsDicomwebProfile, toApiPacsDimseProfile } from '../../../composables/pacs/pacsProfileApi'
 import { createPacsProfile, pacsAuthLabel, pacsPresetLabel, pacsProfileEndpoint } from '../../../composables/pacs/pacsProfileUtils'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { type PacsDicomwebProfile, useUiPreferences } from '../../../composables/ui/useUiPreferences'
@@ -159,9 +159,13 @@ async function testProfile(profile: PacsDicomwebProfile): Promise<void> {
   testingProfileIds.value = [...new Set([...testingProfileIds.value, profile.id])]
   removeTestResults([profile.id])
   try {
-    const response = await postApi('TestDicomwebConnectionApiV1PacsDicomwebTestPost', {
-      profile: toApiPacsDicomwebProfile(profile)
-    })
+    const response = profile.protocol === 'dimse'
+      ? await postApi('TestDimseConnectionApiV1PacsDimseTestPost', {
+          profile: toApiPacsDimseProfile(profile)
+        })
+      : await postApi('TestDicomwebConnectionApiV1PacsDicomwebTestPost', {
+          profile: toApiPacsDicomwebProfile(profile)
+        })
     testResults.value = {
       ...testResults.value,
       [profile.id]: {
@@ -317,6 +321,7 @@ function isTestingProfile(profileId: string): boolean {
               <span class="flex min-w-0 flex-wrap items-center gap-2">
                 <span class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ profile.name }}</span>
                 <span v-if="profile.id === pacsPreference.activeProfileId" class="pacs-chip pacs-chip--accent">{{ isZh ? '默认' : 'Default' }}</span>
+                <span class="pacs-chip">{{ profile.protocol === 'dimse' ? 'DIMSE' : 'DICOMweb' }}</span>
                 <span class="pacs-chip">{{ profile.enabled ? (isZh ? '启用' : 'On') : (isZh ? '停用' : 'Off') }}</span>
                 <span class="pacs-chip">{{ pacsPresetLabel(profile.preset, isZh) }}</span>
                 <span class="pacs-chip">{{ pacsAuthLabel(profile.authType, isZh) }}</span>

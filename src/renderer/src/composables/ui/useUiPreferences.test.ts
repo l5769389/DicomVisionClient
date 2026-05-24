@@ -155,6 +155,7 @@ describe('useUiPreferences', () => {
           id: 'pacs-2',
           name: 'Remote PACS',
           enabled: true,
+          protocol: 'dicomweb',
           preset: 'custom',
           baseUrl: 'https://pacs.example.com',
           qidoPath: '/dicom-web',
@@ -163,6 +164,11 @@ describe('useUiPreferences', () => {
           username: '',
           password: '',
           bearerToken: 'token',
+          host: '127.0.0.1',
+          port: 104,
+          calledAeTitle: 'ORTHANC',
+          clientAeTitle: 'DICOMVISION',
+          queryModel: 'study-root',
           timeoutSeconds: 12
         }
       ]

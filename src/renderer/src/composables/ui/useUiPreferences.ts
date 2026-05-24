@@ -105,12 +105,15 @@ export interface HangingProtocolRule {
 }
 
 export type PacsAuthType = 'none' | 'basic' | 'bearer'
+export type PacsProtocol = 'dicomweb' | 'dimse'
 export type PacsProfilePreset = 'orthanc' | 'dcm4chee' | 'custom'
+export type DimseQueryModel = 'study-root' | 'patient-root'
 
 export interface PacsDicomwebProfile {
   id: string
   name: string
   enabled: boolean
+  protocol: PacsProtocol
   preset: PacsProfilePreset
   baseUrl: string
   qidoPath: string
@@ -119,6 +122,11 @@ export interface PacsDicomwebProfile {
   username: string
   password: string
   bearerToken: string
+  host: string
+  port: number
+  calledAeTitle: string
+  clientAeTitle: string
+  queryModel: DimseQueryModel
   timeoutSeconds: number
 }
 
@@ -172,7 +180,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 12
+const CURRENT_PREFERENCES_VERSION = 13
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -383,6 +391,7 @@ function createDefaultPacsPreference(): PacsPreference {
         id: 'orthanc-local',
         name: 'Orthanc Local',
         enabled: true,
+        protocol: 'dicomweb',
         preset: 'orthanc',
         baseUrl: 'http://127.0.0.1:8042',
         qidoPath: '/dicom-web',
@@ -391,6 +400,11 @@ function createDefaultPacsPreference(): PacsPreference {
         username: '',
         password: '',
         bearerToken: '',
+        host: '127.0.0.1',
+        port: 104,
+        calledAeTitle: 'ORTHANC',
+        clientAeTitle: 'DICOMVISION',
+        queryModel: 'study-root',
         timeoutSeconds: 8
       }
     ]
@@ -611,13 +625,35 @@ function normalizePacsAuthType(value: unknown): PacsAuthType {
   return value === 'basic' || value === 'bearer' ? value : 'none'
 }
 
+function normalizePacsProtocol(value: unknown): PacsProtocol {
+  return value === 'dimse' ? 'dimse' : 'dicomweb'
+}
+
 function normalizePacsProfilePreset(value: unknown): PacsProfilePreset {
   return value === 'orthanc' || value === 'dcm4chee' ? value : 'custom'
+}
+
+function normalizeDimseQueryModel(value: unknown): DimseQueryModel {
+  return value === 'patient-root' ? 'patient-root' : 'study-root'
 }
 
 function normalizePacsPath(value: unknown, fallback: string): string {
   const normalized = typeof value === 'string' && value.trim() ? value.trim() : fallback
   return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+function normalizeAeTitle(value: unknown, fallback: string): string {
+  const normalized = typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : fallback
+  return normalized.replace(/[^A-Z0-9 _-]/g, '').slice(0, 16) || fallback
+}
+
+function normalizePacsHost(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 255) : fallback
+}
+
+function normalizePacsPort(value: unknown, fallback: number): number {
+  const port = normalizeInteger(value, fallback)
+  return Math.min(65535, Math.max(1, port))
 }
 
 function normalizePacsProfile(value: unknown, index: number): PacsDicomwebProfile {
@@ -629,6 +665,7 @@ function normalizePacsProfile(value: unknown, index: number): PacsDicomwebProfil
     id,
     name: typeof record.name === 'string' && record.name.trim() ? record.name.trim().slice(0, 48) : `PACS ${index + 1}`,
     enabled: typeof record.enabled === 'boolean' ? record.enabled : true,
+    protocol: normalizePacsProtocol(record.protocol),
     preset: normalizePacsProfilePreset(record.preset),
     baseUrl:
       typeof record.baseUrl === 'string' && record.baseUrl.trim() ? record.baseUrl.trim().replace(/\/+$/, '') : defaults.baseUrl,
@@ -638,6 +675,11 @@ function normalizePacsProfile(value: unknown, index: number): PacsDicomwebProfil
     username: typeof record.username === 'string' ? record.username.slice(0, 128) : '',
     password: typeof record.password === 'string' ? record.password.slice(0, 256) : '',
     bearerToken: typeof record.bearerToken === 'string' ? record.bearerToken.slice(0, 512) : '',
+    host: normalizePacsHost(record.host, defaults.host),
+    port: normalizePacsPort(record.port, defaults.port),
+    calledAeTitle: normalizeAeTitle(record.calledAeTitle, defaults.calledAeTitle),
+    clientAeTitle: normalizeAeTitle(record.clientAeTitle, defaults.clientAeTitle),
+    queryModel: normalizeDimseQueryModel(record.queryModel),
     timeoutSeconds: Math.min(60, Math.max(1, normalizeNumber(record.timeoutSeconds, defaults.timeoutSeconds)))
   }
 }

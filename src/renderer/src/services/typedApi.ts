@@ -25,6 +25,9 @@ const operationPaths = {
   ModifyDicomTagApiV1DicomModifyTagPost: '/api/v1/dicom/modifyTag',
   CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost:
     '/api/v1/pacs/dicomweb/downloadSeries/jobs',
+  QueryDimseSeriesApiV1PacsDimseSeriesPost: '/api/v1/pacs/dimse/series',
+  QueryDimseStudiesApiV1PacsDimseStudiesPost: '/api/v1/pacs/dimse/studies',
+  TestDimseConnectionApiV1PacsDimseTestPost: '/api/v1/pacs/dimse/test',
   QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost: '/api/v1/pacs/dicomweb/series',
   PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost: '/api/v1/pacs/dicomweb/seriesPreview',
   QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: '/api/v1/pacs/dicomweb/studies',

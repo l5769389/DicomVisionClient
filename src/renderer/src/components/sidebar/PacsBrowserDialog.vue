@@ -5,7 +5,7 @@ import { VDateInput } from 'vuetify/labs/VDateInput'
 import { zhHans } from 'vuetify/locale'
 import type { PacsSeriesItem, PacsStudyItem } from '@shared/generated/backendApi'
 import AppIcon from '../AppIcon.vue'
-import { toApiPacsDicomwebProfile } from '../../composables/pacs/pacsProfileApi'
+import { toApiPacsDicomwebProfile, toApiPacsDimseProfile } from '../../composables/pacs/pacsProfileApi'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { showDicomJobProgressToast, waitForDicomJob } from '../../composables/workspace/tasks/dicomJobTask'
@@ -98,6 +98,7 @@ const seriesPageLabel = computed(() => (
   isQueryingSeries.value ? '...' : seriesItems.value.length ? `${seriesOffset.value + 1}-${seriesOffset.value + seriesItems.value.length}` : '0'
 ))
 const selectedProfileLabel = computed(() => selectedProfile.value?.name ?? (isZh.value ? '未选择 Profile' : 'No profile selected'))
+const isSelectedProfileDimse = computed(() => selectedProfile.value?.protocol === 'dimse')
 const pacsVuetifyLocale = computed(() => (isZh.value ? 'zhHans' : 'en'))
 const pacsVuetifyLocaleMessages = { zhHans }
 const studyDateFromModel = computed<Date | null>({
@@ -303,8 +304,7 @@ async function queryStudies(offset = 0): Promise<void> {
   try {
     const normalizedLimit = commitLimitInput()
     const normalizedOffset = Math.max(0, Math.trunc(Number(offset) || 0))
-    const response = await postApi('QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost', {
-      profile: toApiPacsDicomwebProfile(profile),
+    const studyQuery = {
       studyInstanceUid: studyInstanceUid.value.trim() || null,
       patientId: patientId.value.trim() || null,
       patientName: patientKeyword.value.trim() || null,
@@ -315,7 +315,16 @@ async function queryStudies(offset = 0): Promise<void> {
       studyDateTo: studyDateTo.value || null,
       limit: normalizedLimit,
       offset: normalizedOffset
-    })
+    }
+    const response = profile.protocol === 'dimse'
+      ? await postApi('QueryDimseStudiesApiV1PacsDimseStudiesPost', {
+          profile: toApiPacsDimseProfile(profile),
+          ...studyQuery
+        })
+      : await postApi('QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost', {
+          profile: toApiPacsDicomwebProfile(profile),
+          ...studyQuery
+        })
     studies.value = response.items ?? []
     studyOffset.value = normalizedOffset
   } catch (error) {
@@ -337,8 +346,7 @@ async function querySeries(study: PacsStudyItem, offset = 0): Promise<void> {
   seriesPreviewErrorsByUid.value = {}
   try {
     const normalizedOffset = Math.max(0, Math.trunc(Number(offset) || 0))
-    const response = await postApi('QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost', {
-      profile: toApiPacsDicomwebProfile(profile),
+    const seriesQuery = {
       studyInstanceUid: study.studyInstanceUid,
       seriesInstanceUid: seriesInstanceUid.value.trim() || null,
       modality: modality.value.trim().toUpperCase() || null,
@@ -346,7 +354,16 @@ async function querySeries(study: PacsStudyItem, offset = 0): Promise<void> {
       bodyPartExamined: bodyPartExamined.value.trim().toUpperCase() || null,
       limit: PACS_SERIES_LIMIT,
       offset: normalizedOffset
-    })
+    }
+    const response = profile.protocol === 'dimse'
+      ? await postApi('QueryDimseSeriesApiV1PacsDimseSeriesPost', {
+          profile: toApiPacsDimseProfile(profile),
+          ...seriesQuery
+        })
+      : await postApi('QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost', {
+          profile: toApiPacsDicomwebProfile(profile),
+          ...seriesQuery
+        })
     seriesItems.value = response.items ?? []
     seriesOffset.value = normalizedOffset
   } catch (error) {
@@ -386,6 +403,14 @@ function formatSeriesPreviewSummary(preview: PacsSeriesPreviewResponse | null | 
 async function previewSeries(series: PacsSeriesItem): Promise<void> {
   const profile = selectedProfile.value
   const seriesUid = series.seriesInstanceUid?.trim()
+  if (profile?.protocol === 'dimse') {
+    dispatchWorkspaceStatusToast(
+      isZh.value ? 'DIMSE 预览需要 C-MOVE/C-GET 接收端，后续版本补充。' : 'DIMSE preview needs a C-MOVE/C-GET receiver and will be added next.',
+      'info',
+      { durationMs: 4200 }
+    )
+    return
+  }
   if (!profile || !series.studyInstanceUid || !seriesUid || previewLoadingSeriesUid.value) {
     return
   }
@@ -459,6 +484,15 @@ async function handleSeriesAction(series: PacsSeriesItem): Promise<void> {
     return
   }
 
+  if (selectedProfile.value?.protocol === 'dimse') {
+    dispatchWorkspaceStatusToast(
+      isZh.value ? 'DIMSE 下载需要配置本机接收端口，下一步会接入 C-MOVE/C-GET。' : 'DIMSE download needs a local receiver port; C-MOVE/C-GET support is next.',
+      'info',
+      { durationMs: 5200 }
+    )
+    return
+  }
+
   await downloadSeries(series)
 }
 
@@ -486,6 +520,9 @@ async function cancelActiveDownload(): Promise<void> {
 async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   const profile = selectedProfile.value
   if (!profile || !series.studyInstanceUid || !series.seriesInstanceUid || downloadingSeriesUid.value) {
+    return
+  }
+  if (profile.protocol === 'dimse') {
     return
   }
 
@@ -806,6 +843,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                       </div>
                       <div class="flex shrink-0 flex-wrap justify-end gap-2">
                         <VBtn
+                          v-if="!isSelectedProfileDimse"
                           variant="flat"
                           class="h-9! shrink-0 rounded-xl! border! px-3! text-[11px]! font-semibold!"
                           :class="getSeriesPreview(series) ? 'theme-button-secondary' : 'theme-button-primary'"
@@ -829,12 +867,12 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                           v-else
                           variant="flat"
                           class="h-9! shrink-0 rounded-xl! border! px-3! text-[11px]! font-semibold!"
-                          :class="isSeriesDownloaded(series) ? 'theme-button-secondary' : 'theme-button-primary'"
+                          :class="isSeriesDownloaded(series) || isSelectedProfileDimse ? 'theme-button-secondary' : 'theme-button-primary'"
                           :disabled="Boolean(downloadingSeriesUid)"
                           @click.stop="handleSeriesAction(series)"
                         >
-                          <span class="mr-1 inline-flex"><AppIcon :name="isSeriesDownloaded(series) ? 'check' : 'folder-import'" :size="15" /></span>
-                          {{ isSeriesDownloaded(series) ? (isZh ? '打开' : 'Open') : (isZh ? '下载打开' : 'Download') }}
+                          <span class="mr-1 inline-flex"><AppIcon :name="isSelectedProfileDimse ? 'info' : isSeriesDownloaded(series) ? 'check' : 'folder-import'" :size="15" /></span>
+                          {{ isSelectedProfileDimse ? (isZh ? '仅查询' : 'Query only') : isSeriesDownloaded(series) ? (isZh ? '打开' : 'Open') : (isZh ? '下载打开' : 'Download') }}
                         </VBtn>
                       </div>
                     </div>

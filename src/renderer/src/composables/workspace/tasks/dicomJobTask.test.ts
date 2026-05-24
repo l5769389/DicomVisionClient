@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DicomTagModifyJob } from '../../../services/typedApi'
-import { getDicomJobProgress } from './dicomJobTask'
+import { getDicomJobProgress, type BackgroundJob } from './dicomJobTask'
 
 const copy = {
   packaging: 'Packaging',
@@ -8,13 +7,10 @@ const copy = {
   progress: (processed: number, total: number, percent: number) => `${processed}/${total} ${percent}%`
 }
 
-function createJob(overrides: Partial<DicomTagModifyJob>): DicomTagModifyJob {
+function createJob(overrides: Partial<BackgroundJob>): BackgroundJob {
   return {
-    completedAt: null,
-    createdAt: '2026-05-18T00:00:00Z',
     jobId: 'job-1',
     status: 'running',
-    statusUrl: '/status',
     ...overrides
   }
 }

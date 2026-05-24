@@ -1,6 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -28,7 +30,12 @@ const props = defineProps<{
   mtfItems?: ViewerMtfItem[]
   qaWaterAnalysis?: QaWaterAnalysis | null
   selectedMtfId?: string | null
+  isCurrentSliceStarred?: boolean
+  starredSliceCount?: number
+  starredSliceIndexes?: number[]
 }>()
+
+const { viewerCopy } = useUiLocale()
 
 const emit = defineEmits<{
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
@@ -49,6 +56,7 @@ const emit = defineEmits<{
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
+  toggleSliceStar: [payload: { viewportKey: string; sliceIndex: number }]
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
@@ -70,6 +78,20 @@ const sliceInfo = computed(() => {
 
 const sliderValue = ref(1)
 const isSliceSliderActive = ref(false)
+const currentSliceIndex = computed(() => Math.max(0, sliceInfo.value.current - 1))
+const sortedStarredSliceIndexes = computed(() =>
+  [...new Set(props.starredSliceIndexes ?? [])]
+    .filter((index) => Number.isFinite(index) && index >= 0 && index < sliceInfo.value.total)
+    .sort((a, b) => a - b)
+)
+const previousStarredSliceIndex = computed(() => {
+  const current = currentSliceIndex.value
+  return sortedStarredSliceIndexes.value.filter((index) => index < current).at(-1) ?? null
+})
+const nextStarredSliceIndex = computed(() => {
+  const current = currentSliceIndex.value
+  return sortedStarredSliceIndexes.value.find((index) => index > current) ?? null
+})
 
 function clampSliceValue(value: number, total = sliceInfo.value.total): number {
   return Math.min(Math.max(value, 1), total)
@@ -118,6 +140,30 @@ function handleSliceSliderInput(event: Event): void {
   sliderValue.value = nextValue
   const delta = nextValue - previousValue
   if (!Number.isFinite(delta) || delta === 0) {
+    return
+  }
+
+  emit('viewportWheel', {
+    viewportKey: 'single',
+    deltaY: delta,
+    exact: true
+  })
+}
+
+function toggleCurrentSliceStar(): void {
+  emit('toggleSliceStar', {
+    viewportKey: 'single',
+    sliceIndex: currentSliceIndex.value
+  })
+}
+
+function jumpToStarredSlice(sliceIndex: number | null): void {
+  if (sliceIndex === null) {
+    return
+  }
+  const targetValue = clampSliceValue(sliceIndex + 1)
+  const delta = targetValue - sliderValue.value
+  if (delta === 0) {
     return
   }
 
@@ -182,6 +228,24 @@ function handleSliceSliderInput(event: Event): void {
     <div class="theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
       <span class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Slice</span>
       <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliderValue }}</span>
+      <div class="stack-slice-star-tools mt-2 flex flex-col items-center gap-1">
+        <button
+          class="stack-slice-star-button"
+          type="button"
+          :class="{ 'stack-slice-star-button--active': props.isCurrentSliceStarred }"
+          :title="props.isCurrentSliceStarred ? viewerCopy.unmarkKeySlice : viewerCopy.markKeySlice"
+          :aria-pressed="props.isCurrentSliceStarred ? 'true' : 'false'"
+          @click="toggleCurrentSliceStar"
+        >
+          <AppIcon :name="props.isCurrentSliceStarred ? 'star' : 'star-outline'" :size="15" />
+        </button>
+        <span
+          class="stack-slice-star-count"
+          :class="{ 'stack-slice-star-count--hidden': !props.starredSliceCount }"
+        >
+          {{ props.starredSliceCount || 0 }}
+        </span>
+      </div>
       <div class="my-2 flex min-h-0 flex-1 items-center">
         <input
           class="stack-slice-slider h-full w-3.5 cursor-pointer"
@@ -199,6 +263,26 @@ function handleSliceSliderInput(event: Event): void {
         />
       </div>
       <span class="text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliceInfo.total }}</span>
+      <div class="stack-slice-star-nav-group mt-2 flex flex-col items-center gap-1">
+        <button
+          class="stack-slice-star-nav"
+          type="button"
+          :title="viewerCopy.previousKeySlice"
+          :disabled="previousStarredSliceIndex === null"
+          @click="jumpToStarredSlice(previousStarredSliceIndex)"
+        >
+          <AppIcon name="chevron-up" :size="14" />
+        </button>
+        <button
+          class="stack-slice-star-nav"
+          type="button"
+          :title="viewerCopy.nextKeySlice"
+          :disabled="nextStarredSliceIndex === null"
+          @click="jumpToStarredSlice(nextStarredSliceIndex)"
+        >
+          <AppIcon name="chevron-down" :size="14" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -209,5 +293,70 @@ function handleSliceSliderInput(event: Event): void {
   writing-mode: bt-lr;
   transform: rotate(180deg);
   accent-color: var(--theme-accent);
+}
+
+.stack-slice-star-button,
+.stack-slice-star-nav {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-secondary);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.stack-slice-star-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+
+.stack-slice-star-tools {
+  min-height: 39px;
+}
+
+.stack-slice-star-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 11px;
+  place-items: center;
+  color: var(--theme-accent);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 11px;
+}
+
+.stack-slice-star-count--hidden {
+  visibility: hidden;
+}
+
+.stack-slice-star-button:hover,
+.stack-slice-star-nav:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-strong));
+  color: var(--theme-text-primary);
+}
+
+.stack-slice-star-button--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.stack-slice-star-nav {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.stack-slice-star-nav-group {
+  min-height: 48px;
+}
+
+.stack-slice-star-nav:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 </style>

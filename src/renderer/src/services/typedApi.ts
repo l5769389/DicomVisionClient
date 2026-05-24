@@ -23,6 +23,12 @@ const operationPaths = {
   LoadFolderApiV1DicomLoadFolderPost: '/api/v1/dicom/loadFolder',
   LoadSampleFolderApiV1DicomLoadSamplePost: '/api/v1/dicom/loadSample',
   ModifyDicomTagApiV1DicomModifyTagPost: '/api/v1/dicom/modifyTag',
+  CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost:
+    '/api/v1/pacs/dicomweb/downloadSeries/jobs',
+  QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost: '/api/v1/pacs/dicomweb/series',
+  PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost: '/api/v1/pacs/dicomweb/seriesPreview',
+  QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: '/api/v1/pacs/dicomweb/studies',
+  TestDicomwebConnectionApiV1PacsDicomwebTestPost: '/api/v1/pacs/dicomweb/test',
   SetViewSizeApiV1ViewSetSizePost: '/api/v1/view/setSize'
 } satisfies SupportedOperationPaths
 
@@ -31,8 +37,14 @@ type OperationRequest<K extends SupportedOperationKey> = ApiOperations[K]['reque
 type OperationResponse<K extends SupportedOperationKey> = ApiOperations[K]['response']
 type DicomDeidentifyRequest = ApiOperations['DeidentifyDicomSeriesApiV1DicomDeidentifyPost']['request']
 type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPost']['request']
-type LoadFolderResponse = ApiOperations['LoadFolderApiV1DicomLoadFolderPost']['response']
-type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export type LoadFolderResponse = ApiOperations['LoadFolderApiV1DicomLoadFolderPost']['response']
+export type PacsWadoSeriesDownloadRequest =
+  ApiOperations['CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost']['request']
+export type PacsSeriesPreviewRequest =
+  ApiOperations['PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost']['request']
+export type PacsSeriesPreviewResponse =
+  ApiOperations['PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost']['response']
+type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 export interface DicomUploadItem {
   file: File
@@ -73,6 +85,10 @@ export interface DicomTagModifyJob {
   createdAt: string
   completedAt?: string | null
 }
+
+export type PacsWadoSeriesDownloadJob =
+  ApiOperations['CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost']['response'] &
+  DicomTagModifyJob
 
 function toApiBaseRelativePath(path: string): string {
   return path.replace(API_V1_PREFIX_PATTERN, '')
@@ -294,4 +310,46 @@ export async function getDicomTagModifyJobArtifact(
     dicomFileName: 'dicom-tag-edit.dcm',
     zipFileName: 'dicom-tag-edits.zip'
   })
+}
+
+export async function postPacsWadoSeriesDownloadJob(
+  data: PacsWadoSeriesDownloadRequest,
+  config?: AxiosRequestConfig
+): Promise<PacsWadoSeriesDownloadJob> {
+  const response = await api.post<PacsWadoSeriesDownloadJob>(
+    toApiBaseRelativePath(operationPaths.CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost),
+    data,
+    config
+  )
+  return response.data
+}
+
+export async function postPacsSeriesPreview(
+  data: PacsSeriesPreviewRequest,
+  config?: AxiosRequestConfig
+): Promise<PacsSeriesPreviewResponse> {
+  return postApi('PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost', data, config)
+}
+
+export async function getPacsWadoSeriesDownloadJob(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<PacsWadoSeriesDownloadJob> {
+  const response = await api.get<PacsWadoSeriesDownloadJob>(
+    toApiBaseRelativePath(`/api/v1/pacs/dicomweb/downloadSeries/jobs/${encodeURIComponent(jobId)}`),
+    config
+  )
+  return response.data
+}
+
+export async function cancelPacsWadoSeriesDownloadJob(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<PacsWadoSeriesDownloadJob> {
+  const response = await api.post<PacsWadoSeriesDownloadJob>(
+    toApiBaseRelativePath(`/api/v1/pacs/dicomweb/downloadSeries/jobs/${encodeURIComponent(jobId)}/cancel`),
+    undefined,
+    config
+  )
+  return response.data
 }

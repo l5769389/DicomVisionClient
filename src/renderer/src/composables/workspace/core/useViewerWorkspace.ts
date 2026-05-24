@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
 import {
   DRAG_ACTION_TYPES,
   STACK_DEFAULT_OPERATION,
@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { postApi, postDicomUpload, type DicomUploadProgress } from '../../../services/typedApi'
+import { postApi, postDicomUpload, type DicomUploadProgress, type LoadFolderResponse } from '../../../services/typedApi'
 import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
@@ -53,6 +53,8 @@ import {
   findMatchingHangingProtocolRule
 } from '../layout/hangingProtocolRules'
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
+import { buildDicomCompatibilityToast } from '../../dicom/dicomCompatibilityToast'
+import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { viewerRuntime, type DicomDropInput, type DicomLoadSource, type WebUploadPickMode } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
@@ -97,6 +99,7 @@ interface ViewerWorkspaceState {
   activeTab: ComputedRef<ViewerTabItem | null>
   activeTabKey: Ref<string>
   activateTab: (tabKey: string) => void
+  applyLoadedDicomSeries: (data: LoadFolderResponse, options?: LoadFolderSeriesOptions) => Promise<FolderSeriesItem[]>
   chooseFolder: (mode?: WebUploadPickMode) => Promise<void>
   closeTab: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
@@ -150,6 +153,7 @@ interface ViewerWorkspaceState {
   loadDroppedDicomFiles: (drop: DicomDropInput) => Promise<void>
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
+  openKeySlice: (seriesId: string, sliceIndex: number) => Promise<void>
   openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
   openLayoutView: (template: ViewerLayoutTemplate) => Promise<void>
   openView: (viewType: ViewType) => Promise<void>
@@ -198,6 +202,7 @@ interface WorkspaceStatusToastOptions {
 }
 
 interface LoadFolderSeriesOptions {
+  openFirstSeriesView?: boolean
   selectLoadedSeries?: boolean
 }
 
@@ -205,20 +210,6 @@ interface DicomUploadToastProgress {
   loaded: number
   total: number
   percent: number | null
-}
-
-type SeriesCompatibilityIssue = NonNullable<FolderSeriesItem['compatibilityIssues']>[number]
-
-const DICOM_COMPATIBILITY_TITLE_ZH: Record<string, string> = {
-  'missing-image-size': '缺少图像尺寸',
-  'mixed-image-size': '序列内图像尺寸不一致',
-  'compressed-transfer-syntax': '压缩传输语法',
-  'missing-transfer-syntax': '缺少传输语法',
-  'unsupported-photometric': '非单色像素数据',
-  'multiframe-first-frame': '多帧 DICOM',
-  'missing-pixel-spacing': '缺少像素间距',
-  'missing-spatial-geometry': '缺少空间几何信息',
-  'missing-rescale': '缺少重采样元数据'
 }
 
 export function useViewerWorkspace(): ViewerWorkspaceState {
@@ -337,37 +328,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const fallbackMessage = workspaceStatusCopy.value.folderLoadFailed
     const detail = resolveBackendErrorDetail(error)
     return detail ? `${fallbackMessage} ${detail}` : fallbackMessage
-  }
-
-  function resolveCompatibilityIssueTitle(issue: SeriesCompatibilityIssue, isZh: boolean): string {
-    if (isZh) {
-      return DICOM_COMPATIBILITY_TITLE_ZH[issue.code] ?? issue.title ?? issue.code
-    }
-    return issue.title || issue.code
-  }
-
-  function buildDicomCompatibilityToast(seriesItems: FolderSeriesItem[]): {
-    detail: string
-    message: string
-    tone: WorkspaceStatusToastTone
-  } | null {
-    const affectedSeries = seriesItems.filter((series) => (series.compatibilityIssues?.length ?? 0) > 0)
-    if (!affectedSeries.length) {
-      return null
-    }
-
-    const issues = affectedSeries.flatMap((series) => series.compatibilityIssues ?? [])
-    const firstSeries = affectedSeries[0]
-    const firstIssue = issues[0]
-    const isZh = locale.value === 'zh-CN'
-    const seriesLabel = firstSeries.seriesDescription || firstSeries.modality || firstSeries.seriesId
-    const issueTitle = firstIssue ? resolveCompatibilityIssueTitle(firstIssue, isZh) : ''
-    const message = isZh ? 'DICOM 已加载，但存在兼容性提示' : 'DICOM loaded with compatibility notices'
-    const detail = isZh
-      ? `${affectedSeries.length} 个 series 存在 ${issues.length} 项提示。${seriesLabel}: ${issueTitle}`
-      : `${affectedSeries.length} series with ${issues.length} notice(s). ${seriesLabel}: ${issueTitle}`
-    const tone = issues.some((issue) => issue.severity === 'error') ? 'error' : 'warning'
-    return { detail, message, tone }
   }
 
   function formatUploadBytes(value: number): string {
@@ -2035,6 +1995,29 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await views.openLayoutView(createLayoutTemplateFromHangingProtocolRule(rule))
   }
 
+  async function openKeySlice(seriesId: string, sliceIndex: number): Promise<void> {
+    if (!seriesId) {
+      return
+    }
+
+    const targetIndex = Number.isFinite(sliceIndex) ? Math.max(0, Math.trunc(sliceIndex)) : 0
+    await views.openSeriesView(seriesId, 'Stack')
+    await nextTick()
+
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'Stack' || tab.seriesId !== seriesId) {
+      return
+    }
+
+    const slice = parseSliceLabel(tab.sliceLabel)
+    const clampedTargetIndex = slice ? Math.min(targetIndex, Math.max(0, slice.total - 1)) : targetIndex
+    const currentIndex = slice?.index ?? 0
+    const delta = clampedTargetIndex - currentIndex
+    if (delta !== 0) {
+      handleViewportWheel({ viewportKey: 'single', deltaY: delta })
+    }
+  }
+
   async function openViewWithHangingProtocol(viewType: ViewType): Promise<void> {
     if (!selectedSeriesId.value) {
       return
@@ -2142,8 +2125,48 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     showStatusToast('Layout slot loaded', 'success')
   }
 
+  async function applyLoadedDicomSeries(
+    data: LoadFolderResponse,
+    options: LoadFolderSeriesOptions = {}
+  ): Promise<FolderSeriesItem[]> {
+    const { openFirstSeriesView = false, selectLoadedSeries = true } = options
+    const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
+    if (!incomingSeries.length) {
+      message.value = ''
+      showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+      return []
+    }
+
+    const { seriesList: nextSeriesList, loadedSeries, appendedSeries } = mergeLoadedFolderSeries(
+      seriesList.value,
+      incomingSeries
+    )
+    seriesList.value = nextSeriesList
+
+    const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
+    if (selectLoadedSeries && nextSeriesId) {
+      views.selectSeries(nextSeriesId)
+    }
+
+    const compatibilityToast = buildDicomCompatibilityToast(loadedSeries, locale.value)
+    if (compatibilityToast) {
+      showStatusToast(compatibilityToast.message, compatibilityToast.tone, {
+        detail: compatibilityToast.detail,
+        progressPercent: 100,
+        progressLabel: `${loadedSeries.length} series`,
+        durationMs: 10000
+      })
+    }
+
+    if (openFirstSeriesView && nextSeriesId) {
+      await openSeriesViewWithHangingProtocol(nextSeriesId, 'Stack')
+    }
+
+    message.value = ''
+    return loadedSeries
+  }
+
   async function loadDicomSource(source: DicomLoadSource, options: LoadFolderSeriesOptions = {}): Promise<FolderSeriesItem[]> {
-    const { selectLoadedSeries = true } = options
     const request = folderLoadRequestGuard.start()
     const uploadTotalBytes = getUploadSourceTotalBytes(source)
     isLoadingFolder.value = true
@@ -2164,33 +2187,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return []
       }
 
-      const incomingSeries = (data.seriesList ?? []) as FolderSeriesItem[]
-      if (!incomingSeries.length) {
-        message.value = ''
-        showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+      const loadedSeries = await applyLoadedDicomSeries(data, options)
+      if (!loadedSeries.length) {
         return []
       }
-
-      const { seriesList: nextSeriesList, loadedSeries, appendedSeries } = mergeLoadedFolderSeries(
-        seriesList.value,
-        incomingSeries
-      )
-      seriesList.value = nextSeriesList
-
-      const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
-      if (selectLoadedSeries && nextSeriesId) {
-        views.selectSeries(nextSeriesId)
-      }
-
-      const compatibilityToast = buildDicomCompatibilityToast(loadedSeries)
-      if (compatibilityToast) {
-        showStatusToast(compatibilityToast.message, compatibilityToast.tone, {
-          detail: compatibilityToast.detail,
-          progressPercent: source.kind === 'files' ? 100 : null,
-          progressLabel: `${loadedSeries.length} series`,
-          durationMs: 10000
-        })
-      } else if (source.kind === 'files') {
+      const hasCompatibilityToast = Boolean(buildDicomCompatibilityToast(loadedSeries, locale.value))
+      if (!hasCompatibilityToast && source.kind === 'files') {
         showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
           progressPercent: 100,
           progressLabel: `${loadedSeries.length} series`,
@@ -2297,6 +2299,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeTab,
     activeTabKey,
     activateTab: views.activateTab,
+    applyLoadedDicomSeries,
     chooseFolder,
     closeTab: views.closeTab,
     connectionState,
@@ -2326,6 +2329,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isViewLoading,
     loadDroppedDicomFiles,
     message,
+    openKeySlice,
     openSeriesView: openSeriesViewWithHangingProtocol,
     openLayoutView: views.openLayoutView,
     openSeriesCompare: views.openSeriesCompare,

@@ -170,6 +170,19 @@ export interface ToolbarCopy {
 
 export interface ViewerCopy {
   active: string
+  keySliceDialogEmpty: string
+  keySliceDialogHint: string
+  keySliceDialogTitle: string
+  keySliceClear: string
+  keySliceClearTitle: string
+  keySliceLabel: (sliceNumber: number) => string
+  keySliceOpen: string
+  keySliceReviewAction: (count: number) => string
+  keySliceReviewSubtitle: string
+  markKeySlice: string
+  nextKeySlice: string
+  previousKeySlice: string
+  unmarkKeySlice: string
   loadingView: string
   loadingMprView: string
   loadingStackView: string
@@ -518,6 +531,19 @@ export const uiMessages = {
     } satisfies ToolbarCopy,
     viewer: {
       active: '当前',
+      keySliceDialogEmpty: '暂无关键切片',
+      keySliceDialogHint: '打开 Stack 视图并跳转到该切片',
+      keySliceDialogTitle: '关键切片',
+      keySliceClear: '清空',
+      keySliceClearTitle: '清空当前 series 的关键切片标记',
+      keySliceLabel: (sliceNumber: number) => `切片 ${sliceNumber}`,
+      keySliceOpen: '打开',
+      keySliceReviewAction: (count: number) => `查看关键切片 (${count})`,
+      keySliceReviewSubtitle: '查看已标记切片并快速跳转',
+      markKeySlice: '标记为关键切片',
+      nextKeySlice: '跳到下一个关键切片',
+      previousKeySlice: '跳到上一个关键切片',
+      unmarkKeySlice: '取消关键切片标记',
       loadingView: '正在加载视图...',
       loadingMprView: '正在加载 MPR 视图...',
       loadingStackView: '正在加载栈视图...',
@@ -862,6 +888,19 @@ export const uiMessages = {
     } satisfies ToolbarCopy,
     viewer: {
       active: 'Active',
+      keySliceDialogEmpty: 'No key slices.',
+      keySliceDialogHint: 'Open Stack view at this slice',
+      keySliceDialogTitle: 'Key slices',
+      keySliceClear: 'Clear',
+      keySliceClearTitle: 'Clear key slice marks for this series',
+      keySliceLabel: (sliceNumber: number) => `Slice ${sliceNumber}`,
+      keySliceOpen: 'Open',
+      keySliceReviewAction: (count: number) => `Key slices (${count})`,
+      keySliceReviewSubtitle: 'Review marked slices and jump to one',
+      markKeySlice: 'Mark key slice',
+      nextKeySlice: 'Jump to next key slice',
+      previousKeySlice: 'Jump to previous key slice',
+      unmarkKeySlice: 'Unmark key slice',
       loadingView: 'Loading view...',
       loadingMprView: 'Loading MPR view...',
       loadingStackView: 'Loading stack view...',

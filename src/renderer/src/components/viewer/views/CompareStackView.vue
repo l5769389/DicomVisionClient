@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -26,7 +28,11 @@ const props = defineProps<{
   getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
   getDraftMeasurement: (viewportKey: string) => MeasurementDraft | null
   getMeasurements: (viewportKey: string) => MeasurementOverlay[]
+  getStarredSliceCount?: (seriesId: string) => number
+  isSliceStarred?: (seriesId: string, sliceIndex: number) => boolean
 }>()
+
+const { viewerCopy } = useUiLocale()
 
 const emit = defineEmits<{
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
@@ -43,6 +49,7 @@ const emit = defineEmits<{
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
+  toggleSliceStar: [payload: { viewportKey: string; seriesId: string; sliceIndex: number }]
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
@@ -50,6 +57,7 @@ const emit = defineEmits<{
 interface ComparePaneView {
   key: CompareStackPaneKey
   badge: string
+  seriesId: string
   title: string
   imageSrc: string
   sliceLabel: string
@@ -67,6 +75,7 @@ const panes = computed<ComparePaneView[]>(() =>
   COMPARE_STACK_PANE_KEYS.map((key, index) => ({
     key,
     badge: index === 0 ? 'A' : 'B',
+    seriesId: props.activeTab.compareSeriesIds?.[key] ?? (index === 0 ? props.activeTab.seriesId : ''),
     title: props.activeTab.compareSeriesTitles?.[key] || (index === 0 ? props.activeTab.seriesTitle : 'Compare Series'),
     imageSrc: props.activeTab.compareImages?.[key] ?? '',
     sliceLabel: props.activeTab.compareSliceLabels?.[key] ?? ''
@@ -162,6 +171,30 @@ function handleSyncedSliceSliderInput(event: Event): void {
   handleSliceSliderInput(event, pane)
 }
 
+function getPaneSliceIndex(pane: ComparePaneView): number {
+  return Math.max(0, sliceInfos.value[pane.key].current - 1)
+}
+
+function isPaneSliceStarred(pane: ComparePaneView): boolean {
+  return Boolean(pane.seriesId && props.isSliceStarred?.(pane.seriesId, getPaneSliceIndex(pane)))
+}
+
+function getPaneStarredSliceCount(pane: ComparePaneView): number {
+  return pane.seriesId ? (props.getStarredSliceCount?.(pane.seriesId) ?? 0) : 0
+}
+
+function togglePaneSliceStar(pane: ComparePaneView): void {
+  if (!pane.seriesId) {
+    return
+  }
+
+  emit('toggleSliceStar', {
+    viewportKey: pane.key,
+    seriesId: pane.seriesId,
+    sliceIndex: getPaneSliceIndex(pane)
+  })
+}
+
 </script>
 
 <template>
@@ -181,9 +214,20 @@ function handleSyncedSliceSliderInput(event: Event): void {
             <div class="truncate text-[13px] font-semibold text-[var(--theme-text-primary)]">{{ pane.title }}</div>
             <div class="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] text-[var(--theme-text-muted)]">
               <span class="truncate">{{ pane.sliceLabel || 'Slice --' }}</span>
+              <span v-if="getPaneStarredSliceCount(pane)" class="compare-stack-pane__star-count">{{ getPaneStarredSliceCount(pane) }}</span>
             </div>
           </div>
         </div>
+        <button
+          class="compare-stack-pane__star-button"
+          type="button"
+          :class="{ 'compare-stack-pane__star-button--active': isPaneSliceStarred(pane) }"
+          :title="isPaneSliceStarred(pane) ? viewerCopy.unmarkKeySlice : viewerCopy.markKeySlice"
+          :aria-pressed="isPaneSliceStarred(pane) ? 'true' : 'false'"
+          @click="togglePaneSliceStar(pane)"
+        >
+          <AppIcon :name="isPaneSliceStarred(pane) ? 'star' : 'star-outline'" :size="16" />
+        </button>
       </div>
 
       <div class="compare-stack-pane__body" :class="{ 'compare-stack-pane__body--synced': isScrollSynced }">
@@ -323,6 +367,46 @@ function handleSyncedSliceSliderInput(event: Event): void {
   background: color-mix(in srgb, var(--theme-accent) 14%, transparent);
   color: var(--theme-text-primary);
   font-size: 11px;
+  font-weight: 800;
+}
+
+.compare-stack-pane__star-button {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 84%, transparent);
+  color: var(--theme-text-secondary);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.compare-stack-pane__star-button:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-strong));
+  color: var(--theme-text-primary);
+}
+
+.compare-stack-pane__star-button--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.compare-stack-pane__star-count {
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  color: var(--theme-accent);
+  font-size: 9px;
   font-weight: 800;
 }
 

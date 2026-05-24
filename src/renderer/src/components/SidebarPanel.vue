@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
 import type { ConnectionState, FolderSeriesItem, ViewType } from '../types/viewer'
+import type { LoadFolderResponse } from '../services/typedApi'
 import SidebarBrandPanel from './sidebar/SidebarBrandPanel.vue'
 import SidebarCollapsedRail from './sidebar/SidebarCollapsedRail.vue'
+import SidebarPacsEntry from './sidebar/SidebarPacsEntry.vue'
 import SidebarQuickActions from './sidebar/SidebarQuickActions.vue'
 import SidebarSeriesList from './sidebar/SidebarSeriesList.vue'
 import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
+import PacsBrowserDialog from './sidebar/PacsBrowserDialog.vue'
+import { useUiPreferences } from '../composables/ui/useUiPreferences'
 import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
 import type { WebUploadPickMode } from '../platform/runtime'
@@ -27,16 +31,26 @@ const props = defineProps<{
 const emit = defineEmits<{
   compareSeries: [sourceSeriesId: string, targetSeriesId: string]
   chooseFolder: [mode?: WebUploadPickMode]
+  openKeySlice: [seriesId: string, sliceIndex: number]
   openView: [viewType: ViewType]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
+  pacsSeriesLoaded: [response: LoadFolderResponse]
   selectSeries: [seriesId: string]
   toggleSidebar: []
 }>()
 
 const isMenuOpen = ref(false)
+const isPacsBrowserOpen = ref(false)
 const hoveredSeries = ref<(FolderSeriesItem & { index: number }) | null>(null)
 const hoveredSeriesCardStyle = ref<Record<string, string>>({})
+const { pacsPreference } = useUiPreferences()
+
+const isPacsEntryVisible = computed(() => (
+  pacsPreference.value.enabled &&
+  pacsPreference.value.profiles.some((profile) => profile.enabled)
+))
+const isLocalSourceEnabled = computed(() => pacsPreference.value.localSourceEnabled !== false)
 
 const connectionIcon = computed(() => {
   if (props.connectionState === 'connected') return 'connected'
@@ -76,6 +90,14 @@ function closeMenu(): void {
   isMenuOpen.value = false
 }
 
+function openPacsBrowser(): void {
+  isPacsBrowserOpen.value = true
+}
+
+function closePacsBrowser(): void {
+  isPacsBrowserOpen.value = false
+}
+
 function showSeriesHoverCard(event: MouseEvent | FocusEvent, series: FolderSeriesItem, index: number): void {
   const target = event.currentTarget
   if (!(target instanceof HTMLElement)) return
@@ -97,8 +119,9 @@ function hideSeriesHoverCard(): void {
     <div class="flex h-full flex-col gap-2.5">
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
-        <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
-        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
+        <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-local-source-enabled="isLocalSourceEnabled" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
+        <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
+        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-key-slice="(seriesId, sliceIndex) => emit('openKeySlice', seriesId, sliceIndex)" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>
 
@@ -138,6 +161,7 @@ function hideSeriesHoverCard(): void {
   </Teleport>
 
   <SidebarSettingsDialog :is-open="isMenuOpen" @close="closeMenu" />
+  <PacsBrowserDialog :is-open="isPacsBrowserOpen" :loaded-series-list="seriesList" @close="closePacsBrowser" @series-loaded="emit('pacsSeriesLoaded', $event)" />
 </template>
 
 <style scoped>

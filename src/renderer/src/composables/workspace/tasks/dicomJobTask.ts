@@ -1,4 +1,3 @@
-import type { DicomTagModifyJob } from '../../../services/typedApi'
 import { dispatchWorkspaceStatusToast } from './workspaceStatus'
 
 export const DEFAULT_DICOM_JOB_POLL_OPTIONS = {
@@ -26,11 +25,21 @@ export interface DicomJobProgress {
   total: number
 }
 
-export interface WaitForDicomJobOptions {
+export type BackgroundJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface BackgroundJob {
+  jobId: string
+  status: BackgroundJobStatus
+  processedCount?: number | null
+  progressPercent?: number | null
+  totalCount?: number | null
+}
+
+export interface WaitForDicomJobOptions<TJob extends BackgroundJob = BackgroundJob> {
   intervalMs?: number
   maxPolls?: number
   maxStatusErrors?: number
-  onProgress?: (job: DicomTagModifyJob) => void
+  onProgress?: (job: TJob) => void
   statusTimeoutMs?: number
   timeoutMessage: string
 }
@@ -48,7 +57,7 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)))
 }
 
-export function getDicomJobProgress(job: DicomTagModifyJob, copy: DicomJobProgressCopy): DicomJobProgress {
+export function getDicomJobProgress(job: BackgroundJob, copy: DicomJobProgressCopy): DicomJobProgress {
   const total = toNonNegativeCount(job.totalCount)
   const processedFallback = job.status === 'succeeded' ? total : 0
   const rawProcessed = toNonNegativeCount(job.processedCount, processedFallback)
@@ -79,7 +88,7 @@ export function getDicomJobProgress(job: DicomTagModifyJob, copy: DicomJobProgre
 }
 
 export function showDicomJobProgressToast(
-  job: DicomTagModifyJob,
+  job: BackgroundJob,
   copy: DicomJobToastCopy,
   message = copy.started
 ): void {
@@ -92,11 +101,11 @@ export function showDicomJobProgressToast(
   })
 }
 
-export async function waitForDicomJob(
-  initialJob: DicomTagModifyJob,
-  fetchJob: (jobId: string, config: { timeout: number }) => Promise<DicomTagModifyJob>,
-  options: WaitForDicomJobOptions
-): Promise<DicomTagModifyJob> {
+export async function waitForDicomJob<TJob extends BackgroundJob>(
+  initialJob: TJob,
+  fetchJob: (jobId: string, config: { timeout: number }) => Promise<TJob>,
+  options: WaitForDicomJobOptions<TJob>
+): Promise<TJob> {
   const intervalMs = options.intervalMs ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.intervalMs
   const maxPolls = options.maxPolls ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.maxPolls
   const maxStatusErrors = options.maxStatusErrors ?? DEFAULT_DICOM_JOB_POLL_OPTIONS.maxStatusErrors
@@ -106,7 +115,7 @@ export async function waitForDicomJob(
 
   options.onProgress?.(job)
   for (let pollIndex = 0; pollIndex < maxPolls; pollIndex += 1) {
-    if (job.status === 'succeeded' || job.status === 'failed') {
+    if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled') {
       return job
     }
 

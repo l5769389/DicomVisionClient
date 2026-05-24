@@ -8,6 +8,7 @@ import { getSeriesValueMetaLabel } from './seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
 const props = defineProps<{
+  keySliceCount?: number
   selected: boolean
   series: FolderSeriesItem
 }>()
@@ -21,7 +22,7 @@ const emit = defineEmits<{
   seriesDragStart: [event: DragEvent, series: FolderSeriesItem]
 }>()
 
-const { t } = useUiLocale()
+const { t, viewerCopy } = useUiLocale()
 
 type CompatibilityIssue = NonNullable<FolderSeriesItem['compatibilityIssues']>[number]
 type CompatibilitySeverity = 'info' | 'warning' | 'error'
@@ -49,6 +50,7 @@ const compatibilityIcon = computed(() => {
 const compatibilityTitle = computed(() =>
   compatibilityIssues.value.map((issue) => formatCompatibilityIssue(issue)).join('\n')
 )
+const hasKeySlices = computed(() => (props.keySliceCount ?? 0) > 0)
 
 function formatCompatibilityIssue(issue: CompatibilityIssue): string {
   const title = issue.title || issue.code
@@ -95,6 +97,16 @@ function formatCompatibilityIssue(issue: CompatibilityIssue): string {
         >
           <AppIcon :name="compatibilityIcon" :size="12" />
           <span>{{ compatibilityIssues.length }}</span>
+        </span>
+        <span
+          v-if="hasKeySlices"
+          class="series-key-slice-chip"
+          :class="{ 'series-key-slice-chip--active': selected }"
+          :title="viewerCopy.keySliceReviewAction(props.keySliceCount ?? 0)"
+          aria-label="Key slice count"
+        >
+          <AppIcon name="star" :size="11" />
+          <span>{{ props.keySliceCount }}</span>
         </span>
       </span>
       <span class="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
@@ -230,6 +242,27 @@ function formatCompatibilityIssue(issue: CompatibilityIssue): string {
 }
 
 .series-four-d-chip--active {
+  border-color: var(--theme-active-pill-border);
+  background: var(--theme-active-pill-bg);
+  color: var(--theme-active-foreground);
+}
+
+.series-key-slice-chip {
+  display: inline-flex;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  padding: 0 5px;
+  color: var(--theme-accent);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.series-key-slice-chip--active {
   border-color: var(--theme-active-pill-border);
   background: var(--theme-active-pill-bg);
   color: var(--theme-active-foreground);

@@ -9,6 +9,7 @@ import type { SettingsCopy } from '../../composables/ui/uiMessages'
 import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
 import { viewerRuntime } from '../../platform/runtime'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
+import PacsSettingsPanel from './settings/PacsSettingsPanel.vue'
 import MprLayoutMenuPanel from '../workspace/shell/MprLayoutMenuPanel.vue'
 import {
   DEFAULT_MPR_LAYOUT_KEY,
@@ -41,7 +42,8 @@ type SettingsSection =
   | 'displayMeasurement'
   | 'displayPseudocolor'
   | 'displayRoi'
-type SettingsNavGroupKey = 'general' | 'display' | 'dicomTags' | 'export' | 'qa'
+  | 'pacs'
+type SettingsNavGroupKey = 'general' | 'dataSource' | 'display' | 'dicomTags' | 'export' | 'qa'
 type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
 
 interface SettingsNavItem {
@@ -102,6 +104,7 @@ const SETTINGS_SEARCH_SEPARATOR_PATTERN = /[\s_\-./\\|:，。；;、（）()[\]{
 
 const SETTINGS_GROUP_SEARCH_ALIASES: Record<SettingsNavGroupKey, string[]> = {
   general: ['常规', '基础', '偏好', 'general', 'basic', 'preference', 'language', 'shortcut'],
+  dataSource: ['数据源', 'pacs', 'dicomweb', 'qido', 'orthanc', 'dcm4chee', 'source', 'archive'],
   display: ['显示', '图像', 'display', 'image', 'viewer', 'visual', 'layout', 'window', 'measure'],
   dicomTags: ['dicom tag', 'tag', '标签', '元数据', 'metadata', 'edit'],
   export: ['导出', '保存', '脱敏', '匿名', 'export', 'save', 'deidentify', 'anonymize'],
@@ -111,6 +114,7 @@ const SETTINGS_GROUP_SEARCH_ALIASES: Record<SettingsNavGroupKey, string[]> = {
 const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   language: ['语言', '主题', '界面', '中文', '英文', 'language', 'locale', 'theme', 'skin', 'ui', 'zh', 'en'],
   shortcuts: ['快捷键', '键盘', '热键', 'shortcut', 'hotkey', 'keyboard', 'keymap'],
+  pacs: ['pacs', 'dicomweb', 'qido', 'orthanc', 'dcm4chee', '数据源', '远程', '归档', 'archive', 'remote'],
   windowPresets: ['窗模板', '窗宽', '窗位', '调窗', 'window', 'preset', 'ww', 'wl', 'windowlevel'],
   hangingProtocol: ['挂片协议', '挂片', '布局规则', 'hanging', 'protocol', 'layout', 'rule'],
   dicomTags: ['dicom tag', 'tag', '标签', '元数据', '修改', '保存位置', 'metadata', 'edit', 'save'],
@@ -354,6 +358,7 @@ const { resetExportSection } = useExportSettings(copy)
 const sections = computed<SettingsNavItem[]>(() => [
   { key: 'language' as const, title: isZh.value ? '语言与主题' : 'Language & Theme', subtitle: isZh.value ? '界面偏好' : 'UI preferences', icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
+  { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb Profile' : 'DICOMweb profiles', icon: 'pacs' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
@@ -379,6 +384,13 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
       subtitle: isZh.value ? '基础偏好' : 'Basic preferences',
       icon: 'settings',
       items: [getSection('language'), getSection('shortcuts')]
+    },
+    {
+      key: 'dataSource',
+      title: isZh.value ? '数据源' : 'Data Sources',
+      subtitle: isZh.value ? '本地与 PACS' : 'Local and PACS',
+      icon: 'pacs',
+      items: [getSection('pacs')]
     },
     {
       key: 'display',
@@ -1121,15 +1133,15 @@ onMounted(async () => {
         <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_14%,transparent),transparent_26%),radial-gradient(circle_at_bottom_left,color-mix(in_srgb,var(--theme-accent-warm)_12%,transparent),transparent_22%)]"></div>
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[color:color-mix(in_srgb,var(--theme-text-primary)_40%,transparent)] to-transparent"></div>
 
-        <div class="settings-dialog-header relative flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-7 py-6">
+        <div class="settings-dialog-header relative flex items-center justify-between gap-4 border-b border-[var(--theme-border-soft)] px-6 py-3.5">
           <div class="min-w-0">
             <div class="flex items-center gap-3">
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-primary)]">
-                <AppIcon name="settings" :size="20" />
+              <div class="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-primary)]">
+                <AppIcon name="settings" :size="18" />
               </div>
               <div class="min-w-0">
-                <div class="text-xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ copy.title }}</div>
-                <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--theme-text-muted)]">
+                <div class="text-lg font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ copy.title }}</div>
+                <div class="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--theme-text-muted)]">
                   <span>{{ copy.productName }}</span>
                   <span class="h-1 w-1 rounded-full bg-[var(--theme-border-strong)]"></span>
                   <span>{{ copy.versionLabel }} {{ copy.versionBadge(appVersion) }}</span>
@@ -1137,7 +1149,7 @@ onMounted(async () => {
               </div>
             </div>
           </div>
-          <button type="button" class="theme-button-secondary flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition hover:brightness-110" :aria-label="copy.title" @click="emit('close')">
+          <button type="button" class="theme-button-secondary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition hover:brightness-110" :aria-label="copy.title" @click="emit('close')">
             <AppIcon name="close" :size="16" />
           </button>
         </div>
@@ -1324,6 +1336,10 @@ onMounted(async () => {
                       </div>
                     </div>
                   </div>
+                </template>
+
+                <template v-else-if="activeSection === 'pacs'">
+                  <PacsSettingsPanel />
                 </template>
 
                 <template v-else-if="activeSection === 'windowPresets'">

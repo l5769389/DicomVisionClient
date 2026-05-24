@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { VBtn, VDialog, VLocaleProvider, VMenu, VSelect, VTextField } from 'vuetify/components'
+import { VBtn, VDialog, VLocaleProvider, VMenu } from 'vuetify/components'
 import { VDateInput } from 'vuetify/labs/VDateInput'
 import { zhHans } from 'vuetify/locale'
 import type { PacsSeriesItem, PacsStudyItem } from '@shared/generated/backendApi'
@@ -47,6 +47,7 @@ const isQueryingStudies = ref(false)
 const isQueryingSeries = ref(false)
 const queryError = ref('')
 const isProfileMenuOpen = ref(false)
+const isAdvancedFiltersOpen = ref(false)
 const selectedProfileId = ref('')
 const studyInstanceUid = ref('')
 const patientKeyword = ref('')
@@ -60,7 +61,6 @@ const bodyPartExamined = ref('')
 const studyDateFrom = ref('')
 const studyDateTo = ref('')
 const limit = ref(PACS_LIMIT_DEFAULT)
-const limitInput = ref(String(PACS_LIMIT_DEFAULT))
 const studyOffset = ref(0)
 const seriesOffset = ref(0)
 const studies = ref<PacsStudyItem[]>([])
@@ -99,6 +99,13 @@ const seriesPageLabel = computed(() => (
 ))
 const selectedProfileLabel = computed(() => selectedProfile.value?.name ?? (isZh.value ? '未选择 Profile' : 'No profile selected'))
 const isSelectedProfileDimse = computed(() => selectedProfile.value?.protocol === 'dimse')
+const advancedFilterCount = computed(() => [
+  studyInstanceUid.value,
+  studyDescription.value,
+  seriesInstanceUid.value,
+  seriesDescription.value,
+  bodyPartExamined.value
+].filter((value) => value.trim()).length)
 const pacsVuetifyLocale = computed(() => (isZh.value ? 'zhHans' : 'en'))
 const pacsVuetifyLocaleMessages = { zhHans }
 const studyDateFromModel = computed<Date | null>({
@@ -113,12 +120,6 @@ const studyDateToModel = computed<Date | null>({
     studyDateTo.value = formatPacsDateValue(value)
   }
 })
-const limitOptions = computed(() =>
-  PACS_LIMIT_PRESETS.map((value) => ({
-    title: isZh.value ? `${value} 条` : `${value} results`,
-    value
-  }))
-)
 const downloadedSeriesByUid = computed(() => {
   const seriesByUid = new Map<string, FolderSeriesItem>()
   for (const series of props.loadedSeriesList) {
@@ -157,6 +158,10 @@ watch(selectedProfile, (profile) => {
 function selectProfile(profileId: string): void {
   selectedProfileId.value = profileId
   isProfileMenuOpen.value = false
+}
+
+function toggleAdvancedFilters(): void {
+  isAdvancedFiltersOpen.value = !isAdvancedFiltersOpen.value
 }
 
 function parsePacsDateValue(value: string): Date | null {
@@ -200,33 +205,7 @@ function normalizeLimitValue(value: unknown): number {
 }
 
 function setLimitValue(value: unknown): void {
-  const normalizedLimit = normalizeLimitValue(value)
-  limit.value = normalizedLimit
-  limitInput.value = String(normalizedLimit)
-}
-
-function updateLimitInput(value: string | number | null): void {
-  limitInput.value = value == null ? '' : String(value)
-  if (!limitInput.value.trim()) {
-    return
-  }
-
-  const numericValue = Number(limitInput.value)
-  if (Number.isFinite(numericValue)) {
-    limit.value = Math.min(PACS_LIMIT_MAX, Math.max(PACS_LIMIT_MIN, Math.trunc(numericValue)))
-  }
-}
-
-function commitLimitInput(): number {
-  const normalizedLimit = normalizeLimitValue(limitInput.value)
-  limit.value = normalizedLimit
-  limitInput.value = String(normalizedLimit)
-  return normalizedLimit
-}
-
-function handleLimitEnter(): void {
-  commitLimitInput()
-  void queryStudies(0)
+  limit.value = normalizeLimitValue(value)
 }
 
 function queryStudyFirstPage(): void {
@@ -302,7 +281,8 @@ async function queryStudies(offset = 0): Promise<void> {
   seriesPreviewByUid.value = {}
   seriesPreviewErrorsByUid.value = {}
   try {
-    const normalizedLimit = commitLimitInput()
+    const normalizedLimit = normalizeLimitValue(limit.value)
+    limit.value = normalizedLimit
     const normalizedOffset = Math.max(0, Math.trunc(Number(offset) || 0))
     const studyQuery = {
       studyInstanceUid: studyInstanceUid.value.trim() || null,
@@ -600,8 +580,8 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
       </div>
 
       <div class="pacs-browser-body grid gap-0 overflow-hidden lg:grid-cols-[330px_minmax(0,1fr)]">
-        <aside class="min-h-0 overflow-auto border-b border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] p-5 lg:border-b-0 lg:border-r">
-          <div class="grid gap-4">
+        <aside class="pacs-filter-panel min-h-0 border-b border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] lg:border-b-0 lg:border-r">
+          <div class="pacs-filter-scroll flex flex-col gap-4 p-5">
             <div class="grid gap-1.5">
               <span class="pacs-field-label">Profile</span>
               <VMenu
@@ -640,10 +620,6 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               </VMenu>
             </div>
             <label class="grid gap-1.5">
-              <span class="pacs-field-label">Study UID</span>
-              <input v-model="studyInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="queryStudyFirstPage" />
-            </label>
-            <label class="grid gap-1.5">
               <span class="pacs-field-label">{{ isZh ? '患者姓名' : 'Patient Name' }}</span>
               <input v-model="patientKeyword" class="pacs-input" placeholder="Patient*" @keydown.enter="queryStudyFirstPage" />
             </label>
@@ -656,24 +632,8 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               <input v-model="accessionNumber" class="pacs-input" placeholder="ACC..." @keydown.enter="queryStudyFirstPage" />
             </label>
             <label class="grid gap-1.5">
-              <span class="pacs-field-label">{{ isZh ? '检查描述' : 'Study Description' }}</span>
-              <input v-model="studyDescription" class="pacs-input" placeholder="Chest / Abdomen..." @keydown.enter="queryStudyFirstPage" />
-            </label>
-            <label class="grid gap-1.5">
               <span class="pacs-field-label">{{ isZh ? '模态' : 'Modality' }}</span>
               <input v-model="modality" class="pacs-input" placeholder="CT / MR / PT" @keydown.enter="queryStudyFirstPage" />
-            </label>
-            <label class="grid gap-1.5">
-              <span class="pacs-field-label">Series UID</span>
-              <input v-model="seriesInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="querySeriesFirstPage" />
-            </label>
-            <label class="grid gap-1.5">
-              <span class="pacs-field-label">{{ isZh ? '序列描述' : 'Series Description' }}</span>
-              <input v-model="seriesDescription" class="pacs-input" placeholder="AX / Portal..." @keydown.enter="querySeriesFirstPage" />
-            </label>
-            <label class="grid gap-1.5">
-              <span class="pacs-field-label">Body Part</span>
-              <input v-model="bodyPartExamined" class="pacs-input" placeholder="CHEST / ABDOMEN" @keydown.enter="querySeriesFirstPage" />
             </label>
             <VLocaleProvider
               :locale="pacsVuetifyLocale"
@@ -715,42 +675,80 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
             </VLocaleProvider>
             <div class="grid gap-1.5">
               <span class="pacs-field-label">{{ isZh ? '最多返回' : 'Limit' }}</span>
-              <div class="grid grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-2">
-                <VSelect
-                  :model-value="limit"
-                  class="pacs-vuetify-field pacs-limit-select"
-                  :items="limitOptions"
-                  item-title="title"
-                  item-value="value"
-                  :menu-props="{ contentClass: 'pacs-vuetify-menu' }"
-                  hide-details
-                  variant="outlined"
-                  @update:model-value="setLimitValue"
-                />
-                <VTextField
-                  :model-value="limitInput"
-                  class="pacs-vuetify-field pacs-limit-input"
-                  type="number"
-                  :min="PACS_LIMIT_MIN"
-                  :max="PACS_LIMIT_MAX"
-                  step="1"
-                  hide-details
-                  variant="outlined"
-                  @update:model-value="updateLimitInput"
-                  @blur="commitLimitInput"
-                  @keydown.enter="handleLimitEnter"
-                />
+              <div class="pacs-limit-options grid grid-cols-4 gap-2">
+                <button
+                  v-for="option in PACS_LIMIT_PRESETS"
+                  :key="option"
+                  type="button"
+                  class="pacs-limit-option"
+                  :class="{ 'pacs-limit-option--active': limit === option }"
+                  @click="setLimitValue(option)"
+                >
+                  {{ option }}
+                </button>
               </div>
             </div>
+            <section
+              class="pacs-advanced-filter-section"
+              :class="{ 'pacs-advanced-filter-section--open': isAdvancedFiltersOpen }"
+            >
+              <button
+                type="button"
+                class="pacs-advanced-filter-trigger"
+                :aria-expanded="isAdvancedFiltersOpen"
+                @click="toggleAdvancedFilters"
+              >
+                <span class="min-w-0">
+                  <span class="block truncate">{{ isZh ? '更多筛选条件' : 'More filters' }}</span>
+                  <span class="mt-0.5 block truncate text-[11px] font-semibold text-[var(--theme-text-muted)]">
+                    {{ advancedFilterCount ? (isZh ? `已填写 ${advancedFilterCount} 项` : `${advancedFilterCount} active`) : (isZh ? 'UID、描述、Body Part' : 'UID, descriptions, body part') }}
+                  </span>
+                </span>
+                <span class="pacs-advanced-filter-icon" :class="{ 'pacs-advanced-filter-icon--open': isAdvancedFiltersOpen }">
+                  <AppIcon name="chevron-down" :size="16" />
+                </span>
+              </button>
+              <div
+                class="pacs-advanced-filter-body"
+                :aria-hidden="!isAdvancedFiltersOpen"
+                :class="{ 'pacs-advanced-filter-body--open': isAdvancedFiltersOpen }"
+                :inert="!isAdvancedFiltersOpen"
+              >
+                <div class="pacs-advanced-filter-content grid gap-4">
+                  <label class="grid gap-1.5">
+                    <span class="pacs-field-label">Study UID</span>
+                    <input v-model="studyInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="queryStudyFirstPage" />
+                  </label>
+                  <label class="grid gap-1.5">
+                    <span class="pacs-field-label">{{ isZh ? '检查描述' : 'Study Description' }}</span>
+                    <input v-model="studyDescription" class="pacs-input" placeholder="Chest / Abdomen..." @keydown.enter="queryStudyFirstPage" />
+                  </label>
+                  <label class="grid gap-1.5">
+                    <span class="pacs-field-label">Series UID</span>
+                    <input v-model="seriesInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="querySeriesFirstPage" />
+                  </label>
+                  <label class="grid gap-1.5">
+                    <span class="pacs-field-label">{{ isZh ? '序列描述' : 'Series Description' }}</span>
+                    <input v-model="seriesDescription" class="pacs-input" placeholder="AX / Portal..." @keydown.enter="querySeriesFirstPage" />
+                  </label>
+                  <label class="grid gap-1.5">
+                    <span class="pacs-field-label">Body Part</span>
+                    <input v-model="bodyPartExamined" class="pacs-input" placeholder="CHEST / ABDOMEN" @keydown.enter="querySeriesFirstPage" />
+                  </label>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="pacs-filter-footer border-t border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] p-4">
             <VBtn
               variant="flat"
-              class="theme-button-primary mt-1 min-h-11! rounded-2xl! border! text-sm! font-semibold!"
+              class="theme-button-primary min-h-11! w-full rounded-2xl! border! text-sm! font-semibold!"
               :disabled="!canQuery"
               @click="queryStudyFirstPage"
             >
               {{ isQueryingStudies ? (isZh ? '查询中...' : 'Querying...') : (isZh ? '查询检查' : 'Query Studies') }}
             </VBtn>
-            <div v-if="!enabledProfiles.length" class="rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm leading-6 text-[var(--theme-text-secondary)]">
+            <div v-if="!enabledProfiles.length" class="mt-3 rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm leading-6 text-[var(--theme-text-secondary)]">
               {{ isZh ? '请先在设置中启用 PACS，并至少启用一个 Profile。' : 'Enable PACS and at least one profile in settings first.' }}
             </div>
           </div>
@@ -913,13 +911,32 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 }
 
 .pacs-browser-body {
-  height: min(82vh, 760px);
-  min-height: min(640px, calc(100vh - 96px));
+  height: min(72vh, 720px);
+  max-height: calc(100vh - 150px);
+  min-height: min(520px, calc(100vh - 150px));
 }
 
 .pacs-browser-main {
   display: flex;
   flex-direction: column;
+}
+
+.pacs-filter-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pacs-filter-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.pacs-filter-footer {
+  flex: 0 0 auto;
+  box-shadow: 0 -16px 34px color-mix(in srgb, black 24%, transparent);
 }
 
 .pacs-result-layout {
@@ -1009,6 +1026,126 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   opacity: 0.38;
 }
 
+.pacs-limit-options {
+  min-height: 42px;
+}
+
+.pacs-limit-option {
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 14px;
+  background: var(--theme-surface-card);
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.pacs-limit-option:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card-soft));
+  color: var(--theme-text-primary);
+}
+
+.pacs-limit-option--active {
+  border-color: var(--theme-active-border);
+  background: var(--theme-active-surface-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 26%, transparent);
+  color: var(--theme-active-foreground);
+}
+
+.pacs-advanced-filter-section {
+  overflow: hidden;
+  min-height: 56px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+  transition:
+    background 160ms ease,
+    min-height 190ms ease;
+}
+
+.pacs-advanced-filter-section--open {
+  min-height: 416px;
+  background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
+}
+
+.pacs-advanced-filter-trigger {
+  display: flex;
+  min-height: 54px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.pacs-advanced-filter-trigger:hover {
+  background: color-mix(in srgb, var(--theme-accent) 7%, transparent);
+}
+
+.pacs-advanced-filter-icon {
+  display: grid;
+  height: 28px;
+  width: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 10px;
+  color: var(--theme-text-secondary);
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    transform 180ms ease;
+}
+
+.pacs-advanced-filter-icon--open {
+  border-color: color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 11%, transparent);
+  color: var(--theme-active-foreground);
+  transform: rotate(180deg);
+}
+
+.pacs-advanced-filter-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 190ms ease;
+}
+
+.pacs-advanced-filter-body--open {
+  grid-template-rows: 1fr;
+}
+
+.pacs-advanced-filter-content {
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 14px;
+  transition:
+    padding-bottom 190ms ease,
+    padding-top 190ms ease;
+}
+
+.pacs-advanced-filter-body--open .pacs-advanced-filter-content {
+  padding-top: 4px;
+  padding-bottom: 14px;
+}
+
 .pacs-preview-thumb {
   aspect-ratio: 1;
   min-height: 86px;
@@ -1069,14 +1206,6 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 :deep(.pacs-vuetify-field .v-field__append-inner),
 :deep(.pacs-vuetify-field .v-icon) {
   color: var(--theme-text-secondary);
-}
-
-:deep(.pacs-limit-select .v-field__input) {
-  padding-right: 0;
-}
-
-:deep(.pacs-limit-input input) {
-  text-align: center;
 }
 
 :global(.pacs-date-menu .v-overlay__content),

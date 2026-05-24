@@ -64,6 +64,8 @@ const statusToastIcon = computed(() => {
       return 'info'
   }
 })
+const shownMainProcessStatusToastIds = new Set<string>()
+let removeMainProcessStatusToastListener: (() => void) | null = null
 const statusToastProgressLabel = computed(() => {
   const toast = viewer.statusToast.value
   const label = toast?.progressLabel?.trim() ?? ''
@@ -90,8 +92,13 @@ function isAppStatusToastTone(value: unknown): value is AppStatusToastTone {
   return value === 'info' || value === 'success' || value === 'warning' || value === 'error'
 }
 
-const handleStatusToastEvent = (event: Event): void => {
-  const detail = (event as CustomEvent<{
+function showStatusToastFromPayload(payload: unknown): void {
+  if (!payload || typeof payload !== 'object') {
+    return
+  }
+
+  const detail = payload as {
+    id?: unknown
     message?: unknown
     tone?: unknown
     detail?: unknown
@@ -102,24 +109,43 @@ const handleStatusToastEvent = (event: Event): void => {
     progressLabel?: unknown
     progressPercent?: unknown
     durationMs?: unknown
-  }>).detail
-  const message = typeof detail?.message === 'string' ? detail.message.trim() : ''
+  }
+  const id = typeof detail.id === 'string' ? detail.id.trim() : ''
+  if (id && shownMainProcessStatusToastIds.has(id)) {
+    return
+  }
+
+  const message = typeof detail.message === 'string' ? detail.message.trim() : ''
   if (!message) {
     return
   }
-  viewer.showStatusToast(message, isAppStatusToastTone(detail?.tone) ? detail.tone : 'info', {
-    detail: typeof detail?.detail === 'string' ? detail.detail.trim() : null,
-    directoryPath: typeof detail?.directoryPath === 'string' ? detail.directoryPath : null,
-    filePath: typeof detail?.filePath === 'string' ? detail.filePath : null,
-    canOpenLocation: detail?.canOpenLocation === true,
-    busy: detail?.busy === true,
-    progressLabel: typeof detail?.progressLabel === 'string' ? detail.progressLabel.trim() : null,
+
+  if (id) {
+    shownMainProcessStatusToastIds.add(id)
+  }
+
+  viewer.showStatusToast(message, isAppStatusToastTone(detail.tone) ? detail.tone : 'info', {
+    detail: typeof detail.detail === 'string' ? detail.detail.trim() : null,
+    directoryPath: typeof detail.directoryPath === 'string' ? detail.directoryPath : null,
+    filePath: typeof detail.filePath === 'string' ? detail.filePath : null,
+    canOpenLocation: detail.canOpenLocation === true,
+    busy: detail.busy === true,
+    progressLabel: typeof detail.progressLabel === 'string' ? detail.progressLabel.trim() : null,
     progressPercent:
-      typeof detail?.progressPercent === 'number' && Number.isFinite(detail.progressPercent)
+      typeof detail.progressPercent === 'number' && Number.isFinite(detail.progressPercent)
         ? detail.progressPercent
         : null,
-    durationMs: typeof detail?.durationMs === 'number' && Number.isFinite(detail.durationMs) ? detail.durationMs : undefined
+    durationMs: typeof detail.durationMs === 'number' && Number.isFinite(detail.durationMs) ? detail.durationMs : undefined
   })
+}
+
+const handleStatusToastEvent = (event: Event): void => {
+  showStatusToastFromPayload((event as CustomEvent<unknown>).detail)
+}
+
+async function showStartupStatusToast(): Promise<void> {
+  const payload = await window.viewerApi?.getStartupStatusToast?.()
+  showStatusToastFromPayload(payload)
 }
 
 async function handleOpenStatusToastLocation(): Promise<void> {
@@ -140,12 +166,16 @@ onMounted(() => {
   document.addEventListener('selectstart', preventSelection)
   window.addEventListener('keydown', preventSelectAll)
   window.addEventListener('dicomvision:status-toast', handleStatusToastEvent)
+  removeMainProcessStatusToastListener = window.viewerApi?.onStatusToast?.(showStatusToastFromPayload) ?? null
+  void showStartupStatusToast()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('selectstart', preventSelection)
   window.removeEventListener('keydown', preventSelectAll)
   window.removeEventListener('dicomvision:status-toast', handleStatusToastEvent)
+  removeMainProcessStatusToastListener?.()
+  removeMainProcessStatusToastListener = null
 })
 
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {

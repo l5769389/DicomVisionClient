@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 
 let latestDroppedFilePaths: string[] = []
 
@@ -37,10 +37,18 @@ contextBridge.exposeInMainWorld('viewerApi', {
   },
   getBackendOrigin: (): Promise<string> => ipcRenderer.invoke('viewer:get-backend-origin'),
   getDefaultExportDirectory: (): Promise<string> => ipcRenderer.invoke('viewer:get-default-export-directory'),
+  getStartupStatusToast: (): Promise<unknown | null> => ipcRenderer.invoke('viewer:get-startup-status-toast'),
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   loadUiPreferences: (): Promise<unknown | null> => ipcRenderer.invoke('viewer:load-ui-preferences'),
   minimizeWindow: (): Promise<void> => ipcRenderer.invoke('viewer:minimize-window'),
   normalizeDroppedPaths: (paths: string[]): Promise<string[]> => ipcRenderer.invoke('viewer:normalize-dropped-paths', paths),
+  onStatusToast: (callback: (payload: unknown) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => callback(payload)
+    ipcRenderer.on('viewer:status-toast', listener)
+    return () => {
+      ipcRenderer.off('viewer:status-toast', listener)
+    }
+  },
   openExportLocation: (payload: { directoryPath?: string | null; filePath?: string | null }): Promise<boolean> =>
     ipcRenderer.invoke('viewer:open-export-location', payload),
   saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }): Promise<{ directoryPath: string; filePath: string }> =>

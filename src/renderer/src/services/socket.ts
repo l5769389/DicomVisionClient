@@ -9,6 +9,7 @@ import type {
   MeasurementDraftPayload,
   MeasurementDraftPoint,
   MprMipOperationConfig,
+  ViewProgressInfo,
   ViewHoverPayload,
   ViewHoverResponse,
   ViewImageResponse,
@@ -70,6 +71,7 @@ export interface ServerToClientEvents {
   image_update: (...args: ImageUpdateSocketArgs) => void
   image_error: (payload?: SocketErrorPayload) => void
   render_error: (payload?: SocketErrorPayload) => void
+  view_progress: (payload?: ViewProgressInfo) => void
   hover_info: (payload?: ViewHoverResponse) => void
   view_ack: (payload: { success?: boolean; message?: string; viewId?: string }) => void
   view_bound: (payload: { viewId: string }) => void

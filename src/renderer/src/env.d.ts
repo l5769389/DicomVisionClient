@@ -14,6 +14,20 @@ interface ImportMeta {
 declare global {
   const __APP_VERSION__: string
 
+  type ViewerStatusToastPayload = {
+    id?: string
+    message?: string
+    tone?: 'info' | 'success' | 'warning' | 'error'
+    detail?: string | null
+    directoryPath?: string | null
+    filePath?: string | null
+    canOpenLocation?: boolean
+    busy?: boolean
+    progressLabel?: string | null
+    progressPercent?: number | null
+    durationMs?: number
+  }
+
   interface Window {
     viewerApi?: {
       chooseFolder: () => Promise<string | null>
@@ -22,10 +36,12 @@ declare global {
       consumeLatestDroppedFilePaths: () => string[]
       getBackendOrigin: () => Promise<string>
       getDefaultExportDirectory: () => Promise<string>
+      getStartupStatusToast: () => Promise<ViewerStatusToastPayload | null>
       getPathForFile: (file: File) => string
       loadUiPreferences: () => Promise<unknown | null>
       minimizeWindow: () => Promise<void>
       normalizeDroppedPaths: (paths: string[]) => Promise<string[]>
+      onStatusToast: (callback: (payload: ViewerStatusToastPayload) => void) => () => void
       openExportLocation: (payload: { directoryPath?: string | null; filePath?: string | null }) => Promise<boolean>
       saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }) => Promise<{ directoryPath: string; filePath: string }>
       saveUiPreferences: (payload: unknown) => Promise<void>

@@ -15,8 +15,19 @@ const DEFAULT_BACKEND_ORIGIN = DESKTOP_DEV_BACKEND_ORIGIN
 const BACKEND_READY_TIMEOUT_MS = 20000
 const BACKEND_READY_POLL_INTERVAL_MS = 400
 
+type RendererStatusToastTone = 'info' | 'success' | 'warning' | 'error'
+
+interface RendererStatusToastPayload {
+  id: string
+  message: string
+  tone: RendererStatusToastTone
+  detail?: string | null
+  durationMs?: number
+}
+
 let backendOrigin = process.env.DICOM_VISION_SERVER_ORIGIN?.trim() || DEFAULT_BACKEND_ORIGIN
 let backendProcess: ChildProcessWithoutNullStreams | null = null
+let pendingStartupStatusToast: RendererStatusToastPayload | null = null
 
 function buildBackendOrigin(host: string, port: number): string {
   return buildHttpOrigin(host, port)
@@ -110,6 +121,25 @@ function resolveUniqueExportPath(directoryPath: string, fileName: string): strin
   }
 
   return candidatePath
+}
+
+function resolveBackendStartupFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim()
+  }
+
+  return app.isPackaged
+    ? 'Failed to start embedded backend service.'
+    : 'Desktop dev mode requires a separately running backend service.'
+}
+
+function publishRendererStatusToast(payload: RendererStatusToastPayload): void {
+  pendingStartupStatusToast = payload
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('viewer:status-toast', payload)
+    }
+  })
 }
 
 async function loadUiPreferences(): Promise<unknown | null> {
@@ -389,6 +419,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('viewer:get-backend-origin', () => backendOrigin)
   ipcMain.handle('viewer:get-default-export-directory', () => resolveDefaultExportDirectory())
+  ipcMain.handle('viewer:get-startup-status-toast', () => pendingStartupStatusToast)
   ipcMain.handle(
     'viewer:save-export-file',
     async (
@@ -440,17 +471,17 @@ app.whenReady().then(() => {
   ipcMain.handle('viewer:save-ui-preferences', (_, payload: unknown) => saveUiPreferences(payload))
 
   void ensureBackendRunning()
-    .catch(async (error: unknown) => {
-      const message =
-        error instanceof Error
-          ? error.message
-          : app.isPackaged
-            ? 'Failed to start embedded backend service.'
-            : 'Desktop dev mode requires a separately running backend service.'
-      await dialog.showMessageBox({
-        type: 'warning',
-        title: app.isPackaged ? 'Backend Startup Failed' : 'Backend Connection Failed',
-        message
+    .catch((error: unknown) => {
+      const message = resolveBackendStartupFailureMessage(error)
+      const detail = app.isPackaged
+        ? `${message} Log: ${resolveBackendLogPath()}`
+        : `${message} Backend: ${backendOrigin}`
+      publishRendererStatusToast({
+        id: 'backend-startup-failed',
+        message: app.isPackaged ? 'Backend service failed to start' : 'Backend service is not connected',
+        tone: 'warning',
+        detail,
+        durationMs: 0
       })
     })
     .finally(() => {

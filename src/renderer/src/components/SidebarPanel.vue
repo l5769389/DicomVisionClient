@@ -31,6 +31,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   compareSeries: [sourceSeriesId: string, targetSeriesId: string]
   chooseFolder: [mode?: WebUploadPickMode]
+  openKeySlice: [seriesId: string, sliceIndex: number]
   openView: [viewType: ViewType]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
@@ -120,7 +121,7 @@ function hideSeriesHoverCard(): void {
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
         <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-local-source-enabled="isLocalSourceEnabled" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
         <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
-        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
+        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-key-slice="(seriesId, sliceIndex) => emit('openKeySlice', seriesId, sliceIndex)" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>
 

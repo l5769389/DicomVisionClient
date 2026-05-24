@@ -275,8 +275,12 @@ export interface PacsDicomwebTestResponse {
 export interface PacsQidoSeriesQueryRequest {
   profile: PacsDicomwebProfile
   studyInstanceUid: string
+  seriesInstanceUid?: string | null
   modality?: string | null
+  seriesDescription?: string | null
+  bodyPartExamined?: string | null
   limit?: number
+  offset?: number
 }
 
 export interface PacsQidoSeriesQueryResponse {
@@ -285,13 +289,16 @@ export interface PacsQidoSeriesQueryResponse {
 
 export interface PacsQidoStudyQueryRequest {
   profile: PacsDicomwebProfile
+  studyInstanceUid?: string | null
   patientId?: string | null
   patientName?: string | null
   accessionNumber?: string | null
+  studyDescription?: string | null
   studyDateFrom?: string | null
   studyDateTo?: string | null
   modality?: string | null
   limit?: number
+  offset?: number
 }
 
 export interface PacsQidoStudyQueryResponse {
@@ -307,6 +314,29 @@ export interface PacsSeriesItem {
   bodyPartExamined?: string | null
   numberOfSeriesRelatedInstances?: number | null
   raw?: Record<string, unknown>
+}
+
+export interface PacsSeriesPreviewRequest {
+  profile: PacsDicomwebProfile
+  studyInstanceUid: string
+  seriesInstanceUid: string
+  thumbnail?: boolean
+}
+
+export interface PacsSeriesPreviewResponse {
+  studyInstanceUid: string
+  seriesInstanceUid: string
+  instanceCount?: number
+  rows?: number | null
+  columns?: number | null
+  numberOfFrames?: number | null
+  hasMultiFrameInstances?: boolean
+  transferSyntaxes?: string[]
+  isCompressed?: boolean
+  photometricInterpretations?: string[]
+  sopInstanceUid?: string | null
+  thumbnailSrc?: string | null
+  thumbnailError?: string | null
 }
 
 export interface PacsStudyItem {
@@ -325,7 +355,7 @@ export interface PacsStudyItem {
 
 export interface PacsWadoSeriesDownloadJobStatusResponse {
   jobId: string
-  status: 'pending' | 'running' | 'succeeded' | 'failed'
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   statusUrl: string
   error?: string | null
   folderPath?: string | null
@@ -642,7 +672,9 @@ export interface ApiOperations {
   UploadDicomFilesApiV1DicomUploadPost: { method: 'POST'; path: '/api/v1/dicom/upload'; request: never; response: LoadFolderResponse }
   CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/downloadSeries/jobs'; request: PacsWadoSeriesDownloadRequest; response: PacsWadoSeriesDownloadJobStatusResponse }
   GetDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsJobIdGet: { method: 'GET'; path: '/api/v1/pacs/dicomweb/downloadSeries/jobs/{job_id}'; request: never; response: PacsWadoSeriesDownloadJobStatusResponse }
+  CancelDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsJobIdCancelPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/downloadSeries/jobs/{job_id}/cancel'; request: never; response: PacsWadoSeriesDownloadJobStatusResponse }
   QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/series'; request: PacsQidoSeriesQueryRequest; response: PacsQidoSeriesQueryResponse }
+  PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/seriesPreview'; request: PacsSeriesPreviewRequest; response: PacsSeriesPreviewResponse }
   QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/studies'; request: PacsQidoStudyQueryRequest; response: PacsQidoStudyQueryResponse }
   TestDicomwebConnectionApiV1PacsDicomwebTestPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/test'; request: PacsDicomwebTestRequest; response: PacsDicomwebTestResponse }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }

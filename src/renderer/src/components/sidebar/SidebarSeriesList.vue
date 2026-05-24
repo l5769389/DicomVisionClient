@@ -6,6 +6,7 @@ import SeriesListCard from './SeriesListCard.vue'
 import { isFourDSeriesItem, type FolderSeriesItem, type ViewType } from '../../types/viewer'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import { useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { saveBinaryFile, type SaveFilePreference } from '../../platform/exporting'
 import {
   getDicomDeidentifyJob,
@@ -36,6 +37,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   compareSeries: [sourceSeriesId: string, targetSeriesId: string]
+  openKeySlice: [seriesId: string, sliceIndex: number]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
   selectSeries: [seriesId: string]
@@ -43,15 +45,18 @@ const emit = defineEmits<{
 
 const DEIDENTIFY_EXPORT_ROOT = 'DicomVisionDeidentified'
 
-type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'compare' | 'deidentify' | 'delete'
+type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'compare' | 'keySlices' | 'deidentify' | 'delete'
 
-const { locale, t } = useUiLocale()
+const { locale, t, viewerCopy } = useUiLocale()
 const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
+const { clearSeriesStars, getStarredSliceIndexes, getStarredSliceCount } = useKeySliceStars()
 const isContextMenuOpen = ref(false)
 const isCompareDialogOpen = ref(false)
+const isKeySliceDialogOpen = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
 const compareSourceSeries = ref<FolderSeriesItem | null>(null)
+const keySliceDialogSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
 const seriesSearch = ref('')
 const collapsedPatientGroupKeys = ref<string[]>([])
@@ -77,6 +82,18 @@ const seriesCountLabel = computed(() =>
   hasSeriesSearch.value ? `${filteredSeriesList.value.length}/${props.seriesList.length}` : String(props.seriesList.length)
 )
 const selectedDeidentifyFieldCount = computed(() => dicomDeidentifyPreference.value.selectedFieldKeys.length)
+const contextKeySliceCount = computed(() => getStarredSliceCount(contextSeries.value?.seriesId))
+const keySliceDialogItems = computed(() =>
+  getStarredSliceIndexes(keySliceDialogSeries.value?.seriesId).map((sliceIndex) => ({
+    sliceIndex,
+    label: viewerCopy.value.keySliceLabel(sliceIndex + 1)
+  }))
+)
+const keySliceDialogCount = computed(() => keySliceDialogItems.value.length)
+const hasKeySliceDialogItems = computed(() => keySliceDialogCount.value > 0)
+const keySliceDialogSeriesTitle = computed(() =>
+  keySliceDialogSeries.value?.seriesDescription || keySliceDialogSeries.value?.seriesId || t('unnamedSeries')
+)
 const deidentifyCopy = computed(() => ({
   actionTitle: isZh.value ? '脱敏导出' : 'De-identify Export',
   actionSubtitle:
@@ -136,6 +153,16 @@ const contextMenuActions = computed(() => [
     badge: 'CMP',
     disabled: props.seriesList.length < 2
   },
+  ...(contextKeySliceCount.value > 0
+    ? [
+        {
+          key: 'keySlices' as const,
+          title: viewerCopy.value.keySliceReviewAction(contextKeySliceCount.value),
+          subtitle: viewerCopy.value.keySliceReviewSubtitle,
+          badge: 'STAR'
+        }
+      ]
+    : []),
   {
     key: 'deidentify' as const,
     title: deidentifyCopy.value.actionTitle,
@@ -311,6 +338,10 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
     isCompareDialogOpen.value = true
     closeContextMenu()
     return
+  } else if (action === 'keySlices') {
+    openKeySliceDialog(series)
+    closeContextMenu()
+    return
   } else if (action === 'deidentify') {
     closeContextMenu()
     await exportDeidentifiedSeries(series)
@@ -320,6 +351,24 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   }
 
   closeContextMenu()
+}
+
+function openKeySliceDialog(series: FolderSeriesItem): void {
+  keySliceDialogSeries.value = series
+  isKeySliceDialogOpen.value = true
+}
+
+function openKeySlice(sliceIndex: number): void {
+  const series = keySliceDialogSeries.value
+  if (!series) {
+    return
+  }
+  emit('openKeySlice', series.seriesId, sliceIndex)
+  isKeySliceDialogOpen.value = false
+}
+
+function clearKeySliceMarks(): void {
+  clearSeriesStars(keySliceDialogSeries.value?.seriesId)
 }
 
 function getSafeDeidentifyFolderName(value: string): string {
@@ -552,6 +601,7 @@ function handleSeriesDragEnd(): void {
                 <SeriesListCard
                   v-for="series in studyGroup.series"
                   :key="series.seriesId"
+                  :key-slice-count="getStarredSliceCount(series.seriesId)"
                   :selected="series.seriesId === selectedSeriesId"
                   :series="series"
                   @open-stack="emit('openSeriesView', $event, 'Stack')"
@@ -609,6 +659,62 @@ function handleSeriesDragEnd(): void {
         </VCard>
       </VMenu>
     </div>
+
+    <VDialog v-model="isKeySliceDialogOpen" max-width="520">
+      <VCard class="key-slice-dialog theme-shell-panel overflow-hidden rounded-[22px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_24px_58px_rgba(0,0,0,0.48)]!">
+        <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
+          <div class="min-w-0">
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ viewerCopy.keySliceDialogTitle }}</div>
+              <span class="key-slice-dialog__count">{{ keySliceDialogCount }}</span>
+            </div>
+            <div class="mt-1 truncate text-xs text-[var(--theme-text-secondary)]">
+              {{ keySliceDialogSeriesTitle }}
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <VBtn
+              v-if="hasKeySliceDialogItems"
+              class="key-slice-dialog__clear h-9! min-w-0! rounded-xl! border! px-3! text-[11px]! font-semibold! normal-case!"
+              variant="flat"
+              :title="viewerCopy.keySliceClearTitle"
+              @click="clearKeySliceMarks"
+            >
+              {{ viewerCopy.keySliceClear }}
+            </VBtn>
+            <VBtn class="h-9! w-9! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isKeySliceDialogOpen = false">
+              <AppIcon name="close" :size="16" />
+            </VBtn>
+          </div>
+        </div>
+
+        <div class="max-h-[420px] overflow-auto p-3">
+          <button
+            v-for="item in keySliceDialogItems"
+            :key="item.sliceIndex"
+            class="key-slice-dialog__item theme-card-soft grid w-full grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-3 text-left transition duration-150"
+            type="button"
+            @click="openKeySlice(item.sliceIndex)"
+          >
+            <span class="key-slice-dialog__icon">
+              <AppIcon name="star" :size="16" />
+            </span>
+            <span class="min-w-0">
+              <span class="block truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ item.label }}</span>
+              <span class="mt-0.5 block truncate text-[11px] text-[var(--theme-text-muted)]">{{ viewerCopy.keySliceDialogHint }}</span>
+            </span>
+            <span class="key-slice-dialog__action">
+              <span>{{ viewerCopy.keySliceOpen }}</span>
+              <AppIcon name="chevron-right" :size="14" />
+            </span>
+          </button>
+          <div v-if="!hasKeySliceDialogItems" class="key-slice-dialog__empty theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm text-[var(--theme-text-muted)]">
+            <AppIcon name="star-outline" :size="20" />
+            <span>{{ viewerCopy.keySliceDialogEmpty }}</span>
+          </div>
+        </div>
+      </VCard>
+    </VDialog>
 
     <VDialog v-model="isCompareDialogOpen" max-width="920">
       <VCard class="series-compare-dialog theme-shell-panel overflow-hidden rounded-[24px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_28px_70px_rgba(0,0,0,0.52)]!">
@@ -1048,6 +1154,85 @@ function handleSeriesDragEnd(): void {
   border-color: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
   background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
   color: var(--theme-text-muted);
+}
+
+.key-slice-dialog {
+  backdrop-filter: blur(18px);
+}
+
+.key-slice-dialog__item + .key-slice-dialog__item {
+  margin-top: 8px;
+}
+
+.key-slice-dialog__count {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 14%, transparent);
+  color: var(--theme-accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.key-slice-dialog__clear {
+  border-color: rgba(251, 113, 133, 0.22) !important;
+  background: color-mix(in srgb, rgb(251, 113, 133) 9%, var(--theme-surface-card) 84%) !important;
+  color: rgb(253, 164, 175) !important;
+}
+
+.key-slice-dialog__clear:hover {
+  border-color: rgba(251, 113, 133, 0.38) !important;
+  background: color-mix(in srgb, rgb(251, 113, 133) 14%, var(--theme-surface-card) 80%) !important;
+}
+
+.key-slice-dialog__empty {
+  display: grid;
+  min-height: 116px;
+  place-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.key-slice-dialog__item:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card));
+  transform: translateY(-1px);
+}
+
+.key-slice-dialog__icon {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 52%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.key-slice-dialog__action {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 78%, transparent);
+  padding: 0 8px;
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.key-slice-dialog__item:hover .key-slice-dialog__action {
+  border-color: color-mix(in srgb, var(--theme-accent) 44%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  color: var(--theme-accent);
 }
 
 .series-compare-dialog {

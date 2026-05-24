@@ -38,6 +38,7 @@ import type { ViewerToolbarActionPayload } from '../../composables/workspace/ope
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { analyzeWaterPhantomView } from '../../composables/qa/waterPhantomQa'
 import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
 import type { DicomDropInput } from '../../platform/runtime'
@@ -121,6 +122,12 @@ const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t, workspaceExportCopy } = useUiLocale()
 const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions } = useUiPreferences()
+const {
+  getStarredSliceIndexes,
+  getStarredSliceCount,
+  isSliceStarred,
+  toggleSliceStar
+} = useKeySliceStars()
 const DEFAULT_ANNOTATION_TEXT = ''
 const DEFAULT_ANNOTATION_COLOR = '#ffd166'
 const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
@@ -1368,6 +1375,22 @@ function handleCopySelectedMtf(): void {
   })
 }
 
+function isStackCurrentSliceStarred(tab: ViewerTabItem): boolean {
+  const slice = parseSliceLabel(tab.sliceLabel)
+  return Boolean(slice && isSliceStarred(tab.seriesId, slice.index))
+}
+
+function handleStackSliceStar(payload: { sliceIndex: number }): void {
+  if (props.activeTab?.viewType !== 'Stack') {
+    return
+  }
+  toggleSliceStar(props.activeTab.seriesId, payload.sliceIndex)
+}
+
+function handleCompareSliceStar(payload: { seriesId: string; sliceIndex: number }): void {
+  toggleSliceStar(payload.seriesId, payload.sliceIndex)
+}
+
 function getViewportAnnotations(viewportKey: string): AnnotationOverlay[] {
   return getAnnotations(viewportKey)
 }
@@ -1712,6 +1735,8 @@ onBeforeUnmount(() => {
           :get-draft-measurement-mode="getViewportDraftMeasurementMode"
           :get-draft-measurement="getViewportDraftMeasurement"
           :get-measurements="getViewportMeasurements"
+          :get-starred-slice-count="getStarredSliceCount"
+          :is-slice-starred="isSliceStarred"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="handleCopySelectedMeasurement"
@@ -1724,6 +1749,7 @@ onBeforeUnmount(() => {
           @pointer-move="handleViewportPointerMoveWithAnnotations"
           @pointer-up="handleViewportPointerUpWithAnnotations"
           @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @toggle-slice-star="handleCompareSliceStar"
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
@@ -1775,6 +1801,9 @@ onBeforeUnmount(() => {
           :mtf-items="getViewportMtfItems('single')"
           :qa-water-analysis="qaWaterAnalysis"
           :selected-mtf-id="selectedMtfId"
+          :is-current-slice-starred="isStackCurrentSliceStarred(activeTab)"
+          :starred-slice-count="getStarredSliceCount(activeTab.seriesId)"
+          :starred-slice-indexes="getStarredSliceIndexes(activeTab.seriesId)"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="handleCopySelectedMeasurement"
@@ -1791,6 +1820,7 @@ onBeforeUnmount(() => {
           @pointer-move="handleViewportPointerMoveWithAnnotations"
           @pointer-up="handleViewportPointerUpWithAnnotations"
           @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @toggle-slice-star="handleStackSliceStar"
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"

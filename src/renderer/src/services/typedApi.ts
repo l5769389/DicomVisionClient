@@ -26,6 +26,7 @@ const operationPaths = {
   CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost:
     '/api/v1/pacs/dicomweb/downloadSeries/jobs',
   QueryDicomwebSeriesApiV1PacsDicomwebSeriesPost: '/api/v1/pacs/dicomweb/series',
+  PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost: '/api/v1/pacs/dicomweb/seriesPreview',
   QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: '/api/v1/pacs/dicomweb/studies',
   TestDicomwebConnectionApiV1PacsDicomwebTestPost: '/api/v1/pacs/dicomweb/test',
   SetViewSizeApiV1ViewSetSizePost: '/api/v1/view/setSize'
@@ -39,7 +40,11 @@ type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPos
 export type LoadFolderResponse = ApiOperations['LoadFolderApiV1DicomLoadFolderPost']['response']
 export type PacsWadoSeriesDownloadRequest =
   ApiOperations['CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost']['request']
-type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export type PacsSeriesPreviewRequest =
+  ApiOperations['PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost']['request']
+export type PacsSeriesPreviewResponse =
+  ApiOperations['PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost']['response']
+type DicomTagModifyJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 export interface DicomUploadItem {
   file: File
@@ -319,12 +324,31 @@ export async function postPacsWadoSeriesDownloadJob(
   return response.data
 }
 
+export async function postPacsSeriesPreview(
+  data: PacsSeriesPreviewRequest,
+  config?: AxiosRequestConfig
+): Promise<PacsSeriesPreviewResponse> {
+  return postApi('PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost', data, config)
+}
+
 export async function getPacsWadoSeriesDownloadJob(
   jobId: string,
   config?: AxiosRequestConfig
 ): Promise<PacsWadoSeriesDownloadJob> {
   const response = await api.get<PacsWadoSeriesDownloadJob>(
     toApiBaseRelativePath(`/api/v1/pacs/dicomweb/downloadSeries/jobs/${encodeURIComponent(jobId)}`),
+    config
+  )
+  return response.data
+}
+
+export async function cancelPacsWadoSeriesDownloadJob(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<PacsWadoSeriesDownloadJob> {
+  const response = await api.post<PacsWadoSeriesDownloadJob>(
+    toApiBaseRelativePath(`/api/v1/pacs/dicomweb/downloadSeries/jobs/${encodeURIComponent(jobId)}/cancel`),
+    undefined,
     config
   )
   return response.data

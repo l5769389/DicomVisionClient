@@ -217,7 +217,7 @@ const systemWindowPresets: WindowTemplatePreset[] = [
     id: 'bone',
     source: 'system',
     ww: 2000,
-    wl: 350,
+    wl: 500,
     accent: 'linear-gradient(135deg,#f7f0d0,#f1b74f)',
     labels: {
       'zh-CN': '骨窗',
@@ -234,8 +234,87 @@ const systemWindowPresets: WindowTemplatePreset[] = [
       'zh-CN': '脑窗',
       'en-US': 'Brain'
     }
+  },
+  {
+    id: 'abdomen',
+    source: 'system',
+    ww: 400,
+    wl: 50,
+    accent: 'linear-gradient(135deg,#fed7aa,#fb7185)',
+    labels: {
+      'zh-CN': '腹部窗',
+      'en-US': 'Abdomen'
+    }
+  },
+  {
+    id: 'stroke',
+    source: 'system',
+    ww: 40,
+    wl: 40,
+    accent: 'linear-gradient(135deg,#bfdbfe,#38bdf8)',
+    labels: {
+      'zh-CN': '卒中窗',
+      'en-US': 'Stroke'
+    }
+  },
+  {
+    id: 'soft-tissue',
+    source: 'system',
+    ww: 400,
+    wl: 40,
+    accent: 'linear-gradient(135deg,#fbcfe8,#c084fc)',
+    labels: {
+      'zh-CN': '软组织窗',
+      'en-US': 'Soft Tissue'
+    }
+  },
+  {
+    id: 'liver',
+    source: 'system',
+    ww: 150,
+    wl: 30,
+    accent: 'linear-gradient(135deg,#fde68a,#f97316)',
+    labels: {
+      'zh-CN': '肝窗',
+      'en-US': 'Liver'
+    }
+  },
+  {
+    id: 'cta',
+    source: 'system',
+    ww: 700,
+    wl: 200,
+    accent: 'linear-gradient(135deg,#bae6fd,#0ea5e9)',
+    labels: {
+      'zh-CN': '血管窗',
+      'en-US': 'CTA'
+    }
+  },
+  {
+    id: 'subdural',
+    source: 'system',
+    ww: 130,
+    wl: 50,
+    accent: 'linear-gradient(135deg,#e9d5ff,#8b5cf6)',
+    labels: {
+      'zh-CN': '硬膜下窗',
+      'en-US': 'Subdural'
+    }
   }
 ]
+
+const SYSTEM_WINDOW_PRESET_ZH_LABELS: Record<string, string> = {
+  lung: '肺窗',
+  bone: '骨窗',
+  brain: '脑窗',
+  abdomen: '腹部窗',
+  mediastinum: '纵隔窗',
+  stroke: '卒中窗',
+  'soft-tissue': '软组织窗',
+  liver: '肝窗',
+  cta: '血管窗',
+  subdural: '硬膜下窗'
+}
 
 function createDefaultCrosshairConfigs(): CrosshairViewportPreference[] {
   return [
@@ -1087,6 +1166,9 @@ export function useUiPreferences() {
   }
 
   function getWindowPresetLabel(preset: WindowTemplatePreset): string {
+    if (state.locale === 'zh-CN' && preset.source === 'system') {
+      return SYSTEM_WINDOW_PRESET_ZH_LABELS[preset.id] ?? preset.labels[state.locale]
+    }
     return preset.labels[state.locale]
   }
 

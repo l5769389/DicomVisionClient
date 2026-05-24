@@ -308,6 +308,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :series-list="viewer.seriesList.value"
           @compare-series="viewer.openSeriesCompare"
           @choose-folder="viewer.chooseFolder"
+          @open-key-slice="viewer.openKeySlice"
           @open-view="viewer.openView"
           @open-series-view="viewer.openSeriesView"
           @pacs-series-loaded="viewer.applyLoadedDicomSeries($event, { selectLoadedSeries: true, openFirstSeriesView: true })"

@@ -2,6 +2,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const STORAGE_KEY = 'dicomvision-ui-preferences'
 
+function installLocalStorageMock(): void {
+  if (window.localStorage) {
+    return
+  }
+
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      clear: () => store.clear(),
+      getItem: (key: string) => store.get(key) ?? null,
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() {
+        return store.size
+      },
+      removeItem: (key: string) => store.delete(key),
+      setItem: (key: string, value: string) => store.set(key, String(value))
+    }
+  })
+}
+
 async function flushPreferences(): Promise<void> {
   await Promise.resolve()
   await new Promise((resolve) => window.setTimeout(resolve, 0))
@@ -9,6 +30,7 @@ async function flushPreferences(): Promise<void> {
 
 async function loadPreferences(storedValue?: unknown) {
   vi.resetModules()
+  installLocalStorageMock()
   window.localStorage.clear()
   delete (window as Window & { viewerApi?: unknown }).viewerApi
   document.documentElement.removeAttribute('data-theme')
@@ -26,6 +48,7 @@ async function loadPreferences(storedValue?: unknown) {
 describe('useUiPreferences', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    installLocalStorageMock()
     window.localStorage.clear()
   })
 
@@ -165,5 +188,28 @@ describe('useUiPreferences', () => {
       enabled: true,
       activeProfileId: 'pacs-2'
     })
+  })
+
+  it('provides common CT window presets with localized labels', async () => {
+    const preferences = await loadPreferences()
+
+    expect(preferences.systemWindowPresets.map((preset) => preset.id)).toEqual([
+      'lung',
+      'mediastinum',
+      'bone',
+      'brain',
+      'abdomen',
+      'stroke',
+      'soft-tissue',
+      'liver',
+      'cta',
+      'subdural'
+    ])
+    expect(preferences.getWindowPresetLabel(preferences.systemWindowPresets[0])).toBe('肺窗')
+    expect(preferences.getWindowPresetLabel(preferences.systemWindowPresets[4])).toBe('腹部窗')
+
+    preferences.setLocale('en-US')
+
+    expect(preferences.getWindowPresetLabel(preferences.systemWindowPresets[4])).toBe('Abdomen')
   })
 })

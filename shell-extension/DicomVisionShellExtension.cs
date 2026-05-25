@@ -34,7 +34,7 @@ namespace DicomVision.ShellExtension
     [Guid(ShellIds.HandlerClsid)]
     [ProgId("DicomVision.DicomShellHandler")]
     [ClassInterface(ClassInterfaceType.None)]
-    public sealed class DicomShellHandler : IPreviewHandler, IInitializeWithStream, IInitializeWithFile, IThumbnailProvider, IObjectWithSite
+    public sealed class DicomShellHandler : IPreviewHandler, IOleWindow, IInitializeWithStream, IInitializeWithFile, IThumbnailProvider, IObjectWithSite
     {
         private byte[] _content;
         private string _filePath;
@@ -42,6 +42,7 @@ namespace DicomVision.ShellExtension
         private NativeMethods.RECT _previewRect;
         private PreviewControl _previewControl;
         private object _site;
+        private string _initializationError;
 
         public int Initialize(IStream stream, uint grfMode)
         {
@@ -49,11 +50,16 @@ namespace DicomVision.ShellExtension
             {
                 _content = StreamReader.ReadAllBytes(stream);
                 _filePath = null;
+                _initializationError = null;
                 return NativeMethods.S_OK;
             }
-            catch
+            catch (Exception ex)
             {
-                return NativeMethods.E_FAIL;
+                _content = null;
+                _filePath = null;
+                _initializationError = ex.Message;
+                ShellPreviewLog.Write("IInitializeWithStream failed: " + ex);
+                return NativeMethods.S_OK;
             }
         }
 
@@ -61,6 +67,7 @@ namespace DicomVision.ShellExtension
         {
             _filePath = filePath;
             _content = null;
+            _initializationError = null;
             return NativeMethods.S_OK;
         }
 
@@ -81,24 +88,23 @@ namespace DicomVision.ShellExtension
 
         public int DoPreview()
         {
-            if (_parentHwnd == IntPtr.Zero)
+            try
             {
-                return NativeMethods.E_FAIL;
+                var result = ResolveRenderResult();
+                ReplacePreviewControl(result);
             }
-
-            var bytes = ResolveContent();
-            var result = DicomRenderer.Render(bytes);
-            _previewControl = new PreviewControl(result);
-            _previewControl.CreateControl();
-
-            NativeMethods.SetWindowLongPtr(
-                _previewControl.Handle,
-                NativeMethods.GWL_STYLE,
-                new IntPtr(NativeMethods.WS_CHILD | NativeMethods.WS_VISIBLE | NativeMethods.WS_CLIPSIBLINGS)
-            );
-            NativeMethods.SetParent(_previewControl.Handle, _parentHwnd);
-            PositionPreviewControl();
-            _previewControl.Show();
+            catch (Exception ex)
+            {
+                ShellPreviewLog.Write("DoPreview failed: " + ex);
+                try
+                {
+                    ReplacePreviewControl(DicomRenderer.RenderError("Preview handler failed: " + ex.Message));
+                }
+                catch
+                {
+                    return NativeMethods.E_FAIL;
+                }
+            }
             return NativeMethods.S_OK;
         }
 
@@ -110,6 +116,8 @@ namespace DicomVision.ShellExtension
                 _previewControl = null;
             }
             _content = null;
+            _filePath = null;
+            _initializationError = null;
             return NativeMethods.S_OK;
         }
 
@@ -120,6 +128,19 @@ namespace DicomVision.ShellExtension
                 _previewControl.Focus();
             }
             return NativeMethods.S_OK;
+        }
+
+        public int GetWindow(out IntPtr phwnd)
+        {
+            phwnd = _previewControl != null && !_previewControl.IsDisposed
+                ? _previewControl.Handle
+                : _parentHwnd;
+            return phwnd == IntPtr.Zero ? NativeMethods.E_FAIL : NativeMethods.S_OK;
+        }
+
+        public int ContextSensitiveHelp(bool enterMode)
+        {
+            return NativeMethods.E_NOTIMPL;
         }
 
         public int QueryFocus(out IntPtr phwnd)
@@ -179,6 +200,11 @@ namespace DicomVision.ShellExtension
 
         private byte[] ResolveContent()
         {
+            if (!string.IsNullOrWhiteSpace(_initializationError))
+            {
+                throw new InvalidOperationException(_initializationError);
+            }
+
             if (_content != null)
             {
                 return _content;
@@ -192,6 +218,48 @@ namespace DicomVision.ShellExtension
             return File.ReadAllBytes(_filePath);
         }
 
+        private RenderResult ResolveRenderResult()
+        {
+            try
+            {
+                return DicomRenderer.Render(ResolveContent());
+            }
+            catch (Exception ex)
+            {
+                ShellPreviewLog.Write("ResolveRenderResult failed: " + ex);
+                return DicomRenderer.RenderError(ex.Message);
+            }
+        }
+
+        private void ReplacePreviewControl(RenderResult result)
+        {
+            if (_previewControl != null)
+            {
+                _previewControl.Dispose();
+            }
+
+            _previewControl = new PreviewControl(result);
+            _previewControl.CreateControl();
+            NativeMethods.SetWindowLongPtr(
+                _previewControl.Handle,
+                NativeMethods.GWL_STYLE,
+                new IntPtr(NativeMethods.WS_CHILD | NativeMethods.WS_VISIBLE | NativeMethods.WS_CLIPSIBLINGS)
+            );
+            AttachPreviewControl();
+            PositionPreviewControl();
+            _previewControl.Show();
+        }
+
+        private void AttachPreviewControl()
+        {
+            if (_parentHwnd == IntPtr.Zero || _previewControl == null || _previewControl.IsDisposed || _previewControl.Handle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            NativeMethods.SetParent(_previewControl.Handle, _parentHwnd);
+        }
+
         private void PositionPreviewControl()
         {
             if (_previewControl == null || _previewControl.IsDisposed || _previewControl.Handle == IntPtr.Zero)
@@ -199,6 +267,7 @@ namespace DicomVision.ShellExtension
                 return;
             }
 
+            AttachPreviewControl();
             NativeMethods.SetWindowPos(
                 _previewControl.Handle,
                 IntPtr.Zero,
@@ -263,6 +332,17 @@ namespace DicomVision.ShellExtension
     }
 
     [ComImport]
+    [Guid("00000114-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IOleWindow
+    {
+        [PreserveSig]
+        int GetWindow(out IntPtr phwnd);
+        [PreserveSig]
+        int ContextSensitiveHelp([MarshalAs(UnmanagedType.Bool)] bool enterMode);
+    }
+
+    [ComImport]
     [Guid("e357fccd-a995-4576-b01f-234630154e96")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IThumbnailProvider
@@ -293,18 +373,125 @@ namespace DicomVision.ShellExtension
     {
         public static byte[] ReadAllBytes(IStream stream)
         {
-            System.Runtime.InteropServices.ComTypes.STATSTG stat;
-            stream.Stat(out stat, 1);
-            long size = stat.cbSize;
-            if (size <= 0 || size > int.MaxValue)
+            TrySeekStart(stream);
+
+            long size = TryResolveStreamSize(stream);
+            if (size > 0 && size <= int.MaxValue)
             {
-                throw new InvalidDataException("Unsupported DICOM stream size.");
+                return ReadKnownLength(stream, (int)size);
             }
 
-            stream.Seek(0, 0, IntPtr.Zero);
+            return ReadUntilEnd(stream);
+        }
+
+        private static long TryResolveStreamSize(IStream stream)
+        {
+            try
+            {
+                System.Runtime.InteropServices.ComTypes.STATSTG stat;
+                stream.Stat(out stat, 1);
+                return stat.cbSize;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static void TrySeekStart(IStream stream)
+        {
+            try
+            {
+                stream.Seek(0, 0, IntPtr.Zero);
+            }
+            catch
+            {
+            }
+        }
+
+        private static byte[] ReadKnownLength(IStream stream, int size)
+        {
             var bytes = new byte[size];
-            stream.Read(bytes, bytes.Length, IntPtr.Zero);
-            return bytes;
+            int offset = 0;
+            while (offset < size)
+            {
+                int read = ReadChunk(stream, bytes, offset, size - offset);
+                if (read <= 0)
+                {
+                    break;
+                }
+                offset += read;
+            }
+
+            if (offset == size)
+            {
+                return bytes;
+            }
+
+            var resized = new byte[offset];
+            Buffer.BlockCopy(bytes, 0, resized, 0, offset);
+            return resized;
+        }
+
+        private static byte[] ReadUntilEnd(IStream stream)
+        {
+            const int ChunkSize = 65536;
+            using (var output = new MemoryStream())
+            {
+                var buffer = new byte[ChunkSize];
+                while (true)
+                {
+                    int read = ReadChunk(stream, buffer, 0, buffer.Length);
+                    if (read <= 0)
+                    {
+                        break;
+                    }
+                    output.Write(buffer, 0, read);
+                    if (read < buffer.Length)
+                    {
+                        break;
+                    }
+                }
+                return output.ToArray();
+            }
+        }
+
+        private static int ReadChunk(IStream stream, byte[] buffer, int offset, int count)
+        {
+            var chunk = offset == 0 && count == buffer.Length ? buffer : new byte[count];
+            IntPtr readPtr = Marshal.AllocHGlobal(sizeof(int));
+            try
+            {
+                Marshal.WriteInt32(readPtr, 0);
+                stream.Read(chunk, count, readPtr);
+                int read = Marshal.ReadInt32(readPtr);
+                if (read > 0 && !ReferenceEquals(chunk, buffer))
+                {
+                    Buffer.BlockCopy(chunk, 0, buffer, offset, read);
+                }
+                return read;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(readPtr);
+            }
+        }
+    }
+
+    internal static class ShellPreviewLog
+    {
+        public static void Write(string message)
+        {
+            try
+            {
+                string logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DicomVision", "logs");
+                Directory.CreateDirectory(logDir);
+                string logPath = Path.Combine(logDir, "shell-preview.log");
+                File.AppendAllText(logPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " | " + message + Environment.NewLine, Encoding.UTF8);
+            }
+            catch
+            {
+            }
         }
     }
 
@@ -412,8 +599,13 @@ namespace DicomVision.ShellExtension
             }
             catch (Exception ex)
             {
-                return new RenderResult(RenderErrorBitmap(ex.Message), new[] { "DICOM preview unavailable", ex.Message });
+                return RenderError(ex.Message);
             }
+        }
+
+        public static RenderResult RenderError(string message)
+        {
+            return new RenderResult(RenderErrorBitmap(message), new[] { "DICOM preview unavailable", message });
         }
 
         private static Bitmap RenderErrorBitmap(string message)
@@ -853,6 +1045,8 @@ namespace DicomVision.ShellExtension
             using (var clsid = Registry.CurrentUser.CreateSubKey(string.Format(@"{0}\CLSID\{{{1}}}", ClassesPath, ShellIds.HandlerClsid)))
             {
                 clsid.SetValue("", ShellIds.HandlerName);
+                clsid.SetValue("AppID", string.Format("{{{0}}}", ShellIds.HandlerClsid));
+                clsid.SetValue("DisableLowILProcessIsolation", 1, RegistryValueKind.DWord);
                 clsid.SetValue("DisableProcessIsolation", 0, RegistryValueKind.DWord);
                 using (var inproc = clsid.CreateSubKey("InprocServer32"))
                 {
@@ -862,6 +1056,12 @@ namespace DicomVision.ShellExtension
                         WriteInprocValues(version, codeBase, false);
                     }
                 }
+            }
+
+            using (var appId = Registry.CurrentUser.CreateSubKey(string.Format(@"{0}\AppID\{{{1}}}", ClassesPath, ShellIds.HandlerClsid)))
+            {
+                appId.SetValue("", ShellIds.HandlerName);
+                appId.SetValue("DllSurrogate", "Prevhost.exe");
             }
 
             using (var previewHandlers = Registry.CurrentUser.CreateSubKey(PreviewHandlersPath))
@@ -876,6 +1076,7 @@ namespace DicomVision.ShellExtension
         public static void Unregister()
         {
             Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\CLSID\{{{1}}}", ClassesPath, ShellIds.HandlerClsid), false);
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\AppID\{{{1}}}", ClassesPath, ShellIds.HandlerClsid), false);
             using (var previewHandlers = Registry.CurrentUser.OpenSubKey(PreviewHandlersPath, true))
             {
                 if (previewHandlers != null)
@@ -892,7 +1093,7 @@ namespace DicomVision.ShellExtension
             if (includeServerValues)
             {
                 key.SetValue("", "mscoree.dll");
-                key.SetValue("ThreadingModel", "Both");
+                key.SetValue("ThreadingModel", "Apartment");
             }
             key.SetValue("Class", "DicomVision.ShellExtension.DicomShellHandler");
             key.SetValue("Assembly", "DicomVisionShellExtension, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null");
@@ -943,6 +1144,7 @@ namespace DicomVision.ShellExtension
     {
         public const int S_OK = 0;
         public const int S_FALSE = 1;
+        public const int E_NOTIMPL = unchecked((int)0x80004001);
         public const int E_FAIL = unchecked((int)0x80004005);
         public const int GWL_STYLE = -16;
         public const int WS_CHILD = 0x40000000;

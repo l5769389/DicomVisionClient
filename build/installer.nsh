@@ -31,9 +31,11 @@ LangString DicomVisionWelcomeText 2052 "安装程序会将 DicomVision 安装到
   SetRegView 64
 
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "" "DicomVision DICOM Preview Handler"
+  WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "AppID" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
+  WriteRegDWORD HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DisableLowILProcessIsolation" 1
   WriteRegDWORD HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DisableProcessIsolation" 0
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "" "mscoree.dll"
-  WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "ThreadingModel" "Both"
+  WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "ThreadingModel" "Apartment"
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "Class" "DicomVision.ShellExtension.DicomShellHandler"
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "Assembly" "DicomVisionShellExtension, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "RuntimeVersion" "v4.0.30319"
@@ -43,15 +45,19 @@ LangString DicomVisionWelcomeText 2052 "安装程序会将 DicomVision 安装到
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32\1.0.0.0" "RuntimeVersion" "v4.0.30319"
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32\1.0.0.0" "CodeBase" "file:///$INSTDIR/resources/shell/DicomVisionShellExtension.dll"
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\ProgId" "" "DicomVision.DicomShellHandler"
+  WriteRegStr HKCU "Software\Classes\AppID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "" "DicomVision DICOM Preview Handler"
+  WriteRegStr HKCU "Software\Classes\AppID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DllSurrogate" "Prevhost.exe"
   WriteRegStr HKCU "Software\Classes\DicomVision.DicomShellHandler" "" "DicomVision.ShellExtension.DicomShellHandler"
   WriteRegStr HKCU "Software\Classes\DicomVision.DicomShellHandler\CLSID" "" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
   WriteRegStr HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}" "" ""
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\PreviewHandlers" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DicomVision DICOM Preview Handler"
 
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "" "DicomVision.ShellExtension.DicomShellHandler"
+  WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "AppID" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
+  WriteRegDWORD HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DisableLowILProcessIsolation" 1
   WriteRegDWORD HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DisableProcessIsolation" 0
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "" "mscoree.dll"
-  WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "ThreadingModel" "Both"
+  WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "ThreadingModel" "Apartment"
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "Class" "DicomVision.ShellExtension.DicomShellHandler"
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "Assembly" "DicomVisionShellExtension, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32" "RuntimeVersion" "v4.0.30319"
@@ -61,6 +67,8 @@ LangString DicomVisionWelcomeText 2052 "安装程序会将 DicomVision 安装到
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32\1.0.0.0" "RuntimeVersion" "v4.0.30319"
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\InprocServer32\1.0.0.0" "CodeBase" "file:///$INSTDIR/resources/shell/DicomVisionShellExtension.dll"
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\ProgId" "" "DicomVision.DicomShellHandler"
+  WriteRegStr HKLM "Software\Classes\AppID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "" "DicomVision DICOM Preview Handler"
+  WriteRegStr HKLM "Software\Classes\AppID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}" "DllSurrogate" "Prevhost.exe"
   WriteRegStr HKLM "Software\Classes\DicomVision.DicomShellHandler" "" "DicomVision.ShellExtension.DicomShellHandler"
   WriteRegStr HKLM "Software\Classes\DicomVision.DicomShellHandler\CLSID" "" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
   WriteRegStr HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}\Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}" "" ""
@@ -108,9 +116,11 @@ LangString DicomVisionWelcomeText 2052 "安装程序会将 DicomVision 安装到
 
   DeleteRegKey HKCU "Software\Classes\DicomVision.DICOM"
   DeleteRegKey HKCU "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
+  DeleteRegKey HKCU "Software\Classes\AppID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
   DeleteRegKey HKCU "Software\Classes\DicomVision.DicomShellHandler"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\PreviewHandlers" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
   DeleteRegKey HKLM "Software\Classes\CLSID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
+  DeleteRegKey HKLM "Software\Classes\AppID\{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
   DeleteRegKey HKLM "Software\Classes\DicomVision.DicomShellHandler"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\PreviewHandlers" "{6F5351BB-0C26-45B5-94C5-B5C90FAE55DC}"
 

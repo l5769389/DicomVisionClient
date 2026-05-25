@@ -69,6 +69,7 @@ const seriesOffset = ref(0)
 const studies = ref<PacsStudyItem[]>([])
 const selectedStudyUid = ref('')
 const seriesItems = ref<PacsSeriesItem[]>([])
+const activeSeriesUid = ref('')
 const downloadingSeriesUid = ref('')
 const activeDownloadJobId = ref('')
 const activeDownloadProtocol = ref<'dicomweb' | 'dimse'>('dicomweb')
@@ -250,6 +251,22 @@ function isStudySelected(study: PacsStudyItem): boolean {
   return study.studyInstanceUid === selectedStudyUid.value
 }
 
+function getSeriesUid(series: PacsSeriesItem): string {
+  return series.seriesInstanceUid?.trim() ?? ''
+}
+
+function isSeriesActive(series: PacsSeriesItem): boolean {
+  const uid = getSeriesUid(series)
+  return Boolean(uid && uid === activeSeriesUid.value)
+}
+
+function setActiveSeries(series: PacsSeriesItem): void {
+  const uid = getSeriesUid(series)
+  if (uid) {
+    activeSeriesUid.value = uid
+  }
+}
+
 function formatStudyMeta(study: PacsStudyItem): string {
   return [
     study.patientName,
@@ -281,6 +298,7 @@ async function queryStudies(offset = 0): Promise<void> {
   queryError.value = ''
   selectedStudyUid.value = ''
   seriesItems.value = []
+  activeSeriesUid.value = ''
   seriesOffset.value = 0
   seriesPreviewByUid.value = {}
   seriesPreviewErrorsByUid.value = {}
@@ -326,6 +344,7 @@ async function querySeries(study: PacsStudyItem, offset = 0): Promise<void> {
   isQueryingSeries.value = true
   queryError.value = ''
   seriesItems.value = []
+  activeSeriesUid.value = ''
   seriesPreviewByUid.value = {}
   seriesPreviewErrorsByUid.value = {}
   try {
@@ -358,12 +377,12 @@ async function querySeries(study: PacsStudyItem, offset = 0): Promise<void> {
 }
 
 function getSeriesPreview(series: PacsSeriesItem): PacsSeriesPreviewResponse | null {
-  const uid = series.seriesInstanceUid?.trim()
+  const uid = getSeriesUid(series)
   return uid ? seriesPreviewByUid.value[uid] ?? null : null
 }
 
 function getSeriesPreviewError(series: PacsSeriesItem): string {
-  const uid = series.seriesInstanceUid?.trim()
+  const uid = getSeriesUid(series)
   return uid ? seriesPreviewErrorsByUid.value[uid] ?? '' : ''
 }
 
@@ -386,7 +405,8 @@ function formatSeriesPreviewSummary(preview: PacsSeriesPreviewResponse | null | 
 
 async function previewSeries(series: PacsSeriesItem): Promise<void> {
   const profile = selectedProfile.value
-  const seriesUid = series.seriesInstanceUid?.trim()
+  const seriesUid = getSeriesUid(series)
+  setActiveSeries(series)
   if (profile?.protocol === 'dimse') {
     dispatchWorkspaceStatusToast(
       isZh.value ? 'DIMSE 预览需要 C-MOVE/C-GET 接收端，后续版本补充。' : 'DIMSE preview needs a C-MOVE/C-GET receiver and will be added next.',
@@ -432,7 +452,7 @@ function buildDownloadedLoadResponse(job: PacsSeriesDownloadJob): LoadFolderResp
 }
 
 function getDownloadedSeries(series: PacsSeriesItem): FolderSeriesItem | null {
-  const uid = series.seriesInstanceUid?.trim()
+  const uid = getSeriesUid(series)
   return uid ? downloadedSeriesByUid.value.get(uid) ?? null : null
 }
 
@@ -441,6 +461,7 @@ function isSeriesDownloaded(series: PacsSeriesItem): boolean {
 }
 
 function openDownloadedSeries(series: PacsSeriesItem): void {
+  setActiveSeries(series)
   const downloadedSeries = getDownloadedSeries(series)
   if (!downloadedSeries) {
     return
@@ -463,6 +484,7 @@ function openDownloadedSeries(series: PacsSeriesItem): void {
 }
 
 async function handleSeriesAction(series: PacsSeriesItem): Promise<void> {
+  setActiveSeries(series)
   if (isSeriesDownloaded(series)) {
     openDownloadedSeries(series)
     return
@@ -498,11 +520,13 @@ async function cancelActiveDownload(): Promise<void> {
 
 async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   const profile = selectedProfile.value
-  if (!profile || !series.studyInstanceUid || !series.seriesInstanceUid || downloadingSeriesUid.value) {
+  const seriesUid = getSeriesUid(series)
+  if (!profile || !series.studyInstanceUid || !seriesUid || downloadingSeriesUid.value) {
     return
   }
 
-  downloadingSeriesUid.value = series.seriesInstanceUid
+  setActiveSeries(series)
+  downloadingSeriesUid.value = seriesUid
   activeDownloadProtocol.value = profile.protocol
   queryError.value = ''
   try {
@@ -510,12 +534,12 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
       ? await postPacsDimseSeriesDownloadJob({
           profile: toApiPacsDimseProfile(profile),
           studyInstanceUid: series.studyInstanceUid,
-          seriesInstanceUid: series.seriesInstanceUid
+          seriesInstanceUid: seriesUid
         })
       : await postPacsWadoSeriesDownloadJob({
           profile: toApiPacsDicomwebProfile(profile),
           studyInstanceUid: series.studyInstanceUid,
-          seriesInstanceUid: series.seriesInstanceUid
+          seriesInstanceUid: seriesUid
         })
     activeDownloadJobId.value = initialJob.jobId
     showDicomJobProgressToast(initialJob, pacsDownloadCopy.value)
@@ -788,15 +812,15 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                   v-for="study in studies"
                   :key="study.studyInstanceUid"
                   type="button"
-                  class="pacs-result-card rounded-[20px] border px-4 py-3 text-left transition"
+                  class="pacs-result-card pacs-study-card rounded-[20px] border px-4 py-3 text-left transition"
                   :class="isStudySelected(study) ? 'pacs-result-card--active' : 'pacs-result-card--inactive'"
                   @click="querySeries(study)"
                 >
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <div class="truncate text-sm font-semibold" :class="isStudySelected(study) ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ formatStudyTitle(study) }}</div>
+                  <div class="flex min-h-0 items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-sm font-semibold" :class="isStudySelected(study) ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'" :title="formatStudyTitle(study)">{{ formatStudyTitle(study) }}</div>
                       <div class="mt-1 truncate text-xs leading-5" :class="isStudySelected(study) ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-secondary)]'" :title="formatStudyMeta(study)">{{ formatStudyMeta(study) }}</div>
-                      <div class="pacs-mono mt-1 font-mono text-[11px]" :class="isStudySelected(study) ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'" :title="study.studyInstanceUid">{{ study.studyInstanceUid }}</div>
+                      <div class="pacs-mono pacs-single-line mt-1 font-mono text-[11px]" :class="isStudySelected(study) ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'" :title="study.studyInstanceUid">{{ study.studyInstanceUid }}</div>
                     </div>
                     <AppIcon name="chevron-right" :size="18" :class="isStudySelected(study) ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-secondary)]'" />
                   </div>
@@ -827,26 +851,51 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                 </div>
                 <div v-if="isQueryingSeries" class="pacs-series-state px-2 py-10 text-center text-sm text-[var(--theme-text-secondary)]">{{ isZh ? '正在查询序列...' : 'Querying series...' }}</div>
                 <div v-else-if="!seriesItems.length" class="pacs-series-state px-2 py-10 text-center text-sm text-[var(--theme-text-secondary)]">{{ isZh ? '没有返回序列。' : 'No series returned.' }}</div>
-                <div v-else class="pacs-scroll-list grid gap-2 pr-1">
+                <div v-else class="pacs-scroll-list pacs-series-list grid gap-2 pr-1">
                   <div
                     v-for="series in seriesItems"
                     :key="series.seriesInstanceUid"
                     class="pacs-series-card min-w-0 rounded-2xl border px-3 py-3"
-                    :class="{ 'pacs-series-card--downloaded': isSeriesDownloaded(series) }"
+                    :class="{
+                      'pacs-series-card--active': isSeriesActive(series),
+                      'pacs-series-card--downloaded': isSeriesDownloaded(series),
+                      'pacs-series-card--with-preview': Boolean(getSeriesPreview(series) || getSeriesPreviewError(series))
+                    }"
+                    :aria-current="isSeriesActive(series) ? 'true' : undefined"
+                    :aria-busy="previewLoadingSeriesUid === getSeriesUid(series) || downloadingSeriesUid === getSeriesUid(series) ? 'true' : undefined"
+                    role="group"
                   >
-                    <div class="flex min-w-0 items-start justify-between gap-3">
-                      <div class="min-w-0">
+                    <div class="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-center gap-2">
-                          <div class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ series.seriesDescription || series.seriesInstanceUid }}</div>
+                          <div
+                            class="min-w-0 flex-1 truncate text-sm font-semibold"
+                            :class="isSeriesActive(series) ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'"
+                            :title="series.seriesDescription || series.seriesInstanceUid"
+                          >
+                            {{ series.seriesDescription || series.seriesInstanceUid }}
+                          </div>
                           <span v-if="isSeriesDownloaded(series)" class="pacs-downloaded-badge">
                             <AppIcon name="check" :size="12" />
                             {{ isZh ? '已下载' : 'Downloaded' }}
                           </span>
                         </div>
-                        <div class="mt-1 truncate text-xs leading-5 text-[var(--theme-text-secondary)]">{{ formatSeriesMeta(series) }}</div>
-                        <div class="pacs-mono mt-1 font-mono text-[11px] text-[var(--theme-text-muted)]" :title="series.seriesInstanceUid">{{ series.seriesInstanceUid }}</div>
+                        <div
+                          class="mt-1 truncate text-xs leading-5"
+                          :class="isSeriesActive(series) ? 'text-[var(--theme-active-foreground-secondary)]' : 'text-[var(--theme-text-secondary)]'"
+                          :title="formatSeriesMeta(series)"
+                        >
+                          {{ formatSeriesMeta(series) }}
+                        </div>
+                        <div
+                          class="pacs-mono pacs-single-line mt-1 font-mono text-[11px]"
+                          :class="isSeriesActive(series) ? 'text-[var(--theme-active-foreground-muted)]' : 'text-[var(--theme-text-muted)]'"
+                          :title="series.seriesInstanceUid"
+                        >
+                          {{ series.seriesInstanceUid }}
+                        </div>
                       </div>
-                      <div class="flex shrink-0 flex-wrap justify-end gap-2">
+                      <div class="pacs-series-actions flex shrink-0 flex-wrap justify-end gap-2">
                         <VBtn
                           v-if="!isSelectedProfileDimse"
                           variant="flat"
@@ -856,10 +905,10 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                           @click.stop="previewSeries(series)"
                         >
                           <span class="mr-1 inline-flex"><AppIcon name="info" :size="15" /></span>
-                          {{ previewLoadingSeriesUid === series.seriesInstanceUid ? (isZh ? '预览中' : 'Previewing') : (isZh ? '预览' : 'Preview') }}
+                          {{ previewLoadingSeriesUid === getSeriesUid(series) ? (isZh ? '预览中' : 'Previewing') : (isZh ? '预览' : 'Preview') }}
                         </VBtn>
                         <VBtn
-                          v-if="downloadingSeriesUid === series.seriesInstanceUid"
+                          v-if="downloadingSeriesUid === getSeriesUid(series)"
                           variant="flat"
                           class="theme-button-secondary h-9! shrink-0 rounded-xl! border! px-3! text-[11px]! font-semibold!"
                           :disabled="isCancellingDownload"
@@ -973,7 +1022,11 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 }
 
 .pacs-scroll-list {
+  align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 @media (min-width: 1280px) {
@@ -1372,9 +1425,20 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   overflow-wrap: anywhere;
 }
 
+.pacs-single-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pacs-result-card {
   position: relative;
   overflow: hidden;
+}
+
+.pacs-study-card {
+  min-height: 86px;
+  max-height: 112px;
 }
 
 .pacs-result-card--inactive {
@@ -1405,6 +1469,10 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 }
 
 .pacs-series-card {
+  position: relative;
+  min-height: 104px;
+  max-height: 136px;
+  overflow: hidden;
   border-color: var(--theme-border-soft);
   background: var(--theme-surface-panel);
   transition:
@@ -1413,10 +1481,70 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
     box-shadow 150ms ease;
 }
 
-.pacs-series-card--downloaded {
+.pacs-series-card--with-preview {
+  max-height: 330px;
+}
+
+.pacs-series-card:hover:not(.pacs-series-card--active),
+.pacs-series-card:focus-within:not(.pacs-series-card--active) {
+  border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card-soft));
+}
+
+.pacs-series-card:focus-within {
+  box-shadow: var(--theme-focus-ring);
+}
+
+.pacs-series-card--downloaded:not(.pacs-series-card--active) {
   border-color: var(--theme-status-success-border);
-  background: color-mix(in srgb, var(--theme-status-success) 8%, var(--theme-surface-panel));
+  background:
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--theme-status-success) 8%, transparent),
+      color-mix(in srgb, var(--theme-status-success) 8%, transparent)
+    ),
+    var(--theme-surface-panel);
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--theme-status-success) 68%, transparent);
+}
+
+.pacs-series-card--active {
+  border-color: var(--theme-active-border);
+  background: var(--theme-active-surface-soft);
+  box-shadow: var(--theme-active-shadow-soft);
+}
+
+.pacs-series-card--active::before {
+  position: absolute;
+  inset: 9px auto 9px 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--theme-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 34%, transparent);
+  content: "";
+}
+
+.pacs-series-card--active .pacs-preview {
+  border-color: color-mix(in srgb, var(--theme-active-border) 78%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card));
+}
+
+.pacs-series-actions {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .pacs-series-card {
+    max-height: 190px;
+  }
+
+  .pacs-series-card--with-preview {
+    max-height: 430px;
+  }
+
+  .pacs-series-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .pacs-downloaded-badge {

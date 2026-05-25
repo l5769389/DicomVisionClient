@@ -26,6 +26,7 @@ export interface ViewerRuntimeApi {
   chooseFolder: (mode?: WebUploadPickMode) => Promise<DicomLoadSource | null>
   getBackendOrigin: () => Promise<string>
   platform: ViewerPlatform
+  resolveDicomPathSources: (paths: string[]) => Promise<DicomLoadSource[]>
   webAppMode: WebAppMode | null
   resolveDroppedDicomSources: (drop: DicomDropInput) => Promise<DicomLoadSource[]>
 }
@@ -245,6 +246,10 @@ function createDesktopRuntime(): ViewerRuntimeApi {
     },
     getBackendOrigin: () =>
       window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN),
+    resolveDicomPathSources: async (paths) => {
+      const scanPaths = await (window.viewerApi?.normalizeDroppedPaths?.(paths) ?? Promise.resolve([]))
+      return scanPaths.map((path) => ({ kind: 'path', path }))
+    },
     resolveDroppedDicomSources: async (drop) => {
       const api = window.viewerApi
       if (!api) {
@@ -283,6 +288,7 @@ function createWebRuntime(): ViewerRuntimeApi {
       return chooseWebUploadFiles(mode)
     },
     getBackendOrigin: async () => resolveWebBackendOrigin(),
+    resolveDicomPathSources: async () => [],
     resolveDroppedDicomSources: async (drop) => {
       const uploadItems = await resolveWebDroppedUploadItems(drop)
       return uploadItems.length ? [{ kind: 'files', files: uploadItems }] : []

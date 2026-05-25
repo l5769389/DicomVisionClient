@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { VApp, VMain } from 'vuetify/components'
 import AppIcon from './components/AppIcon.vue'
-import SidebarPanel from './components/SidebarPanel.vue'
-import ViewerWorkspace from './components/workspace/ViewerWorkspace.vue'
 import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
@@ -11,6 +9,52 @@ import { openExportLocation } from './platform/exporting'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
 import { normalizeInlineSvg } from './utils/svg'
+
+const SidebarBootFallback = defineComponent({
+  name: 'SidebarBootFallback',
+  setup: () => () =>
+    h('aside', { class: 'app-boot-panel app-boot-panel--sidebar', 'aria-hidden': 'true' }, [
+      h('div', { class: 'app-boot-brand' }, [
+        h('span', { class: 'app-boot-brand__mark' }),
+        h('span', { class: 'app-boot-brand__line' })
+      ]),
+      h('div', { class: 'app-boot-stack' }, [
+        h('span', { class: 'app-boot-line app-boot-line--wide' }),
+        h('span', { class: 'app-boot-line' }),
+        h('span', { class: 'app-boot-line app-boot-line--short' })
+      ]),
+      h('div', { class: 'app-boot-list' }, Array.from({ length: 5 }, (_, index) => h('span', { class: 'app-boot-row', key: index })))
+    ])
+})
+
+const WorkspaceBootFallback = defineComponent({
+  name: 'WorkspaceBootFallback',
+  setup: () => () =>
+    h('section', { class: 'app-boot-panel app-boot-panel--workspace', 'aria-hidden': 'true' }, [
+      h('div', { class: 'app-boot-toolbar' }, [
+        h('span', { class: 'app-boot-pill' }),
+        h('span', { class: 'app-boot-pill app-boot-pill--short' }),
+        h('span', { class: 'app-boot-pill app-boot-pill--short' })
+      ]),
+      h('div', { class: 'app-boot-viewer' }, [
+        h('span', { class: 'app-boot-crosshair app-boot-crosshair--horizontal' }),
+        h('span', { class: 'app-boot-crosshair app-boot-crosshair--vertical' })
+      ])
+    ])
+})
+
+const SidebarPanel = defineAsyncComponent({
+  loader: () => import('./components/SidebarPanel.vue'),
+  loadingComponent: SidebarBootFallback,
+  delay: 0,
+  suspensible: false
+})
+const ViewerWorkspace = defineAsyncComponent({
+  loader: () => import('./components/workspace/ViewerWorkspace.vue'),
+  loadingComponent: WorkspaceBootFallback,
+  delay: 0,
+  suspensible: false
+})
 
 const viewer = useViewerWorkspace()
 type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
@@ -66,6 +110,7 @@ const statusToastIcon = computed(() => {
 })
 const shownMainProcessStatusToastIds = new Set<string>()
 let removeMainProcessStatusToastListener: (() => void) | null = null
+let removeOpenDicomPathsListener: (() => void) | null = null
 const statusToastProgressLabel = computed(() => {
   const toast = viewer.statusToast.value
   const label = toast?.progressLabel?.trim() ?? ''
@@ -143,6 +188,14 @@ const handleStatusToastEvent = (event: Event): void => {
   showStatusToastFromPayload((event as CustomEvent<unknown>).detail)
 }
 
+function handleOpenDicomPaths(paths: string[]): void {
+  if (!paths.length) {
+    return
+  }
+
+  void viewer.loadDicomPaths(paths)
+}
+
 async function showStartupStatusToast(): Promise<void> {
   const payload = await window.viewerApi?.getStartupStatusToast?.()
   showStatusToastFromPayload(payload)
@@ -167,6 +220,8 @@ onMounted(() => {
   window.addEventListener('keydown', preventSelectAll)
   window.addEventListener('dicomvision:status-toast', handleStatusToastEvent)
   removeMainProcessStatusToastListener = window.viewerApi?.onStatusToast?.(showStatusToastFromPayload) ?? null
+  removeOpenDicomPathsListener = window.viewerApi?.onOpenDicomPaths?.(handleOpenDicomPaths) ?? null
+  handleOpenDicomPaths(window.viewerApi?.consumePendingOpenFilePaths?.() ?? [])
   void showStartupStatusToast()
 })
 
@@ -176,6 +231,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('dicomvision:status-toast', handleStatusToastEvent)
   removeMainProcessStatusToastListener?.()
   removeMainProcessStatusToastListener = null
+  removeOpenDicomPathsListener?.()
+  removeOpenDicomPathsListener = null
 })
 
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
@@ -443,6 +500,150 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 </template>
 
 <style scoped>
+.app-boot-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 18px;
+  background: var(--theme-surface-panel);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.app-boot-panel--sidebar {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 22px;
+  padding: 22px;
+}
+
+.app-boot-panel--workspace {
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+}
+
+.app-boot-brand,
+.app-boot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-boot-brand__mark {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, transparent);
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(102, 208, 255, 0.34), rgba(255, 138, 91, 0.22));
+}
+
+.app-boot-brand__line,
+.app-boot-line,
+.app-boot-row,
+.app-boot-pill {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 9%, transparent);
+}
+
+.app-boot-brand__line::after,
+.app-boot-line::after,
+.app-boot-row::after,
+.app-boot-pill::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  content: "";
+  animation: app-boot-shimmer 1.25s ease-in-out infinite;
+}
+
+.app-boot-brand__line {
+  width: 132px;
+  height: 18px;
+}
+
+.app-boot-stack,
+.app-boot-list {
+  display: grid;
+  gap: 12px;
+}
+
+.app-boot-line {
+  width: 76%;
+  height: 12px;
+}
+
+.app-boot-line--wide {
+  width: 100%;
+}
+
+.app-boot-line--short {
+  width: 54%;
+}
+
+.app-boot-row {
+  height: 54px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+}
+
+.app-boot-pill {
+  width: 116px;
+  height: 34px;
+  border-radius: 11px;
+}
+
+.app-boot-pill--short {
+  width: 72px;
+}
+
+.app-boot-viewer {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 84%, transparent);
+  border-radius: 14px;
+  background:
+    linear-gradient(rgba(102, 208, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(102, 208, 255, 0.04) 1px, transparent 1px),
+    #02070d;
+  background-size: 42px 42px;
+}
+
+.app-boot-crosshair {
+  position: absolute;
+  background: rgba(102, 208, 255, 0.18);
+}
+
+.app-boot-crosshair--horizontal {
+  top: 50%;
+  left: 18%;
+  width: 64%;
+  height: 1px;
+}
+
+.app-boot-crosshair--vertical {
+  top: 18%;
+  left: 50%;
+  width: 1px;
+  height: 64%;
+}
+
+@keyframes app-boot-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 .app-window-controls {
   position: fixed;
   top: 6px;

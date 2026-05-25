@@ -30,6 +30,11 @@ try {
     throw "Server bundle not found: $stagedServerBundlePath. Stage it first with scripts/stage-server-bundle.ps1 or set DICOM_VISION_SERVER_BUNDLE_PATH."
   }
 
+  & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-shell-extension.ps1") -Platform x64
+  if ($LASTEXITCODE -ne 0) {
+    throw "Shell extension build failed with exit code $LASTEXITCODE"
+  }
+
   & npx electron-builder --win nsis
   if ($LASTEXITCODE -ne 0) {
     throw "electron-builder failed with exit code $LASTEXITCODE"

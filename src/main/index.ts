@@ -28,6 +28,13 @@ interface RendererStatusToastPayload {
 let backendOrigin = process.env.DICOM_VISION_SERVER_ORIGIN?.trim() || DEFAULT_BACKEND_ORIGIN
 let backendProcess: ChildProcessWithoutNullStreams | null = null
 let pendingStartupStatusToast: RendererStatusToastPayload | null = null
+let pendingOpenFilePaths: string[] = []
+let backendReady = false
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  app.quit()
+}
 
 function buildBackendOrigin(host: string, port: number): string {
   return buildHttpOrigin(host, port)
@@ -140,6 +147,81 @@ function publishRendererStatusToast(payload: RendererStatusToastPayload): void {
       window.webContents.send('viewer:status-toast', payload)
     }
   })
+}
+
+function publishBackendOriginChanged(): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('viewer:backend-origin-changed', backendOrigin)
+    }
+  })
+}
+
+function markBackendReady(): void {
+  backendReady = true
+  publishBackendOriginChanged()
+  flushPendingOpenFilePaths()
+}
+
+function getOpenFileArgStartIndex(): number {
+  return app.isPackaged ? 1 : 2
+}
+
+function collectOpenFileArgs(argv: string[]): string[] {
+  return normalizeDroppedDicomPaths(
+    argv
+      .slice(getOpenFileArgStartIndex())
+      .map((argument) => argument.trim())
+      .filter((argument) => argument && !argument.startsWith('-'))
+  )
+}
+
+function enqueueOpenFilePaths(paths: string[]): void {
+  const normalizedPaths = normalizeDroppedDicomPaths(paths)
+  if (!normalizedPaths.length) {
+    return
+  }
+
+  const seen = new Set(pendingOpenFilePaths.map((path) => (process.platform === 'win32' ? path.toLowerCase() : path)))
+  for (const path of normalizedPaths) {
+    const dedupeKey = process.platform === 'win32' ? path.toLowerCase() : path
+    if (seen.has(dedupeKey)) {
+      continue
+    }
+    seen.add(dedupeKey)
+    pendingOpenFilePaths.push(path)
+  }
+
+  flushPendingOpenFilePaths()
+}
+
+function flushPendingOpenFilePaths(): void {
+  if (!backendReady || !pendingOpenFilePaths.length) {
+    return
+  }
+
+  const targetWindow = BrowserWindow.getAllWindows().find((window) => !window.isDestroyed() && !window.webContents.isLoading())
+  if (!targetWindow) {
+    return
+  }
+
+  const paths = pendingOpenFilePaths
+  pendingOpenFilePaths = []
+  targetWindow.webContents.send('viewer:open-dicom-paths', paths)
+}
+
+function focusExistingWindow(): void {
+  const targetWindow = BrowserWindow.getAllWindows()[0]
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+
+  if (targetWindow.isMinimized()) {
+    targetWindow.restore()
+  }
+  targetWindow.show()
+  targetWindow.focus()
 }
 
 async function loadUiPreferences(): Promise<unknown | null> {
@@ -269,6 +351,7 @@ async function waitForBackendReady(origin: string, timeoutMs: number): Promise<b
 async function ensureBackendRunning(): Promise<void> {
   if (!app.isPackaged) {
     if (await isBackendReady(backendOrigin)) {
+      markBackendReady()
       return
     }
 
@@ -278,6 +361,7 @@ async function ensureBackendRunning(): Promise<void> {
   }
 
   if (await isBackendReady(backendOrigin)) {
+    markBackendReady()
     return
   }
 
@@ -309,6 +393,7 @@ async function ensureBackendRunning(): Promise<void> {
 
     const ready = await waitForBackendReady(nextBackendOrigin, BACKEND_READY_TIMEOUT_MS)
     if (ready) {
+      markBackendReady()
       return
     }
 
@@ -342,6 +427,7 @@ function createWindow(): BrowserWindow {
     minHeight: 800,
     frame: false,
     autoHideMenuBar: true,
+    backgroundColor: '#07111b',
     icon: resolveAppIconPath(),
     webPreferences: {
       preload: resolvePreloadPath(),
@@ -351,6 +437,10 @@ function createWindow(): BrowserWindow {
 
   win.on('ready-to-show', () => {
     win.show()
+  })
+
+  win.webContents.on('did-finish-load', () => {
+    flushPendingOpenFilePaths()
   })
 
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -364,6 +454,21 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+app.on('second-instance', (_event, argv) => {
+  if (!hasSingleInstanceLock) {
+    return
+  }
+
+  focusExistingWindow()
+  enqueueOpenFilePaths(collectOpenFileArgs(argv))
+})
+
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  enqueueOpenFilePaths([path])
+})
+
+if (hasSingleInstanceLock) {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.dicomvision.app')
 
@@ -470,6 +575,9 @@ app.whenReady().then(() => {
   ipcMain.handle('viewer:load-ui-preferences', () => loadUiPreferences())
   ipcMain.handle('viewer:save-ui-preferences', (_, payload: unknown) => saveUiPreferences(payload))
 
+  createWindow()
+  enqueueOpenFilePaths(collectOpenFileArgs(process.argv))
+
   void ensureBackendRunning()
     .catch((error: unknown) => {
       const message = resolveBackendStartupFailureMessage(error)
@@ -484,9 +592,6 @@ app.whenReady().then(() => {
         durationMs: 0
       })
     })
-    .finally(() => {
-      createWindow()
-    })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -494,6 +599,7 @@ app.whenReady().then(() => {
     }
   })
 })
+}
 
 app.on('window-all-closed', () => {
   stopBackendProcess()

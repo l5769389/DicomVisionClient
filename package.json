@@ -33,11 +33,26 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "build/shell-extension/DicomVisionShellExtension.dll",
+        "to": "shell/DicomVisionShellExtension.dll"
       }
     ],
     "win": {
       "icon": "build/icon.ico",
       "executableName": "DicomVision",
+      "fileAssociations": [
+        {
+          "ext": [
+            "dcm",
+            "dicom"
+          ],
+          "name": "DicomVision.DICOM",
+          "description": "DICOM medical image",
+          "role": "Viewer"
+        }
+      ],
       "target": [
         "nsis"
       ]
@@ -50,6 +65,7 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "installerHeader": "build/installerHeader.bmp",
       "installerIcon": "build/icon.ico",
@@ -72,6 +88,7 @@
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
+    "build:shell-extension": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-shell-extension.ps1",
     "build:web": "vite build --config vite.web.config.ts",
     "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
     "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",

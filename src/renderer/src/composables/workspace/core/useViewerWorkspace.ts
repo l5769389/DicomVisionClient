@@ -152,6 +152,7 @@ interface ViewerWorkspaceState {
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
   loadDroppedDicomFiles: (drop: DicomDropInput) => Promise<void>
+  loadDicomPaths: (paths: string[]) => Promise<void>
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
   openKeySlice: (seriesId: string, sliceIndex: number) => Promise<void>
@@ -251,6 +252,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
+  let hasStartedBackendConnection = false
+  let removeBackendOriginChangedListener: (() => void) | null = null
 
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
@@ -1721,6 +1724,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     onViewProgress: handleViewProgress
   })
 
+  function applyBackendOrigin(origin: string): void {
+    const nextOrigin = origin.trim().replace(/\/+$/, '')
+    if (!nextOrigin) {
+      return
+    }
+
+    const shouldReconnect = !hasStartedBackendConnection || backendOrigin.value !== nextOrigin
+    backendOrigin.value = nextOrigin
+    if (!shouldReconnect) {
+      return
+    }
+
+    hasStartedBackendConnection = true
+    connectBackend()
+  }
+
   function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number }): void {
     const tab = activeTab.value
     if (!tab) {
@@ -2104,6 +2123,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  async function loadDicomPaths(paths: string[]): Promise<void> {
+    const sources = await viewerRuntime.resolveDicomPathSources(paths)
+    if (!sources.length) {
+      message.value = ''
+      showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
+      return
+    }
+
+    let shouldOpenLoadedSeries = true
+    for (const source of sources) {
+      const loadedSeries = await loadDicomSource(source, {
+        selectLoadedSeries: shouldOpenLoadedSeries,
+        openFirstSeriesView: shouldOpenLoadedSeries
+      })
+      if (loadedSeries.length && shouldOpenLoadedSeries) {
+        shouldOpenLoadedSeries = false
+      }
+    }
+  }
+
   async function handleLayoutSlotDicomDrop(payload: { tabKey: string; slotId: string; drop: DicomDropInput }): Promise<void> {
     const sources = await viewerRuntime.resolveDroppedDicomSources(payload.drop)
     if (!sources.length) {
@@ -2317,12 +2356,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   onMounted(() => {
+    removeBackendOriginChangedListener = window.viewerApi?.onBackendOriginChanged?.(applyBackendOrigin) ?? null
     void (async () => {
       const resolvedBackendOrigin = await viewerRuntime.getBackendOrigin()
-      if (resolvedBackendOrigin) {
-        backendOrigin.value = resolvedBackendOrigin
-      }
-      connectBackend()
+      applyBackendOrigin(resolvedBackendOrigin)
     })()
   })
 
@@ -2332,6 +2369,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()
+    removeBackendOriginChangedListener?.()
+    removeBackendOriginChangedListener = null
     dismissStatusToast()
     if (resizeObserver && observedViewerStage) {
       resizeObserver.unobserve(observedViewerStage)
@@ -2377,6 +2416,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isSidebarCollapsed,
     isViewLoading,
     loadDroppedDicomFiles,
+    loadDicomPaths,
     message,
     openKeySlice,
     openSeriesView: openSeriesViewWithHangingProtocol,

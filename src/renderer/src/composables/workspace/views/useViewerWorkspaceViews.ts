@@ -1027,6 +1027,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     await nextTick()
     await bindMprViewIdsSilentlyWithAck(viewIds)
     await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds)
+    if (!hasCompleteMprViewportLayout(viewIds)) {
+      return
+    }
     await emitMprPseudocolorOperations(viewIds, pseudocolorSourceTab)
     const syncTargetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
     const syncRenderWait = syncTargetViewId
@@ -1190,6 +1193,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await nextTick()
         await bindMprViewIdsSilentlyWithAck(viewIds)
         await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds)
+        if (!hasCompleteMprViewportLayout(viewIds)) {
+          continue
+        }
         await emitMprPseudocolorOperations(viewIds, currentTab)
         const syncTargetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
         const syncRenderWait = syncTargetViewId
@@ -1825,15 +1831,28 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  async function waitForMprViewportLayout(viewportViewIds: Partial<Record<MprViewportKey, string>>): Promise<void> {
+  function getRequiredMprViewportKeys(viewportViewIds: Partial<Record<MprViewportKey, string>>): MprViewportKey[] {
+    return (Object.keys(viewportViewIds) as MprViewportKey[]).filter((key) => Boolean(viewportViewIds[key]))
+  }
+
+  function getMissingMprViewportLayoutKeys(viewportViewIds: Partial<Record<MprViewportKey, string>>): MprViewportKey[] {
+    return getRequiredMprViewportKeys(viewportViewIds).filter((key) => !getViewportSize(resolveMprViewportElement(key)))
+  }
+
+  function hasCompleteMprViewportLayout(viewportViewIds: Partial<Record<MprViewportKey, string>>): boolean {
+    const requiredKeys = getRequiredMprViewportKeys(viewportViewIds)
+    return requiredKeys.length > 0 && getMissingMprViewportLayoutKeys(viewportViewIds).length === 0
+  }
+
+  async function waitForMprViewportLayout(viewportViewIds: Partial<Record<MprViewportKey, string>>): Promise<boolean> {
     for (let attempt = 0; attempt < VIEWPORT_LAYOUT_WAIT_FRAMES; attempt += 1) {
       await nextTick()
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
-      const requiredKeys = (Object.keys(viewportViewIds) as MprViewportKey[]).filter((key) => Boolean(viewportViewIds[key]))
-      if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveMprViewportElement(key))))) {
-        return
+      if (hasCompleteMprViewportLayout(viewportViewIds)) {
+        return true
       }
     }
+    return hasCompleteMprViewportLayout(viewportViewIds)
   }
 
   async function renderMprViewIds(
@@ -1856,6 +1875,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     viewportViewIds: Partial<Record<MprViewportKey, string>>,
     force = false
   ): Promise<Partial<Record<MprViewportKey, string>>> {
+    if (!hasCompleteMprViewportLayout(viewportViewIds)) {
+      await waitForMprViewportLayout(viewportViewIds)
+    }
+
     const updates = collectMprViewSizeUpdates(viewportViewIds, force)
     const updatedViewIds = viewSizeUpdatesToViewIds(updates)
     const renderWait = updates.length

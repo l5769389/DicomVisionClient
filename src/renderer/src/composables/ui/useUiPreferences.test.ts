@@ -196,6 +196,14 @@ describe('useUiPreferences', () => {
     })
   })
 
+  it('creates PACS profiles with preset-specific DIMSE ports', async () => {
+    const { createPacsProfile } = await import('../pacs/pacsProfileUtils')
+
+    expect(createPacsProfile('orthanc').port).toBe(4242)
+    expect(createPacsProfile('dcm4chee').port).toBe(11112)
+    expect(createPacsProfile('custom').port).toBe(104)
+  })
+
   it('provides common CT window presets with localized labels', async () => {
     const preferences = await loadPreferences()
 

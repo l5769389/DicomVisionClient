@@ -283,6 +283,27 @@ export interface PacsDimseProfile {
   timeoutSeconds?: number
 }
 
+export interface PacsDimseSeriesDownloadJobStatusResponse {
+  jobId: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  statusUrl: string
+  error?: string | null
+  folderPath?: string | null
+  processedCount?: number
+  progressPercent?: number
+  seriesId?: string | null
+  seriesList?: SeriesSummary[]
+  totalCount?: number
+  createdAt: string
+  completedAt?: string | null
+}
+
+export interface PacsDimseSeriesDownloadRequest {
+  profile: PacsDimseProfile
+  studyInstanceUid: string
+  seriesInstanceUid: string
+}
+
 export interface PacsDimseSeriesQueryRequest {
   profile: PacsDimseProfile
   studyInstanceUid: string
@@ -717,6 +738,9 @@ export interface ApiOperations {
   PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/seriesPreview'; request: PacsSeriesPreviewRequest; response: PacsSeriesPreviewResponse }
   QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/studies'; request: PacsQidoStudyQueryRequest; response: PacsQidoStudyQueryResponse }
   TestDicomwebConnectionApiV1PacsDicomwebTestPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/test'; request: PacsDicomwebTestRequest; response: PacsDicomwebTestResponse }
+  CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost: { method: 'POST'; path: '/api/v1/pacs/dimse/downloadSeries/jobs'; request: PacsDimseSeriesDownloadRequest; response: PacsDimseSeriesDownloadJobStatusResponse }
+  GetDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsJobIdGet: { method: 'GET'; path: '/api/v1/pacs/dimse/downloadSeries/jobs/{job_id}'; request: never; response: PacsDimseSeriesDownloadJobStatusResponse }
+  CancelDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsJobIdCancelPost: { method: 'POST'; path: '/api/v1/pacs/dimse/downloadSeries/jobs/{job_id}/cancel'; request: never; response: PacsDimseSeriesDownloadJobStatusResponse }
   QueryDimseSeriesApiV1PacsDimseSeriesPost: { method: 'POST'; path: '/api/v1/pacs/dimse/series'; request: PacsDimseSeriesQueryRequest; response: PacsQidoSeriesQueryResponse }
   QueryDimseStudiesApiV1PacsDimseStudiesPost: { method: 'POST'; path: '/api/v1/pacs/dimse/studies'; request: PacsDimseStudyQueryRequest; response: PacsQidoStudyQueryResponse }
   TestDimseConnectionApiV1PacsDimseTestPost: { method: 'POST'; path: '/api/v1/pacs/dimse/test'; request: PacsDimseTestRequest; response: PacsDicomwebTestResponse }

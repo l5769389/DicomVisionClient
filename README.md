@@ -7,6 +7,7 @@ DicomVision is a client/server DICOM viewer for diagnostic-style browsing, recon
 ## Highlights
 
 - Multi-series workspace with grouped series navigation, drag-and-drop import, tabbed views, and configurable layouts.
+- PACS Browser with DICOMweb and DIMSE study/series search, server-side download caching, and direct open from downloaded series.
 - Stack, Compare, MPR, MPR + 3D, 3D volume rendering, and 4D phase workflows.
 - Measurement, annotation, MTF/FWHM, and water phantom QA tools for image evaluation.
 - DICOM Tag tree browsing, VR-aware editing, batch modification, and de-identification export.
@@ -15,6 +16,7 @@ DicomVision is a client/server DICOM viewer for diagnostic-style browsing, recon
 ## Feature Overview
 
 - **Loading and workspace**: import DICOM files or folders, group discovered series by patient/study, and open multiple view tabs without disrupting the active workflow.
+- **PACS workflow**: configure Orthanc, dcm4chee, or custom PACS profiles, search studies through DICOMweb QIDO or DIMSE C-FIND, retrieve DICOMweb WADO or DIMSE C-GET series, and open cached downloads directly.
 - **2D and comparison**: Stack viewing with playback speed control, pseudocolor, WW/WL, transform tools, layouts, and optional synchronization across Compare/Layout panes.
 - **Reconstruction**: MPR, oblique MPR, MPR + 3D layout, server-side 3D volume rendering, and 4D phase playback with FPS control.
 - **Measurement and QA**: line, rectangle, ellipse, angle, curve, freeform measurement, MTF/FWHM analysis, and water phantom QA.
@@ -35,6 +37,10 @@ https://dicom-vision-client.vercel.app/
 | Workspace home | Loaded series |
 | --- | --- |
 | <img src="./screenshots/home_page.png" alt="DicomVision home workspace" width="420"> | <img src="./screenshots/home_page_loaded_series.png" alt="Loaded DICOM series workspace" width="420"> |
+
+| PACS data sources | PACS browser import |
+| --- | --- |
+| <img src="./screenshots/pacs_dicom_import.png" alt="PACS DICOMweb and DIMSE profile setup" width="420"> | <img src="./screenshots/pacs_dicom_import_1.png" alt="PACS Browser query and downloaded series import" width="420"> |
 
 | Layout workspace | Stack Compare |
 | --- | --- |

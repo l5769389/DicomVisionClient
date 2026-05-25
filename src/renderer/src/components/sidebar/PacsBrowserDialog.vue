@@ -12,14 +12,17 @@ import { showDicomJobProgressToast, waitForDicomJob } from '../../composables/wo
 import { dispatchWorkspaceStatusToast } from '../../composables/workspace/tasks/workspaceStatus'
 import type { FolderSeriesItem } from '../../types/viewer'
 import {
+  cancelPacsDimseSeriesDownloadJob,
   cancelPacsWadoSeriesDownloadJob,
+  getPacsDimseSeriesDownloadJob,
   getPacsWadoSeriesDownloadJob,
   postApi,
+  postPacsDimseSeriesDownloadJob,
   postPacsSeriesPreview,
   postPacsWadoSeriesDownloadJob,
   type LoadFolderResponse,
   type PacsSeriesPreviewResponse,
-  type PacsWadoSeriesDownloadJob
+  type PacsSeriesDownloadJob
 } from '../../services/typedApi'
 
 const props = withDefaults(defineProps<{
@@ -68,6 +71,7 @@ const selectedStudyUid = ref('')
 const seriesItems = ref<PacsSeriesItem[]>([])
 const downloadingSeriesUid = ref('')
 const activeDownloadJobId = ref('')
+const activeDownloadProtocol = ref<'dicomweb' | 'dimse'>('dicomweb')
 const isCancellingDownload = ref(false)
 const previewLoadingSeriesUid = ref('')
 const seriesPreviewByUid = ref<Record<string, PacsSeriesPreviewResponse>>({})
@@ -415,7 +419,7 @@ async function previewSeries(series: PacsSeriesItem): Promise<void> {
   }
 }
 
-function buildDownloadedLoadResponse(job: PacsWadoSeriesDownloadJob): LoadFolderResponse | null {
+function buildDownloadedLoadResponse(job: PacsSeriesDownloadJob): LoadFolderResponse | null {
   const seriesList = job.seriesList ?? []
   if (!seriesList.length) {
     return null
@@ -464,15 +468,6 @@ async function handleSeriesAction(series: PacsSeriesItem): Promise<void> {
     return
   }
 
-  if (selectedProfile.value?.protocol === 'dimse') {
-    dispatchWorkspaceStatusToast(
-      isZh.value ? 'DIMSE 下载需要配置本机接收端口，下一步会接入 C-MOVE/C-GET。' : 'DIMSE download needs a local receiver port; C-MOVE/C-GET support is next.',
-      'info',
-      { durationMs: 5200 }
-    )
-    return
-  }
-
   await downloadSeries(series)
 }
 
@@ -484,7 +479,11 @@ async function cancelActiveDownload(): Promise<void> {
 
   isCancellingDownload.value = true
   try {
-    await cancelPacsWadoSeriesDownloadJob(jobId)
+    if (activeDownloadProtocol.value === 'dimse') {
+      await cancelPacsDimseSeriesDownloadJob(jobId)
+    } else {
+      await cancelPacsWadoSeriesDownloadJob(jobId)
+    }
     dispatchWorkspaceStatusToast(isZh.value ? 'PACS 下载任务已取消' : 'PACS download cancelled', 'info', {
       durationMs: 3600
     })
@@ -502,22 +501,29 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   if (!profile || !series.studyInstanceUid || !series.seriesInstanceUid || downloadingSeriesUid.value) {
     return
   }
-  if (profile.protocol === 'dimse') {
-    return
-  }
 
   downloadingSeriesUid.value = series.seriesInstanceUid
+  activeDownloadProtocol.value = profile.protocol
   queryError.value = ''
   try {
-    const initialJob = await postPacsWadoSeriesDownloadJob({
-      profile: toApiPacsDicomwebProfile(profile),
-      studyInstanceUid: series.studyInstanceUid,
-      seriesInstanceUid: series.seriesInstanceUid
-    })
+    const initialJob = profile.protocol === 'dimse'
+      ? await postPacsDimseSeriesDownloadJob({
+          profile: toApiPacsDimseProfile(profile),
+          studyInstanceUid: series.studyInstanceUid,
+          seriesInstanceUid: series.seriesInstanceUid
+        })
+      : await postPacsWadoSeriesDownloadJob({
+          profile: toApiPacsDicomwebProfile(profile),
+          studyInstanceUid: series.studyInstanceUid,
+          seriesInstanceUid: series.seriesInstanceUid
+        })
     activeDownloadJobId.value = initialJob.jobId
     showDicomJobProgressToast(initialJob, pacsDownloadCopy.value)
 
-    const finishedJob = await waitForDicomJob(initialJob, getPacsWadoSeriesDownloadJob, {
+    const getDownloadJob = profile.protocol === 'dimse'
+      ? getPacsDimseSeriesDownloadJob
+      : getPacsWadoSeriesDownloadJob
+    const finishedJob = await waitForDicomJob(initialJob, getDownloadJob, {
       timeoutMessage: isZh.value ? 'PACS 下载任务等待超时' : 'PACS download job timed out',
       onProgress: (job) => showDicomJobProgressToast(job, pacsDownloadCopy.value)
     })
@@ -553,6 +559,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   } finally {
     downloadingSeriesUid.value = ''
     activeDownloadJobId.value = ''
+    activeDownloadProtocol.value = 'dicomweb'
   }
 }
 </script>
@@ -865,12 +872,12 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                           v-else
                           variant="flat"
                           class="h-9! shrink-0 rounded-xl! border! px-3! text-[11px]! font-semibold!"
-                          :class="isSeriesDownloaded(series) || isSelectedProfileDimse ? 'theme-button-secondary' : 'theme-button-primary'"
+                          :class="isSeriesDownloaded(series) ? 'theme-button-secondary' : 'theme-button-primary'"
                           :disabled="Boolean(downloadingSeriesUid)"
                           @click.stop="handleSeriesAction(series)"
                         >
-                          <span class="mr-1 inline-flex"><AppIcon :name="isSelectedProfileDimse ? 'info' : isSeriesDownloaded(series) ? 'check' : 'folder-import'" :size="15" /></span>
-                          {{ isSelectedProfileDimse ? (isZh ? '仅查询' : 'Query only') : isSeriesDownloaded(series) ? (isZh ? '打开' : 'Open') : (isZh ? '下载打开' : 'Download') }}
+                          <span class="mr-1 inline-flex"><AppIcon :name="isSeriesDownloaded(series) ? 'check' : 'folder-import'" :size="15" /></span>
+                          {{ isSeriesDownloaded(series) ? (isZh ? '打开' : 'Open') : (isZh ? '下载打开' : 'Download') }}
                         </VBtn>
                       </div>
                     </div>

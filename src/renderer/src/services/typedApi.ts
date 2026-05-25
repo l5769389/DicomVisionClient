@@ -25,6 +25,8 @@ const operationPaths = {
   ModifyDicomTagApiV1DicomModifyTagPost: '/api/v1/dicom/modifyTag',
   CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost:
     '/api/v1/pacs/dicomweb/downloadSeries/jobs',
+  CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost:
+    '/api/v1/pacs/dimse/downloadSeries/jobs',
   QueryDimseSeriesApiV1PacsDimseSeriesPost: '/api/v1/pacs/dimse/series',
   QueryDimseStudiesApiV1PacsDimseStudiesPost: '/api/v1/pacs/dimse/studies',
   TestDimseConnectionApiV1PacsDimseTestPost: '/api/v1/pacs/dimse/test',
@@ -43,6 +45,8 @@ type DicomTagModifyRequest = ApiOperations['ModifyDicomTagApiV1DicomModifyTagPos
 export type LoadFolderResponse = ApiOperations['LoadFolderApiV1DicomLoadFolderPost']['response']
 export type PacsWadoSeriesDownloadRequest =
   ApiOperations['CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost']['request']
+export type PacsDimseSeriesDownloadRequest =
+  ApiOperations['CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost']['request']
 export type PacsSeriesPreviewRequest =
   ApiOperations['PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost']['request']
 export type PacsSeriesPreviewResponse =
@@ -92,6 +96,10 @@ export interface DicomTagModifyJob {
 export type PacsWadoSeriesDownloadJob =
   ApiOperations['CreateDicomwebSeriesDownloadJobApiV1PacsDicomwebDownloadSeriesJobsPost']['response'] &
   DicomTagModifyJob
+export type PacsDimseSeriesDownloadJob =
+  ApiOperations['CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost']['response'] &
+  DicomTagModifyJob
+export type PacsSeriesDownloadJob = PacsWadoSeriesDownloadJob | PacsDimseSeriesDownloadJob
 
 function toApiBaseRelativePath(path: string): string {
   return path.replace(API_V1_PREFIX_PATTERN, '')
@@ -327,6 +335,18 @@ export async function postPacsWadoSeriesDownloadJob(
   return response.data
 }
 
+export async function postPacsDimseSeriesDownloadJob(
+  data: PacsDimseSeriesDownloadRequest,
+  config?: AxiosRequestConfig
+): Promise<PacsDimseSeriesDownloadJob> {
+  const response = await api.post<PacsDimseSeriesDownloadJob>(
+    toApiBaseRelativePath(operationPaths.CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost),
+    data,
+    config
+  )
+  return response.data
+}
+
 export async function postPacsSeriesPreview(
   data: PacsSeriesPreviewRequest,
   config?: AxiosRequestConfig
@@ -345,12 +365,35 @@ export async function getPacsWadoSeriesDownloadJob(
   return response.data
 }
 
+export async function getPacsDimseSeriesDownloadJob(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<PacsDimseSeriesDownloadJob> {
+  const response = await api.get<PacsDimseSeriesDownloadJob>(
+    toApiBaseRelativePath(`/api/v1/pacs/dimse/downloadSeries/jobs/${encodeURIComponent(jobId)}`),
+    config
+  )
+  return response.data
+}
+
 export async function cancelPacsWadoSeriesDownloadJob(
   jobId: string,
   config?: AxiosRequestConfig
 ): Promise<PacsWadoSeriesDownloadJob> {
   const response = await api.post<PacsWadoSeriesDownloadJob>(
     toApiBaseRelativePath(`/api/v1/pacs/dicomweb/downloadSeries/jobs/${encodeURIComponent(jobId)}/cancel`),
+    undefined,
+    config
+  )
+  return response.data
+}
+
+export async function cancelPacsDimseSeriesDownloadJob(
+  jobId: string,
+  config?: AxiosRequestConfig
+): Promise<PacsDimseSeriesDownloadJob> {
+  const response = await api.post<PacsDimseSeriesDownloadJob>(
+    toApiBaseRelativePath(`/api/v1/pacs/dimse/downloadSeries/jobs/${encodeURIComponent(jobId)}/cancel`),
     undefined,
     config
   )

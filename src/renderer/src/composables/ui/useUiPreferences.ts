@@ -401,7 +401,7 @@ function createDefaultPacsPreference(): PacsPreference {
         password: '',
         bearerToken: '',
         host: '127.0.0.1',
-        port: 104,
+        port: 4242,
         calledAeTitle: 'ORTHANC',
         clientAeTitle: 'DICOMVISION',
         queryModel: 'study-root',

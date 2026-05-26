@@ -8,12 +8,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("DicomVisionShellExtension")]
-[assembly: AssemblyDescription("Windows shell preview and thumbnail handler for DICOM files")]
+[assembly: AssemblyDescription("Windows shell preview handler for DICOM files")]
 [assembly: AssemblyCompany("DicomVision")]
 [assembly: AssemblyProduct("DicomVision")]
 [assembly: AssemblyVersion("1.0.0.0")]
@@ -25,8 +25,9 @@ namespace DicomVision.ShellExtension
     {
         public const string HandlerClsid = "6F5351BB-0C26-45B5-94C5-B5C90FAE55DC";
         public const string PreviewHandlerCategory = "{8895b1c6-b41f-4c1c-a562-0d564250836f}";
-        public const string ThumbnailProviderCategory = "{e357fccd-a995-4576-b01f-234630154e96}";
         public const string ProgId = "DicomVision.DICOM";
+        public const string ExtensionlessFileType = ".";
+        public const string UnknownFileType = "Unknown";
         public const string HandlerName = "DicomVision DICOM Preview Handler";
     }
 
@@ -34,7 +35,7 @@ namespace DicomVision.ShellExtension
     [Guid(ShellIds.HandlerClsid)]
     [ProgId("DicomVision.DicomShellHandler")]
     [ClassInterface(ClassInterfaceType.None)]
-    public sealed class DicomShellHandler : IPreviewHandler, IOleWindow, IInitializeWithStream, IInitializeWithFile, IThumbnailProvider, IObjectWithSite
+    public sealed class DicomShellHandler : IPreviewHandler, IOleWindow, IInitializeWithFile, IObjectWithSite
     {
         private byte[] _content;
         private string _filePath;
@@ -43,25 +44,7 @@ namespace DicomVision.ShellExtension
         private PreviewControl _previewControl;
         private object _site;
         private string _initializationError;
-
-        public int Initialize(IStream stream, uint grfMode)
-        {
-            try
-            {
-                _content = StreamReader.ReadAllBytes(stream);
-                _filePath = null;
-                _initializationError = null;
-                return NativeMethods.S_OK;
-            }
-            catch (Exception ex)
-            {
-                _content = null;
-                _filePath = null;
-                _initializationError = ex.Message;
-                ShellPreviewLog.Write("IInitializeWithStream failed: " + ex);
-                return NativeMethods.S_OK;
-            }
-        }
+        private int _previewGeneration;
 
         public int Initialize(string filePath, uint grfMode)
         {
@@ -90,8 +73,14 @@ namespace DicomVision.ShellExtension
         {
             try
             {
-                var result = ResolveRenderResult();
-                ReplacePreviewControl(result);
+                int generation = Interlocked.Increment(ref _previewGeneration);
+                var request = CaptureRenderRequest();
+                ReplacePreviewControl(DicomRenderer.RenderPlaceholder("Loading DICOM preview..."));
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    RenderResult result = ResolveRenderResult(request);
+                    PublishRenderResult(generation, result);
+                });
             }
             catch (Exception ex)
             {
@@ -110,6 +99,7 @@ namespace DicomVision.ShellExtension
 
         public int Unload()
         {
+            Interlocked.Increment(ref _previewGeneration);
             if (_previewControl != null)
             {
                 _previewControl.Dispose();
@@ -154,25 +144,6 @@ namespace DicomVision.ShellExtension
             return NativeMethods.S_FALSE;
         }
 
-        public int GetThumbnail(uint cx, out IntPtr hBitmap, out WTS_ALPHATYPE bitmapType)
-        {
-            hBitmap = IntPtr.Zero;
-            bitmapType = WTS_ALPHATYPE.WTSAT_RGB;
-
-            try
-            {
-                using (var image = DicomRenderer.Render(ResolveContent()).CreateThumbnail((int)Math.Max(32, cx)))
-                {
-                    hBitmap = image.GetHbitmap();
-                }
-                return hBitmap == IntPtr.Zero ? NativeMethods.E_FAIL : NativeMethods.S_OK;
-            }
-            catch
-            {
-                return NativeMethods.E_FAIL;
-            }
-        }
-
         public int SetSite(object site)
         {
             _site = site;
@@ -198,36 +169,63 @@ namespace DicomVision.ShellExtension
             }
         }
 
-        private byte[] ResolveContent()
+        private PreviewRenderRequest CaptureRenderRequest()
         {
-            if (!string.IsNullOrWhiteSpace(_initializationError))
-            {
-                throw new InvalidOperationException(_initializationError);
-            }
-
-            if (_content != null)
-            {
-                return _content;
-            }
-
-            if (string.IsNullOrWhiteSpace(_filePath))
-            {
-                throw new InvalidOperationException("No DICOM file was provided.");
-            }
-
-            return File.ReadAllBytes(_filePath);
+            return new PreviewRenderRequest(_content, _filePath, _initializationError);
         }
 
-        private RenderResult ResolveRenderResult()
+        private static RenderResult ResolveRenderResult(PreviewRenderRequest request)
         {
             try
             {
-                return DicomRenderer.Render(ResolveContent());
+                if (!string.IsNullOrWhiteSpace(request.InitializationError))
+                {
+                    throw new InvalidOperationException(request.InitializationError);
+                }
+
+                if (request.Content != null)
+                {
+                    return DicomRenderer.Render(request.Content);
+                }
+
+                if (string.IsNullOrWhiteSpace(request.FilePath))
+                {
+                    throw new InvalidOperationException("No DICOM file was provided.");
+                }
+
+                return DicomRenderer.RenderFile(request.FilePath);
             }
             catch (Exception ex)
             {
                 ShellPreviewLog.Write("ResolveRenderResult failed: " + ex);
                 return DicomRenderer.RenderError(ex.Message);
+            }
+        }
+
+        private void PublishRenderResult(int generation, RenderResult result)
+        {
+            PreviewControl previewControl = _previewControl;
+            if (previewControl == null || previewControl.IsDisposed || generation != _previewGeneration)
+            {
+                result.Dispose();
+                return;
+            }
+
+            try
+            {
+                previewControl.BeginInvoke((MethodInvoker)delegate
+                {
+                    if (previewControl.IsDisposed || generation != _previewGeneration)
+                    {
+                        result.Dispose();
+                        return;
+                    }
+                    previewControl.SetResult(result);
+                });
+            }
+            catch
+            {
+                result.Dispose();
             }
         }
 
@@ -293,15 +291,6 @@ namespace DicomVision.ShellExtension
     }
 
     [ComImport]
-    [Guid("b824b49d-22ac-4161-ac8a-9916e8fa3f7f")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IInitializeWithStream
-    {
-        [PreserveSig]
-        int Initialize(IStream stream, uint grfMode);
-    }
-
-    [ComImport]
     [Guid("b7d14566-0509-4cce-a71f-0a554233bd9b")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IInitializeWithFile
@@ -343,15 +332,6 @@ namespace DicomVision.ShellExtension
     }
 
     [ComImport]
-    [Guid("e357fccd-a995-4576-b01f-234630154e96")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IThumbnailProvider
-    {
-        [PreserveSig]
-        int GetThumbnail(uint cx, out IntPtr hBitmap, out WTS_ALPHATYPE bitmapType);
-    }
-
-    [ComImport]
     [Guid("fc4801a3-2ba9-11cf-a229-00aa003d7352")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IObjectWithSite
@@ -360,122 +340,6 @@ namespace DicomVision.ShellExtension
         int SetSite([MarshalAs(UnmanagedType.IUnknown)] object site);
         [PreserveSig]
         int GetSite(ref Guid riid, out IntPtr ppvSite);
-    }
-
-    public enum WTS_ALPHATYPE
-    {
-        WTSAT_UNKNOWN = 0,
-        WTSAT_RGB = 1,
-        WTSAT_ARGB = 2
-    }
-
-    internal static class StreamReader
-    {
-        public static byte[] ReadAllBytes(IStream stream)
-        {
-            TrySeekStart(stream);
-
-            long size = TryResolveStreamSize(stream);
-            if (size > 0 && size <= int.MaxValue)
-            {
-                return ReadKnownLength(stream, (int)size);
-            }
-
-            return ReadUntilEnd(stream);
-        }
-
-        private static long TryResolveStreamSize(IStream stream)
-        {
-            try
-            {
-                System.Runtime.InteropServices.ComTypes.STATSTG stat;
-                stream.Stat(out stat, 1);
-                return stat.cbSize;
-            }
-            catch
-            {
-                return 0;
-            }
-        }
-
-        private static void TrySeekStart(IStream stream)
-        {
-            try
-            {
-                stream.Seek(0, 0, IntPtr.Zero);
-            }
-            catch
-            {
-            }
-        }
-
-        private static byte[] ReadKnownLength(IStream stream, int size)
-        {
-            var bytes = new byte[size];
-            int offset = 0;
-            while (offset < size)
-            {
-                int read = ReadChunk(stream, bytes, offset, size - offset);
-                if (read <= 0)
-                {
-                    break;
-                }
-                offset += read;
-            }
-
-            if (offset == size)
-            {
-                return bytes;
-            }
-
-            var resized = new byte[offset];
-            Buffer.BlockCopy(bytes, 0, resized, 0, offset);
-            return resized;
-        }
-
-        private static byte[] ReadUntilEnd(IStream stream)
-        {
-            const int ChunkSize = 65536;
-            using (var output = new MemoryStream())
-            {
-                var buffer = new byte[ChunkSize];
-                while (true)
-                {
-                    int read = ReadChunk(stream, buffer, 0, buffer.Length);
-                    if (read <= 0)
-                    {
-                        break;
-                    }
-                    output.Write(buffer, 0, read);
-                    if (read < buffer.Length)
-                    {
-                        break;
-                    }
-                }
-                return output.ToArray();
-            }
-        }
-
-        private static int ReadChunk(IStream stream, byte[] buffer, int offset, int count)
-        {
-            var chunk = offset == 0 && count == buffer.Length ? buffer : new byte[count];
-            IntPtr readPtr = Marshal.AllocHGlobal(sizeof(int));
-            try
-            {
-                Marshal.WriteInt32(readPtr, 0);
-                stream.Read(chunk, count, readPtr);
-                int read = Marshal.ReadInt32(readPtr);
-                if (read > 0 && !ReferenceEquals(chunk, buffer))
-                {
-                    Buffer.BlockCopy(chunk, 0, buffer, offset, read);
-                }
-                return read;
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(readPtr);
-            }
-        }
     }
 
     internal static class ShellPreviewLog
@@ -497,13 +361,34 @@ namespace DicomVision.ShellExtension
 
     internal sealed class PreviewControl : UserControl
     {
-        private readonly RenderResult _result;
+        private RenderResult _result;
 
         public PreviewControl(RenderResult result)
         {
             _result = result;
             BackColor = Color.Black;
             DoubleBuffered = true;
+        }
+
+        public void SetResult(RenderResult result)
+        {
+            var previous = _result;
+            _result = result;
+            if (previous != null)
+            {
+                previous.Dispose();
+            }
+            Invalidate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && _result != null)
+            {
+                _result.Dispose();
+                _result = null;
+            }
+            base.Dispose(disposing);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -514,10 +399,16 @@ namespace DicomVision.ShellExtension
             e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
             e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            if (_result.Image != null)
+            var result = _result;
+            if (result == null)
             {
-                var imageRect = FitRect(_result.Image.Width, _result.Image.Height, ClientRectangle, 18, 58);
-                e.Graphics.DrawImage(_result.Image, imageRect);
+                return;
+            }
+
+            if (result.Image != null)
+            {
+                var imageRect = FitRect(result.Image.Width, result.Image.Height, ClientRectangle, 18, 58);
+                e.Graphics.DrawImage(result.Image, imageRect);
             }
 
             using (var titleBrush = new SolidBrush(Color.FromArgb(255, 255, 178, 0)))
@@ -526,13 +417,13 @@ namespace DicomVision.ShellExtension
             using (var bodyFont = new Font("Segoe UI", 9f, FontStyle.Regular))
             {
                 var y = 10f;
-                foreach (var line in _result.MetadataLines.Take(5))
+                foreach (var line in result.MetadataLines.Take(5))
                 {
-                    var size = e.Graphics.MeasureString(line, line == _result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont);
+                    var size = e.Graphics.MeasureString(line, line == result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont);
                     e.Graphics.DrawString(
                         line,
-                        line == _result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont,
-                        line == _result.MetadataLines.FirstOrDefault() ? titleBrush : bodyBrush,
+                        line == result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont,
+                        line == result.MetadataLines.FirstOrDefault() ? titleBrush : bodyBrush,
                         Math.Max(10f, ClientSize.Width - size.Width - 12f),
                         y
                     );
@@ -557,6 +448,7 @@ namespace DicomVision.ShellExtension
     }
 
     internal sealed class RenderResult
+        : IDisposable
     {
         public RenderResult(Bitmap image, IReadOnlyList<string> metadataLines)
         {
@@ -567,28 +459,37 @@ namespace DicomVision.ShellExtension
         public Bitmap Image { get; private set; }
         public IReadOnlyList<string> MetadataLines { get; private set; }
 
-        public Bitmap CreateThumbnail(int size)
+        public void Dispose()
         {
-            var bitmap = new Bitmap(size, size, PixelFormat.Format24bppRgb);
-            using (var graphics = Graphics.FromImage(bitmap))
+            if (Image != null)
             {
-                graphics.Clear(Color.Black);
-                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                graphics.SmoothingMode = SmoothingMode.HighQuality;
-                if (Image != null)
-                {
-                    double scale = Math.Min((double)(size - 8) / Image.Width, (double)(size - 8) / Image.Height);
-                    int width = Math.Max(1, (int)Math.Round(Image.Width * scale));
-                    int height = Math.Max(1, (int)Math.Round(Image.Height * scale));
-                    graphics.DrawImage(Image, new Rectangle((size - width) / 2, (size - height) / 2, width, height));
-                }
+                Image.Dispose();
+                Image = null;
             }
-            return bitmap;
         }
+    }
+
+    internal sealed class PreviewRenderRequest
+    {
+        public PreviewRenderRequest(byte[] content, string filePath, string initializationError)
+        {
+            Content = content;
+            FilePath = filePath;
+            InitializationError = initializationError;
+        }
+
+        public byte[] Content { get; private set; }
+        public string FilePath { get; private set; }
+        public string InitializationError { get; private set; }
     }
 
     internal static class DicomRenderer
     {
+        public static RenderResult RenderPlaceholder(string message)
+        {
+            return new RenderResult(RenderMessageBitmap(message, null), new[] { "DicomVision DICOM Preview", message });
+        }
+
         public static RenderResult Render(byte[] content)
         {
             try
@@ -603,12 +504,26 @@ namespace DicomVision.ShellExtension
             }
         }
 
-        public static RenderResult RenderError(string message)
+        public static RenderResult RenderFile(string filePath)
         {
-            return new RenderResult(RenderErrorBitmap(message), new[] { "DICOM preview unavailable", message });
+            try
+            {
+                var dataset = DicomParser.ParsePreviewFile(filePath);
+                var bitmap = dataset.RenderBitmap();
+                return new RenderResult(bitmap, dataset.BuildMetadataLines());
+            }
+            catch (Exception ex)
+            {
+                return RenderError(ex.Message);
+            }
         }
 
-        private static Bitmap RenderErrorBitmap(string message)
+        public static RenderResult RenderError(string message)
+        {
+            return new RenderResult(RenderMessageBitmap("DICOM preview unavailable", message), new[] { "DICOM preview unavailable", message });
+        }
+
+        private static Bitmap RenderMessageBitmap(string title, string message)
         {
             var bitmap = new Bitmap(512, 512, PixelFormat.Format24bppRgb);
             using (var graphics = Graphics.FromImage(bitmap))
@@ -618,8 +533,11 @@ namespace DicomVision.ShellExtension
             using (var bodyBrush = new SolidBrush(Color.Gainsboro))
             {
                 graphics.Clear(Color.Black);
-                graphics.DrawString("DICOM preview unavailable", titleFont, titleBrush, new RectangleF(28, 180, 456, 60));
-                graphics.DrawString(message, bodyFont, bodyBrush, new RectangleF(28, 250, 456, 120));
+                graphics.DrawString(title, titleFont, titleBrush, new RectangleF(28, 180, 456, 60));
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    graphics.DrawString(message, bodyFont, bodyBrush, new RectangleF(28, 250, 456, 120));
+                }
             }
             return bitmap;
         }
@@ -627,6 +545,8 @@ namespace DicomVision.ShellExtension
 
     internal sealed class DicomDataset
     {
+        private const int MaxRenderedPixels = 4 * 1024 * 1024;
+
         public DicomDataset()
         {
             SamplesPerPixel = 1;
@@ -660,6 +580,11 @@ namespace DicomVision.ShellExtension
             {
                 throw new InvalidDataException("DICOM file does not contain renderable pixel data.");
             }
+            long pixelCount = (long)Rows * Columns;
+            if (pixelCount <= 0 || pixelCount > MaxRenderedPixels)
+            {
+                throw new InvalidDataException("DICOM image is too large for Explorer preview.");
+            }
 
             if (SamplesPerPixel >= 3 && BitsAllocated == 8)
             {
@@ -678,6 +603,13 @@ namespace DicomVision.ShellExtension
             AddIfPresent(lines, StudyDate);
             lines.Add(string.Format("{0} x {1}", Columns, Rows));
             return lines;
+        }
+
+        public long ExpectedFirstFrameByteLength()
+        {
+            long bytesPerSample = Math.Max(1, BitsAllocated / 8);
+            long samples = Math.Max(1, SamplesPerPixel);
+            return Math.Max(1, (long)Rows * Columns * samples * bytesPerSample);
         }
 
         private Bitmap RenderGrayscaleBitmap()
@@ -703,15 +635,30 @@ namespace DicomVision.ShellExtension
 
             bool inverse = string.Equals(PhotometricInterpretation, "MONOCHROME1", StringComparison.OrdinalIgnoreCase);
             var bitmap = new Bitmap(Columns, Rows, PixelFormat.Format24bppRgb);
-            for (int y = 0; y < Rows; y++)
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, Columns, Rows), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
             {
-                for (int x = 0; x < Columns; x++)
+                var pixels = new byte[data.Stride * Rows];
+                for (int y = 0; y < Rows; y++)
                 {
-                    double clipped = Math.Max(low, Math.Min(high, values[y * Columns + x]));
-                    int gray = (int)Math.Round((clipped - low) * 255.0 / scale);
-                    gray = Math.Max(0, Math.Min(255, inverse ? 255 - gray : gray));
-                    bitmap.SetPixel(x, y, Color.FromArgb(gray, gray, gray));
+                    int rowOffset = y * data.Stride;
+                    int sourceOffset = y * Columns;
+                    for (int x = 0; x < Columns; x++)
+                    {
+                        double clipped = Math.Max(low, Math.Min(high, values[sourceOffset + x]));
+                        int gray = (int)Math.Round((clipped - low) * 255.0 / scale);
+                        gray = Math.Max(0, Math.Min(255, inverse ? 255 - gray : gray));
+                        int target = rowOffset + x * 3;
+                        pixels[target] = (byte)gray;
+                        pixels[target + 1] = (byte)gray;
+                        pixels[target + 2] = (byte)gray;
+                    }
                 }
+                Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+            }
+            finally
+            {
+                bitmap.UnlockBits(data);
             }
             return bitmap;
         }
@@ -726,19 +673,33 @@ namespace DicomVision.ShellExtension
             }
 
             int index = 0;
-            for (int y = 0; y < Rows; y++)
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, Columns, Rows), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            try
             {
-                for (int x = 0; x < Columns; x++)
+                var pixels = new byte[data.Stride * Rows];
+                for (int y = 0; y < Rows; y++)
                 {
-                    byte r = PixelData[index++];
-                    byte g = PixelData[index++];
-                    byte b = PixelData[index++];
-                    if (SamplesPerPixel > 3)
+                    int rowOffset = y * data.Stride;
+                    for (int x = 0; x < Columns; x++)
                     {
-                        index += SamplesPerPixel - 3;
+                        byte r = PixelData[index++];
+                        byte g = PixelData[index++];
+                        byte b = PixelData[index++];
+                        if (SamplesPerPixel > 3)
+                        {
+                            index += SamplesPerPixel - 3;
+                        }
+                        int target = rowOffset + x * 3;
+                        pixels[target] = b;
+                        pixels[target + 1] = g;
+                        pixels[target + 2] = r;
                     }
-                    bitmap.SetPixel(x, y, Color.FromArgb(r, g, b));
                 }
+                Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+            }
+            finally
+            {
+                bitmap.UnlockBits(data);
             }
             return bitmap;
         }
@@ -788,7 +749,12 @@ namespace DicomVision.ShellExtension
 
         private static void ResolvePercentileWindow(double[] values, out double low, out double high)
         {
-            var finite = values.Where(value => !double.IsNaN(value) && !double.IsInfinity(value)).OrderBy(value => value).ToArray();
+            const int MaxSamples = 65536;
+            int step = Math.Max(1, values.Length / MaxSamples);
+            var finite = values
+                .Where((value, index) => index % step == 0 && !double.IsNaN(value) && !double.IsInfinity(value))
+                .OrderBy(value => value)
+                .ToArray();
             if (finite.Length == 0)
             {
                 low = 0;
@@ -820,7 +786,78 @@ namespace DicomVision.ShellExtension
 
     internal static class DicomParser
     {
+        private const int MaxElementValueBytes = 4096;
+        private const int MaxPreviewElements = 20000;
+        private const int MaxPreviewPixelBytes = 16 * 1024 * 1024;
         private static readonly HashSet<string> LongVr = new HashSet<string> { "OB", "OD", "OF", "OL", "OV", "OW", "SQ", "UC", "UN", "UR", "UT" };
+
+        public static DicomDataset ParsePreviewFile(string filePath)
+        {
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, FileOptions.SequentialScan))
+            {
+                var reader = new DicomStreamReader(stream);
+                bool hasPreamble = HasPreamble(reader);
+                if (hasPreamble)
+                {
+                    reader.Position = 132;
+                }
+                else
+                {
+                    reader.Position = 0;
+                    if (!HasLikelyDicomStart(reader))
+                    {
+                        throw new InvalidDataException("File does not look like a DICOM image.");
+                    }
+                }
+
+                string transferSyntax = ParseMeta(reader);
+                bool explicitVr = transferSyntax != "1.2.840.10008.1.2";
+                bool bigEndian = transferSyntax == "1.2.840.10008.1.2.2";
+                EnsureSupportedTransferSyntax(transferSyntax);
+
+                var dataset = new DicomDataset();
+                dataset.BigEndian = bigEndian;
+
+                int elementsRead = 0;
+                while (reader.Remaining >= 8)
+                {
+                    if (++elementsRead > MaxPreviewElements)
+                    {
+                        throw new InvalidDataException("DICOM header is too complex for Explorer preview.");
+                    }
+
+                    var element = ReadElement(reader, explicitVr, bigEndian);
+                    if (element.Length == uint.MaxValue)
+                    {
+                        SkipUndefinedLength(reader, bigEndian);
+                        continue;
+                    }
+
+                    if ((long)element.Length > reader.Remaining)
+                    {
+                        break;
+                    }
+
+                    if (element.Group == 0x7FE0 && element.Element == 0x0010)
+                    {
+                        ApplyPixelDataElement(dataset, reader, element.Length);
+                        break;
+                    }
+
+                    if (IsPreviewElement(element.Group, element.Element) && element.Length <= MaxElementValueBytes)
+                    {
+                        byte[] value = reader.ReadBytes((int)element.Length);
+                        ApplyElement(dataset, element.Group, element.Element, element.Vr, value, bigEndian);
+                    }
+                    else
+                    {
+                        reader.Skip(element.Length);
+                    }
+                }
+
+                return dataset;
+            }
+        }
 
         public static DicomDataset Parse(byte[] bytes)
         {
@@ -831,11 +868,7 @@ namespace DicomVision.ShellExtension
             bool bigEndian = transferSyntax == "1.2.840.10008.1.2.2";
             dataset.BigEndian = bigEndian;
 
-            if (transferSyntax.StartsWith("1.2.840.10008.1.2.4.", StringComparison.Ordinal) ||
-                transferSyntax.StartsWith("1.2.840.10008.1.2.5", StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("Compressed DICOM transfer syntax is not supported by the shell preview handler.");
-            }
+            EnsureSupportedTransferSyntax(transferSyntax);
 
             while (position + 8 <= bytes.Length)
             {
@@ -851,17 +884,69 @@ namespace DicomVision.ShellExtension
                     break;
                 }
 
+                if (element.Group == 0x7FE0 && element.Element == 0x0010)
+                {
+                    ApplyPixelDataElement(dataset, bytes, position, element.Length);
+                    position += (int)element.Length;
+                    break;
+                }
+
                 byte[] value = new byte[element.Length];
                 Buffer.BlockCopy(bytes, position, value, 0, (int)element.Length);
                 position += (int)element.Length;
                 ApplyElement(dataset, element.Group, element.Element, element.Vr, value, bigEndian);
-                if (element.Group == 0x7FE0 && element.Element == 0x0010)
-                {
-                    break;
-                }
             }
 
             return dataset;
+        }
+
+        private static bool HasPreamble(DicomStreamReader reader)
+        {
+            if (reader.Length < 132)
+            {
+                return false;
+            }
+
+            long start = reader.Position;
+            try
+            {
+                reader.Position = 128;
+                byte[] marker = reader.ReadBytes(4);
+                return marker[0] == (byte)'D' &&
+                    marker[1] == (byte)'I' &&
+                    marker[2] == (byte)'C' &&
+                    marker[3] == (byte)'M';
+            }
+            finally
+            {
+                reader.Position = start;
+            }
+        }
+
+        private static bool HasLikelyDicomStart(DicomStreamReader reader)
+        {
+            if (reader.Remaining < 8)
+            {
+                return false;
+            }
+
+            long start = reader.Position;
+            try
+            {
+                ushort group = reader.ReadUInt16(false);
+                reader.ReadUInt16(false);
+                return group == 0x0002 ||
+                    group == 0x0008 ||
+                    group == 0x0010 ||
+                    group == 0x0018 ||
+                    group == 0x0020 ||
+                    group == 0x0028 ||
+                    group == 0x7FE0;
+            }
+            finally
+            {
+                reader.Position = start;
+            }
         }
 
         private static bool HasPreamble(byte[] bytes)
@@ -902,6 +987,36 @@ namespace DicomVision.ShellExtension
             return transferSyntax.Trim('\0', ' ');
         }
 
+        private static string ParseMeta(DicomStreamReader reader)
+        {
+            string transferSyntax = "1.2.840.10008.1.2.1";
+            while (reader.Remaining >= 8)
+            {
+                long before = reader.Position;
+                var element = ReadElement(reader, true, false);
+                if (element.Group != 0x0002)
+                {
+                    reader.Position = before;
+                    break;
+                }
+
+                if (element.Length == uint.MaxValue || (long)element.Length > reader.Remaining)
+                {
+                    break;
+                }
+
+                if (element.Element == 0x0010 && element.Length <= MaxElementValueBytes)
+                {
+                    transferSyntax = ReadString(reader.ReadBytes((int)element.Length));
+                }
+                else
+                {
+                    reader.Skip(element.Length);
+                }
+            }
+            return transferSyntax.Trim('\0', ' ');
+        }
+
         private static DicomElement ReadElement(byte[] bytes, ref int position, bool explicitVr, bool bigEndian)
         {
             ushort group = ReadUInt16(bytes, position, bigEndian);
@@ -935,6 +1050,52 @@ namespace DicomVision.ShellExtension
             return new DicomElement(group, element, vr, length);
         }
 
+        private static DicomElement ReadElement(DicomStreamReader reader, bool explicitVr, bool bigEndian)
+        {
+            ushort group = reader.ReadUInt16(bigEndian);
+            ushort element = reader.ReadUInt16(bigEndian);
+
+            string vr = "";
+            uint length;
+            if (explicitVr)
+            {
+                vr = reader.ReadAscii(2);
+                if (LongVr.Contains(vr))
+                {
+                    reader.Skip(2);
+                    length = reader.ReadUInt32(bigEndian);
+                }
+                else
+                {
+                    length = reader.ReadUInt16(bigEndian);
+                }
+            }
+            else
+            {
+                length = reader.ReadUInt32(bigEndian);
+            }
+
+            return new DicomElement(group, element, vr, length);
+        }
+
+        private static bool IsPreviewElement(ushort group, ushort element)
+        {
+            return (group == 0x0010 && (element == 0x0010 || element == 0x0020)) ||
+                (group == 0x0008 && element == 0x0020) ||
+                (group == 0x0020 && element == 0x0013) ||
+                (group == 0x0028 && (element == 0x0002 ||
+                    element == 0x0004 ||
+                    element == 0x0010 ||
+                    element == 0x0011 ||
+                    element == 0x0100 ||
+                    element == 0x0101 ||
+                    element == 0x0103 ||
+                    element == 0x1050 ||
+                    element == 0x1051 ||
+                    element == 0x1052 ||
+                    element == 0x1053));
+        }
+
         private static void ApplyElement(DicomDataset dataset, ushort group, ushort element, string vr, byte[] value, bool bigEndian)
         {
             if (group == 0x0010 && element == 0x0010) dataset.PatientName = ReadString(value);
@@ -953,6 +1114,33 @@ namespace DicomVision.ShellExtension
             else if (group == 0x0028 && element == 0x1052) dataset.RescaleIntercept = ReadDouble(value) ?? 0.0;
             else if (group == 0x0028 && element == 0x1053) dataset.RescaleSlope = ReadDouble(value) ?? 1.0;
             else if (group == 0x7FE0 && element == 0x0010) dataset.PixelData = value;
+        }
+
+        private static void ApplyPixelDataElement(DicomDataset dataset, byte[] bytes, int position, uint length)
+        {
+            long copyLengthValue = Math.Min((long)length, Math.Max(1L, dataset.ExpectedFirstFrameByteLength()));
+            if (position + copyLengthValue > bytes.Length)
+            {
+                copyLengthValue = Math.Max(0, bytes.Length - position);
+            }
+            int copyLength = (int)Math.Min(copyLengthValue, int.MaxValue);
+            dataset.PixelData = new byte[copyLength];
+            Buffer.BlockCopy(bytes, position, dataset.PixelData, 0, copyLength);
+        }
+
+        private static void ApplyPixelDataElement(DicomDataset dataset, DicomStreamReader reader, uint length)
+        {
+            long expected = Math.Max(1L, dataset.ExpectedFirstFrameByteLength());
+            long copyLength = Math.Min((long)length, expected);
+            if (copyLength > MaxPreviewPixelBytes)
+            {
+                throw new InvalidDataException("DICOM image is too large for Explorer preview.");
+            }
+            if (copyLength > reader.Remaining)
+            {
+                copyLength = reader.Remaining;
+            }
+            dataset.PixelData = reader.ReadBytes((int)Math.Max(0, copyLength));
         }
 
         private static void SkipUndefinedLength(byte[] bytes, ref int position, bool bigEndian)
@@ -975,6 +1163,37 @@ namespace DicomVision.ShellExtension
                 {
                     position = Math.Min(bytes.Length, position + (int)length);
                 }
+            }
+        }
+
+        private static void SkipUndefinedLength(DicomStreamReader reader, bool bigEndian)
+        {
+            while (reader.Remaining >= 8)
+            {
+                ushort group = reader.ReadUInt16(bigEndian);
+                ushort element = reader.ReadUInt16(bigEndian);
+                uint length = reader.ReadUInt32(bigEndian);
+                if (group == 0xFFFE && element == 0xE0DD)
+                {
+                    return;
+                }
+                if (length == uint.MaxValue)
+                {
+                    SkipUndefinedLength(reader, bigEndian);
+                }
+                else
+                {
+                    reader.Skip(length);
+                }
+            }
+        }
+
+        private static void EnsureSupportedTransferSyntax(string transferSyntax)
+        {
+            if (transferSyntax.StartsWith("1.2.840.10008.1.2.4.", StringComparison.Ordinal) ||
+                transferSyntax.StartsWith("1.2.840.10008.1.2.5", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Compressed DICOM transfer syntax is not supported by the shell preview handler.");
             }
         }
 
@@ -1017,6 +1236,98 @@ namespace DicomVision.ShellExtension
             return null;
         }
 
+        private sealed class DicomStreamReader
+        {
+            private readonly Stream _stream;
+            private readonly byte[] _scratch = new byte[8];
+
+            public DicomStreamReader(Stream stream)
+            {
+                _stream = stream;
+            }
+
+            public long Length
+            {
+                get { return _stream.Length; }
+            }
+
+            public long Position
+            {
+                get { return _stream.Position; }
+                set { _stream.Position = Math.Max(0, Math.Min(_stream.Length, value)); }
+            }
+
+            public long Remaining
+            {
+                get { return Math.Max(0, _stream.Length - _stream.Position); }
+            }
+
+            public byte[] ReadBytes(int count)
+            {
+                if (count < 0)
+                {
+                    throw new InvalidDataException("Invalid DICOM element length.");
+                }
+
+                var buffer = new byte[count];
+                int offset = 0;
+                while (offset < count)
+                {
+                    int read = _stream.Read(buffer, offset, count - offset);
+                    if (read <= 0)
+                    {
+                        throw new EndOfStreamException("DICOM file ended before the preview data was complete.");
+                    }
+                    offset += read;
+                }
+                return buffer;
+            }
+
+            public string ReadAscii(int count)
+            {
+                return Encoding.ASCII.GetString(ReadBytes(count));
+            }
+
+            public ushort ReadUInt16(bool bigEndian)
+            {
+                ReadIntoScratch(2);
+                return bigEndian
+                    ? (ushort)((_scratch[0] << 8) | _scratch[1])
+                    : (ushort)(_scratch[0] | (_scratch[1] << 8));
+            }
+
+            public uint ReadUInt32(bool bigEndian)
+            {
+                ReadIntoScratch(4);
+                return bigEndian
+                    ? (uint)((_scratch[0] << 24) | (_scratch[1] << 16) | (_scratch[2] << 8) | _scratch[3])
+                    : (uint)(_scratch[0] | (_scratch[1] << 8) | (_scratch[2] << 16) | (_scratch[3] << 24));
+            }
+
+            public void Skip(long count)
+            {
+                if (count <= 0)
+                {
+                    return;
+                }
+                Position = _stream.Position + count;
+            }
+
+            private void ReadIntoScratch(int count)
+            {
+                int offset = 0;
+                while (offset < count)
+                {
+                    int read = _stream.Read(_scratch, offset, count - offset);
+                    if (read <= 0)
+                    {
+                        throw new EndOfStreamException("DICOM file ended before the preview header was complete.");
+                    }
+                    offset += read;
+                }
+            }
+        }
+
         private struct DicomElement
         {
             public DicomElement(ushort group, ushort element, string vr, uint length)
@@ -1038,6 +1349,9 @@ namespace DicomVision.ShellExtension
     {
         private const string PreviewHandlersPath = @"Software\Microsoft\Windows\CurrentVersion\PreviewHandlers";
         private const string ClassesPath = @"Software\Classes";
+        private const string ObsoleteThumbnailProviderCategory = "{e357fccd-a995-4576-b01f-234630154e96}";
+        private const string DicomContentType = "application/dicom";
+        private const string DicomPerceivedType = "image";
 
         public static void Register(string assemblyPath)
         {
@@ -1071,6 +1385,8 @@ namespace DicomVision.ShellExtension
 
             RegisterFileClass(".dcm");
             RegisterFileClass(".dicom");
+            RegisterPreviewFileType(ShellIds.ExtensionlessFileType);
+            RegisterPreviewFileType(ShellIds.UnknownFileType);
         }
 
         public static void Unregister()
@@ -1086,6 +1402,8 @@ namespace DicomVision.ShellExtension
             }
             UnregisterFileClass(".dcm");
             UnregisterFileClass(".dicom");
+            UnregisterPreviewFileType(ShellIds.ExtensionlessFileType);
+            UnregisterPreviewFileType(ShellIds.UnknownFileType);
         }
 
         private static void WriteInprocValues(RegistryKey key, string codeBase, bool includeServerValues)
@@ -1106,14 +1424,17 @@ namespace DicomVision.ShellExtension
             using (var ext = Registry.CurrentUser.CreateSubKey(string.Format(@"{0}\{1}", ClassesPath, extension)))
             {
                 ext.SetValue("", ShellIds.ProgId);
+                ext.SetValue("Content Type", DicomContentType);
+                ext.SetValue("PerceivedType", DicomPerceivedType);
+                using (var openWith = ext.CreateSubKey("OpenWithProgids"))
+                {
+                    openWith.SetValue(ShellIds.ProgId, "", RegistryValueKind.String);
+                }
                 using (var shellEx = ext.CreateSubKey(string.Format(@"ShellEx\{0}", ShellIds.PreviewHandlerCategory)))
                 {
                     shellEx.SetValue("", string.Format("{{{0}}}", ShellIds.HandlerClsid));
                 }
-                using (var shellEx = ext.CreateSubKey(string.Format(@"ShellEx\{0}", ShellIds.ThumbnailProviderCategory)))
-                {
-                    shellEx.SetValue("", string.Format("{{{0}}}", ShellIds.HandlerClsid));
-                }
+                DeleteSubKeyTree(ext, string.Format(@"ShellEx\{0}", ObsoleteThumbnailProviderCategory));
             }
 
             using (var progId = Registry.CurrentUser.CreateSubKey(string.Format(@"{0}\{1}", ClassesPath, ShellIds.ProgId)))
@@ -1124,19 +1445,56 @@ namespace DicomVision.ShellExtension
                 {
                     shellEx.SetValue("", string.Format("{{{0}}}", ShellIds.HandlerClsid));
                 }
-                using (var shellEx = progId.CreateSubKey(string.Format(@"ShellEx\{0}", ShellIds.ThumbnailProviderCategory)))
+                DeleteSubKeyTree(progId, string.Format(@"ShellEx\{0}", ObsoleteThumbnailProviderCategory));
+            }
+
+            using (var systemAssociation = Registry.CurrentUser.CreateSubKey(string.Format(@"{0}\SystemFileAssociations\{1}", ClassesPath, extension)))
+            {
+                using (var shellEx = systemAssociation.CreateSubKey(string.Format(@"ShellEx\{0}", ShellIds.PreviewHandlerCategory)))
                 {
                     shellEx.SetValue("", string.Format("{{{0}}}", ShellIds.HandlerClsid));
                 }
+                DeleteSubKeyTree(systemAssociation, string.Format(@"ShellEx\{0}", ObsoleteThumbnailProviderCategory));
+            }
+        }
+
+        private static void RegisterPreviewFileType(string fileType)
+        {
+            using (var fileClass = Registry.CurrentUser.CreateSubKey(string.Format(@"{0}\{1}", ClassesPath, fileType)))
+            {
+                using (var shellEx = fileClass.CreateSubKey(string.Format(@"ShellEx\{0}", ShellIds.PreviewHandlerCategory)))
+                {
+                    shellEx.SetValue("", string.Format("{{{0}}}", ShellIds.HandlerClsid));
+                }
+                DeleteSubKeyTree(fileClass, string.Format(@"ShellEx\{0}", ObsoleteThumbnailProviderCategory));
             }
         }
 
         private static void UnregisterFileClass(string extension)
         {
             Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, extension, ShellIds.PreviewHandlerCategory), false);
-            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, extension, ShellIds.ThumbnailProviderCategory), false);
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, extension, ObsoleteThumbnailProviderCategory), false);
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\SystemFileAssociations\{1}\ShellEx\{2}", ClassesPath, extension, ShellIds.PreviewHandlerCategory), false);
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\SystemFileAssociations\{1}\ShellEx\{2}", ClassesPath, extension, ObsoleteThumbnailProviderCategory), false);
             Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, ShellIds.ProgId, ShellIds.PreviewHandlerCategory), false);
-            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, ShellIds.ProgId, ShellIds.ThumbnailProviderCategory), false);
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, ShellIds.ProgId, ObsoleteThumbnailProviderCategory), false);
+        }
+
+        private static void UnregisterPreviewFileType(string fileType)
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, fileType, ShellIds.PreviewHandlerCategory), false);
+            Registry.CurrentUser.DeleteSubKeyTree(string.Format(@"{0}\{1}\ShellEx\{2}", ClassesPath, fileType, ObsoleteThumbnailProviderCategory), false);
+        }
+
+        private static void DeleteSubKeyTree(RegistryKey parent, string subKeyName)
+        {
+            try
+            {
+                parent.DeleteSubKeyTree(subKeyName, false);
+            }
+            catch
+            {
+            }
         }
     }
 

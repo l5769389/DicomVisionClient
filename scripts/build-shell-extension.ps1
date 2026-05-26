@@ -38,7 +38,6 @@ New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
   /reference:System.dll `
   /reference:System.Core.dll `
   /reference:System.Drawing.dll `
-  /reference:System.Windows.Forms.dll `
   $sourcePath
 
 if ($LASTEXITCODE -ne 0) {

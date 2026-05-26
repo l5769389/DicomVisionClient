@@ -10,7 +10,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
-using System.Windows.Forms;
 
 [assembly: AssemblyTitle("DicomVisionShellExtension")]
 [assembly: AssemblyDescription("Windows shell preview handler for DICOM files")]
@@ -41,7 +40,7 @@ namespace DicomVision.ShellExtension
         private string _filePath;
         private IntPtr _parentHwnd = IntPtr.Zero;
         private NativeMethods.RECT _previewRect;
-        private PreviewControl _previewControl;
+        private PreviewWindow _previewWindow;
         private object _site;
         private string _initializationError;
 
@@ -88,14 +87,14 @@ namespace DicomVision.ShellExtension
         {
             _parentHwnd = hwnd;
             _previewRect = rect;
-            PositionPreviewControl();
+            PositionPreviewWindow();
             return NativeMethods.S_OK;
         }
 
         public int SetRect(ref NativeMethods.RECT rect)
         {
             _previewRect = rect;
-            PositionPreviewControl();
+            PositionPreviewWindow();
             return NativeMethods.S_OK;
         }
 
@@ -104,16 +103,15 @@ namespace DicomVision.ShellExtension
             try
             {
                 var request = CaptureRenderRequest();
-                ReplacePreviewControl(DicomRenderer.RenderPlaceholder("Loading DICOM preview..."));
                 RenderResult result = ResolveRenderResult(request);
-                ReplacePreviewControl(result);
+                ReplacePreviewWindow(result);
             }
             catch (Exception ex)
             {
                 ShellPreviewLog.Write("DoPreview failed: " + ex);
                 try
                 {
-                    ReplacePreviewControl(DicomRenderer.RenderError("Preview handler failed: " + ex.Message));
+                    ReplacePreviewWindow(DicomRenderer.RenderError("Preview handler failed: " + ex.Message));
                 }
                 catch
                 {
@@ -125,10 +123,10 @@ namespace DicomVision.ShellExtension
 
         public int Unload()
         {
-            if (_previewControl != null)
+            if (_previewWindow != null)
             {
-                _previewControl.Dispose();
-                _previewControl = null;
+                _previewWindow.Dispose();
+                _previewWindow = null;
             }
             ResetInitialization();
             return NativeMethods.S_OK;
@@ -136,17 +134,17 @@ namespace DicomVision.ShellExtension
 
         public int SetFocus()
         {
-            if (_previewControl != null)
+            if (_previewWindow != null && !_previewWindow.IsDisposed)
             {
-                _previewControl.Focus();
+                _previewWindow.Focus();
             }
             return NativeMethods.S_OK;
         }
 
         public int GetWindow(out IntPtr phwnd)
         {
-            phwnd = _previewControl != null && !_previewControl.IsDisposed
-                ? _previewControl.Handle
+            phwnd = _previewWindow != null && !_previewWindow.IsDisposed
+                ? _previewWindow.Handle
                 : _parentHwnd;
             return phwnd == IntPtr.Zero ? NativeMethods.E_FAIL : NativeMethods.S_OK;
         }
@@ -232,52 +230,26 @@ namespace DicomVision.ShellExtension
             _initializationError = null;
         }
 
-        private void ReplacePreviewControl(RenderResult result)
+        private void ReplacePreviewWindow(RenderResult result)
         {
-            if (_previewControl != null)
+            if (_previewWindow != null)
             {
-                _previewControl.Dispose();
+                _previewWindow.Dispose();
             }
 
-            _previewControl = new PreviewControl(result);
-            _previewControl.CreateControl();
-            NativeMethods.SetWindowLongPtr(
-                _previewControl.Handle,
-                NativeMethods.GWL_STYLE,
-                new IntPtr(NativeMethods.WS_CHILD | NativeMethods.WS_VISIBLE | NativeMethods.WS_CLIPSIBLINGS)
-            );
-            AttachPreviewControl();
-            PositionPreviewControl();
-            _previewControl.Show();
+            _previewWindow = new PreviewWindow(result);
+            PositionPreviewWindow();
         }
 
-        private void AttachPreviewControl()
+        private void PositionPreviewWindow()
         {
-            if (_parentHwnd == IntPtr.Zero || _previewControl == null || _previewControl.IsDisposed || _previewControl.Handle == IntPtr.Zero)
+            if (_parentHwnd == IntPtr.Zero || _previewWindow == null || _previewWindow.IsDisposed)
             {
                 return;
             }
 
-            NativeMethods.SetParent(_previewControl.Handle, _parentHwnd);
-        }
-
-        private void PositionPreviewControl()
-        {
-            if (_previewControl == null || _previewControl.IsDisposed || _previewControl.Handle == IntPtr.Zero)
-            {
-                return;
-            }
-
-            AttachPreviewControl();
-            NativeMethods.SetWindowPos(
-                _previewControl.Handle,
-                IntPtr.Zero,
-                _previewRect.Left,
-                _previewRect.Top,
-                Math.Max(0, _previewRect.Right - _previewRect.Left),
-                Math.Max(0, _previewRect.Bottom - _previewRect.Top),
-                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE
-            );
+            _previewWindow.EnsureCreated(_parentHwnd, _previewRect);
+            _previewWindow.SetRect(_previewRect);
         }
 
         [ComRegisterFunction]
@@ -371,45 +343,122 @@ namespace DicomVision.ShellExtension
         }
     }
 
-    internal sealed class PreviewControl : UserControl
+    internal sealed class PreviewWindow : IDisposable
     {
+        private const string WindowClassName = "DicomVisionShellPreviewWindow";
+        private static readonly object WindowMapLock = new object();
+        private static readonly Dictionary<IntPtr, PreviewWindow> WindowMap = new Dictionary<IntPtr, PreviewWindow>();
+        private static readonly NativeMethods.WNDPROC WndProcDelegate = WindowProc;
+        private static readonly IntPtr WindowInstance = Marshal.GetHINSTANCE(typeof(PreviewWindow).Module);
+        private static bool _isWindowClassRegistered;
+
         private RenderResult _result;
+        private IntPtr _hwnd;
 
-        public PreviewControl(RenderResult result)
+        public PreviewWindow(RenderResult result)
         {
             _result = result;
-            BackColor = Color.Black;
-            DoubleBuffered = true;
         }
 
-        public void SetResult(RenderResult result)
+        public IntPtr Handle
         {
-            var previous = _result;
-            _result = result;
-            if (previous != null)
+            get { return _hwnd; }
+        }
+
+        public bool IsDisposed
+        {
+            get { return _hwnd == IntPtr.Zero; }
+        }
+
+        public void EnsureCreated(IntPtr parentHwnd, NativeMethods.RECT rect)
+        {
+            if (_hwnd != IntPtr.Zero || parentHwnd == IntPtr.Zero)
             {
-                previous.Dispose();
+                return;
             }
-            Invalidate();
+
+            RegisterWindowClass();
+            int width = Math.Max(1, rect.Right - rect.Left);
+            int height = Math.Max(1, rect.Bottom - rect.Top);
+            _hwnd = NativeMethods.CreateWindowEx(
+                0,
+                WindowClassName,
+                "",
+                NativeMethods.WS_CHILD | NativeMethods.WS_VISIBLE | NativeMethods.WS_CLIPSIBLINGS | NativeMethods.WS_CLIPCHILDREN,
+                rect.Left,
+                rect.Top,
+                width,
+                height,
+                parentHwnd,
+                IntPtr.Zero,
+                WindowInstance,
+                IntPtr.Zero
+            );
+
+            if (_hwnd == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("Failed to create DICOM preview window.");
+            }
+
+            lock (WindowMapLock)
+            {
+                WindowMap[_hwnd] = this;
+            }
         }
 
-        protected override void Dispose(bool disposing)
+        public void SetRect(NativeMethods.RECT rect)
         {
-            if (disposing && _result != null)
+            if (_hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            NativeMethods.SetWindowPos(
+                _hwnd,
+                IntPtr.Zero,
+                rect.Left,
+                rect.Top,
+                Math.Max(1, rect.Right - rect.Left),
+                Math.Max(1, rect.Bottom - rect.Top),
+                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE
+            );
+            NativeMethods.InvalidateRect(_hwnd, IntPtr.Zero, true);
+        }
+
+        public void Focus()
+        {
+            if (_hwnd != IntPtr.Zero)
+            {
+                NativeMethods.SetFocus(_hwnd);
+            }
+        }
+
+        public void Dispose()
+        {
+            IntPtr hwnd = _hwnd;
+            _hwnd = IntPtr.Zero;
+            if (hwnd != IntPtr.Zero)
+            {
+                lock (WindowMapLock)
+                {
+                    WindowMap.Remove(hwnd);
+                }
+                NativeMethods.DestroyWindow(hwnd);
+            }
+
+            if (_result != null)
             {
                 _result.Dispose();
                 _result = null;
             }
-            base.Dispose(disposing);
         }
 
-        protected override void OnPaint(PaintEventArgs e)
+        private void Paint(Graphics graphics, Rectangle bounds)
         {
-            base.OnPaint(e);
-            e.Graphics.Clear(Color.Black);
-            e.Graphics.SmoothingMode = SmoothingMode.HighQuality;
-            e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.Clear(Color.Black);
+            graphics.SmoothingMode = SmoothingMode.HighQuality;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
             var result = _result;
             if (result == null)
@@ -419,8 +468,8 @@ namespace DicomVision.ShellExtension
 
             if (result.Image != null)
             {
-                var imageRect = FitRect(result.Image.Width, result.Image.Height, ClientRectangle, 18, 58);
-                e.Graphics.DrawImage(result.Image, imageRect);
+                var imageRect = FitRect(result.Image.Width, result.Image.Height, bounds, 18, 58);
+                graphics.DrawImage(result.Image, imageRect);
             }
 
             using (var titleBrush = new SolidBrush(Color.FromArgb(255, 255, 178, 0)))
@@ -431,18 +480,18 @@ namespace DicomVision.ShellExtension
                 var y = 10f;
                 foreach (var line in result.MetadataLines.Take(5))
                 {
-                    var size = e.Graphics.MeasureString(line, line == result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont);
-                    e.Graphics.DrawString(
+                    var size = graphics.MeasureString(line, line == result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont);
+                    graphics.DrawString(
                         line,
                         line == result.MetadataLines.FirstOrDefault() ? titleFont : bodyFont,
                         line == result.MetadataLines.FirstOrDefault() ? titleBrush : bodyBrush,
-                        Math.Max(10f, ClientSize.Width - size.Width - 12f),
+                        Math.Max(10f, bounds.Width - size.Width - 12f),
                         y
                     );
                     y += size.Height + 1f;
                 }
 
-                e.Graphics.DrawString("DicomVision DICOM Preview", bodyFont, titleBrush, 12f, Math.Max(8f, ClientSize.Height - 28f));
+                graphics.DrawString("DicomVision DICOM Preview", bodyFont, titleBrush, 12f, Math.Max(8f, bounds.Height - 28f));
             }
         }
 
@@ -456,6 +505,77 @@ namespace DicomVision.ShellExtension
             int x = bounds.Left + (bounds.Width - width) / 2;
             int y = bounds.Top + topReserved + (availableHeight - height) / 2;
             return new Rectangle(x, y, width, height);
+        }
+
+        private static void RegisterWindowClass()
+        {
+            if (_isWindowClassRegistered)
+            {
+                return;
+            }
+
+            var windowClass = new NativeMethods.WNDCLASS();
+            windowClass.lpfnWndProc = WndProcDelegate;
+            windowClass.hInstance = WindowInstance;
+            windowClass.lpszClassName = WindowClassName;
+            windowClass.hCursor = NativeMethods.LoadCursor(IntPtr.Zero, new IntPtr(NativeMethods.IDC_ARROW));
+            windowClass.hbrBackground = NativeMethods.GetStockObject(NativeMethods.BLACK_BRUSH);
+
+            ushort atom = NativeMethods.RegisterClass(ref windowClass);
+            if (atom == 0)
+            {
+                int error = Marshal.GetLastWin32Error();
+                if (error != NativeMethods.ERROR_CLASS_ALREADY_EXISTS)
+                {
+                    throw new InvalidOperationException("Failed to register DICOM preview window class.");
+                }
+            }
+            _isWindowClassRegistered = true;
+        }
+
+        private static IntPtr WindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam)
+        {
+            if (message == NativeMethods.WM_PAINT)
+            {
+                PreviewWindow window;
+                lock (WindowMapLock)
+                {
+                    WindowMap.TryGetValue(hwnd, out window);
+                }
+
+                var paintStruct = new NativeMethods.PAINTSTRUCT();
+                IntPtr hdc = NativeMethods.BeginPaint(hwnd, out paintStruct);
+                try
+                {
+                    using (var graphics = Graphics.FromHdc(hdc))
+                    {
+                        var bounds = new Rectangle(
+                            paintStruct.rcPaint.Left,
+                            paintStruct.rcPaint.Top,
+                            Math.Max(1, paintStruct.rcPaint.Right - paintStruct.rcPaint.Left),
+                            Math.Max(1, paintStruct.rcPaint.Bottom - paintStruct.rcPaint.Top)
+                        );
+                        if (window != null)
+                        {
+                            NativeMethods.RECT clientRect;
+                            NativeMethods.GetClientRect(hwnd, out clientRect);
+                            bounds = new Rectangle(0, 0, Math.Max(1, clientRect.Right - clientRect.Left), Math.Max(1, clientRect.Bottom - clientRect.Top));
+                            window.Paint(graphics, bounds);
+                        }
+                        else
+                        {
+                            graphics.Clear(Color.Black);
+                        }
+                    }
+                }
+                finally
+                {
+                    NativeMethods.EndPaint(hwnd, ref paintStruct);
+                }
+                return IntPtr.Zero;
+            }
+
+            return NativeMethods.DefWindowProc(hwnd, message, wParam, lParam);
         }
     }
 
@@ -1631,8 +1751,15 @@ namespace DicomVision.ShellExtension
         public const int WS_CHILD = 0x40000000;
         public const int WS_VISIBLE = 0x10000000;
         public const int WS_CLIPSIBLINGS = 0x04000000;
+        public const int WS_CLIPCHILDREN = 0x02000000;
+        public const int WM_PAINT = 0x000F;
+        public const int IDC_ARROW = 32512;
+        public const int BLACK_BRUSH = 4;
+        public const int ERROR_CLASS_ALREADY_EXISTS = 1410;
         public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
+
+        public delegate IntPtr WNDPROC(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT
@@ -1661,26 +1788,91 @@ namespace DicomVision.ShellExtension
             public POINT Point;
         }
 
-        [DllImport("user32.dll")]
-        public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
-
-        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
-        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)]
-        private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
-
-        public static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct WNDCLASS
         {
-            return IntPtr.Size == 8
-                ? SetWindowLongPtr64(hWnd, nIndex, dwNewLong)
-                : new IntPtr(SetWindowLong32(hWnd, nIndex, dwNewLong.ToInt32()));
+            public uint style;
+            public WNDPROC lpfnWndProc;
+            public int cbClsExtra;
+            public int cbWndExtra;
+            public IntPtr hInstance;
+            public IntPtr hIcon;
+            public IntPtr hCursor;
+            public IntPtr hbrBackground;
+            [MarshalAs(UnmanagedType.LPWStr)]
+            public string lpszMenuName;
+            [MarshalAs(UnmanagedType.LPWStr)]
+            public string lpszClassName;
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct PAINTSTRUCT
+        {
+            public IntPtr hdc;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool fErase;
+            public RECT rcPaint;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool fRestore;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool fIncUpdate;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+            public byte[] rgbReserved;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern ushort RegisterClass([In] ref WNDCLASS lpWndClass);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr CreateWindowEx(
+            int dwExStyle,
+            string lpClassName,
+            string lpWindowName,
+            int dwStyle,
+            int x,
+            int y,
+            int nWidth,
+            int nHeight,
+            IntPtr hWndParent,
+            IntPtr hMenu,
+            IntPtr hInstance,
+            IntPtr lpParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyWindow(IntPtr hWnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
         [DllImport("user32.dll")]
+        public static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, [MarshalAs(UnmanagedType.Bool)] bool bErase);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
+
+        [DllImport("user32.dll")]
         public static extern IntPtr GetFocus();
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetFocus(IntPtr hWnd);
+
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr GetStockObject(int fnObject);
     }
 }

@@ -6,7 +6,6 @@ import {
   bindView,
   bindViewSilently,
   bindViewSilentlyWithAck,
-  emitViewOperation,
   emitViewOperationWithAck
 } from '../../../services/socket'
 import {
@@ -83,7 +82,7 @@ import {
   normalizeFourDManifestResponse,
   resolveFourDPhasePlan
 } from './fourDPhaseManifest'
-import { normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig, isFourDSeriesItem, normalizeMprMipConfig } from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
@@ -106,6 +105,7 @@ import type {
   MeasurementOverlay,
   MprViewportKey,
   ViewImageResponse,
+  ViewProgressInfo,
   ViewerLayoutSlot,
   ViewerLayoutTemplate,
   ViewerTabItem,
@@ -170,6 +170,8 @@ interface LayoutViewSizeUpdate {
     height: number
   }
 }
+
+const VIEWPORT_LAYOUT_WAIT_FRAMES = 60
 
 export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const viewSizeCache = new Map<string, string>()
@@ -369,6 +371,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return options.viewerTabs.value.find((item) =>
       viewType ? item.seriesId === seriesId && item.viewType === viewType : item.seriesId === seriesId
     )
+  }
+
+  async function emitInitialPseudocolorOperation(viewId: string, preset: string): Promise<void> {
+    const normalizedPreset = normalizePseudocolorPresetKey(preset)
+    if (!viewId || normalizedPreset === DEFAULT_PSEUDOCOLOR_PRESET) {
+      return
+    }
+    await emitViewOperationWithAck({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.pseudocolor,
+      pseudocolorPreset: normalizedPreset
+    })
   }
 
   function findTabByViewId(viewId: string): ViewerTabItem | undefined {
@@ -689,36 +703,44 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     if (!cachedElement?.isConnected) {
       return null
     }
-    if (cachedElement.dataset.activeRenderSurface && cachedElement.dataset.viewportKey === viewportKey) {
+    if (isViewportSurface(cachedElement, viewportKey)) {
       return cachedElement
     }
     return cachedElement.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`)
   }
 
-  function resolveMprViewportElement(viewportKey: MprViewportKey): HTMLElement | null {
+  function isViewportSurface(element: HTMLElement | null | undefined, viewportKey: string): boolean {
+    return Boolean(element?.dataset.activeRenderSurface && element.dataset.viewportKey === viewportKey)
+  }
+
+  function resolveViewportElement(viewportKey: string): HTMLElement | null {
     const cachedSurface = resolveCachedViewportSurface(viewportKey)
     if (cachedSurface) {
       return cachedSurface
     }
 
+    const stage = options.viewerStage.value
+    if (stage && isViewportSurface(stage, viewportKey)) {
+      return stage
+    }
+
     return (
-      options.viewerStage.value?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`) ??
-      options.viewerStage.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
+      stage?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`) ??
+      stage?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
       null
     )
   }
 
-  function resolveVolumeViewportElement(): HTMLElement | null {
-    const cachedSurface = resolveCachedViewportSurface('volume')
-    if (cachedSurface) {
-      return cachedSurface
-    }
+  function resolveMprViewportElement(viewportKey: MprViewportKey): HTMLElement | null {
+    return resolveViewportElement(viewportKey)
+  }
 
-    return (
-      options.viewerStage.value?.querySelector<HTMLElement>('[data-active-render-surface][data-viewport-key="volume"]') ??
-      options.viewerStage.value?.querySelector<HTMLElement>('[data-viewport-key="volume"]') ??
-      null
-    )
+  function resolveVolumeViewportElement(): HTMLElement | null {
+    return resolveViewportElement('volume')
+  }
+
+  function resolveSingleViewportElement(): HTMLElement | null {
+    return resolveViewportElement('single') ?? options.viewerStage.value
   }
 
   function getViewportSize(element: HTMLElement | null = options.viewerStage.value): { width: number; height: number } | null {
@@ -1005,6 +1027,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     await nextTick()
     await bindMprViewIdsSilentlyWithAck(viewIds)
     await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds)
+    if (!hasCompleteMprViewportLayout(viewIds)) {
+      return
+    }
     await emitMprPseudocolorOperations(viewIds, pseudocolorSourceTab)
     const syncTargetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
     const syncRenderWait = syncTargetViewId
@@ -1168,6 +1193,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await nextTick()
         await bindMprViewIdsSilentlyWithAck(viewIds)
         await renderFourDPhaseSizeUpdatesAndWait(tabKey, phaseKey, viewIds)
+        if (!hasCompleteMprViewportLayout(viewIds)) {
+          continue
+        }
         await emitMprPseudocolorOperations(viewIds, currentTab)
         const syncTargetViewId = resolveFourDMprStateSyncTargetViewId(viewIds, sourceViewId)
         const syncRenderWait = syncTargetViewId
@@ -1527,6 +1555,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
             [viewportKey]: pseudocolorPreset
           },
+          viewportLoadingProgress: {
+            ...(item.viewportLoadingProgress ?? {}),
+            [viewportKey]: null
+          },
           mprMipConfig,
           volumePreset,
           volumeRenderConfig,
@@ -1555,8 +1587,87 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         pseudocolorPreset,
         mprMipConfig,
         volumePreset,
-        volumeRenderConfig
+        volumeRenderConfig,
+        loadingProgress: null
       }
+    })
+  }
+
+  function normalizeProgressNumber(value: unknown): number | null {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return null
+    }
+    return Math.max(0, Math.min(100, value))
+  }
+
+  function normalizeViewProgressPayload(payload: ViewProgressInfo | undefined): ViewProgressInfo | null {
+    if (!payload) {
+      return null
+    }
+
+    const record = payload as unknown as Record<string, unknown>
+    const viewId = typeof record.viewId === 'string' ? record.viewId : typeof record.view_id === 'string' ? record.view_id : ''
+    if (!viewId) {
+      return null
+    }
+
+    const phase = typeof record.phase === 'string' && record.phase ? record.phase : 'render'
+    const loadedCount = typeof record.loadedCount === 'number'
+      ? record.loadedCount
+      : typeof record.loaded_count === 'number'
+        ? record.loaded_count
+        : null
+    const totalCount = typeof record.totalCount === 'number'
+      ? record.totalCount
+      : typeof record.total_count === 'number'
+        ? record.total_count
+        : null
+
+    return {
+      viewId,
+      phase,
+      progressPercent: normalizeProgressNumber(record.progressPercent ?? record.progress_percent),
+      loadedCount,
+      totalCount,
+      message: typeof record.message === 'string' ? record.message : null
+    }
+  }
+
+  function updateViewProgress(payload: ViewProgressInfo | undefined): void {
+    const progress = normalizeViewProgressPayload(payload)
+    if (!progress) {
+      return
+    }
+
+    const nextProgress = progress.phase === 'complete' ? null : progress
+    options.viewerTabs.value = options.viewerTabs.value.map((item) => {
+      if (item.viewId === progress.viewId) {
+        if (nextProgress && item.imageSrc) {
+          return item
+        }
+        return {
+          ...item,
+          loadingProgress: nextProgress
+        }
+      }
+
+      const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === progress.viewId)?.[0] as
+        | MprViewportKey
+        | undefined
+      if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
+        if (nextProgress && item.viewportImages?.[viewportKey]) {
+          return item
+        }
+        return {
+          ...item,
+          viewportLoadingProgress: {
+            ...(item.viewportLoadingProgress ?? {}),
+            [viewportKey]: nextProgress
+          }
+        }
+      }
+
+      return item
     })
   }
 
@@ -1720,12 +1831,40 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function getRequiredMprViewportKeys(viewportViewIds: Partial<Record<MprViewportKey, string>>): MprViewportKey[] {
+    return (Object.keys(viewportViewIds) as MprViewportKey[]).filter((key) => Boolean(viewportViewIds[key]))
+  }
+
+  function getMissingMprViewportLayoutKeys(viewportViewIds: Partial<Record<MprViewportKey, string>>): MprViewportKey[] {
+    return getRequiredMprViewportKeys(viewportViewIds).filter((key) => !getViewportSize(resolveMprViewportElement(key)))
+  }
+
+  function hasCompleteMprViewportLayout(viewportViewIds: Partial<Record<MprViewportKey, string>>): boolean {
+    const requiredKeys = getRequiredMprViewportKeys(viewportViewIds)
+    return requiredKeys.length > 0 && getMissingMprViewportLayoutKeys(viewportViewIds).length === 0
+  }
+
+  async function waitForMprViewportLayout(viewportViewIds: Partial<Record<MprViewportKey, string>>): Promise<boolean> {
+    for (let attempt = 0; attempt < VIEWPORT_LAYOUT_WAIT_FRAMES; attempt += 1) {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      if (hasCompleteMprViewportLayout(viewportViewIds)) {
+        return true
+      }
+    }
+    return hasCompleteMprViewportLayout(viewportViewIds)
+  }
+
   async function renderMprViewIds(
     viewportViewIds: Partial<Record<MprViewportKey, string>> | undefined,
     force = false,
     renderOnBind = true
   ): Promise<Partial<Record<MprViewportKey, string>>> {
-    const updates = collectMprViewSizeUpdates(viewportViewIds, force)
+    let updates = collectMprViewSizeUpdates(viewportViewIds, force)
+    if (!updates.length && Object.values(viewportViewIds ?? {}).some(Boolean)) {
+      await waitForMprViewportLayout(viewportViewIds ?? {})
+      updates = collectMprViewSizeUpdates(viewportViewIds, force)
+    }
     await postMprViewSizeUpdates(updates, renderOnBind)
     return viewSizeUpdatesToViewIds(updates)
   }
@@ -1736,6 +1875,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     viewportViewIds: Partial<Record<MprViewportKey, string>>,
     force = false
   ): Promise<Partial<Record<MprViewportKey, string>>> {
+    if (!hasCompleteMprViewportLayout(viewportViewIds)) {
+      await waitForMprViewportLayout(viewportViewIds)
+    }
+
     const updates = collectMprViewSizeUpdates(viewportViewIds, force)
     const updatedViewIds = viewSizeUpdatesToViewIds(updates)
     const renderWait = updates.length
@@ -1769,6 +1912,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    if (tab.viewType === '3D') {
+      await postViewSizeUpdate(collectViewSizeUpdate(tab.viewId, resolveVolumeViewportElement(), force))
+      return
+    }
+
     if (tab.viewType === 'Layout') {
       await postLayoutViewSizeUpdates(collectLayoutViewSizeUpdates(tab.layoutSlots, force))
       return
@@ -1778,21 +1926,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
-    const size = getViewportSize()
-    if (!size) {
-      return
-    }
-
-    bindView(tab.viewId)
-    const sizeChanged = hasViewSizeChanged(tab.viewId, size)
-    if (!force && !sizeChanged) {
-      return
-    }
-    await postApi('SetViewSizeApiV1ViewSetSizePost', {
-      opType: VIEW_OPERATION_TYPES.setSize,
-      size,
-      viewId: tab.viewId
-    })
+    await postViewSizeUpdate(collectViewSizeUpdate(tab.viewId, resolveSingleViewportElement(), force))
   }
 
   async function ensureMprVolumeView(tabKey: string): Promise<void> {
@@ -1814,6 +1948,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...item,
             viewId: data.viewId,
             imageSrc: '',
+            loadingProgress: null,
             orientation: createEmptyOrientationInfo(),
             transformState: createDefaultTransformInfo(),
             volumePreset,
@@ -1868,6 +2003,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
       if (viewType === 'Tag' && !(existingTab.tagItems?.length) && !existingTab.tagIsLoading) {
         await loadTagTab(existingTab.key, existingTab.tagIndex ?? resolveInitialTagIndex(seriesId))
+      }
+      if (viewType === '3D' && !existingTab.imageSrc) {
+        options.activeViewportKey.value = 'volume'
+        options.isViewLoading.value = false
+        await nextTick()
+        await renderTab(existingTab.key, true)
+      }
+      if (viewType === 'Stack' && !existingTab.imageSrc) {
+        options.activeViewportKey.value = 'single'
+        options.isViewLoading.value = false
+        await nextTick()
+        await renderTab(existingTab.key, true)
       }
       return
     }
@@ -1942,6 +2089,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
 
       const seriesCornerInfo = options.withHoverCornerInfo(await options.ensureSeriesCornerInfo(options.selectedSeriesId.value))
+      const initialPseudocolorPreset = normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
 
@@ -1978,12 +2126,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               title: buildTabTitle(options.selectedSeries.value, viewType, item.seriesId),
               viewId: nextViewId,
               imageSrc: '',
+              loadingProgress: null,
               sliceLabel: '',
               windowLabel: '',
               mprFrame: null,
               mprCursor: null,
               viewportViewIds: nextViewportViewIds,
               viewportImages: createEmptyMprImages(),
+              viewportLoadingProgress: {},
               viewportSliceLabels: createEmptyMprSliceLabels(),
               viewportPlanes: createEmptyMprPlanes(),
               viewportCrosshairs: createEmptyMprCrosshairs(),
@@ -2004,13 +2154,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportOrientations: createEmptyMprOrientations(),
               transformState: createDefaultTransformInfo(),
               viewportTransformStates: createEmptyMprTransformStates(),
-              pseudocolorPreset: selectedPseudocolorKey.value,
+              pseudocolorPreset: initialPseudocolorPreset,
               viewportPseudocolorPresets:
                 viewType === 'MPR'
                   ? {
-                      'mpr-ax': selectedPseudocolorKey.value,
-                      'mpr-cor': selectedPseudocolorKey.value,
-                      'mpr-sag': selectedPseudocolorKey.value
+                      'mpr-ax': initialPseudocolorPreset,
+                      'mpr-cor': initialPseudocolorPreset,
+                      'mpr-sag': initialPseudocolorPreset
                     }
                   : createEmptyMprPseudocolorPresets(),
               mprMipConfig: createDefaultMprMipConfig(),
@@ -2020,30 +2170,27 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : item
       )
 
-      if (viewType === 'MPR') {
-        Object.values(nextViewportViewIds).forEach((viewId) => {
-          if (viewId) {
-            bindView(viewId)
-            emitViewOperation({
-              viewId,
-              opType: VIEW_OPERATION_TYPES.pseudocolor,
-              pseudocolorPreset: selectedPseudocolorKey.value
-            })
-          }
-        })
-      } else if (nextViewId) {
-        bindView(nextViewId)
-        emitViewOperation({
-          viewId: nextViewId,
-          opType: VIEW_OPERATION_TYPES.pseudocolor,
-          pseudocolorPreset: selectedPseudocolorKey.value
-        })
+      if (viewType !== 'MPR' && nextViewId) {
+        await bindViewSilentlyWithAck(nextViewId)
+        await emitInitialPseudocolorOperation(nextViewId, initialPseudocolorPreset)
       }
 
       options.activeViewportKey.value = viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single'
       options.activeTabKey.value = tabKey
+      if (viewType === 'MPR') {
+        options.isViewLoading.value = false
+        await waitForMprViewportLayout(nextViewportViewIds)
+        await bindMprViewIdsSilentlyWithAck(nextViewportViewIds)
+        await Promise.all(
+          Object.values(nextViewportViewIds).map((viewId) => emitInitialPseudocolorOperation(viewId, initialPseudocolorPreset))
+        )
+      } else if (viewType === '3D') {
+        options.isViewLoading.value = false
+      } else {
+        options.isViewLoading.value = false
+      }
       await nextTick()
-      await renderTab(tabKey)
+      await renderTab(tabKey, viewType === 'MPR')
       options.message.value = ''
     } catch (error) {
       options.message.value = `${viewType} 视图打开失败。`
@@ -2505,6 +2652,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     setLayoutSlotSeries,
     setTagTabIndex,
     selectSeries,
-    updateTabImage
+    updateTabImage,
+    updateViewProgress
   }
 }

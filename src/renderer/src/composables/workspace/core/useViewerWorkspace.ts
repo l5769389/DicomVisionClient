@@ -85,6 +85,7 @@ import type {
   MprMipOperationConfig,
   MprViewportKey,
   ViewImageResponse,
+  ViewProgressInfo,
   ViewerLayoutTemplate,
   ViewTransformInfo,
   ViewerMtfItem,
@@ -151,6 +152,7 @@ interface ViewerWorkspaceState {
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
   loadDroppedDicomFiles: (drop: DicomDropInput) => Promise<void>
+  loadDicomPaths: (paths: string[]) => Promise<void>
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
   openKeySlice: (seriesId: string, sliceIndex: number) => Promise<void>
@@ -240,6 +242,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewportElements = ref<Partial<Record<string, HTMLElement | null>>>({})
   const seriesCornerInfoMap = ref<Record<string, CornerInfo>>({})
   const loadingSeriesCornerInfo = new Map<string, Promise<CornerInfo>>()
+  const stageReadyRenderKeys = new Set<string>()
   const DEFAULT_VIEW_TRANSFORM: ViewTransformInfo = {
     rotationDegrees: 0,
     horFlip: false,
@@ -249,6 +252,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
+  let hasStartedBackendConnection = false
+  let removeBackendOriginChangedListener: (() => void) | null = null
 
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
@@ -1514,6 +1519,47 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return true
   }
 
+  function hasReadyViewport(payload: WorkspaceReadyPayload, viewportKey: string): boolean {
+    const element = payload.viewportElements?.[viewportKey] ?? payload.element ?? null
+    return Boolean(
+      element?.isConnected &&
+        element.dataset.activeRenderSurface &&
+        element.dataset.viewportKey === viewportKey
+    )
+  }
+
+  function shouldRenderOnViewportReady(tab: ViewerTabItem | null, payload: WorkspaceReadyPayload): boolean {
+    if (!tab || isViewLoading.value) {
+      return false
+    }
+    if (tab.viewType === '3D') {
+      return Boolean(tab.viewId && !tab.imageSrc && hasReadyViewport(payload, 'volume'))
+    }
+    if (isStackLikeViewType(tab.viewType)) {
+      return Boolean(tab.viewId && !tab.imageSrc && hasReadyViewport(payload, 'single'))
+    }
+    if (tab.viewType === 'MPR') {
+      return Boolean(
+        Object.values(tab.viewportViewIds ?? {}).some(Boolean) &&
+          Object.values(tab.viewportImages ?? {}).some((imageSrc) => !imageSrc) &&
+          (hasReadyViewport(payload, 'mpr-ax') || hasReadyViewport(payload, 'mpr-cor') || hasReadyViewport(payload, 'mpr-sag'))
+      )
+    }
+    return false
+  }
+
+  function renderActiveTabWhenViewportReady(payload: WorkspaceReadyPayload): void {
+    const tab = activeTab.value
+    if (!tab || !shouldRenderOnViewportReady(tab, payload) || stageReadyRenderKeys.has(tab.key)) {
+      return
+    }
+
+    stageReadyRenderKeys.add(tab.key)
+    void views.renderTab(tab.key).finally(() => {
+      stageReadyRenderKeys.delete(tab.key)
+    })
+  }
+
   function setViewerStage(payload: WorkspaceReadyPayload): void {
     const nextElement = payload.element ?? null
     const previousElement = viewerStage.value
@@ -1526,6 +1572,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
     if (nextElement) {
       setupResizeObserver()
+      renderActiveTabWhenViewportReady(payload)
     }
   }
 
@@ -1642,6 +1689,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  function handleViewProgress(payload: ViewProgressInfo | undefined): void {
+    views.updateViewProgress(payload)
+  }
+
   const { cleanupSocketListeners, connectBackend, connectionState } = useViewerWorkspaceConnection({
     backendOrigin,
     onConnected: views.rebindOpenViews,
@@ -1669,8 +1720,25 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     onFourDPlaybackState: handleFourDPlaybackState,
     onHoverInfo: handleHoverInfo,
     onImageError: handleImageError,
-    onImageUpdate: handleImageUpdate
+    onImageUpdate: handleImageUpdate,
+    onViewProgress: handleViewProgress
   })
+
+  function applyBackendOrigin(origin: string): void {
+    const nextOrigin = origin.trim().replace(/\/+$/, '')
+    if (!nextOrigin) {
+      return
+    }
+
+    const shouldReconnect = !hasStartedBackendConnection || backendOrigin.value !== nextOrigin
+    backendOrigin.value = nextOrigin
+    if (!shouldReconnect) {
+      return
+    }
+
+    hasStartedBackendConnection = true
+    connectBackend()
+  }
 
   function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number }): void {
     const tab = activeTab.value
@@ -2055,6 +2123,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  async function loadDicomPaths(paths: string[]): Promise<void> {
+    const sources = await viewerRuntime.resolveDicomPathSources(paths)
+    if (!sources.length) {
+      message.value = ''
+      showStatusToast(workspaceStatusCopy.value.folderLoadFailed, 'warning')
+      return
+    }
+
+    let shouldOpenLoadedSeries = true
+    for (const source of sources) {
+      const loadedSeries = await loadDicomSource(source, {
+        selectLoadedSeries: shouldOpenLoadedSeries,
+        openFirstSeriesView: shouldOpenLoadedSeries
+      })
+      if (loadedSeries.length && shouldOpenLoadedSeries) {
+        shouldOpenLoadedSeries = false
+      }
+    }
+  }
+
   async function handleLayoutSlotDicomDrop(payload: { tabKey: string; slotId: string; drop: DicomDropInput }): Promise<void> {
     const sources = await viewerRuntime.resolveDroppedDicomSources(payload.drop)
     if (!sources.length) {
@@ -2268,12 +2356,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   onMounted(() => {
+    removeBackendOriginChangedListener = window.viewerApi?.onBackendOriginChanged?.(applyBackendOrigin) ?? null
     void (async () => {
       const resolvedBackendOrigin = await viewerRuntime.getBackendOrigin()
-      if (resolvedBackendOrigin) {
-        backendOrigin.value = resolvedBackendOrigin
-      }
-      connectBackend()
+      applyBackendOrigin(resolvedBackendOrigin)
     })()
   })
 
@@ -2283,6 +2369,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()
+    removeBackendOriginChangedListener?.()
+    removeBackendOriginChangedListener = null
     dismissStatusToast()
     if (resizeObserver && observedViewerStage) {
       resizeObserver.unobserve(observedViewerStage)
@@ -2328,6 +2416,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isSidebarCollapsed,
     isViewLoading,
     loadDroppedDicomFiles,
+    loadDicomPaths,
     message,
     openKeySlice,
     openSeriesView: openSeriesViewWithHangingProtocol,

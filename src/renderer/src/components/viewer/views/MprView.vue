@@ -11,6 +11,7 @@ import type {
   MprLayoutKey,
   MprViewportKey,
   ScaleBarInfo,
+  ViewProgressInfo,
   ViewerMtfItem,
   ViewerTabItem
 } from '../../../types/viewer'
@@ -228,6 +229,41 @@ function isItemLoading(item: MprViewportLayoutItem): boolean {
   return viewportKey ? isViewportLoading(viewportKey) : Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc
 }
 
+const VIEW_PROGRESS_LABELS: Record<string, string> = {
+  queued: '准备渲染',
+  waiting: '等待体数据',
+  volume: '读取 DICOM 切片',
+  normalize: '整理体数据',
+  initialize: '初始化视图',
+  render: '渲染影像',
+  encode: '生成预览图',
+  complete: '加载完成'
+}
+
+function getItemLoadingProgress(item: MprViewportLayoutItem): ViewProgressInfo | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey
+    ? props.activeTab.viewportLoadingProgress?.[viewportKey] ?? null
+    : props.activeTab.loadingProgress ?? null
+}
+
+function getItemLoadingProgressPercent(item: MprViewportLayoutItem): number | null {
+  const progressPercent = getItemLoadingProgress(item)?.progressPercent
+  return typeof progressPercent === 'number' ? progressPercent : null
+}
+
+function getItemLoadingLabel(item: MprViewportLayoutItem): string {
+  const fallback = item.kind === 'volume' ? '正在加载 3D 视图...' : '正在加载 MPR 视图...'
+  const progress = getItemLoadingProgress(item)
+  if (!progress) {
+    return fallback
+  }
+
+  const label = progress.message || VIEW_PROGRESS_LABELS[progress.phase] || fallback
+  const hasCounts = typeof progress.loadedCount === 'number' && typeof progress.totalCount === 'number' && progress.totalCount > 0
+  return hasCounts ? `${label} ${progress.loadedCount}/${progress.totalCount}` : label
+}
+
 function getItemCornerInfo(item: MprViewportLayoutItem): CornerInfo {
   const viewportKey = asMprViewportKey(item)
   return viewportKey ? props.getCornerInfo(viewportKey) : emptyVolumeCornerInfo
@@ -348,7 +384,8 @@ watch(
       :image-src="getItemImage(item)"
       :active-operation="props.activeOperation"
       :is-loading="isItemLoading(item)"
-      :loading-label="item.kind === 'volume' ? '正在加载 3D 视图...' : '正在加载 MPR 视图...'"
+      :loading-label="getItemLoadingLabel(item)"
+      :loading-progress-percent="getItemLoadingProgressPercent(item)"
       :alt="item.label"
       :placeholder="`${item.label} 预览`"
       :corner-info="getItemCornerInfo(item)"

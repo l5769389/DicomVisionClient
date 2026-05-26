@@ -272,6 +272,67 @@ export interface PacsDicomwebTestResponse {
   message: string
 }
 
+export interface PacsDimseProfile {
+  id: string
+  name: string
+  host: string
+  port?: number
+  calledAeTitle?: string
+  clientAeTitle?: string
+  queryModel?: 'study-root' | 'patient-root'
+  timeoutSeconds?: number
+}
+
+export interface PacsDimseSeriesDownloadJobStatusResponse {
+  jobId: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  statusUrl: string
+  error?: string | null
+  folderPath?: string | null
+  processedCount?: number
+  progressPercent?: number
+  seriesId?: string | null
+  seriesList?: SeriesSummary[]
+  totalCount?: number
+  createdAt: string
+  completedAt?: string | null
+}
+
+export interface PacsDimseSeriesDownloadRequest {
+  profile: PacsDimseProfile
+  studyInstanceUid: string
+  seriesInstanceUid: string
+}
+
+export interface PacsDimseSeriesQueryRequest {
+  profile: PacsDimseProfile
+  studyInstanceUid: string
+  seriesInstanceUid?: string | null
+  modality?: string | null
+  seriesDescription?: string | null
+  bodyPartExamined?: string | null
+  limit?: number
+  offset?: number
+}
+
+export interface PacsDimseStudyQueryRequest {
+  profile: PacsDimseProfile
+  studyInstanceUid?: string | null
+  patientId?: string | null
+  patientName?: string | null
+  accessionNumber?: string | null
+  studyDescription?: string | null
+  studyDateFrom?: string | null
+  studyDateTo?: string | null
+  modality?: string | null
+  limit?: number
+  offset?: number
+}
+
+export interface PacsDimseTestRequest {
+  profile: PacsDimseProfile
+}
+
 export interface PacsQidoSeriesQueryRequest {
   profile: PacsDicomwebProfile
   studyInstanceUid: string
@@ -677,6 +738,12 @@ export interface ApiOperations {
   PreviewDicomwebSeriesApiV1PacsDicomwebSeriesPreviewPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/seriesPreview'; request: PacsSeriesPreviewRequest; response: PacsSeriesPreviewResponse }
   QueryDicomwebStudiesApiV1PacsDicomwebStudiesPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/studies'; request: PacsQidoStudyQueryRequest; response: PacsQidoStudyQueryResponse }
   TestDicomwebConnectionApiV1PacsDicomwebTestPost: { method: 'POST'; path: '/api/v1/pacs/dicomweb/test'; request: PacsDicomwebTestRequest; response: PacsDicomwebTestResponse }
+  CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost: { method: 'POST'; path: '/api/v1/pacs/dimse/downloadSeries/jobs'; request: PacsDimseSeriesDownloadRequest; response: PacsDimseSeriesDownloadJobStatusResponse }
+  GetDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsJobIdGet: { method: 'GET'; path: '/api/v1/pacs/dimse/downloadSeries/jobs/{job_id}'; request: never; response: PacsDimseSeriesDownloadJobStatusResponse }
+  CancelDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsJobIdCancelPost: { method: 'POST'; path: '/api/v1/pacs/dimse/downloadSeries/jobs/{job_id}/cancel'; request: never; response: PacsDimseSeriesDownloadJobStatusResponse }
+  QueryDimseSeriesApiV1PacsDimseSeriesPost: { method: 'POST'; path: '/api/v1/pacs/dimse/series'; request: PacsDimseSeriesQueryRequest; response: PacsQidoSeriesQueryResponse }
+  QueryDimseStudiesApiV1PacsDimseStudiesPost: { method: 'POST'; path: '/api/v1/pacs/dimse/studies'; request: PacsDimseStudyQueryRequest; response: PacsQidoStudyQueryResponse }
+  TestDimseConnectionApiV1PacsDimseTestPost: { method: 'POST'; path: '/api/v1/pacs/dimse/test'; request: PacsDimseTestRequest; response: PacsDicomwebTestResponse }
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }
   CreateViewApiV1ViewCreatePost: { method: 'POST'; path: '/api/v1/view/create'; request: ViewCreateRequest; response: ViewCreateResponse }
   ExportViewApiV1ViewExportPost: { method: 'POST'; path: '/api/v1/view/export'; request: ViewExportRequest; response: unknown }

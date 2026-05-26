@@ -15,8 +15,26 @@ const DEFAULT_BACKEND_ORIGIN = DESKTOP_DEV_BACKEND_ORIGIN
 const BACKEND_READY_TIMEOUT_MS = 20000
 const BACKEND_READY_POLL_INTERVAL_MS = 400
 
+type RendererStatusToastTone = 'info' | 'success' | 'warning' | 'error'
+
+interface RendererStatusToastPayload {
+  id: string
+  message: string
+  tone: RendererStatusToastTone
+  detail?: string | null
+  durationMs?: number
+}
+
 let backendOrigin = process.env.DICOM_VISION_SERVER_ORIGIN?.trim() || DEFAULT_BACKEND_ORIGIN
 let backendProcess: ChildProcessWithoutNullStreams | null = null
+let pendingStartupStatusToast: RendererStatusToastPayload | null = null
+let pendingOpenFilePaths: string[] = []
+let backendReady = false
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  app.quit()
+}
 
 function buildBackendOrigin(host: string, port: number): string {
   return buildHttpOrigin(host, port)
@@ -54,15 +72,23 @@ function resolveServerLaunchConfig():
     return null
   }
 
-  const executablePath = join(process.resourcesPath, 'server', 'DicomVisionServer.exe')
-  if (!existsSync(executablePath)) {
+  const serverResourcePath = join(process.resourcesPath, 'server')
+  const executableNames =
+    process.platform === 'win32'
+      ? ['DicomVisionServer.exe']
+      : ['DicomVisionServer', 'DicomVisionServer.exe']
+  const executablePath = executableNames
+    .map((fileName) => join(serverResourcePath, fileName))
+    .find((candidate) => existsSync(candidate))
+
+  if (!executablePath) {
     return null
   }
 
   return {
     command: executablePath,
     args: [],
-    cwd: join(process.resourcesPath, 'server')
+    cwd: serverResourcePath
   }
 }
 
@@ -110,6 +136,100 @@ function resolveUniqueExportPath(directoryPath: string, fileName: string): strin
   }
 
   return candidatePath
+}
+
+function resolveBackendStartupFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim()
+  }
+
+  return app.isPackaged
+    ? 'Failed to start embedded backend service.'
+    : 'Desktop dev mode requires a separately running backend service.'
+}
+
+function publishRendererStatusToast(payload: RendererStatusToastPayload): void {
+  pendingStartupStatusToast = payload
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('viewer:status-toast', payload)
+    }
+  })
+}
+
+function publishBackendOriginChanged(): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('viewer:backend-origin-changed', backendOrigin)
+    }
+  })
+}
+
+function markBackendReady(): void {
+  backendReady = true
+  publishBackendOriginChanged()
+  flushPendingOpenFilePaths()
+}
+
+function getOpenFileArgStartIndex(): number {
+  return app.isPackaged ? 1 : 2
+}
+
+function collectOpenFileArgs(argv: string[]): string[] {
+  return normalizeDroppedDicomPaths(
+    argv
+      .slice(getOpenFileArgStartIndex())
+      .map((argument) => argument.trim())
+      .filter((argument) => argument && !argument.startsWith('-'))
+  )
+}
+
+function enqueueOpenFilePaths(paths: string[]): void {
+  const normalizedPaths = normalizeDroppedDicomPaths(paths)
+  if (!normalizedPaths.length) {
+    return
+  }
+
+  const seen = new Set(pendingOpenFilePaths.map((path) => (process.platform === 'win32' ? path.toLowerCase() : path)))
+  for (const path of normalizedPaths) {
+    const dedupeKey = process.platform === 'win32' ? path.toLowerCase() : path
+    if (seen.has(dedupeKey)) {
+      continue
+    }
+    seen.add(dedupeKey)
+    pendingOpenFilePaths.push(path)
+  }
+
+  flushPendingOpenFilePaths()
+}
+
+function flushPendingOpenFilePaths(): void {
+  if (!backendReady || !pendingOpenFilePaths.length) {
+    return
+  }
+
+  const targetWindow = BrowserWindow.getAllWindows().find((window) => !window.isDestroyed() && !window.webContents.isLoading())
+  if (!targetWindow) {
+    return
+  }
+
+  const paths = pendingOpenFilePaths
+  pendingOpenFilePaths = []
+  targetWindow.webContents.send('viewer:open-dicom-paths', paths)
+}
+
+function focusExistingWindow(): void {
+  const targetWindow = BrowserWindow.getAllWindows()[0]
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+
+  if (targetWindow.isMinimized()) {
+    targetWindow.restore()
+  }
+  targetWindow.show()
+  targetWindow.focus()
 }
 
 async function loadUiPreferences(): Promise<unknown | null> {
@@ -239,6 +359,7 @@ async function waitForBackendReady(origin: string, timeoutMs: number): Promise<b
 async function ensureBackendRunning(): Promise<void> {
   if (!app.isPackaged) {
     if (await isBackendReady(backendOrigin)) {
+      markBackendReady()
       return
     }
 
@@ -248,6 +369,7 @@ async function ensureBackendRunning(): Promise<void> {
   }
 
   if (await isBackendReady(backendOrigin)) {
+    markBackendReady()
     return
   }
 
@@ -279,6 +401,7 @@ async function ensureBackendRunning(): Promise<void> {
 
     const ready = await waitForBackendReady(nextBackendOrigin, BACKEND_READY_TIMEOUT_MS)
     if (ready) {
+      markBackendReady()
       return
     }
 
@@ -312,6 +435,7 @@ function createWindow(): BrowserWindow {
     minHeight: 800,
     frame: false,
     autoHideMenuBar: true,
+    backgroundColor: '#07111b',
     icon: resolveAppIconPath(),
     webPreferences: {
       preload: resolvePreloadPath(),
@@ -321,6 +445,10 @@ function createWindow(): BrowserWindow {
 
   win.on('ready-to-show', () => {
     win.show()
+  })
+
+  win.webContents.on('did-finish-load', () => {
+    flushPendingOpenFilePaths()
   })
 
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -334,6 +462,21 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+app.on('second-instance', (_event, argv) => {
+  if (!hasSingleInstanceLock) {
+    return
+  }
+
+  focusExistingWindow()
+  enqueueOpenFilePaths(collectOpenFileArgs(argv))
+})
+
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  enqueueOpenFilePaths([path])
+})
+
+if (hasSingleInstanceLock) {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.dicomvision.app')
 
@@ -389,6 +532,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('viewer:get-backend-origin', () => backendOrigin)
   ipcMain.handle('viewer:get-default-export-directory', () => resolveDefaultExportDirectory())
+  ipcMain.handle('viewer:get-startup-status-toast', () => pendingStartupStatusToast)
   ipcMain.handle(
     'viewer:save-export-file',
     async (
@@ -439,22 +583,22 @@ app.whenReady().then(() => {
   ipcMain.handle('viewer:load-ui-preferences', () => loadUiPreferences())
   ipcMain.handle('viewer:save-ui-preferences', (_, payload: unknown) => saveUiPreferences(payload))
 
+  createWindow()
+  enqueueOpenFilePaths(collectOpenFileArgs(process.argv))
+
   void ensureBackendRunning()
-    .catch(async (error: unknown) => {
-      const message =
-        error instanceof Error
-          ? error.message
-          : app.isPackaged
-            ? 'Failed to start embedded backend service.'
-            : 'Desktop dev mode requires a separately running backend service.'
-      await dialog.showMessageBox({
-        type: 'warning',
-        title: app.isPackaged ? 'Backend Startup Failed' : 'Backend Connection Failed',
-        message
+    .catch((error: unknown) => {
+      const message = resolveBackendStartupFailureMessage(error)
+      const detail = app.isPackaged
+        ? `${message} Log: ${resolveBackendLogPath()}`
+        : `${message} Backend: ${backendOrigin}`
+      publishRendererStatusToast({
+        id: 'backend-startup-failed',
+        message: app.isPackaged ? 'Backend service failed to start' : 'Backend service is not connected',
+        tone: 'warning',
+        detail,
+        durationMs: 0
       })
-    })
-    .finally(() => {
-      createWindow()
     })
 
   app.on('activate', () => {
@@ -463,6 +607,7 @@ app.whenReady().then(() => {
     }
   })
 })
+}
 
 app.on('window-all-closed', () => {
   stopBackendProcess()

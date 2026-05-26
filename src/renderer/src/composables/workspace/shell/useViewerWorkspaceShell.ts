@@ -19,6 +19,19 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
   const tabStripRef = ref<HTMLElement | null>(null)
   const canScrollTabsLeft = ref(false)
   const canScrollTabsRight = ref(false)
+  let viewportMutationObserver: MutationObserver | null = null
+  let observedViewportHost: HTMLElement | null = null
+  let workspaceReadyRaf = 0
+
+  function scheduleWorkspaceReady(): void {
+    if (workspaceReadyRaf) {
+      return
+    }
+    workspaceReadyRaf = window.requestAnimationFrame(() => {
+      workspaceReadyRaf = 0
+      notifyWorkspaceReady()
+    })
+  }
 
   function notifyWorkspaceReady(): void {
     const isMultiViewport =
@@ -40,6 +53,29 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
       element: stageElement,
       viewportKey: options.activeViewportKey.value,
       viewportElements
+    })
+  }
+
+  function setupViewportMutationObserver(): void {
+    if (typeof MutationObserver === 'undefined') {
+      return
+    }
+
+    const host = options.viewportHostRef.value
+    if (observedViewportHost === host) {
+      return
+    }
+
+    viewportMutationObserver?.disconnect()
+    observedViewportHost = host
+    if (!host) {
+      return
+    }
+
+    viewportMutationObserver = new MutationObserver(scheduleWorkspaceReady)
+    viewportMutationObserver.observe(host, {
+      childList: true,
+      subtree: true
     })
   }
 
@@ -124,6 +160,7 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
 
   onMounted(() => {
     notifyWorkspaceReady()
+    setupViewportMutationObserver()
     document.addEventListener('pointerdown', handleDocumentPointerDown)
     window.addEventListener('resize', updateTabScrollState)
     onMeasurementDraft(handleMeasurementDraftUpdate)
@@ -135,6 +172,7 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
     async () => {
       await nextTick()
       notifyWorkspaceReady()
+      setupViewportMutationObserver()
       scrollActiveTabIntoView()
       updateTabScrollState()
     }
@@ -153,6 +191,10 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
   onBeforeUnmount(() => {
     document.removeEventListener('pointerdown', handleDocumentPointerDown)
     window.removeEventListener('resize', updateTabScrollState)
+    if (workspaceReadyRaf) {
+      window.cancelAnimationFrame(workspaceReadyRaf)
+    }
+    viewportMutationObserver?.disconnect()
     offMeasurementDraft(handleMeasurementDraftUpdate)
     options.cleanupPointerInteractions()
   })

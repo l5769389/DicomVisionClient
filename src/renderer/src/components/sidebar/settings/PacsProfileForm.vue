@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import type { PacsAuthType, PacsDicomwebProfile, PacsProfilePreset } from '../../../composables/ui/useUiPreferences'
-import { pacsProfileEndpoint } from '../../../composables/pacs/pacsProfileUtils'
+import { ref } from 'vue'
+import { VMenu } from 'vuetify/components'
+import AppIcon from '../../AppIcon.vue'
+import type {
+  DimseQueryModel,
+  PacsAuthType,
+  PacsDicomwebProfile,
+  PacsProfilePreset,
+  PacsProtocol
+} from '../../../composables/ui/useUiPreferences'
+import { pacsProfileEndpoint, pacsProfilePresetConnectionPatch } from '../../../composables/pacs/pacsProfileUtils'
 
-defineProps<{
+const props = defineProps<{
   isTesting: boolean
   isZh: boolean
   mode?: 'edit' | 'create'
@@ -17,6 +26,78 @@ const emit = defineEmits<{
   save: []
   updateProfile: [patch: Partial<PacsDicomwebProfile>]
 }>()
+
+type PacsProfileSelectKey = 'protocol' | 'preset' | 'authType' | 'queryModel'
+
+interface PacsProfileSelectOption<T extends string = string> {
+  label: string
+  value: T
+}
+
+const protocolOptions: PacsProfileSelectOption<PacsProtocol>[] = [
+  { label: 'DICOMweb', value: 'dicomweb' },
+  { label: 'DIMSE', value: 'dimse' }
+]
+const presetOptions: PacsProfileSelectOption<PacsProfilePreset>[] = [
+  { label: 'Orthanc', value: 'orthanc' },
+  { label: 'dcm4chee', value: 'dcm4chee' },
+  { label: 'Custom', value: 'custom' }
+]
+const queryModelOptions: PacsProfileSelectOption<DimseQueryModel>[] = [
+  { label: 'Study Root', value: 'study-root' },
+  { label: 'Patient Root', value: 'patient-root' }
+]
+const openSelectKey = ref<PacsProfileSelectKey | null>(null)
+
+function getAuthOptions(isZh: boolean): PacsProfileSelectOption<PacsAuthType>[] {
+  return [
+    { label: isZh ? '无认证' : 'None', value: 'none' },
+    { label: 'Basic', value: 'basic' },
+    { label: 'Bearer', value: 'bearer' }
+  ]
+}
+
+function getSelectLabel<T extends string>(options: PacsProfileSelectOption<T>[], value: T | null | undefined): string {
+  return options.find((option) => option.value === value)?.label ?? ''
+}
+
+function setSelectOpen(key: PacsProfileSelectKey, isOpen: boolean): void {
+  openSelectKey.value = isOpen ? key : null
+}
+
+function isSelectOpen(key: PacsProfileSelectKey): boolean {
+  return openSelectKey.value === key
+}
+
+function closeSelectMenu(): void {
+  openSelectKey.value = null
+}
+
+function selectProtocol(value: PacsProtocol): void {
+  emit('updateProfile', {
+    protocol: value,
+    ...pacsProfilePresetConnectionPatch(props.profile.preset)
+  })
+  closeSelectMenu()
+}
+
+function selectPreset(value: PacsProfilePreset): void {
+  emit('updateProfile', {
+    preset: value,
+    ...pacsProfilePresetConnectionPatch(value)
+  })
+  closeSelectMenu()
+}
+
+function selectAuthType(value: PacsAuthType): void {
+  emit('updateProfile', { authType: value })
+  closeSelectMenu()
+}
+
+function selectQueryModel(value: DimseQueryModel): void {
+  emit('updateProfile', { queryModel: value })
+  closeSelectMenu()
+}
 </script>
 
 <template>
@@ -41,39 +122,189 @@ const emit = defineEmits<{
         <span class="pacs-form-label">{{ isZh ? '名称' : 'Name' }}</span>
         <input class="pacs-input" :value="profile.name" @input="emit('updateProfile', { name: ($event.target as HTMLInputElement).value })" />
       </label>
-      <label class="grid gap-1.5">
+      <div class="grid gap-1.5">
+        <span class="pacs-form-label">Protocol</span>
+        <VMenu
+          :model-value="isSelectOpen('protocol')"
+          location="bottom start"
+          :offset="8"
+          scroll-strategy="reposition"
+          :close-on-content-click="true"
+          @update:model-value="setSelectOpen('protocol', $event)"
+        >
+          <template #activator="{ props: menuProps }">
+            <button
+              v-bind="menuProps"
+              type="button"
+              class="pacs-select-trigger"
+              :class="{ 'pacs-select-trigger--open': isSelectOpen('protocol') }"
+            >
+              <span class="truncate">{{ getSelectLabel(protocolOptions, profile.protocol) }}</span>
+              <AppIcon name="chevron-down" :size="17" />
+            </button>
+          </template>
+          <div class="pacs-select-menu theme-shell-panel border">
+            <button
+              v-for="option in protocolOptions"
+              :key="option.value"
+              type="button"
+              class="toolbar-menu-option pacs-select-option"
+              :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.protocol }"
+              @click="selectProtocol(option.value)"
+            >
+              <span class="pacs-select-option__rail"></span>
+              <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+              <AppIcon v-if="option.value === profile.protocol" name="check" :size="14" />
+            </button>
+          </div>
+        </VMenu>
+      </div>
+      <div class="grid gap-1.5">
         <span class="pacs-form-label">{{ isZh ? '类型' : 'Type' }}</span>
-        <select class="pacs-input" :value="profile.preset" @change="emit('updateProfile', { preset: ($event.target as HTMLSelectElement).value as PacsProfilePreset })">
-          <option value="orthanc">Orthanc</option>
-          <option value="dcm4chee">dcm4chee</option>
-          <option value="custom">{{ isZh ? '自定义' : 'Custom' }}</option>
-        </select>
-      </label>
-      <label class="grid gap-1.5 md:col-span-2">
+        <VMenu
+          :model-value="isSelectOpen('preset')"
+          location="bottom start"
+          :offset="8"
+          scroll-strategy="reposition"
+          :close-on-content-click="true"
+          @update:model-value="setSelectOpen('preset', $event)"
+        >
+          <template #activator="{ props: menuProps }">
+            <button
+              v-bind="menuProps"
+              type="button"
+              class="pacs-select-trigger"
+              :class="{ 'pacs-select-trigger--open': isSelectOpen('preset') }"
+            >
+              <span class="truncate">{{ profile.preset === 'custom' && isZh ? '自定义' : getSelectLabel(presetOptions, profile.preset) }}</span>
+              <AppIcon name="chevron-down" :size="17" />
+            </button>
+          </template>
+          <div class="pacs-select-menu theme-shell-panel border">
+            <button
+              v-for="option in presetOptions"
+              :key="option.value"
+              type="button"
+              class="toolbar-menu-option pacs-select-option"
+              :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.preset }"
+              @click="selectPreset(option.value)"
+            >
+              <span class="pacs-select-option__rail"></span>
+              <span class="min-w-0 flex-1 truncate">{{ option.value === 'custom' && isZh ? '自定义' : option.label }}</span>
+              <AppIcon v-if="option.value === profile.preset" name="check" :size="14" />
+            </button>
+          </div>
+        </VMenu>
+      </div>
+      <label v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5 md:col-span-2">
         <span class="pacs-form-label">Base URL</span>
         <input class="pacs-input" placeholder="http://127.0.0.1:8042" :value="profile.baseUrl" @input="emit('updateProfile', { baseUrl: ($event.target as HTMLInputElement).value })" />
       </label>
-      <label class="grid gap-1.5">
+      <label v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5">
         <span class="pacs-form-label">QIDO Path</span>
         <input class="pacs-input" placeholder="/dicom-web" :value="profile.qidoPath" @input="emit('updateProfile', { qidoPath: ($event.target as HTMLInputElement).value })" />
       </label>
-      <label class="grid gap-1.5">
+      <label v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5">
         <span class="pacs-form-label">WADO Path</span>
         <input class="pacs-input" placeholder="/dicom-web" :value="profile.wadoPath" @input="emit('updateProfile', { wadoPath: ($event.target as HTMLInputElement).value })" />
       </label>
-      <label class="grid gap-1.5">
+      <div v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5">
         <span class="pacs-form-label">{{ isZh ? '认证' : 'Auth' }}</span>
-        <select class="pacs-input" :value="profile.authType" @change="emit('updateProfile', { authType: ($event.target as HTMLSelectElement).value as PacsAuthType })">
-          <option value="none">{{ isZh ? '无认证' : 'None' }}</option>
-          <option value="basic">Basic</option>
-          <option value="bearer">Bearer</option>
-        </select>
-      </label>
+        <VMenu
+          :model-value="isSelectOpen('authType')"
+          location="bottom start"
+          :offset="8"
+          scroll-strategy="reposition"
+          :close-on-content-click="true"
+          @update:model-value="setSelectOpen('authType', $event)"
+        >
+          <template #activator="{ props: menuProps }">
+            <button
+              v-bind="menuProps"
+              type="button"
+              class="pacs-select-trigger"
+              :class="{ 'pacs-select-trigger--open': isSelectOpen('authType') }"
+            >
+              <span class="truncate">{{ getSelectLabel(getAuthOptions(isZh), profile.authType) }}</span>
+              <AppIcon name="chevron-down" :size="17" />
+            </button>
+          </template>
+          <div class="pacs-select-menu theme-shell-panel border">
+            <button
+              v-for="option in getAuthOptions(isZh)"
+              :key="option.value"
+              type="button"
+              class="toolbar-menu-option pacs-select-option"
+              :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.authType }"
+              @click="selectAuthType(option.value)"
+            >
+              <span class="pacs-select-option__rail"></span>
+              <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+              <AppIcon v-if="option.value === profile.authType" name="check" :size="14" />
+            </button>
+          </div>
+        </VMenu>
+      </div>
+      <template v-if="profile.protocol === 'dimse'">
+        <label class="grid gap-1.5">
+          <span class="pacs-form-label">Host</span>
+          <input class="pacs-input" placeholder="127.0.0.1" :value="profile.host" @input="emit('updateProfile', { host: ($event.target as HTMLInputElement).value })" />
+        </label>
+        <label class="grid gap-1.5">
+          <span class="pacs-form-label">Port</span>
+          <input class="pacs-input" type="number" min="1" max="65535" :value="profile.port" @input="emit('updateProfile', { port: Number(($event.target as HTMLInputElement).value) })" />
+        </label>
+        <label class="grid gap-1.5">
+          <span class="pacs-form-label">Called AE</span>
+          <input class="pacs-input" maxlength="16" placeholder="ORTHANC" :value="profile.calledAeTitle" @input="emit('updateProfile', { calledAeTitle: ($event.target as HTMLInputElement).value })" />
+        </label>
+        <label class="grid gap-1.5">
+          <span class="pacs-form-label">Client AE</span>
+          <input class="pacs-input" maxlength="16" placeholder="DICOMVISION" :value="profile.clientAeTitle" @input="emit('updateProfile', { clientAeTitle: ($event.target as HTMLInputElement).value })" />
+        </label>
+        <div class="grid gap-1.5">
+          <span class="pacs-form-label">Query Model</span>
+          <VMenu
+            :model-value="isSelectOpen('queryModel')"
+            location="bottom start"
+            :offset="8"
+            scroll-strategy="reposition"
+            :close-on-content-click="true"
+            @update:model-value="setSelectOpen('queryModel', $event)"
+          >
+            <template #activator="{ props: menuProps }">
+              <button
+                v-bind="menuProps"
+                type="button"
+                class="pacs-select-trigger"
+                :class="{ 'pacs-select-trigger--open': isSelectOpen('queryModel') }"
+              >
+                <span class="truncate">{{ getSelectLabel(queryModelOptions, profile.queryModel) }}</span>
+                <AppIcon name="chevron-down" :size="17" />
+              </button>
+            </template>
+            <div class="pacs-select-menu theme-shell-panel border">
+              <button
+                v-for="option in queryModelOptions"
+                :key="option.value"
+                type="button"
+                class="toolbar-menu-option pacs-select-option"
+                :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.queryModel }"
+                @click="selectQueryModel(option.value)"
+              >
+                <span class="pacs-select-option__rail"></span>
+                <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+                <AppIcon v-if="option.value === profile.queryModel" name="check" :size="14" />
+              </button>
+            </div>
+          </VMenu>
+        </div>
+      </template>
       <label class="grid gap-1.5">
         <span class="pacs-form-label">{{ isZh ? '超时秒数' : 'Timeout' }}</span>
         <input class="pacs-input" type="number" min="1" max="60" :value="profile.timeoutSeconds" @input="emit('updateProfile', { timeoutSeconds: Number(($event.target as HTMLInputElement).value) })" />
       </label>
-      <template v-if="profile.authType === 'basic'">
+      <template v-if="profile.protocol === 'dicomweb' && profile.authType === 'basic'">
         <label class="grid gap-1.5">
           <span class="pacs-form-label">{{ isZh ? '用户名' : 'Username' }}</span>
           <input class="pacs-input" :value="profile.username" @input="emit('updateProfile', { username: ($event.target as HTMLInputElement).value })" />
@@ -83,7 +314,7 @@ const emit = defineEmits<{
           <input class="pacs-input" type="password" :value="profile.password" @input="emit('updateProfile', { password: ($event.target as HTMLInputElement).value })" />
         </label>
       </template>
-      <label v-else-if="profile.authType === 'bearer'" class="grid gap-1.5 md:col-span-2">
+      <label v-else-if="profile.protocol === 'dicomweb' && profile.authType === 'bearer'" class="grid gap-1.5 md:col-span-2">
         <span class="pacs-form-label">Bearer Token</span>
         <input class="pacs-input" type="password" :value="profile.bearerToken" @input="emit('updateProfile', { bearerToken: ($event.target as HTMLInputElement).value })" />
       </label>
@@ -135,5 +366,119 @@ const emit = defineEmits<{
 .pacs-input:focus {
   border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-strong));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 24%, transparent);
+}
+
+.pacs-select-trigger {
+  display: flex;
+  min-height: 42px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 16px;
+  background: var(--theme-surface-card);
+  padding: 0 12px;
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.pacs-select-trigger:hover,
+.pacs-select-trigger--open {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent);
+}
+
+.pacs-select-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-strong));
+  box-shadow: var(--theme-focus-ring);
+}
+
+.pacs-select-trigger:disabled {
+  cursor: not-allowed;
+  color: var(--theme-text-muted);
+  opacity: 0.72;
+}
+
+.pacs-select-trigger :deep(.app-icon-svg) {
+  transition: transform 150ms ease;
+}
+
+.pacs-select-trigger--open :deep(.app-icon-svg) {
+  transform: rotate(180deg);
+}
+
+.pacs-select-menu {
+  display: grid;
+  width: min(290px, calc(100vw - 48px));
+  gap: 4px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--theme-border-strong) 74%, transparent) !important;
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
+      color-mix(in srgb, var(--theme-surface-panel) 94%, black 6%)
+    );
+  padding: 6px;
+  box-shadow:
+    0 24px 52px rgba(2, 8, 18, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.pacs-select-option {
+  position: relative;
+  display: flex;
+  min-height: 38px;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  padding: 0 10px 0 12px;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.pacs-select-option:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.pacs-select-option--active {
+  color: var(--theme-active-foreground);
+}
+
+.pacs-select-option__rail {
+  position: absolute;
+  inset: 9px auto 9px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 80%, white 8%);
+  opacity: 0;
+}
+
+.pacs-select-option--active .pacs-select-option__rail {
+  opacity: 0.72;
 }
 </style>

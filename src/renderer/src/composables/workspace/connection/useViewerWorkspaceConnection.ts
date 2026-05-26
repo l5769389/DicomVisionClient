@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { connectSocket, getSocket, type ServerToClientEvents } from '../../../services/socket'
 import { setApiBaseURL } from '../../../services/api'
-import type { ConnectionState, FourDPlaybackPhaseEvent, FourDPlaybackStateEvent, ViewHoverResponse } from '../../../types/viewer'
+import type { ConnectionState, FourDPlaybackPhaseEvent, FourDPlaybackStateEvent, ViewHoverResponse, ViewProgressInfo } from '../../../types/viewer'
 
 interface ViewerWorkspaceConnectionOptions {
   backendOrigin: Ref<string>
@@ -9,6 +9,7 @@ interface ViewerWorkspaceConnectionOptions {
   onDisconnected: () => void
   onReconnecting: () => void
   onImageUpdate: ServerToClientEvents['image_update']
+  onViewProgress: (payload: ViewProgressInfo | undefined) => void
   onHoverInfo: (payload: ViewHoverResponse | undefined) => void
   onImageError: (error: { message?: string } | undefined) => void
   onFourDPhaseIndex: (payload: FourDPlaybackPhaseEvent | undefined) => void
@@ -65,6 +66,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
     socket.io.off('reconnect_error', handleSocketReconnectError)
     socket.io.off('reconnect_failed', handleSocketReconnectFailed)
     socket.off('image_update', options.onImageUpdate)
+    socket.off('view_progress', options.onViewProgress)
     socket.off('hover_info', options.onHoverInfo)
     socket.off('image_error', options.onImageError)
     socket.off('render_error', options.onImageError)
@@ -85,6 +87,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
     socket.io.on('reconnect_error', handleSocketReconnectError)
     socket.io.on('reconnect_failed', handleSocketReconnectFailed)
     socket.on('image_update', options.onImageUpdate)
+    socket.on('view_progress', options.onViewProgress)
     socket.on('hover_info', options.onHoverInfo)
     socket.on('image_error', options.onImageError)
     socket.on('render_error', options.onImageError)

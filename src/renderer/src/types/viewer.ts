@@ -55,12 +55,22 @@ export type MprLayoutKey = 'three-columns' | 'right-primary' | 'three-rows' | 'q
 export type CompareStackPaneKey = 'compare-a' | 'compare-b'
 export type ViewSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform' | 'reset'
 export type CompareSyncSettingKey = ViewSyncSettingKey
+export type ViewProgressPhase = 'queued' | 'waiting' | 'volume' | 'normalize' | 'initialize' | 'render' | 'encode' | 'complete'
 export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
 export type MprCrosshairInteractionMode = 'move' | 'rotate'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
 export type AnnotationToolType = 'arrow'
 export type AnnotationSize = 'sm' | 'md' | 'lg'
 export type MprMipAlgorithm = 'maximum' | 'minimum' | 'average' | 'sum'
+
+export interface ViewProgressInfo {
+  viewId: string
+  phase: ViewProgressPhase | string
+  progressPercent?: number | null
+  loadedCount?: number | null
+  totalCount?: number | null
+  message?: string | null
+}
 
 export interface MprCrosshairInteractionPayload {
   viewportKey: string
@@ -479,6 +489,7 @@ export interface ViewerTabItem {
   layoutSyncReset?: boolean
   viewportViewIds?: Partial<Record<MprViewportKey, string>>
   viewportImages?: Partial<Record<MprViewportKey, string>>
+  viewportLoadingProgress?: Partial<Record<MprViewportKey, ViewProgressInfo | null>>
   viewportSliceLabels?: Partial<Record<MprViewportKey, string>>
   mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
@@ -520,6 +531,7 @@ export interface ViewerTabItem {
   fourDPhaseCache?: Record<string, FourDPhaseCacheItem>
   fourDIsPlaying?: boolean
   fourDIsPreloading?: boolean
+  loadingProgress?: ViewProgressInfo | null
 }
 
 export type StackViewerTabItem = ViewerTabItem & { viewType: 'Stack' }

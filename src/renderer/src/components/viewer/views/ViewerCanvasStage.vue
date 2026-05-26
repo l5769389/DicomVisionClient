@@ -46,6 +46,7 @@ const props = withDefaults(
     isActive?: boolean
     isLoading?: boolean
     loadingLabel?: string
+    loadingProgressPercent?: number | null
     mprCrosshair?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
     mprPlane?: MprPlaneInfo | null
@@ -68,6 +69,7 @@ const props = withDefaults(
     isActive: false,
     isLoading: false,
     loadingLabel: '正在加载视图...',
+    loadingProgressPercent: null,
     mprCrosshair: null,
     mprFrame: null,
     mprPlane: null,
@@ -116,6 +118,13 @@ const imageFrame = ref({
   top: 0,
   width: 0,
   height: 0
+})
+
+const normalizedLoadingProgressPercent = computed(() => {
+  if (typeof props.loadingProgressPercent !== 'number' || !Number.isFinite(props.loadingProgressPercent)) {
+    return null
+  }
+  return Math.max(0, Math.min(100, Math.round(props.loadingProgressPercent)))
 })
 
 const measurementFrame = computed(() => ({
@@ -392,9 +401,20 @@ watch(
         v-if="isLoading"
         class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"
       >
-        <div class="flex items-center gap-3 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
-          <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
-          <span>{{ loadingLabel }}</span>
+        <div class="w-[min(18rem,calc(100%-2rem))] rounded-2xl border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
+          <div class="flex items-center gap-3">
+            <span class="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
+            <span class="min-w-0 flex-1 truncate">{{ loadingLabel }}</span>
+            <span v-if="normalizedLoadingProgressPercent !== null" class="w-10 shrink-0 text-right text-xs font-semibold text-sky-200">
+              {{ normalizedLoadingProgressPercent }}%
+            </span>
+          </div>
+          <div v-if="normalizedLoadingProgressPercent !== null" class="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              class="h-full rounded-full bg-sky-300 transition-[width] duration-200 ease-out"
+              :style="{ width: `${normalizedLoadingProgressPercent}%` }"
+            ></div>
+          </div>
         </div>
       </div>
       <span

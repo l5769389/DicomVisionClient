@@ -38,6 +38,17 @@
     "win": {
       "icon": "build/icon.ico",
       "executableName": "DicomVision",
+      "fileAssociations": [
+        {
+          "ext": [
+            "dcm",
+            "dicom"
+          ],
+          "name": "DicomVision.DICOM",
+          "description": "DICOM medical image",
+          "role": "Viewer"
+        }
+      ],
       "target": [
         "nsis"
       ]
@@ -46,10 +57,26 @@
       "icon": "build/icon.png"
     },
     "mac": {
-      "icon": "build/icon.png"
+      "category": "public.app-category.medical",
+      "icon": "build/icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "fileAssociations": [
+        {
+          "ext": [
+            "dcm",
+            "dicom"
+          ],
+          "name": "DICOM medical image",
+          "role": "Viewer"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "installerHeader": "build/installerHeader.bmp",
       "installerIcon": "build/icon.ico",
@@ -74,7 +101,10 @@
     "build": "electron-vite build",
     "build:web": "vite build --config vite.web.config.ts",
     "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
+    "package:mac": "node scripts/package-mac.mjs",
+    "package:server": "node scripts/stage-server-bundle.mjs",
     "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",
+    "release:mac": "node scripts/release-mac.mjs",
     "preview": "electron-vite preview",
     "preview:web": "vite preview --config vite.web.config.ts",
     "generate:api-types": "powershell -ExecutionPolicy Bypass -Command \"Push-Location ..\\DicomVisionServer; uv run python scripts\\generate_openapi_types.py --output ..\\DicomVisionClient\\src\\shared\\generated\\backendApi.ts; Pop-Location\"",

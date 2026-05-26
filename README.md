@@ -2,11 +2,12 @@
 
 [中文说明](./README.zh-CN.md)
 
-DicomVision is a client/server DICOM viewer for diagnostic-style browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export. It provides Stack, MPR/oblique MPR, 3D volume rendering, 4D phase playback, layout workspaces, synchronized comparison, DICOM tag editing, de-identification export, and web or Windows desktop deployment.
+DicomVision is a client/server DICOM viewer for diagnostic-style browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export. It provides Stack, MPR/oblique MPR, 3D volume rendering, 4D phase playback, layout workspaces, synchronized comparison, DICOM tag editing, de-identification export, and web, Windows desktop, or macOS desktop deployment.
 
 ## Highlights
 
 - Multi-series workspace with grouped series navigation, drag-and-drop import, tabbed views, and configurable layouts.
+- PACS Browser with DICOMweb and DIMSE study/series search, server-side download caching, and direct open from downloaded series.
 - Stack, Compare, MPR, MPR + 3D, 3D volume rendering, and 4D phase workflows.
 - Measurement, annotation, MTF/FWHM, and water phantom QA tools for image evaluation.
 - DICOM Tag tree browsing, VR-aware editing, batch modification, and de-identification export.
@@ -15,11 +16,12 @@ DicomVision is a client/server DICOM viewer for diagnostic-style browsing, recon
 ## Feature Overview
 
 - **Loading and workspace**: import DICOM files or folders, group discovered series by patient/study, and open multiple view tabs without disrupting the active workflow.
+- **PACS workflow**: configure Orthanc, dcm4chee, or custom PACS profiles, search studies through DICOMweb QIDO or DIMSE C-FIND, retrieve DICOMweb WADO or DIMSE C-GET series, and open cached downloads directly.
 - **2D and comparison**: Stack viewing with playback speed control, pseudocolor, WW/WL, transform tools, layouts, and optional synchronization across Compare/Layout panes.
 - **Reconstruction**: MPR, oblique MPR, MPR + 3D layout, server-side 3D volume rendering, and 4D phase playback with FPS control.
 - **Measurement and QA**: line, rectangle, ellipse, angle, curve, freeform measurement, MTF/FWHM analysis, and water phantom QA.
 - **DICOM operations**: tree-based tag review, VR-aware tag editing, batch tag modification, de-identification export, and image/DICOM export.
-- **Product delivery**: static web client for remote backends and Windows Electron desktop packaging with an embedded backend bundle.
+- **Product delivery**: static web client for remote backends and Windows/macOS Electron desktop packaging with an embedded backend bundle.
 
 ## Web Preview
 https://dicom-vision-client.vercel.app/
@@ -35,6 +37,10 @@ https://dicom-vision-client.vercel.app/
 | Workspace home | Loaded series |
 | --- | --- |
 | <img src="./screenshots/home_page.png" alt="DicomVision home workspace" width="420"> | <img src="./screenshots/home_page_loaded_series.png" alt="Loaded DICOM series workspace" width="420"> |
+
+| PACS data sources | PACS browser import |
+| --- | --- |
+| <img src="./screenshots/pacs_dicom_import.png" alt="PACS DICOMweb and DIMSE profile setup" width="420"> | <img src="./screenshots/pacs_dicom_import_1.png" alt="PACS Browser query and downloaded series import" width="420"> |
 
 | Layout workspace | Stack Compare |
 | --- | --- |
@@ -116,7 +122,7 @@ src/renderer/src/
   types/                   viewer domain types
 
 screenshots/               README and release screenshots
-scripts/                   installer assets, server staging, and Windows release scripts
+scripts/                   installer assets, server staging, and desktop release scripts
 ```
 
 ## Quick Start
@@ -188,10 +194,14 @@ Deployment notes:
 
 The desktop product is an Electron app that can bundle the server artifact and launch it automatically at runtime.
 
-One-command Windows release, assuming `DicomVisionServer` is next to this repository:
+One-command desktop release, assuming `DicomVisionServer` is next to this repository:
 
 ```powershell
 npm run release:win
+```
+
+```bash
+npm run release:mac
 ```
 
 Manual packaging with an existing server bundle:
@@ -200,15 +210,20 @@ Manual packaging with an existing server bundle:
 powershell -ExecutionPolicy Bypass -File .\scripts\package-win.ps1 -ServerBundlePath "D:\path\to\DicomVisionServer"
 ```
 
+```bash
+npm run package:mac -- --server-bundle-path /path/to/DicomVisionServer
+```
+
 Expected server bundle shape:
 
 ```text
 DicomVisionServer/
-  DicomVisionServer.exe
+  DicomVisionServer.exe  # Windows
+  DicomVisionServer      # macOS
   ...
 ```
 
-The packaged installer is generated under `dist-electron/`. At runtime, the Electron main process starts the embedded backend from `resources/server/DicomVisionServer.exe`, allocates a local port, and connects the UI to that resolved backend origin.
+The packaged installer/app artifacts are generated under `dist-electron/`. At runtime, the Electron main process starts the embedded backend from `resources/server/DicomVisionServer.exe` on Windows or `resources/server/DicomVisionServer` on macOS, allocates a local port, and connects the UI to that resolved backend origin. macOS artifacts must be built on macOS.
 
 ## Scripts
 
@@ -222,6 +237,7 @@ The packaged installer is generated under `dist-electron/`. At runtime, the Elec
 - `npm run typecheck`: run TypeScript checks for web and Electron projects.
 - `npm run test:run`: run Vitest once.
 - `npm run release:win`: build the server desktop bundle and package the Windows installer.
+- `npm run release:mac`: build the server desktop bundle and package macOS DMG/ZIP artifacts on macOS.
 
 ## Backend README
 

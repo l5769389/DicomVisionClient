@@ -72,15 +72,23 @@ function resolveServerLaunchConfig():
     return null
   }
 
-  const executablePath = join(process.resourcesPath, 'server', 'DicomVisionServer.exe')
-  if (!existsSync(executablePath)) {
+  const serverResourcePath = join(process.resourcesPath, 'server')
+  const executableNames =
+    process.platform === 'win32'
+      ? ['DicomVisionServer.exe']
+      : ['DicomVisionServer', 'DicomVisionServer.exe']
+  const executablePath = executableNames
+    .map((fileName) => join(serverResourcePath, fileName))
+    .find((candidate) => existsSync(candidate))
+
+  if (!executablePath) {
     return null
   }
 
   return {
     command: executablePath,
     args: [],
-    cwd: join(process.resourcesPath, 'server')
+    cwd: serverResourcePath
   }
 }
 

@@ -2,7 +2,7 @@
 
 [中文说明](./README.zh-CN.md)
 
-DicomVision is a client/server DICOM viewer for diagnostic-style browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export. It provides Stack, MPR/oblique MPR, 3D volume rendering, 4D phase playback, layout workspaces, synchronized comparison, DICOM tag editing, de-identification export, and web or Windows desktop deployment.
+DicomVision is a client/server DICOM viewer for diagnostic-style browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export. It provides Stack, MPR/oblique MPR, 3D volume rendering, 4D phase playback, layout workspaces, synchronized comparison, DICOM tag editing, de-identification export, and web, Windows desktop, or macOS desktop deployment.
 
 ## Highlights
 
@@ -21,7 +21,7 @@ DicomVision is a client/server DICOM viewer for diagnostic-style browsing, recon
 - **Reconstruction**: MPR, oblique MPR, MPR + 3D layout, server-side 3D volume rendering, and 4D phase playback with FPS control.
 - **Measurement and QA**: line, rectangle, ellipse, angle, curve, freeform measurement, MTF/FWHM analysis, and water phantom QA.
 - **DICOM operations**: tree-based tag review, VR-aware tag editing, batch tag modification, de-identification export, and image/DICOM export.
-- **Product delivery**: static web client for remote backends and Windows Electron desktop packaging with an embedded backend bundle.
+- **Product delivery**: static web client for remote backends and Windows/macOS Electron desktop packaging with an embedded backend bundle.
 
 ## Web Preview
 https://dicom-vision-client.vercel.app/
@@ -122,7 +122,7 @@ src/renderer/src/
   types/                   viewer domain types
 
 screenshots/               README and release screenshots
-scripts/                   installer assets, server staging, and Windows release scripts
+scripts/                   installer assets, server staging, and desktop release scripts
 ```
 
 ## Quick Start
@@ -194,10 +194,14 @@ Deployment notes:
 
 The desktop product is an Electron app that can bundle the server artifact and launch it automatically at runtime.
 
-One-command Windows release, assuming `DicomVisionServer` is next to this repository:
+One-command desktop release, assuming `DicomVisionServer` is next to this repository:
 
 ```powershell
 npm run release:win
+```
+
+```bash
+npm run release:mac
 ```
 
 Manual packaging with an existing server bundle:
@@ -206,15 +210,20 @@ Manual packaging with an existing server bundle:
 powershell -ExecutionPolicy Bypass -File .\scripts\package-win.ps1 -ServerBundlePath "D:\path\to\DicomVisionServer"
 ```
 
+```bash
+npm run package:mac -- --server-bundle-path /path/to/DicomVisionServer
+```
+
 Expected server bundle shape:
 
 ```text
 DicomVisionServer/
-  DicomVisionServer.exe
+  DicomVisionServer.exe  # Windows
+  DicomVisionServer      # macOS
   ...
 ```
 
-The packaged installer is generated under `dist-electron/`. At runtime, the Electron main process starts the embedded backend from `resources/server/DicomVisionServer.exe`, allocates a local port, and connects the UI to that resolved backend origin.
+The packaged installer/app artifacts are generated under `dist-electron/`. At runtime, the Electron main process starts the embedded backend from `resources/server/DicomVisionServer.exe` on Windows or `resources/server/DicomVisionServer` on macOS, allocates a local port, and connects the UI to that resolved backend origin. macOS artifacts must be built on macOS.
 
 ## Scripts
 
@@ -228,6 +237,7 @@ The packaged installer is generated under `dist-electron/`. At runtime, the Elec
 - `npm run typecheck`: run TypeScript checks for web and Electron projects.
 - `npm run test:run`: run Vitest once.
 - `npm run release:win`: build the server desktop bundle and package the Windows installer.
+- `npm run release:mac`: build the server desktop bundle and package macOS DMG/ZIP artifacts on macOS.
 
 ## Backend README
 

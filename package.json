@@ -38,12 +38,6 @@
     "win": {
       "icon": "build/icon.ico",
       "executableName": "DicomVision",
-      "extraResources": [
-        {
-          "from": "build/shell-extension/DicomVisionShellExtension.dll",
-          "to": "shell/DicomVisionShellExtension.dll"
-        }
-      ],
       "fileAssociations": [
         {
           "ext": [
@@ -105,7 +99,6 @@
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
-    "build:shell-extension": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-shell-extension.ps1",
     "build:web": "vite build --config vite.web.config.ts",
     "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
     "package:mac": "node scripts/package-mac.mjs",

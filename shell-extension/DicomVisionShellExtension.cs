@@ -8,8 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
-using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("DicomVisionShellExtension")]
@@ -35,7 +35,7 @@ namespace DicomVision.ShellExtension
     [Guid(ShellIds.HandlerClsid)]
     [ProgId("DicomVision.DicomShellHandler")]
     [ClassInterface(ClassInterfaceType.None)]
-    public sealed class DicomShellHandler : IPreviewHandler, IOleWindow, IInitializeWithFile, IObjectWithSite
+    public sealed class DicomShellHandler : IPreviewHandler, IOleWindow, IInitializeWithFile, IInitializeWithStream, IObjectWithSite
     {
         private byte[] _content;
         private string _filePath;
@@ -44,10 +44,40 @@ namespace DicomVision.ShellExtension
         private PreviewControl _previewControl;
         private object _site;
         private string _initializationError;
-        private int _previewGeneration;
+
+        public int Initialize(IStream stream, uint grfMode)
+        {
+            try
+            {
+                byte[] content = ComStreamPreviewReader.ReadPreviewBytes(stream);
+                if (!DicomParser.LooksLikeDicom(content))
+                {
+                    ResetInitialization();
+                    return NativeMethods.E_FAIL;
+                }
+
+                _content = content;
+                _filePath = null;
+                _initializationError = null;
+                return NativeMethods.S_OK;
+            }
+            catch (Exception ex)
+            {
+                ResetInitialization();
+                _initializationError = ex.Message;
+                ShellPreviewLog.Write("IInitializeWithStream failed: " + ex.Message);
+                return NativeMethods.E_FAIL;
+            }
+        }
 
         public int Initialize(string filePath, uint grfMode)
         {
+            if (string.IsNullOrWhiteSpace(filePath) || !DicomParser.LooksLikeDicomFile(filePath))
+            {
+                ResetInitialization();
+                return NativeMethods.E_FAIL;
+            }
+
             _filePath = filePath;
             _content = null;
             _initializationError = null;
@@ -73,14 +103,10 @@ namespace DicomVision.ShellExtension
         {
             try
             {
-                int generation = Interlocked.Increment(ref _previewGeneration);
                 var request = CaptureRenderRequest();
                 ReplacePreviewControl(DicomRenderer.RenderPlaceholder("Loading DICOM preview..."));
-                ThreadPool.QueueUserWorkItem(delegate
-                {
-                    RenderResult result = ResolveRenderResult(request);
-                    PublishRenderResult(generation, result);
-                });
+                RenderResult result = ResolveRenderResult(request);
+                ReplacePreviewControl(result);
             }
             catch (Exception ex)
             {
@@ -99,15 +125,12 @@ namespace DicomVision.ShellExtension
 
         public int Unload()
         {
-            Interlocked.Increment(ref _previewGeneration);
             if (_previewControl != null)
             {
                 _previewControl.Dispose();
                 _previewControl = null;
             }
-            _content = null;
-            _filePath = null;
-            _initializationError = null;
+            ResetInitialization();
             return NativeMethods.S_OK;
         }
 
@@ -202,31 +225,11 @@ namespace DicomVision.ShellExtension
             }
         }
 
-        private void PublishRenderResult(int generation, RenderResult result)
+        private void ResetInitialization()
         {
-            PreviewControl previewControl = _previewControl;
-            if (previewControl == null || previewControl.IsDisposed || generation != _previewGeneration)
-            {
-                result.Dispose();
-                return;
-            }
-
-            try
-            {
-                previewControl.BeginInvoke((MethodInvoker)delegate
-                {
-                    if (previewControl.IsDisposed || generation != _previewGeneration)
-                    {
-                        result.Dispose();
-                        return;
-                    }
-                    previewControl.SetResult(result);
-                });
-            }
-            catch
-            {
-                result.Dispose();
-            }
+            _content = null;
+            _filePath = null;
+            _initializationError = null;
         }
 
         private void ReplacePreviewControl(RenderResult result)
@@ -297,6 +300,15 @@ namespace DicomVision.ShellExtension
     {
         [PreserveSig]
         int Initialize([MarshalAs(UnmanagedType.LPWStr)] string filePath, uint grfMode);
+    }
+
+    [ComImport]
+    [Guid("b824b49d-22ac-4161-ac8a-9916e8fa3f7f")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IInitializeWithStream
+    {
+        [PreserveSig]
+        int Initialize(IStream stream, uint grfMode);
     }
 
     [ComImport]
@@ -483,6 +495,58 @@ namespace DicomVision.ShellExtension
         public string InitializationError { get; private set; }
     }
 
+    internal static class ComStreamPreviewReader
+    {
+        private const int FirstProbeBytes = 8192;
+        private const int MaxPreviewBytes = 2 * 1024 * 1024;
+        private const int ChunkSize = 64 * 1024;
+
+        public static byte[] ReadPreviewBytes(IStream stream)
+        {
+            var output = new MemoryStream(Math.Min(MaxPreviewBytes, ChunkSize));
+            byte[] buffer = new byte[ChunkSize];
+            bool hasCheckedHeader = false;
+
+            while (output.Length < MaxPreviewBytes)
+            {
+                int remaining = MaxPreviewBytes - (int)output.Length;
+                int requested = Math.Min(buffer.Length, remaining);
+                int read = ReadChunk(stream, buffer, requested);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                output.Write(buffer, 0, read);
+                if (!hasCheckedHeader && output.Length >= FirstProbeBytes)
+                {
+                    hasCheckedHeader = true;
+                    if (!DicomParser.LooksLikeDicom(output.ToArray()))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return output.ToArray();
+        }
+
+        private static int ReadChunk(IStream stream, byte[] buffer, int count)
+        {
+            IntPtr readPtr = Marshal.AllocHGlobal(sizeof(int));
+            try
+            {
+                Marshal.WriteInt32(readPtr, 0);
+                stream.Read(buffer, count, readPtr);
+                return Marshal.ReadInt32(readPtr);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(readPtr);
+            }
+        }
+    }
+
     internal static class DicomRenderer
     {
         public static RenderResult RenderPlaceholder(string message)
@@ -545,7 +609,7 @@ namespace DicomVision.ShellExtension
 
     internal sealed class DicomDataset
     {
-        private const int MaxRenderedPixels = 4 * 1024 * 1024;
+        private const int MaxRenderedPixels = 1024 * 1024;
 
         public DicomDataset()
         {
@@ -788,8 +852,68 @@ namespace DicomVision.ShellExtension
     {
         private const int MaxElementValueBytes = 4096;
         private const int MaxPreviewElements = 20000;
-        private const int MaxPreviewPixelBytes = 16 * 1024 * 1024;
+        private const int MaxPreviewPixelBytes = 2 * 1024 * 1024;
         private static readonly HashSet<string> LongVr = new HashSet<string> { "OB", "OD", "OF", "OL", "OV", "OW", "SQ", "UC", "UN", "UR", "UT" };
+
+        public static bool LooksLikeDicomFile(string filePath)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(filePath);
+                if (!fileInfo.Exists || fileInfo.Length < 8)
+                {
+                    return false;
+                }
+
+                int probeLength = (int)Math.Min(Math.Max(132L, 8192L), fileInfo.Length);
+                using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 16 * 1024, FileOptions.SequentialScan))
+                {
+                    byte[] probe = new byte[probeLength];
+                    int offset = 0;
+                    while (offset < probe.Length)
+                    {
+                        int read = stream.Read(probe, offset, probe.Length - offset);
+                        if (read <= 0)
+                        {
+                            break;
+                        }
+                        offset += read;
+                    }
+                    if (offset != probe.Length)
+                    {
+                        Array.Resize(ref probe, offset);
+                    }
+                    return LooksLikeDicom(probe);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool LooksLikeDicom(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 8)
+            {
+                return false;
+            }
+
+            if (HasPreamble(bytes))
+            {
+                return true;
+            }
+
+            ushort group = ReadUInt16(bytes, 0, false);
+            ushort element = ReadUInt16(bytes, 2, false);
+            return (group == 0x0002 && element <= 0x0100) ||
+                group == 0x0008 ||
+                group == 0x0010 ||
+                group == 0x0018 ||
+                group == 0x0020 ||
+                group == 0x0028 ||
+                group == 0x7FE0;
+        }
 
         public static DicomDataset ParsePreviewFile(string filePath)
         {
@@ -879,15 +1003,14 @@ namespace DicomVision.ShellExtension
                     continue;
                 }
 
-                if (position + element.Length > bytes.Length)
-                {
-                    break;
-                }
-
                 if (element.Group == 0x7FE0 && element.Element == 0x0010)
                 {
                     ApplyPixelDataElement(dataset, bytes, position, element.Length);
-                    position += (int)element.Length;
+                    break;
+                }
+
+                if (position + element.Length > bytes.Length)
+                {
                     break;
                 }
 

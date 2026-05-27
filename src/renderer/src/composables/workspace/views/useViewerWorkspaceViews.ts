@@ -95,6 +95,7 @@ import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createKeyedLatestRequestGuard } from '../requests/latestRequest'
 import type {
   BackendCreateViewType,
+  AnnotationOverlay,
   CompareStackPaneKey,
   CornerInfo,
   DicomTagItem,
@@ -1280,6 +1281,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
         : item.volumeRenderConfig
+      const payloadAnnotations = (payload.annotations ?? []) as AnnotationOverlay[]
 
       const layoutSlot = item.viewType === 'Layout'
         ? item.layoutSlots?.find((slot) => slot.viewId === payload.viewId)
@@ -1306,6 +1308,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [layoutSlot.id]: (payload.measurements ?? []) as MeasurementOverlay[]
+          },
+          viewportAnnotations: {
+            ...(item.viewportAnnotations ?? {}),
+            [layoutSlot.id]: payloadAnnotations
           },
           layoutSlots: (item.layoutSlots ?? []).map((slot) => {
             if (slot.id !== layoutSlot.id) {
@@ -1387,6 +1393,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [compareViewportKey]: (payload.measurements ?? []) as MeasurementOverlay[]
+          },
+          viewportAnnotations: {
+            ...(item.viewportAnnotations ?? {}),
+            [compareViewportKey]: payloadAnnotations
           }
         }
       }
@@ -1580,6 +1590,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         sliceLabel,
         windowLabel,
         measurements: (payload.measurements ?? []) as MeasurementOverlay[],
+        annotations: payloadAnnotations,
         scaleBar,
         cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
         orientation: orientationInfo,
@@ -2139,6 +2150,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportCrosshairs: createEmptyMprCrosshairs(),
               viewportScaleBars: createEmptyMprScaleBars(),
               measurements: [],
+              annotations: [],
               scaleBar: null,
               cornerInfo: seriesCornerInfo,
               orientation: createEmptyOrientationInfo(),
@@ -2151,6 +2163,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                     }
                   : createEmptyMprCornerInfos(),
               viewportMeasurements: {},
+              viewportAnnotations: {},
               viewportOrientations: createEmptyMprOrientations(),
               transformState: createDefaultTransformInfo(),
               viewportTransformStates: createEmptyMprTransformStates(),

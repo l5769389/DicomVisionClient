@@ -169,6 +169,15 @@ export interface MeasurementPointPayload {
   y: number
 }
 
+export interface AnnotationOverlayPayload {
+  annotationId: string
+  toolType: string
+  points: MeasurementPointPayload[]
+  text?: string
+  color?: string
+  size?: string
+}
+
 export interface MprCrosshairInfo {
   centerX: number
   centerY: number
@@ -603,6 +612,7 @@ export interface ViewImageResponse {
   scaleBar?: ScaleBarInfo | null
   cornerInfo?: CornerInfoPayload | null
   measurements?: MeasurementOverlayPayload[]
+  annotations?: AnnotationOverlayPayload[]
   orientation?: OrientationInfo | null
   transform?: ViewTransformPayload | null
   color?: ViewColorInfo | null

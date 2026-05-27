@@ -760,11 +760,25 @@ function getDraftAnnotation(viewportKey: string): AnnotationDraft | null {
 
 function getAnnotations(viewportKey: string): AnnotationOverlay[] {
   const tabKey = props.activeTab?.key
-  if (!tabKey) {
+  const activeTab = props.activeTab
+  if (!tabKey || !activeTab) {
     return []
   }
 
-  return annotationStore.value[tabKey]?.[viewportKey] ?? []
+  const importedAnnotations =
+    activeTab.viewType === 'Stack'
+      ? (activeTab.annotations ?? [])
+      : (activeTab.viewportAnnotations?.[viewportKey] ?? [])
+  const localAnnotations = annotationStore.value[tabKey]?.[viewportKey] ?? []
+  if (!localAnnotations.length) {
+    return importedAnnotations
+  }
+
+  const localAnnotationIds = new Set(localAnnotations.map((annotation) => annotation.annotationId))
+  return [
+    ...importedAnnotations.filter((annotation) => !localAnnotationIds.has(annotation.annotationId)),
+    ...localAnnotations
+  ]
 }
 
 function setViewportAnnotations(viewportKey: string, annotations: AnnotationOverlay[]): void {

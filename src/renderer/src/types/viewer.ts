@@ -1,6 +1,7 @@
 import type {
   CornerInfoResponse as BackendCornerInfoResponse,
   LoadFolderResponse as BackendLoadFolderResponse,
+  AnnotationOverlayPayload as BackendAnnotationOverlayPayload,
   MeasurementPointPayload as BackendMeasurementPointPayload,
   MprCrosshairInfo as BackendMprCrosshairInfo,
   MprCursorInfo as BackendMprCursorInfo,
@@ -82,6 +83,7 @@ export interface MprCrosshairInteractionPayload {
 }
 
 export type MeasurementDraftPoint = BackendMeasurementPointPayload
+export type BackendAnnotationOverlay = BackendAnnotationOverlayPayload
 
 export interface MeasurementDraft {
   measurementId?: string
@@ -423,6 +425,7 @@ export interface ViewImageResponse {
   mpr_crosshair?: MprCrosshairInfo | null
   scaleBar?: ScaleBarInfo | null
   measurements?: MeasurementOverlay[]
+  annotations?: AnnotationOverlay[]
   cornerInfo?: unknown
   orientation?: unknown
   volumePreset?: string

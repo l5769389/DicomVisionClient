@@ -573,7 +573,7 @@ export interface ViewExportPointPayload {
 
 export interface ViewExportRequest {
   viewId: string
-  exportFormat: 'png' | 'dicom' | 'dicom-sr'
+  exportFormat: 'png' | 'dicom' | 'dicom-sr' | 'dicom-gsps'
   overlays?: ViewExportOverlaysPayload
   overlayMode?: string | null
   preserveSourceDicom?: boolean

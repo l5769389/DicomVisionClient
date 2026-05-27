@@ -11,7 +11,7 @@ import {
   resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
 
-export type ViewerExportFormat = 'png' | 'dicom' | 'dicom-sr'
+export type ViewerExportFormat = 'png' | 'dicom' | 'dicom-sr' | 'dicom-gsps'
 
 export interface ViewerExportOverlays {
   annotations: AnnotationOverlay[]
@@ -26,6 +26,9 @@ export function getViewerExportFileExtension(format: ViewerExportFormat): 'png' 
 export function getViewerExportFormatLabel(format: ViewerExportFormat): string {
   if (format === 'dicom-sr') {
     return 'DICOM SR'
+  }
+  if (format === 'dicom-gsps') {
+    return 'DICOM GSPS'
   }
   return format === 'png' ? 'PNG' : 'DICOM'
 }
@@ -136,7 +139,12 @@ export async function exportCurrentView(params: {
           {
             viewId,
             exportFormat,
-            overlayMode: exportFormat === 'dicom-sr' ? 'structured-report' : 'burned-in',
+            overlayMode:
+              exportFormat === 'dicom-sr'
+                ? 'structured-report'
+                : exportFormat === 'dicom-gsps'
+                  ? 'presentation-state'
+                  : 'burned-in',
             overlays: {
               annotations: cloneAnnotations(overlays?.annotations ?? []),
               cornerInfo: cloneCornerInfo(overlays?.cornerInfo ?? null),

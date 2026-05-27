@@ -674,7 +674,12 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
         ? activeViewportKey.value
         : 'single'
     const exportFileNameStem = buildExportFileStem(props.activeTab, exportViewportKey)
-    const defaultFileNameStem = format === 'dicom-sr' ? `${exportFileNameStem}-measurements-sr` : exportFileNameStem
+    const defaultFileNameStem =
+      format === 'dicom-sr'
+        ? `${exportFileNameStem}-measurements-sr`
+        : format === 'dicom-gsps'
+          ? `${exportFileNameStem}-presentation-state`
+          : exportFileNameStem
     let customFileNameStem: string | null = null
     if (!exportPreference.value.useDefaultFileName) {
       customFileNameStem = await requestExportFileName(format, defaultFileNameStem)
@@ -701,11 +706,17 @@ async function handleExportCurrentView(format: ViewerExportFormat): Promise<void
               cornerInfo: null,
               measurements: overlays.measurements
             }
-          : {
-              annotations: exportPreference.value.includeDicomAnnotations ? overlays.annotations : [],
-              cornerInfo: null,
-              measurements: exportPreference.value.includeDicomMeasurements ? overlays.measurements : []
-            }
+          : format === 'dicom-gsps'
+            ? {
+                annotations: overlays.annotations,
+                cornerInfo: null,
+                measurements: overlays.measurements
+              }
+            : {
+                annotations: exportPreference.value.includeDicomAnnotations ? overlays.annotations : [],
+                cornerInfo: null,
+                measurements: exportPreference.value.includeDicomMeasurements ? overlays.measurements : []
+              }
     const shouldComposePng =
       format === 'png' &&
       (exportOverlays.annotations.length > 0 || exportOverlays.measurements.length > 0 || hasCornerInfo(exportOverlays.cornerInfo))

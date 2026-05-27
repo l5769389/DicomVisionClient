@@ -145,7 +145,8 @@ const exportTool: StackTool = {
   options: [
     { value: 'png', label: 'PNG', icon: 'export' },
     { value: 'dicom', label: 'DICOM', icon: 'export' },
-    { value: 'dicom-sr', label: 'DICOM SR', icon: 'export', description: 'Measurement report' }
+    { value: 'dicom-sr', label: 'DICOM SR', icon: 'export', description: 'Measurement report' },
+    { value: 'dicom-gsps', label: 'DICOM GSPS', icon: 'export', description: 'Presentation state overlay' }
   ]
 }
 

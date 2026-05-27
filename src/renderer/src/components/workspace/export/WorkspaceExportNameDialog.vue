@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { WorkspaceExportCopy } from '../../../composables/ui/uiMessages'
-import type { ViewerExportFormat } from '../../../composables/workspace/export/viewExport'
+import { getViewerExportFormatLabel, type ViewerExportFormat } from '../../../composables/workspace/export/viewExport'
 
 defineProps<{
   copy: WorkspaceExportCopy
@@ -41,7 +41,7 @@ const emit = defineEmits<{
           </div>
         </div>
         <div class="shrink-0 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-1 text-xs font-semibold uppercase text-[var(--theme-text-secondary)]">
-          {{ format === 'png' ? 'PNG' : 'DICOM' }}
+          {{ getViewerExportFormatLabel(format) }}
         </div>
       </div>
 

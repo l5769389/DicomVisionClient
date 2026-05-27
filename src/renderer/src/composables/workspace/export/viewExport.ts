@@ -11,12 +11,23 @@ import {
   resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
 
-export type ViewerExportFormat = 'png' | 'dicom'
+export type ViewerExportFormat = 'png' | 'dicom' | 'dicom-sr'
 
 export interface ViewerExportOverlays {
   annotations: AnnotationOverlay[]
   cornerInfo: CornerInfo | null
   measurements: MeasurementOverlay[]
+}
+
+export function getViewerExportFileExtension(format: ViewerExportFormat): 'png' | 'dcm' {
+  return format === 'png' ? 'png' : 'dcm'
+}
+
+export function getViewerExportFormatLabel(format: ViewerExportFormat): string {
+  if (format === 'dicom-sr') {
+    return 'DICOM SR'
+  }
+  return format === 'png' ? 'PNG' : 'DICOM'
 }
 
 function cloneCornerInfo(cornerInfo: CornerInfo | null): CornerInfo | null {
@@ -125,7 +136,7 @@ export async function exportCurrentView(params: {
           {
             viewId,
             exportFormat,
-            overlayMode: 'burned-in',
+            overlayMode: exportFormat === 'dicom-sr' ? 'structured-report' : 'burned-in',
             overlays: {
               annotations: cloneAnnotations(overlays?.annotations ?? []),
               cornerInfo: cloneCornerInfo(overlays?.cornerInfo ?? null),
@@ -144,7 +155,7 @@ export async function exportCurrentView(params: {
   return await saveExportedFile({
     data: bytes,
     exportPreference,
-    fileName: `${fileStem}.${exportFormat === 'png' ? 'png' : 'dcm'}`,
+    fileName: `${fileStem}.${getViewerExportFileExtension(exportFormat)}`,
     mimeType: exportFormat === 'png' ? 'image/png' : 'application/dicom'
   })
 }

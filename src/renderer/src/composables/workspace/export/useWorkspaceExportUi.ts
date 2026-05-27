@@ -2,7 +2,7 @@ import { computed, nextTick, ref, type ComputedRef, type Ref } from 'vue'
 import { openExportLocation, type ExportedFileResult } from '../../../platform/exporting'
 import { viewerRuntime } from '../../../platform/runtime'
 import type { WorkspaceExportCopy } from '../../ui/uiMessages'
-import type { ViewerExportFormat } from './viewExport'
+import { getViewerExportFileExtension, getViewerExportFormatLabel, type ViewerExportFormat } from './viewExport'
 
 export interface WorkspaceExportNoticeState {
   canOpenLocation: boolean
@@ -13,7 +13,7 @@ export interface WorkspaceExportNoticeState {
 }
 
 export function normalizeExportFileNameStem(value: string, format: ViewerExportFormat): string {
-  const extensionPattern = format === 'png' ? /\.png$/i : /\.(dcm|dicom)$/i
+  const extensionPattern = getViewerExportFileExtension(format) === 'png' ? /\.png$/i : /\.(dcm|dicom)$/i
   return value
     .trim()
     .replace(extensionPattern, '')
@@ -31,7 +31,7 @@ export function useWorkspaceExportUi(copy: ComputedRef<WorkspaceExportCopy>, inp
   let exportNoticeTimer: ReturnType<typeof setTimeout> | null = null
   let resolveExportNameDialog: ((value: string | null) => void) | null = null
 
-  const exportNameExtension = computed(() => (exportNameDialogFormat.value === 'png' ? 'png' : 'dcm'))
+  const exportNameExtension = computed(() => getViewerExportFileExtension(exportNameDialogFormat.value))
 
   function clearExportNoticeTimer(): void {
     if (!exportNoticeTimer) {
@@ -54,7 +54,7 @@ export function useWorkspaceExportUi(copy: ComputedRef<WorkspaceExportCopy>, inp
       return
     }
 
-    const formatLabel = format === 'png' ? 'PNG' : 'DICOM'
+    const formatLabel = getViewerExportFormatLabel(format)
     exportNotice.value = {
       canOpenLocation: viewerRuntime.platform === 'desktop' && Boolean(result.filePath || result.directoryPath),
       directoryPath: result.directoryPath,

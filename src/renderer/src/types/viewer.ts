@@ -18,6 +18,9 @@ import type {
 
 export type FolderSeriesItem = BackendSeriesSummary & {
   thumbnailUrl?: string
+  isImageSeries?: boolean
+  standardObjectType?: string | null
+  preferredViewType?: ViewType | string | null
   isFourDSeries?: boolean
   fourDPhaseCount?: number | null
   fourDPhases?: FourDPhaseItem[] | null

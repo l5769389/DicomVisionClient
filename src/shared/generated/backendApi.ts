@@ -516,6 +516,9 @@ export interface SeriesSummary {
   thumbnailSrc?: string
   thumbnailUrl?: string
   folderPath: string
+  isImageSeries?: boolean
+  standardObjectType?: string | null
+  preferredViewType?: string | null
   isFourDSeries?: boolean
   fourDPhaseCount?: number | null
   fourDPhases?: FourDPhaseItem[] | null

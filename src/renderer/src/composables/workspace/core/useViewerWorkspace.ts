@@ -2047,12 +2047,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function openSeriesViewWithHangingProtocol(seriesId: string, viewType: ViewType): Promise<void> {
+    const series = seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    if (series?.isImageSeries === false && viewType !== 'Tag') {
+      await views.openSeriesView(seriesId, 'Tag')
+      return
+    }
+
     if (viewType !== 'Stack') {
       await views.openSeriesView(seriesId, viewType)
       return
     }
 
-    const series = seriesList.value.find((item) => item.seriesId === seriesId) ?? null
     const rule = findMatchingHangingProtocolRule(hangingProtocolRules.value, series)
     if (!rule) {
       await views.openSeriesView(seriesId, viewType)
@@ -2061,6 +2066,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     await views.openSeriesView(seriesId, 'Stack')
     await views.openLayoutView(createLayoutTemplateFromHangingProtocolRule(rule))
+  }
+
+  function resolveInitialSeriesViewType(series: FolderSeriesItem | null | undefined): ViewType {
+    return series?.preferredViewType === 'Tag' || series?.isImageSeries === false ? 'Tag' : 'Stack'
   }
 
   async function openKeySlice(seriesId: string, sliceIndex: number): Promise<void> {
@@ -2232,6 +2241,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     seriesList.value = nextSeriesList
 
     const nextSeriesId = appendedSeries[0]?.seriesId ?? loadedSeries[0]?.seriesId ?? selectedSeriesId.value
+    const nextSeries = nextSeriesList.find((item) => item.seriesId === nextSeriesId) ?? null
     if (selectLoadedSeries && nextSeriesId) {
       views.selectSeries(nextSeriesId)
     }
@@ -2247,7 +2257,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (openFirstSeriesView && nextSeriesId) {
-      await openSeriesViewWithHangingProtocol(nextSeriesId, 'Stack')
+      await openSeriesViewWithHangingProtocol(nextSeriesId, resolveInitialSeriesViewType(nextSeries))
     }
 
     message.value = ''

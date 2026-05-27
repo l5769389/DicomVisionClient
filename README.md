@@ -1,133 +1,105 @@
 # DicomVision
 
-[中文说明](./README.zh-CN.md)
+[English](./README.en.md)
 
-DicomVision is a client/server DICOM viewer for diagnostic-style browsing, reconstruction, measurement, QA, metadata review, comparison, and privacy-safe export. It provides Stack, MPR/oblique MPR, 3D volume rendering, 4D phase playback, layout workspaces, synchronized comparison, DICOM tag editing, de-identification export, and web, Windows desktop, or macOS desktop deployment.
+DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端和 FastAPI 后端。它把 DICOM 解析、MPR/4D/3D 等重计算和部分渲染放在后端完成，再把结果推送给前端显示，适合在普通办公电脑、集显设备或显存较小的环境中进行影像浏览、重建、测量、PACS 检索和元数据处理。
 
-## Highlights
+## 适合什么场景
 
-- Multi-series workspace with grouped series navigation, drag-and-drop import, tabbed views, and configurable layouts.
-- PACS Browser with DICOMweb and DIMSE study/series search, server-side download caching, and direct open from downloaded series.
-- Stack, Compare, MPR, MPR + 3D, 3D volume rendering, and 4D phase workflows.
-- Measurement, annotation, MTF/FWHM, and water phantom QA tools for image evaluation.
-- DICOM Tag tree browsing, VR-aware editing, batch modification, and de-identification export.
-- Theme, layout, pseudocolor, measurement, ROI, export, and Hanging Protocol preferences.
+DicomVision 更适合这些情况：
 
-## Feature Overview
+- 阅片端设备是集显、低端独显或显存较小，前端直接做复杂渲染容易卡顿。
+- 希望把 DICOM 解码、体数据重建、4D/MPR/3D、PACS 下载缓存等工作集中放到后端。
+- 需要 Windows/macOS 桌面端，并希望安装包内置后端服务，用户打开软件即可使用。
+- 需要 PACS Browser、DICOMweb/DIMSE 查询下载、DICOM Tag 查看与编辑、脱敏导出、SR/GSPS 导出等完整工具链。
+- Web 端只是作为轻量前端连接远程后端，而不是把所有 DICOM 数据和渲染压力都放在浏览器里。
 
-- **Loading and workspace**: import DICOM files or folders, group discovered series by patient/study, and open multiple view tabs without disrupting the active workflow.
-- **PACS workflow**: configure Orthanc, dcm4chee, or custom PACS profiles, search studies through DICOMweb QIDO or DIMSE C-FIND, retrieve DICOMweb WADO or DIMSE C-GET series, and open cached downloads directly.
-- **2D and comparison**: Stack viewing with playback speed control, pseudocolor, WW/WL, transform tools, layouts, and optional synchronization across Compare/Layout panes.
-- **Reconstruction**: MPR, oblique MPR, MPR + 3D layout, server-side 3D volume rendering, and 4D phase playback with FPS control.
-- **Measurement and QA**: line, rectangle, ellipse, angle, curve, freeform measurement, MTF/FWHM analysis, and water phantom QA.
-- **DICOM operations**: tree-based tag review, VR-aware tag editing, batch tag modification, de-identification export, and image/DICOM export.
-- **Product delivery**: static web client for remote backends and Windows/macOS Electron desktop packaging with an embedded backend bundle.
+如果阅片端有较好的独显和显存，且目标是浏览器内的纯前端 DICOM Viewer，我更建议优先考虑 Cornerstone3D（C3D）这类完全前端方案。它部署链路更轻，交互延迟更低，也更符合“前端直接持有体数据并完成渲染”的场景。DicomVision 的优势主要在于把重活移到后端，让低显存设备也能使用较完整的 DICOM Viewer 能力。
 
-## Web Preview
+## 主要功能
+
+- 本地 DICOM 文件/文件夹拖拽导入，按患者、检查、序列组织数据。
+- PACS Browser：支持 DICOMweb 与 DIMSE Profile，查询检查/序列，下载后直接打开。
+- Stack、Compare Stack、MPR、斜切 MPR、MPR + 3D、3D 体渲染和 4D 时相播放。
+- 多序列布局、可配置 MPR 布局、序列树导航、关键层面书签。
+- 线段、矩形、椭圆、角度、曲线、自由形状测量，以及 MTF/FWHM、水模 QA。
+- DICOM Tag 树查看、VR 感知编辑、批量修改、脱敏导出。
+- 测量/标注可导出为 PNG、DICOM、DICOM SR 和 DICOM GSPS。
+- 支持导入 GSPS 并叠加显示到原始影像；单独导入 SR/GSPS 时会以 DICOM Tags 视图查看。
+- Windows/macOS Electron 桌面端打包，桌面端可内置后端 bundle。
+
+## 在线预览
+
 https://dicom-vision-client.vercel.app/
 
+公开 Web 预览连接远程后端，适合快速体验 UI 和基础流程。真实 PACS、桌面端内置后端和本地大数据量场景建议使用本地部署或桌面端。
 
-## Repositories
+## 仓库
 
-- Client: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
-- Server: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+- 客户端：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
+- 服务端：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
 
-## Screenshots
+## 截图
 
-| Workspace home | Loaded series |
+| 工作区首页 | 已加载序列 |
 | --- | --- |
-| <img src="./screenshots/home_page.png" alt="DicomVision home workspace" width="420"> | <img src="./screenshots/home_page_loaded_series.png" alt="Loaded DICOM series workspace" width="420"> |
+| <img src="./screenshots/home_page.png" alt="DicomVision 工作区首页" width="420"> | <img src="./screenshots/home_page_loaded_series.png" alt="已加载 DICOM 序列" width="420"> |
 
-| PACS data sources | PACS browser import |
+| PACS 数据源 | PACS Browser 导入 |
 | --- | --- |
-| <img src="./screenshots/pacs_dicom_import.png" alt="PACS DICOMweb and DIMSE profile setup" width="420"> | <img src="./screenshots/pacs_dicom_import_1.png" alt="PACS Browser query and downloaded series import" width="420"> |
+| <img src="./screenshots/pacs_dicom_import.png" alt="PACS DICOMweb 和 DIMSE Profile 设置" width="420"> | <img src="./screenshots/pacs_dicom_import_1.png" alt="PACS Browser 查询并打开已下载序列" width="420"> |
 
-| Layout workspace | Stack Compare |
+| 布局阅片 | Stack 对比 |
 | --- | --- |
-| <img src="./screenshots/view_layout.png" alt="Configurable multi-viewport layout" width="420"> | <img src="./screenshots/compare_view.png" alt="Side-by-side Stack Compare" width="420"> |
+| <img src="./screenshots/view_layout.png" alt="多视口布局阅片" width="420"> | <img src="./screenshots/compare_view.png" alt="Stack 双序列对比" width="420"> |
 
-| Oblique MPR / crosshair rotation | 4D phase playback |
+| 斜切 MPR / 十字线旋转 | 4D 时相播放 |
 | --- | --- |
-| <img src="./screenshots/mpr_rotate.png" alt="Oblique MPR and crosshair rotation" width="420"> | <img src="./screenshots/4D.png" alt="4D phase playback" width="420"> |
+| <img src="./screenshots/mpr_rotate.png" alt="斜切 MPR 与十字线旋转" width="420"> | <img src="./screenshots/4D.png" alt="4D 时相播放" width="420"> |
 
-| Measurement tools | Curve and freeform measurement |
+| 测量工具 | 曲线/自由形状测量 |
 | --- | --- |
-| <img src="./screenshots/measure_line_angle_rect_ellipse.png" alt="Line, angle, rectangle, and ellipse measurements" width="420"> | <img src="./screenshots/measure_curve_freedom.png" alt="Curve and freeform measurements" width="420"> |
+| <img src="./screenshots/measure_line_angle_rect_ellipse.png" alt="线段、角度、矩形和椭圆测量" width="420"> | <img src="./screenshots/measure_curve_freedom.png" alt="曲线和自由形状测量" width="420"> |
 
-| DICOM tags | Batch DICOM tag editing |
+| DICOM 标签 | 批量 Tag 修改 |
 | --- | --- |
-| <img src="./screenshots/dicomTags.png" alt="DICOM tag tree and metadata review" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="Batch DICOM tag editing" width="420"> |
+| <img src="./screenshots/dicomTags.png" alt="DICOM Tag 树查看" width="420"> | <img src="./screenshots/batch_modify_tags.png" alt="DICOM Tag 批量修改" width="420"> |
 
-| MTF analysis | FWHM result |
+| MTF 分析 | FWHM 结果 |
 | --- | --- |
-| <img src="./screenshots/mtf_fwhm_1.png" alt="MTF analysis workflow" width="420"> | <img src="./screenshots/mtf_fwhm_2.png" alt="FWHM analysis result" width="420"> |
+| <img src="./screenshots/mtf_fwhm_1.png" alt="MTF 分析流程" width="420"> | <img src="./screenshots/mtf_fwhm_2.png" alt="FWHM 分析结果" width="420"> |
 
-| Water phantom QA | Settings |
+| 水模 QA | 设置 |
 | --- | --- |
-| <img src="./screenshots/water_phantom_qa.png" alt="Water phantom QA" width="420"> | <img src="./screenshots/settings.png" alt="Settings" width="420"> |
+| <img src="./screenshots/water_phantom_qa.png" alt="水模 QA" width="420"> | <img src="./screenshots/settings.png" alt="设置面板" width="420"> |
 
-| Dark theme | Blue theme |
+| 深色主题 | 蓝色主题 |
 | --- | --- |
-| <img src="./screenshots/theme.png" alt="Industrial dark theme" width="420"> | <img src="./screenshots/theme_blue.png" alt="Cool deep blue theme" width="420"> |
+| <img src="./screenshots/theme.png" alt="工业深色主题" width="420"> | <img src="./screenshots/theme_blue.png" alt="冷蓝深色主题" width="420"> |
 
-| Drag-and-drop import | De-identification export |
+| 拖拽导入 | 脱敏导出 |
 | --- | --- |
-| <img src="./screenshots/drap_import.png" alt="Drag-and-drop DICOM import" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM de-identification export" width="420"> |
+| <img src="./screenshots/drap_import.png" alt="拖拽导入 DICOM" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM 脱敏导出" width="420"> |
 
-## Architecture
+## 架构
 
-DicomVision is split into two repositories:
+DicomVision 拆分为两个仓库：
 
-- `DicomVisionClient`: Electron + Vue frontend for workspace orchestration, UI state, user interaction, web builds, and desktop packaging.
-- `DicomVisionServer`: FastAPI + Socket.IO backend for DICOM discovery, metadata services, 2D rendering, MPR/4D/3D computation, measurement analysis, and realtime image delivery.
+- `DicomVisionClient`：Electron + Vue 前端，负责工作区编排、UI 状态、用户交互、Web 构建和桌面端打包。
+- `DicomVisionServer`：FastAPI + Socket.IO 后端，负责 DICOM 发现、元数据服务、2D 渲染、MPR/4D/3D 计算、测量分析和实时图像推送。
 
-Typical runtime flow:
+典型运行流程：
 
-1. The client loads a local folder, backend-accessible path, or server-side sample dataset.
-2. The server discovers readable DICOM series and returns series metadata.
-3. The client creates Stack, MPR, 3D, 4D, or DICOM Tag tabs.
-4. Viewports are bound to Socket.IO sessions.
-5. User operations are sent to the backend.
-6. The backend streams rendered frames, overlays, hover data, acknowledgements, and errors back to the client.
+1. 客户端加载本地文件夹、服务端可访问路径、PACS 下载缓存或示例数据。
+2. 服务端发现可读 DICOM 序列并返回序列元数据。
+3. 客户端创建 Stack、Compare、MPR、3D、4D 或 DICOM Tag 标签页。
+4. 视口通过 Socket.IO 与服务端视图会话绑定。
+5. 用户交互持续发送到服务端。
+6. 服务端实时回推渲染帧、叠加层、悬停信息、确认事件和错误信息。
 
-## Tech Stack
+## 快速开始
 
-- Vue 3
-- TypeScript
-- Electron
-- electron-vite
-- Vite web build
-- Vuetify
-- Tailwind CSS
-- Axios
-- Socket.IO Client
-- Vitest
-- electron-builder
-
-## Repository Structure
-
-```text
-src/
-  main/                    Electron main process and embedded backend startup
-  preload/                 Electron preload bridge
-  renderer/                Vue renderer application
-  shared/                  shared runtime config, constants, and generated API types
-
-src/renderer/src/
-  components/              sidebar, workspace, viewport, overlay, and settings UI
-  composables/             viewer workspace state and interaction orchestration
-  constants/               frontend constants
-  platform/                desktop/web runtime adapters
-  services/                HTTP and Socket.IO clients
-  types/                   viewer domain types
-
-screenshots/               README and release screenshots
-scripts/                   installer assets, server staging, and desktop release scripts
-```
-
-## Quick Start
-
-### 1. Start the server
+### 1. 启动服务端
 
 ```bash
 cd ../DicomVisionServer
@@ -135,13 +107,13 @@ uv sync
 uv run python run.py
 ```
 
-Default server endpoints:
+默认服务地址：
 
-- HTTP: `http://127.0.0.1:8000`
-- OpenAPI: `http://127.0.0.1:8000/docs`
-- Socket.IO: `http://127.0.0.1:8000/socket.io`
+- HTTP：`http://127.0.0.1:8000`
+- OpenAPI：`http://127.0.0.1:8000/docs`
+- Socket.IO：`http://127.0.0.1:8000/socket.io`
 
-### 2. Start the desktop client
+### 2. 启动桌面客户端
 
 ```bash
 cd ../DicomVisionClient
@@ -149,98 +121,65 @@ npm install
 npm run dev
 ```
 
-Desktop development mode expects the backend to already be running at `http://127.0.0.1:8000`. To point the Electron shell at another backend, set:
+桌面开发模式默认连接 `http://127.0.0.1:8000`。如需指定其他后端：
 
 ```powershell
 $env:DICOM_VISION_SERVER_ORIGIN = "http://127.0.0.1:8000"
 npm run dev
 ```
 
-## Web Development and Deployment
-
-Run the web client locally:
+## Web 开发与部署
 
 ```bash
 npm run dev:web
-```
-
-Build the static web app:
-
-```bash
 npm run build:web
-```
-
-Preview the web build:
-
-```bash
 npm run preview:web
 ```
 
-Production web variables:
+生产环境变量示例：
 
 ```env
 VITE_BACKEND_ORIGIN=https://your-backend.example.com
 VITE_WEB_APP_MODE=web
 ```
 
-Deployment notes:
+部署时需要：
 
-- Deploy `DicomVisionServer` as an HTTP + Socket.IO backend. The server repository includes Render-oriented configuration.
-- Deploy the client web build output from `dist-web/` to Vercel, static hosting, or any SPA-compatible host.
-- Add the web frontend origin to the backend `CORS_ORIGINS`.
-- Use `VITE_WEB_APP_MODE=web` for browser file/folder upload. Use `VITE_WEB_APP_MODE=demo-web` for the public demo that loads backend sample data.
+- 将 `DicomVisionServer` 部署为 HTTP + Socket.IO 后端。
+- 将客户端 Web 构建产物部署到 Vercel、静态托管或任何支持 SPA 的服务。
+- 在后端 `CORS_ORIGINS` 中加入前端域名。
+- 浏览器上传模式使用 `VITE_WEB_APP_MODE=web`；公开演示站可使用 `VITE_WEB_APP_MODE=demo-web`。
 
-## Desktop Packaging
+## 桌面端打包
 
-The desktop product is an Electron app that can bundle the server artifact and launch it automatically at runtime.
-
-One-command desktop release, assuming `DicomVisionServer` is next to this repository:
+一键 Windows 发布，要求 `DicomVisionServer` 与本仓库处于同级目录：
 
 ```powershell
 npm run release:win
 ```
 
+macOS 需要在 macOS 上构建：
+
 ```bash
 npm run release:mac
 ```
 
-Manual packaging with an existing server bundle:
+桌面端发布产物位于 `dist-electron/`。运行时 Electron 主进程会启动内置后端，并把 UI 连接到自动分配的本地端口。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-win.ps1 -ServerBundlePath "D:\path\to\DicomVisionServer"
-```
+## 常用脚本
 
-```bash
-npm run package:mac -- --server-bundle-path /path/to/DicomVisionServer
-```
+- `npm run dev`：启动 Electron 桌面开发运行时。
+- `npm run dev:web`：启动浏览器端 Vite 开发服务。
+- `npm run build`：构建 Electron main、preload 和 renderer。
+- `npm run build:web`：构建独立 Web 前端。
+- `npm run generate:api-types`：从服务端 OpenAPI 重新生成前端 API 类型。
+- `npm run typecheck`：运行 TypeScript 类型检查。
+- `npm run test:run`：运行 Vitest。
+- `npm run release:win`：构建后端桌面 bundle 并打包 Windows 安装器。
+- `npm run release:mac`：在 macOS 上构建后端 bundle 并打包 DMG/ZIP。
 
-Expected server bundle shape:
+## 服务端说明
 
-```text
-DicomVisionServer/
-  DicomVisionServer.exe  # Windows
-  DicomVisionServer      # macOS
-  ...
-```
-
-The packaged installer/app artifacts are generated under `dist-electron/`. At runtime, the Electron main process starts the embedded backend from `resources/server/DicomVisionServer.exe` on Windows or `resources/server/DicomVisionServer` on macOS, allocates a local port, and connects the UI to that resolved backend origin. macOS artifacts must be built on macOS.
-
-## Scripts
-
-- `npm run dev`: start the Electron desktop development runtime.
-- `npm run dev:web`: start the browser-based Vite development server.
-- `npm run build`: build the Electron main, preload, and renderer outputs.
-- `npm run build:web`: build the standalone web frontend into `dist-web/`.
-- `npm run preview`: preview the Electron build.
-- `npm run preview:web`: preview the web build.
-- `npm run generate:api-types`: regenerate frontend API types from the server OpenAPI schema.
-- `npm run typecheck`: run TypeScript checks for web and Electron projects.
-- `npm run test:run`: run Vitest once.
-- `npm run release:win`: build the server desktop bundle and package the Windows installer.
-- `npm run release:mac`: build the server desktop bundle and package macOS DMG/ZIP artifacts on macOS.
-
-## Backend README
-
-Backend API, Socket.IO events, Render deployment, and desktop bundle details are documented here:
+后端 API、Socket.IO 事件、部署和桌面 bundle 细节见：
 
 [DicomVisionServer README](https://github.com/l5769389/DicomVisionServer)

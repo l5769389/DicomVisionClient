@@ -12,6 +12,14 @@ import { showDicomJobProgressToast, waitForDicomJob } from '../../composables/wo
 import { dispatchWorkspaceStatusToast } from '../../composables/workspace/tasks/workspaceStatus'
 import type { FolderSeriesItem } from '../../types/viewer'
 import {
+  formatPacsDateValue,
+  normalizePacsLimitValue,
+  PACS_LIMIT_DEFAULT,
+  PACS_LIMIT_PRESETS,
+  PACS_SERIES_LIMIT,
+  parsePacsDateValue
+} from '../../composables/pacs/pacsQueryUtils'
+import {
   cancelPacsDimseSeriesDownloadJob,
   cancelPacsWadoSeriesDownloadJob,
   getPacsDimseSeriesDownloadJob,
@@ -36,12 +44,6 @@ const emit = defineEmits<{
   close: []
   seriesLoaded: [response: LoadFolderResponse]
 }>()
-
-const PACS_LIMIT_MIN = 1
-const PACS_LIMIT_MAX = 200
-const PACS_LIMIT_DEFAULT = 50
-const PACS_LIMIT_PRESETS = [25, 50, 100, 200]
-const PACS_SERIES_LIMIT = 200
 
 const { locale } = useUiLocale()
 const { pacsPreference } = useUiPreferences()
@@ -169,48 +171,8 @@ function toggleAdvancedFilters(): void {
   isAdvancedFiltersOpen.value = !isAdvancedFiltersOpen.value
 }
 
-function parsePacsDateValue(value: string): Date | null {
-  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) {
-    return null
-  }
-
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const date = new Date(year, month - 1, day)
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return null
-  }
-  return date
-}
-
-function formatPacsDateValue(value: unknown): string {
-  if (!value) {
-    return ''
-  }
-
-  const date = value instanceof Date ? value : new Date(value as string | number)
-  if (!Number.isFinite(date.getTime())) {
-    return ''
-  }
-
-  const year = String(date.getFullYear()).padStart(4, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function normalizeLimitValue(value: unknown): number {
-  const numericValue = Number(value)
-  if (!Number.isFinite(numericValue)) {
-    return PACS_LIMIT_DEFAULT
-  }
-  return Math.min(PACS_LIMIT_MAX, Math.max(PACS_LIMIT_MIN, Math.trunc(numericValue)))
-}
-
 function setLimitValue(value: unknown): void {
-  limit.value = normalizeLimitValue(value)
+  limit.value = normalizePacsLimitValue(value)
 }
 
 function queryStudyFirstPage(): void {
@@ -303,7 +265,7 @@ async function queryStudies(offset = 0): Promise<void> {
   seriesPreviewByUid.value = {}
   seriesPreviewErrorsByUid.value = {}
   try {
-    const normalizedLimit = normalizeLimitValue(limit.value)
+    const normalizedLimit = normalizePacsLimitValue(limit.value)
     limit.value = normalizedLimit
     const normalizedOffset = Math.max(0, Math.trunc(Number(offset) || 0))
     const studyQuery = {

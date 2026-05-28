@@ -8,8 +8,30 @@ WEB_PORT="${WEB_PORT:-80}"
 CLIENT_REPO="${CLIENT_REPO:-https://github.com/l5769389/DicomVisionClient.git}"
 SERVER_REPO="${SERVER_REPO:-https://github.com/l5769389/DicomVisionServer.git}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+GIT_TIMEOUT_SECONDS="${GIT_TIMEOUT_SECONDS:-300}"
 
 mkdir -p "$APP_DIR"
+
+git_with_timeout() {
+  timeout "$GIT_TIMEOUT_SECONDS" git \
+    -c http.lowSpeedLimit=1000 \
+    -c http.lowSpeedTime=30 \
+    "$@"
+}
+
+retry_git() {
+  local attempt
+
+  for attempt in 1 2 3; do
+    if git_with_timeout "$@"; then
+      return 0
+    fi
+    echo "Git command failed on attempt $attempt: git $*" >&2
+    sleep $((attempt * 5))
+  done
+
+  return 1
+}
 
 sync_repo() {
   local repo_url="$1"
@@ -17,7 +39,7 @@ sync_repo() {
 
   if [ -d "$target_dir/.git" ]; then
     git -C "$target_dir" remote set-url origin "$repo_url"
-    git -C "$target_dir" fetch --prune origin "$DEPLOY_BRANCH"
+    retry_git -C "$target_dir" fetch --prune origin "$DEPLOY_BRANCH"
     git -C "$target_dir" reset --hard "origin/$DEPLOY_BRANCH"
     return
   fi
@@ -29,7 +51,7 @@ sync_repo() {
     mv "$target_dir" "$backup_dir"
   fi
 
-  git clone --branch "$DEPLOY_BRANCH" --depth 1 "$repo_url" "$target_dir"
+  retry_git clone --branch "$DEPLOY_BRANCH" --depth 1 "$repo_url" "$target_dir"
 }
 
 sync_repo "$CLIENT_REPO" "$APP_DIR/DicomVisionClient"

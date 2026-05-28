@@ -7,22 +7,33 @@ WEB_PORT="${WEB_PORT:-80}"
 
 CLIENT_REPO="${CLIENT_REPO:-https://github.com/l5769389/DicomVisionClient.git}"
 SERVER_REPO="${SERVER_REPO:-https://github.com/l5769389/DicomVisionServer.git}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
 
 mkdir -p "$APP_DIR"
 
-if [ ! -d "$APP_DIR/DicomVisionClient/.git" ]; then
-  git clone "$CLIENT_REPO" "$APP_DIR/DicomVisionClient"
-else
-  git -C "$APP_DIR/DicomVisionClient" fetch origin main
-  git -C "$APP_DIR/DicomVisionClient" reset --hard origin/main
-fi
+sync_repo() {
+  local repo_url="$1"
+  local target_dir="$2"
 
-if [ ! -d "$APP_DIR/DicomVisionServer/.git" ]; then
-  git clone "$SERVER_REPO" "$APP_DIR/DicomVisionServer"
-else
-  git -C "$APP_DIR/DicomVisionServer" fetch origin main
-  git -C "$APP_DIR/DicomVisionServer" reset --hard origin/main
-fi
+  if [ -d "$target_dir/.git" ]; then
+    git -C "$target_dir" remote set-url origin "$repo_url"
+    git -C "$target_dir" fetch --prune origin "$DEPLOY_BRANCH"
+    git -C "$target_dir" reset --hard "origin/$DEPLOY_BRANCH"
+    return
+  fi
+
+  if [ -e "$target_dir" ]; then
+    local backup_dir
+    backup_dir="${target_dir}.non-git.$(date +%Y%m%d%H%M%S)"
+    echo "Moving existing non-git directory $target_dir to $backup_dir"
+    mv "$target_dir" "$backup_dir"
+  fi
+
+  git clone --branch "$DEPLOY_BRANCH" --depth 1 "$repo_url" "$target_dir"
+}
+
+sync_repo "$CLIENT_REPO" "$APP_DIR/DicomVisionClient"
+sync_repo "$SERVER_REPO" "$APP_DIR/DicomVisionServer"
 
 cat > "$APP_DIR/DicomVisionClient/deploy/.env" <<ENV
 PUBLIC_ORIGIN=$PUBLIC_ORIGIN

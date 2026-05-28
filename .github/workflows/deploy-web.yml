@@ -30,11 +30,15 @@ jobs:
             "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' bash -s" <<'EOF'
           set -euo pipefail
           mkdir -p "$APP_DIR"
-          if [ ! -d "$APP_DIR/DicomVisionClient/.git" ]; then
-            git clone https://github.com/l5769389/DicomVisionClient.git "$APP_DIR/DicomVisionClient"
-          else
-            git -C "$APP_DIR/DicomVisionClient" fetch origin main
+          if [ -e "$APP_DIR/DicomVisionClient" ] && [ ! -d "$APP_DIR/DicomVisionClient/.git" ]; then
+            mv "$APP_DIR/DicomVisionClient" "$APP_DIR/DicomVisionClient.non-git.$(date +%Y%m%d%H%M%S)"
+          fi
+          if [ -d "$APP_DIR/DicomVisionClient/.git" ]; then
+            git -C "$APP_DIR/DicomVisionClient" remote set-url origin https://github.com/l5769389/DicomVisionClient.git
+            git -C "$APP_DIR/DicomVisionClient" fetch --prune origin main
             git -C "$APP_DIR/DicomVisionClient" reset --hard origin/main
+          else
+            git clone --branch main --depth 1 https://github.com/l5769389/DicomVisionClient.git "$APP_DIR/DicomVisionClient"
           fi
           bash "$APP_DIR/DicomVisionClient/deploy/deploy.sh"
           EOF

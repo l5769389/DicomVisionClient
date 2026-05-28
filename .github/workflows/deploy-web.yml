@@ -1,0 +1,40 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy on server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' bash -s" <<'EOF'
+          set -euo pipefail
+          mkdir -p "$APP_DIR"
+          if [ ! -d "$APP_DIR/DicomVisionClient/.git" ]; then
+            git clone https://github.com/l5769389/DicomVisionClient.git "$APP_DIR/DicomVisionClient"
+          else
+            git -C "$APP_DIR/DicomVisionClient" fetch origin main
+            git -C "$APP_DIR/DicomVisionClient" reset --hard origin/main
+          fi
+          bash "$APP_DIR/DicomVisionClient/deploy/deploy.sh"
+          EOF

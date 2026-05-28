@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+node_modules
+out
+dist-web
+dist-electron
+dist-server
+build/shell-extension
+*.tsbuildinfo
+npm-debug.log*
+*.local

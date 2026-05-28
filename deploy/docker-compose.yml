@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ../../DicomVisionServer
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: production
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      CORS_ORIGINS: '["*"]'
+      WEB_UPLOAD_DICOM_ROOT: /data/uploads
+      WEB_UPLOAD_MAX_FILES: ${WEB_UPLOAD_MAX_FILES:-5000}
+      WEB_UPLOAD_MAX_BYTES: ${WEB_UPLOAD_MAX_BYTES:-2147483648}
+      PACS_WADO_CACHE_ROOT: /data/pacs-cache
+      PACS_WADO_CACHE_MAX_AGE_SECONDS: ${PACS_WADO_CACHE_MAX_AGE_SECONDS:-86400}
+    volumes:
+      - dicomvision-data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.web
+      args:
+        VITE_BACKEND_ORIGIN: ${PUBLIC_ORIGIN}
+        VITE_WEB_APP_MODE: web
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-80}:80"
+    restart: unless-stopped
+
+volumes:
+  dicomvision-data:

@@ -35,18 +35,21 @@ jobs:
           test -n "$DEPLOY_USER"
           test -n "${DEPLOY_SSH_KEY:-}${DEPLOY_SSH_KEY_B64:-}"
 
+          CLIENT_ARCHIVE="/tmp/DicomVisionClient-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+          SERVER_ARCHIVE="/tmp/DicomVisionServer-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+
           tar \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='dist' \
             --exclude='dist-*' \
-            -czf /tmp/DicomVisionClient.tar.gz -C DicomVisionClient .
+            -czf "$CLIENT_ARCHIVE" -C DicomVisionClient .
           tar \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
             --exclude='.venv' \
-            -czf /tmp/DicomVisionServer.tar.gz -C DicomVisionServer .
+            -czf "$SERVER_ARCHIVE" -C DicomVisionServer .
 
           install -m 700 -d ~/.ssh
           if [ -n "${DEPLOY_SSH_KEY_B64:-}" ]; then
@@ -61,17 +64,19 @@ jobs:
 
           SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i ~/.ssh/deploy_key)
 
-          scp "${SSH_OPTS[@]}" /tmp/DicomVisionClient.tar.gz /tmp/DicomVisionServer.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
+          scp "${SSH_OPTS[@]}" "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
 
           ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' bash -s" <<'EOF'
+            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' CLIENT_ARCHIVE='$CLIENT_ARCHIVE' SERVER_ARCHIVE='$SERVER_ARCHIVE' bash -s" <<'EOF'
           set -euo pipefail
+          exec 8>/var/lock/dicomvision-upload.lock
+          flock 8
           ts="$(date +%Y%m%d%H%M%S)"
           mkdir -p "$APP_DIR"
           rm -rf "$APP_DIR/DicomVisionClient.next" "$APP_DIR/DicomVisionServer.next"
           mkdir -p "$APP_DIR/DicomVisionClient.next" "$APP_DIR/DicomVisionServer.next"
-          tar -xzf /tmp/DicomVisionClient.tar.gz -C "$APP_DIR/DicomVisionClient.next"
-          tar -xzf /tmp/DicomVisionServer.tar.gz -C "$APP_DIR/DicomVisionServer.next"
+          tar -xzf "$CLIENT_ARCHIVE" -C "$APP_DIR/DicomVisionClient.next"
+          tar -xzf "$SERVER_ARCHIVE" -C "$APP_DIR/DicomVisionServer.next"
           if [ -e "$APP_DIR/DicomVisionClient" ]; then
             rm -rf "$APP_DIR/DicomVisionClient.previous"
             mv "$APP_DIR/DicomVisionClient" "$APP_DIR/DicomVisionClient.previous"
@@ -83,8 +88,6 @@ jobs:
           mv "$APP_DIR/DicomVisionClient.next" "$APP_DIR/DicomVisionClient"
           mv "$APP_DIR/DicomVisionServer.next" "$APP_DIR/DicomVisionServer"
           SKIP_GIT_SYNC=1 bash "$APP_DIR/DicomVisionClient/deploy/start-deploy.sh"
+          rm -f "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE"
           echo "Uploaded source deploy started at $ts"
           EOF
-
-          ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "find '${DEPLOY_PATH:-/opt/dicomvision}' -maxdepth 1 -type d -name '*.previous' -prune -o -print >/dev/null"

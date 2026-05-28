@@ -17,10 +17,8 @@ cat > "$runner_script" <<'SCRIPT'
 set -euo pipefail
 
 exec 9>"${DEPLOY_LOCK_FILE:-/var/lock/dicomvision-deploy.lock}"
-if ! flock -n 9; then
-  echo "Another DicomVision deployment is already running."
-  exit 0
-fi
+echo "Waiting for DicomVision deployment lock..."
+flock 9
 
 bash "$APP_DIR/DicomVisionClient/deploy/deploy.sh"
 SCRIPT

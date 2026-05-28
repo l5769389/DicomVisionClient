@@ -52,8 +52,9 @@ http://114.67.114.128/health
 
 ## GitHub 自动部署
 
-两个仓库都包含 `.github/workflows/deploy-web.yml`。任一仓库推送到 `main` 后，都可以通过 SSH 登录服务器并执行同一套部署脚本。
-Actions 会在服务器上启动后台部署任务，避免长时间 Docker 构建导致 SSH 连接断开。部署日志保存在 `/var/log/dicomvision/`。
+两个仓库都包含 `.github/workflows/deploy-web.yml`。任一仓库推送到 `main` 后，Actions 会 checkout 客户端和服务端两个仓库，打包上传到服务器，再启动同一套 Docker 部署脚本。
+
+Actions 会在服务器上启动后台部署任务，避免长时间 Docker 构建导致 SSH 连接断开；服务器不需要自行访问 GitHub。部署日志保存在 `/var/log/dicomvision/`。
 
 需要在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions` 中配置：
 

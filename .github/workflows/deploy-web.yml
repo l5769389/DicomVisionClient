@@ -9,6 +9,18 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout client
+        uses: actions/checkout@v4
+        with:
+          path: DicomVisionClient
+
+      - name: Checkout server
+        uses: actions/checkout@v4
+        with:
+          repository: l5769389/DicomVisionServer
+          ref: main
+          path: DicomVisionServer
+
       - name: Deploy on server
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || '114.67.114.128' }}
@@ -23,6 +35,19 @@ jobs:
           test -n "$DEPLOY_USER"
           test -n "${DEPLOY_SSH_KEY:-}${DEPLOY_SSH_KEY_B64:-}"
 
+          tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='dist-*' \
+            -czf /tmp/DicomVisionClient.tar.gz -C DicomVisionClient .
+          tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='.venv' \
+            -czf /tmp/DicomVisionServer.tar.gz -C DicomVisionServer .
+
           install -m 700 -d ~/.ssh
           if [ -n "${DEPLOY_SSH_KEY_B64:-}" ]; then
             printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/deploy_key
@@ -34,22 +59,32 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
 
-          ssh -o StrictHostKeyChecking=accept-new \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=10 \
-            -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+          SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i ~/.ssh/deploy_key)
+
+          scp "${SSH_OPTS[@]}" /tmp/DicomVisionClient.tar.gz /tmp/DicomVisionServer.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
+
+          ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
             "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' bash -s" <<'EOF'
           set -euo pipefail
+          ts="$(date +%Y%m%d%H%M%S)"
           mkdir -p "$APP_DIR"
-          if [ -e "$APP_DIR/DicomVisionClient" ] && [ ! -d "$APP_DIR/DicomVisionClient/.git" ]; then
-            mv "$APP_DIR/DicomVisionClient" "$APP_DIR/DicomVisionClient.non-git.$(date +%Y%m%d%H%M%S)"
+          rm -rf "$APP_DIR/DicomVisionClient.next" "$APP_DIR/DicomVisionServer.next"
+          mkdir -p "$APP_DIR/DicomVisionClient.next" "$APP_DIR/DicomVisionServer.next"
+          tar -xzf /tmp/DicomVisionClient.tar.gz -C "$APP_DIR/DicomVisionClient.next"
+          tar -xzf /tmp/DicomVisionServer.tar.gz -C "$APP_DIR/DicomVisionServer.next"
+          if [ -e "$APP_DIR/DicomVisionClient" ]; then
+            rm -rf "$APP_DIR/DicomVisionClient.previous"
+            mv "$APP_DIR/DicomVisionClient" "$APP_DIR/DicomVisionClient.previous"
           fi
-          if [ -d "$APP_DIR/DicomVisionClient/.git" ]; then
-            git -C "$APP_DIR/DicomVisionClient" remote set-url origin https://github.com/l5769389/DicomVisionClient.git
-            git -C "$APP_DIR/DicomVisionClient" fetch --prune origin main
-            git -C "$APP_DIR/DicomVisionClient" reset --hard origin/main
-          else
-            git clone --branch main --depth 1 https://github.com/l5769389/DicomVisionClient.git "$APP_DIR/DicomVisionClient"
+          if [ -e "$APP_DIR/DicomVisionServer" ]; then
+            rm -rf "$APP_DIR/DicomVisionServer.previous"
+            mv "$APP_DIR/DicomVisionServer" "$APP_DIR/DicomVisionServer.previous"
           fi
-          bash "$APP_DIR/DicomVisionClient/deploy/start-deploy.sh"
+          mv "$APP_DIR/DicomVisionClient.next" "$APP_DIR/DicomVisionClient"
+          mv "$APP_DIR/DicomVisionServer.next" "$APP_DIR/DicomVisionServer"
+          SKIP_GIT_SYNC=1 bash "$APP_DIR/DicomVisionClient/deploy/start-deploy.sh"
+          echo "Uploaded source deploy started at $ts"
           EOF
+
+          ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "find '${DEPLOY_PATH:-/opt/dicomvision}' -maxdepth 1 -type d -name '*.previous' -prune -o -print >/dev/null"

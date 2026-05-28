@@ -31,6 +31,7 @@ nohup env \
   APP_DIR="$APP_DIR" \
   PUBLIC_ORIGIN="$PUBLIC_ORIGIN" \
   WEB_PORT="$WEB_PORT" \
+  SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-0}" \
   DEPLOY_LOCK_FILE="$LOCK_FILE" \
   bash "$runner_script" > "$log_file" 2>&1 < /dev/null &
 

@@ -54,8 +54,12 @@ sync_repo() {
   retry_git clone --branch "$DEPLOY_BRANCH" --depth 1 "$repo_url" "$target_dir"
 }
 
-sync_repo "$CLIENT_REPO" "$APP_DIR/DicomVisionClient"
-sync_repo "$SERVER_REPO" "$APP_DIR/DicomVisionServer"
+if [ "${SKIP_GIT_SYNC:-0}" = "1" ]; then
+  echo "Skipping git sync; using uploaded source directories."
+else
+  sync_repo "$CLIENT_REPO" "$APP_DIR/DicomVisionClient"
+  sync_repo "$SERVER_REPO" "$APP_DIR/DicomVisionServer"
+fi
 
 cat > "$APP_DIR/DicomVisionClient/deploy/.env" <<ENV
 PUBLIC_ORIGIN=$PUBLIC_ORIGIN

@@ -56,11 +56,11 @@ http://114.67.114.128/health
 
 需要在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions` 中配置：
 
-- `DEPLOY_HOST`：服务器公网 IP，例如 `114.67.114.128`
-- `DEPLOY_USER`：SSH 用户，例如 `root` 或 `ubuntu`
-- `DEPLOY_SSH_KEY`：可登录服务器的私钥内容
-- `DEPLOY_PATH`：部署目录，可选，默认 `/opt/dicomvision`
-- `PUBLIC_ORIGIN`：公网访问地址，例如 `http://114.67.114.128`
+- `DEPLOY_SSH_KEY`：必填，可登录服务器的私钥内容。
+- `DEPLOY_HOST`：可选，服务器公网 IP，默认 `114.67.114.128`。
+- `DEPLOY_USER`：可选，SSH 用户，默认 `root`。
+- `DEPLOY_PATH`：可选，部署目录，默认 `/opt/dicomvision`。
+- `PUBLIC_ORIGIN`：可选，公网访问地址，默认 `http://114.67.114.128`。
 
 如果后续绑定域名并开启 HTTPS，把 `PUBLIC_ORIGIN` 改成正式域名，例如：
 

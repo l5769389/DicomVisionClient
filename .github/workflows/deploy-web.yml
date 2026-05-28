@@ -34,7 +34,10 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
 
-          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+          ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
             "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' bash -s" <<'EOF'
           set -euo pipefail
           mkdir -p "$APP_DIR"
@@ -48,5 +51,5 @@ jobs:
           else
             git clone --branch main --depth 1 https://github.com/l5769389/DicomVisionClient.git "$APP_DIR/DicomVisionClient"
           fi
-          bash "$APP_DIR/DicomVisionClient/deploy/deploy.sh"
+          bash "$APP_DIR/DicomVisionClient/deploy/start-deploy.sh"
           EOF

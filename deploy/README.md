@@ -53,6 +53,7 @@ http://114.67.114.128/health
 ## GitHub 自动部署
 
 两个仓库都包含 `.github/workflows/deploy-web.yml`。任一仓库推送到 `main` 后，都可以通过 SSH 登录服务器并执行同一套部署脚本。
+Actions 会在服务器上启动后台部署任务，避免长时间 Docker 构建导致 SSH 连接断开。部署日志保存在 `/var/log/dicomvision/`。
 
 需要在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions` 中配置：
 
@@ -76,6 +77,7 @@ docker compose --env-file .env -f docker-compose.yml ps
 docker compose --env-file .env -f docker-compose.yml logs -f
 docker compose --env-file .env -f docker-compose.yml restart
 docker compose --env-file .env -f docker-compose.yml down
+tail -f /var/log/dicomvision/deploy-*.log
 ```
 
 ## 注意事项

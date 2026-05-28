@@ -14,16 +14,21 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || '114.67.114.128' }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN || 'http://114.67.114.128' }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
-          test -n "$DEPLOY_SSH_KEY"
+          test -n "${DEPLOY_SSH_KEY:-}${DEPLOY_SSH_KEY_B64:-}"
 
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          if [ -n "${DEPLOY_SSH_KEY_B64:-}" ]; then
+            printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/deploy_key
+          else
+            printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          fi
           tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
           mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key

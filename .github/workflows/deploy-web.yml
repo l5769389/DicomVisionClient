@@ -24,7 +24,10 @@ jobs:
 
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
+          mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
 
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
             "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' bash -s" <<'EOF'

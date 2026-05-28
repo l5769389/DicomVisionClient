@@ -7,6 +7,7 @@ ARG VITE_WEB_APP_MODE=web
 ARG NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 ENV VITE_BACKEND_ORIGIN=${VITE_BACKEND_ORIGIN}
 ENV VITE_WEB_APP_MODE=${VITE_WEB_APP_MODE}
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
 COPY package.json package-lock.json ./
 RUN npm ci --registry="${NPM_CONFIG_REGISTRY}" --no-audit --no-fund

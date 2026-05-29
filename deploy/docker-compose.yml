@@ -8,9 +8,13 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
       CORS_ORIGINS: '["*"]'
+      EXPOSE_API_DOCS: ${EXPOSE_API_DOCS:-false}
+      WEB_SAMPLE_DICOM_PATH: ${WEB_SAMPLE_DICOM_PATH:-/data/demo/P113_MP1}
       WEB_UPLOAD_DICOM_ROOT: /data/uploads
       WEB_UPLOAD_MAX_FILES: ${WEB_UPLOAD_MAX_FILES:-5000}
       WEB_UPLOAD_MAX_BYTES: ${WEB_UPLOAD_MAX_BYTES:-2147483648}
+      WEB_UPLOAD_MAX_AGE_SECONDS: ${WEB_UPLOAD_MAX_AGE_SECONDS:-1800}
+      WEB_UPLOAD_CLEANUP_INTERVAL_SECONDS: ${WEB_UPLOAD_CLEANUP_INTERVAL_SECONDS:-1800}
       PACS_WADO_CACHE_ROOT: /data/pacs-cache
       PACS_WADO_CACHE_MAX_AGE_SECONDS: ${PACS_WADO_CACHE_MAX_AGE_SECONDS:-86400}
     volumes:
@@ -25,7 +29,7 @@ services:
       dockerfile: Dockerfile.web
       args:
         VITE_BACKEND_ORIGIN: ${PUBLIC_ORIGIN}
-        VITE_WEB_APP_MODE: web
+        VITE_WEB_APP_MODE: ${VITE_WEB_APP_MODE:-demo-web}
     depends_on:
       - backend
     ports:

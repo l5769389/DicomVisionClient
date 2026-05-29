@@ -281,7 +281,7 @@ function createWebRuntime(): ViewerRuntimeApi {
     canChooseFolder: true,
     folderSourceMode: useServerSample ? 'server-sample' : 'web-upload',
     chooseFolder: async (mode) => {
-      if (useServerSample) {
+      if (useServerSample && !mode) {
         return { kind: 'server-sample' }
       }
 

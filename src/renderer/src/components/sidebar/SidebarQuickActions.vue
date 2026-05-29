@@ -5,6 +5,7 @@ import type { ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import type { WebUploadPickMode } from '../../platform/runtime'
 import { normalizeInlineSvg } from '../../utils/svg'
+import fileIcon from '../../assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from '../../assets/dicom-action-icons/open-folder.svg?raw'
 
 type QuickViewAction = {
@@ -30,8 +31,10 @@ const emit = defineEmits<{
 
 const { t } = useUiLocale()
 
+const normalizedFileIcon = computed(() => normalizeInlineSvg(fileIcon))
 const normalizedFolderIcon = computed(() => normalizeInlineSvg(folderIcon))
-const isWebUploadMode = computed(() => props.viewerFolderSourceMode === 'web-upload')
+const isServerSampleMode = computed(() => props.viewerFolderSourceMode === 'server-sample')
+const isWebUploadAvailable = computed(() => props.viewerPlatform === 'web')
 
 const folderActionLabel = computed(() => {
   if (props.viewerFolderSourceMode === 'server-sample') {
@@ -93,8 +96,19 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
 <template>
   <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
+      <VBtn
+        v-if="isLocalSourceEnabled && isServerSampleMode"
+        variant="flat"
+        class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]"
+        :aria-label="folderActionLabel"
+        :title="folderActionLabel"
+        @click="emit('chooseFolder')"
+      >
+        <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
+      </VBtn>
+
       <VMenu
-        v-if="isLocalSourceEnabled && isWebUploadMode"
+        v-if="isLocalSourceEnabled && isWebUploadAvailable"
         location="bottom start"
         :offset="8"
         :close-on-content-click="true"
@@ -105,10 +119,10 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
             v-bind="menuProps"
             variant="flat"
             class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]"
-            :aria-label="folderActionLabel"
-            :title="folderActionLabel"
+            :aria-label="t('uploadDicom')"
+            :title="t('uploadDicom')"
           >
-            <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
+            <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFileIcon" />
           </VBtn>
         </template>
 
@@ -126,7 +140,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
         </div>
       </VMenu>
 
-      <VBtn v-else-if="isLocalSourceEnabled" variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
+      <VBtn v-if="isLocalSourceEnabled && !isWebUploadAvailable && !isServerSampleMode" variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
         <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
       </VBtn>
       <VBtn

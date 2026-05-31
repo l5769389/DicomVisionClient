@@ -7,6 +7,7 @@ export type ViewerToolbarAction =
   | 'clearAnnotations'
   | 'resetAll'
   | 'volumePreset'
+  | 'render3dMode'
   | 'rotate'
   | 'pseudocolor'
   | 'windowPreset'

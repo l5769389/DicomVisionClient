@@ -82,6 +82,34 @@ const DEFAULT_LIGHTING: VolumeLightingConfig = {
 }
 
 const PRESET_DEFINITIONS: Record<string, PresetDefinition> = {
+  bone: {
+    blendMode: 'composite',
+    enabledKeys: ['bone', 'softTissue'],
+    overrides: {
+      bone: {
+        ww: 820,
+        wl: 360,
+        opacity: 0.96,
+        colorStart: '#e8dcc8',
+        colorEnd: '#ffffff'
+      },
+      softTissue: {
+        ww: 430,
+        wl: 55,
+        opacity: 0.075,
+        colorStart: '#d6a18a',
+        colorEnd: '#f0d8c9'
+      }
+    },
+    lighting: {
+      shading: true,
+      interpolation: 'linear',
+      ambient: 0.08,
+      diffuse: 0.9,
+      specular: 0.32,
+      roughness: 0.52
+    }
+  },
   aaa: {
     blendMode: 'composite',
     enabledKeys: ['bone', 'blood'],
@@ -253,17 +281,20 @@ function normalizeColor(value: string | undefined, fallback: string): string {
 }
 
 export function normalizeVolumePresetKey(value: string | null | undefined): string {
-  const preset = (value ?? 'aaa').trim().toLowerCase()
+  const preset = (value ?? 'bone').trim().toLowerCase()
   if (preset.includes(':')) {
     return normalizeVolumePresetKey(preset.split(':', 2)[1])
+  }
+  if (preset === 'bones' || preset === 'ct-bone' || preset === 'ct_bone' || preset === 'ct bone') {
+    return 'bone'
   }
   if (preset === 'cardiac-muscle') {
     return 'cardiac'
   }
-  return PRESET_DEFINITIONS[preset] ? preset : 'aaa'
+  return PRESET_DEFINITIONS[preset] ? preset : 'bone'
 }
 
-export function createDefaultVolumeRenderConfig(presetValue: string | null | undefined = 'aaa'): VolumeRenderConfig {
+export function createDefaultVolumeRenderConfig(presetValue: string | null | undefined = 'bone'): VolumeRenderConfig {
   const preset = normalizeVolumePresetKey(presetValue)
   const definition = PRESET_DEFINITIONS[preset]
 
@@ -289,7 +320,7 @@ export function createDefaultVolumeRenderConfig(presetValue: string | null | und
 
 export function normalizeVolumeRenderConfig(
   value: unknown,
-  fallbackPreset: string | null | undefined = 'aaa'
+  fallbackPreset: string | null | undefined = 'bone'
 ): VolumeRenderConfig {
   const fallback = createDefaultVolumeRenderConfig(fallbackPreset)
   if (!value || typeof value !== 'object') {

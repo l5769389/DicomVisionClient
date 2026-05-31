@@ -56,6 +56,7 @@ import {
   getOwnedLayoutSlotImageSrcs
 } from '../layout/viewerLayoutSlotSeeds'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
+import { isSeriesViewSupported } from './seriesViewSupport'
 import {
   FourDPhaseRenderTracker,
   MPR_VIEWPORT_KEYS,
@@ -89,6 +90,12 @@ import {
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
 } from '../volume/volumeRenderConfig'
+import {
+  createDefaultSurfaceRenderConfig,
+  normalizeRender3DMode,
+  normalizeSurfaceRenderConfig
+} from '../volume/surfaceRenderConfig'
+import { createRenderedImageObjectUrl } from './renderedImageObjectUrl'
 import { COMPARE_SYNC_DEFAULTS } from '../sync/viewSyncConfig'
 import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -191,15 +198,6 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     if (imageSrc?.startsWith('blob:')) {
       URL.revokeObjectURL(imageSrc)
     }
-  }
-
-  function createRenderedImageObjectUrl(imageBinary: ArrayBuffer | Uint8Array, mimeType: string): string {
-    // The backend sends already-rendered PNG/JPEG bytes. The frontend only wraps
-    // them as object URLs; pixel decoding/windowing stays on the server.
-    const bytes = imageBinary instanceof Uint8Array ? imageBinary : new Uint8Array(imageBinary)
-    const ownedBytes = new Uint8Array(bytes.byteLength)
-    ownedBytes.set(bytes)
-    return URL.createObjectURL(new Blob([ownedBytes.buffer], { type: mimeType }))
   }
 
   async function cloneLayoutImageSrc(imageSrc: string | null | undefined): Promise<{ imageSrc: string | null; ownsImageSrc: boolean }> {
@@ -1281,6 +1279,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
         : item.volumeRenderConfig
+      const render3dMode = payload.render3dMode ? normalizeRender3DMode(payload.render3dMode) : item.render3dMode
+      const surfaceRenderConfig = payload.surfaceConfig
+        ? normalizeSurfaceRenderConfig(payload.surfaceConfig)
+        : item.surfaceRenderConfig
       const payloadAnnotations = (payload.annotations ?? []) as AnnotationOverlay[]
 
       const layoutSlot = item.viewType === 'Layout'
@@ -1572,6 +1574,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           mprMipConfig,
           volumePreset,
           volumeRenderConfig,
+          render3dMode,
+          surfaceRenderConfig,
           fourDPhaseCache: nextFourDPhaseCache
         }
       }
@@ -1599,6 +1603,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         mprMipConfig,
         volumePreset,
         volumeRenderConfig,
+        render3dMode,
+        surfaceRenderConfig,
         loadingProgress: null
       }
     })
@@ -1950,8 +1956,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       seriesId: tab.seriesId,
       viewType: '3D'
     })
-    const volumeConfig = tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig(tab.volumePreset ?? 'aaa')
+    const volumeConfig = tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig(tab.volumePreset ?? 'bone')
     const volumePreset = tab.volumePreset ?? `volumePreset:${normalizeVolumePresetKey(volumeConfig.preset)}`
+    const surfaceConfig = tab.surfaceRenderConfig ?? createDefaultSurfaceRenderConfig()
 
     options.viewerTabs.value = options.viewerTabs.value.map((item) =>
       item.key === tabKey && item.viewType === 'MPR'
@@ -1963,7 +1970,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             orientation: createEmptyOrientationInfo(),
             transformState: createDefaultTransformInfo(),
             volumePreset,
-            volumeRenderConfig: volumeConfig
+            volumeRenderConfig: volumeConfig,
+            render3dMode: tab.render3dMode ?? 'volume',
+            surfaceRenderConfig: surfaceConfig
           }
         : item
     )
@@ -1980,6 +1989,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     options.selectedSeriesId.value = seriesId
     const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    if (!isSeriesViewSupported(targetSeries, viewType)) {
+      options.message.value = `${viewType} view is not supported for this series.`
+      return
+    }
     if (viewType === '4D' && !isFourDSeriesItem(targetSeries)) {
       options.message.value = '当前序列不是 4D 序列。'
       return
@@ -2177,8 +2190,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                     }
                   : createEmptyMprPseudocolorPresets(),
               mprMipConfig: createDefaultMprMipConfig(),
-              volumePreset: 'volumePreset:aaa',
-              volumeRenderConfig: createDefaultVolumeRenderConfig('aaa')
+              volumePreset: 'volumePreset:bone',
+              volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
+              render3dMode: 'volume',
+              surfaceRenderConfig: createDefaultSurfaceRenderConfig()
             }
           : item
       )

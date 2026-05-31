@@ -11,6 +11,8 @@ export const VIEW_OPERATION_TYPES = {
   reset: 'reset',
   volumePreset: 'volumePreset',
   volumeConfig: 'volumeConfig',
+  render3dMode: 'render3dMode',
+  surfaceConfig: 'surfaceConfig',
   mprMipConfig: 'mprMipConfig',
   mprOblique: 'mprOblique',
   mprStateSync: 'mprStateSync',

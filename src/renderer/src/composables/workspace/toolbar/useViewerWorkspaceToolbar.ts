@@ -245,12 +245,24 @@ const genericTools: StackTool[] = [
 
 const volumeParamsTool: StackTool = { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' }
 
+const render3dModeTool: StackTool = {
+  key: 'render3dMode',
+  label: 'Render',
+  icon: 'render-volume',
+  kind: 'action',
+  options: [
+    { value: 'render3dMode:volume', label: 'VR', icon: 'render-volume', description: 'Volume rendering' },
+    { value: 'render3dMode:surface', label: 'Surface', icon: 'render-surface', description: 'Bone surface mesh' }
+  ]
+}
+
 const volumePresetTool: StackTool = {
   key: 'volumePreset',
   label: 'Preset',
   icon: 'volumePreset',
   kind: 'action',
   options: [
+    { value: 'volumePreset:bone', label: 'Bone', icon: 'render-surface' },
     { value: 'volumePreset:aaa', label: 'AAA', icon: 'volume-preset-aaa' },
     { value: 'volumePreset:red', label: 'Red', icon: 'volume-preset-red' },
     { value: 'volumePreset:cardiac', label: 'Cardiac', icon: 'volume-preset-cardiac' },
@@ -265,6 +277,7 @@ const volumeTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  render3dModeTool,
   volumeParamsTool,
   volumePresetTool,
   exportTool,
@@ -311,7 +324,7 @@ const genericToolsWithCrosshair: StackTool[] = [
 ]
 
 const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
-  tool.key === 'mprMip' ? [tool, volumeParamsTool, volumePresetTool] : [tool]
+  tool.key === 'mprMip' ? [tool, render3dModeTool, volumeParamsTool, volumePresetTool] : [tool]
 )
 
 interface ViewerWorkspaceToolbarOptions {
@@ -337,7 +350,7 @@ interface StoredToolbarState {
 }
 
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
-  const { getWindowPresetLabel, locale, mprDefaultLayoutKey, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
+  const { getWindowPresetLabel, mprDefaultLayoutKey, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
   const playbackController = createPlaybackController()
   const menuController = createMenuController()
   const toolbarActivationController = createToolbarActivationController('window')
@@ -356,7 +369,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     play: `playbackFps:${STACK_PLAYBACK_DEFAULT_FPS}`,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
     export: 'png',
-    volumePreset: 'volumePreset:aaa',
+    render3dMode: 'render3dMode:volume',
+    volumePreset: 'volumePreset:bone',
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
     reset: 'reset:view'
@@ -411,8 +425,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       value: formatWindowPresetValue(preset.ww, preset.wl),
       label: getWindowPresetLabel(preset),
       icon: 'contrast',
-      description: `WW ${Math.round(preset.ww)} / WL ${Math.round(preset.wl)}`,
-      badge: preset.source === 'custom' ? (locale.value === 'zh-CN' ? '自定义' : 'Custom') : locale.value === 'zh-CN' ? '系统' : 'System'
+      description: `WW ${Math.round(preset.ww)} / WL ${Math.round(preset.wl)}`
     }))
   }))
 
@@ -470,7 +483,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
   }
 
-  const activeTools = computed(() => withDynamicWindowTool(getBaseToolsForActiveTab()))
+  function isActiveRender3dViewport(): boolean {
+    const tab = options.activeTab.value
+    return Boolean(tab && (tab.viewType === '3D' || (isActiveMpr3dLayout.value && options.activeViewportKey.value === 'volume')))
+  }
+
+  function withRenderModeTools(tools: StackTool[]): StackTool[] {
+    const tab = options.activeTab.value
+    if (!tab || tab.render3dMode !== 'surface' || !isActiveRender3dViewport()) {
+      return tools
+    }
+    return tools.filter((tool) => tool.key !== 'window' && tool.key !== 'volumeParams' && tool.key !== 'volumePreset')
+  }
+
+  const activeTools = computed(() => withDynamicWindowTool(withRenderModeTools(getBaseToolsForActiveTab())))
 
   const areToolbarActionsDisabled = computed(
     () =>
@@ -483,8 +509,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!tab || (tab.viewType !== '3D' && !isActiveMpr3dLayout.value)) {
       return null
     }
+    if (tab.render3dMode === 'surface') {
+      return null
+    }
 
-    return tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig('aaa')
+    return tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig('bone')
   })
 
   const activeMprMipConfig = computed(() => {
@@ -507,6 +536,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return `${STACK_OPERATION_PREFIX}${normalizeQaOperation(stackToolSelections.value.qa ?? DEFAULT_QA_OPERATION)}`
     }
     return `${STACK_OPERATION_PREFIX}${toolKey}`
+  }
+
+  function getOperationToolKey(operation: string | undefined): string {
+    const operationWithoutPrefix = operation?.startsWith(STACK_OPERATION_PREFIX)
+      ? operation.slice(STACK_OPERATION_PREFIX.length)
+      : (operation ?? '')
+    const normalizedOperation = operationWithoutPrefix.split(':')[0]
+    if (normalizedOperation === VIEW_OPERATION_TYPES.scroll) {
+      return 'page'
+    }
+    if (normalizedOperation === 'mtf') {
+      return 'qa'
+    }
+    return normalizedOperation
   }
 
   function supportsStackPlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
@@ -826,7 +869,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (options.activeTab.value?.viewType === '3D' || (isActiveMpr3dLayout.value && options.activeViewportKey.value === 'volume')) {
       stackToolSelections.value = {
         ...stackToolSelections.value,
-        volumePreset: 'volumePreset:aaa'
+        render3dMode: 'render3dMode:volume',
+        volumePreset: 'volumePreset:bone'
       }
     }
     options.emitTriggerViewAction({ action: 'reset' })
@@ -838,7 +882,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function applySelectedViewAction(
     tool: StackTool,
-    action: 'volumePreset' | 'rotate' | 'pseudocolor'
+    action: 'volumePreset' | 'render3dMode' | 'rotate' | 'pseudocolor'
   ): void {
     closeMenus()
     const selectedOption = getSelectedOption(tool.key)
@@ -875,6 +919,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       isMprMipPanelOpen.value = !isMprMipPanelOpen.value
     },
     volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
+    render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
     rotate: (tool) => applySelectedViewAction(tool, 'rotate'),
     pseudocolor: (tool) => applySelectedViewAction(tool, 'pseudocolor'),
     measure: applySelectedModeTool,
@@ -1028,9 +1073,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'volumePreset') {
+    if (tool.key === 'volumePreset' || tool.key === 'render3dMode') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.emitTriggerViewAction({ action: 'volumePreset', value: optionValue })
+        options.emitTriggerViewAction({ action: tool.key === 'volumePreset' ? 'volumePreset' : 'render3dMode', value: optionValue })
       })
       return
     }
@@ -1126,13 +1171,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         }
       }
 
-      const normalizedOperation = operationWithoutPrefix.split(':')[0]
-      const matchedToolKey =
-        normalizedOperation === VIEW_OPERATION_TYPES.scroll
-          ? 'page'
-          : normalizedOperation === 'mtf'
-            ? 'qa'
-            : normalizedOperation
+      const matchedToolKey = getOperationToolKey(value)
       if (SELECTABLE_TOOL_KEYS.has(matchedToolKey)) {
         if (!isToolAvailable(matchedToolKey)) {
           return
@@ -1174,6 +1213,30 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   )
 
   watch(
+    () => [options.activeTab.value?.render3dMode, options.activeViewportKey.value, isActiveMpr3dLayout.value] as const,
+    (value) => {
+      const [render3dMode] = value
+      if (!isActiveRender3dViewport()) {
+        return
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        render3dMode: `render3dMode:${render3dMode === 'surface' ? 'surface' : 'volume'}`
+      }
+      if (render3dMode === 'surface') {
+        isVolumeConfigPanelOpen.value = false
+        const activeToolUnavailable = !isToolAvailable(activeToolbarToolKey.value)
+        const activeOperationToolKey = getOperationToolKey(options.activeOperation.value)
+        if (activeToolUnavailable || activeOperationToolKey === 'window') {
+          setToolbarToolActive('rotate3d')
+          options.emitSetActiveOperation(getModeOperationValue('rotate3d'))
+        }
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
     () => options.activeTab.value?.volumePreset,
     (value) => {
       if (options.activeTab.value?.viewType !== '3D' && !isActiveMpr3dLayout.value) {
@@ -1181,7 +1244,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       }
       stackToolSelections.value = {
         ...stackToolSelections.value,
-        volumePreset: value || 'volumePreset:aaa'
+        volumePreset: value || 'volumePreset:bone'
       }
     },
     { immediate: true }

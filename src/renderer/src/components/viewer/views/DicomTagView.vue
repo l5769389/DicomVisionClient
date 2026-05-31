@@ -1633,7 +1633,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   border: 1px solid var(--theme-border-soft);
   border-radius: 15px;
   padding: 13px;
-  background: color-mix(in srgb, var(--theme-surface-panel) 64%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 64%, transparent);
   color: var(--theme-text-secondary);
   text-align: left;
   cursor: pointer;
@@ -1747,7 +1747,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 94%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 94%, transparent);
   color: var(--theme-text-primary);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
 }
@@ -2086,7 +2086,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 86%, var(--theme-surface-card) 14%);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 86%, var(--theme-surface-card) 14%);
   color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent) 22%);
 }
 

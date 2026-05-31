@@ -30,7 +30,7 @@ const { t } = useUiLocale()
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-visible">
     <div class="flex items-start justify-center pt-2">
-      <div class="relative flex h-18 w-18 items-center justify-center overflow-hidden rounded-[28px] border border-[var(--theme-border-strong)] bg-[radial-gradient(circle_at_30%_20%,color-mix(in_srgb,var(--theme-accent)_34%,transparent),transparent_35%),linear-gradient(180deg,var(--theme-surface-panel-strong),var(--theme-surface-panel))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_28px_rgba(0,0,0,0.26)]">
+      <div class="relative flex h-18 w-18 items-center justify-center overflow-hidden rounded-[28px] border border-[var(--theme-border-strong)] bg-[radial-gradient(circle_at_30%_20%,color-mix(in_srgb,var(--theme-accent)_34%,transparent),transparent_35%),linear-gradient(180deg,var(--theme-surface-panel-strong-solid),var(--theme-surface-panel-solid))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_28px_rgba(0,0,0,0.26)]">
         <div class="pointer-events-none absolute inset-0 bg-[linear-gradient(color-mix(in_srgb,var(--theme-text-secondary)_14%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_srgb,var(--theme-text-secondary)_14%,transparent)_1px,transparent_1px)] bg-[size:14px_14px,14px_14px]"></div>
         <div class="absolute inset-[10px] rounded-[20px] border border-[var(--theme-border-soft)] bg-[linear-gradient(145deg,color-mix(in_srgb,var(--theme-text-primary)_5%,transparent),transparent)]"></div>
         <div class="relative flex items-center justify-center"><span class="text-[24px] font-black tracking-[0.18em] text-[var(--theme-text-primary)]">DV</span></div>

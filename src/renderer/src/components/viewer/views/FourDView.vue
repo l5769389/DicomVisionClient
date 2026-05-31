@@ -365,7 +365,7 @@ watch(
 
           <div
             data-tool-menu-root
-            class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[22px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+            class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[22px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
           >
             <button
               v-for="option in FPS_OPTIONS"
@@ -524,7 +524,7 @@ watch(
 .four-d-toolbar-shell {
   border: 1px solid var(--theme-border-soft);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--theme-surface-panel) 78%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 78%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 10px 28px rgba(0, 0, 0, 0.16);
@@ -841,7 +841,7 @@ watch(
   border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, transparent);
   border-radius: 999px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 88%, white 4%), color-mix(in srgb, var(--theme-surface-panel) 90%, black 8%));
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 88%, white 4%), color-mix(in srgb, var(--theme-surface-panel-solid) 90%, black 8%));
   box-shadow:
     0 18px 42px rgba(0, 0, 0, 0.36),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);

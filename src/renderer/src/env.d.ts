@@ -46,6 +46,7 @@ declare global {
       onOpenDicomPaths: (callback: (paths: string[]) => void) => () => void
       onStatusToast: (callback: (payload: ViewerStatusToastPayload) => void) => () => void
       openExportLocation: (payload: { directoryPath?: string | null; filePath?: string | null }) => Promise<boolean>
+      openPathInFileManager: (payload: { path?: string | null }) => Promise<boolean>
       saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }) => Promise<{ directoryPath: string; filePath: string }>
       saveUiPreferences: (payload: unknown) => Promise<void>
       toggleWindowFullScreen: () => Promise<boolean>

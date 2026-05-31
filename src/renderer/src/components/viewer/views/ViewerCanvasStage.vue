@@ -139,6 +139,9 @@ function toStablePixel(value: number): number {
 }
 
 let resizeObserver: ResizeObserver | null = null
+let observedStage: HTMLElement | null = null
+let observedImage: HTMLImageElement | null = null
+let stageMetricsRaf: number | null = null
 
 const normalizedActiveOperation = computed(() =>
   props.activeOperation?.startsWith('stack:') ? props.activeOperation.slice('stack:'.length) : (props.activeOperation ?? '')
@@ -232,7 +235,7 @@ function getRenderedImageRect(image: HTMLImageElement): DOMRect {
   return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
 }
 
-function updateStageMetrics(): void {
+function updateStageMetricsNow(): void {
   const stage = stageRef.value
   const image = imageRef.value
 
@@ -265,34 +268,68 @@ function updateStageMetrics(): void {
   }
 }
 
+function scheduleStageMetricsUpdate(): void {
+  if (stageMetricsRaf != null) {
+    return
+  }
+
+  stageMetricsRaf = window.requestAnimationFrame(() => {
+    stageMetricsRaf = null
+    updateStageMetricsNow()
+  })
+}
+
 function observeLayout(): void {
-  resizeObserver?.disconnect()
   if (typeof ResizeObserver === 'undefined') {
     return
   }
 
-  resizeObserver = new ResizeObserver(() => {
-    updateStageMetrics()
-  })
-
-  if (stageRef.value) {
-    resizeObserver.observe(stageRef.value)
+  if (!resizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+      scheduleStageMetricsUpdate()
+    })
   }
-  if (imageRef.value) {
-    resizeObserver.observe(imageRef.value)
+
+  const nextStage = stageRef.value
+  const nextImage = imageRef.value
+  if (observedStage === nextStage && observedImage === nextImage) {
+    return
+  }
+
+  if (observedStage) {
+    resizeObserver.unobserve(observedStage)
+  }
+  if (observedImage) {
+    resizeObserver.unobserve(observedImage)
+  }
+
+  observedStage = nextStage
+  observedImage = nextImage
+
+  if (observedStage) {
+    resizeObserver.observe(observedStage)
+  }
+  if (observedImage) {
+    resizeObserver.observe(observedImage)
   }
 }
 
 onMounted(() => {
   observeLayout()
-  updateStageMetrics()
-  window.addEventListener('resize', updateStageMetrics)
+  scheduleStageMetricsUpdate()
+  window.addEventListener('resize', scheduleStageMetricsUpdate)
 })
 
 onBeforeUnmount(() => {
+  if (stageMetricsRaf != null) {
+    window.cancelAnimationFrame(stageMetricsRaf)
+    stageMetricsRaf = null
+  }
   resizeObserver?.disconnect()
   resizeObserver = null
-  window.removeEventListener('resize', updateStageMetrics)
+  observedStage = null
+  observedImage = null
+  window.removeEventListener('resize', scheduleStageMetricsUpdate)
 })
 
 watch(
@@ -300,7 +337,7 @@ watch(
   async () => {
     await nextTick()
     observeLayout()
-    updateStageMetrics()
+    scheduleStageMetricsUpdate()
   }
 )
 </script>
@@ -316,6 +353,7 @@ watch(
     :data-active-viewport="isActive ? 'true' : 'false'"
     :data-viewport-key="viewportKey"
     @click="emit('clickViewport', viewportKey)"
+    @contextmenu.prevent
     @dblclick.stop="emit('doubleClickViewport', viewportKey)"
     @wheel.prevent="emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
     @pointerdown="handlePointerDown"
@@ -339,7 +377,7 @@ watch(
         :alt="alt"
         draggable="false"
         @dragstart.prevent
-        @load="() => { updateStageMetrics(); emit('imageLoaded', viewportKey) }"
+        @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
       />
       <ViewportCrosshairOverlay
         :corner-info="cornerInfo"

@@ -380,8 +380,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
         </button>
       </div>
       <div
-        class="grid h-screen max-h-screen gap-4 overflow-hidden bg-transparent p-4 transition-[grid-template-columns] duration-200 ease-out max-[900px]:grid-cols-1"
-        :class="viewer.isSidebarCollapsed.value ? 'grid-cols-[92px_minmax(0,1fr)]' : 'grid-cols-[320px_minmax(0,1fr)] max-[1280px]:grid-cols-[288px_minmax(0,1fr)]'"
+        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent py-4 pr-4 pl-2 transition-[grid-template-columns] duration-200 ease-out"
+        :data-sidebar-collapsed="viewer.isSidebarCollapsed.value ? 'true' : 'false'"
       >
         <SidebarPanel
           :viewer-folder-source-mode="viewer.viewerFolderSourceMode"
@@ -500,6 +500,30 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 </template>
 
 <style scoped>
+.app-main-layout {
+  gap: 8px;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.app-main-layout[data-sidebar-collapsed="true"] {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+@media (max-width: 1280px) {
+  .app-main-layout:not([data-sidebar-collapsed="true"]) {
+    grid-template-columns: 288px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .app-main-layout,
+  .app-main-layout:not([data-sidebar-collapsed="true"]),
+  .app-main-layout[data-sidebar-collapsed="true"] {
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .app-boot-panel {
   min-width: 0;
   min-height: 0;
@@ -655,7 +679,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   padding: 2px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 80%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-surface-panel) 82%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 82%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 10px 24px rgba(0, 0, 0, 0.16);
@@ -716,7 +740,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   padding: 24px;
   background:
     radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--theme-accent) 18%, transparent), transparent 34%),
-    rgba(2, 7, 14, 0.54);
+    var(--theme-overlay-backdrop);
   pointer-events: none;
   -webkit-app-region: no-drag;
   backdrop-filter: blur(5px);
@@ -734,8 +758,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--theme-surface-panel-strong) 94%, white 3%),
-      color-mix(in srgb, var(--theme-surface-panel) 94%, black 5%)
+      color-mix(in srgb, var(--theme-surface-panel-strong-solid) 94%, white 3%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 5%)
     );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -811,7 +835,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   padding: 10px 10px 10px 12px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 92%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 92%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 18px 42px rgba(0, 0, 0, 0.3);

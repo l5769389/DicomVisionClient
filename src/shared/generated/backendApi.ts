@@ -3,6 +3,15 @@
 //   uv run python scripts/generate_openapi_types.py --output ../DicomVisionClient/src/shared/generated/backendApi.ts
 
 
+export interface AnnotationOverlayPayload {
+  annotationId: string
+  toolType: string
+  points: MeasurementPointPayload[]
+  text?: string
+  color?: string
+  size?: string
+}
+
 export interface Body_upload_dicom_files_api_v1_dicom_upload_post {
   files: string[]
   relativePaths?: string[] | null
@@ -29,6 +38,15 @@ export interface DicomCompatibilityIssue {
   title: string
   detail?: string | null
   affectedInstances?: number
+}
+
+export interface DicomCompatibilityRequest {
+  seriesId: string
+}
+
+export interface DicomCompatibilityResponse {
+  seriesId: string
+  issues?: DicomCompatibilityIssue[]
 }
 
 export interface DicomDeidentifyRequest {
@@ -167,15 +185,6 @@ export interface MeasurementOverlayPayload {
 export interface MeasurementPointPayload {
   x: number
   y: number
-}
-
-export interface AnnotationOverlayPayload {
-  annotationId: string
-  toolType: string
-  points: MeasurementPointPayload[]
-  text?: string
-  color?: string
-  size?: string
 }
 
 export interface MprCrosshairInfo {
@@ -530,6 +539,18 @@ export interface SliceInfo {
   total: number
 }
 
+export interface SurfaceRenderConfig {
+  preset?: string
+  isoValue?: number
+  smoothing?: number
+  decimation?: number
+  color?: string
+  ambient?: number
+  diffuse?: number
+  specular?: number
+  roughness?: number
+}
+
 export interface ValidationError {
   loc: (string | number)[]
   msg: string
@@ -622,6 +643,8 @@ export interface ViewImageResponse {
   mprMipConfig?: MprMipConfig | null
   volumePreset?: string | null
   volumeConfig?: VolumeRenderConfig | null
+  render3dMode?: 'volume' | 'surface' | null
+  surfaceConfig?: SurfaceRenderConfig | null
 }
 
 export interface ViewMtfAnalyzeRequest {
@@ -641,7 +664,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'mprMipConfig' | 'mprOblique' | 'mprStateSync' | 'measurement'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprStateSync' | 'measurement'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -661,6 +684,8 @@ export interface ViewOperationRequest {
   hor_flip?: boolean | null
   ver_flip?: boolean | null
   volumeConfig?: VolumeRenderConfig | null
+  render3dMode?: 'volume' | 'surface' | null
+  surfaceConfig?: SurfaceRenderConfig | null
 }
 
 export interface ViewQaWaterAnalyzeRequest {
@@ -728,6 +753,7 @@ export interface WindowInfo {
 }
 
 export interface ApiOperations {
+  CheckDicomCompatibilityApiV1DicomCompatibilityPost: { method: 'POST'; path: '/api/v1/dicom/compatibility'; request: DicomCompatibilityRequest; response: DicomCompatibilityResponse }
   GetCornerInfoApiV1DicomCornerInfoPost: { method: 'POST'; path: '/api/v1/dicom/cornerInfo'; request: CornerInfoRequest; response: CornerInfoResponse }
   DeidentifyDicomSeriesApiV1DicomDeidentifyPost: { method: 'POST'; path: '/api/v1/dicom/deidentify'; request: DicomDeidentifyRequest; response: unknown }
   CreateDeidentifyDicomSeriesJobApiV1DicomDeidentifyJobsPost: { method: 'POST'; path: '/api/v1/dicom/deidentify/jobs'; request: DicomDeidentifyRequest; response: unknown }

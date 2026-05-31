@@ -243,7 +243,7 @@ function clearPreviewLayout(): void {
   display: grid;
   gap: 1.5px;
   padding: 4px 6px;
-  background: color-mix(in srgb, var(--theme-surface-panel) 72%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 72%, transparent);
 }
 
 .layout-custom-cell {
@@ -251,7 +251,7 @@ function clearPreviewLayout(): void {
   min-height: 22px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
   border-radius: 2px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 78%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 78%, transparent);
   cursor: pointer;
   transition:
     background 90ms ease,

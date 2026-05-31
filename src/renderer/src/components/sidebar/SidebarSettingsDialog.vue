@@ -228,14 +228,16 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
       {
         title: copyValue.navGroup,
         items: [
-          { id: 'scroll-slice', action: '翻页', description: '鼠标滚轮上下翻动当前序列。', combo: 'Wheel' },
+          { id: 'scroll-slice', action: '活动视口翻页', description: '鼠标滚轮翻动当前活动视口，MPR 中对活动切面生效，不受当前工具影响。', combo: 'Wheel' },
           { id: 'first-slice', action: '翻到首张图像', description: '直接跳到当前序列第一张图像。', combo: 'Home' },
           { id: 'last-slice', action: '翻到末张图像', description: '直接跳到当前序列最后一张图像。', combo: 'End' },
+          { id: 'page-prev-slice', action: '键盘上一张', description: '用键盘翻到当前活动视口上一张图像。', combo: 'PageUp' },
+          { id: 'page-next-slice', action: '键盘下一张', description: '用键盘翻到当前活动视口下一张图像。', combo: 'PageDown' },
           { id: 'prev-slice', action: '向前一张', description: '向前移动 1 张图像。', combo: 'ArrowLeft' },
           { id: 'next-slice', action: '向后一张', description: '向后移动 1 张图像。', combo: 'ArrowRight' },
-          { id: 'prev-ten-slices', action: '向前十张', description: '向前快速移动 10 张图像。', combo: 'Shift + ArrowLeft' },
-          { id: 'next-ten-slices', action: '向后十张', description: '向后快速移动 10 张图像。', combo: 'Shift + ArrowRight' },
-          { id: 'window-level', action: '调窗', description: '按下滚轮并滑动以调整窗宽窗位。', combo: 'Wheel + Drag' },
+          { id: 'prev-ten-slices', action: '向前十张', description: '向前快速移动 10 张图像。', combo: 'Shift + PageUp / ArrowLeft' },
+          { id: 'next-ten-slices', action: '向后十张', description: '向后快速移动 10 张图像。', combo: 'Shift + PageDown / ArrowRight' },
+          { id: 'window-level', action: '调窗', description: '左键拖拽视口空白区域默认调整窗宽窗位；命中测量、标注或十字线时优先执行对应工具。', combo: 'Left Drag' },
           { id: 'zoom-view', action: '缩放', description: '按下右键并滑动以缩放当前视口。', combo: 'Right Click + Drag' }
         ]
       },
@@ -264,14 +266,16 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
     {
       title: copyValue.navGroup,
       items: [
-        { id: 'scroll-slice', action: 'Scroll Slice', description: 'Use the wheel to move through the current series.', combo: 'Wheel' },
+        { id: 'scroll-slice', action: 'Scroll Active Viewport', description: 'Use the wheel to move the active viewport; in MPR this targets the active plane regardless of the selected tool.', combo: 'Wheel' },
         { id: 'first-slice', action: 'First Image', description: 'Jump to the first image in the current series.', combo: 'Home' },
         { id: 'last-slice', action: 'Last Image', description: 'Jump to the last image in the current series.', combo: 'End' },
+        { id: 'page-prev-slice', action: 'Keyboard Previous Image', description: 'Move the active viewport back by one image from the keyboard.', combo: 'PageUp' },
+        { id: 'page-next-slice', action: 'Keyboard Next Image', description: 'Move the active viewport forward by one image from the keyboard.', combo: 'PageDown' },
         { id: 'prev-slice', action: 'Previous Image', description: 'Move back by one image.', combo: 'ArrowLeft' },
         { id: 'next-slice', action: 'Next Image', description: 'Move forward by one image.', combo: 'ArrowRight' },
-        { id: 'prev-ten-slices', action: 'Previous 10 Images', description: 'Move back by ten images quickly.', combo: 'Shift + ArrowLeft' },
-        { id: 'next-ten-slices', action: 'Next 10 Images', description: 'Move forward by ten images quickly.', combo: 'Shift + ArrowRight' },
-        { id: 'window-level', action: 'Window Level', description: 'Hold the wheel button and drag to adjust WW/WL.', combo: 'Wheel + Drag' },
+        { id: 'prev-ten-slices', action: 'Previous 10 Images', description: 'Move back by ten images quickly.', combo: 'Shift + PageUp / ArrowLeft' },
+        { id: 'next-ten-slices', action: 'Next 10 Images', description: 'Move forward by ten images quickly.', combo: 'Shift + PageDown / ArrowRight' },
+        { id: 'window-level', action: 'Window Level', description: 'Left-drag empty viewport space to adjust WW/WL by default; measurements, annotations, and crosshairs keep priority when hit.', combo: 'Left Drag' },
         { id: 'zoom-view', action: 'Zoom View', description: 'Hold the right mouse button and drag to zoom the active viewport.', combo: 'Right Click + Drag' }
       ]
     },
@@ -1964,13 +1968,13 @@ onMounted(async () => {
                               <div class="mb-2 flex items-center justify-between">
                                 <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ config.label }}</span>
                               </div>
-                              <div class="relative h-[170px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                              <div class="relative h-[170px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel-solid),var(--theme-surface-panel-strong-solid))]">
                                 <div class="absolute left-[16%] top-[18%] h-8 w-8 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_3%,transparent)] blur-[1px]"></div>
                                 <div class="absolute right-[14%] top-[26%] h-12 w-12 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_7%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[2px]"></div>
                                 <div class="absolute bottom-[16%] left-[22%] h-10 w-10 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_6%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[1px]"></div>
                                 <div class="absolute inset-y-0 left-1/2 -translate-x-1/2" :style="{ width: `${getCrosshairPreviewAxes(config.key).vertical.thickness}px`, backgroundColor: getCrosshairPreviewAxes(config.key).vertical.color, boxShadow: `0 0 14px ${getCrosshairPreviewAxes(config.key).vertical.color}88` }"></div>
                                 <div class="absolute inset-x-0 top-1/2 -translate-y-1/2" :style="{ height: `${getCrosshairPreviewAxes(config.key).horizontal.thickness}px`, backgroundColor: getCrosshairPreviewAxes(config.key).horizontal.color, boxShadow: `0 0 14px ${getCrosshairPreviewAxes(config.key).horizontal.color}88` }"></div>
-                                <div class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_12%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_78%,black)]"></div>
+                                <div class="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_12%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_78%,black)]"></div>
                               </div>
                             </div>
                           </div>
@@ -2069,7 +2073,7 @@ onMounted(async () => {
 
                         <div class="scale-bar-control-card rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4 xl:col-span-2">
                           <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.visualPreview }}</div>
-                          <div class="scale-bar-preview-surface relative min-h-[96px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel),var(--theme-surface-panel-strong))]">
+                          <div class="scale-bar-preview-surface relative min-h-[96px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel-solid),var(--theme-surface-panel-strong-solid))]">
                             <div
                               class="scale-bar-preview-mark absolute bottom-3 left-1/2 -translate-x-1/2 transition duration-150"
                               :class="scaleBarPreference.enabled ? 'opacity-100' : 'opacity-30 grayscale'"
@@ -2387,7 +2391,7 @@ onMounted(async () => {
 
 .settings-nav-item--inactive {
   border-color: color-mix(in srgb, var(--theme-text-muted) 10%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 72%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, transparent) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 2%, transparent),
     inset 0 -1px 0 rgba(0, 0, 0, 0.28) !important;
@@ -2407,19 +2411,19 @@ onMounted(async () => {
 
 .settings-nav-icon {
   border-radius: var(--industrial-radius-chip, 4px) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 82%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 82%, transparent) !important;
   box-shadow: none !important;
 }
 
 .settings-nav-item--active .settings-nav-icon {
   border-color: color-mix(in srgb, var(--theme-accent) 34%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-panel-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-panel-strong-solid)) !important;
   color: var(--theme-active-foreground) !important;
 }
 
 .settings-nav-item--inactive .settings-nav-icon {
   border-color: color-mix(in srgb, var(--theme-text-muted) 12%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 86%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 86%, transparent) !important;
   color: color-mix(in srgb, var(--theme-text-muted) 76%, transparent) !important;
 }
 
@@ -2497,7 +2501,7 @@ onMounted(async () => {
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card)),
-      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel))
+      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel-solid))
     );
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
@@ -2523,6 +2527,6 @@ onMounted(async () => {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 84%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 84%, transparent);
 }
 </style>

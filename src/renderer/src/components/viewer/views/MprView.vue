@@ -339,6 +339,31 @@ function isMprViewportKey(viewportKey: string): viewportKey is MprViewportKey {
   return viewportKey === 'mpr-ax' || viewportKey === 'mpr-sag' || viewportKey === 'mpr-cor'
 }
 
+function resolveWheelViewportKey(viewportKey: string): MprViewportKey | null {
+  const maximizedKey = maximizedViewportKey.value
+  if (maximizedKey) {
+    return isMprViewportKey(maximizedKey) ? maximizedKey : null
+  }
+
+  if (isMprViewportKey(props.activeViewportKey)) {
+    return props.activeViewportKey
+  }
+
+  return isMprViewportKey(viewportKey) ? viewportKey : null
+}
+
+function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean }): void {
+  const viewportKey = resolveWheelViewportKey(payload.viewportKey)
+  if (!viewportKey) {
+    return
+  }
+
+  emit('viewportWheel', {
+    ...payload,
+    viewportKey
+  })
+}
+
 function handleViewportDoubleClick(viewportKey: string): void {
   emit('viewportClick', viewportKey)
 
@@ -413,7 +438,7 @@ watch(
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @open-mtf-curve="emit('openMtfCurve')"
       @select-mtf="emit('selectMtf', $event)"
-      @wheel-viewport="emit('viewportWheel', $event)"
+      @wheel-viewport="handleViewportWheel"
       @pointer-down="emit('pointerDown', $event, item.key)"
       @pointer-leave="emit('pointerLeave', $event)"
       @pointer-move="emit('pointerMove', $event)"

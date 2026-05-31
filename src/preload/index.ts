@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('viewerApi', {
   },
   openExportLocation: (payload: { directoryPath?: string | null; filePath?: string | null }): Promise<boolean> =>
     ipcRenderer.invoke('viewer:open-export-location', payload),
+  openPathInFileManager: (payload: { path?: string | null }): Promise<boolean> =>
+    ipcRenderer.invoke('viewer:open-path-in-file-manager', payload),
   saveExportFile: (payload: { fileName: string; directoryPath?: string | null; data: Uint8Array | number[] }): Promise<{ directoryPath: string; filePath: string }> =>
     ipcRenderer.invoke('viewer:save-export-file', payload),
   saveUiPreferences: (payload: unknown): Promise<void> => ipcRenderer.invoke('viewer:save-ui-preferences', payload),

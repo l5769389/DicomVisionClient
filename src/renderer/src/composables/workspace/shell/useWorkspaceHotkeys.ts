@@ -119,6 +119,10 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       delta = 1 - sliceInfo.current
     } else if (event.key === 'End') {
       delta = sliceInfo.total - sliceInfo.current
+    } else if (event.key === 'PageUp') {
+      delta = event.shiftKey ? -10 : -1
+    } else if (event.key === 'PageDown') {
+      delta = event.shiftKey ? 10 : 1
     } else if (event.key === 'ArrowLeft') {
       delta = event.shiftKey ? -10 : -1
     } else if (event.key === 'ArrowRight') {

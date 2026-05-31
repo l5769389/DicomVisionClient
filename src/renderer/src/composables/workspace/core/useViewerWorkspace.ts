@@ -53,8 +53,10 @@ import {
   findMatchingHangingProtocolRule
 } from '../layout/hangingProtocolRules'
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
-import { buildDicomCompatibilityToast } from '../../dicom/dicomCompatibilityToast'
+import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from './layoutDropSeries'
+import { createResizeRenderScheduler } from './resizeRenderScheduler'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
+import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
 import { viewerRuntime, type DicomDropInput, type DicomLoadSource, type WebUploadPickMode } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
@@ -66,6 +68,11 @@ import {
   normalizeVolumePresetKey,
   normalizeVolumeRenderConfig
 } from '../volume/volumeRenderConfig'
+import {
+  createDefaultSurfaceRenderConfig,
+  normalizeRender3DMode,
+  normalizeSurfaceRenderConfig
+} from '../volume/surfaceRenderConfig'
 import type {
   CornerInfo,
   ConnectionState,
@@ -672,7 +679,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'volumePreset' && !hasVolumeView(tab)) {
+    if ((payload.action === 'volumePreset' || payload.action === 'render3dMode') && !hasVolumeView(tab)) {
       return
     }
 
@@ -777,14 +784,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if ((payload.action === 'reset' || payload.action === 'resetAll') && (tab.viewType === '3D' || isMprVolumeViewport(tab, activeViewportKey.value))) {
-      const defaultConfig = createDefaultVolumeRenderConfig('aaa')
+      const defaultConfig = createDefaultVolumeRenderConfig('bone')
+      const defaultSurfaceConfig = createDefaultSurfaceRenderConfig()
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
               ...item,
               pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
-              volumePreset: 'volumePreset:aaa',
-              volumeRenderConfig: defaultConfig
+              volumePreset: 'volumePreset:bone',
+              volumeRenderConfig: defaultConfig,
+              render3dMode: 'volume',
+              surfaceRenderConfig: defaultSurfaceConfig
             }
           : item
       )
@@ -806,6 +816,27 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId: tab.viewId,
         opType: VIEW_OPERATION_TYPES.volumeConfig,
         volumeConfig: defaultConfig
+      })
+      return
+    }
+
+    if (payload.action === 'render3dMode' && payload.value) {
+      const render3dMode = normalizeRender3DMode(payload.value.replace(/^render3dMode:/, ''))
+      const surfaceConfig = normalizeSurfaceRenderConfig(tab.surfaceRenderConfig ?? createDefaultSurfaceRenderConfig())
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              render3dMode,
+              surfaceRenderConfig: surfaceConfig
+            }
+          : item
+      )
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.render3dMode,
+        render3dMode
       })
       return
     }
@@ -1634,6 +1665,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     viewportElements,
     withHoverCornerInfo
   })
+  const resizeRenderScheduler = createResizeRenderScheduler({
+    getActiveTab: () => activeTab.value,
+    isViewLoading: () => isViewLoading.value,
+    renderTab: (tabKey) => {
+      void views.renderTab(tabKey)
+    }
+  })
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
     if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
@@ -2068,10 +2106,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await views.openLayoutView(createLayoutTemplateFromHangingProtocolRule(rule))
   }
 
-  function resolveInitialSeriesViewType(series: FolderSeriesItem | null | undefined): ViewType {
-    return series?.preferredViewType === 'Tag' || series?.isImageSeries === false ? 'Tag' : 'Stack'
-  }
-
   async function openKeySlice(seriesId: string, sliceIndex: number): Promise<void> {
     if (!seriesId) {
       return
@@ -2162,7 +2196,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     for (const source of sources) {
       const loadedSeries = await loadDicomSource(source, { selectLoadedSeries: false })
-      const nextSeries = loadedSeries[0] ?? null
+      const nextSeries = resolveLayoutStackDropSeries(loadedSeries)
       if (!nextSeries) {
         continue
       }
@@ -2212,6 +2246,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
       return
     }
+    if (!isLayoutStackDropSeriesSupported(series)) {
+      showStatusToast(workspaceStatusCopy.value.noUsableSeries, 'warning')
+      return
+    }
 
     await views.setLayoutSlotSeries({
       tabKey: payload.tabKey,
@@ -2244,16 +2282,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const nextSeries = nextSeriesList.find((item) => item.seriesId === nextSeriesId) ?? null
     if (selectLoadedSeries && nextSeriesId) {
       views.selectSeries(nextSeriesId)
-    }
-
-    const compatibilityToast = buildDicomCompatibilityToast(loadedSeries, locale.value)
-    if (compatibilityToast) {
-      showStatusToast(compatibilityToast.message, compatibilityToast.tone, {
-        detail: compatibilityToast.detail,
-        progressPercent: 100,
-        progressLabel: `${loadedSeries.length} series`,
-        durationMs: 10000
-      })
     }
 
     if (openFirstSeriesView && nextSeriesId) {
@@ -2289,8 +2317,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (!loadedSeries.length) {
         return []
       }
-      const hasCompatibilityToast = Boolean(buildDicomCompatibilityToast(loadedSeries, locale.value))
-      if (!hasCompatibilityToast && source.kind === 'files') {
+      if (source.kind === 'files') {
         showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
           progressPercent: 100,
           progressLabel: `${loadedSeries.length} series`,
@@ -2347,13 +2374,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (!resizeObserver) {
       resizeObserver = new ResizeObserver(() => {
-        const hasRenderableView =
-          Boolean(activeTab.value?.viewId) ||
-          Object.values(activeTab.value?.compareViewIds ?? {}).some(Boolean) ||
-          Object.values(activeTab.value?.viewportViewIds ?? {}).some(Boolean)
-        if (hasRenderableView && !isViewLoading.value && activeTab.value) {
-          void views.renderTab(activeTab.value.key)
-        }
+        resizeRenderScheduler.schedule()
       })
     }
 
@@ -2386,6 +2407,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       resizeObserver.unobserve(observedViewerStage)
     }
     resizeObserver?.disconnect()
+    resizeRenderScheduler.cancel()
   })
 
   async function handleTagIndexChange(payload: { tabKey: string; index: number }): Promise<void> {

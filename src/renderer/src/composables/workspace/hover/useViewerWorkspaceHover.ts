@@ -9,7 +9,7 @@ import {
 } from '../views/viewerViewportTargets'
 
 const HOVER_EMIT_THROTTLE_MS = 30
-const HOVER_CORNER_PATTERN = /^X:\s*-?\d+\s+Y:\s*-?\d+$/i
+const HOVER_CORNER_PATTERN = /^Cursor\s+X:\s*-?\d+\s+Y:\s*-?\d+$/i
 
 interface ViewerWorkspaceHoverOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
@@ -40,7 +40,7 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     const hoverLine = cornerInfo.bottomRight.find((line) => HOVER_CORNER_PATTERN.test(line.trim())) ?? null
     const bottomRight = cornerInfo.bottomRight.filter((line) => !HOVER_CORNER_PATTERN.test(line.trim()))
     if (row != null && col != null) {
-      bottomRight.push(`X:${col} Y:${row}`)
+      bottomRight.push(`Cursor X:${col} Y:${row}`)
     } else if (hoverLine) {
       bottomRight.push(hoverLine)
     }

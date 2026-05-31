@@ -428,7 +428,7 @@ function selectQueryModel(value: DimseQueryModel): void {
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
-      color-mix(in srgb, var(--theme-surface-panel) 94%, black 6%)
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%)
     );
   padding: 6px;
   box-shadow:

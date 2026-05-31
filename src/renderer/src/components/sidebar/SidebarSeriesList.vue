@@ -3,14 +3,16 @@ import { computed, ref } from 'vue'
 import { VBtn, VCard, VChip, VDialog, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import SeriesListCard from './SeriesListCard.vue'
-import { isFourDSeriesItem, type FolderSeriesItem, type ViewType } from '../../types/viewer'
+import type { FolderSeriesItem, ViewType } from '../../types/viewer'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
+import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
 import { saveBinaryFile, type SaveFilePreference } from '../../platform/exporting'
 import {
   getDicomDeidentifyJob,
   getDicomDeidentifyJobArtifact,
+  postApi,
   postDicomDeidentifyJob,
   type DicomTagModifyJob
 } from '../../services/typedApi'
@@ -33,6 +35,7 @@ const props = defineProps<{
   isLoadingFolder: boolean
   selectedSeriesId: string
   seriesList: FolderSeriesItem[]
+  viewerPlatform?: 'desktop' | 'web'
 }>()
 
 const emit = defineEmits<{
@@ -45,16 +48,34 @@ const emit = defineEmits<{
 
 const DEIDENTIFY_EXPORT_ROOT = 'DicomVisionDeidentified'
 
-type SeriesContextAction = 'Stack' | 'MPR' | '3D' | '4D' | 'Tag' | 'compare' | 'keySlices' | 'deidentify' | 'delete'
+type SeriesContextAction =
+  | 'Stack'
+  | 'MPR'
+  | '3D'
+  | '4D'
+  | 'Tag'
+  | 'compare'
+  | 'keySlices'
+  | 'compatibility'
+  | 'openFileManager'
+  | 'deidentify'
+  | 'delete'
+type CompatibilityIssue = NonNullable<FolderSeriesItem['compatibilityIssues']>[number]
+type CompatibilitySeverity = NonNullable<CompatibilityIssue['severity']>
 
 const { locale, t, viewerCopy } = useUiLocale()
 const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
 const { clearSeriesStars, getStarredSliceIndexes, getStarredSliceCount } = useKeySliceStars()
 const isContextMenuOpen = ref(false)
 const isCompareDialogOpen = ref(false)
+const isCompatibilityDialogOpen = ref(false)
+const isCheckingCompatibility = ref(false)
 const isKeySliceDialogOpen = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
+const compatibilityDialogSeries = ref<FolderSeriesItem | null>(null)
+const compatibilityIssues = ref<CompatibilityIssue[]>([])
+const compatibilityCheckError = ref('')
 const compareSourceSeries = ref<FolderSeriesItem | null>(null)
 const keySliceDialogSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
@@ -114,31 +135,68 @@ const deidentifyCopy = computed(() => ({
   savedDirectory: (directory: string) => (isZh.value ? `保存位置：${directory}` : `Saved to: ${directory}`)
 }))
 
+const compatibilityCopy = computed(() => ({
+  actionTitle: isZh.value ? '兼容性检查' : 'Compatibility Check',
+  actionSubtitle: isZh.value ? '按需检查此序列并查看详情' : 'Check this series and view details',
+  affectedInstances: (count: number) => (isZh.value ? `影响 ${count} 个实例` : `${count} affected instance(s)`),
+  checkFailed: isZh.value ? '兼容性检查失败' : 'Compatibility check failed',
+  checking: isZh.value ? '正在检查序列兼容性...' : 'Checking series compatibility...',
+  issueCount: (count: number) => (isZh.value ? `${count} 项提示` : `${count} notice(s)`),
+  noIssues: isZh.value ? '未发现兼容性提示' : 'No compatibility notices found',
+  severity: {
+    error: isZh.value ? '错误' : 'Error',
+    info: isZh.value ? '信息' : 'Info',
+    warning: isZh.value ? '警告' : 'Warning'
+  } satisfies Record<CompatibilitySeverity, string>
+}))
+const compatibilityDialogSeriesTitle = computed(
+  () => compatibilityDialogSeries.value?.seriesDescription || compatibilityDialogSeries.value?.seriesId || t('unnamedSeries')
+)
+const compatibilityIssueCount = computed(() => compatibilityIssues.value.length)
+const hasCompatibilityDialogIssues = computed(() => compatibilityIssueCount.value > 0)
+const resolvedViewerPlatform = computed(() =>
+  props.viewerPlatform ?? (typeof window !== 'undefined' && window.viewerApi ? 'desktop' : 'web')
+)
+const canOpenContextSeriesInFileManager = computed(() => (
+  resolvedViewerPlatform.value === 'desktop' &&
+  Boolean(window.viewerApi?.openPathInFileManager) &&
+  Boolean(contextSeries.value?.folderPath?.trim())
+))
+const fileManagerCopy = computed(() => ({
+  actionTitle: isZh.value ? '在资源管理器中打开' : 'Open in Explorer',
+  actionSubtitle: isZh.value ? '打开此序列的来源目录' : 'Show this series source folder',
+  failed: isZh.value ? '无法打开来源目录' : 'Failed to open source folder',
+  success: isZh.value ? '已打开来源目录' : 'Opened source folder'
+}))
+
 const contextMenuActions = computed(() => [
   {
     key: 'Stack' as const,
     title: t('quickPreview'),
     subtitle: 'Stack view',
-    badge: '2D'
+    badge: '2D',
+    disabled: !isSeriesViewSupported(contextSeries.value, 'Stack')
   },
   {
     key: 'MPR' as const,
     title: 'MPR',
     subtitle: 'Multi-planar reconstruction',
-    badge: 'MPR'
+    badge: 'MPR',
+    disabled: !isSeriesViewSupported(contextSeries.value, 'MPR')
   },
   {
     key: '3D' as const,
     title: '3D',
     subtitle: 'Volume rendering',
-    badge: '3D'
+    badge: '3D',
+    disabled: !isSeriesViewSupported(contextSeries.value, '3D')
   },
   {
     key: '4D' as const,
     title: '4D',
     subtitle: 'Respiratory phase playback',
     badge: '4D',
-    disabled: !isFourDSeriesItem(contextSeries.value)
+    disabled: !isSeriesViewSupported(contextSeries.value, '4D')
   },
   {
     key: 'Tag' as const,
@@ -146,6 +204,22 @@ const contextMenuActions = computed(() => [
     subtitle: 'DICOM Tags',
     badge: 'TAG'
   },
+  {
+    key: 'compatibility' as const,
+    title: compatibilityCopy.value.actionTitle,
+    subtitle: compatibilityCopy.value.actionSubtitle,
+    badge: 'CHK'
+  },
+  ...(canOpenContextSeriesInFileManager.value
+    ? [
+        {
+          key: 'openFileManager' as const,
+          title: fileManagerCopy.value.actionTitle,
+          subtitle: fileManagerCopy.value.actionSubtitle,
+          badge: 'DIR'
+        }
+      ]
+    : []),
   {
     key: 'compare' as const,
     title: isZh.value ? '对比' : 'Compare',
@@ -203,10 +277,6 @@ const compareSourcePreview = computed(() => {
 const compareCandidates = computed(() =>
   props.seriesList.filter((series) => series.seriesId !== compareSourceSeries.value?.seriesId)
 )
-
-function isFourDSeries(series: FolderSeriesItem): boolean {
-  return isFourDSeriesItem(series)
-}
 
 function isPatientGroupCollapsed(group: SeriesTreePatientGroup): boolean {
   return collapsedPatientGroupKeySet.value.has(group.key)
@@ -327,7 +397,7 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   if (!series) {
     return
   }
-  if (action === '4D' && !isFourDSeries(series)) {
+  if ((action === 'Stack' || action === 'MPR' || action === '3D' || action === '4D' || action === 'Tag') && !isSeriesViewSupported(series, action)) {
     return
   }
 
@@ -342,6 +412,14 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
     openKeySliceDialog(series)
     closeContextMenu()
     return
+  } else if (action === 'compatibility') {
+    closeContextMenu()
+    await openCompatibilityCheck(series)
+    return
+  } else if (action === 'openFileManager') {
+    closeContextMenu()
+    await openSeriesInFileManager(series)
+    return
   } else if (action === 'deidentify') {
     closeContextMenu()
     await exportDeidentifiedSeries(series)
@@ -351,6 +429,34 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   }
 
   closeContextMenu()
+}
+
+async function openSeriesInFileManager(series: FolderSeriesItem): Promise<void> {
+  const path = series.folderPath?.trim()
+  if (!path || !window.viewerApi?.openPathInFileManager) {
+    dispatchWorkspaceStatusToast(fileManagerCopy.value.failed, 'error')
+    return
+  }
+
+  try {
+    const opened = await window.viewerApi.openPathInFileManager({ path })
+    if (!opened) {
+      throw new Error(fileManagerCopy.value.failed)
+    }
+
+    dispatchWorkspaceStatusToast(fileManagerCopy.value.success, 'success', {
+      detail: path,
+      busy: false,
+      durationMs: 5000
+    })
+  } catch (error) {
+    const detail = resolveBackendErrorDetail(error)
+    dispatchWorkspaceStatusToast(fileManagerCopy.value.failed, 'error', {
+      detail: detail || path,
+      busy: false,
+      durationMs: 8000
+    })
+  }
 }
 
 function openKeySliceDialog(series: FolderSeriesItem): void {
@@ -369,6 +475,62 @@ function openKeySlice(sliceIndex: number): void {
 
 function clearKeySliceMarks(): void {
   clearSeriesStars(keySliceDialogSeries.value?.seriesId)
+}
+
+function normalizeCompatibilitySeverity(severity?: CompatibilityIssue['severity']): CompatibilitySeverity {
+  return severity ?? 'warning'
+}
+
+function getCompatibilityIssueIcon(issue: CompatibilityIssue): string {
+  const severity = normalizeCompatibilitySeverity(issue.severity)
+  if (severity === 'error') {
+    return 'error'
+  }
+  if (severity === 'info') {
+    return 'info'
+  }
+  return 'warning'
+}
+
+function getCompatibilitySeverityLabel(issue: CompatibilityIssue): string {
+  return compatibilityCopy.value.severity[normalizeCompatibilitySeverity(issue.severity)]
+}
+
+function getCompatibilityIssueTitle(issue: CompatibilityIssue): string {
+  return issue.title || issue.code
+}
+
+function getCompatibilityIssueMeta(issue: CompatibilityIssue): string {
+  const parts = [issue.code]
+  if ((issue.affectedInstances ?? 0) > 0) {
+    parts.push(compatibilityCopy.value.affectedInstances(issue.affectedInstances ?? 0))
+  }
+  return parts.filter(Boolean).join(' · ')
+}
+
+async function openCompatibilityCheck(series: FolderSeriesItem): Promise<void> {
+  compatibilityDialogSeries.value = series
+  compatibilityIssues.value = []
+  compatibilityCheckError.value = ''
+  isCompatibilityDialogOpen.value = true
+  isCheckingCompatibility.value = true
+
+  try {
+    const result = await postApi('CheckDicomCompatibilityApiV1DicomCompatibilityPost', {
+      seriesId: series.seriesId
+    })
+    compatibilityIssues.value = result.issues ?? []
+  } catch (error) {
+    const detail = resolveBackendErrorDetail(error)
+    compatibilityCheckError.value = detail || compatibilityCopy.value.checkFailed
+    dispatchWorkspaceStatusToast(compatibilityCopy.value.checkFailed, 'error', {
+      detail: detail || undefined,
+      busy: false,
+      durationMs: 8000
+    })
+  } finally {
+    isCheckingCompatibility.value = false
+  }
 }
 
 function getSafeDeidentifyFolderName(value: string): string {
@@ -660,6 +822,60 @@ function handleSeriesDragEnd(): void {
       </VMenu>
     </div>
 
+    <VDialog v-model="isCompatibilityDialogOpen" max-width="680">
+      <VCard class="compatibility-dialog theme-shell-panel overflow-hidden rounded-[22px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_24px_58px_rgba(0,0,0,0.48)]!">
+        <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
+          <div class="min-w-0">
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ compatibilityCopy.actionTitle }}</div>
+              <span class="compatibility-dialog__count">{{ isCheckingCompatibility ? '...' : compatibilityIssueCount }}</span>
+            </div>
+            <div class="mt-1 truncate text-xs text-[var(--theme-text-secondary)]">
+              {{ compatibilityDialogSeriesTitle }}
+            </div>
+          </div>
+          <VBtn class="h-9! w-9! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isCompatibilityDialogOpen = false">
+            <AppIcon name="close" :size="16" />
+          </VBtn>
+        </div>
+
+        <div class="max-h-[520px] overflow-auto p-4">
+          <div v-if="isCheckingCompatibility" class="compatibility-dialog__state theme-card-soft rounded-2xl border px-4 py-5 text-sm text-[var(--theme-text-secondary)]">
+            <span class="compatibility-dialog__spinner" aria-hidden="true"></span>
+            <span>{{ compatibilityCopy.checking }}</span>
+          </div>
+          <div v-else-if="compatibilityCheckError" class="compatibility-dialog__state theme-card-soft rounded-2xl border border-rose-400/30 px-4 py-5 text-sm text-rose-200">
+            <AppIcon name="error" :size="20" />
+            <span>{{ compatibilityCheckError }}</span>
+          </div>
+          <div v-else-if="!hasCompatibilityDialogIssues" class="compatibility-dialog__state theme-card-soft rounded-2xl border px-4 py-5 text-sm text-[var(--theme-text-secondary)]">
+            <AppIcon name="success" :size="20" />
+            <span>{{ compatibilityCopy.noIssues }}</span>
+          </div>
+          <div v-else class="space-y-2">
+            <div
+              v-for="issue in compatibilityIssues"
+              :key="`${issue.code}-${issue.title}-${issue.affectedInstances ?? 0}`"
+              class="compatibility-dialog__issue theme-card-soft grid grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-2xl border p-3"
+              :data-severity="normalizeCompatibilitySeverity(issue.severity)"
+            >
+              <span class="compatibility-dialog__issue-icon">
+                <AppIcon :name="getCompatibilityIssueIcon(issue)" :size="17" />
+              </span>
+              <span class="min-w-0">
+                <span class="flex min-w-0 items-center gap-2">
+                  <span class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ getCompatibilityIssueTitle(issue) }}</span>
+                  <span class="compatibility-dialog__severity">{{ getCompatibilitySeverityLabel(issue) }}</span>
+                </span>
+                <span v-if="issue.detail" class="mt-1 block text-xs leading-5 text-[var(--theme-text-secondary)]">{{ issue.detail }}</span>
+                <span class="mt-1 block truncate font-mono text-[10px] text-[var(--theme-text-muted)]">{{ getCompatibilityIssueMeta(issue) }}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </VCard>
+    </VDialog>
+
     <VDialog v-model="isKeySliceDialogOpen" max-width="520">
       <VCard class="key-slice-dialog theme-shell-panel overflow-hidden rounded-[22px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_24px_58px_rgba(0,0,0,0.48)]!">
         <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
@@ -837,7 +1053,7 @@ function handleSeriesDragEnd(): void {
 
 .series-list-search:focus-within {
   border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-soft));
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 88%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 10%, transparent);
 }
 
@@ -1156,6 +1372,93 @@ function handleSeriesDragEnd(): void {
   color: var(--theme-text-muted);
 }
 
+.compatibility-dialog {
+  backdrop-filter: blur(18px);
+}
+
+.compatibility-dialog__count {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  padding: 0 7px;
+  color: var(--theme-accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.compatibility-dialog__state {
+  display: flex;
+  min-height: 118px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.compatibility-dialog__spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  border-top-color: var(--theme-accent);
+  border-radius: 999px;
+  animation: compatibility-dialog-spin 760ms linear infinite;
+}
+
+.compatibility-dialog__issue {
+  border-color: color-mix(in srgb, var(--theme-accent-warm) 24%, var(--theme-border-soft));
+}
+
+.compatibility-dialog__issue[data-severity="error"] {
+  border-color: rgba(251, 113, 133, 0.32);
+}
+
+.compatibility-dialog__issue[data-severity="info"] {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
+}
+
+.compatibility-dialog__issue-icon {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent-warm) 30%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-accent-warm) 12%, transparent);
+  color: color-mix(in srgb, var(--theme-accent-warm) 82%, white 10%);
+}
+
+.compatibility-dialog__issue[data-severity="error"] .compatibility-dialog__issue-icon {
+  border-color: rgba(251, 113, 133, 0.34);
+  background: rgba(251, 113, 133, 0.12);
+  color: rgb(251, 113, 133);
+}
+
+.compatibility-dialog__issue[data-severity="info"] .compatibility-dialog__issue-icon {
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  color: color-mix(in srgb, var(--theme-accent) 82%, white 10%);
+}
+
+.compatibility-dialog__severity {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 72%, transparent);
+  padding: 2px 7px;
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+@keyframes compatibility-dialog-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .key-slice-dialog {
   backdrop-filter: blur(18px);
 }
@@ -1288,7 +1591,7 @@ function handleSeriesDragEnd(): void {
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-soft));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface-panel) 90%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   color: color-mix(in srgb, var(--theme-text-primary) 82%, var(--theme-accent) 18%);
   font-size: 11px;
   font-weight: 900;

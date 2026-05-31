@@ -24,38 +24,7 @@ const emit = defineEmits<{
 
 const { t, viewerCopy } = useUiLocale()
 
-type CompatibilityIssue = NonNullable<FolderSeriesItem['compatibilityIssues']>[number]
-type CompatibilitySeverity = 'info' | 'warning' | 'error'
-
-const compatibilityIssues = computed(() => props.series.compatibilityIssues ?? [])
-const hasCompatibilityIssues = computed(() => compatibilityIssues.value.length > 0)
-const compatibilitySeverity = computed<CompatibilitySeverity>(() => {
-  if (compatibilityIssues.value.some((issue) => issue.severity === 'error')) {
-    return 'error'
-  }
-  if (compatibilityIssues.value.some((issue) => issue.severity === 'warning' || !issue.severity)) {
-    return 'warning'
-  }
-  return 'info'
-})
-const compatibilityIcon = computed(() => {
-  if (compatibilitySeverity.value === 'error') {
-    return 'error'
-  }
-  if (compatibilitySeverity.value === 'info') {
-    return 'info'
-  }
-  return 'warning'
-})
-const compatibilityTitle = computed(() =>
-  compatibilityIssues.value.map((issue) => formatCompatibilityIssue(issue)).join('\n')
-)
 const hasKeySlices = computed(() => (props.keySliceCount ?? 0) > 0)
-
-function formatCompatibilityIssue(issue: CompatibilityIssue): string {
-  const title = issue.title || issue.code
-  return issue.detail ? `${title}: ${issue.detail}` : title
-}
 </script>
 
 <template>
@@ -88,16 +57,6 @@ function formatCompatibilityIssue(issue: CompatibilityIssue): string {
       </span>
       <span class="col-start-2 row-start-1 flex min-w-0 items-center gap-2">
         <span class="min-w-0 flex-1 truncate text-sm font-semibold" :class="selected ? 'text-[var(--theme-active-foreground)]' : 'text-[var(--theme-text-primary)]'">{{ series.seriesDescription || t('unnamedSeries') }}</span>
-        <span
-          v-if="hasCompatibilityIssues"
-          class="series-compatibility-chip"
-          :data-severity="compatibilitySeverity"
-          :title="compatibilityTitle"
-          aria-label="DICOM compatibility notice"
-        >
-          <AppIcon :name="compatibilityIcon" :size="12" />
-          <span>{{ compatibilityIssues.length }}</span>
-        </span>
         <span
           v-if="hasKeySlices"
           class="series-key-slice-chip"
@@ -282,37 +241,9 @@ function formatCompatibilityIssue(issue: CompatibilityIssue): string {
   color: var(--theme-active-foreground-secondary);
 }
 
-.series-compatibility-chip {
-  display: inline-flex;
-  height: 18px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 3px;
-  border: 1px solid color-mix(in srgb, var(--theme-accent-warm) 34%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent-warm) 12%, transparent);
-  padding: 0 5px;
-  color: color-mix(in srgb, var(--theme-accent-warm) 82%, white 10%);
-  font-size: 9px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.series-compatibility-chip[data-severity="error"] {
-  border-color: rgba(251, 113, 133, 0.34);
-  background: rgba(251, 113, 133, 0.12);
-  color: rgb(251, 113, 133);
-}
-
-.series-compatibility-chip[data-severity="info"] {
-  border-color: color-mix(in srgb, var(--theme-accent) 30%, transparent);
-  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
-  color: color-mix(in srgb, var(--theme-accent) 82%, white 10%);
-}
-
 .series-more-button {
   border-color: color-mix(in srgb, var(--theme-border-soft) 72%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong) 74%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 74%, transparent) !important;
   color: var(--theme-text-secondary) !important;
   opacity: 0;
   transform: translateY(-50%) translateX(4px);

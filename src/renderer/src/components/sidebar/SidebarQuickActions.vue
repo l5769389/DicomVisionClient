@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
-import type { ViewType } from '../../types/viewer'
+import type { FolderSeriesItem, ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
 import type { WebUploadPickMode } from '../../platform/runtime'
 import { normalizeInlineSvg } from '../../utils/svg'
+import AppIcon from '../AppIcon.vue'
 import fileIcon from '../../assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from '../../assets/dicom-action-icons/open-folder.svg?raw'
 
@@ -20,6 +22,7 @@ const props = defineProps<{
   hasSelectedSeries: boolean
   isLocalSourceEnabled: boolean
   isSelectedSeriesFourD: boolean
+  selectedSeries: FolderSeriesItem | null
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
 }>()
@@ -61,32 +64,32 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
     label: '2D',
     title: t('quickPreview'),
     viewType: 'Stack',
-    disabled: !props.hasSelectedSeries
+    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, 'Stack')
   },
   {
     label: '3D',
     title: '3D',
     viewType: '3D',
-    disabled: !props.hasSelectedSeries
+    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, '3D')
   },
   {
     label: '4D',
     title: '4D',
     viewType: '4D',
-    disabled: !props.hasSelectedSeries || !props.isSelectedSeriesFourD
+    disabled: !props.hasSelectedSeries || !props.isSelectedSeriesFourD || !isSeriesViewSupported(props.selectedSeries, '4D')
   },
   {
     label: 'TAG',
     title: 'DICOM Tags',
     viewType: 'Tag',
-    disabled: !props.hasSelectedSeries,
+    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, 'Tag'),
     wide: true
   },
   {
     label: 'MPR',
     title: 'MPR',
     viewType: 'MPR',
-    disabled: !props.hasSelectedSeries,
+    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, 'MPR'),
     wide: true
   }
 ])
@@ -95,18 +98,26 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
 
 <template>
   <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-    <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
-      <VBtn
-        v-if="isLocalSourceEnabled && isServerSampleMode"
-        variant="flat"
-        class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]"
-        :aria-label="folderActionLabel"
-        :title="folderActionLabel"
-        @click="emit('chooseFolder')"
-      >
-        <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
-      </VBtn>
+    <VBtn
+      v-if="isLocalSourceEnabled && isServerSampleMode"
+      variant="flat"
+      class="sample-action-button mb-2 w-full! min-w-0! rounded-2xl! border! px-3! py-0!"
+      :aria-label="folderActionLabel"
+      :title="folderActionLabel"
+      @click="emit('chooseFolder')"
+    >
+      <span class="sample-action-button__content">
+        <span class="sample-action-button__icon" aria-hidden="true">
+          <AppIcon name="play" :size="18" />
+        </span>
+        <span class="sample-action-button__copy">
+          <span class="sample-action-button__title">{{ folderActionLabel }}</span>
+          <span class="sample-action-button__badge">DEMO SAMPLE</span>
+        </span>
+      </span>
+    </VBtn>
 
+    <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
       <VMenu
         v-if="isLocalSourceEnabled && isWebUploadAvailable"
         location="bottom start"
@@ -173,6 +184,87 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
 .quick-action-icon-grid {
   align-items: center;
   justify-items: center;
+}
+
+.sample-action-button {
+  height: 52px !important;
+  min-height: 52px !important;
+  overflow: hidden;
+  border-color: color-mix(in srgb, #f59e0b 42%, var(--theme-border-strong)) !important;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #f59e0b 92%, #ffffff 8%), #14b8a6) !important;
+  color: #07111d !important;
+  text-transform: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 12px 22px rgba(20, 184, 166, 0.2),
+    0 8px 18px rgba(245, 158, 11, 0.18) !important;
+}
+
+.sample-action-button:hover:not(.v-btn--disabled) {
+  border-color: color-mix(in srgb, #fbbf24 62%, var(--theme-border-strong)) !important;
+  background:
+    linear-gradient(135deg, #fbbf24, color-mix(in srgb, #14b8a6 86%, #ffffff 14%)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 14px 26px rgba(20, 184, 166, 0.24),
+    0 10px 22px rgba(245, 158, 11, 0.22) !important;
+}
+
+.sample-action-button__content {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.sample-action-button__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(7, 17, 29, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.42);
+  color: #07111d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.sample-action-button__copy {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 3px;
+}
+
+.sample-action-button__title {
+  max-width: 100%;
+  overflow: hidden;
+  color: #07111d;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sample-action-button__badge {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(7, 17, 29, 0.15);
+  color: rgba(7, 17, 29, 0.78);
+  font-family: var(--theme-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 3px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quick-action-button {
@@ -254,6 +346,13 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   height: 100%;
   width: 100%;
   place-items: center;
+  padding: 0;
+}
+
+:deep(.sample-action-button .v-btn__content) {
+  display: grid;
+  width: 100%;
+  min-width: 0;
   padding: 0;
 }
 </style>

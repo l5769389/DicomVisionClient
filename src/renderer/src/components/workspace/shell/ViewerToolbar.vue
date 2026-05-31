@@ -65,7 +65,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
   <VCard
     class="viewer-toolbar-card flex min-h-9 shrink-0 items-center justify-start overflow-visible rounded-xl!"
     :class="[
-      embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'theme-shell-panel border! px-2! py-1.5!',
+      embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'viewer-toolbar-card--standalone border-0! px-2! py-1! shadow-none!',
       areToolbarActionsDisabled ? 'viewer-toolbar-card--locked' : ''
     ]"
   >
@@ -77,10 +77,10 @@ function getSelectedPlaybackFps(value: string | undefined): string {
         :class="[
           tool.key === 'play'
             ? supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)
-              ? 'rounded-xl border border-[var(--theme-border-strong)]'
+              ? 'toolbar-tool-group--compound rounded-xl'
               : ''
             : tool.options
-              ? 'rounded-xl border border-[var(--theme-border-soft)]'
+              ? 'toolbar-tool-group--compound rounded-xl'
               : '',
           tool.key === 'layout' || tool.key === 'mprLayout'
             ? hasSyncBesideLayout(activeTab.viewType)
@@ -113,7 +113,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
               <VBtn
                 v-bind="menuProps"
                 variant="flat"
-                class="toolbar-playback-button toolbar-playback-fps-button inline-flex! h-9! min-w-0! items-center! justify-center! rounded-none! border-l! border-white/8! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-surface-card)_42%),color-mix(in_srgb,var(--theme-accent-strong)_46%,var(--theme-surface-panel)_54%))]! px-2.5! text-[var(--theme-accent-contrast)]! transition hover:brightness-110"
+                class="toolbar-playback-button toolbar-playback-fps-button inline-flex! h-9! min-w-0! items-center! justify-center! rounded-none! border-l! border-white/8! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-surface-card)_42%),color-mix(in_srgb,var(--theme-accent-strong)_46%,var(--theme-surface-panel-solid)_54%))]! px-2.5! text-[var(--theme-accent-contrast)]! transition hover:brightness-110"
                 :aria-expanded="openMenuKey === tool.key"
                 :title="copy.toolOptions('FPS')"
               >
@@ -125,20 +125,20 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
             <div
               data-tool-menu-root
-              class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[22px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+              class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
             >
               <button
                 v-for="option in tool.options"
                 :key="option.value"
                 type="button"
-                class="toolbar-menu-option group relative inline-flex items-center justify-between gap-3 overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+                class="toolbar-menu-option group relative inline-flex items-center justify-between gap-2.5 overflow-hidden rounded-xl! border border-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
                 :class="{
                   'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
                 }"
                 @click="emit('selectToolOption', tool, option.value)"
               >
                 <div
-                  class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
+                  class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
                   :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
                 />
                 <span>{{ option.label }}</span>
@@ -203,7 +203,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
             <div
               data-tool-menu-root
-              class="theme-shell-panel relative inline-flex min-w-[220px] max-w-[320px] flex-col overflow-hidden rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+              class="theme-shell-panel relative inline-flex min-w-[220px] max-w-[320px] flex-col overflow-hidden rounded-[20px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
               :class="{ 'toolbar-layout-menu': tool.menuKind === 'layout', 'toolbar-mpr-layout-menu': tool.menuKind === 'mprLayout' }"
             >
               <div class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
@@ -229,59 +229,59 @@ function getSelectedPlaybackFps(value: string | undefined): string {
                 >
                   <div
                     v-if="option.group && option.group !== tool.options?.[optionIndex - 1]?.group"
-                    class="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:color-mix(in_srgb,var(--theme-text-muted)_88%,white_10%)]"
+                    class="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-muted)_88%,white_10%)]"
                   >
                     {{ option.group }}
                   </div>
                   <div
-                    class="toolbar-menu-option group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+                    class="toolbar-menu-option group relative overflow-hidden rounded-xl! border border-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
                     :class="{
                       'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value || option.checked
                     }"
                     @click="emit('selectToolOption', tool, option.value)"
                   >
                     <div
-                      class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
+                      class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
                       :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value || option.checked }"
                     />
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex min-w-0 items-center gap-4">
+                    <div class="flex items-center justify-between gap-2.5">
+                      <div class="flex min-w-0 items-center gap-3">
                         <div
-                          class="toolbar-menu-option__icon flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
+                          class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
                           :class="{
-                            'w-[54px] rounded-[18px]': tool.key === 'pseudocolor',
-                            'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel)_90%))]': stackToolSelections[tool.key] === option.value || option.checked
+                            'w-[46px] rounded-xl': tool.key === 'pseudocolor',
+                            'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel-solid)_90%))]': stackToolSelections[tool.key] === option.value || option.checked
                           }"
                         >
                           <PseudocolorBand
                             v-if="tool.key === 'pseudocolor'"
                             compact
-                            class="w-[42px] scale-[1.06]"
+                            class="w-[36px] scale-[1.04]"
                             :preset="option.swatchKey ?? 'bw'"
                           />
                           <AppIcon
                             v-else
                             :name="option.icon"
-                            :size="menuIconSize + 4"
+                            :size="menuIconSize + 2"
                           />
                         </div>
                         <div class="min-w-0">
                           <div class="truncate whitespace-nowrap font-medium text-[var(--theme-text-primary)]">{{ option.label }}</div>
-                          <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.35] text-[var(--theme-text-muted)]">
+                          <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.2] text-[var(--theme-text-muted)]">
                             {{ option.description }}
                           </div>
                         </div>
                       </div>
                       <span
                         v-if="tool.key === 'compareSync'"
-                        class="toolbar-menu-option__check grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_82%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_92%,transparent)] text-[var(--theme-text-muted)]"
+                        class="toolbar-menu-option__check grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[color:color-mix(in_srgb,var(--theme-border-soft)_82%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_92%,transparent)] text-[var(--theme-text-muted)]"
                         :class="{ 'border-[color:color-mix(in_srgb,var(--theme-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-accent)]': option.checked }"
                       >
                         <AppIcon v-if="option.checked" name="check" :size="14" />
                       </span>
                       <span
                         v-if="option.badge"
-                        class="toolbar-menu-option__badge shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]"
+                        class="toolbar-menu-option__badge shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-muted)]"
                       >
                         {{ option.badge }}
                       </span>
@@ -298,6 +298,14 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 </template>
 
 <style scoped>
+.viewer-toolbar-card--standalone {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card-soft) 60%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 82%, transparent)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28) !important;
+}
+
 .toolbar-layout-menu {
   width: min(232px, calc(100vw - 32px));
   max-width: min(232px, calc(100vw - 32px)) !important;
@@ -329,7 +337,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
   width: 1px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-surface-panel) 34%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-surface-panel-solid) 34%, transparent);
 }
 
 .toolbar-tool-group--sync-anchor {
@@ -338,6 +346,14 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
 .toolbar-tool-group--secondary-action {
   margin-left: 0.25rem;
+}
+
+.toolbar-tool-group--compound {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 48%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 68%, transparent));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24);
 }
 
 .toolbar-playback-fps-button {

@@ -580,6 +580,37 @@ app.whenReady().then(() => {
       return result === ''
     }
   )
+  ipcMain.handle(
+    'viewer:open-path-in-file-manager',
+    async (
+      _,
+      payload: {
+        path?: string | null
+      }
+    ) => {
+      const targetPath = payload.path?.trim()
+      if (!targetPath) {
+        return false
+      }
+
+      try {
+        const targetStats = statSync(targetPath)
+        if (targetStats.isFile()) {
+          shell.showItemInFolder(targetPath)
+          return true
+        }
+
+        if (targetStats.isDirectory()) {
+          const result = await shell.openPath(targetPath)
+          return result === ''
+        }
+      } catch {
+        return false
+      }
+
+      return false
+    }
+  )
   ipcMain.handle('viewer:load-ui-preferences', () => loadUiPreferences())
   ipcMain.handle('viewer:save-ui-preferences', (_, payload: unknown) => saveUiPreferences(payload))
 

@@ -73,6 +73,10 @@ const slots = computed<ViewerLayoutSlot[]>(() => {
         }
       ]
 })
+const isSingleStackLayout = computed(() => {
+  const [slot] = slots.value
+  return rows.value === 1 && columns.value === 1 && slots.value.length === 1 && Boolean(slot && isStackSlot(slot))
+})
 
 const sliceInfos = computed<Record<string, SliceInfo>>(() =>
   slots.value.reduce<Record<string, SliceInfo>>((result, slot) => {
@@ -298,7 +302,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
 </script>
 
 <template>
-  <div class="layout-view h-full min-h-0 text-[var(--theme-text-primary)]">
+  <div class="layout-view h-full min-h-0 text-[var(--theme-text-primary)]" :class="{ 'layout-view--single-stack': isSingleStackLayout }">
     <div
       class="layout-view__grid"
       :style="{
@@ -312,7 +316,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
         class="layout-view__slot"
         :class="{
           'layout-view__slot--filled': Boolean(slot.imageSrc || slot.viewId),
-          'layout-view__slot--active': activeViewportKey === slot.id,
+          'layout-view__slot--active': isSingleStackLayout || activeViewportKey === slot.id,
           'layout-view__slot--drop-target': canDropFilesIntoSlot(slot),
           'layout-view__slot--drop-active': activeDropSlotId === slot.id
         }"
@@ -328,7 +332,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
               class="min-w-0"
               :viewport-key="slot.id"
               viewport-class="grid place-items-center"
-              :is-active="activeViewportKey === slot.id"
+              :is-active="isSingleStackLayout || activeViewportKey === slot.id"
               :render-surface-active="true"
               :image-src="slot.imageSrc ?? ''"
               :is-loading="Boolean(slot.viewId) && !slot.imageSrc"
@@ -363,7 +367,10 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
               @update-annotation-text="emit('updateAnnotationText', $event)"
             />
 
-            <div class="layout-view__slider theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
+            <div
+              class="layout-view__slider flex min-h-0 flex-col items-center rounded-xl border px-1 py-2"
+              :class="isSingleStackLayout ? 'layout-view__slider--single stack-slice-panel theme-shell-panel-strong' : 'theme-card-soft'"
+            >
               <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Slice</span>
               <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[slot.id] ?? 1 }}</span>
               <div class="my-2 flex min-h-0 flex-1 items-center">
@@ -413,6 +420,10 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
   gap: 8px;
 }
 
+.layout-view--single-stack .layout-view__grid {
+  gap: 0;
+}
+
 .layout-view__slot {
   position: relative;
   display: grid;
@@ -430,6 +441,14 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+.layout-view--single-stack .layout-view__slot {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .layout-view__slot:not(.layout-view__slot--filled)::before {
   position: absolute;
   inset: 0;
@@ -444,6 +463,11 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
     0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.layout-view--single-stack .layout-view__slot--active {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .layout-view__slot--drop-target {
@@ -465,7 +489,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
 .layout-view__slot--filled {
   place-items: stretch;
   align-content: stretch;
-  background: #000;
+  background: transparent;
 }
 
 .layout-view__slot-body {
@@ -478,8 +502,17 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
   gap: 8px;
 }
 
+.layout-view--single-stack .layout-view__slot-body {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
 .layout-view__slider {
   align-self: stretch;
+}
+
+.layout-view__slider--single {
+  padding: 10px 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .layout-view__slice-slider {
@@ -494,6 +527,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
   height: 100%;
   min-width: 0;
   min-height: 0;
+  background: #000;
   object-fit: contain;
   user-select: none;
 }

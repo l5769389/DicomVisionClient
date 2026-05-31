@@ -1151,6 +1151,10 @@ function handleAnnotationCopy(payload: { viewportKey: string; annotationId: stri
 }
 
 function handleAnnotationPointerDown(event: PointerEvent, viewportKey: string): boolean {
+  if (!event.isPrimary || event.button !== 0) {
+    return false
+  }
+
   if (!isAnnotationOperationEnabled()) {
     return false
   }
@@ -1667,11 +1671,11 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    class="theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    class="viewer-workspace-shell theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
   >
     <div
       v-if="!hasSelectedSeries"
-      class="grid h-full place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
+      class="viewer-workspace-empty grid h-full place-items-center rounded-[20px] border border-transparent p-8 text-center transition duration-150"
       :class="quickPreviewDropClass"
       @dragenter="handleQuickPreviewDragEnter"
       @dragover="handleQuickPreviewDragOver"
@@ -1688,7 +1692,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else class="flex h-full min-h-0 flex-col gap-2">
+    <div v-else class="flex h-full min-h-0 flex-col gap-1">
       <ViewerTabStrip
         v-if="hasViewerTabs"
         v-model:tab-strip-ref="tabStripRef"
@@ -1733,7 +1737,7 @@ onBeforeUnmount(() => {
       <div
         v-else-if="activeTab"
         ref="viewportHostRef"
-        class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2.5"
+        class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2"
       >
         <div
           v-if="isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
@@ -1974,7 +1978,7 @@ onBeforeUnmount(() => {
 
       <div
         v-else
-        class="grid flex-1 place-items-center rounded-[20px] border border-dashed p-8 text-center transition duration-150"
+        class="viewer-workspace-empty grid flex-1 place-items-center rounded-[20px] border border-transparent p-8 text-center transition duration-150"
         :class="quickPreviewDropClass"
         @dragenter="handleQuickPreviewDragEnter"
         @dragover="handleQuickPreviewDragOver"
@@ -2011,3 +2015,15 @@ onBeforeUnmount(() => {
     />
   </main>
 </template>
+
+<style scoped>
+.viewer-workspace-empty.theme-shell-panel-soft {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.viewer-workspace-empty.theme-drop-active {
+  border-style: dashed;
+}
+</style>

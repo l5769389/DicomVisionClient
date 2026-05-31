@@ -50,7 +50,7 @@ const globalStubs = {
   ViewerCanvasStage: {
     name: 'ViewerCanvasStage',
     props: ['viewportKey', 'viewportClass', 'isActive'],
-    emits: ['clickViewport', 'doubleClickViewport'],
+    emits: ['clickViewport', 'doubleClickViewport', 'wheelViewport'],
     template: `
       <button
         class="viewer-stage-stub"
@@ -60,6 +60,7 @@ const globalStubs = {
         :data-active="isActive ? 'true' : 'false'"
         @click="$emit('clickViewport', viewportKey)"
         @dblclick="$emit('doubleClickViewport', viewportKey)"
+        @wheel="$emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
       >
         {{ viewportKey }}
       </button>
@@ -186,6 +187,44 @@ describe('MprView', () => {
 
     expect(wrapper.findAll('.viewer-stage-stub')).toHaveLength(3)
     expect(wrapper.emitted('viewportClick')).toEqual([['mpr-sag']])
+    wrapper.unmount()
+  })
+
+  it('routes wheel events to the active MPR viewport', async () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeViewportKey: 'mpr-cor'
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    await wrapper.find('[data-viewport-key="mpr-ax"]').trigger('wheel', { deltaY: 120 })
+
+    expect(wrapper.emitted('viewportWheel')).toEqual([[{ viewportKey: 'mpr-cor', deltaY: 120 }]])
+    wrapper.unmount()
+  })
+
+  it('falls back to the hovered MPR viewport when the active viewport cannot scroll', async () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeViewportKey: 'volume',
+        layoutKey: 'mpr-3d',
+        activeTab: createMprTab({
+          viewId: 'volume-view-1',
+          imageSrc: 'volume.png'
+        })
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    await wrapper.find('[data-viewport-key="mpr-sag"]').trigger('wheel', { deltaY: -120 })
+    await wrapper.find('[data-viewport-key="volume"]').trigger('wheel', { deltaY: 120 })
+
+    expect(wrapper.emitted('viewportWheel')).toEqual([[{ viewportKey: 'mpr-sag', deltaY: -120 }]])
     wrapper.unmount()
   })
 

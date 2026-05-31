@@ -1,6 +1,21 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import ViewportMeasurementOverlay from './ViewportMeasurementOverlay.vue'
+
+vi.mock('../../../composables/ui/useUiPreferences', async () => {
+  const { ref } = await import('vue')
+  return {
+    useUiPreferences: () => ({
+      measurementStylePreference: ref({
+        completedColor: '#38bdf8',
+        completedLineStyle: 'solid',
+        editingColor: '#f59e0b',
+        editingLineStyle: 'solid',
+        lineWidth: 2
+      })
+    })
+  }
+})
 
 describe('ViewportMeasurementOverlay', () => {
   it('renders committed measurement and selected draft together', () => {
@@ -36,9 +51,10 @@ describe('ViewportMeasurementOverlay', () => {
       }
     })
 
-    expect(wrapper.findAll('svg').length).toBe(1)
-    expect(wrapper.findAll('line').length).toBe(2)
-    expect(wrapper.findAll('rect').length).toBe(2)
+    const measurementSvg = wrapper.find('svg.absolute')
+    expect(wrapper.findAll('svg.absolute')).toHaveLength(1)
+    expect(measurementSvg.findAll('line')).toHaveLength(2)
+    expect(measurementSvg.findAll('rect')).toHaveLength(2)
     expect(wrapper.text()).toContain('12.4 mm')
     expect(wrapper.text()).toContain('ROI')
   })
@@ -214,7 +230,7 @@ describe('ViewportMeasurementOverlay', () => {
       }
     })
 
-    expect(wrapper.findAll('path')).toHaveLength(2)
+    expect(wrapper.find('svg.absolute').findAll('path')).toHaveLength(2)
     expect(wrapper.text()).toContain('Draft')
     expect(wrapper.text()).not.toContain('Committed')
   })

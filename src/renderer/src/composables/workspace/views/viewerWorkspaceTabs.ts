@@ -18,6 +18,7 @@ import type {
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
+import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import { createCompareSyncDefaults, createLayoutSyncDefaults } from '../sync/viewSyncConfig'
 
@@ -538,8 +539,10 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),
-    volumePreset: 'volumePreset:aaa',
-    volumeRenderConfig: createDefaultVolumeRenderConfig('aaa'),
+    volumePreset: 'volumePreset:bone',
+    volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
+    render3dMode: 'volume',
+    surfaceRenderConfig: createDefaultSurfaceRenderConfig(),
     tagIndex: 0,
     tagTotal: 0,
     tagItems: [],

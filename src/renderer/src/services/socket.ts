@@ -13,6 +13,8 @@ import type {
   ViewHoverPayload,
   ViewHoverResponse,
   ViewImageResponse,
+  Render3DMode,
+  SurfaceRenderConfig,
   VolumeRenderConfig
 } from '../types/viewer'
 
@@ -62,6 +64,8 @@ export interface ViewOperationPayload {
   hor_flip?: boolean
   ver_flip?: boolean
   volumeConfig?: VolumeRenderConfig
+  render3dMode?: Render3DMode
+  surfaceConfig?: SurfaceRenderConfig
 }
 
 export type ViewOperationInput = Omit<ViewOperationPayload, 'viewId'>

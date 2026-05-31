@@ -32,7 +32,7 @@ const {
 
 <template>
   <div class="space-y-5">
-    <section class="overflow-hidden rounded-[28px] border border-[var(--theme-border-soft)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-surface-panel-strong)_88%,black),color-mix(in_srgb,var(--theme-surface-card)_82%,black))]">
+    <section class="overflow-hidden rounded-[28px] border border-[var(--theme-border-soft)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_88%,black),color-mix(in_srgb,var(--theme-surface-card)_82%,black))]">
       <div class="flex flex-col gap-5 border-b border-[var(--theme-border-soft)] px-5 py-5 md:flex-row md:items-start md:justify-between">
         <div class="min-w-0">
           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">

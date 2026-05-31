@@ -403,7 +403,7 @@ function isTestingProfile(profileId: string): boolean {
 
 .pacs-profile-header {
   padding: 10px 16px;
-  background: color-mix(in srgb, var(--theme-surface-panel) 86%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 86%, transparent);
   border-bottom: 1px solid var(--theme-border-soft);
 }
 

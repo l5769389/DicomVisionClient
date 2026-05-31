@@ -401,6 +401,20 @@ export interface VolumeRenderConfig {
   lighting: VolumeLightingConfig
 }
 
+export type Render3DMode = 'volume' | 'surface'
+
+export interface SurfaceRenderConfig {
+  preset: string
+  isoValue: number
+  smoothing: number
+  decimation: number
+  color: string
+  ambient: number
+  diffuse: number
+  specular: number
+  roughness: number
+}
+
 export interface ViewTransformInfo {
   rotationDegrees: number
   horFlip: boolean
@@ -433,6 +447,8 @@ export interface ViewImageResponse {
   orientation?: unknown
   volumePreset?: string
   volumeConfig?: VolumeRenderConfig | null
+  render3dMode?: Render3DMode | null
+  surfaceConfig?: SurfaceRenderConfig | null
   transform?: ViewTransformInfo | null
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
@@ -518,6 +534,8 @@ export interface ViewerTabItem {
   mprMipConfig?: MprMipConfig | null
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
+  render3dMode?: Render3DMode
+  surfaceRenderConfig?: SurfaceRenderConfig | null
   mtfState?: ViewerMtfState | null
   tagIndex?: number
   tagTotal?: number

@@ -573,7 +573,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
       </div>
 
       <div class="pacs-browser-body grid gap-0 overflow-hidden lg:grid-cols-[330px_minmax(0,1fr)]">
-        <aside class="pacs-filter-panel min-h-0 border-b border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] lg:border-b-0 lg:border-r">
+        <aside class="pacs-filter-panel min-h-0 border-b border-[var(--theme-border-soft)] lg:border-b-0 lg:border-r">
           <div class="pacs-filter-scroll flex flex-col gap-4 p-5">
             <div class="grid gap-1.5">
               <span class="pacs-field-label">Profile</span>
@@ -732,7 +732,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               </div>
             </section>
           </div>
-          <div class="pacs-filter-footer border-t border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] p-4">
+          <div class="pacs-filter-footer border-t border-[var(--theme-border-soft)] p-4">
             <VBtn
               variant="flat"
               class="theme-button-primary min-h-11! w-full rounded-2xl! border! text-sm! font-semibold!"
@@ -942,6 +942,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 .pacs-filter-panel {
   display: flex;
   flex-direction: column;
+  background: var(--theme-surface-panel);
   overflow: hidden;
 }
 
@@ -954,7 +955,8 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 
 .pacs-filter-footer {
   flex: 0 0 auto;
-  box-shadow: 0 -16px 34px color-mix(in srgb, black 24%, transparent);
+  background: var(--theme-surface-panel);
+  box-shadow: 0 -16px 34px color-mix(in srgb, var(--theme-surface-panel-solid) 36%, transparent);
 }
 
 .pacs-result-layout {
@@ -989,6 +991,34 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   grid-auto-rows: max-content;
   overflow: auto;
   scrollbar-gutter: stable;
+}
+
+.pacs-filter-scroll,
+.pacs-scroll-list {
+  scrollbar-color: color-mix(in srgb, var(--theme-scroll-thumb-start) 78%, var(--theme-scroll-thumb-end)) var(--theme-scroll-track);
+  scrollbar-width: thin;
+}
+
+.pacs-filter-scroll::-webkit-scrollbar,
+.pacs-scroll-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.pacs-filter-scroll::-webkit-scrollbar-track,
+.pacs-scroll-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: var(--theme-scroll-track);
+}
+
+.pacs-filter-scroll::-webkit-scrollbar-thumb,
+.pacs-scroll-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--theme-scroll-thumb-start), var(--theme-scroll-thumb-end)) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 14%, transparent);
 }
 
 @media (min-width: 1280px) {
@@ -1329,7 +1359,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
-      color-mix(in srgb, var(--theme-surface-panel) 94%, black 6%)
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%)
     );
   padding: 6px;
   box-shadow:

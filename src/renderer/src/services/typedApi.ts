@@ -14,6 +14,7 @@ const API_V1_PREFIX_PATTERN = /^\/api\/v1(?=\/)/
 const operationPaths = {
   AnalyzeMtfApiV1ViewMtfAnalyzePost: '/api/v1/view/mtf/analyze',
   AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost: '/api/v1/view/qa/water/analyze',
+  CheckDicomCompatibilityApiV1DicomCompatibilityPost: '/api/v1/dicom/compatibility',
   CloseViewApiV1ViewClosePost: '/api/v1/view/close',
   CreateViewApiV1ViewCreatePost: '/api/v1/view/create',
   DeidentifyDicomSeriesApiV1DicomDeidentifyPost: '/api/v1/dicom/deidentify',

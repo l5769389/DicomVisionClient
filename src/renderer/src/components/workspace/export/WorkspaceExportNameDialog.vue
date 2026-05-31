@@ -21,14 +21,14 @@ const emit = defineEmits<{
 
 <template>
   <div
-    class="absolute inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-md"
+    class="workspace-export-name-backdrop absolute inset-0 z-[90] grid place-items-center p-4 backdrop-blur-md"
     role="dialog"
     aria-modal="true"
     :aria-label="copy.setExportName"
     @click.self="emit('cancel')"
   >
     <form
-      class="w-[min(480px,100%)] rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-accent)_34%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_92%,#050914)] p-5 shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
+      class="w-[min(480px,100%)] rounded-[24px] border border-[color:color-mix(in_srgb,var(--theme-accent)_34%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_92%,#050914)] p-5 shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
       @submit.prevent="emit('confirm')"
     >
       <div class="flex items-start justify-between gap-4">
@@ -49,19 +49,19 @@ const emit = defineEmits<{
         {{ copy.exportName }}
       </label>
       <div
-        class="mt-2 flex min-w-0 overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_82%,#0f172a)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_28px_rgba(0,0,0,0.2)] transition focus-within:border-[var(--theme-accent)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent),inset_0_1px_0_rgba(255,255,255,0.07)]"
+        class="mt-2 flex min-w-0 overflow-hidden rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-border-soft))] bg-[var(--theme-surface-card)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_28px_rgba(0,0,0,0.2)] transition focus-within:border-[var(--theme-accent)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent),inset_0_1px_0_rgba(255,255,255,0.07)]"
       >
         <input
           id="export-file-name-input"
           :ref="(element) => emit('update:inputRef', element as HTMLInputElement | null)"
           :value="modelValue"
-          class="min-w-0 flex-1 bg-[color:color-mix(in_srgb,var(--theme-surface-card)_88%,#111827)] px-3 py-2.5 text-sm text-[var(--theme-text-primary)] outline-none"
+          class="min-w-0 flex-1 bg-[var(--theme-surface-card)] px-3 py-2.5 text-sm text-[var(--theme-text-primary)] outline-none"
           type="text"
           autocomplete="off"
           @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
           @keydown.esc.prevent="emit('cancel')"
         />
-        <div class="flex shrink-0 items-center border-l border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,black)] px-3 text-sm font-semibold text-[var(--theme-text-secondary)]">
+        <div class="flex shrink-0 items-center border-l border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-panel-solid))] px-3 text-sm font-semibold text-[var(--theme-text-secondary)]">
           .{{ extension }}
         </div>
       </div>
@@ -81,3 +81,9 @@ const emit = defineEmits<{
     </form>
   </div>
 </template>
+
+<style scoped>
+.workspace-export-name-backdrop {
+  background: var(--theme-overlay-backdrop);
+}
+</style>

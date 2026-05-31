@@ -122,8 +122,11 @@ interface MeasurementPointerContext extends BasicPointerContext {
 
 const DRAG_START_THRESHOLD = 3
 const VIEWPORT_DRAG_THROTTLE_MS = 30
+const SURFACE_VIEWPORT_DRAG_THROTTLE_MS = 85
 const MPR_CROSSHAIR_THROTTLE_MS = 16
 const MEASUREMENT_DRAFT_THROTTLE_MS = 30
+const POINTER_BUTTON_LEFT = 0
+const POINTER_BUTTON_RIGHT = 2
 const POINT_SEQUENCE_DOUBLE_CLICK_MS = 420
 const POINT_SEQUENCE_DOUBLE_CLICK_DISTANCE = 0.025
 const POINT_SET_CLOSE_EPSILON = 0.0005
@@ -256,6 +259,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       options.emitViewportDrag(payload)
     },
     VIEWPORT_DRAG_THROTTLE_MS,
+    { leading: true, trailing: true }
+  )
+  const emitThrottledSurfaceViewportDrag = throttle(
+    (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
+      options.emitViewportDrag(payload)
+    },
+    SURFACE_VIEWPORT_DRAG_THROTTLE_MS,
     { leading: true, trailing: true }
   )
 
@@ -395,12 +405,80 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     )
   }
 
-  function isMouseDragOperationEnabled(): boolean {
-    return STACK_DRAG_OPERATIONS.includes(getNormalizedOperation() as (typeof STACK_DRAG_OPERATIONS)[number])
+  function isExplicitViewportDragOperation(operation: string): operation is (typeof STACK_DRAG_OPERATIONS)[number] {
+    return STACK_DRAG_OPERATIONS.includes(operation as (typeof STACK_DRAG_OPERATIONS)[number])
+  }
+
+  function canUseDefaultWindowDrag(viewportKey: string): boolean {
+    const viewType = options.activeTab.value?.viewType
+    if (viewportKey === 'volume' || viewType === '3D') {
+      return false
+    }
+    return isStackLikeViewType(viewType) || isMprLikeViewType(viewType)
+  }
+
+  function canUseDefaultZoomDrag(viewportKey: string): boolean {
+    const viewType = options.activeTab.value?.viewType
+    return viewportKey === 'volume' || viewType === '3D' || isStackLikeViewType(viewType) || isMprLikeViewType(viewType)
+  }
+
+  function resolveViewportDragOperation(viewportKey: string, button: number): ViewOperationType | null {
+    if (button === POINTER_BUTTON_RIGHT) {
+      return canUseDefaultZoomDrag(viewportKey) ? VIEW_OPERATION_TYPES.zoom : null
+    }
+
+    if (button !== POINTER_BUTTON_LEFT) {
+      return null
+    }
+
+    const operation = getNormalizedOperation()
+    if (isExplicitViewportDragOperation(operation)) {
+      return operation
+    }
+
+    return canUseDefaultWindowDrag(viewportKey) ? VIEW_OPERATION_TYPES.window : null
+  }
+
+  function getViewportDragCursorClass(operationType: ViewOperationType): string | null {
+    if (operationType === VIEW_OPERATION_TYPES.window) {
+      return 'cursor-window-level'
+    }
+    if (operationType === VIEW_OPERATION_TYPES.zoom) {
+      return 'cursor-zoom-drag'
+    }
+    return null
   }
 
   function isRotate3dDragOperation(): boolean {
     return dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d
+  }
+
+  function isSurfaceViewportDrag(payload: { opType: ViewOperationType; viewportKey: string }): boolean {
+    const tab = options.activeTab.value
+    return (
+      payload.viewportKey === 'volume' &&
+      tab?.render3dMode === 'surface' &&
+      (tab.viewType === '3D' || tab.viewType === 'MPR') &&
+      STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])
+    )
+  }
+
+  function emitViewportDragMove(payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }): void {
+    if (isSurfaceViewportDrag(payload)) {
+      emitThrottledSurfaceViewportDrag(payload)
+      return
+    }
+    emitThrottledViewportDrag(payload)
+  }
+
+  function flushViewportDragMoves(): void {
+    emitThrottledViewportDrag.flush()
+    emitThrottledSurfaceViewportDrag.flush()
+  }
+
+  function cancelViewportDragMoves(): void {
+    emitThrottledViewportDrag.cancel()
+    emitThrottledSurfaceViewportDrag.cancel()
   }
 
   function resolvePointerContainer(event: PointerEvent): HTMLElement | null {
@@ -996,7 +1074,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    emitThrottledViewportDrag.flush()
+    flushViewportDragMoves()
 
     if (hasSentDragStart) {
       if (dragOperationType.value && isRotate3dDragOperation() && lastDragNormalizedPoint) {
@@ -1018,6 +1096,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       }
     }
 
+    const stoppedViewportKey = dragViewportKey.value
     isViewportDragging.value = false
     dragViewportKey.value = ''
     totalDeltaX = 0
@@ -1026,6 +1105,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     dragStartNormalizedPoint = null
     lastDragNormalizedPoint = null
     dragOperationType.value = null
+    if (stoppedViewportKey) {
+      clearViewportCursor(stoppedViewportKey)
+    }
     releasePointerCapture(pointerTarget)
   }
 
@@ -1827,7 +1909,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         return true
       }
       lastDragNormalizedPoint = point
-      emitThrottledViewportDrag({
+      emitViewportDragMove({
         deltaX: point.x,
         deltaY: point.y,
         opType: VIEW_OPERATION_TYPES.rotate3d,
@@ -1838,7 +1920,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (dragOperationType.value) {
-      emitThrottledViewportDrag({
+      emitViewportDragMove({
         deltaX: totalDeltaX,
         deltaY: totalDeltaY,
         opType: dragOperationType.value,
@@ -1957,7 +2039,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
     const hitTarget = resolveCrosshairHitTarget(event, viewportKey, point)
     if (hitTarget === 'none') {
-      return isCrosshairToolActive
+      return false
     }
     event.preventDefault()
     setPointerCapture(pointerTarget, event.pointerId)
@@ -1977,7 +2059,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function handleViewportDragPointerDown(event: PointerEvent, viewportKey: string, pointerTarget: HTMLElement): boolean {
-    if (!isMouseDragOperationEnabled()) {
+    const operationType = resolveViewportDragOperation(viewportKey, event.button)
+    if (!operationType) {
       return false
     }
 
@@ -1985,8 +2068,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     setPointerCapture(pointerTarget, event.pointerId)
     setActiveViewport(viewportKey)
     dragViewportKey.value = viewportKey
-    dragOperationType.value = getNormalizedOperation() as ViewOperationType
+    dragOperationType.value = operationType
     isViewportDragging.value = true
+    const dragCursorClass = getViewportDragCursorClass(operationType)
+    if (dragCursorClass) {
+      setViewportCursor(viewportKey, dragCursorClass)
+    }
     lastPointerX = event.clientX
     lastPointerY = event.clientY
     totalDeltaX = 0
@@ -2108,11 +2195,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function handleViewportPointerDown(event: PointerEvent, viewportKey: string): void {
-    if (!event.isPrimary || event.button !== 0) {
+    if (!event.isPrimary || (event.button !== POINTER_BUTTON_LEFT && event.button !== POINTER_BUTTON_RIGHT)) {
       return
     }
     const context = resolveBasicPointerContext(event, viewportKey)
     if (!context) {
+      return
+    }
+
+    if (event.button === POINTER_BUTTON_RIGHT) {
+      handleViewportDragPointerDown(event, viewportKey, context.pointerTarget)
       return
     }
 
@@ -2132,7 +2224,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function cleanupPointerInteractions(): void {
-    emitThrottledViewportDrag.cancel()
+    cancelViewportDragMoves()
     emitThrottledCrosshairMove.cancel()
     emitThrottledMeasurementDraft.cancel()
     viewportCursorClasses.value = {}

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import { DRAG_ACTION_TYPES, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import type { MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType, ViewerTabItem } from '../../types/viewer'
 import { useViewerWorkspacePointer } from './useViewerWorkspacePointer'
 
@@ -17,10 +18,10 @@ function createRect(left = 0, top = 0, width = 200, height = 200): DOMRect {
   } as DOMRect
 }
 
-function installViewport(): HTMLElement {
+function installViewport(viewportKey = 'single'): HTMLElement {
   const viewport = document.createElement('div')
   viewport.className = 'viewer-viewport'
-  viewport.dataset.viewportKey = 'single'
+  viewport.dataset.viewportKey = viewportKey
   Object.defineProperty(viewport, 'getBoundingClientRect', {
     configurable: true,
     value: () => createRect()
@@ -46,12 +47,12 @@ function installViewport(): HTMLElement {
 function createPointerEvent(
   target: HTMLElement,
   point: MeasurementDraftPoint,
-  options: { buttons?: number; pointerId?: number; timeStamp?: number } = {}
+  options: { button?: number; buttons?: number; pointerId?: number; timeStamp?: number } = {}
 ): PointerEvent {
   const rect = createRect()
   return {
     isPrimary: true,
-    button: 0,
+    button: options.button ?? 0,
     buttons: options.buttons ?? 1,
     clientX: rect.left + point.x * rect.width,
     clientY: rect.top + point.y * rect.height,
@@ -90,10 +91,35 @@ function upsertMeasurement(
   return measurements.map((measurement, index) => (index === existingIndex ? nextMeasurement : measurement))
 }
 
-function createPointerHarness() {
-  const viewport = installViewport()
-  const activeOperation = ref('stack:measure:freeform')
-  const activeTab = ref({ viewType: 'Stack' } as ViewerTabItem)
+function createMprCrosshairTab(): ViewerTabItem {
+  return {
+    viewType: 'MPR',
+    viewportCrosshairs: {
+      'mpr-ax': {
+        centerX: 0.5,
+        centerY: 0.5,
+        hitRadius: 0.03,
+        horizontalPosition: 0.5,
+        verticalPosition: 0.5
+      }
+    }
+  } as ViewerTabItem
+}
+
+function getViewportDragPayloads(emitViewportDrag: ReturnType<typeof vi.fn>) {
+  return emitViewportDrag.mock.calls.map(([payload]) => payload as { opType: string; phase: string })
+}
+
+function hasViewportDragPhase(payloads: Array<{ opType: string; phase: string }>, opType: string, phase: string): boolean {
+  return payloads.some((payload) => payload.opType === opType && payload.phase === phase)
+}
+
+function createPointerHarness(
+  overrides: { activeOperation?: string; activeTab?: ViewerTabItem; viewportKey?: string } = {}
+) {
+  const viewport = installViewport(overrides.viewportKey)
+  const activeOperation = ref(overrides.activeOperation ?? 'stack:measure:freeform')
+  const activeTab = ref(overrides.activeTab ?? ({ viewType: 'Stack' } as ViewerTabItem))
   let committedMeasurements: MeasurementOverlay[] = [
     {
       measurementId: 'freeform-original',
@@ -113,10 +139,14 @@ function createPointerHarness() {
     toolType: MeasurementToolType
   }> = []
 
+  const emitActiveViewportChange = vi.fn()
+  const emitMprCrosshair = vi.fn()
+  const emitViewportDrag = vi.fn()
+
   const pointer = useViewerWorkspacePointer({
     activeOperation,
     activeTab,
-    emitActiveViewportChange: vi.fn(),
+    emitActiveViewportChange,
     emitOperationChange: (value) => {
       activeOperation.value = value
     },
@@ -129,8 +159,8 @@ function createPointerHarness() {
     emitMtfCommit: vi.fn(),
     emitMtfDelete: vi.fn(),
     emitMtfSelect: vi.fn(),
-    emitMprCrosshair: vi.fn(),
-    emitViewportDrag: vi.fn(),
+    emitMprCrosshair,
+    emitViewportDrag,
     getCommittedMeasurements: () => committedMeasurements,
     getMtfItems: () => []
   })
@@ -145,14 +175,20 @@ function createPointerHarness() {
   }
 
   return {
+    activeOperation,
+    activeTab,
     copySelectedFreeform,
     createdMeasurements,
+    emitActiveViewportChange,
+    emitMprCrosshair,
+    emitViewportDrag,
     pointer,
     viewport
   }
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   document.body.innerHTML = ''
   vi.restoreAllMocks()
 })
@@ -210,5 +246,150 @@ describe('useViewerWorkspacePointer', () => {
     )
 
     expect(pointer.draftMeasurements.value.single).toBeNull()
+  })
+
+  it('defaults left-button viewport drag to window when no specific interaction handles it', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:scroll' })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 10 }), 'single')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.27, y: 0.24 }, { pointerId: 10 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.27, y: 0.24 }, { buttons: 0, pointerId: 10 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.start)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.move)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.end)).toBe(true)
+  })
+
+  it('keeps explicit drag tools ahead of the default window drag', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:pan' })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 11 }), 'single')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.28, y: 0.21 }, { pointerId: 11 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.28, y: 0.21 }, { buttons: 0, pointerId: 11 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.pan)).toBe(true)
+    expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.window)).toBe(false)
+  })
+
+  it('uses a window cursor while window-level drag is active', () => {
+    const { pointer, viewport } = createPointerHarness({ activeOperation: 'stack:window' })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 15 }), 'single')
+    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-window-level')
+
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { buttons: 0, pointerId: 15 }))
+
+    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-auto')
+  })
+
+  it('defaults right-button viewport drag to zoom and uses a zoom cursor', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:scroll' })
+
+    pointer.handleViewportPointerDown(
+      createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { button: 2, buttons: 2, pointerId: 16 }),
+      'single'
+    )
+    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-zoom-drag')
+
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.2, y: 0.28 }, { button: 2, buttons: 2, pointerId: 16 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.2, y: 0.28 }, { button: 2, buttons: 0, pointerId: 16 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.start)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.move)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.end)).toBe(true)
+    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-auto')
+  })
+
+  it('does not apply default window drag to volume-only viewports', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:scroll',
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 14 }), 'volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.28, y: 0.21 }, { pointerId: 14 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.28, y: 0.21 }, { buttons: 0, pointerId: 14 }))
+
+    expect(emitViewportDrag).not.toHaveBeenCalled()
+  })
+
+  it('allows right-button zoom on volume-only viewports', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:scroll',
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(
+      createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { button: 2, buttons: 2, pointerId: 17 }),
+      'volume'
+    )
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.2, y: 0.3 }, { button: 2, buttons: 2, pointerId: 17 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.2, y: 0.3 }, { button: 2, buttons: 0, pointerId: 17 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.start)).toBe(true)
+  })
+
+  it('uses a slower move cadence for surface volume drags', () => {
+    vi.useFakeTimers()
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:zoom',
+      activeTab: { viewType: '3D', render3dMode: 'surface' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 18 }), 'volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.24, y: 0.2 }, { pointerId: 18 }))
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.3, y: 0.2 }, { pointerId: 18 }))
+
+    const countMovePayloads = () =>
+      emitViewportDrag.mock.calls.filter(([payload]) => payload.phase === DRAG_ACTION_TYPES.move).length
+
+    expect(countMovePayloads()).toBe(1)
+    vi.advanceTimersByTime(84)
+    expect(countMovePayloads()).toBe(1)
+    vi.advanceTimersByTime(1)
+    expect(countMovePayloads()).toBe(2)
+  })
+
+  it('keeps MPR crosshair center drag ahead of the default window drag', () => {
+    const { emitMprCrosshair, emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:crosshair',
+      activeTab: createMprCrosshairTab(),
+      viewportKey: 'mpr-ax'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { pointerId: 12 }), 'mpr-ax')
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { buttons: 0, pointerId: 12 }))
+
+    expect(emitMprCrosshair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'move',
+        phase: DRAG_ACTION_TYPES.start,
+        viewportKey: 'mpr-ax'
+      })
+    )
+    expect(emitViewportDrag).not.toHaveBeenCalled()
+  })
+
+  it('falls back to window drag in MPR crosshair mode when no crosshair part is hit', () => {
+    const { emitMprCrosshair, emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:crosshair',
+      activeTab: createMprCrosshairTab(),
+      viewportKey: 'mpr-ax'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.1, y: 0.1 }, { pointerId: 13 }), 'mpr-ax')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.18, y: 0.12 }, { pointerId: 13 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.18, y: 0.12 }, { buttons: 0, pointerId: 13 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(emitMprCrosshair).not.toHaveBeenCalled()
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.start)).toBe(true)
   })
 })

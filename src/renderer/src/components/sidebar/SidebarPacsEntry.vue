@@ -24,7 +24,7 @@ const activeProfile = computed(() => (
 </script>
 
 <template>
-  <VCard class="theme-shell-panel rounded-2xl! border! p-3! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+  <VCard class="pacs-entry-card theme-shell-panel rounded-2xl! border! p-3! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
     <div class="flex items-center gap-3">
       <span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_11%,transparent)] text-[var(--theme-accent)]">
         <AppIcon name="pacs" :size="20" />

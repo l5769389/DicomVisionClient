@@ -16,7 +16,7 @@ const emit = defineEmits<{
 
 <template>
   <div
-    class="absolute bottom-5 right-5 z-[80] w-[min(420px,calc(100%-40px))] rounded-[20px] border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong)_94%,black)] p-4 shadow-[0_22px_44px_rgba(0,0,0,0.42)] backdrop-blur"
+    class="absolute bottom-5 right-5 z-[80] w-[min(420px,calc(100%-40px))] rounded-[20px] border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_94%,black)] p-4 shadow-[0_22px_44px_rgba(0,0,0,0.42)] backdrop-blur"
   >
     <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">

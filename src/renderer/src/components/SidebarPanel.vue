@@ -51,6 +51,9 @@ const isPacsEntryVisible = computed(() => (
   pacsPreference.value.profiles.some((profile) => profile.enabled)
 ))
 const isLocalSourceEnabled = computed(() => pacsPreference.value.localSourceEnabled !== false)
+const selectedSeries = computed(() =>
+  props.seriesList.find((item) => item.seriesId === props.selectedSeriesId) ?? null
+)
 
 const connectionIcon = computed(() => {
   if (props.connectionState === 'connected') return 'connected'
@@ -115,13 +118,16 @@ function hideSeriesHoverCard(): void {
 </script>
 
 <template>
-  <aside class="theme-shell-panel min-h-0 min-w-0 rounded-[24px] border p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_48px_rgba(0,0,0,0.28)] backdrop-blur max-[900px]:max-h-[460px]">
+  <aside class="sidebar-shell min-h-0 min-w-0 max-[900px]:max-h-[460px]">
     <div class="flex h-full flex-col gap-2.5">
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
-        <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-local-source-enabled="isLocalSourceEnabled" :is-selected-series-four-d="isSelectedSeriesFourD" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
-        <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
-        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" @compare-series="handleCompareSeries" @open-key-slice="(seriesId, sliceIndex) => emit('openKeySlice', seriesId, sliceIndex)" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
+        <div class="sidebar-source-group">
+          <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-local-source-enabled="isLocalSourceEnabled" :is-selected-series-four-d="isSelectedSeriesFourD" :selected-series="selectedSeries" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
+          <div v-if="isPacsEntryVisible" class="sidebar-source-divider"></div>
+          <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
+        </div>
+        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" :viewer-platform="viewerPlatform" @compare-series="handleCompareSeries" @open-key-slice="(seriesId, sliceIndex) => emit('openKeySlice', seriesId, sliceIndex)" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>
 
@@ -165,6 +171,44 @@ function hideSeriesHoverCard(): void {
 </template>
 
 <style scoped>
+.sidebar-shell {
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+}
+
+.sidebar-source-group {
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 24px;
+  background: var(--theme-surface-panel);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 24px color-mix(in srgb, var(--theme-accent-strong) 8%, transparent);
+}
+
+.sidebar-source-divider {
+  height: 1px;
+  margin: 0 14px;
+  background: color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
+}
+
+.sidebar-source-group :deep(.quick-actions-card),
+.sidebar-source-group :deep(.pacs-entry-card) {
+  border-width: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.sidebar-source-group :deep(.quick-actions-card) {
+  padding: 14px !important;
+}
+
+.sidebar-source-group :deep(.pacs-entry-card) {
+  padding: 14px !important;
+}
+
 .hover-series-thumbnail {
   display: grid;
   width: 46px;

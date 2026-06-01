@@ -23,12 +23,12 @@ jobs:
 
       - name: Deploy on server
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || '114.67.114.128' }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || '111.228.1.213' }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN || 'http://114.67.114.128' }}
+          PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN || 'http://111.228.1.213' }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_HOST"

@@ -31,6 +31,7 @@ DicomVision 更适合这些情况：
 ## 在线预览
 
 https://dicom-vision-client.vercel.app/
+http://111.228.1.213/
 
 公开 Web 预览连接远程后端，适合快速体验 UI 和基础流程。真实 PACS、桌面端内置后端和本地大数据量场景建议使用本地部署或桌面端。
 

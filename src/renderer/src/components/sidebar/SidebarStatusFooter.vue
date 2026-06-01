@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { VBtn } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { ConnectionState } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 
-defineProps<{
+const props = defineProps<{
   connectionDotClass: string
   connectionIcon: string
   connectionState: ConnectionState
@@ -16,7 +17,18 @@ const emit = defineEmits<{
   toggleSidebar: []
 }>()
 
-const { t } = useUiLocale()
+const { locale, t } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
+const connectionStateLabel = computed(() => {
+  const labels: Record<ConnectionState, { zh: string; en: string }> = {
+    connected: { zh: '已连接', en: 'Connected' },
+    connecting: { zh: '连接中', en: 'Connecting' },
+    reconnecting: { zh: '重连中', en: 'Reconnecting' },
+    disconnected: { zh: '未连接', en: 'Disconnected' }
+  }
+  const label = labels[props.connectionState]
+  return isZh.value ? label.zh : label.en
+})
 </script>
 
 <template>
@@ -29,7 +41,7 @@ const { t } = useUiLocale()
         <div class="mb-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ t('connection') }}</div>
         <div class="flex min-w-0 items-center gap-2 text-xs text-[var(--theme-text-secondary)]">
           <span class="h-2.5 w-2.5 shrink-0 rounded-full" :class="connectionDotClass"></span>
-          <span class="truncate capitalize">{{ connectionState }}</span>
+          <span class="truncate">{{ connectionStateLabel }}</span>
         </div>
       </div>
     </div>

@@ -61,6 +61,22 @@ function getSelectLabel<T extends string>(options: PacsProfileSelectOption<T>[],
   return options.find((option) => option.value === value)?.label ?? ''
 }
 
+function getPresetLabel(value: PacsProfilePreset | null | undefined): string {
+  if (value === 'custom') {
+    return props.isZh ? '自定义' : 'Custom'
+  }
+  return getSelectLabel(presetOptions, value)
+}
+
+function getQueryModelLabel(value: DimseQueryModel | null | undefined): string {
+  if (!props.isZh) {
+    return getSelectLabel(queryModelOptions, value)
+  }
+  if (value === 'study-root') return '检查根'
+  if (value === 'patient-root') return '患者根'
+  return ''
+}
+
 function setSelectOpen(key: PacsProfileSelectKey, isOpen: boolean): void {
   openSelectKey.value = isOpen ? key : null
 }
@@ -104,7 +120,7 @@ function selectQueryModel(value: DimseQueryModel): void {
   <article class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
     <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
       <div class="min-w-0">
-        <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ mode === 'create' ? (isZh ? '新增 PACS Profile' : 'New PACS Profile') : (isZh ? 'Profile 详情' : 'Profile Details') }}</div>
+        <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ mode === 'create' ? (isZh ? '新增 PACS 配置' : 'New PACS Profile') : (isZh ? '配置详情' : 'Profile Details') }}</div>
         <div class="mt-1 truncate text-xs text-[var(--theme-text-muted)]" :title="pacsProfileEndpoint(profile)">{{ pacsProfileEndpoint(profile) }}</div>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -123,7 +139,7 @@ function selectQueryModel(value: DimseQueryModel): void {
         <input class="pacs-input" :value="profile.name" @input="emit('updateProfile', { name: ($event.target as HTMLInputElement).value })" />
       </label>
       <div class="grid gap-1.5">
-        <span class="pacs-form-label">Protocol</span>
+        <span class="pacs-form-label">{{ isZh ? '协议' : 'Protocol' }}</span>
         <VMenu
           :model-value="isSelectOpen('protocol')"
           location="bottom start"
@@ -176,7 +192,7 @@ function selectQueryModel(value: DimseQueryModel): void {
               class="pacs-select-trigger"
               :class="{ 'pacs-select-trigger--open': isSelectOpen('preset') }"
             >
-              <span class="truncate">{{ profile.preset === 'custom' && isZh ? '自定义' : getSelectLabel(presetOptions, profile.preset) }}</span>
+              <span class="truncate">{{ getPresetLabel(profile.preset) }}</span>
               <AppIcon name="chevron-down" :size="17" />
             </button>
           </template>
@@ -190,22 +206,22 @@ function selectQueryModel(value: DimseQueryModel): void {
               @click="selectPreset(option.value)"
             >
               <span class="pacs-select-option__rail"></span>
-              <span class="min-w-0 flex-1 truncate">{{ option.value === 'custom' && isZh ? '自定义' : option.label }}</span>
+              <span class="min-w-0 flex-1 truncate">{{ getPresetLabel(option.value) }}</span>
               <AppIcon v-if="option.value === profile.preset" name="check" :size="14" />
             </button>
           </div>
         </VMenu>
       </div>
       <label v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5 md:col-span-2">
-        <span class="pacs-form-label">Base URL</span>
+        <span class="pacs-form-label">{{ isZh ? '基础 URL' : 'Base URL' }}</span>
         <input class="pacs-input" placeholder="http://127.0.0.1:8042" :value="profile.baseUrl" @input="emit('updateProfile', { baseUrl: ($event.target as HTMLInputElement).value })" />
       </label>
       <label v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5">
-        <span class="pacs-form-label">QIDO Path</span>
+        <span class="pacs-form-label">{{ isZh ? 'QIDO 路径' : 'QIDO Path' }}</span>
         <input class="pacs-input" placeholder="/dicom-web" :value="profile.qidoPath" @input="emit('updateProfile', { qidoPath: ($event.target as HTMLInputElement).value })" />
       </label>
       <label v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5">
-        <span class="pacs-form-label">WADO Path</span>
+        <span class="pacs-form-label">{{ isZh ? 'WADO 路径' : 'WADO Path' }}</span>
         <input class="pacs-input" placeholder="/dicom-web" :value="profile.wadoPath" @input="emit('updateProfile', { wadoPath: ($event.target as HTMLInputElement).value })" />
       </label>
       <div v-if="profile.protocol === 'dicomweb'" class="grid gap-1.5">
@@ -247,23 +263,23 @@ function selectQueryModel(value: DimseQueryModel): void {
       </div>
       <template v-if="profile.protocol === 'dimse'">
         <label class="grid gap-1.5">
-          <span class="pacs-form-label">Host</span>
+          <span class="pacs-form-label">{{ isZh ? '主机' : 'Host' }}</span>
           <input class="pacs-input" placeholder="127.0.0.1" :value="profile.host" @input="emit('updateProfile', { host: ($event.target as HTMLInputElement).value })" />
         </label>
         <label class="grid gap-1.5">
-          <span class="pacs-form-label">Port</span>
+          <span class="pacs-form-label">{{ isZh ? '端口' : 'Port' }}</span>
           <input class="pacs-input" type="number" min="1" max="65535" :value="profile.port" @input="emit('updateProfile', { port: Number(($event.target as HTMLInputElement).value) })" />
         </label>
         <label class="grid gap-1.5">
-          <span class="pacs-form-label">Called AE</span>
+          <span class="pacs-form-label">{{ isZh ? '被叫 AE' : 'Called AE' }}</span>
           <input class="pacs-input" maxlength="16" placeholder="ORTHANC" :value="profile.calledAeTitle" @input="emit('updateProfile', { calledAeTitle: ($event.target as HTMLInputElement).value })" />
         </label>
         <label class="grid gap-1.5">
-          <span class="pacs-form-label">Client AE</span>
+          <span class="pacs-form-label">{{ isZh ? '本机 AE' : 'Client AE' }}</span>
           <input class="pacs-input" maxlength="16" placeholder="DICOMVISION" :value="profile.clientAeTitle" @input="emit('updateProfile', { clientAeTitle: ($event.target as HTMLInputElement).value })" />
         </label>
         <div class="grid gap-1.5">
-          <span class="pacs-form-label">Query Model</span>
+          <span class="pacs-form-label">{{ isZh ? '查询模型' : 'Query Model' }}</span>
           <VMenu
             :model-value="isSelectOpen('queryModel')"
             location="bottom start"
@@ -279,7 +295,7 @@ function selectQueryModel(value: DimseQueryModel): void {
                 class="pacs-select-trigger"
                 :class="{ 'pacs-select-trigger--open': isSelectOpen('queryModel') }"
               >
-                <span class="truncate">{{ getSelectLabel(queryModelOptions, profile.queryModel) }}</span>
+                <span class="truncate">{{ getQueryModelLabel(profile.queryModel) }}</span>
                 <AppIcon name="chevron-down" :size="17" />
               </button>
             </template>
@@ -293,7 +309,7 @@ function selectQueryModel(value: DimseQueryModel): void {
                 @click="selectQueryModel(option.value)"
               >
                 <span class="pacs-select-option__rail"></span>
-                <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+                <span class="min-w-0 flex-1 truncate">{{ getQueryModelLabel(option.value) }}</span>
                 <AppIcon v-if="option.value === profile.queryModel" name="check" :size="14" />
               </button>
             </div>
@@ -315,7 +331,7 @@ function selectQueryModel(value: DimseQueryModel): void {
         </label>
       </template>
       <label v-else-if="profile.protocol === 'dicomweb' && profile.authType === 'bearer'" class="grid gap-1.5 md:col-span-2">
-        <span class="pacs-form-label">Bearer Token</span>
+        <span class="pacs-form-label">{{ isZh ? '访问令牌' : 'Bearer Token' }}</span>
         <input class="pacs-input" type="password" :value="profile.bearerToken" @input="emit('updateProfile', { bearerToken: ($event.target as HTMLInputElement).value })" />
       </label>
     </div>

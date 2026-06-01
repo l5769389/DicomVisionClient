@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import type { VolumeInterpolationMode, VolumeLayerConfig, VolumeLightingConfig, VolumeRenderConfig } from '../../types/viewer'
+import AppIcon from '../AppIcon.vue'
 
 type PanelTabKey = 'tissue' | 'lighting'
 
@@ -10,11 +11,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  close: []
   configChange: [config: VolumeRenderConfig]
 }>()
 
 const activeTab = ref<PanelTabKey>('tissue')
-const { volumeCopy } = useUiLocale()
+const { locale, volumeCopy } = useUiLocale()
+const closePanelLabel = computed(() => (locale.value === 'zh-CN' ? '关闭 3D 参数' : 'Close 3D parameters'))
 
 const interpolationOptions = computed<Array<{ value: VolumeInterpolationMode; label: string }>>(() => [
   { value: 'nearest', label: volumeCopy.value.nearest },
@@ -83,12 +86,23 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 <template>
   <div class="theme-shell-panel w-[352px] max-w-[calc(100vw-2.5rem)] rounded-[20px] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_38px_rgba(0,0,0,0.34)] backdrop-blur">
     <div class="mb-3 flex items-center justify-between gap-3">
-      <div>
+      <div class="min-w-0">
         <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ volumeCopy.parameters }}</div>
         <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">{{ props.config.preset.toUpperCase() }}</div>
       </div>
-      <div class="rounded-full border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]">
-        {{ props.config.blendMode }}
+      <div class="flex shrink-0 items-center gap-2">
+        <div class="rounded-full border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]">
+          {{ props.config.blendMode }}
+        </div>
+        <button
+          type="button"
+          class="volume-config-close-button"
+          :aria-label="closePanelLabel"
+          :title="closePanelLabel"
+          @click="emit('close')"
+        >
+          <AppIcon name="close" :size="15" />
+        </button>
       </div>
     </div>
 
@@ -326,3 +340,26 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
     </div>
   </div>
 </template>
+
+<style scoped>
+.volume-config-close-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 86%, transparent);
+  color: var(--theme-text-secondary);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.volume-config-close-button:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 36%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  color: var(--theme-text-primary);
+}
+</style>

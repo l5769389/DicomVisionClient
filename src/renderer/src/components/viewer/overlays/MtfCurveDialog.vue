@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { VCard, VMenu } from 'vuetify/components'
 import type { ViewerMtfItem } from '../../../types/viewer'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const CHART_LEFT = 6
 const CHART_RIGHT = 99
@@ -19,10 +20,12 @@ const emit = defineEmits<{
   close: []
 }>()
 
+const { locale } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 const metrics = computed(() => props.mtfItem?.metrics ?? null)
 const curve = computed(() => props.mtfItem?.curve ?? [])
 const xAxisUnit = computed(() => metrics.value?.unit || 'lp/mm')
-const xAxisLabel = computed(() => `Spatial Frequency (${xAxisUnit.value})`)
+const xAxisLabel = computed(() => `${isZh.value ? '空间频率' : 'Spatial Frequency'} (${xAxisUnit.value})`)
 const xMax = computed(() => Math.max(...curve.value.map((point) => point.frequency), 1))
 
 function normalizeX(frequency: number): number {
@@ -128,14 +131,14 @@ const summaryRows = computed(() => {
 
 const statusText = computed(() => {
   if (!curve.value.length) {
-    return 'No curve data'
+    return isZh.value ? '没有曲线数据' : 'No curve data'
   }
 
   if (markerItems.value.length < 2) {
-    return 'Curve markers are incomplete'
+    return isZh.value ? '曲线标记不完整' : 'Curve markers are incomplete'
   }
 
-  return 'Measured from the current ROI'
+  return isZh.value ? '来自当前 ROI 的测量结果' : 'Measured from the current ROI'
 })
 </script>
 
@@ -149,14 +152,14 @@ const statusText = computed(() => {
       <div class="border-b border-white/8 bg-[linear-gradient(90deg,rgba(22,76,94,0.16),rgba(255,255,255,0.02))] px-5 py-3">
         <div class="flex items-center justify-between gap-4">
           <div class="flex min-w-0 items-center gap-3">
-            <div class="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200/68">MTF Curve</div>
+            <div class="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200/68">{{ isZh ? 'MTF 曲线' : 'MTF Curve' }}</div>
             <div class="h-4 w-px bg-white/10" />
             <div class="truncate text-[13px] text-slate-400">{{ statusText }}</div>
           </div>
           <button
             type="button"
             class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/6 text-[20px] text-slate-200 transition hover:bg-white/12"
-            aria-label="Close MTF curve"
+            :aria-label="isZh ? '关闭 MTF 曲线' : 'Close MTF curve'"
             @click="emit('close')"
           >
             ×
@@ -169,8 +172,8 @@ const statusText = computed(() => {
           <div class="rounded-[24px] border border-cyan-200/10 bg-[linear-gradient(180deg,rgba(8,25,39,0.96),rgba(5,14,24,0.98))] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <div class="flex items-center justify-between gap-4">
               <div>
-                <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Curve Plot</div>
-                <div class="mt-1 text-[13px] text-slate-300">Normalized MTF against spatial frequency</div>
+                <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{{ isZh ? '曲线图' : 'Curve Plot' }}</div>
+                <div class="mt-1 text-[13px] text-slate-300">{{ isZh ? '归一化 MTF 与空间频率的关系' : 'Normalized MTF against spatial frequency' }}</div>
               </div>
               <div class="flex flex-wrap justify-end gap-2">
                 <div
@@ -238,7 +241,7 @@ const statusText = computed(() => {
 
         <aside class="flex flex-col gap-2.5 p-4">
           <div class="rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(10,22,36,0.94),rgba(6,14,24,0.98))] p-3.5">
-            <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Key Metrics</div>
+            <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{{ isZh ? '关键指标' : 'Key Metrics' }}</div>
             <div class="mt-2.5 grid gap-2">
               <div
                 v-for="row in summaryRows"
@@ -259,22 +262,22 @@ const statusText = computed(() => {
                   type="button"
                   class="rounded-2xl border border-cyan-300/14 bg-cyan-300/8 px-3 py-1.5 text-[12px] font-medium text-cyan-50 transition hover:bg-cyan-300/14"
                 >
-                  Reading Guide
+                  {{ isZh ? '阅读说明' : 'Reading Guide' }}
                 </button>
               </template>
 
               <VCard
                 class="w-[320px] rounded-[22px] border border-cyan-200/12 bg-[linear-gradient(180deg,rgba(7,20,31,0.98),rgba(4,12,21,0.99))] p-4 text-slate-100 shadow-[0_24px_60px_rgba(0,0,0,0.42)]"
               >
-                <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">Reading Guide</div>
+                <div class="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200/70">{{ isZh ? '阅读说明' : 'Reading Guide' }}</div>
                 <div class="mt-3 text-sm leading-6 text-slate-300">
-                  Higher curves indicate better retained contrast at finer spatial frequencies.
+                  {{ isZh ? '曲线越高，表示在更高空间频率下保留的对比度越好。' : 'Higher curves indicate better retained contrast at finer spatial frequencies.' }}
                 </div>
                 <div class="mt-3 text-sm leading-6 text-slate-300">
-                  <span class="font-medium text-white">MTF50</span> reflects mid-contrast detail response.
+                  <span class="font-medium text-white">MTF50</span> {{ isZh ? '反映中等对比度细节响应。' : 'reflects mid-contrast detail response.' }}
                 </div>
                 <div class="mt-1 text-sm leading-6 text-slate-300">
-                  <span class="font-medium text-white">MTF10</span> is often used as the limiting-resolution reference.
+                  <span class="font-medium text-white">MTF10</span> {{ isZh ? '常作为极限分辨率参考。' : 'is often used as the limiting-resolution reference.' }}
                 </div>
               </VCard>
             </VMenu>
@@ -286,7 +289,7 @@ const statusText = computed(() => {
               class="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm font-medium text-cyan-50 transition hover:bg-cyan-300/18"
               @click="emit('close')"
             >
-              Close
+              {{ isZh ? '关闭' : 'Close' }}
             </button>
           </div>
         </aside>

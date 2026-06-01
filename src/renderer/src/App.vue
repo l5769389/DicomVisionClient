@@ -4,6 +4,7 @@ import { VApp, VMain } from 'vuetify/components'
 import AppIcon from './components/AppIcon.vue'
 import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
+import { useUiLocale } from './composables/ui/useUiLocale'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 import { openExportLocation } from './platform/exporting'
 import type { DicomDropInput } from './platform/runtime'
@@ -57,13 +58,20 @@ const ViewerWorkspace = defineAsyncComponent({
 })
 
 const viewer = useViewerWorkspace()
+const { locale } = useUiLocale()
 type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
 type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
 
+const isZh = computed(() => locale.value === 'zh-CN')
 const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
 const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' && Boolean(window.viewerApi))
+const windowControlsLabel = computed(() => (isZh.value ? '窗口控制' : 'Window controls'))
+const minimizeWindowLabel = computed(() => (isZh.value ? '最小化' : 'Minimize'))
+const toggleFullScreenLabel = computed(() => (isZh.value ? '切换全屏' : 'Toggle full screen'))
+const closeWindowLabel = computed(() => (isZh.value ? '关闭' : 'Close'))
+const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Close notification'))
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
 const dicomDropPreviewIcon = computed(() =>
@@ -71,30 +79,30 @@ const dicomDropPreviewIcon = computed(() =>
 )
 const dicomDropPreviewEyebrow = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
-    return 'DICOM Folder'
+    return isZh.value ? 'DICOM 文件夹' : 'DICOM Folder'
   }
   if (dicomDropPreviewKind.value === 'mixed') {
-    return 'DICOM Import'
+    return isZh.value ? 'DICOM 导入' : 'DICOM Import'
   }
-  return 'DICOM File'
+  return isZh.value ? 'DICOM 文件' : 'DICOM File'
 })
 const dicomDropPreviewTitle = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
-    return 'Drop folder to load series'
+    return isZh.value ? '松开以加载文件夹中的序列' : 'Drop folder to load series'
   }
   if (dicomDropPreviewKind.value === 'mixed') {
-    return 'Drop files and folders to load series'
+    return isZh.value ? '松开以加载文件和文件夹中的序列' : 'Drop files and folders to load series'
   }
-  return 'Drop DICOM file to load series'
+  return isZh.value ? '松开以加载 DICOM 文件序列' : 'Drop DICOM file to load series'
 })
 const dicomDropPreviewHint = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
-    return 'Folder contents will be scanned for DICOM series.'
+    return isZh.value ? '将扫描文件夹内容并识别可用 DICOM 序列。' : 'Folder contents will be scanned for DICOM series.'
   }
   if (dicomDropPreviewKind.value === 'mixed') {
-    return 'Each dropped path will be parsed independently.'
+    return isZh.value ? '每个拖入路径都会独立解析。' : 'Each dropped path will be parsed independently.'
   }
-  return 'Single or multiple DICOM files are supported.'
+  return isZh.value ? '支持单个或多个 DICOM 文件。' : 'Single or multiple DICOM files are supported.'
 })
 const statusToastIcon = computed(() => {
   switch (viewer.statusToast.value?.tone) {
@@ -368,14 +376,14 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       @drop="handleDicomFileDrop"
     >
       <div class="window-drag-region" aria-hidden="true"></div>
-      <div v-if="hasDesktopWindowControls" class="app-window-controls" aria-label="Window controls">
-        <button type="button" class="app-window-control-button" title="Minimize" aria-label="Minimize" @click="minimizeWindow">
+      <div v-if="hasDesktopWindowControls" class="app-window-controls" :aria-label="windowControlsLabel">
+        <button type="button" class="app-window-control-button" :title="minimizeWindowLabel" :aria-label="minimizeWindowLabel" @click="minimizeWindow">
           <AppIcon name="minimize" :size="14" />
         </button>
-        <button type="button" class="app-window-control-button" title="Toggle full screen" aria-label="Toggle full screen" @click="toggleWindowFullScreen">
+        <button type="button" class="app-window-control-button" :title="toggleFullScreenLabel" :aria-label="toggleFullScreenLabel" @click="toggleWindowFullScreen">
           <AppIcon name="fullscreen" :size="16" />
         </button>
-        <button type="button" class="app-window-control-button app-window-control-button--danger" title="Close" aria-label="Close" @click="closeWindow">
+        <button type="button" class="app-window-control-button app-window-control-button--danger" :title="closeWindowLabel" :aria-label="closeWindowLabel" @click="closeWindow">
           <AppIcon name="close" :size="15" />
         </button>
       </div>
@@ -491,7 +499,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
             {{ statusToastProgressLabel }}
           </span>
         </span>
-        <button type="button" class="app-status-toast__close" aria-label="Close notification" @click="viewer.dismissStatusToast">
+        <button type="button" class="app-status-toast__close" :aria-label="closeNotificationLabel" @click="viewer.dismissStatusToast">
           <AppIcon name="close" :size="13" />
         </button>
       </div>

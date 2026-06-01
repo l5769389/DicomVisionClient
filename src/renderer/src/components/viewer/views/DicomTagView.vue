@@ -72,6 +72,7 @@ const EDITABLE_BINARY_VR_VALUES = new Set(['OB', 'OD', 'OF', 'OL', 'OV', 'OW', '
 
 const { locale, tagViewCopy: copy } = useUiLocale()
 const { dicomTagDisplayMode, dicomTagEditSavePreference } = useUiPreferences()
+const isZh = computed(() => locale.value === 'zh-CN')
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
 const isTreeTagDisplayMode = computed(() => dicomTagDisplayMode.value === 'tree')
@@ -110,13 +111,14 @@ const treeTagItems = computed(() => buildTagTree(props.activeTab.tagItems ?? [])
 
 const tagTreeItemCount = computed(() => props.activeTab.tagItems?.length ?? 0)
 const tagTreeSearchText = computed(() => searchQuery.value.trim())
+const tagCountLabel = computed(() => (isZh.value ? '标签' : 'Tags'))
 const visibleTreeTagRows = computed(() =>
   flattenTagTreeRows(treeTagItems.value, tagTreeSearchText.value.toLowerCase(), expandedTagTreeNodeIds.value)
 )
 const tagTreeSummaryText = computed(() =>
   tagTreeSearchText.value
-    ? `${visibleTreeTagRows.value.length} / ${tagTreeItemCount.value} Tags`
-    : `${tagTreeItemCount.value} Tags`
+    ? `${visibleTreeTagRows.value.length} / ${tagTreeItemCount.value} ${tagCountLabel.value}`
+    : `${tagTreeItemCount.value} ${tagCountLabel.value}`
 )
 
 const virtualTagStartIndex = computed(() =>
@@ -163,37 +165,37 @@ const contextMenuPreview = computed(() => {
 
 const isContextMenuItemEditable = computed(() => Boolean(contextMenuItem.value && isEditableTagItem(contextMenuItem.value)))
 const canOpenTagEditNoticeLocation = computed(() => Boolean(tagEditNotice.value?.directoryPath && window.viewerApi?.openExportLocation))
-const isZh = computed(() => locale.value === 'zh-CN')
 const tagEditCopy = computed(() => ({
   applyCurrent: isZh.value ? '仅当前 DICOM' : 'Current DICOM only',
   applyCurrentDesc: isZh.value ? '只生成当前实例的修改副本。' : 'Create a modified copy for the current instance only.',
-  applySeries: isZh.value ? '本 Series 全部 DICOM' : 'All DICOMs in this series',
-  applySeriesDesc: isZh.value ? '为当前 series 中所有实例生成修改副本。' : 'Create modified copies for every instance in this series.',
+  applySeries: isZh.value ? '本序列全部 DICOM' : 'All DICOMs in this series',
+  applySeriesDesc: isZh.value ? '为当前序列中所有实例生成修改副本。' : 'Create modified copies for every instance in this series.',
   cancel: isZh.value ? '取消' : 'Cancel',
   confirm: isZh.value ? '确认保存' : 'Save copies',
+  closeNotification: isZh.value ? '关闭通知' : 'Close notification',
   currentValue: isZh.value ? '当前值' : 'Current value',
-  dialogTitle: isZh.value ? '修改 DICOM Tag' : 'Edit DICOM Tag',
+  dialogTitle: isZh.value ? '修改 DICOM 标签' : 'Edit DICOM Tag',
   dialogSubtitle: isZh.value
-    ? '不会覆盖原始文件，会按 DICOM Tag 设置中的保存策略生成新的 DICOM 文件。'
+    ? '不会覆盖原始文件，会按 DICOM 标签设置中的保存策略生成新的 DICOM 文件。'
     : 'Original files are not overwritten. New DICOM files are saved using the DICOM Tag save settings.',
-  editableDisabled: isZh.value ? '该 Tag 不支持在这里直接修改' : 'This tag cannot be edited here',
-  modifyAction: isZh.value ? '修改 Tag Value' : 'Edit Tag Value',
+  editableDisabled: isZh.value ? '该标签不支持在这里直接修改' : 'This tag cannot be edited here',
+  modifyAction: isZh.value ? '修改标签值' : 'Edit Tag Value',
   modifySubtitle: isZh.value ? '生成新的 DICOM 副本' : 'Create modified DICOM copies',
   newValue: isZh.value ? '新值' : 'New value',
   openLocation: isZh.value ? '打开' : 'Open',
   openLocationFailed: isZh.value ? '打开保存位置失败。' : 'Failed to open the save location.',
-  seriesJobStarted: isZh.value ? 'Series Tag 修改任务已开始，可继续浏览图像。' : 'Series tag edit started. You can keep browsing images.',
+  seriesJobStarted: isZh.value ? '序列标签修改任务已开始，可继续浏览图像。' : 'Series tag edit started. You can keep browsing images.',
   seriesJobCompleted: (count: number) =>
-    isZh.value ? `Series Tag 修改任务已完成，已生成 ${count} 个 DICOM 文件。` : `Series tag edit completed. Created ${count} DICOM file(s).`,
-  seriesJobFailed: isZh.value ? 'Series Tag 修改任务失败。' : 'Series tag edit failed.',
+    isZh.value ? `序列标签修改任务已完成，已生成 ${count} 个 DICOM 文件。` : `Series tag edit completed. Created ${count} DICOM file(s).`,
+  seriesJobFailed: isZh.value ? '序列标签修改任务失败。' : 'Series tag edit failed.',
   seriesJobPackaging: isZh.value ? 'DICOM 已处理完成，正在打包结果...' : 'DICOM processing complete. Packaging result...',
   seriesJobPreparing: isZh.value ? '正在准备批量修改任务...' : 'Preparing batch edit...',
   seriesJobProgress: (processed: number, total: number, percent: number) =>
     isZh.value ? `已处理 ${processed}/${total}（${percent}%）` : `Processed ${processed}/${total} (${percent}%)`,
   seriesJobSaving: isZh.value ? '正在保存批量修改结果...' : 'Saving batch edit result...',
-  seriesJobTimeout: isZh.value ? 'Series Tag 修改任务仍在执行，请稍后再查看。' : 'Series tag edit is still running. Check again later.',
+  seriesJobTimeout: isZh.value ? '序列标签修改任务仍在执行，请稍后再查看。' : 'Series tag edit is still running. Check again later.',
   saving: isZh.value ? '正在保存...' : 'Saving...',
-  saveFailed: isZh.value ? 'DICOM Tag 修改保存失败。' : 'Failed to save DICOM tag edit.',
+  saveFailed: isZh.value ? 'DICOM 标签修改保存失败。' : 'Failed to save DICOM tag edit.',
   downloadStarted: (fileName: string) => (isZh.value ? `已交给浏览器下载：${fileName}` : `Browser download started: ${fileName}`),
   saved: (count: number) =>
     isZh.value
@@ -201,7 +203,7 @@ const tagEditCopy = computed(() => ({
       : `Created ${count} modified DICOM file(s)`,
   savedDirectory: (directory: string) => (isZh.value ? `保存位置：${directory}` : `Saved to: ${directory}`),
   scopeTitle: isZh.value ? '应用范围' : 'Apply scope',
-  targetTag: isZh.value ? '目标 Tag' : 'Target Tag'
+  targetTag: isZh.value ? '目标标签' : 'Target Tag'
 }))
 
 const contextMenuActions = computed<Array<{ key: ContextAction; title: string; subtitle: string; badge: string; disabled?: boolean }>>(() => [
@@ -853,7 +855,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         <div class="flex flex-wrap items-center gap-2">
           <h2 class="tag-view-title truncate text-[20px] font-semibold tracking-[0.01em]">{{ activeTab.seriesTitle }}</h2>
           <VChip size="x-small" variant="flat" class="tag-view-chip rounded-full! border! border-sky-300/18! bg-sky-300/10! px-2.5! text-[10px]! font-semibold! uppercase! tracking-[0.16em]! text-sky-100!">
-            DICOM Tags
+            {{ isZh ? 'DICOM 标签' : 'DICOM Tags' }}
           </VChip>
         </div>
 
@@ -924,7 +926,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
               <button
                 type="button"
                 class="tag-search-clear-button"
-                aria-label="Clear search"
+                :aria-label="isZh ? '清空搜索' : 'Clear search'"
                 @mousedown.prevent
                 @click.stop="clearSearchQuery"
               >
@@ -948,9 +950,9 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       <div v-else-if="activeTab.tagItems?.length" class="tag-table-shell flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
         <template v-if="isTreeTagDisplayMode">
           <div class="tag-tree-head grid grid-cols-[minmax(420px,1fr)_90px_minmax(280px,1fr)] gap-4 border-b px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em]">
-            <span>Tree / Tag / Name</span>
-            <span>VR</span>
-            <span>Value</span>
+            <span>{{ isZh ? '树 / 标签 / 名称' : 'Tree / Tag / Name' }}</span>
+            <span>{{ copy.vrHeader }}</span>
+            <span>{{ copy.valueHeader }}</span>
           </div>
 
           <div class="tag-tree-summary border-b px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">
@@ -987,7 +989,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                     v-if="item.hasChildren"
                     type="button"
                     class="tag-tree-row__toggle"
-                    :aria-label="item.isExpanded ? 'Collapse tag branch' : 'Expand tag branch'"
+                    :aria-label="item.isExpanded ? (isZh ? '折叠标签分支' : 'Collapse tag branch') : (isZh ? '展开标签分支' : 'Expand tag branch')"
                     @click.stop="toggleTreeNode(item.id)"
                   >
                     <AppIcon name="chevron-right" :size="15" class="tag-tree-row__toggle-icon" :class="{ 'tag-tree-row__toggle-icon--open': item.isExpanded }" />
@@ -1013,10 +1015,10 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
         <template v-else>
           <div class="tag-table-head grid grid-cols-[150px_240px_90px_minmax(260px,1fr)] gap-4 border-b border-white/8 bg-white/6 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">
-            <span>Tag</span>
-            <span>Name</span>
-            <span>VR</span>
-            <span>Value</span>
+            <span>{{ copy.tagHeader }}</span>
+            <span>{{ copy.nameHeader }}</span>
+            <span>{{ copy.vrHeader }}</span>
+            <span>{{ copy.valueHeader }}</span>
           </div>
 
           <div ref="tagListScroller" class="tag-list-scroll min-h-0 flex-1 overflow-auto" @scroll="handleTagListScroll">
@@ -1263,7 +1265,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       >
         {{ tagEditCopy.openLocation }}
       </button>
-      <button type="button" class="tag-edit-notice__close" aria-label="Close notification" @click="tagEditNotice = null">
+      <button type="button" class="tag-edit-notice__close" :aria-label="tagEditCopy.closeNotification" @click="tagEditNotice = null">
         <AppIcon name="close" :size="13" />
       </button>
     </div>

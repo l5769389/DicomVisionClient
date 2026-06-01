@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import { SERIES_DRAG_PAYLOAD_TYPE, SERIES_DRAG_TYPE, type SeriesDragPayload } from '../../../constants/dragDrop'
 import type { DicomDropInput } from '../../../platform/runtime'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -54,6 +55,8 @@ interface SliceInfo {
 const activeDropSlotId = ref<string | null>(null)
 const sliderValues = ref<Record<string, number>>({})
 const activeSliderIds = ref<Record<string, boolean>>({})
+const { locale, viewerCopy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 
 const template = computed(() => props.activeTab.layoutTemplate ?? null)
 const rows = computed(() => Math.max(1, template.value?.rows ?? 1))
@@ -93,7 +96,7 @@ function getSlotStyle(slot: ViewerLayoutSlot): Record<string, string> {
 }
 
 function getSlotTitle(slot: ViewerLayoutSlot, index: number): string {
-  return slot.seriesTitle ?? `Slot ${index + 1}`
+  return slot.seriesTitle ?? (isZh.value ? `槽位 ${index + 1}` : `Slot ${index + 1}`)
 }
 
 function isStackSlot(slot: ViewerLayoutSlot): boolean {
@@ -371,7 +374,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
               class="layout-view__slider flex min-h-0 flex-col items-center rounded-xl border px-1 py-2"
               :class="isSingleStackLayout ? 'layout-view__slider--single stack-slice-panel theme-shell-panel-strong' : 'theme-card-soft'"
             >
-              <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Slice</span>
+              <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
               <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[slot.id] ?? 1 }}</span>
               <div class="my-2 flex min-h-0 flex-1 items-center">
                 <input
@@ -405,7 +408,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
         <template v-else>
           <div class="layout-view__slot-badge">{{ index + 1 }}</div>
           <div class="layout-view__slot-title">Slot {{ index + 1 }}</div>
-          <div class="layout-view__slot-subtitle">Drop DICOM</div>
+          <div class="layout-view__slot-subtitle">{{ isZh ? '拖入 DICOM' : 'Drop DICOM' }}</div>
         </template>
       </section>
     </div>

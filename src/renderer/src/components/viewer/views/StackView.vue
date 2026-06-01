@@ -226,7 +226,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
     />
 
     <div class="stack-slice-panel theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <span class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">Slice</span>
+      <span class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ viewerCopy.slice }}</span>
       <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliderValue }}</span>
       <div class="stack-slice-star-tools mt-2 flex flex-col items-center gap-1">
         <button

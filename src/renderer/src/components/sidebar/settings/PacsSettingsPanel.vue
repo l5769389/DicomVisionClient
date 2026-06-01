@@ -83,7 +83,7 @@ function saveDraftProfile(): void {
   if (!draftProfile.value) return
   const profile = {
     ...draftProfile.value,
-    name: draftProfile.value.name.trim() || (isZh.value ? '新 PACS Profile' : 'New PACS Profile')
+    name: draftProfile.value.name.trim() || (isZh.value ? '新 PACS 配置' : 'New PACS Profile')
   }
   setPacsPreference({
     ...pacsPreference.value,
@@ -237,7 +237,7 @@ function isTestingProfile(profileId: string): boolean {
 
         <label class="settings-choice-card flex cursor-pointer items-center justify-between gap-4 rounded-[6px] border px-5 py-4 transition" :class="{ 'settings-choice-card--active': pacsPreference.enabled }">
           <span class="min-w-0">
-            <span class="block text-base font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '启用 PACS Browser' : 'Enable PACS Browser' }}</span>
+            <span class="block text-base font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '启用 PACS 浏览器' : 'Enable PACS Browser' }}</span>
             <span class="mt-1 block text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '显示 PACS 查询入口。' : 'Show the PACS query entry.' }}</span>
           </span>
           <input
@@ -252,12 +252,12 @@ function isTestingProfile(profileId: string): boolean {
       <div class="rounded-[24px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
         <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">PACS Profiles</div>
-            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '勾选 Profile 后，可批量测试或删除。' : 'Select profiles to test or remove them together.' }}</div>
+            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'PACS 配置' : 'PACS Profiles' }}</div>
+            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '勾选配置后，可批量测试或删除。' : 'Select profiles to test or remove them together.' }}</div>
           </div>
           <div class="flex flex-wrap gap-2">
             <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold" @click="startCreateProfile">
-              {{ isZh ? '新增 Profile' : 'Add Profile' }}
+              {{ isZh ? '新增配置' : 'Add Profile' }}
             </button>
             <button
               type="button"
@@ -271,7 +271,7 @@ function isTestingProfile(profileId: string): boolean {
               type="button"
               class="theme-button-secondary rounded-2xl px-4 py-2 text-sm font-semibold text-[color:color-mix(in_srgb,#ef4444_72%,var(--theme-text-primary))] disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!canDeleteSelectedProfiles"
-              :title="selectedProfileCount >= pacsPreference.profiles.length ? (isZh ? '至少保留一个 Profile' : 'Keep at least one profile') : undefined"
+              :title="selectedProfileCount >= pacsPreference.profiles.length ? (isZh ? '至少保留一个配置' : 'Keep at least one profile') : undefined"
               @click="removeSelectedProfiles"
             >
               {{ isZh ? `删除所选 ${selectedProfileCount || ''}` : `Remove Selected ${selectedProfileCount || ''}` }}

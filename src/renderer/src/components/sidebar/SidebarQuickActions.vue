@@ -8,7 +8,6 @@ import type { WebUploadPickMode } from '../../platform/runtime'
 import { normalizeInlineSvg } from '../../utils/svg'
 import AppIcon from '../AppIcon.vue'
 import fileIcon from '../../assets/dicom-action-icons/dicom-file.svg?raw'
-import folderIcon from '../../assets/dicom-action-icons/open-folder.svg?raw'
 
 type QuickViewAction = {
   label: string
@@ -16,6 +15,13 @@ type QuickViewAction = {
   viewType: ViewType
   disabled: boolean
   wide?: boolean
+}
+
+type SourcePickerAction = {
+  description: string
+  icon: string
+  label: string
+  mode: WebUploadPickMode
 }
 
 const props = defineProps<{
@@ -32,12 +38,51 @@ const emit = defineEmits<{
   openView: [viewType: ViewType]
 }>()
 
-const { t } = useUiLocale()
+const { locale, t } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 
 const normalizedFileIcon = computed(() => normalizeInlineSvg(fileIcon))
-const normalizedFolderIcon = computed(() => normalizeInlineSvg(folderIcon))
 const isServerSampleMode = computed(() => props.viewerFolderSourceMode === 'server-sample')
-const isWebUploadAvailable = computed(() => props.viewerPlatform === 'web')
+const sampleActionBadge = computed(() => (isZh.value ? '示例影像' : 'DEMO SAMPLE'))
+const pickerActionLabel = computed(() => {
+  if (props.viewerPlatform === 'web') {
+    return t('uploadDicom')
+  }
+  return isZh.value ? '加载 DICOM' : 'Load DICOM'
+})
+const sourcePickerActions = computed<SourcePickerAction[]>(() => {
+  if (props.viewerPlatform === 'web') {
+    return [
+      {
+        description: t('uploadFilesHint'),
+        icon: 'file-upload',
+        label: t('uploadFiles'),
+        mode: 'files'
+      },
+      {
+        description: t('uploadFolderHint'),
+        icon: 'folder-upload',
+        label: t('uploadFolder'),
+        mode: 'folder'
+      }
+    ]
+  }
+
+  return [
+    {
+      description: isZh.value ? '选择一个或多个 DICOM 文件。' : 'Choose one or more DICOM files.',
+      icon: 'file-upload',
+      label: isZh.value ? '加载文件' : 'Load Files',
+      mode: 'files'
+    },
+    {
+      description: isZh.value ? '选择一个或多个文件夹。' : 'Choose one or more folders.',
+      icon: 'folder-upload',
+      label: t('loadFolder'),
+      mode: 'folder'
+    }
+  ]
+})
 
 const folderActionLabel = computed(() => {
   if (props.viewerFolderSourceMode === 'server-sample') {
@@ -45,19 +90,6 @@ const folderActionLabel = computed(() => {
   }
   return props.viewerPlatform === 'web' ? t('uploadDicom') : t('loadFolder')
 })
-
-const uploadModeActions = computed<{ label: string; hint: string; mode: WebUploadPickMode }[]>(() => [
-  {
-    label: t('uploadFolder'),
-    hint: t('uploadFolderHint'),
-    mode: 'folder'
-  },
-  {
-    label: t('uploadFiles'),
-    hint: t('uploadFilesHint'),
-    mode: 'files'
-  }
-])
 
 const quickViewActions = computed<QuickViewAction[]>(() => [
   {
@@ -80,7 +112,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   },
   {
     label: 'TAG',
-    title: 'DICOM Tags',
+    title: isZh.value ? 'DICOM 标签' : 'DICOM Tags',
     viewType: 'Tag',
     disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, 'Tag'),
     wide: true
@@ -93,6 +125,10 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
     wide: true
   }
 ])
+
+function handleUploadClick(mode: WebUploadPickMode): void {
+  emit('chooseFolder', mode)
+}
 
 </script>
 
@@ -112,48 +148,48 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
         </span>
         <span class="sample-action-button__copy">
           <span class="sample-action-button__title">{{ folderActionLabel }}</span>
-          <span class="sample-action-button__badge">DEMO SAMPLE</span>
+          <span class="sample-action-button__badge">{{ sampleActionBadge }}</span>
         </span>
       </span>
     </VBtn>
 
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
       <VMenu
-        v-if="isLocalSourceEnabled && isWebUploadAvailable"
+        v-if="isLocalSourceEnabled && !isServerSampleMode"
         location="bottom start"
         :offset="8"
         :close-on-content-click="true"
-        scroll-strategy="reposition"
       >
         <template #activator="{ props: menuProps }">
           <VBtn
             v-bind="menuProps"
             variant="flat"
             class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]"
-            :aria-label="t('uploadDicom')"
-            :title="t('uploadDicom')"
+            :aria-label="pickerActionLabel"
+            :title="pickerActionLabel"
           >
             <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFileIcon" />
           </VBtn>
         </template>
 
-        <div class="quick-upload-menu theme-shell-panel min-w-[220px] rounded-2xl border p-2 shadow-[0_22px_46px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl">
+        <div class="source-picker-menu theme-shell-panel min-w-[220px] overflow-hidden rounded-2xl border p-1.5 shadow-[0_18px_42px_rgba(0,0,0,0.36)]">
           <button
-            v-for="action in uploadModeActions"
+            v-for="action in sourcePickerActions"
             :key="action.mode"
             type="button"
-            class="quick-upload-menu__item w-full rounded-xl border border-transparent px-3 py-2.5 text-left transition"
-            @click="emit('chooseFolder', action.mode)"
+            class="source-picker-menu__item"
+            @click="handleUploadClick(action.mode)"
           >
-            <span class="block text-sm font-semibold text-[var(--theme-text-primary)]">{{ action.label }}</span>
-            <span class="mt-0.5 block text-xs leading-5 text-[var(--theme-text-secondary)]">{{ action.hint }}</span>
+            <span class="source-picker-menu__icon" aria-hidden="true">
+              <AppIcon :name="action.icon" :size="18" />
+            </span>
+            <span class="min-w-0">
+              <span class="source-picker-menu__label">{{ action.label }}</span>
+              <span class="source-picker-menu__description">{{ action.description }}</span>
+            </span>
           </button>
         </div>
       </VMenu>
-
-      <VBtn v-if="isLocalSourceEnabled && !isWebUploadAvailable && !isServerSampleMode" variant="flat" class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]" :aria-label="folderActionLabel" :title="folderActionLabel" @click="emit('chooseFolder')">
-        <span class="quick-action-glyph" aria-hidden="true" v-html="normalizedFolderIcon" />
-      </VBtn>
       <VBtn
         v-for="action in quickViewActions"
         :key="action.viewType"
@@ -190,25 +226,23 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   height: 52px !important;
   min-height: 52px !important;
   overflow: hidden;
-  border-color: color-mix(in srgb, #f59e0b 42%, var(--theme-border-strong)) !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border-strong)) !important;
   background:
-    linear-gradient(135deg, color-mix(in srgb, #f59e0b 92%, #ffffff 8%), #14b8a6) !important;
-  color: #07111d !important;
+    linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card)), color-mix(in srgb, var(--theme-accent-warm) 8%, var(--theme-surface-card-soft))) !important;
+  color: var(--theme-text-primary) !important;
   text-transform: none !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    0 12px 22px rgba(20, 184, 166, 0.2),
-    0 8px 18px rgba(245, 158, 11, 0.18) !important;
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 10%, transparent),
+    0 12px 24px color-mix(in srgb, var(--theme-accent) 12%, transparent) !important;
 }
 
 .sample-action-button:hover:not(.v-btn--disabled) {
-  border-color: color-mix(in srgb, #fbbf24 62%, var(--theme-border-strong)) !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong)) !important;
   background:
-    linear-gradient(135deg, #fbbf24, color-mix(in srgb, #14b8a6 86%, #ffffff 14%)) !important;
+    linear-gradient(135deg, color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card)), color-mix(in srgb, var(--theme-accent-warm) 12%, var(--theme-surface-card-soft))) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 14px 26px rgba(20, 184, 166, 0.24),
-    0 10px 22px rgba(245, 158, 11, 0.22) !important;
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 12%, transparent),
+    0 14px 28px color-mix(in srgb, var(--theme-accent) 16%, transparent) !important;
 }
 
 .sample-action-button__content {
@@ -225,11 +259,11 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   width: 34px;
   height: 34px;
   place-items: center;
-  border: 1px solid rgba(7, 17, 29, 0.18);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-soft));
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.42);
-  color: #07111d;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 10%, transparent);
 }
 
 .sample-action-button__copy {
@@ -242,7 +276,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
 .sample-action-button__title {
   max-width: 100%;
   overflow: hidden;
-  color: #07111d;
+  color: var(--theme-text-primary);
   font-size: 14px;
   font-weight: 900;
   letter-spacing: 0;
@@ -255,8 +289,8 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   max-width: 100%;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(7, 17, 29, 0.15);
-  color: rgba(7, 17, 29, 0.78);
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-muted));
+  color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-text-secondary));
   font-family: var(--theme-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   font-size: 9px;
   font-weight: 900;
@@ -288,11 +322,6 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong)) !important;
   background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface-card-soft)) !important;
   color: color-mix(in srgb, var(--theme-accent) 88%, var(--theme-text-primary)) !important;
-}
-
-.quick-upload-menu__item:hover {
-  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
-  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
 }
 
 .quick-action-glyph {
@@ -339,6 +368,72 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
 
 .quick-action-button.v-btn--disabled .quick-action-label {
   opacity: 0.4;
+}
+
+.source-picker-menu {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card) 94%, white 3%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 4%)
+    );
+  color: var(--theme-text-primary);
+}
+
+.source-picker-menu__item {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 9px 10px;
+  text-align: left;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.source-picker-menu__item:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.source-picker-menu__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 86%, transparent);
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
+}
+
+.source-picker-menu__label {
+  display: block;
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-picker-menu__description {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :deep(.quick-action-button .v-btn__content) {

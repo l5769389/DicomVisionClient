@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { useUiLocale } from '../../composables/ui/useUiLocale'
+
 defineProps<{
   viewerPlatform: 'desktop' | 'web'
 }>()
+
+const { t } = useUiLocale()
 </script>
 
 <template>
@@ -14,7 +18,7 @@ defineProps<{
         <span class="text-[14px] font-black tracking-[0.06em]">DV</span>
       </div>
       <div class="min-w-0 flex-1">
-        <div class="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-secondary)_78%,var(--theme-accent)_22%)]">Diagnostic Workspace</div>
+        <div class="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-secondary)_78%,var(--theme-accent)_22%)]">{{ t('diagnosticWorkspace') }}</div>
         <div class="mt-0.5 flex min-w-0 items-baseline gap-2">
           <div class="min-w-0 truncate text-lg font-semibold leading-none tracking-[0.02em] text-[var(--theme-text-primary)]">DICOM Vision</div>
           <div class="sidebar-brand-platform shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.1em] text-[var(--theme-text-secondary)]">

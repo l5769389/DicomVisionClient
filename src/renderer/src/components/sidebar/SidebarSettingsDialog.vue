@@ -362,7 +362,7 @@ const { resetExportSection } = useExportSettings(copy)
 const sections = computed<SettingsNavItem[]>(() => [
   { key: 'language' as const, title: isZh.value ? '语言与主题' : 'Language & Theme', subtitle: isZh.value ? '界面偏好' : 'UI preferences', icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
-  { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb Profile' : 'DICOMweb profiles', icon: 'pacs' },
+  { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb / DIMSE 配置' : 'DICOMweb / DIMSE profiles', icon: 'pacs' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
@@ -371,7 +371,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '测量线样式' : 'Measurement style', icon: 'measure-line' },
   { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
   { key: 'hangingProtocol' as const, title: isZh.value ? '挂片协议' : 'Hanging Protocol', subtitle: isZh.value ? '自动布局规则' : 'Layout rules', icon: 'layout' },
-  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM Tag' : 'DICOM Tags', subtitle: isZh.value ? '显示与修改保存' : 'Display and edit save', icon: 'tag' },
+  { key: 'dicomTags' as const, title: isZh.value ? 'DICOM 标签' : 'DICOM Tags', subtitle: isZh.value ? '显示与修改保存' : 'Display and edit save', icon: 'tag' },
   { key: 'dicomExport' as const, title: isZh.value ? 'DICOM 导出' : 'DICOM Export', subtitle: isZh.value ? '导出位置与内容' : 'Location and overlays', icon: 'export' },
   { key: 'deidentifyExport' as const, title: isZh.value ? '脱敏导出' : 'De-identify Export', subtitle: isZh.value ? '匿名字段规则' : 'Anonymization rules', icon: 'shield' },
   { key: 'qa' as const, title: copy.value.qaSection, subtitle: isZh.value ? '质控指标' : 'Quality metrics', icon: 'qa' }
@@ -414,7 +414,7 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
     },
     {
       key: 'dicomTags',
-      title: isZh.value ? 'DICOM Tag' : 'DICOM Tags',
+      title: isZh.value ? 'DICOM 标签' : 'DICOM Tags',
       subtitle: isZh.value ? 'Tag 设置' : 'Tag settings',
       icon: 'tag',
       items: [getSection('dicomTags')]
@@ -1465,7 +1465,7 @@ onMounted(async () => {
                             <div>
                               <div class="flex flex-wrap items-center gap-2">
                                 <span class="text-lg font-semibold">{{ isZh ? '挂片协议' : 'Hanging Protocol' }}</span>
-                                <span v-if="isZh" class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">Hanging Protocol</span>
+                                <span v-if="isZh" class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">布局规则</span>
                               </div>
                               <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">
                                 {{ isZh ? '按 Modality、Series Description 等序列信息匹配布局规则，用于一键或自动套用常用诊断布局。' : 'Persist layout rules matched by series metadata for one-click or automatic diagnostic layouts.' }}
@@ -1707,7 +1707,7 @@ onMounted(async () => {
                           <div>
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'Tag 修改保存位置' : 'Tag Edit Save Location' }}</div>
                             <div class="mt-1 text-xs leading-6 text-[var(--theme-text-secondary)]">
-                              {{ isZh ? '右键修改 Tag 后生成的新 DICOM 文件会保存到这里；同一个 series 会归档在同一个子文件夹中。' : 'Modified DICOM copies created from tag edits are saved here; each series is grouped into one subfolder.' }}
+                              {{ isZh ? '右键修改标签后生成的新 DICOM 文件会保存到这里；同一个序列会归档在同一个子文件夹中。' : 'Modified DICOM copies created from tag edits are saved here; each series is grouped into one subfolder.' }}
                             </div>
                           </div>
                           <span class="w-fit rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">
@@ -1768,7 +1768,7 @@ onMounted(async () => {
                               <div class="mt-2 text-xs leading-6 text-[var(--theme-text-secondary)]">
                                 {{
                                   viewerRuntime.platform === 'desktop'
-                                    ? (isZh ? '实际生成目录会追加 DicomVisionTagEdits/<series-id>，避免不同 series 的修改文件混在一起。' : 'The actual output appends DicomVisionTagEdits/<series-id> so different series stay separated.')
+                                    ? (isZh ? '实际生成目录会追加 DicomVisionTagEdits/<series-id>，避免不同序列的修改文件混在一起。' : 'The actual output appends DicomVisionTagEdits/<series-id> so different series stay separated.')
                                     : (isZh ? 'Web 端会保存后端返回的 DICOM 或 ZIP 下载文件，具体位置由浏览器决定。' : 'On web, the returned DICOM or ZIP is downloaded and the browser decides the final location.')
                                 }}
                               </div>

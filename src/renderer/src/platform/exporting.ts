@@ -117,9 +117,10 @@ export async function getDefaultExportLocationLabel(): Promise<string> {
 
 export async function chooseCustomExportDirectory(): Promise<{ desktopDirectory?: string | null; webDirectoryName?: string | null } | null> {
   if (window.viewerApi?.chooseExportDirectory || window.viewerApi?.chooseFolder) {
-    const directory = window.viewerApi.chooseExportDirectory
+    const selectedDirectory = window.viewerApi.chooseExportDirectory
       ? await window.viewerApi.chooseExportDirectory()
       : await window.viewerApi.chooseFolder?.()
+    const directory = Array.isArray(selectedDirectory) ? selectedDirectory[0] : selectedDirectory
     return directory ? { desktopDirectory: directory } : null
   }
 

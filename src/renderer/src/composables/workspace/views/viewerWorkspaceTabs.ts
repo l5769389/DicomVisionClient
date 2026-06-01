@@ -488,7 +488,7 @@ export function getSeriesDisplayName(series: FolderSeriesItem | null, fallbackSe
 }
 
 export function buildTabTitle(series: FolderSeriesItem | null, viewType: ViewType, fallbackSeriesId: string): string {
-  return `${getSeriesDisplayName(series, fallbackSeriesId)} 路 ${viewType}`
+  return `${getSeriesDisplayName(series, fallbackSeriesId)} · ${viewType}`
 }
 
 export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerTabItem {
@@ -498,7 +498,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     key: createTabKey(series.seriesId, viewType),
     seriesId: series.seriesId,
     seriesTitle,
-    title: `${seriesTitle} 路 ${viewType}`,
+    title: `${seriesTitle} · ${viewType}`,
     viewType,
     viewId: '',
     imageSrc: '',

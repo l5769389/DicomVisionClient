@@ -30,9 +30,9 @@ const activeProfile = computed(() => (
         <AppIcon name="pacs" :size="20" />
       </span>
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-semibold text-[var(--theme-text-primary)]">PACS Browser</div>
+        <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? 'PACS 浏览器' : 'PACS Browser' }}</div>
         <div class="mt-0.5 truncate text-xs text-[var(--theme-text-secondary)]" :title="activeProfile ? `${activeProfile.name} · ${activeProfile.baseUrl}` : ''">
-          {{ activeProfile ? activeProfile.name : (isZh ? '未启用 Profile' : 'No active profile') }}
+          {{ activeProfile ? activeProfile.name : (isZh ? '未启用配置' : 'No active profile') }}
         </div>
       </div>
       <VBtn

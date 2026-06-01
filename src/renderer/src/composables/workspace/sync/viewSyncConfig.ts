@@ -12,12 +12,12 @@ export interface ViewSyncOptionConfig {
 }
 
 export const VIEW_SYNC_OPTION_CONFIGS: ViewSyncOptionConfig[] = [
-  { key: 'scroll', value: 'compare-sync:scroll', label: '翻页', icon: 'page', description: '同步切片滚动' },
-  { key: 'window', value: 'compare-sync:window', label: '窗宽窗位', icon: 'window', description: '同步 WW / WL 调整' },
-  { key: 'pseudocolor', value: 'compare-sync:pseudocolor', label: '伪彩', icon: 'pseudocolor', description: '同步伪彩方案' },
-  { key: 'view', value: 'compare-sync:view', label: '缩放平移', icon: 'pan', description: '同步 zoom 和 pan' },
-  { key: 'transform', value: 'compare-sync:transform', label: '旋转翻转', icon: 'rotate', description: '同步 90° 旋转和镜像翻转' },
-  { key: 'reset', value: 'compare-sync:reset', label: 'Reset', icon: 'reset', description: '将 reset 应用到当前布局中的所有视图' }
+  { key: 'scroll', value: 'compare-sync:scroll', label: 'Scroll', icon: 'page', description: 'Sync slice scrolling' },
+  { key: 'window', value: 'compare-sync:window', label: 'Window', icon: 'window', description: 'Sync WW / WL adjustments' },
+  { key: 'pseudocolor', value: 'compare-sync:pseudocolor', label: 'Pseudocolor', icon: 'pseudocolor', description: 'Sync pseudocolor presets' },
+  { key: 'view', value: 'compare-sync:view', label: 'Zoom / Pan', icon: 'pan', description: 'Sync zoom and pan' },
+  { key: 'transform', value: 'compare-sync:transform', label: 'Rotate / Mirror', icon: 'rotate', description: 'Sync 90° rotation and mirroring' },
+  { key: 'reset', value: 'compare-sync:reset', label: 'Reset', icon: 'reset', description: 'Apply reset to all views in the current layout' }
 ]
 
 export const COMPARE_SYNC_DEFAULTS: Record<CompareSyncSettingKey, boolean> = {

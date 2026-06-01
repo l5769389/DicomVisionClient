@@ -18,6 +18,7 @@ import type {
   ViewerMtfItem,
   ViewerTabItem
 } from '../../../types/viewer'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -79,6 +80,8 @@ const FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
 
 const fps = ref(props.activeTab.fourDPlaybackFps ?? 2)
 const fpsMenuOpen = ref(false)
+const { viewerCopy } = useUiLocale()
+const copy = computed(() => viewerCopy.value)
 
 const phaseItems = computed<FourDPhaseItem[]>(() => {
   if (props.activeTab.fourDPhaseItems?.length) {
@@ -114,17 +117,17 @@ const isPreloading = computed(() => Boolean(props.activeTab.fourDIsPreloading))
 const interactionLocked = computed(() => isPlaying.value || isPreloading.value)
 const toolbarLocked = computed(() => interactionLocked.value || props.areToolbarActionsDisabled)
 const playbackButtonDisabled = computed(() => !canPlay.value || isPreloading.value)
-const playbackButtonLabel = computed(() => (isPreloading.value ? 'Loading 4D playback' : isPlaying.value ? 'Pause 4D playback' : 'Play 4D playback'))
-const playbackButtonTitle = computed(() => (isPreloading.value ? 'Loading' : isPlaying.value ? 'Pause' : 'Play'))
-const interactionLockLabel = computed(() => (isPreloading.value ? 'Loading 4D phases' : 'Playing - MPR tools disabled'))
+const playbackButtonLabel = computed(() => (isPreloading.value ? copy.value.loading4dPlayback : isPlaying.value ? copy.value.pause4dPlayback : copy.value.play4dPlayback))
+const playbackButtonTitle = computed(() => (isPreloading.value ? copy.value.loading : isPlaying.value ? copy.value.pause : copy.value.play))
+const interactionLockLabel = computed(() => (isPreloading.value ? copy.value.loading4dPhases : copy.value.playingMprToolsDisabled))
 const interactionLockDescription = computed(() =>
   isPreloading.value
-    ? 'Preparing phase viewports before playback starts.'
-    : `Phase ${activePhaseNumber.value} of ${phaseCount.value} is playing at ${normalizedFps.value} FPS.`
+    ? copy.value.preparing4dPhases
+    : copy.value.playingPhaseDetail(activePhaseNumber.value, phaseCount.value, normalizedFps.value)
 )
 const interactionLockMeta = computed(() =>
   isPreloading.value
-    ? `${phaseCount.value} phases queued`
+    ? copy.value.phasesQueued(phaseCount.value)
     : `${String(activePhaseNumber.value).padStart(2, '0')} / ${String(phaseCount.value).padStart(2, '0')}`
 )
 
@@ -186,25 +189,25 @@ const phaseRuntimeKind = computed<FourDPhaseRuntimeKind>(() => {
 })
 const phaseRuntimeStateLabel = computed(() => {
   if (isPreloading.value) {
-    return 'Loading 4D phases'
+    return copy.value.loading4dPhases
   }
   if (isPlaying.value) {
-    return `Playing ${normalizedFps.value} FPS`
+    return copy.value.playingFps(normalizedFps.value)
   }
-  return '4D playback idle'
+  return copy.value.playbackIdle4d
 })
 const phaseLoadProgressLabel = computed(
   () => `${formatPhaseStatusCount(phaseVisualStateCounts.value.loaded)}/${formatPhaseStatusCount(phaseCount.value)}`
 )
 const phaseStatusAriaLabel = computed(() => {
   const counts = phaseVisualStateCounts.value
-  return `${phaseRuntimeStateLabel.value}. Phase load status: ${counts.loaded} loaded, ${counts.loading} loading, ${counts.unloaded} not loaded, ${counts.error} failed.`
+  return copy.value.phaseLoadStatus(phaseRuntimeStateLabel.value, counts.loaded, counts.loading, counts.unloaded, counts.error)
 })
-const phasePanelStatusLabel = computed(() => (isPreloading.value ? 'Loading' : isPlaying.value ? 'Playing' : 'Ready'))
+const phasePanelStatusLabel = computed(() => (isPreloading.value ? copy.value.loading : isPlaying.value ? copy.value.playing : copy.value.ready))
 const phasePanelStatusDetail = computed(() => {
   const phasePosition = `${String(activePhaseNumber.value).padStart(2, '0')} / ${String(phaseCount.value).padStart(2, '0')}`
   if (isPreloading.value) {
-    return `${phaseCount.value} phases queued`
+    return copy.value.phasesQueued(phaseCount.value)
   }
   if (isPlaying.value) {
     return `${phasePosition} · ${normalizedFps.value} FPS`
@@ -451,7 +454,7 @@ watch(
       </div>
 
       <aside class="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] content-start gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_66%,transparent)] p-2" aria-live="polite">
-        <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">Phases</div>
+        <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">{{ copy.phases }}</div>
         <div class="h-1.5 overflow-hidden rounded-full bg-[color:color-mix(in_srgb,var(--theme-text-primary)_10%,transparent)]">
           <div class="h-full rounded-full bg-[var(--theme-accent)] transition-[width] duration-150" :style="{ width: playbackProgress }"></div>
         </div>
@@ -466,7 +469,7 @@ watch(
             ]"
             type="button"
             :disabled="interactionLocked"
-            :aria-label="`Select 4D frame ${phase.phaseIndex + 1}`"
+            :aria-label="copy.select4dFrame(phase.phaseIndex + 1)"
             @click="selectPhase(phase.phaseIndex)"
           >
             <span>{{ String(phase.phaseIndex + 1).padStart(2, '0') }}</span>
@@ -481,15 +484,15 @@ watch(
           <div class="flex flex-wrap items-center gap-3">
             <span class="four-d-phase-legend">
               <span class="four-d-phase-legend__dot four-d-phase-legend__dot--loaded" aria-hidden="true"></span>
-              <span>Loaded</span>
+              <span>{{ copy.loaded }}</span>
             </span>
             <span class="four-d-phase-legend">
               <span class="four-d-phase-legend__dot four-d-phase-legend__dot--loading" aria-hidden="true"></span>
-              <span>Loading</span>
+              <span>{{ copy.loading }}</span>
             </span>
             <span class="four-d-phase-legend">
               <span class="four-d-phase-legend__dot four-d-phase-legend__dot--unloaded" aria-hidden="true"></span>
-              <span>Not loaded</span>
+              <span>{{ copy.notLoaded }}</span>
             </span>
           </div>
           <div

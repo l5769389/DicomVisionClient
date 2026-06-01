@@ -5,7 +5,7 @@ import { createServer } from 'node:net'
 import { dirname, extname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN, buildHttpOrigin } from '../shared/appConfig'
 
@@ -16,6 +16,7 @@ const BACKEND_READY_TIMEOUT_MS = 20000
 const BACKEND_READY_POLL_INTERVAL_MS = 400
 
 type RendererStatusToastTone = 'info' | 'success' | 'warning' | 'error'
+type DesktopSourcePickMode = 'files' | 'folder' | 'mixed'
 
 interface RendererStatusToastPayload {
   id: string
@@ -290,6 +291,33 @@ function normalizeDroppedDicomPaths(paths: unknown): string[] {
   return normalizedPaths
 }
 
+function normalizeDesktopSourcePickMode(value: unknown): DesktopSourcePickMode {
+  return value === 'files' || value === 'folder' ? value : 'mixed'
+}
+
+function getDicomSourcePickerProperties(mode: DesktopSourcePickMode): OpenDialogOptions['properties'] {
+  if (mode === 'files') {
+    return ['openFile', 'multiSelections']
+  }
+  if (mode === 'folder') {
+    return ['openDirectory', 'multiSelections']
+  }
+
+  return process.platform === 'darwin'
+    ? ['openFile', 'openDirectory', 'multiSelections']
+    : ['openFile', 'multiSelections']
+}
+
+function getDicomSourcePickerTitle(mode: DesktopSourcePickMode): string {
+  if (mode === 'files') {
+    return 'Select DICOM files'
+  }
+  if (mode === 'folder') {
+    return 'Select DICOM folders'
+  }
+  return process.platform === 'darwin' ? 'Select DICOM files or folders' : 'Select DICOM files'
+}
+
 function pipeBackendLogs(processHandle: ChildProcessWithoutNullStreams): void {
   const logStream = createWriteStream(resolveBackendLogPath(), { flags: 'a' })
   processHandle.stdout.pipe(logStream)
@@ -504,17 +532,22 @@ app.whenReady().then(() => {
 
   ipcMain.handle('viewer:normalize-dropped-paths', (_event, paths: unknown) => normalizeDroppedDicomPaths(paths))
 
-  ipcMain.handle('viewer:choose-folder', async (event) => {
+  ipcMain.handle('viewer:choose-folder', async (event, mode: unknown) => {
     const currentWindow = getWindowFromIpcEvent(event)
+    const pickerMode = normalizeDesktopSourcePickMode(mode)
+    const dialogOptions: OpenDialogOptions = {
+      properties: getDicomSourcePickerProperties(pickerMode),
+      title: getDicomSourcePickerTitle(pickerMode)
+    }
     const result = currentWindow
-      ? await dialog.showOpenDialog(currentWindow, { properties: ['openDirectory'] })
-      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      ? await dialog.showOpenDialog(currentWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
 
     if (result.canceled || result.filePaths.length === 0) {
       return null
     }
 
-    return result.filePaths[0]
+    return normalizeDroppedDicomPaths(result.filePaths)
   })
 
   ipcMain.handle('viewer:choose-export-directory', async (event) => {

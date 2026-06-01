@@ -236,6 +236,10 @@ const {
   setActiveViewport
 })
 
+function closeVolumeConfigPanel(): void {
+  isVolumeConfigPanelOpen.value = false
+}
+
 const activeMprLayoutKey = computed(() => {
   const selectedLayout = parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout)
   if (activeTabRef.value?.viewType === '4D' && selectedLayout === 'mpr-3d') {
@@ -1745,6 +1749,7 @@ onBeforeUnmount(() => {
         >
           <VolumeRenderConfigPanel
             :config="activeVolumeRenderConfig"
+            @close="closeVolumeConfigPanel"
             @config-change="emit('volumeConfigChange', $event)"
           />
         </div>

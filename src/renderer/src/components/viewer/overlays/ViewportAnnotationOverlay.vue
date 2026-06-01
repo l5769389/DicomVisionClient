@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import type { AnnotationDraft, AnnotationOverlay, AnnotationSize } from '../../../types/viewer'
 import { toOverlayScreenPoint, type OverlayScreenPoint } from './overlayGeometry'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const SIZE_CONFIG: Record<AnnotationSize, { fontSize: number; lineWidth: number; handleRadius: number }> = {
   sm: { fontSize: 12, lineWidth: 2, handleRadius: 3.5 },
@@ -58,6 +59,8 @@ const emit = defineEmits<{
 }>()
 
 const openStyleMenuAnnotationId = ref<string | null>(null)
+const { locale } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -246,7 +249,7 @@ watch(
           class="min-w-[140px] rounded-lg border border-white/10 bg-white/6 px-2 py-1.5 text-sm text-slate-50 outline-none placeholder:text-slate-400"
           type="text"
           :value="annotation.text"
-          placeholder="Annotation"
+          :placeholder="isZh ? '标注' : 'Annotation'"
           @input="emit('updateAnnotationText', { annotationId: annotation.annotationId, text: ($event.target as HTMLInputElement).value })"
         />
         <button
@@ -275,7 +278,7 @@ watch(
           v-if="openStyleMenuAnnotationId === annotation.annotationId"
           class="absolute right-0 top-[calc(100%+8px)] z-[14] w-[220px] rounded-xl border border-white/10 bg-[rgba(7,14,24,0.98)] p-3 shadow-[0_18px_36px_rgba(0,0,0,0.38)]"
         >
-          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Color</div>
+          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{{ isZh ? '颜色' : 'Color' }}</div>
           <div class="mb-3 flex flex-wrap gap-2">
             <button
               v-for="color in COLOR_OPTIONS"
@@ -287,7 +290,7 @@ watch(
               @click.stop="emit('updateAnnotationColor', { annotationId: annotation.annotationId, color })"
             />
           </div>
-          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Size</div>
+          <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{{ isZh ? '大小' : 'Size' }}</div>
           <div class="flex gap-2">
             <button
               v-for="size in SIZE_OPTIONS"

@@ -57,7 +57,7 @@ import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from '
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
-import { viewerRuntime, type DicomDropInput, type DicomLoadSource, type WebUploadPickMode } from '../../../platform/runtime'
+import { viewerRuntime, type DicomDropInput, type DicomLoadSelection, type DicomLoadSource, type WebUploadPickMode } from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -2140,13 +2140,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return !selectedSeriesId.value
   }
 
+  function normalizeDicomLoadSelection(selection: DicomLoadSelection): DicomLoadSource[] {
+    return Array.isArray(selection) ? selection : [selection]
+  }
+
   async function chooseFolder(mode?: WebUploadPickMode): Promise<void> {
-    const source = await viewerRuntime.chooseFolder(mode)
-    if (!source) {
+    const selection = await viewerRuntime.chooseFolder(mode)
+    if (!selection) {
       return
     }
 
-    await loadDicomSource(source, { selectLoadedSeries: shouldAutoSelectLoadedSeries() })
+    let shouldSelectLoadedSeries = shouldAutoSelectLoadedSeries()
+    for (const source of normalizeDicomLoadSelection(selection)) {
+      const loadedSeries = await loadDicomSource(source, { selectLoadedSeries: shouldSelectLoadedSeries })
+      if (loadedSeries.length && shouldSelectLoadedSeries) {
+        shouldSelectLoadedSeries = false
+      }
+    }
   }
 
   async function loadDroppedDicomFiles(drop: DicomDropInput): Promise<void> {

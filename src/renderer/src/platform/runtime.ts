@@ -19,11 +19,12 @@ export type DicomLoadSource =
   | { kind: 'path'; path: string }
   | { kind: 'server-sample' }
   | { kind: 'files'; files: DicomUploadItem[] }
+export type DicomLoadSelection = DicomLoadSource | DicomLoadSource[]
 
 export interface ViewerRuntimeApi {
   canChooseFolder: boolean
   folderSourceMode: FolderSourceMode
-  chooseFolder: (mode?: WebUploadPickMode) => Promise<DicomLoadSource | null>
+  chooseFolder: (mode?: WebUploadPickMode) => Promise<DicomLoadSelection | null>
   getBackendOrigin: () => Promise<string>
   platform: ViewerPlatform
   resolveDicomPathSources: (paths: string[]) => Promise<DicomLoadSource[]>
@@ -225,7 +226,7 @@ function pickFilesFromBrowser(options: { directory: boolean }): Promise<DicomUpl
   })
 }
 
-async function chooseWebUploadFiles(mode: WebUploadPickMode = 'folder'): Promise<DicomLoadSource | null> {
+async function chooseWebUploadFiles(mode: WebUploadPickMode = 'files'): Promise<DicomLoadSource | null> {
   if (!mode) {
     return null
   }
@@ -234,15 +235,33 @@ async function chooseWebUploadFiles(mode: WebUploadPickMode = 'folder'): Promise
   return files?.length ? { kind: 'files', files } : null
 }
 
+function normalizeDesktopPickerPaths(paths: string | string[] | null | undefined): string[] {
+  if (Array.isArray(paths)) {
+    return paths.map((path) => path.trim()).filter(Boolean)
+  }
+  const path = paths?.trim()
+  return path ? [path] : []
+}
+
 function createDesktopRuntime(): ViewerRuntimeApi {
   return {
     platform: 'desktop',
     webAppMode: null,
     canChooseFolder: true,
     folderSourceMode: 'desktop-picker',
-    chooseFolder: async () => {
-      const path = await (window.viewerApi?.chooseFolder?.() ?? Promise.resolve(null))
-      return path ? { kind: 'path', path } : null
+    chooseFolder: async (mode) => {
+      const api = window.viewerApi
+      if (!api) {
+        return null
+      }
+
+      const selectedPaths = normalizeDesktopPickerPaths(await api.chooseFolder(mode))
+      if (!selectedPaths.length) {
+        return null
+      }
+
+      const scanPaths = await api.normalizeDroppedPaths(selectedPaths)
+      return scanPaths.length ? scanPaths.map((path) => ({ kind: 'path' as const, path })) : null
     },
     getBackendOrigin: () =>
       window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN),

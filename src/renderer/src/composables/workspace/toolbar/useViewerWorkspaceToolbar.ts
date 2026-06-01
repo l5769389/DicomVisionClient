@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { PSEUDOCOLOR_PRESET_OPTIONS, toPseudocolorSelectionValue } from '../../../constants/pseudocolor'
+import { useUiLocale } from '../../ui/useUiLocale'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import type { ViewerExportFormat } from '../export/viewExport'
@@ -42,6 +43,80 @@ const DEFAULT_QA_OPERATION = 'qa:mtf'
 const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
 const STACK_PLAYBACK_DEFAULT_FPS = 5
 const STACK_PLAYBACK_FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
+
+const ZH_TOOL_LABELS: Record<string, string> = {
+  annotate: '标注',
+  compareSync: '同步',
+  crosshair: '十字线',
+  export: '导出',
+  layout: '布局',
+  measure: '测量',
+  mprLayout: 'MPR 布局',
+  mprMip: 'MIP',
+  page: '翻页',
+  pan: '平移',
+  play: '播放',
+  pseudocolor: '伪彩',
+  qa: 'QA',
+  render3dMode: '渲染',
+  reset: '重置',
+  rotate: '旋转',
+  rotate3d: '3D 旋转',
+  tag: '标签',
+  volumeParams: '参数',
+  volumePreset: '预设',
+  window: '窗宽窗位',
+  zoom: '缩放'
+}
+
+const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
+  'compare-sync:pseudocolor': { label: '伪彩', description: '同步伪彩方案' },
+  'compare-sync:reset': { label: '重置', description: '将重置操作同步到当前布局中的所有视图' },
+  'compare-sync:scroll': { label: '翻页', description: '同步切片滚动' },
+  'compare-sync:transform': { label: '旋转 / 镜像', description: '同步 90° 旋转和镜像翻转' },
+  'compare-sync:view': { label: '缩放 / 平移', description: '同步缩放和平移' },
+  'compare-sync:window': { label: '窗宽窗位', description: '同步 WW / WL 调整' },
+  'dicom-gsps': { description: '保存标注和测量，供支持 GSPS 的 Viewer 叠加显示' },
+  'dicom-sr': { description: '结构化测量报告' },
+  'measure:angle': { label: '角度' },
+  'measure:curve': { label: '曲线' },
+  'measure:ellipse': { label: '椭圆' },
+  'measure:freeform': { label: '自由手绘' },
+  'measure:line': { label: '线段' },
+  'measure:rect': { label: '矩形' },
+  'pseudocolor:blackbody': { label: '黑体' },
+  'pseudocolor:bw': { label: '黑白' },
+  'pseudocolor:bwinverse': { label: '反相黑白' },
+  'pseudocolor:cardiac': { label: '心脏' },
+  'pseudocolor:hotiron': { label: '热铁' },
+  'pseudocolor:rainbow': { label: '彩虹' },
+  'qa:mtf': {
+    description: '通过金属点 ROI 计算空间分辨率',
+    badge: '分辨率',
+    group: '空间分辨率'
+  },
+  'qa:water-phantom': {
+    label: '水模 QA',
+    description: '自动识别水模并报告准确性、均匀性和噪声',
+    badge: '水模',
+    group: '水模'
+  },
+  'render3dMode:surface': { label: '表面', description: '骨表面网格' },
+  'render3dMode:volume': { label: 'VR', description: '体渲染' },
+  'reset:all': { label: '全部重置', description: '重置视图并清除测量、MTF 和标注。' },
+  'reset:annotations': { label: '清除标注', description: '移除当前视图中的所有标注。' },
+  'reset:measurements': { label: '清除测量', description: '移除当前视图中的所有测量。' },
+  'reset:mtf': { label: '清除 MTF', description: '移除当前视图中的所有 MTF ROI。' },
+  'reset:view': { label: '重置视图', description: '重置当前视图参数和显示状态。' },
+  'rotate:ccw90': { label: '逆时针 90°' },
+  'rotate:cw90': { label: '顺时针 90°' },
+  'rotate:mirror-h': { label: '水平镜像' },
+  'rotate:mirror-v': { label: '垂直镜像' },
+  'volumePreset:bone': { label: '骨骼' },
+  'volumePreset:cardiac': { label: '心脏' },
+  'volumePreset:muscle': { label: '肌肉' },
+  'volumePreset:red': { label: '红色' }
+}
 
 const measureTool: StackTool = {
   key: 'measure',
@@ -145,8 +220,8 @@ const exportTool: StackTool = {
   options: [
     { value: 'png', label: 'PNG', icon: 'export' },
     { value: 'dicom', label: 'DICOM', icon: 'export' },
-    { value: 'dicom-sr', label: 'DICOM SR', icon: 'export', description: 'Measurement report' },
-    { value: 'dicom-gsps', label: 'DICOM GSPS', icon: 'export', description: 'Presentation state overlay' }
+    { value: 'dicom-sr', label: 'DICOM SR', icon: 'export', description: 'Structured measurement report' },
+    { value: 'dicom-gsps', label: 'DICOM GSPS', icon: 'export', description: 'Save annotations and measurements as a GSPS overlay' }
   ]
 }
 
@@ -221,6 +296,40 @@ function withoutMtfResetOption(tool: StackTool): StackTool {
             }
           : option
       )
+  }
+}
+
+function localizeToolbarOption(option: StackToolOption, isZh: boolean): StackToolOption {
+  if (!isZh) {
+    return option
+  }
+  const copy = ZH_OPTION_COPY[option.value]
+  return copy ? { ...option, ...copy } : option
+}
+
+function localizeToolbarTool(tool: StackTool, isZh: boolean): StackTool {
+  if (!isZh) {
+    return tool
+  }
+  return {
+    ...tool,
+    label: ZH_TOOL_LABELS[tool.key] ?? tool.label,
+    options: tool.options?.map((option) => localizeToolbarOption(option, isZh))
+  }
+}
+
+function supportsStandardAnnotationExport(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+  return viewType !== '3D' && viewType !== 'MPR'
+}
+
+function withSupportedExportOptions(tool: StackTool, viewType: ViewerTabItem['viewType'] | undefined): StackTool {
+  if (tool.key !== 'export' || supportsStandardAnnotationExport(viewType)) {
+    return tool
+  }
+
+  return {
+    ...tool,
+    options: tool.options?.filter((option) => option.value !== 'dicom-sr' && option.value !== 'dicom-gsps')
   }
 }
 
@@ -350,6 +459,7 @@ interface StoredToolbarState {
 }
 
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
+  const { locale } = useUiLocale()
   const { getWindowPresetLabel, mprDefaultLayoutKey, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
   const playbackController = createPlaybackController()
   const menuController = createMenuController()
@@ -381,6 +491,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const toolbarIconSize = 18
   const menuIconSize = 15
   const toggleIconSize = 11
+  const isZh = computed(() => locale.value === 'zh-CN')
 
   let playbackTimer: ReturnType<typeof window.setInterval> | null = null
 
@@ -496,7 +607,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return tools.filter((tool) => tool.key !== 'window' && tool.key !== 'volumeParams' && tool.key !== 'volumePreset')
   }
 
-  const activeTools = computed(() => withDynamicWindowTool(withRenderModeTools(getBaseToolsForActiveTab())))
+  const activeTools = computed(() => {
+    const viewType = options.activeTab.value?.viewType
+    return withDynamicWindowTool(withRenderModeTools(getBaseToolsForActiveTab()))
+      .map((tool) => withSupportedExportOptions(tool, viewType))
+      .map((tool) => localizeToolbarTool(tool, isZh.value))
+  })
 
   const areToolbarActionsDisabled = computed(
     () =>
@@ -676,6 +792,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return null
     }
     return tool.options.find((item) => item.value === selectedValue) ?? null
+  }
+
+  function getSelectedExportFormat(): ViewerExportFormat {
+    const selectedFormat = (stackToolSelections.value.export ?? 'png') as ViewerExportFormat
+    const exportOptions = activeTools.value.find((tool) => tool.key === 'export')?.options ?? []
+    return exportOptions.some((option) => option.value === selectedFormat) ? selectedFormat : 'png'
   }
 
   function activateSelectedOption(toolKey: string): string | null {
@@ -937,7 +1059,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     },
     export: () => {
       closeMenus()
-      options.exportCurrentView((stackToolSelections.value.export as ViewerExportFormat | undefined) ?? 'png')
+      options.exportCurrentView(getSelectedExportFormat())
     }
   }
 
@@ -1081,6 +1203,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'export') {
+      const exportOptions = activeTools.value.find((item) => item.key === 'export')?.options ?? []
+      if (!exportOptions.some((option) => option.value === optionValue)) {
+        return
+      }
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
         options.exportCurrentView(optionValue as ViewerExportFormat)
       })

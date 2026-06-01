@@ -98,6 +98,39 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
 }
 
 describe('useViewerWorkspaceToolbar surface mode', () => {
+  it('hides DICOM SR and GSPS export options for 3D and MPR views', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      render3dMode: 'volume'
+    })
+    await nextTick()
+
+    const getExportValues = () =>
+      harness.toolbar.activeTools.value.find((tool) => tool.key === 'export')?.options?.map((option) => option.value) ?? []
+
+    expect(getExportValues()).toEqual(['png', 'dicom'])
+
+    harness.activeTab.value = {
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    }
+    await nextTick()
+    expect(getExportValues()).toEqual(['png', 'dicom'])
+
+    harness.activeTab.value = {
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    }
+    await nextTick()
+    expect(getExportValues()).toEqual(['png', 'dicom', 'dicom-sr', 'dicom-gsps'])
+
+    harness.wrapper.unmount()
+  })
+
   it('hides volume/window-only tools while keeping rotate and zoom available', async () => {
     const harness = mountToolbarHarness()
     await nextTick()

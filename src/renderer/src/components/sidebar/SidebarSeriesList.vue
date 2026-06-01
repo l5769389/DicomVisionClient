@@ -180,28 +180,28 @@ const contextMenuActions = computed(() => [
   {
     key: 'MPR' as const,
     title: 'MPR',
-    subtitle: 'Multi-planar reconstruction',
+    subtitle: isZh.value ? '多平面重建' : 'Multi-planar reconstruction',
     badge: 'MPR',
     disabled: !isSeriesViewSupported(contextSeries.value, 'MPR')
   },
   {
     key: '3D' as const,
     title: '3D',
-    subtitle: 'Volume rendering',
+    subtitle: isZh.value ? '体渲染' : 'Volume rendering',
     badge: '3D',
     disabled: !isSeriesViewSupported(contextSeries.value, '3D')
   },
   {
     key: '4D' as const,
     title: '4D',
-    subtitle: 'Respiratory phase playback',
+    subtitle: isZh.value ? '呼吸相位播放' : 'Respiratory phase playback',
     badge: '4D',
     disabled: !isSeriesViewSupported(contextSeries.value, '4D')
   },
   {
     key: 'Tag' as const,
     title: 'TAG',
-    subtitle: 'DICOM Tags',
+    subtitle: isZh.value ? 'DICOM 标签' : 'DICOM Tags',
     badge: 'TAG'
   },
   {
@@ -223,7 +223,7 @@ const contextMenuActions = computed(() => [
   {
     key: 'compare' as const,
     title: isZh.value ? '对比' : 'Compare',
-    subtitle: isZh.value ? '选择另一个序列打开 Stack 对比' : 'Choose another series for Stack compare',
+    subtitle: isZh.value ? '选择另一个序列打开栈对比' : 'Choose another series for Stack compare',
     badge: 'CMP',
     disabled: props.seriesList.length < 2
   },
@@ -937,7 +937,7 @@ function handleSeriesDragEnd(): void {
         <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
           <div class="min-w-0">
             <div class="text-lg font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '选择对比序列' : 'Choose Compare Series' }}</div>
-            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? 'A 为当前基准序列，选择一个 B 目标序列后会打开左右并排的 Stack 对比 Tab。' : 'A is the current source series. Choose a B target series to open a side-by-side Stack compare tab.' }}</div>
+            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? 'A 为当前基准序列，选择一个 B 目标序列后会打开左右并排的栈对比标签页。' : 'A is the current source series. Choose a B target series to open a side-by-side Stack compare tab.' }}</div>
           </div>
           <VBtn class="h-10! w-10! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isCompareDialogOpen = false">
             <AppIcon name="close" :size="18" />
@@ -950,11 +950,11 @@ function handleSeriesDragEnd(): void {
               <div class="flex items-center gap-2">
                 <span class="series-compare-dialog__role-badge series-compare-dialog__role-badge--source">A</span>
                 <div>
-                  <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ isZh ? '基准 Source' : 'Source Series' }}</div>
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ isZh ? '基准序列' : 'Source Series' }}</div>
                   <div class="mt-0.5 text-[11px] font-medium text-[var(--theme-accent)]">{{ isZh ? '已固定为当前序列' : 'Locked as current series' }}</div>
                 </div>
               </div>
-              <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-accent)]">SOURCE</span>
+              <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-accent)]">{{ isZh ? '基准' : 'SOURCE' }}</span>
             </div>
 
             <div class="mt-5 grid grid-cols-[58px_minmax(0,1fr)] gap-3">
@@ -981,7 +981,7 @@ function handleSeriesDragEnd(): void {
               <div class="flex items-center gap-2">
                 <span class="series-compare-dialog__role-badge series-compare-dialog__role-badge--target">B</span>
                 <div>
-                  <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ isZh ? '目标 Target' : 'Target Series' }}</div>
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ isZh ? '目标序列' : 'Target Series' }}</div>
                   <div class="mt-0.5 text-[11px] text-[var(--theme-text-secondary)]">{{ isZh ? '点击下方序列作为右侧 B 视图' : 'Click a series below as the right-side B view' }}</div>
                 </div>
               </div>

@@ -28,7 +28,7 @@ function isSeriesDragEvent(event: DragEvent): boolean {
 export function useQuickPreviewDrop(options: UseQuickPreviewDropOptions) {
   const isQuickPreviewDropActive = ref(false)
   const quickPreviewDropClass = computed(() =>
-    isQuickPreviewDropActive.value ? 'theme-drop-active' : 'theme-shell-panel-soft'
+    isQuickPreviewDropActive.value ? 'theme-drop-active' : ''
   )
 
   function handleQuickPreviewDragEnter(event: DragEvent): void {

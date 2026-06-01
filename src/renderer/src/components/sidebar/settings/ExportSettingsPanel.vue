@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import { useExportSettings } from '../../../composables/settings/useExportSettings'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
@@ -9,7 +10,10 @@ const props = withDefaults(defineProps<{
   mode: 'all'
 })
 
-const { settingsCopy: copy } = useUiLocale()
+const { locale, settingsCopy: copy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
+const imageFormatBadge = computed(() => (isZh.value ? '图像' : 'image'))
+const datasetFormatBadge = computed(() => (isZh.value ? '数据集' : 'dataset'))
 const {
   canOpenDefaultExportLocation,
   canPickCustomExportLocation,
@@ -193,7 +197,7 @@ const {
                   <div class="text-base font-semibold text-[var(--theme-text-primary)]">PNG</div>
                   <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F10</div>
                 </div>
-                <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_26%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">image</span>
+                <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_26%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">{{ imageFormatBadge }}</span>
               </div>
               <div class="space-y-2">
                 <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">
@@ -232,7 +236,7 @@ const {
                   <div class="text-base font-semibold text-[var(--theme-text-primary)]">DICOM</div>
                   <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F11</div>
                 </div>
-                <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent-warm)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">dataset</span>
+                <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent-warm)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">{{ datasetFormatBadge }}</span>
               </div>
               <div class="space-y-2">
                 <label class="flex cursor-pointer items-center justify-between gap-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-3 transition hover:border-[var(--theme-border-strong)]">

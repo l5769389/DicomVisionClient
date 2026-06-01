@@ -58,7 +58,7 @@ export function createPacsProfile(preset: PacsProfilePreset = 'custom', isZh = f
   const defaults = PACS_PRESET_DEFAULTS[preset]
   return {
     id: createProfileId(),
-    name: preset === 'custom' ? (isZh ? '新 PACS Profile' : 'New PACS Profile') : `${defaults.name} DICOMweb`,
+    name: preset === 'custom' ? (isZh ? '新 PACS 配置' : 'New PACS Profile') : `${defaults.name} DICOMweb`,
     enabled: true,
     protocol: 'dicomweb',
     preset,

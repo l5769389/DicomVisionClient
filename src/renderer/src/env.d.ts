@@ -30,7 +30,7 @@ declare global {
 
   interface Window {
     viewerApi?: {
-      chooseFolder: () => Promise<string | null>
+      chooseFolder: (mode?: 'files' | 'folder') => Promise<string | string[] | null>
       chooseExportDirectory: () => Promise<string | null>
       closeWindow: () => Promise<void>
       consumeLatestDroppedFilePaths: () => string[]

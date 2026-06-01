@@ -213,7 +213,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           <div class="min-w-0">
             <div class="truncate text-[13px] font-semibold text-[var(--theme-text-primary)]">{{ pane.title }}</div>
             <div class="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] text-[var(--theme-text-muted)]">
-              <span class="truncate">{{ pane.sliceLabel || 'Slice --' }}</span>
+              <span class="truncate">{{ pane.sliceLabel || `${viewerCopy.slice} --` }}</span>
               <span v-if="getPaneStarredSliceCount(pane)" class="compare-stack-pane__star-count">{{ getPaneStarredSliceCount(pane) }}</span>
             </div>
           </div>
@@ -271,7 +271,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
         />
 
         <div v-if="!isScrollSynced" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
-          <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Slice</span>
+          <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
           <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[pane.key] }}</span>
           <div class="my-2 flex min-h-0 flex-1 items-center">
             <input
@@ -296,7 +296,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
       </div>
 
       <div v-if="isScrollSynced && syncedSliderPane" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
-        <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Slice</span>
+        <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
         <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[COMPARE_STACK_SOURCE_PANE_KEY] }}</span>
         <div class="my-2 flex min-h-0 flex-1 items-center">
           <input

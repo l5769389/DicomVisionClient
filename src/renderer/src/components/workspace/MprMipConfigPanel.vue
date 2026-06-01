@@ -6,6 +6,7 @@ defineOptions({
 import { computed, ref } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { normalizeMprMipConfig, type MprMipAlgorithm, type MprMipConfig, type MprViewportKey } from '../../types/viewer'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   config: MprMipConfig
@@ -16,13 +17,16 @@ const emit = defineEmits<{
 }>()
 
 const isCollapsed = ref(false)
+const { locale, mprProjectionCopy } = useUiLocale()
+const copy = computed(() => mprProjectionCopy.value)
+const isZh = computed(() => locale.value === 'zh-CN')
 
-const algorithmOptions: Array<{ value: MprMipAlgorithm; label: string; description: string }> = [
-  { value: 'maximum', label: 'MaxIP', description: 'Highlight high-density structures.' },
-  { value: 'minimum', label: 'MinIP', description: 'Highlight low-density structures.' },
-  { value: 'average', label: 'Average', description: 'Blend the slab into a softer preview.' },
-  { value: 'sum', label: 'Sum', description: 'Accumulate voxel intensity through the slab.' }
-]
+const algorithmOptions = computed<Array<{ value: MprMipAlgorithm; label: string; description: string }>>(() => [
+  { value: 'maximum', label: 'MaxIP', description: copy.value.maximumDesc },
+  { value: 'minimum', label: 'MinIP', description: copy.value.minimumDesc },
+  { value: 'average', label: isZh.value ? '平均' : 'Average', description: copy.value.averageDesc },
+  { value: 'sum', label: isZh.value ? '求和' : 'Sum', description: copy.value.sumDesc }
+])
 
 const viewportOptions: Array<{ key: MprViewportKey; label: string }> = [
   { key: 'mpr-ax', label: 'AX' },
@@ -69,14 +73,14 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
   >
     <div class="mb-3 flex items-start justify-between gap-3">
       <div>
-        <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">MPR Projection</div>
-        <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">MIP slab preview</div>
+        <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ copy.title }}</div>
+        <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">{{ copy.subtitle }}</div>
       </div>
       <div class="flex items-center gap-2">
         <button
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
-          :title="isCollapsed ? 'Expand MIP panel' : 'Collapse MIP panel'"
+          :title="isCollapsed ? copy.expand : copy.collapse"
           @click="isCollapsed = !isCollapsed"
         >
           <AppIcon :name="isCollapsed ? 'chevron-left' : 'chevron-right'" :size="16" />
@@ -100,13 +104,13 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
           @click="setMipEnabled(false)"
         >
           <span class="flex items-center justify-between gap-2">
-            <span class="text-[12px] font-semibold">Disabled</span>
+            <span class="text-[12px] font-semibold">{{ copy.disabled }}</span>
             <span
               class="h-2.5 w-2.5 rounded-full border"
               :class="!props.config.enabled ? 'border-[var(--theme-accent-warm)] bg-[var(--theme-accent-warm)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent-warm)_18%,transparent)]' : 'border-[var(--theme-border-strong)]'"
             ></span>
           </span>
-          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">Native MPR</span>
+          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">{{ copy.nativeMpr }}</span>
         </button>
         <button
           type="button"
@@ -119,13 +123,13 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
           @click="setMipEnabled(true)"
         >
           <span class="flex items-center justify-between gap-2">
-            <span class="text-[12px] font-semibold">Enabled</span>
+            <span class="text-[12px] font-semibold">{{ copy.enabled }}</span>
             <span
               class="h-2.5 w-2.5 rounded-full border"
               :class="props.config.enabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)]'"
             ></span>
           </span>
-          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">Slab projection</span>
+          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">{{ copy.slabProjection }}</span>
         </button>
       </div>
     </div>
@@ -135,7 +139,7 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
       class="mb-3 rounded-[16px] border px-3 py-2.5 transition"
       :class="props.config.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'"
     >
-      <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">Algorithm</div>
+      <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">{{ copy.algorithm }}</div>
       <div class="grid grid-cols-1 gap-1.5">
         <label
           v-for="option in algorithmOptions"

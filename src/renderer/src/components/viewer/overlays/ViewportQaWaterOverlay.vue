@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { QaWaterAnalysis, QaWaterRoi } from '../../../types/viewer'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   analysis: QaWaterAnalysis | null
@@ -13,6 +14,8 @@ const props = defineProps<{
 }>()
 
 const isErrorDialogDismissed = ref(false)
+const { locale } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 
 function roiToScreen(roi: QaWaterRoi): { cx: number; cy: number; radius: number } {
   return {
@@ -35,9 +38,13 @@ const statusMessage = computed(() => {
     return ''
   }
   if (props.analysis.status === 'loading') {
-    return '正在分析水模 QA...'
+    return isZh.value ? '正在分析水模 QA...' : 'Analyzing water phantom QA...'
   }
-  return props.analysis.message || '水模 QA 分析失败，请确认图像包含完整水模后重试。'
+  return props.analysis.message || (
+    isZh.value
+      ? '水模 QA 分析失败，请确认图像包含完整水模后重试。'
+      : 'Water phantom QA failed. Confirm the image contains the full phantom and try again.'
+  )
 })
 
 const errorDialogOpen = computed(() => props.analysis?.status === 'error' && !isErrorDialogDismissed.value)
@@ -51,19 +58,19 @@ const metricRows = computed(() => {
   const rows: Array<{ label: string; value: string }> = []
   if (metrics.accuracy) {
     rows.push({
-      label: 'Accuracy',
+      label: isZh.value ? '准确性' : 'Accuracy',
       value: formatMetricValue(metrics.accuracy.deviationHu, metrics.accuracy.unit)
     })
   }
   if (metrics.uniformity) {
     rows.push({
-      label: 'Uniformity',
+      label: isZh.value ? '均匀性' : 'Uniformity',
       value: formatMetricValue(metrics.uniformity.maxDeviation, metrics.uniformity.unit)
     })
   }
   if (metrics.noise) {
     rows.push({
-      label: 'Noise',
+      label: isZh.value ? '噪声' : 'Noise',
       value: formatMetricValue(metrics.noise.stdDev, metrics.noise.unit)
     })
   }
@@ -140,7 +147,7 @@ watch(
       v-if="analysis.status === 'loading' || (analysis.status === 'ready' && metricRows.length)"
       class="absolute left-4 top-4 max-w-[520px] rounded-lg border border-cyan-300/30 bg-slate-950/88 px-4 py-3 text-xs leading-5 text-slate-100 shadow-[0_18px_36px_rgba(0,0,0,0.34)] backdrop-blur"
     >
-      <div class="mb-1 font-semibold uppercase tracking-[0.16em] text-cyan-100">Water Phantom QA</div>
+      <div class="mb-1 font-semibold uppercase tracking-[0.16em] text-cyan-100">{{ isZh ? '水模 QA' : 'Water Phantom QA' }}</div>
       <template v-if="analysis.status === 'ready'">
         <div v-for="row in metricRows" :key="row.label" class="grid grid-cols-[92px_minmax(0,1fr)] gap-3">
           <span class="text-slate-300">{{ row.label }}</span>
@@ -148,19 +155,19 @@ watch(
         </div>
         <div v-if="roiSizeSummary" class="mt-3 border-t border-cyan-200/14 pt-2">
           <div class="grid grid-cols-[92px_minmax(0,1fr)] gap-3">
-            <span class="text-slate-300">ROI Size</span>
+            <span class="text-slate-300">{{ isZh ? 'ROI 尺寸' : 'ROI Size' }}</span>
             <span class="text-right font-semibold text-slate-50">{{ roiSizeSummary.size }}</span>
           </div>
           <div class="grid grid-cols-[92px_minmax(0,1fr)] gap-3">
-            <span class="text-slate-300">ROI Area</span>
+            <span class="text-slate-300">{{ isZh ? 'ROI 面积' : 'ROI Area' }}</span>
             <span class="text-right font-semibold text-slate-50">{{ roiSizeSummary.area }}</span>
           </div>
         </div>
         <div v-if="uniformityRoiRows.length" class="mt-3 border-t border-cyan-200/14 pt-2">
           <div class="mb-1 grid grid-cols-[54px_82px_82px] gap-2 text-[10px] uppercase tracking-[0.12em] text-slate-400">
             <span>ROI</span>
-            <span class="text-right">Mean</span>
-            <span class="text-right">Delta</span>
+            <span class="text-right">{{ isZh ? '均值' : 'Mean' }}</span>
+            <span class="text-right">{{ isZh ? '偏差' : 'Delta' }}</span>
           </div>
           <div
             v-for="row in uniformityRoiRows"
@@ -184,7 +191,7 @@ watch(
       aria-labelledby="qa-water-error-title"
     >
       <div class="w-full max-w-[420px] rounded-lg border border-amber-200/28 bg-slate-950 px-5 py-4 text-sm text-slate-100 shadow-[0_24px_60px_rgba(0,0,0,0.48)]">
-        <div id="qa-water-error-title" class="text-base font-semibold text-amber-100">水模 QA 检测失败</div>
+        <div id="qa-water-error-title" class="text-base font-semibold text-amber-100">{{ isZh ? '水模 QA 检测失败' : 'Water phantom QA failed' }}</div>
         <div class="mt-2 text-sm leading-6 text-slate-200">{{ statusMessage }}</div>
         <div class="mt-4 flex justify-end">
           <button
@@ -192,7 +199,7 @@ watch(
             type="button"
             @click="isErrorDialogDismissed = true"
           >
-            知道了
+            {{ isZh ? '知道了' : 'Got it' }}
           </button>
         </div>
       </div>

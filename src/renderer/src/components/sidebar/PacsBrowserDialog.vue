@@ -104,7 +104,7 @@ const studyPageLabel = computed(() => (studies.value.length ? `${studyOffset.val
 const seriesPageLabel = computed(() => (
   isQueryingSeries.value ? '...' : seriesItems.value.length ? `${seriesOffset.value + 1}-${seriesOffset.value + seriesItems.value.length}` : '0'
 ))
-const selectedProfileLabel = computed(() => selectedProfile.value?.name ?? (isZh.value ? '未选择 Profile' : 'No profile selected'))
+const selectedProfileLabel = computed(() => selectedProfile.value?.name ?? (isZh.value ? '未选择配置' : 'No profile selected'))
 const isSelectedProfileDimse = computed(() => selectedProfile.value?.protocol === 'dimse')
 const advancedFilterCount = computed(() => [
   studyInstanceUid.value,
@@ -138,7 +138,7 @@ const downloadedSeriesByUid = computed(() => {
   return seriesByUid
 })
 const pacsDownloadCopy = computed(() => ({
-  started: isZh.value ? 'PACS Series 下载任务已开始，完成后会打开影像。' : 'PACS series download started. The series will open when ready.',
+  started: isZh.value ? 'PACS 序列下载任务已开始，完成后会打开影像。' : 'PACS series download started. The series will open when ready.',
   preparing: isZh.value ? '正在准备 PACS 下载...' : 'Preparing PACS download...',
   packaging: isZh.value ? 'DICOM 已下载，正在注册序列...' : 'DICOM downloaded, registering series...',
   progress: (processed: number, total: number, percent: number) => (
@@ -229,14 +229,21 @@ function setActiveSeries(series: PacsSeriesItem): void {
   }
 }
 
+function formatCountLabel(count: number | null | undefined, zhUnit: string, enUnit: string): string | null {
+  if (!count) {
+    return null
+  }
+  return isZh.value ? `${count} ${zhUnit}` : `${count} ${enUnit}`
+}
+
 function formatStudyMeta(study: PacsStudyItem): string {
   return [
     study.patientName,
     study.patientId,
     study.studyDate,
     study.modalitiesInStudy?.join('/'),
-    study.numberOfStudyRelatedSeries ? `${study.numberOfStudyRelatedSeries} series` : null,
-    study.numberOfStudyRelatedInstances ? `${study.numberOfStudyRelatedInstances} images` : null
+    formatCountLabel(study.numberOfStudyRelatedSeries, '个序列', 'series'),
+    formatCountLabel(study.numberOfStudyRelatedInstances, '张影像', 'images')
   ].filter(Boolean).join(' · ')
 }
 
@@ -244,7 +251,7 @@ function formatSeriesMeta(series: PacsSeriesItem): string {
   return [
     series.modality,
     series.seriesNumber ? `#${series.seriesNumber}` : null,
-    series.numberOfSeriesRelatedInstances ? `${series.numberOfSeriesRelatedInstances} images` : null,
+    formatCountLabel(series.numberOfSeriesRelatedInstances, '张影像', 'images'),
     series.bodyPartExamined
   ].filter(Boolean).join(' · ')
 }
@@ -252,7 +259,7 @@ function formatSeriesMeta(series: PacsSeriesItem): string {
 async function queryStudies(offset = 0): Promise<void> {
   const profile = selectedProfile.value
   if (!profile) {
-    queryError.value = isZh.value ? '请先在设置中启用一个 PACS Profile。' : 'Enable a PACS profile in settings first.'
+    queryError.value = isZh.value ? '请先在设置中启用一个 PACS 配置。' : 'Enable a PACS profile in settings first.'
     return
   }
 
@@ -354,7 +361,7 @@ function formatSeriesPreviewSummary(preview: PacsSeriesPreviewResponse | null | 
   }
 
   return [
-    preview.instanceCount ? `${preview.instanceCount} images` : null,
+    formatCountLabel(preview.instanceCount, '张影像', 'images'),
     preview.rows && preview.columns ? `${preview.columns}x${preview.rows}` : null,
     preview.transferSyntaxes?.[0] ?? null,
     preview.isCompressed ? (isZh.value ? '压缩' : 'Compressed') : null,
@@ -435,7 +442,7 @@ function openDownloadedSeries(series: PacsSeriesItem): void {
   })
   emit('close')
   dispatchWorkspaceStatusToast(
-    isZh.value ? '该 PACS Series 已下载，已打开已有序列。' : 'This PACS series is already downloaded. Opened the existing series.',
+    isZh.value ? '该 PACS 序列已下载，已打开已有序列。' : 'This PACS series is already downloaded. Opened the existing series.',
     'info',
     {
       durationMs: 3600,
@@ -515,7 +522,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
     })
 
     if (finishedJob.status === 'failed') {
-      throw new Error(finishedJob.error || (isZh.value ? 'PACS Series 下载失败' : 'PACS series download failed'))
+      throw new Error(finishedJob.error || (isZh.value ? 'PACS 序列下载失败' : 'PACS series download failed'))
     }
 
     if (finishedJob.status === 'cancelled') {
@@ -527,19 +534,19 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 
     const loadResponse = buildDownloadedLoadResponse(finishedJob)
     if (!loadResponse) {
-      throw new Error(isZh.value ? 'PACS Series 已下载，但没有可打开的 DICOM 序列。' : 'PACS series downloaded, but no readable series was returned.')
+      throw new Error(isZh.value ? 'PACS 序列已下载，但没有可打开的 DICOM 序列。' : 'PACS series downloaded, but no readable series was returned.')
     }
 
     emit('seriesLoaded', loadResponse)
     emit('close')
     const loadedSeriesCount = loadResponse.seriesList?.length ?? 0
-    dispatchWorkspaceStatusToast(isZh.value ? 'PACS Series 已下载并打开' : 'PACS series downloaded and opened', 'success', {
+    dispatchWorkspaceStatusToast(isZh.value ? 'PACS 序列已下载并打开' : 'PACS series downloaded and opened', 'success', {
       durationMs: 3600,
-      progressLabel: `${loadedSeriesCount} series`,
+      progressLabel: formatCountLabel(loadedSeriesCount, '个序列', 'series') ?? '0',
       progressPercent: 100
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : (isZh.value ? 'PACS Series 下载失败' : 'PACS series download failed')
+    const message = error instanceof Error ? error.message : (isZh.value ? 'PACS 序列下载失败' : 'PACS series download failed')
     queryError.value = message
     dispatchWorkspaceStatusToast(message, 'error', { durationMs: 6000 })
   } finally {
@@ -560,9 +567,9 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               <AppIcon name="pacs" :size="22" />
             </span>
             <div>
-              <div class="text-xl font-semibold">PACS Browser</div>
+              <div class="text-xl font-semibold">{{ isZh ? 'PACS 浏览器' : 'PACS Browser' }}</div>
               <div class="mt-1 text-sm leading-6 text-[var(--theme-text-secondary)]">
-                {{ isZh ? '通过 DICOMweb QIDO 查询检查和序列。' : 'Query studies and series through DICOMweb QIDO.' }}
+                {{ isZh ? '通过 DICOMweb / DIMSE 查询检查和序列。' : 'Query studies and series through DICOMweb or DIMSE.' }}
               </div>
             </div>
           </div>
@@ -576,7 +583,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
         <aside class="pacs-filter-panel min-h-0 border-b border-[var(--theme-border-soft)] lg:border-b-0 lg:border-r">
           <div class="pacs-filter-scroll flex flex-col gap-4 p-5">
             <div class="grid gap-1.5">
-              <span class="pacs-field-label">Profile</span>
+              <span class="pacs-field-label">{{ isZh ? '配置' : 'Profile' }}</span>
               <VMenu
                 v-model="isProfileMenuOpen"
                 location="bottom start"
@@ -617,7 +624,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               <input v-model="patientKeyword" class="pacs-input" placeholder="Patient*" @keydown.enter="queryStudyFirstPage" />
             </label>
             <label class="grid gap-1.5">
-              <span class="pacs-field-label">Patient ID</span>
+              <span class="pacs-field-label">{{ isZh ? '患者 ID' : 'Patient ID' }}</span>
               <input v-model="patientId" class="pacs-input" placeholder="ID..." @keydown.enter="queryStudyFirstPage" />
             </label>
             <label class="grid gap-1.5">
@@ -694,7 +701,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                 <span class="min-w-0">
                   <span class="block truncate">{{ isZh ? '更多筛选条件' : 'More filters' }}</span>
                   <span class="mt-0.5 block truncate text-[11px] font-semibold text-[var(--theme-text-muted)]">
-                    {{ advancedFilterCount ? (isZh ? `已填写 ${advancedFilterCount} 项` : `${advancedFilterCount} active`) : (isZh ? 'UID、描述、Body Part' : 'UID, descriptions, body part') }}
+                    {{ advancedFilterCount ? (isZh ? `已填写 ${advancedFilterCount} 项` : `${advancedFilterCount} active`) : (isZh ? 'UID、描述、部位' : 'UID, descriptions, body part') }}
                   </span>
                 </span>
                 <span class="pacs-advanced-filter-icon" :class="{ 'pacs-advanced-filter-icon--open': isAdvancedFiltersOpen }">
@@ -709,7 +716,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               >
                 <div class="pacs-advanced-filter-content grid gap-4">
                   <label class="grid gap-1.5">
-                    <span class="pacs-field-label">Study UID</span>
+                    <span class="pacs-field-label">{{ isZh ? '检查 UID' : 'Study UID' }}</span>
                     <input v-model="studyInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="queryStudyFirstPage" />
                   </label>
                   <label class="grid gap-1.5">
@@ -717,7 +724,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                     <input v-model="studyDescription" class="pacs-input" placeholder="Chest / Abdomen..." @keydown.enter="queryStudyFirstPage" />
                   </label>
                   <label class="grid gap-1.5">
-                    <span class="pacs-field-label">Series UID</span>
+                    <span class="pacs-field-label">{{ isZh ? '序列 UID' : 'Series UID' }}</span>
                     <input v-model="seriesInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="querySeriesFirstPage" />
                   </label>
                   <label class="grid gap-1.5">
@@ -725,7 +732,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                     <input v-model="seriesDescription" class="pacs-input" placeholder="AX / Portal..." @keydown.enter="querySeriesFirstPage" />
                   </label>
                   <label class="grid gap-1.5">
-                    <span class="pacs-field-label">Body Part</span>
+                    <span class="pacs-field-label">{{ isZh ? '检查部位' : 'Body Part' }}</span>
                     <input v-model="bodyPartExamined" class="pacs-input" placeholder="CHEST / ABDOMEN" @keydown.enter="querySeriesFirstPage" />
                   </label>
                 </div>
@@ -742,7 +749,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               {{ isQueryingStudies ? (isZh ? '查询中...' : 'Querying...') : (isZh ? '查询检查' : 'Query Studies') }}
             </VBtn>
             <div v-if="!enabledProfiles.length" class="mt-3 rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-3 text-sm leading-6 text-[var(--theme-text-secondary)]">
-              {{ isZh ? '请先在设置中启用 PACS，并至少启用一个 Profile。' : 'Enable PACS and at least one profile in settings first.' }}
+              {{ isZh ? '请先在设置中启用 PACS，并至少启用一个配置。' : 'Enable PACS and at least one profile in settings first.' }}
             </div>
           </div>
         </aside>
@@ -905,7 +912,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                         <div class="mt-2 grid gap-1 text-[11px] leading-5 text-[var(--theme-text-secondary)]">
                           <div>{{ isZh ? '实例数' : 'Instances' }}: {{ getSeriesPreview(series)?.instanceCount ?? 0 }}</div>
                           <div>{{ isZh ? '尺寸' : 'Size' }}: {{ getSeriesPreview(series)?.columns || '--' }} x {{ getSeriesPreview(series)?.rows || '--' }}</div>
-                          <div class="truncate" :title="getSeriesPreview(series)?.transferSyntaxes?.join(', ') || '--'">Transfer Syntax: {{ getSeriesPreview(series)?.transferSyntaxes?.join(', ') || '--' }}</div>
+                          <div class="truncate" :title="getSeriesPreview(series)?.transferSyntaxes?.join(', ') || '--'">{{ isZh ? '传输语法' : 'Transfer Syntax' }}: {{ getSeriesPreview(series)?.transferSyntaxes?.join(', ') || '--' }}</div>
                         </div>
                       </div>
                     </div>

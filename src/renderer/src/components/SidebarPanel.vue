@@ -10,6 +10,7 @@ import SidebarSeriesList from './sidebar/SidebarSeriesList.vue'
 import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
 import PacsBrowserDialog from './sidebar/PacsBrowserDialog.vue'
 import { useUiPreferences } from '../composables/ui/useUiPreferences'
+import { useUiLocale } from '../composables/ui/useUiLocale'
 import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
 import type { WebUploadPickMode } from '../platform/runtime'
@@ -45,6 +46,7 @@ const isPacsBrowserOpen = ref(false)
 const hoveredSeries = ref<(FolderSeriesItem & { index: number }) | null>(null)
 const hoveredSeriesCardStyle = ref<Record<string, string>>({})
 const { pacsPreference } = useUiPreferences()
+const { t } = useUiLocale()
 
 const isPacsEntryVisible = computed(() => (
   pacsPreference.value.enabled &&
@@ -153,10 +155,10 @@ function hideSeriesHoverCard(): void {
     <div v-if="hoveredSeries && isSidebarCollapsed" class="theme-shell-panel fixed z-[1200] w-64 -translate-y-1/2 rounded-2xl border p-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.4)]" :style="hoveredSeriesCardStyle">
       <div class="mb-2 flex items-start justify-between gap-2">
         <div class="hover-series-thumbnail">
-          <img v-if="getSeriesThumbnailSrc(hoveredSeries)" :src="getSeriesThumbnailSrc(hoveredSeries)" :alt="hoveredSeries.seriesDescription || 'Unnamed Series'" loading="lazy" decoding="async" draggable="false" />
+          <img v-if="getSeriesThumbnailSrc(hoveredSeries)" :src="getSeriesThumbnailSrc(hoveredSeries)" :alt="hoveredSeries.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
           <span v-else>{{ getSeriesFallbackLabel(hoveredSeries) }}</span>
         </div>
-        <span class="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ hoveredSeries.seriesDescription || 'Unnamed Series' }}</span>
+        <span class="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ hoveredSeries.seriesDescription || t('unnamedSeries') }}</span>
         <span class="theme-card-soft shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold text-[var(--theme-text-secondary)]">#{{ hoveredSeries.index + 1 }}</span>
       </div>
       <div class="text-[11px] leading-5 text-[var(--theme-text-secondary)]">

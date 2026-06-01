@@ -30,7 +30,7 @@ try {
     throw "Server bundle not found: $stagedServerBundlePath. Stage it first with scripts/stage-server-bundle.ps1 or set DICOM_VISION_SERVER_BUNDLE_PATH."
   }
 
-  & npx electron-builder --win nsis
+  & npx electron-builder --win nsis --publish never
   if ($LASTEXITCODE -ne 0) {
     throw "electron-builder failed with exit code $LASTEXITCODE"
   }

@@ -30,6 +30,19 @@ fi
 
 systemctl enable --now docker
 
+mkdir -p /etc/docker
+if [ ! -f /etc/docker/daemon.json ] || ! grep -q '"registry-mirrors"' /etc/docker/daemon.json; then
+  cat > /etc/docker/daemon.json <<'JSON'
+{
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://docker.1ms.run"
+  ]
+}
+JSON
+  systemctl restart docker
+fi
+
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw --force enable

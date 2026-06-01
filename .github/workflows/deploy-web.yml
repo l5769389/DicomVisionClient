@@ -59,6 +59,7 @@ jobs:
             --exclude='tmp_pytest_basetemp' \
             --exclude='dist' \
             --exclude='build' \
+            --exclude='sample-data' \
             -czf "$SERVER_ARCHIVE" -C DicomVisionServer .
 
           install -m 700 -d ~/.ssh

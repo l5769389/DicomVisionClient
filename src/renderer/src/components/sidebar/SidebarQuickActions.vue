@@ -43,7 +43,6 @@ const isZh = computed(() => locale.value === 'zh-CN')
 
 const normalizedFileIcon = computed(() => normalizeInlineSvg(fileIcon))
 const isServerSampleMode = computed(() => props.viewerFolderSourceMode === 'server-sample')
-const sampleActionBadge = computed(() => (isZh.value ? '示例影像' : 'DEMO SAMPLE'))
 const pickerActionLabel = computed(() => {
   if (props.viewerPlatform === 'web') {
     return t('uploadDicom')
@@ -146,16 +145,13 @@ function handleUploadClick(mode: WebUploadPickMode): void {
         <span class="sample-action-button__icon" aria-hidden="true">
           <AppIcon name="play" :size="18" />
         </span>
-        <span class="sample-action-button__copy">
-          <span class="sample-action-button__title">{{ folderActionLabel }}</span>
-          <span class="sample-action-button__badge">{{ sampleActionBadge }}</span>
-        </span>
+        <span class="sample-action-button__title">{{ folderActionLabel }}</span>
       </span>
     </VBtn>
 
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
       <VMenu
-        v-if="isLocalSourceEnabled && !isServerSampleMode"
+        v-if="isLocalSourceEnabled"
         location="bottom start"
         :offset="8"
         :close-on-content-click="true"
@@ -205,14 +201,6 @@ function handleUploadClick(mode: WebUploadPickMode): void {
         </span>
       </VBtn>
     </div>
-
-    <div v-if="viewerPlatform === 'web'" class="mt-2 text-[11px] leading-5 text-[var(--theme-text-muted)]">
-      {{
-        viewerFolderSourceMode === 'server-sample'
-          ? t('webSampleHint')
-          : t('webUploadHint')
-      }}
-    </div>
   </VCard>
 </template>
 
@@ -245,34 +233,6 @@ function handleUploadClick(mode: WebUploadPickMode): void {
     0 14px 28px color-mix(in srgb, var(--theme-accent) 16%, transparent) !important;
 }
 
-.sample-action-button__content {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.sample-action-button__icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-soft));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
-  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 10%, transparent);
-}
-
-.sample-action-button__copy {
-  display: grid;
-  min-width: 0;
-  justify-items: start;
-  gap: 3px;
-}
-
 .sample-action-button__title {
   max-width: 100%;
   overflow: hidden;
@@ -285,20 +245,25 @@ function handleUploadClick(mode: WebUploadPickMode): void {
   white-space: nowrap;
 }
 
-.sample-action-button__badge {
+.sample-action-button__content {
+  display: inline-grid;
   max-width: 100%;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-muted));
-  color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-text-secondary));
-  font-family: var(--theme-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0;
-  line-height: 1;
-  padding: 3px 6px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, auto);
+  align-items: center;
+  gap: 12px;
+}
+
+.sample-action-button__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 10%, transparent);
 }
 
 .quick-action-button {
@@ -448,6 +413,7 @@ function handleUploadClick(mode: WebUploadPickMode): void {
   display: grid;
   width: 100%;
   min-width: 0;
+  place-items: center;
   padding: 0;
 }
 </style>

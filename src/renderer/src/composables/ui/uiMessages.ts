@@ -324,12 +324,12 @@ export const uiMessages = {
   'zh-CN': {
     common: {
       connection: '连接',
-      diagnosticWorkspace: '诊断工作区',
+      diagnosticWorkspace: 'DICOM 影像查看器',
       openSettings: '打开设置',
       collapseSidebar: '收起侧栏',
       expandSidebar: '展开侧栏',
       quickActions: '快速操作',
-      loadSample: '加载示例',
+      loadSample: '加载示例影像',
       inputPath: '输入路径',
       uploadDicom: '上传 DICOM',
       uploadFolder: '上传文件夹',
@@ -681,12 +681,12 @@ export const uiMessages = {
   'en-US': {
     common: {
       connection: 'Connection',
-      diagnosticWorkspace: 'Diagnostic Workspace',
+      diagnosticWorkspace: 'DICOM Image Viewer',
       openSettings: 'Open Settings',
       collapseSidebar: 'Collapse Sidebar',
       expandSidebar: 'Expand Sidebar',
       quickActions: 'Quick Actions',
-      loadSample: 'Load Sample',
+      loadSample: 'Load Demo Images',
       inputPath: 'Input Path',
       uploadDicom: 'Upload DICOM',
       uploadFolder: 'Upload Folder',

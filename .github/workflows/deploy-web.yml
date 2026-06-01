@@ -43,12 +43,22 @@ jobs:
             --exclude='node_modules' \
             --exclude='dist' \
             --exclude='dist-*' \
+            --exclude='out' \
+            --exclude='build' \
+            --exclude='docs' \
+            --exclude='screenshots' \
+            --exclude='*.tsbuildinfo' \
             -czf "$CLIENT_ARCHIVE" -C DicomVisionClient .
           tar \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
             --exclude='.venv' \
+            --exclude='.uv-cache' \
+            --exclude='.pytest*' \
+            --exclude='tmp_pytest_basetemp' \
+            --exclude='dist' \
+            --exclude='build' \
             -czf "$SERVER_ARCHIVE" -C DicomVisionServer .
 
           install -m 700 -d ~/.ssh
@@ -62,7 +72,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
 
-          SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i ~/.ssh/deploy_key)
+          SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i ~/.ssh/deploy_key)
 
           scp "${SSH_OPTS[@]}" "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
 

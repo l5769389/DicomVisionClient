@@ -15,12 +15,13 @@ vi.mock('vuetify/components', async () => {
       name: 'VBtn',
       props: ['disabled'],
       emits: ['click'],
-      setup(props, { emit, slots }) {
+      setup(props, { attrs, emit, slots }) {
         return () =>
           h(
             'button',
             {
-              class: 'v-btn-stub',
+              ...attrs,
+              class: ['v-btn-stub', attrs.class],
               disabled: props.disabled,
               type: 'button',
               onClick: (event: MouseEvent) => emit('click', event)
@@ -226,7 +227,7 @@ async function openCompatibilityAction(wrapper: ReturnType<typeof mountSidebar>)
   })
   await nextTick()
   const action = wrapper
-    .findAll('button.v-btn-stub')
+    .findAll('button.series-context-menu__item')
     .find((button) => button.text().includes('Compatibility Check') || button.text().includes('CHK'))
   expect(action).toBeTruthy()
   await action!.trigger('click')
@@ -335,7 +336,7 @@ describe('SidebarSeriesList compatibility check', () => {
     })
     await nextTick()
 
-    const actions = wrapper.findAll('button.v-btn-stub')
+    const actions = wrapper.findAll('button.series-context-menu__item')
     const mprAction = actions.find((button) => button.text().includes('MPR'))
     const volumeAction = actions.find((button) => button.text().includes('Volume rendering'))
     const fourDAction = actions.find((button) => button.text().includes('Respiratory phase playback'))
@@ -346,6 +347,21 @@ describe('SidebarSeriesList compatibility check', () => {
 
     await mprAction!.trigger('click')
     expect(wrapper.emitted('openSeriesView')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  it('does not render a secondary description for the delete series context action', async () => {
+    const wrapper = mountSidebar()
+
+    await wrapper.find('.series-card-stub').trigger('contextmenu', {
+      clientX: 20,
+      clientY: 30
+    })
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Delete series')
+    expect(wrapper.text()).not.toContain('Remove this series from the workspace')
 
     wrapper.unmount()
   })
@@ -369,7 +385,7 @@ describe('SidebarSeriesList compatibility check', () => {
     await nextTick()
 
     const action = wrapper
-      .findAll('button.v-btn-stub')
+      .findAll('button.series-context-menu__item')
       .find((button) => button.text().includes('Open in Explorer') || button.text().includes('DIR'))
     expect(action).toBeTruthy()
     await action!.trigger('click')

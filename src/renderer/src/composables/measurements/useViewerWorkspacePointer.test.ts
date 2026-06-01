@@ -335,8 +335,13 @@ describe('useViewerWorkspacePointer', () => {
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.start)).toBe(true)
   })
 
-  it('uses a slower move cadence for surface volume drags', () => {
-    vi.useFakeTimers()
+  it('coalesces repeated viewport drag moves to the latest animation frame payload', () => {
+    const callbacks: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callbacks.push(callback)
+      return callbacks.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(vi.fn())
     const { emitViewportDrag, pointer, viewport } = createPointerHarness({
       activeOperation: 'stack:zoom',
       activeTab: { viewType: '3D', render3dMode: 'surface' } as ViewerTabItem,
@@ -347,14 +352,16 @@ describe('useViewerWorkspacePointer', () => {
     pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.24, y: 0.2 }, { pointerId: 18 }))
     pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.3, y: 0.2 }, { pointerId: 18 }))
 
-    const countMovePayloads = () =>
-      emitViewportDrag.mock.calls.filter(([payload]) => payload.phase === DRAG_ACTION_TYPES.move).length
+    const movePayloads = () =>
+      emitViewportDrag.mock.calls
+        .map(([payload]) => payload as { deltaX: number; deltaY: number; phase: string })
+        .filter((payload) => payload.phase === DRAG_ACTION_TYPES.move)
 
-    expect(countMovePayloads()).toBe(1)
-    vi.advanceTimersByTime(84)
-    expect(countMovePayloads()).toBe(1)
-    vi.advanceTimersByTime(1)
-    expect(countMovePayloads()).toBe(2)
+    expect(movePayloads()).toHaveLength(0)
+    expect(callbacks).toHaveLength(1)
+    callbacks[0]?.(16)
+    expect(movePayloads()).toHaveLength(1)
+    expect(movePayloads()[0]).toMatchObject({ deltaX: 20, deltaY: 0 })
   })
 
   it('keeps MPR crosshair center drag ahead of the default window drag', () => {

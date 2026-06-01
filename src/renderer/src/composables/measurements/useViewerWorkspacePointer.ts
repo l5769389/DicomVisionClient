@@ -51,6 +51,7 @@ import {
   resolveCrosshairHitTarget as resolveCrosshairHitTargetFromGeometry,
   type CrosshairHitTarget
 } from './mprCrosshairPointerController'
+import { createLatestFrameEmitter } from './viewportDragMoveScheduler'
 
 interface PointerComposableOptions {
   activeOperation: Ref<string>
@@ -121,8 +122,6 @@ interface MeasurementPointerContext extends BasicPointerContext {
 }
 
 const DRAG_START_THRESHOLD = 3
-const VIEWPORT_DRAG_THROTTLE_MS = 30
-const SURFACE_VIEWPORT_DRAG_THROTTLE_MS = 85
 const MPR_CROSSHAIR_THROTTLE_MS = 16
 const MEASUREMENT_DRAFT_THROTTLE_MS = 30
 const POINTER_BUTTON_LEFT = 0
@@ -254,20 +253,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     mtfInteraction.value = state
   })
 
-  const emitThrottledViewportDrag = throttle(
-    (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
+  const emitViewportDragMoves = createLatestFrameEmitter<{
+    deltaX: number
+    deltaY: number
+    opType: ViewOperationType
+    phase: 'move'
+    viewportKey: string
+  }>({
+    emit: (payload) => {
       options.emitViewportDrag(payload)
-    },
-    VIEWPORT_DRAG_THROTTLE_MS,
-    { leading: true, trailing: true }
-  )
-  const emitThrottledSurfaceViewportDrag = throttle(
-    (payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }) => {
-      options.emitViewportDrag(payload)
-    },
-    SURFACE_VIEWPORT_DRAG_THROTTLE_MS,
-    { leading: true, trailing: true }
-  )
+    }
+  })
 
   const emitThrottledCrosshairMove = throttle(
     (payload: { viewportKey: string; x: number; y: number; mode?: 'move' | 'rotate'; line?: CrosshairLineTarget }) => {
@@ -453,32 +449,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d
   }
 
-  function isSurfaceViewportDrag(payload: { opType: ViewOperationType; viewportKey: string }): boolean {
-    const tab = options.activeTab.value
-    return (
-      payload.viewportKey === 'volume' &&
-      tab?.render3dMode === 'surface' &&
-      (tab.viewType === '3D' || tab.viewType === 'MPR') &&
-      STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])
-    )
-  }
-
   function emitViewportDragMove(payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }): void {
-    if (isSurfaceViewportDrag(payload)) {
-      emitThrottledSurfaceViewportDrag(payload)
-      return
-    }
-    emitThrottledViewportDrag(payload)
+    emitViewportDragMoves.schedule(payload)
   }
 
   function flushViewportDragMoves(): void {
-    emitThrottledViewportDrag.flush()
-    emitThrottledSurfaceViewportDrag.flush()
+    emitViewportDragMoves.flush()
   }
 
   function cancelViewportDragMoves(): void {
-    emitThrottledViewportDrag.cancel()
-    emitThrottledSurfaceViewportDrag.cancel()
+    emitViewportDragMoves.cancel()
   }
 
   function resolvePointerContainer(event: PointerEvent): HTMLElement | null {

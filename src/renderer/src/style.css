@@ -436,6 +436,24 @@
     opacity: 0 !important;
   }
 
+  .v-application .v-btn {
+    --v-activated-opacity: 0 !important;
+    --v-focus-opacity: 0 !important;
+    --v-hover-opacity: 0 !important;
+    --v-pressed-opacity: 0 !important;
+  }
+
+  .v-application .v-btn .v-btn__overlay,
+  .v-application .v-btn .v-btn__underlay {
+    background: transparent !important;
+    opacity: 0 !important;
+  }
+
+  .v-application .v-btn .v-ripple__container {
+    display: none !important;
+    opacity: 0 !important;
+  }
+
   .toolbar-tool-button.v-btn--active,
   .toolbar-tool-button.toolbar-tool-button--active {
     border-color: var(--theme-active-border) !important;

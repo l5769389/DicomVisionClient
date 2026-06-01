@@ -25,6 +25,17 @@ vi.mock('../../workspace/shell/ViewerToolbar.vue', () => ({
   }
 }))
 
+vi.mock('../../../composables/ui/useUiLocale', async () => {
+  const { computed, ref } = await import('vue')
+  const { uiMessages } = await import('../../../composables/ui/uiMessages')
+  return {
+    useUiLocale: () => ({
+      locale: ref('en-US'),
+      viewerCopy: computed(() => uiMessages['en-US'].viewer)
+    })
+  }
+})
+
 const phaseItems: FourDPhaseItem[] = [
   {
     phaseIndex: 0,

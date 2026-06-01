@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { VBtn } from 'vuetify/components'
+import { computed, ref } from 'vue'
+import { VBtn, VMenu } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { ViewerTabItem } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
@@ -15,14 +15,53 @@ const props = defineProps<{
 const emit = defineEmits<{
   activateTab: [tabKey: string]
   closeTab: [tabKey: string]
+  closeOtherTabs: [tabKey: string]
   scrollTabs: [direction: 'left' | 'right']
   tabStripScroll: []
   tabStripWheel: [event: WheelEvent]
 }>()
 
 const tabStripRef = defineModel<HTMLElement | null>('tabStripRef', { required: true })
-const { t } = useUiLocale()
+const { locale, t } = useUiLocale()
 const shouldShowScrollControls = computed(() => props.canScrollTabsLeft || props.canScrollTabsRight)
+const isTabContextMenuOpen = ref(false)
+const tabContextMenuPosition = ref({ x: 0, y: 0 })
+const contextTabKey = ref('')
+const isZh = computed(() => locale.value === 'zh-CN')
+const contextTab = computed(() => props.viewerTabs.find((tab) => tab.key === contextTabKey.value) ?? null)
+const canCloseOtherTabs = computed(() => props.viewerTabs.length > 1 && Boolean(contextTab.value))
+const tabContextMenuAnchorStyle = computed(() => ({
+  left: `${tabContextMenuPosition.value.x}px`,
+  top: `${tabContextMenuPosition.value.y}px`
+}))
+
+function openTabContextMenu(event: MouseEvent, tabKey: string): void {
+  event.preventDefault()
+  event.stopPropagation()
+  contextTabKey.value = tabKey
+  tabContextMenuPosition.value = {
+    x: event.clientX,
+    y: event.clientY
+  }
+  isTabContextMenuOpen.value = true
+}
+
+function closeTabFromMenu(): void {
+  const tabKey = contextTabKey.value
+  isTabContextMenuOpen.value = false
+  if (tabKey) {
+    emit('closeTab', tabKey)
+  }
+}
+
+function closeOtherTabsFromMenu(): void {
+  const tabKey = contextTabKey.value
+  if (!tabKey || !canCloseOtherTabs.value) {
+    return
+  }
+  isTabContextMenuOpen.value = false
+  emit('closeOtherTabs', tabKey)
+}
 </script>
 
 <template>
@@ -55,6 +94,7 @@ const shouldShowScrollControls = computed(() => props.canScrollTabsLeft || props
         class="viewer-tab-item group flex max-w-[250px] shrink-0 snap-start items-center gap-2 px-3 py-1.5 transition"
         :class="tab.key === activeTabKey ? 'viewer-tab-item--active' : 'viewer-tab-item--inactive'"
         @click="emit('activateTab', tab.key)"
+        @contextmenu="openTabContextMenu($event, tab.key)"
         @keydown.enter.prevent="emit('activateTab', tab.key)"
         @keydown.space.prevent="emit('activateTab', tab.key)"
       >
@@ -77,6 +117,35 @@ const shouldShowScrollControls = computed(() => props.canScrollTabsLeft || props
     >
       <AppIcon name="chevron-right" :size="16" />
     </VBtn>
+
+    <div v-if="contextTab" class="fixed z-[2200] h-0 w-0" :style="tabContextMenuAnchorStyle">
+      <VMenu
+        v-model="isTabContextMenuOpen"
+        activator="parent"
+        content-class="viewer-tab-context-menu-overlay"
+        location="bottom start"
+        :offset="6"
+        scroll-strategy="reposition"
+        :close-on-content-click="true"
+      >
+        <div class="viewer-tab-context-menu" role="menu">
+          <button type="button" class="viewer-tab-context-menu__item" role="menuitem" @click="closeTabFromMenu">
+            <AppIcon name="close" :size="15" />
+            <span>{{ isZh ? '关闭' : t('closeView') }}</span>
+          </button>
+          <button
+            type="button"
+            class="viewer-tab-context-menu__item"
+            role="menuitem"
+            :disabled="!canCloseOtherTabs"
+            @click="closeOtherTabsFromMenu"
+          >
+            <AppIcon name="layout" :size="15" />
+            <span>{{ isZh ? '关闭其他标签页' : 'Close Other Tabs' }}</span>
+          </button>
+        </div>
+      </VMenu>
+    </div>
   </div>
 </template>
 
@@ -188,5 +257,61 @@ const shouldShowScrollControls = computed(() => props.canScrollTabsLeft || props
 .viewer-tab-item:focus-visible,
 .viewer-tab-close-inline:focus-visible {
   box-shadow: var(--theme-focus-ring);
+}
+
+:global(.viewer-tab-context-menu-overlay) {
+  width: 188px !important;
+  max-width: calc(100vw - 24px) !important;
+}
+
+.viewer-tab-context-menu {
+  display: grid;
+  gap: 3px;
+  min-width: 188px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-panel-strong-solid) 94%, transparent), color-mix(in srgb, var(--theme-surface-panel-solid) 98%, transparent));
+  padding: 5px;
+  color: var(--theme-text-primary);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.viewer-tab-context-menu__item {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  padding: 0 9px;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.viewer-tab-context-menu__item:hover:not(:disabled),
+.viewer-tab-context-menu__item:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card) 88%);
+  color: var(--theme-text-primary);
+  outline: none;
+}
+
+.viewer-tab-context-menu__item:disabled {
+  color: var(--theme-text-muted);
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 </style>

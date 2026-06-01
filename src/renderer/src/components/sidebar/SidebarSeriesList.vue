@@ -29,6 +29,11 @@ import {
 import { SERIES_DRAG_PAYLOAD_TYPE, SERIES_DRAG_TYPE, type SeriesDragPayload } from '../../constants/dragDrop'
 import { buildSeriesTreeGroups, type SeriesTreePatientGroup, type SeriesTreeStudyGroup } from './seriesGrouping'
 import { getSeriesMetaLabel, getSeriesValueMetaLabel } from './seriesMetadata'
+import {
+  createSeriesSearchTermCache,
+  doesSeriesMatchSearch,
+  normalizeSeriesSearch
+} from './seriesSearch'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
 const props = defineProps<{
@@ -62,6 +67,14 @@ type SeriesContextAction =
   | 'delete'
 type CompatibilityIssue = NonNullable<FolderSeriesItem['compatibilityIssues']>[number]
 type CompatibilitySeverity = NonNullable<CompatibilityIssue['severity']>
+interface SeriesContextMenuActionItem {
+  badge: string
+  danger?: boolean
+  disabled?: boolean
+  key: SeriesContextAction
+  subtitle?: string
+  title: string
+}
 
 const { locale, t, viewerCopy } = useUiLocale()
 const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
@@ -80,6 +93,7 @@ const compareSourceSeries = ref<FolderSeriesItem | null>(null)
 const keySliceDialogSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
 const seriesSearch = ref('')
+const seriesSearchTermCache = createSeriesSearchTermCache()
 const collapsedPatientGroupKeys = ref<string[]>([])
 const collapsedStudyGroupKeys = ref<string[]>([])
 
@@ -95,7 +109,7 @@ const normalizedSeriesSearch = computed(() => normalizeSeriesSearch(seriesSearch
 const hasSeriesSearch = computed(() => normalizedSeriesSearch.value.length > 0)
 const filteredSeriesList = computed(() =>
   hasSeriesSearch.value
-    ? props.seriesList.filter((series) => doesSeriesMatchSearch(series, normalizedSeriesSearch.value))
+    ? props.seriesList.filter((series) => doesSeriesMatchSearch(series, normalizedSeriesSearch.value, seriesSearchTermCache))
     : props.seriesList
 )
 const seriesTreeGroups = computed(() => buildSeriesTreeGroups(filteredSeriesList.value, locale.value))
@@ -169,7 +183,7 @@ const fileManagerCopy = computed(() => ({
   success: isZh.value ? '已打开来源目录' : 'Opened source folder'
 }))
 
-const contextMenuActions = computed(() => [
+const contextMenuActions = computed<SeriesContextMenuActionItem[]>(() => [
   {
     key: 'Stack' as const,
     title: t('quickPreview'),
@@ -247,7 +261,6 @@ const contextMenuActions = computed(() => [
   {
     key: 'delete' as const,
     title: t('deleteSeries'),
-    subtitle: 'Remove this series from the workspace',
     badge: 'DEL',
     danger: true
   }
@@ -320,42 +333,6 @@ function toggleStudyGroup(group: SeriesTreeStudyGroup): void {
     collapsedKeys.add(group.key)
   }
   collapsedStudyGroupKeys.value = [...collapsedKeys]
-}
-
-function normalizeSeriesSearch(value: unknown): string {
-  return String(value ?? '')
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/\s+/g, ' ')
-}
-
-function getSeriesSearchTerms(series: FolderSeriesItem): string {
-  return [
-    series.seriesDescription,
-    series.modality,
-    series.seriesId,
-    series.seriesInstanceUid,
-    series.studyInstanceUid,
-    series.patientName,
-    series.patientId,
-    series.studyDate,
-    series.studyDescription,
-    series.accessionNumber,
-    series.folderPath,
-    series.width,
-    series.height,
-    series.instanceCount
-  ]
-    .map((value) => normalizeSeriesSearch(value))
-    .filter(Boolean)
-    .join(' ')
-}
-
-function doesSeriesMatchSearch(series: FolderSeriesItem, query: string): boolean {
-  if (!query) {
-    return true
-  }
-  return query.split(' ').every((token) => getSeriesSearchTerms(series).includes(token))
 }
 
 function closeContextMenu(): void {
@@ -812,7 +789,7 @@ function handleSeriesDragEnd(): void {
                   <div class="series-context-menu__badge" :class="{ 'series-context-menu__badge--danger': action.danger, 'series-context-menu__badge--disabled': action.disabled }">{{ action.badge }}</div>
                   <div class="min-w-0 flex-1 text-left">
                     <div class="truncate text-[12px] font-medium" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300' : 'text-[var(--theme-text-primary)]'">{{ action.title }}</div>
-                    <div class="truncate text-[11px]" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300/70' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
+                    <div v-if="action.subtitle" class="truncate text-[11px]" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : action.danger ? 'text-rose-300/70' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
                   </div>
                 </div>
               </VBtn>
@@ -1370,6 +1347,43 @@ function handleSeriesDragEnd(): void {
   border-color: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
   background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
   color: var(--theme-text-muted);
+}
+
+:global(:root[data-theme="clinical-light"] .series-context-menu__badge) {
+  border-color: color-mix(in srgb, var(--theme-accent-strong) 24%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 18%, white 82%),
+      color-mix(in srgb, var(--theme-accent-strong) 14%, white 86%)
+    ) !important;
+  color: color-mix(in srgb, var(--theme-accent-strong) 86%, #0f172a 14%) !important;
+  text-shadow: none;
+}
+
+:global(:root[data-theme="clinical-light"] .series-context-menu__badge--danger) {
+  border-color: color-mix(in srgb, #e11d48 24%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #fb7185 18%, white 82%),
+      color-mix(in srgb, #e11d48 12%, white 88%)
+    ) !important;
+  color: color-mix(in srgb, #be123c 88%, #0f172a 12%) !important;
+}
+
+:global(:root[data-theme="clinical-light"] .series-context-menu__badge--disabled) {
+  border-color: color-mix(in srgb, var(--theme-text-muted) 24%, transparent);
+  background: color-mix(in srgb, var(--theme-text-muted) 9%, white 91%) !important;
+  color: var(--theme-text-secondary) !important;
+}
+
+:global(:root[data-theme="clinical-light"] .series-context-menu__item--danger .series-context-menu__item-content .text-rose-300) {
+  color: #e11d48 !important;
+}
+
+:global(:root[data-theme="clinical-light"] .series-context-menu__item--danger .series-context-menu__item-content .text-rose-300\/70) {
+  color: color-mix(in srgb, #be123c 74%, var(--theme-text-secondary) 26%) !important;
 }
 
 .compatibility-dialog {

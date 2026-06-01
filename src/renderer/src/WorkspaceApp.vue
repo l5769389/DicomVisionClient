@@ -423,6 +423,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
+          @close-other-tabs="viewer.closeOtherTabs"
           @open-layout-view="viewer.openLayoutView"
           @layout-slot-dicom-drop="handleLayoutSlotDicomDrop"
           @layout-slot-series-drop="handleLayoutSlotSeriesDrop"

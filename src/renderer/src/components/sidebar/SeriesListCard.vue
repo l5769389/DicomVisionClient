@@ -242,6 +242,9 @@ const hasKeySlices = computed(() => (props.keySliceCount ?? 0) > 0)
 }
 
 .series-more-button {
+  position: absolute !important;
+  top: 50% !important;
+  right: 8px !important;
   border-color: color-mix(in srgb, var(--theme-border-soft) 72%, transparent) !important;
   background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 74%, transparent) !important;
   color: var(--theme-text-secondary) !important;

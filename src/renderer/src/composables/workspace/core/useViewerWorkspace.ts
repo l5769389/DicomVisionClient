@@ -117,6 +117,7 @@ interface ViewerWorkspaceState {
   applyLoadedDicomSeries: (data: LoadFolderResponse, options?: LoadFolderSeriesOptions) => Promise<FolderSeriesItem[]>
   chooseFolder: (mode?: WebUploadPickMode) => Promise<void>
   closeTab: (tabKey: string) => void
+  closeOtherTabs: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
   hasSelectedSeries: ComputedRef<boolean>
   handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number }) => void
@@ -1810,14 +1811,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function applyBackendStatus(status: BackendStatus): void {
-    setBackendOrigin(status.origin)
     if (status.ready) {
-      if (!hasStartedBackendConnection && connectionState.value !== 'connected') {
-        updateConnectionState('idle')
-      }
+      applyBackendOrigin(status.origin, { connect: true })
       return
     }
 
+    setBackendOrigin(status.origin)
     if (status.starting) {
       updateConnectionState('starting')
       return
@@ -2535,6 +2534,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     applyLoadedDicomSeries,
     chooseFolder,
     closeTab: views.closeTab,
+    closeOtherTabs: views.closeOtherTabs,
     connectionState,
     handleHoverViewportChange,
     handleMeasurementCreate,

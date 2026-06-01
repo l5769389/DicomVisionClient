@@ -75,6 +75,7 @@ const emit = defineEmits<{
   activateTab: [tabKey: string]
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
+  closeOtherTabs: [tabKey: string]
   measurementDraft: [payload: { viewportKey: string; toolType: MeasurementDraft['toolType']; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
   measurementCreate: [payload: {
     viewportKey: string
@@ -1706,6 +1707,7 @@ onBeforeUnmount(() => {
         :viewer-tabs="viewerTabs"
         @activate-tab="emit('activateTab', $event)"
         @close-tab="emit('closeTab', $event)"
+        @close-other-tabs="emit('closeOtherTabs', $event)"
         @scroll-tabs="scrollTabs"
         @tab-strip-scroll="updateTabScrollState"
         @tab-strip-wheel="handleTabStripWheel"

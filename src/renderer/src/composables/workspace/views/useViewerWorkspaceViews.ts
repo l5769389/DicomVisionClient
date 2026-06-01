@@ -95,7 +95,8 @@ import {
   normalizeRender3DMode,
   normalizeSurfaceRenderConfig
 } from '../volume/surfaceRenderConfig'
-import { createRenderedImageObjectUrl } from './renderedImageObjectUrl'
+import { createRenderTabScheduler } from './renderTabScheduler'
+import { createRenderedImageUrlRegistry } from './renderedImageUrlRegistry'
 import { COMPARE_SYNC_DEFAULTS } from '../sync/viewSyncConfig'
 import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -190,40 +191,22 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const fourDManifestRequests = new Map<string, Promise<FourDPhasesResponse | null>>()
   const tagRequestGuard = createKeyedLatestRequestGuard<string>()
   const fourDPhaseRenderTracker = new FourDPhaseRenderTracker()
+  const imageUrlRegistry = createRenderedImageUrlRegistry()
+  const renderTabScheduler = createRenderTabScheduler({
+    renderNow: renderTabNow
+  })
   const { selectedPseudocolorKey } = useUiPreferences()
 
   function revokeObjectUrlIfNeeded(imageSrc: string | null | undefined): void {
-    // Backend frames arrive as Blob URLs. Revoke only those URLs; data/http URLs
-    // can also appear in tests or future integrations and are not owned here.
-    if (imageSrc?.startsWith('blob:')) {
-      URL.revokeObjectURL(imageSrc)
-    }
+    imageUrlRegistry.revoke(imageSrc)
   }
 
   async function cloneLayoutImageSrc(imageSrc: string | null | undefined): Promise<{ imageSrc: string | null; ownsImageSrc: boolean }> {
-    if (!imageSrc) {
-      return { imageSrc: null, ownsImageSrc: false }
-    }
-    if (!imageSrc.startsWith('blob:')) {
-      return { imageSrc, ownsImageSrc: false }
-    }
-
-    try {
-      const response = await fetch(imageSrc)
-      if (!response.ok) {
-        return { imageSrc, ownsImageSrc: false }
-      }
-      return {
-        imageSrc: URL.createObjectURL(await response.blob()),
-        ownsImageSrc: true
-      }
-    } catch {
-      return { imageSrc, ownsImageSrc: false }
-    }
+    return imageUrlRegistry.clone(imageSrc)
   }
 
   function revokeLayoutSlotImages(slots: ViewerTabItem['layoutSlots']): void {
-    getOwnedLayoutSlotImageSrcs(slots).forEach(revokeObjectUrlIfNeeded)
+    imageUrlRegistry.revokeMany(getOwnedLayoutSlotImageSrcs(slots))
   }
 
   function getLayoutSlotViewIds(tab: ViewerTabItem): string[] {
@@ -1253,7 +1236,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
       const mimeType = payload.imageFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
-      const imageSrc = createRenderedImageObjectUrl(imageBinary, mimeType)
+      const imageSrc = imageUrlRegistry.create(imageBinary, mimeType)
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
       const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
@@ -1906,7 +1889,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return updatedViewIds
   }
 
-  async function renderTab(tabKey: string, force = false): Promise<void> {
+  async function renderTabNow(tabKey: string, force = false): Promise<void> {
     const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
     if (!tab) {
       return
@@ -1944,6 +1927,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     await postViewSizeUpdate(collectViewSizeUpdate(tab.viewId, resolveSingleViewportElement(), force))
+  }
+
+  function renderTab(tabKey: string, force = false): Promise<void> {
+    return renderTabScheduler.schedule(tabKey, force)
   }
 
   async function ensureMprVolumeView(tabKey: string): Promise<void> {
@@ -2642,6 +2629,19 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function closeOtherTabs(tabKey: string): void {
+    const targetTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (!targetTab) {
+      return
+    }
+
+    const tabKeysToClose = options.viewerTabs.value
+      .filter((item) => item.key !== tabKey)
+      .map((item) => item.key)
+    tabKeysToClose.forEach(closeTab)
+    activateTab(tabKey)
+  }
+
   function removeSeries(seriesId: string): void {
     const nextSeries = options.seriesList.value.filter((item) => item.seriesId !== seriesId)
     options.seriesList.value = nextSeries
@@ -2665,6 +2665,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   return {
     activateTab,
     closeTab,
+    closeOtherTabs,
     ensureMprVolumeView,
     findTabByViewId,
     invalidateFourDMprState,

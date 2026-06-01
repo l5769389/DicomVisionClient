@@ -59,13 +59,21 @@ const selectedSeries = computed(() =>
 
 const connectionIcon = computed(() => {
   if (props.connectionState === 'connected') return 'connected'
-  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') return 'connecting'
+  if (
+    props.connectionState === 'starting' ||
+    props.connectionState === 'connecting' ||
+    props.connectionState === 'reconnecting'
+  ) return 'connecting'
   return 'disconnected'
 })
 
 const connectionToneClass = computed(() => {
   if (props.connectionState === 'connected') return 'theme-connection-tone theme-connection-tone--connected'
-  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') {
+  if (
+    props.connectionState === 'starting' ||
+    props.connectionState === 'connecting' ||
+    props.connectionState === 'reconnecting'
+  ) {
     return 'theme-connection-tone theme-connection-tone--connecting'
   }
   return 'theme-connection-tone theme-connection-tone--disconnected'
@@ -73,7 +81,11 @@ const connectionToneClass = computed(() => {
 
 const connectionDotClass = computed(() => {
   if (props.connectionState === 'connected') return 'theme-connection-dot theme-connection-dot--connected'
-  if (props.connectionState === 'connecting' || props.connectionState === 'reconnecting') {
+  if (
+    props.connectionState === 'starting' ||
+    props.connectionState === 'connecting' ||
+    props.connectionState === 'reconnecting'
+  ) {
     return 'theme-connection-dot theme-connection-dot--connecting'
   }
   return 'theme-connection-dot theme-connection-dot--disconnected'

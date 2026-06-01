@@ -21,6 +21,8 @@ const { locale, t } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
 const connectionStateLabel = computed(() => {
   const labels: Record<ConnectionState, { zh: string; en: string }> = {
+    idle: { zh: '待连接', en: 'Idle' },
+    starting: { zh: '启动中', en: 'Starting' },
     connected: { zh: '已连接', en: 'Connected' },
     connecting: { zh: '连接中', en: 'Connecting' },
     reconnecting: { zh: '重连中', en: 'Reconnecting' },

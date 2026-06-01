@@ -1,5 +1,6 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import {
+  createRendererManualChunks,
   createRendererPlugins,
   rendererDefine,
   rendererInput,
@@ -15,8 +16,14 @@ export default defineConfig({
   },
   renderer: {
     build: {
+      modulePreload: {
+        resolveDependencies: () => []
+      },
       rollupOptions: {
-        input: rendererInput
+        input: rendererInput,
+        output: {
+          manualChunks: createRendererManualChunks
+        }
       }
     },
     resolve: {

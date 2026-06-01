@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('viewerApi', {
     return paths
   },
   getBackendOrigin: (): Promise<string> => ipcRenderer.invoke('viewer:get-backend-origin'),
+  getBackendStatus: (): Promise<unknown> => ipcRenderer.invoke('viewer:get-backend-status'),
   getDefaultExportDirectory: (): Promise<string> => ipcRenderer.invoke('viewer:get-default-export-directory'),
   getStartupStatusToast: (): Promise<unknown | null> => ipcRenderer.invoke('viewer:get-startup-status-toast'),
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -61,6 +62,13 @@ contextBridge.exposeInMainWorld('viewerApi', {
     ipcRenderer.on('viewer:backend-origin-changed', listener)
     return () => {
       ipcRenderer.off('viewer:backend-origin-changed', listener)
+    }
+  },
+  onBackendStatusChanged: (callback: (payload: unknown) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown): void => callback(payload)
+    ipcRenderer.on('viewer:backend-status-changed', listener)
+    return () => {
+      ipcRenderer.off('viewer:backend-status-changed', listener)
     }
   },
   onOpenDicomPaths: (callback: (paths: string[]) => void): (() => void) => {

@@ -23,7 +23,7 @@ export const rendererDefine = {
 
 export function createRendererPlugins(): PluginOption[] {
   return [
-    VueDevTools(),
+    process.env.NODE_ENV === 'production' ? null : VueDevTools(),
     vue(),
     vuetify({
       autoImport: {
@@ -31,5 +31,24 @@ export function createRendererPlugins(): PluginOption[] {
       }
     }),
     tailwindcss()
-  ]
+  ].filter((plugin): plugin is PluginOption => plugin != null)
+}
+
+export function createRendererManualChunks(id: string): string | undefined {
+  const normalizedId = id.replace(/\\/g, '/')
+
+  if (normalizedId.includes('/node_modules/@vue/') || normalizedId.includes('/node_modules/vue/')) {
+    return 'vue'
+  }
+  if (normalizedId.includes('/node_modules/vuetify/')) {
+    return 'vuetify'
+  }
+  if (
+    normalizedId.includes('/node_modules/socket.io-client/') ||
+    normalizedId.includes('/node_modules/@socket.io/') ||
+    normalizedId.includes('/node_modules/engine.io-client/')
+  ) {
+    return 'socketio'
+  }
+  return undefined
 }

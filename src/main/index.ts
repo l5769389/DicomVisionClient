@@ -26,11 +26,20 @@ interface RendererStatusToastPayload {
   durationMs?: number
 }
 
+interface BackendStatusPayload {
+  error: string | null
+  origin: string
+  ready: boolean
+  starting: boolean
+}
+
 let backendOrigin = process.env.DICOM_VISION_SERVER_ORIGIN?.trim() || DEFAULT_BACKEND_ORIGIN
 let backendProcess: ChildProcessWithoutNullStreams | null = null
 let pendingStartupStatusToast: RendererStatusToastPayload | null = null
 let pendingOpenFilePaths: string[] = []
 let backendReady = false
+let backendStarting = false
+let backendStartupError: string | null = null
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -166,9 +175,30 @@ function publishBackendOriginChanged(): void {
   })
 }
 
+function getBackendStatusPayload(): BackendStatusPayload {
+  return {
+    error: backendStartupError,
+    origin: backendOrigin,
+    ready: backendReady,
+    starting: backendStarting
+  }
+}
+
+function publishBackendStatusChanged(): void {
+  const payload = getBackendStatusPayload()
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('viewer:backend-status-changed', payload)
+    }
+  })
+}
+
 function markBackendReady(): void {
   backendReady = true
+  backendStarting = false
+  backendStartupError = null
   publishBackendOriginChanged()
+  publishBackendStatusChanged()
   flushPendingOpenFilePaths()
 }
 
@@ -385,15 +415,21 @@ async function waitForBackendReady(origin: string, timeoutMs: number): Promise<b
 }
 
 async function ensureBackendRunning(): Promise<void> {
+  backendStarting = true
+  backendStartupError = null
+  publishBackendStatusChanged()
+
   if (!app.isPackaged) {
     if (await isBackendReady(backendOrigin)) {
       markBackendReady()
       return
     }
 
-    throw new Error(
-      `Desktop dev mode requires an external backend service. Start the backend separately and ensure ${backendOrigin} is reachable.`
-    )
+    backendReady = false
+    backendStarting = false
+    backendStartupError = `Desktop dev mode requires an external backend service. Start the backend separately and ensure ${backendOrigin} is reachable.`
+    publishBackendStatusChanged()
+    throw new Error(backendStartupError)
   }
 
   if (await isBackendReady(backendOrigin)) {
@@ -403,6 +439,10 @@ async function ensureBackendRunning(): Promise<void> {
 
   const launchConfig = resolveServerLaunchConfig()
   if (!launchConfig) {
+    backendReady = false
+    backendStarting = false
+    backendStartupError = 'Embedded backend executable was not found.'
+    publishBackendStatusChanged()
     return
   }
 
@@ -413,6 +453,8 @@ async function ensureBackendRunning(): Promise<void> {
     const backendPort = await resolveEmbeddedBackendPort()
     const nextBackendOrigin = buildBackendOrigin(DEFAULT_BACKEND_HOST, backendPort)
     backendOrigin = nextBackendOrigin
+    publishBackendOriginChanged()
+    publishBackendStatusChanged()
 
     backendProcess = spawn(launchConfig.command, launchConfig.args, {
       cwd: launchConfig.cwd,
@@ -442,6 +484,10 @@ async function ensureBackendRunning(): Promise<void> {
         : new Error(`Backend exited before becoming ready. Exit code: ${exitCode}`)
   }
 
+  backendReady = false
+  backendStarting = false
+  backendStartupError = resolveBackendStartupFailureMessage(lastError ?? new Error('Failed to start embedded backend service.'))
+  publishBackendStatusChanged()
   throw lastError ?? new Error('Failed to start embedded backend service.')
 }
 
@@ -564,6 +610,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('viewer:get-backend-origin', () => backendOrigin)
+  ipcMain.handle('viewer:get-backend-status', () => getBackendStatusPayload())
   ipcMain.handle('viewer:get-default-export-directory', () => resolveDefaultExportDirectory())
   ipcMain.handle('viewer:get-startup-status-toast', () => pendingStartupStatusToast)
   ipcMain.handle(
@@ -653,6 +700,10 @@ app.whenReady().then(() => {
   void ensureBackendRunning()
     .catch((error: unknown) => {
       const message = resolveBackendStartupFailureMessage(error)
+      backendReady = false
+      backendStarting = false
+      backendStartupError = message
+      publishBackendStatusChanged()
       const detail = app.isPackaged
         ? `${message} Log: ${resolveBackendLogPath()}`
         : `${message} Backend: ${backendOrigin}`

@@ -21,11 +21,19 @@ export type DicomLoadSource =
   | { kind: 'files'; files: DicomUploadItem[] }
 export type DicomLoadSelection = DicomLoadSource | DicomLoadSource[]
 
+export interface BackendStatus {
+  error: string | null
+  origin: string
+  ready: boolean
+  starting: boolean
+}
+
 export interface ViewerRuntimeApi {
   canChooseFolder: boolean
   folderSourceMode: FolderSourceMode
   chooseFolder: (mode?: WebUploadPickMode) => Promise<DicomLoadSelection | null>
   getBackendOrigin: () => Promise<string>
+  getBackendStatus: () => Promise<BackendStatus>
   platform: ViewerPlatform
   resolveDicomPathSources: (paths: string[]) => Promise<DicomLoadSource[]>
   webAppMode: WebAppMode | null
@@ -69,6 +77,16 @@ function getTrimmedEnvValue(value: string | undefined): string | null {
 
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '')
+}
+
+function normalizeBackendStatus(status: ViewerBackendStatusPayload | null | undefined, fallbackOrigin: string): BackendStatus {
+  const origin = typeof status?.origin === 'string' && status.origin.trim() ? normalizeOrigin(status.origin) : fallbackOrigin
+  return {
+    error: typeof status?.error === 'string' && status.error.trim() ? status.error.trim() : null,
+    origin,
+    ready: status?.ready === true,
+    starting: status?.starting === true
+  }
 }
 
 function resolveWebBackendOrigin(): string {
@@ -265,6 +283,19 @@ function createDesktopRuntime(): ViewerRuntimeApi {
     },
     getBackendOrigin: () =>
       window.viewerApi?.getBackendOrigin?.().then(normalizeOrigin) ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN),
+    getBackendStatus: async () => {
+      const fallbackOrigin = normalizeOrigin(await (window.viewerApi?.getBackendOrigin?.() ?? Promise.resolve(DESKTOP_DEV_BACKEND_ORIGIN)))
+      if (!window.viewerApi?.getBackendStatus) {
+        return {
+          error: null,
+          origin: fallbackOrigin,
+          ready: true,
+          starting: false
+        }
+      }
+
+      return normalizeBackendStatus(await window.viewerApi.getBackendStatus(), fallbackOrigin)
+    },
     resolveDicomPathSources: async (paths) => {
       const scanPaths = await (window.viewerApi?.normalizeDroppedPaths?.(paths) ?? Promise.resolve([]))
       return scanPaths.map((path) => ({ kind: 'path', path }))
@@ -307,6 +338,12 @@ function createWebRuntime(): ViewerRuntimeApi {
       return chooseWebUploadFiles(mode)
     },
     getBackendOrigin: async () => resolveWebBackendOrigin(),
+    getBackendStatus: async () => ({
+      error: null,
+      origin: resolveWebBackendOrigin(),
+      ready: true,
+      starting: false
+    }),
     resolveDicomPathSources: async () => [],
     resolveDroppedDicomSources: async (drop) => {
       const uploadItems = await resolveWebDroppedUploadItems(drop)

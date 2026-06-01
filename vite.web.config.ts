@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import {
+  createRendererManualChunks,
   createRendererPlugins,
   rendererDefine,
   rendererInput,
@@ -13,8 +14,14 @@ export default defineConfig({
   build: {
     outDir: '../../dist-web',
     emptyOutDir: true,
+    modulePreload: {
+      resolveDependencies: () => []
+    },
     rollupOptions: {
-      input: rendererInput
+      input: rendererInput,
+      output: {
+        manualChunks: createRendererManualChunks
+      }
     }
   },
   publicDir: 'public',

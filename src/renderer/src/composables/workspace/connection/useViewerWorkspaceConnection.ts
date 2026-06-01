@@ -17,10 +17,14 @@ interface ViewerWorkspaceConnectionOptions {
 }
 
 export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionOptions) {
-  const connectionState = ref<ConnectionState>('connecting')
+  const connectionState = ref<ConnectionState>('idle')
 
   function updateConnectionState(state: ConnectionState): void {
     connectionState.value = state
+  }
+
+  function configureBackendOrigin(origin: string): void {
+    setApiBaseURL(`${origin}/api/v1`)
   }
 
   function handleSocketConnect(): void {
@@ -77,7 +81,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
   function connectBackend(): void {
     cleanupSocketListeners()
     updateConnectionState('connecting')
-    setApiBaseURL(`${options.backendOrigin.value}/api/v1`)
+    configureBackendOrigin(options.backendOrigin.value)
 
     const socket = connectSocket(options.backendOrigin.value)
     socket.on('connect', handleSocketConnect)
@@ -97,7 +101,9 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
 
   return {
     cleanupSocketListeners,
+    configureBackendOrigin,
     connectBackend,
-    connectionState
+    connectionState,
+    updateConnectionState
   }
 }

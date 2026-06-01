@@ -629,5 +629,5 @@ export interface ViewerLayoutTemplate {
   source: 'preset' | 'custom'
 }
 
-export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+export type ConnectionState = 'idle' | 'starting' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'Tag' | 'Layout'

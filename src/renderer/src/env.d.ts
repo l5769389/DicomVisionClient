@@ -28,6 +28,13 @@ declare global {
     durationMs?: number
   }
 
+  type ViewerBackendStatusPayload = {
+    error: string | null
+    origin: string
+    ready: boolean
+    starting: boolean
+  }
+
   interface Window {
     viewerApi?: {
       chooseFolder: (mode?: 'files' | 'folder') => Promise<string | string[] | null>
@@ -36,6 +43,7 @@ declare global {
       consumeLatestDroppedFilePaths: () => string[]
       consumePendingOpenFilePaths: () => string[]
       getBackendOrigin: () => Promise<string>
+      getBackendStatus: () => Promise<ViewerBackendStatusPayload>
       getDefaultExportDirectory: () => Promise<string>
       getStartupStatusToast: () => Promise<ViewerStatusToastPayload | null>
       getPathForFile: (file: File) => string
@@ -43,6 +51,7 @@ declare global {
       minimizeWindow: () => Promise<void>
       normalizeDroppedPaths: (paths: string[]) => Promise<string[]>
       onBackendOriginChanged: (callback: (origin: string) => void) => () => void
+      onBackendStatusChanged: (callback: (payload: ViewerBackendStatusPayload) => void) => () => void
       onOpenDicomPaths: (callback: (paths: string[]) => void) => () => void
       onStatusToast: (callback: (payload: ViewerStatusToastPayload) => void) => () => void
       openExportLocation: (payload: { directoryPath?: string | null; filePath?: string | null }) => Promise<boolean>

@@ -57,7 +57,14 @@ import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from '
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
-import { viewerRuntime, type DicomDropInput, type DicomLoadSelection, type DicomLoadSource, type WebUploadPickMode } from '../../../platform/runtime'
+import {
+  viewerRuntime,
+  type BackendStatus,
+  type DicomDropInput,
+  type DicomLoadSelection,
+  type DicomLoadSource,
+  type WebUploadPickMode
+} from '../../../platform/runtime'
 import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -260,7 +267,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
   let hasStartedBackendConnection = false
+  let backendConnectionPromise: Promise<void> | null = null
   let removeBackendOriginChangedListener: (() => void) | null = null
+  let removeBackendStatusChangedListener: (() => void) | null = null
 
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
@@ -1091,6 +1100,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    await ensureBackendConnection()
     if (tab.viewType === 'MPR' && payload.layoutKey === 'mpr-3d') {
       await views.ensureMprVolumeView(tab.key)
     }
@@ -1298,6 +1308,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    await ensureBackendConnection()
     const mtfId = payload.mtfId ?? generateMtfId()
     const nextSelectedMtfId = payload.mtfId ? mtfId : null
     updateActiveTabMtfState((item) =>
@@ -1731,7 +1742,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     views.updateViewProgress(payload)
   }
 
-  const { cleanupSocketListeners, connectBackend, connectionState } = useViewerWorkspaceConnection({
+  const {
+    cleanupSocketListeners,
+    configureBackendOrigin,
+    connectBackend,
+    connectionState,
+    updateConnectionState
+  } = useViewerWorkspaceConnection({
     backendOrigin,
     onConnected: views.rebindOpenViews,
     onDisconnected: () => {
@@ -1762,20 +1779,87 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     onViewProgress: handleViewProgress
   })
 
-  function applyBackendOrigin(origin: string): void {
+  function setBackendOrigin(origin: string): boolean {
     const nextOrigin = origin.trim().replace(/\/+$/, '')
     if (!nextOrigin) {
+      return false
+    }
+
+    const changed = backendOrigin.value !== nextOrigin
+    backendOrigin.value = nextOrigin
+    configureBackendOrigin(nextOrigin)
+    return changed
+  }
+
+  function applyBackendOrigin(origin: string, options: { connect?: boolean } = {}): void {
+    const changed = setBackendOrigin(origin)
+    if (!options.connect) {
       return
     }
 
-    const shouldReconnect = !hasStartedBackendConnection || backendOrigin.value !== nextOrigin
-    backendOrigin.value = nextOrigin
-    if (!shouldReconnect) {
+    const isConnectionActive =
+      connectionState.value === 'connected' ||
+      connectionState.value === 'connecting' ||
+      connectionState.value === 'reconnecting'
+    if (hasStartedBackendConnection && !changed && isConnectionActive) {
       return
     }
 
     hasStartedBackendConnection = true
     connectBackend()
+  }
+
+  function applyBackendStatus(status: BackendStatus): void {
+    setBackendOrigin(status.origin)
+    if (status.ready) {
+      if (!hasStartedBackendConnection && connectionState.value !== 'connected') {
+        updateConnectionState('idle')
+      }
+      return
+    }
+
+    if (status.starting) {
+      updateConnectionState('starting')
+      return
+    }
+
+    if (status.error) {
+      updateConnectionState('disconnected')
+    }
+  }
+
+  async function waitForBackendReady(timeoutMs = 20000): Promise<BackendStatus> {
+    const startedAt = Date.now()
+    let latestStatus = await viewerRuntime.getBackendStatus()
+    applyBackendStatus(latestStatus)
+
+    while (!latestStatus.ready && (latestStatus.starting || !latestStatus.error) && Date.now() - startedAt < timeoutMs) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250))
+      latestStatus = await viewerRuntime.getBackendStatus()
+      applyBackendStatus(latestStatus)
+    }
+
+    return latestStatus
+  }
+
+  async function ensureBackendConnection(): Promise<void> {
+    if (connectionState.value === 'connected' || connectionState.value === 'connecting' || connectionState.value === 'reconnecting') {
+      return
+    }
+
+    if (!backendConnectionPromise) {
+      backendConnectionPromise = (async () => {
+        const status = await waitForBackendReady()
+        if (!status.ready) {
+          throw new Error(status.error || 'Backend service is not ready.')
+        }
+        applyBackendOrigin(status.origin, { connect: true })
+      })().finally(() => {
+        backendConnectionPromise = null
+      })
+    }
+
+    await backendConnectionPromise
   }
 
   function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number }): void {
@@ -2085,6 +2169,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   async function openSeriesViewWithHangingProtocol(seriesId: string, viewType: ViewType): Promise<void> {
+    await ensureBackendConnection()
     const series = seriesList.value.find((item) => item.seriesId === seriesId) ?? null
     if (series?.isImageSeries === false && viewType !== 'Tag') {
       await views.openSeriesView(seriesId, 'Tag')
@@ -2111,6 +2196,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    await ensureBackendConnection()
     const targetIndex = Number.isFinite(sliceIndex) ? Math.max(0, Math.trunc(sliceIndex)) : 0
     await views.openSeriesView(seriesId, 'Stack')
     await nextTick()
@@ -2134,6 +2220,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
     await openSeriesViewWithHangingProtocol(selectedSeriesId.value, viewType)
+  }
+
+  async function openLayoutViewWithBackend(template: ViewerLayoutTemplate): Promise<void> {
+    await ensureBackendConnection()
+    await views.openLayoutView(template)
+  }
+
+  async function openSeriesCompareWithBackend(sourceSeriesId: string, targetSeriesId: string): Promise<void> {
+    await ensureBackendConnection()
+    await views.openSeriesCompare(sourceSeriesId, targetSeriesId)
   }
 
   function shouldAutoSelectLoadedSeries(): boolean {
@@ -2308,6 +2404,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     isLoadingFolder.value = true
 
     try {
+      await ensureBackendConnection()
       if (source.kind === 'files') {
         showDicomUploadToast({ loaded: 0, total: uploadTotalBytes, percent: uploadTotalBytes > 0 ? 0 : null })
       }
@@ -2397,10 +2494,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   onMounted(() => {
-    removeBackendOriginChangedListener = window.viewerApi?.onBackendOriginChanged?.(applyBackendOrigin) ?? null
+    removeBackendOriginChangedListener =
+      window.viewerApi?.onBackendOriginChanged?.((origin) =>
+        applyBackendOrigin(origin, { connect: hasStartedBackendConnection })
+      ) ?? null
+    removeBackendStatusChangedListener = window.viewerApi?.onBackendStatusChanged?.(applyBackendStatus) ?? null
     void (async () => {
-      const resolvedBackendOrigin = await viewerRuntime.getBackendOrigin()
-      applyBackendOrigin(resolvedBackendOrigin)
+      const backendStatus = await viewerRuntime.getBackendStatus()
+      applyBackendStatus(backendStatus)
     })()
   })
 
@@ -2412,6 +2513,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     cleanupSocketListeners()
     removeBackendOriginChangedListener?.()
     removeBackendOriginChangedListener = null
+    removeBackendStatusChangedListener?.()
+    removeBackendStatusChangedListener = null
     dismissStatusToast()
     if (resizeObserver && observedViewerStage) {
       resizeObserver.unobserve(observedViewerStage)
@@ -2462,8 +2565,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     message,
     openKeySlice,
     openSeriesView: openSeriesViewWithHangingProtocol,
-    openLayoutView: views.openLayoutView,
-    openSeriesCompare: views.openSeriesCompare,
+    openLayoutView: openLayoutViewWithBackend,
+    openSeriesCompare: openSeriesCompareWithBackend,
     openView: openViewWithHangingProtocol,
     removeSeries: views.removeSeries,
     selectSeries: views.selectSeries,

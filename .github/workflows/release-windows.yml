@@ -1,0 +1,89 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish'
+        required: true
+        default: 'v1.6.0'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: pwsh
+        run: |
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "${{ inputs.tag }}"
+          } else {
+            "${{ github.ref_name }}"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Checkout client
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+          path: DicomVisionClient
+
+      - name: Checkout server
+        uses: actions/checkout@v4
+        with:
+          repository: l5769389/DicomVisionServer
+          ref: main
+          path: DicomVisionServer
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: DicomVisionClient/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install server dependencies
+        shell: pwsh
+        working-directory: DicomVisionServer
+        run: uv sync --frozen
+
+      - name: Install client dependencies
+        shell: pwsh
+        working-directory: DicomVisionClient
+        run: npm ci
+
+      - name: Build Windows installer
+        shell: pwsh
+        working-directory: DicomVisionClient
+        run: npm run release:win
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: DicomVision ${{ steps.release.outputs.tag }}
+          body_path: DicomVisionClient/release-notes/v1.6.0.md
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            DicomVisionClient/dist-electron/DicomVision-1.6.0-Setup.exe
+            DicomVisionClient/dist-electron/DicomVision-1.6.0-Setup.exe.blockmap
+            DicomVisionClient/dist-electron/latest.yml

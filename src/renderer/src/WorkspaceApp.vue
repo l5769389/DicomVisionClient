@@ -420,7 +420,6 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
           :selected-series-id="viewer.selectedSeriesId.value"
-          :undo-measurement-action="viewer.undoMeasurementAction"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"

@@ -68,7 +68,6 @@ const props = defineProps<{
   isViewLoading: boolean
   message: string
   selectedSeriesId: string
-  undoMeasurementAction: () => boolean
   viewerTabs: ViewerTabItem[]
 }>()
 
@@ -155,14 +154,7 @@ type AnnotationInteractionState =
       startPoint: MeasurementDraftPoint
       originalPoints: MeasurementDraftPoint[]
     }
-  | { kind: 'editing_handle'; viewportKey: string; annotationId: string; handleIndex: number; historyRecorded?: boolean }
-
-interface AnnotationHistorySnapshot {
-  tabKey: string
-  annotationsByViewport: Partial<Record<string, AnnotationOverlay[]>>
-  draftAnnotations: Partial<Record<string, AnnotationDraft | null>>
-  interaction: AnnotationInteractionState
-}
+  | { kind: 'editing_handle'; viewportKey: string; annotationId: string; handleIndex: number }
 
 const {
   activeViewportKey,
@@ -266,7 +258,6 @@ const isVolumeConfigPanelAvailable = computed(() => {
 
 const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
 const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
-const annotationUndoStack = ref<AnnotationHistorySnapshot[]>([])
 const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
 const annotationActivePointerId = ref<number | null>(null)
 const qaWaterAnalysis = ref<QaWaterAnalysis | null>(null)
@@ -795,122 +786,6 @@ function getAnnotations(viewportKey: string): AnnotationOverlay[] {
   ]
 }
 
-function cloneAnnotationOverlay(annotation: AnnotationOverlay): AnnotationOverlay {
-  return {
-    ...annotation,
-    points: annotation.points.map((point) => ({ ...point }))
-  }
-}
-
-function cloneAnnotationDraft(annotation: AnnotationDraft | null | undefined): AnnotationDraft | null {
-  if (!annotation) {
-    return null
-  }
-
-  return {
-    ...annotation,
-    points: annotation.points.map((point) => ({ ...point }))
-  }
-}
-
-function cloneAnnotationList(annotations: AnnotationOverlay[] | undefined): AnnotationOverlay[] {
-  return (annotations ?? []).map(cloneAnnotationOverlay)
-}
-
-function getActiveAnnotationViewportKeys(extraViewportKey?: string): string[] {
-  const keys = new Set<string>()
-  const activeTab = props.activeTab
-  const tabKey = activeTab?.key
-
-  if (extraViewportKey) {
-    keys.add(extraViewportKey)
-  }
-  if (activeViewportKey.value) {
-    keys.add(activeViewportKey.value)
-  }
-  if (activeTab?.viewType === 'Stack') {
-    keys.add('single')
-  }
-  if (activeTab?.viewType === 'CompareStack') {
-    keys.add(COMPARE_STACK_SOURCE_PANE_KEY)
-    keys.add(COMPARE_STACK_TARGET_PANE_KEY)
-  }
-  if (activeTab?.viewType === 'Layout') {
-    activeTab.layoutSlots?.forEach((slot) => keys.add(slot.id))
-  }
-  if (activeTab?.viewType === 'MPR' || activeTab?.viewType === '4D') {
-    keys.add('mpr-ax')
-    keys.add('mpr-cor')
-    keys.add('mpr-sag')
-    keys.add('volume')
-  }
-
-  Object.keys(activeTab?.viewportAnnotations ?? {}).forEach((viewportKey) => keys.add(viewportKey))
-  if (tabKey) {
-    Object.keys(annotationStore.value[tabKey] ?? {}).forEach((viewportKey) => keys.add(viewportKey))
-  }
-
-  return Array.from(keys)
-}
-
-function pushAnnotationUndoSnapshot(viewportKey?: string): void {
-  const tabKey = props.activeTab?.key
-  if (!tabKey) {
-    return
-  }
-
-  const annotationsByViewport = Object.fromEntries(
-    getActiveAnnotationViewportKeys(viewportKey).map((key) => [key, cloneAnnotationList(getAnnotations(key))])
-  )
-  const draftSnapshot = Object.fromEntries(
-    Object.entries(draftAnnotations.value).map(([key, annotation]) => [key, cloneAnnotationDraft(annotation)])
-  )
-  const nextStack = [
-    ...annotationUndoStack.value,
-    {
-      tabKey,
-      annotationsByViewport,
-      draftAnnotations: draftSnapshot,
-      interaction: { ...annotationInteraction.value }
-    }
-  ]
-  annotationUndoStack.value = nextStack.slice(-50)
-}
-
-function undoAnnotationAction(): boolean {
-  const snapshot = annotationUndoStack.value.at(-1)
-  if (!snapshot || snapshot.tabKey !== props.activeTab?.key) {
-    return false
-  }
-
-  annotationUndoStack.value = annotationUndoStack.value.slice(0, -1)
-  annotationStore.value = {
-    ...annotationStore.value,
-    [snapshot.tabKey]: Object.fromEntries(
-      Object.entries(snapshot.annotationsByViewport).map(([viewportKey, annotations]) => [
-        viewportKey,
-        cloneAnnotationList(annotations)
-      ])
-    )
-  }
-  draftAnnotations.value = Object.fromEntries(
-    Object.entries(snapshot.draftAnnotations).map(([viewportKey, annotation]) => [
-      viewportKey,
-      cloneAnnotationDraft(annotation)
-    ])
-  )
-  annotationInteraction.value = { ...snapshot.interaction }
-  return true
-}
-
-function undoWorkspaceAction(): boolean {
-  if (props.activeOperation.startsWith('stack:annotate') && undoAnnotationAction()) {
-    return true
-  }
-
-  return props.undoMeasurementAction() || undoAnnotationAction()
-}
-
 function setViewportAnnotations(viewportKey: string, annotations: AnnotationOverlay[]): void {
   const tabKey = props.activeTab?.key
   if (!tabKey) {
@@ -932,7 +807,6 @@ function clearAllAnnotationsForActiveTab(): void {
     return
   }
 
-  pushAnnotationUndoSnapshot()
   annotationStore.value = {
     ...annotationStore.value,
     [tabKey]: {}
@@ -1150,20 +1024,12 @@ function stopAnnotationInteraction(pointerTarget?: EventTarget | null): void {
   annotationInteraction.value = { kind: 'idle' }
 }
 
-function updateSelectedAnnotation(
-  viewportKey: string,
-  annotationId: string,
-  updater: (current: AnnotationOverlay) => AnnotationOverlay,
-  options: { recordHistory?: boolean } = {}
-): void {
+function updateSelectedAnnotation(viewportKey: string, annotationId: string, updater: (current: AnnotationOverlay) => AnnotationOverlay): void {
   const current = findAnnotation(viewportKey, annotationId)
   if (!current) {
     return
   }
 
-  if (options.recordHistory !== false) {
-    pushAnnotationUndoSnapshot(viewportKey)
-  }
   const nextAnnotation = updater(current)
   upsertAnnotation(viewportKey, nextAnnotation)
   selectAnnotation(viewportKey, nextAnnotation)
@@ -1251,7 +1117,6 @@ function copySelectedAnnotation(viewportKey?: string): boolean {
     points: copiedPoints
   }
 
-  pushAnnotationUndoSnapshot(resolvedViewportKey)
   upsertAnnotation(resolvedViewportKey, copiedAnnotation)
   selectAnnotation(resolvedViewportKey, copiedAnnotation)
   annotationInteraction.value = { kind: 'idle' }
@@ -1265,7 +1130,6 @@ function deleteSelectedAnnotation(viewportKey?: string): boolean {
     return false
   }
 
-  pushAnnotationUndoSnapshot(resolvedViewportKey)
   removeAnnotation(resolvedViewportKey, draft.annotationId)
   setDraftAnnotation(resolvedViewportKey, null)
   annotationInteraction.value = { kind: 'idle' }
@@ -1273,7 +1137,6 @@ function deleteSelectedAnnotation(viewportKey?: string): boolean {
 }
 
 function handleAnnotationDelete(payload: { viewportKey: string; annotationId: string }): void {
-  pushAnnotationUndoSnapshot(payload.viewportKey)
   removeAnnotation(payload.viewportKey, payload.annotationId)
   const draft = getDraftAnnotation(payload.viewportKey)
   if (draft?.annotationId === payload.annotationId) {
@@ -1392,7 +1255,6 @@ function handleAnnotationPointerMove(event: PointerEvent): boolean {
       return true
     }
 
-    pushAnnotationUndoSnapshot(interaction.viewportKey)
     annotationInteraction.value = {
       ...interaction,
       kind: 'moving'
@@ -1411,31 +1273,16 @@ function handleAnnotationPointerMove(event: PointerEvent): boolean {
           point.x - movingInteraction.startPoint.x,
           point.y - movingInteraction.startPoint.y
         )
-      }),
-      { recordHistory: false }
+      })
     )
     return true
   }
 
   if (interaction.kind === 'editing_handle') {
-    let nextInteraction = interaction
-    if (!interaction.historyRecorded) {
-      pushAnnotationUndoSnapshot(interaction.viewportKey)
-      nextInteraction = {
-        ...interaction,
-        historyRecorded: true
-      }
-      annotationInteraction.value = nextInteraction
-    }
-    updateSelectedAnnotation(
-      nextInteraction.viewportKey,
-      nextInteraction.annotationId,
-      (current) => ({
-        ...current,
-        points: updateEditedArrowPoints(current.points, nextInteraction.handleIndex, point)
-      }),
-      { recordHistory: false }
-    )
+    updateSelectedAnnotation(interaction.viewportKey, interaction.annotationId, (current) => ({
+      ...current,
+      points: updateEditedArrowPoints(current.points, interaction.handleIndex, point)
+    }))
     return true
   }
 
@@ -1459,7 +1306,6 @@ function handleAnnotationPointerUp(event: PointerEvent): boolean {
         color: draft.color,
         size: draft.size
       }
-      pushAnnotationUndoSnapshot(interaction.viewportKey)
       upsertAnnotation(interaction.viewportKey, annotation)
       selectAnnotation(interaction.viewportKey, annotation)
     } else {
@@ -1818,7 +1664,6 @@ useWorkspaceHotkeys({
   selectedSeriesId: selectedSeriesIdRef,
   tagIndexChange: (payload) => emit('tagIndexChange', payload),
   toggleSidebar: () => emit('toggleSidebar'),
-  undoWorkspaceAction,
   viewportWheel: handleViewportWheel
 })
 

@@ -10,6 +10,7 @@ import {
 
 const HOVER_EMIT_THROTTLE_MS = 30
 const HOVER_CORNER_PATTERN = /^Cursor\s+X:\s*-?\d+\s+Y:\s*-?\d+$/i
+const COORDINATE_CORNER_PATTERN = /^(?:Cursor\s+)?X:\s*(-?\d+)\s+Y:\s*(-?\d+)$/i
 
 interface ViewerWorkspaceHoverOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
@@ -36,13 +37,24 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     }
   }
 
+  function normalizeCoordinateCornerLine(line: string | null): string | null {
+    if (!line) {
+      return null
+    }
+    const match = COORDINATE_CORNER_PATTERN.exec(line.trim())
+    return match ? `X:${match[1]} Y:${match[2]}` : null
+  }
+
   function withHoverCornerInfo(cornerInfo: CornerInfo, row: number | null = null, col: number | null = null): CornerInfo {
-    const hoverLine = cornerInfo.bottomRight.find((line) => HOVER_CORNER_PATTERN.test(line.trim())) ?? null
-    const bottomRight = cornerInfo.bottomRight.filter((line) => !HOVER_CORNER_PATTERN.test(line.trim()))
+    const coordinateLine = cornerInfo.bottomRight.find((line) => COORDINATE_CORNER_PATTERN.test(line.trim())) ?? null
+    const bottomRight = cornerInfo.bottomRight.filter((line) => !COORDINATE_CORNER_PATTERN.test(line.trim()))
     if (row != null && col != null) {
-      bottomRight.push(`Cursor X:${col} Y:${row}`)
-    } else if (hoverLine) {
-      bottomRight.push(hoverLine)
+      bottomRight.push(`X:${col} Y:${row}`)
+    } else {
+      const normalizedCoordinateLine = normalizeCoordinateCornerLine(coordinateLine)
+      if (normalizedCoordinateLine) {
+        bottomRight.push(normalizedCoordinateLine)
+      }
     }
     return {
       ...cornerInfo,

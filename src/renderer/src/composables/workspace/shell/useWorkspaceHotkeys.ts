@@ -24,6 +24,7 @@ export interface WorkspaceHotkeyOptions {
   selectedSeriesId: Ref<string>
   tagIndexChange: (payload: { tabKey: string; index: number }) => void
   toggleSidebar: () => void
+  undoWorkspaceAction: () => boolean
   viewportWheel: (payload: { viewportKey: string; deltaY: number; exact: true }) => void
 }
 
@@ -149,6 +150,13 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
 
     const preferMtf = isMtfOperation(options.activeOperation.value)
     const preferAnnotation = options.activeOperation.value.startsWith('stack:annotate')
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey && !event.altKey) {
+      if (options.undoWorkspaceAction()) {
+        event.preventDefault()
+      }
+      return
+    }
 
     if (event.key === 'Escape') {
       if (options.finishPointSequenceMeasurement()) {

@@ -100,6 +100,7 @@ import { createRenderedImageUrlRegistry } from './renderedImageUrlRegistry'
 import { COMPARE_SYNC_DEFAULTS } from '../sync/viewSyncConfig'
 import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import { useUiPreferences } from '../../ui/useUiPreferences'
+import { resolveBackendErrorDetail } from '../tasks/workspaceStatus'
 import { createKeyedLatestRequestGuard } from '../requests/latestRequest'
 import type {
   BackendCreateViewType,
@@ -196,6 +197,48 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     renderNow: renderTabNow
   })
   const { selectedPseudocolorKey } = useUiPreferences()
+
+  function getBackendStatusCode(error: unknown): number | null {
+    const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+    return typeof status === 'number' ? status : null
+  }
+
+  function isSeriesMissingError(error: unknown): boolean {
+    const detail = resolveBackendErrorDetail(error).toLowerCase()
+    return getBackendStatusCode(error) === 404 || detail.includes('seriesid not found')
+  }
+
+  function hasBackendViewForTab(tab: ViewerTabItem | null | undefined): boolean {
+    if (!tab) {
+      return false
+    }
+    return (
+      Boolean(tab.viewId) ||
+      Object.values(tab.compareViewIds ?? {}).some(Boolean) ||
+      Object.values(tab.viewportViewIds ?? {}).some(Boolean) ||
+      getLayoutSlotViewIds(tab).length > 0 ||
+      getFourDPhaseBackendViewIds(tab).length > 0
+    )
+  }
+
+  function closeIncompleteTab(tabKey: string): void {
+    const tab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    if (!tab || hasBackendViewForTab(tab)) {
+      return
+    }
+    closeTab(tabKey)
+  }
+
+  function handleOpenSeriesViewFailure(error: unknown, seriesId: string, viewType: ViewType, tabKey: string): void {
+    const detail = resolveBackendErrorDetail(error)
+    closeIncompleteTab(tabKey)
+    if (isSeriesMissingError(error)) {
+      removeSeries(seriesId)
+      options.message.value = '当前序列已失效，请重新上传 DICOM 或重新加载示例影像。'
+      return
+    }
+    options.message.value = detail ? `${viewType} 视图打开失败：${detail}` : `${viewType} 视图打开失败。`
+  }
 
   function revokeObjectUrlIfNeeded(imageSrc: string | null | undefined): void {
     imageUrlRegistry.revoke(imageSrc)
@@ -1798,10 +1841,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     if (renderOnBind) {
+      await postApi('SetViewSizeApiV1ViewSetSizePost', {
+        opType: VIEW_OPERATION_TYPES.setSize,
+        size: update.size,
+        viewId: update.viewId
+      })
       bindView(update.viewId)
-    } else {
-      await bindViewSilentlyWithAck(update.viewId)
+      return
     }
+
+    await bindViewSilentlyWithAck(update.viewId)
     await postApi('SetViewSizeApiV1ViewSetSizePost', {
       opType: VIEW_OPERATION_TYPES.setSize,
       size: update.size,
@@ -2208,7 +2257,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       await renderTab(tabKey, viewType === 'MPR')
       options.message.value = ''
     } catch (error) {
-      options.message.value = `${viewType} 视图打开失败。`
+      handleOpenSeriesViewFailure(error, seriesId, viewType, tabKey)
       console.error(error)
     } finally {
       options.isViewLoading.value = false

@@ -140,7 +140,7 @@ function closeOtherTabsFromMenu(): void {
             :disabled="!canCloseOtherTabs"
             @click="closeOtherTabsFromMenu"
           >
-            <AppIcon name="layout" :size="15" />
+            <AppIcon name="close-all" :size="15" />
             <span>{{ isZh ? '关闭其他标签页' : 'Close Other Tabs' }}</span>
           </button>
         </div>

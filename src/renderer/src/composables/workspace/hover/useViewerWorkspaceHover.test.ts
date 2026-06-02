@@ -32,14 +32,23 @@ describe('useViewerWorkspaceHover corner info', () => {
     expect(hover.stripHoverCornerInfo(cornerInfo).bottomRight).toEqual(['Zoom:1.25x', 'X:12 Y:-4'])
   })
 
-  it('adds hover cursor coordinates without replacing fixed pan offset state', () => {
+  it('updates the single X/Y coordinate line when hover pixels are available', () => {
     const hover = createHoverHelpers()
     const cornerInfo = createCornerInfo(['Zoom:1.25x', 'X:12 Y:-4'])
 
     expect(hover.withHoverCornerInfo(cornerInfo, 99, 210).bottomRight).toEqual([
       'Zoom:1.25x',
-      'X:12 Y:-4',
-      'Cursor X:210 Y:99'
+      'X:210 Y:99'
+    ])
+  })
+
+  it('normalizes existing cursor coordinate lines into the single X/Y line', () => {
+    const hover = createHoverHelpers()
+    const cornerInfo = createCornerInfo(['Zoom:1.25x', 'Cursor X:210 Y:99'])
+
+    expect(hover.withHoverCornerInfo(cornerInfo).bottomRight).toEqual([
+      'Zoom:1.25x',
+      'X:210 Y:99'
     ])
   })
 })

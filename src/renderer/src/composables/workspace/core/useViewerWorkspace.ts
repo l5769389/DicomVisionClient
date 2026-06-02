@@ -186,6 +186,7 @@ interface ViewerWorkspaceState {
   showStatusToast: (messageText: string, tone?: WorkspaceStatusToastTone, options?: WorkspaceStatusToastOptions) => void
   toggleSidebar: () => void
   triggerViewAction: (payload: ViewerToolbarActionPayload) => void
+  undoMeasurementAction: () => boolean
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   viewerStage: Ref<HTMLElement | null>
@@ -229,6 +230,12 @@ interface DicomUploadToastProgress {
   percent: number | null
 }
 
+interface MeasurementUndoSnapshot {
+  tabKey: string
+  measurements: MeasurementOverlay[]
+  viewportMeasurements: Partial<Record<string, MeasurementOverlay[]>>
+}
+
 export function useViewerWorkspace(): ViewerWorkspaceState {
   // These operations can be adjusted continuously from sliders/draggers. The UI
   // stays optimistic, while the backend receives only the last value in a burst.
@@ -250,6 +257,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const seriesList = ref<FolderSeriesItem[]>([])
   const selectedSeriesId = ref('')
   const viewerTabs = ref<ViewerTabItem[]>([])
+  const measurementUndoStack = ref<MeasurementUndoSnapshot[]>([])
   const activeTabKey = ref('')
   const activeOperation = ref(STACK_DEFAULT_OPERATION)
   const viewerStage = ref<HTMLElement | null>(null)
@@ -277,6 +285,107 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   )
   const activeTab = computed(() => viewerTabs.value.find((item) => item.key === activeTabKey.value) ?? null)
   const hasSelectedSeries = computed(() => Boolean(selectedSeriesId.value))
+
+  function cloneMeasurementOverlay(measurement: MeasurementOverlay): MeasurementOverlay {
+    return {
+      ...measurement,
+      points: measurement.points.map((point) => ({ ...point })),
+      labelLines: [...(measurement.labelLines ?? [])]
+    }
+  }
+
+  function cloneMeasurementList(measurements: MeasurementOverlay[] | undefined): MeasurementOverlay[] {
+    return (measurements ?? []).map(cloneMeasurementOverlay)
+  }
+
+  function cloneViewportMeasurements(
+    viewportMeasurements: Partial<Record<string, MeasurementOverlay[]>> | undefined
+  ): Partial<Record<string, MeasurementOverlay[]>> {
+    return Object.fromEntries(
+      Object.entries(viewportMeasurements ?? {}).map(([viewportKey, measurements]) => [
+        viewportKey,
+        cloneMeasurementList(measurements)
+      ])
+    )
+  }
+
+  function createMeasurementUndoSnapshot(tab: ViewerTabItem): MeasurementUndoSnapshot {
+    return {
+      tabKey: tab.key,
+      measurements: cloneMeasurementList(tab.measurements),
+      viewportMeasurements: cloneViewportMeasurements(tab.viewportMeasurements)
+    }
+  }
+
+  function pushMeasurementUndoSnapshot(tab = activeTab.value): void {
+    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
+      return
+    }
+
+    const nextStack = [...measurementUndoStack.value, createMeasurementUndoSnapshot(tab)]
+    measurementUndoStack.value = nextStack.slice(-50)
+  }
+
+  function hasMeasurements(tab: ViewerTabItem): boolean {
+    return Boolean(
+      (tab.measurements ?? []).length ||
+        Object.values(tab.viewportMeasurements ?? {}).some((measurements) => (measurements ?? []).length > 0)
+    )
+  }
+
+  function clearActiveTabMeasurements(scope: 'active-viewport' | 'all'): void {
+    const tab = activeTab.value
+    if (!tab) {
+      return
+    }
+
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== tab.key) {
+        return item
+      }
+
+      if (isMprLikeViewType(item.viewType) || item.viewType === 'CompareStack' || item.viewType === 'Layout') {
+        return {
+          ...item,
+          viewportMeasurements:
+            scope === 'all'
+              ? {}
+              : {
+                  ...(item.viewportMeasurements ?? {}),
+                  [activeViewportKey.value]: []
+                }
+        }
+      }
+
+      return {
+        ...item,
+        measurements: []
+      }
+    })
+  }
+
+  function undoMeasurementAction(): boolean {
+    const snapshot = measurementUndoStack.value.at(-1)
+    if (!snapshot) {
+      return false
+    }
+
+    measurementUndoStack.value = measurementUndoStack.value.slice(0, -1)
+    let restored = false
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== snapshot.tabKey) {
+        return item
+      }
+
+      restored = true
+      return {
+        ...item,
+        measurements: cloneMeasurementList(snapshot.measurements),
+        viewportMeasurements: cloneViewportMeasurements(snapshot.viewportMeasurements)
+      }
+    })
+    return restored
+  }
 
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
@@ -721,6 +830,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       clearPendingVolumeConfig(tab.viewId)
     }
 
+    if ((payload.action === 'clearMeasurements' || payload.action === 'resetAll') && hasMeasurements(tab)) {
+      pushMeasurementUndoSnapshot(tab)
+    }
+
     if (payload.action === 'clearMtf' || payload.action === 'resetAll') {
       clearActiveTabMtf()
       if (payload.action === 'clearMtf') {
@@ -756,6 +869,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
 
+      clearActiveTabMeasurements('active-viewport')
       emitViewOperation({
         viewId,
         opType: VIEW_OPERATION_TYPES.reset,
@@ -810,6 +924,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       )
 
       if (payload.action === 'resetAll') {
+        clearActiveTabMeasurements('all')
         emitViewOperation({
           viewId: tab.viewId,
           opType: VIEW_OPERATION_TYPES.reset,
@@ -1000,6 +1115,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           }
         })
 
+        if (payload.action === 'resetAll') {
+          clearActiveTabMeasurements('all')
+        }
         emitViewOperation({
           viewId,
           opType: VIEW_OPERATION_TYPES.reset,
@@ -1017,6 +1135,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         item.key === tab.key ? resetTabViewStateTargets(item, targets, DEFAULT_VIEW_TRANSFORM) : item
       )
 
+      if (payload.action === 'resetAll') {
+        clearActiveTabMeasurements('all')
+      }
       targets.forEach((target) => {
         emitViewOperation({
           viewId: target.viewId,
@@ -1733,9 +1854,28 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     views.updateTabImage(tab.key, payload, imageBinary)
   }
 
+  let pendingViewSizeRecovery = false
+
+  async function recoverFromMissingViewSize(): Promise<void> {
+    if (pendingViewSizeRecovery) {
+      return
+    }
+    pendingViewSizeRecovery = true
+    try {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      await views.renderTab(activeTabKey.value, true)
+    } finally {
+      pendingViewSizeRecovery = false
+    }
+  }
+
   function handleImageError(error: { message?: string } | undefined): void {
     if (error?.message) {
       message.value = error.message
+      if (error.message.toLowerCase().includes('view size has not been set')) {
+        void recoverFromMissingViewSize()
+      }
     }
   }
 
@@ -2068,6 +2208,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }): void {
     const tab = activeTab.value
     if (tab && !isFourDPlaybackLocked(tab) && (isStackLikeViewType(tab.viewType) || isMprLikeViewType(tab.viewType)) && payload.measurementId?.trim()) {
+      pushMeasurementUndoSnapshot(tab)
       viewerTabs.value = viewerTabs.value.map((item) => {
         if (item.key !== tab.key) {
           return item
@@ -2105,6 +2246,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    pushMeasurementUndoSnapshot(tab)
     viewerTabs.value = viewerTabs.value.map((item) => {
       if (item.key !== tab.key) {
         return item
@@ -2580,6 +2722,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     showStatusToast,
     toggleSidebar,
     triggerViewAction,
+    undoMeasurementAction,
     viewerFolderSourceMode: viewerRuntime.folderSourceMode,
     viewerPlatform: viewerRuntime.platform,
     viewerStage,

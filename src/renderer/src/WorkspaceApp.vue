@@ -420,6 +420,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
           :selected-series-id="viewer.selectedSeriesId.value"
+          :undo-measurement-action="viewer.undoMeasurementAction"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
@@ -572,7 +573,12 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   flex: 0 0 auto;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, transparent);
   border-radius: 13px;
-  background: linear-gradient(135deg, rgba(102, 208, 255, 0.34), rgba(255, 138, 91, 0.22));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-accent) 34%, transparent),
+      color-mix(in srgb, var(--theme-accent-warm) 18%, transparent)
+    );
 }
 
 .app-boot-brand__line,
@@ -591,7 +597,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 .app-boot-pill::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--theme-text-primary) 8%, transparent), transparent);
   content: "";
   animation: app-boot-shimmer 1.25s ease-in-out infinite;
 }
@@ -643,15 +649,15 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 84%, transparent);
   border-radius: 14px;
   background:
-    linear-gradient(rgba(102, 208, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(102, 208, 255, 0.04) 1px, transparent 1px),
-    #02070d;
+    linear-gradient(color-mix(in srgb, var(--theme-accent) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 6%, transparent) 1px, transparent 1px),
+    var(--theme-surface-panel-strong-solid);
   background-size: 42px 42px;
 }
 
 .app-boot-crosshair {
   position: absolute;
-  background: rgba(102, 208, 255, 0.18);
+  background: color-mix(in srgb, var(--theme-accent) 20%, transparent);
 }
 
 .app-boot-crosshair--horizontal {

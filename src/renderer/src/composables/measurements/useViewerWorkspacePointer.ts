@@ -2128,7 +2128,14 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (isCrosshairDragging.value) {
-      emitThrottledCrosshairMove.flush()
+      emitThrottledCrosshairMove.cancel()
+      emitCrosshairEvent(
+        crosshairPointerViewportKey.value,
+        DRAG_ACTION_TYPES.move,
+        event,
+        crosshairDragMode.value,
+        crosshairRotationLine.value
+      )
       emitCrosshairEvent(
         crosshairPointerViewportKey.value,
         DRAG_ACTION_TYPES.end,

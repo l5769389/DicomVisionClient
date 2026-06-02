@@ -30,6 +30,7 @@ import {
   createDefaultMprMipConfig,
   normalizeMprMipConfig,
   type CompareSyncSettingKey,
+  type MprCrosshairMode,
   type MprMipConfig,
   type ViewerLayoutTemplate,
   type ViewerTabItem,
@@ -205,6 +206,17 @@ const mprLayoutTool: StackTool = {
   }))
 }
 
+const MPR_CROSSHAIR_MODE_SELECTION_PREFIX = 'mprCrosshairMode:'
+
+function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
+  return `${MPR_CROSSHAIR_MODE_SELECTION_PREFIX}${mode}`
+}
+
+function parseMprCrosshairModeSelectionValue(value: string | null | undefined): MprCrosshairMode | null {
+  const mode = String(value ?? '').replace(MPR_CROSSHAIR_MODE_SELECTION_PREFIX, '')
+  return mode === 'orthogonal' || mode === 'double-oblique' ? mode : null
+}
+
 const tagTool: StackTool = {
   key: 'tag',
   label: 'Tag',
@@ -313,7 +325,7 @@ function localizeToolbarTool(tool: StackTool, isZh: boolean): StackTool {
   }
   return {
     ...tool,
-    label: ZH_TOOL_LABELS[tool.key] ?? tool.label,
+    label: tool.key === 'crosshair' && tool.options ? tool.label : (ZH_TOOL_LABELS[tool.key] ?? tool.label),
     options: tool.options?.map((option) => localizeToolbarOption(option, isZh))
   }
 }
@@ -406,7 +418,7 @@ const volumeTools: StackTool[] = [
 
 const genericToolsWithCrosshair: StackTool[] = [
   mprLayoutTool,
-  { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode' },
+  { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode', showSelectedOptionIcon: false },
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -483,6 +495,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     volumePreset: 'volumePreset:bone',
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
+    crosshair: toMprCrosshairModeSelectionValue('orthogonal'),
     reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
@@ -565,9 +578,49 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeMprLayoutKey = computed(() => parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout))
   const isActiveMpr3dLayout = computed(() => options.activeTab.value?.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
+  const activeMprCrosshairMode = computed<MprCrosshairMode>(() =>
+    options.activeTab.value?.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
+  )
 
   function withDynamicWindowTool(tools: StackTool[]): StackTool[] {
     return tools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+  }
+
+  function withMprCrosshairModeTool(tools: StackTool[]): StackTool[] {
+    const tab = options.activeTab.value
+    if (tab?.viewType !== 'MPR' && tab?.viewType !== '4D') {
+      return tools
+    }
+
+    const mode = activeMprCrosshairMode.value
+    const isDoubleOblique = mode === 'double-oblique'
+    const title = isZh.value
+      ? `十字线 · ${isDoubleOblique ? 'Double Oblique' : '正交锁定'}`
+      : `Crosshair · ${isDoubleOblique ? 'Double Oblique' : 'Orthogonal Lock'}`
+    return tools.map((tool) =>
+      tool.key === 'crosshair'
+        ? {
+            ...tool,
+            label: title,
+            options: [
+              {
+                value: toMprCrosshairModeSelectionValue('orthogonal'),
+                label: isZh.value ? '正交锁定' : 'Orthogonal Lock',
+                icon: 'crosshair',
+                description: isZh.value ? '保持三平面互相垂直' : 'Keep the three MPR planes orthogonal',
+                checked: mode === 'orthogonal'
+              },
+              {
+                value: toMprCrosshairModeSelectionValue('double-oblique'),
+                label: 'Double Oblique',
+                icon: 'crosshair',
+                description: isZh.value ? '允许单独旋转十字线对应切面' : 'Rotate each referenced plane independently',
+                checked: mode === 'double-oblique'
+              }
+            ]
+          }
+        : tool
+    )
   }
 
   function withSyncToolAfterLayout(tools: StackTool[]): StackTool[] {
@@ -609,7 +662,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeTools = computed(() => {
     const viewType = options.activeTab.value?.viewType
-    return withDynamicWindowTool(withRenderModeTools(getBaseToolsForActiveTab()))
+    return withDynamicWindowTool(withRenderModeTools(withMprCrosshairModeTool(getBaseToolsForActiveTab())))
       .map((tool) => withSupportedExportOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
   })
@@ -1077,6 +1130,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string): void {
+    if (tool.key === 'crosshair') {
+      const mode = parseMprCrosshairModeSelectionValue(optionValue)
+      const activeViewType = options.activeTab.value?.viewType
+      if (!mode || (activeViewType !== 'MPR' && activeViewType !== '4D')) {
+        return
+      }
+
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        crosshair: toMprCrosshairModeSelectionValue(mode)
+      }
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'mprCrosshairMode', mode })
+      return
+    }
+
     if (tool.key === 'mprLayout') {
       const layoutKey = parseMprLayoutSelectionValue(optionValue)
       const selectedOption = tool.options?.find((option) => option.value === optionValue)
@@ -1333,6 +1402,18 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       stackToolSelections.value = {
         ...stackToolSelections.value,
         window: formatWindowPresetValue(selectedPreset.ww, selectedPreset.wl)
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => options.activeTab.value?.mprCrosshairMode,
+    (value) => {
+      const mode = value === 'double-oblique' ? 'double-oblique' : 'orthogonal'
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        crosshair: toMprCrosshairModeSelectionValue(mode)
       }
     },
     { immediate: true }

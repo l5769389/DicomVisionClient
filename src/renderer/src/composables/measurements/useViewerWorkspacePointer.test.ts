@@ -384,6 +384,32 @@ describe('useViewerWorkspacePointer', () => {
     expect(emitViewportDrag).not.toHaveBeenCalled()
   })
 
+  it('sends the pointerup crosshair position as the final optimistic move before end', () => {
+    const { emitMprCrosshair, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:crosshair',
+      activeTab: createMprCrosshairTab(),
+      viewportKey: 'mpr-ax'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { pointerId: 20 }), 'mpr-ax')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.56, y: 0.58 }, { pointerId: 20 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.68, y: 0.72 }, { buttons: 0, pointerId: 20 }))
+
+    const payloads = emitMprCrosshair.mock.calls.map(([payload]) => payload)
+    expect(payloads.at(-2)).toMatchObject({
+      phase: DRAG_ACTION_TYPES.move,
+      viewportKey: 'mpr-ax',
+      x: 0.68,
+      y: 0.72
+    })
+    expect(payloads.at(-1)).toMatchObject({
+      phase: DRAG_ACTION_TYPES.end,
+      viewportKey: 'mpr-ax',
+      x: 0.68,
+      y: 0.72
+    })
+  })
+
   it('falls back to window drag in MPR crosshair mode when no crosshair part is hit', () => {
     const { emitMprCrosshair, emitViewportDrag, pointer, viewport } = createPointerHarness({
       activeOperation: 'stack:crosshair',

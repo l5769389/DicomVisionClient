@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   resolveMprCrosshairForImageUpdate,
   resolveOptimisticMprCrosshairCenter,
+  resolveOptimisticMprCrosshairRotation,
+  shouldCompleteMprCrosshairSettling,
   shouldPreserveLocalMprCrosshair,
+  shouldSuppressMprCrosshairPreviewImageUpdate,
   type ActiveMprCrosshairDragLock
 } from './mprInteractionGuard'
 
@@ -81,7 +84,109 @@ describe('mprInteractionGuard', () => {
     ).toBe(false)
   })
 
-  it('accepts the backend crosshair when the viewport, tab, or mode does not match the active drag', () => {
+  it('preserves the optimistic crosshair while rotating the active MPR viewport', () => {
+    expect(
+      resolveMprCrosshairForImageUpdate({
+        incomingCrosshair,
+        currentCrosshair,
+        lock: createLock({ mode: 'rotate' }),
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null
+        }
+      })
+    ).toEqual(currentCrosshair)
+  })
+
+  it('keeps preserving the optimistic crosshair while the drag lock is settling', () => {
+    expect(
+      resolveMprCrosshairForImageUpdate({
+        incomingCrosshair,
+        currentCrosshair,
+        lock: createLock({ status: 'settling', endedAt: 123 }),
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null
+        }
+      })
+    ).toEqual(currentCrosshair)
+  })
+
+  it('suppresses late JPEG previews for the active dragged MPR viewport', () => {
+    const update = {
+      tabKey: 'series-1::MPR',
+      viewportKey: 'mpr-ax' as const,
+      phaseKey: null
+    }
+
+    expect(
+      shouldSuppressMprCrosshairPreviewImageUpdate({
+        lock: createLock({ status: 'dragging' }),
+        update,
+        imageFormat: 'jpeg'
+      })
+    ).toBe(true)
+    expect(
+      shouldSuppressMprCrosshairPreviewImageUpdate({
+        lock: createLock({ status: 'settling' }),
+        update,
+        imageFormat: 'png'
+      })
+    ).toBe(false)
+    expect(
+      shouldSuppressMprCrosshairPreviewImageUpdate({
+        lock: createLock({ status: 'dragging', viewportKey: 'mpr-cor' }),
+        update,
+        imageFormat: 'jpeg'
+      })
+    ).toBe(false)
+  })
+
+  it('only completes settling on a matching final PNG for the active 4D phase', () => {
+    const lock = createLock({
+      tabKey: 'series-1::4D',
+      phaseKey: '3',
+      status: 'settling'
+    })
+
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::4D',
+          viewportKey: 'mpr-ax',
+          phaseKey: '3'
+        },
+        imageFormat: 'png'
+      })
+    ).toBe(true)
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::4D',
+          viewportKey: 'mpr-ax',
+          phaseKey: '2'
+        },
+        imageFormat: 'png'
+      })
+    ).toBe(false)
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock: createLock({ status: 'dragging' }),
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null
+        },
+        imageFormat: 'png'
+      })
+    ).toBe(false)
+  })
+
+  it('accepts the backend crosshair when the viewport or tab does not match the active drag', () => {
     expect(
       resolveMprCrosshairForImageUpdate({
         incomingCrosshair,
@@ -100,19 +205,6 @@ describe('mprInteractionGuard', () => {
         incomingCrosshair,
         currentCrosshair,
         lock: createLock({ tabKey: 'series-2::MPR' }),
-        update: {
-          tabKey: 'series-1::MPR',
-          viewportKey: 'mpr-ax',
-          phaseKey: null
-        }
-      })
-    ).toEqual(incomingCrosshair)
-
-    expect(
-      resolveMprCrosshairForImageUpdate({
-        incomingCrosshair,
-        currentCrosshair,
-        lock: createLock({ mode: 'rotate' }),
         update: {
           tabKey: 'series-1::MPR',
           viewportKey: 'mpr-ax',
@@ -179,5 +271,57 @@ describe('mprInteractionGuard', () => {
       x: 0.85,
       y: 0.15
     })
+  })
+
+  it('keeps orthogonal crosshair rotation locked at 90 degrees during optimistic updates', () => {
+    const rotation = resolveOptimisticMprCrosshairRotation({
+      lock: createLock({
+        mode: 'rotate',
+        line: 'horizontal',
+        centerX: 0.5,
+        centerY: 0.5,
+        startPointerAngleRad: 0,
+        startHorizontalAngleRad: 0,
+        startVerticalAngleRad: Math.PI / 2,
+        isDoubleOblique: false
+      }),
+      pointerX: 0.5,
+      pointerY: 1,
+      line: 'horizontal',
+      update: {
+        tabKey: 'series-1::MPR',
+        viewportKey: 'mpr-ax',
+        phaseKey: null
+      }
+    })
+
+    expect(rotation?.horizontalAngleRad).toBeCloseTo(Math.PI / 2)
+    expect(rotation?.verticalAngleRad).toBeCloseTo(0)
+  })
+
+  it('only rotates the grabbed line during optimistic Double Oblique updates', () => {
+    const rotation = resolveOptimisticMprCrosshairRotation({
+      lock: createLock({
+        mode: 'rotate',
+        line: 'horizontal',
+        centerX: 0.5,
+        centerY: 0.5,
+        startPointerAngleRad: 0,
+        startHorizontalAngleRad: 0,
+        startVerticalAngleRad: 0.7,
+        isDoubleOblique: true
+      }),
+      pointerX: 0.5,
+      pointerY: 1,
+      line: 'horizontal',
+      update: {
+        tabKey: 'series-1::MPR',
+        viewportKey: 'mpr-ax',
+        phaseKey: null
+      }
+    })
+
+    expect(rotation?.horizontalAngleRad).toBeCloseTo(Math.PI / 2)
+    expect(rotation?.verticalAngleRad).toBeCloseTo(0.7)
   })
 })

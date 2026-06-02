@@ -15,6 +15,7 @@ export const VIEW_OPERATION_TYPES = {
   surfaceConfig: 'surfaceConfig',
   mprMipConfig: 'mprMipConfig',
   mprOblique: 'mprOblique',
+  mprCrosshairMode: 'mprCrosshairMode',
   mprStateSync: 'mprStateSync',
   measurement: 'measurement'
 } as const

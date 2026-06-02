@@ -98,7 +98,14 @@ import {
 import { createRenderTabScheduler } from './renderTabScheduler'
 import { createRenderedImageUrlRegistry } from './renderedImageUrlRegistry'
 import { COMPARE_SYNC_DEFAULTS } from '../sync/viewSyncConfig'
-import { resolveMprCrosshairForImageUpdate, type ActiveMprCrosshairDragLock } from './mprInteractionGuard'
+import {
+  resolveMprCrosshairForImageUpdate,
+  shouldCompleteMprCrosshairSettling,
+  shouldSuppressMprCrosshairPreviewImageUpdate,
+  type ActiveMprCrosshairDragLock,
+  type IncomingMprViewportUpdate
+} from './mprInteractionGuard'
+import { createViewSizeUpdateDeduper } from './viewSizeUpdateDeduper'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { resolveBackendErrorDetail } from '../tasks/workspaceStatus'
 import { createKeyedLatestRequestGuard } from '../requests/latestRequest'
@@ -137,6 +144,7 @@ interface ViewerWorkspaceViewsOptions {
   viewerStage: Ref<HTMLElement | null>
   viewerTabs: Ref<ViewerTabItem[]>
   clearPendingVolumeConfig: (viewId: string) => void
+  completeActiveMprCrosshairDragLock: (update: IncomingMprViewportUpdate) => void
   ensureSeriesCornerInfo: (seriesId: string) => Promise<CornerInfo>
   stripHoverCornerInfo: (cornerInfo: CornerInfo) => CornerInfo
   withHoverCornerInfo: (cornerInfo: CornerInfo, row?: number | null, col?: number | null) => CornerInfo
@@ -185,6 +193,7 @@ const VIEWPORT_LAYOUT_WAIT_FRAMES = 60
 
 export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const viewSizeCache = new Map<string, string>()
+  const viewSizeUpdateDeduper = createViewSizeUpdateDeduper()
   const queuedFourDPreloadTabKeys = new Set<string>()
   const fourDPreloadRequests = new Map<string, Promise<void>>()
   const fourDPhaseSwitchInFlightTabKeys = new Set<string>()
@@ -1271,6 +1280,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }
 
   function updateTabImage(tabKey: string, payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array): void {
+    let mprCrosshairSettlingCompletionUpdate: IncomingMprViewportUpdate | null = null
     options.viewerTabs.value = options.viewerTabs.value.map((item) => {
       if (item.key !== tabKey) {
         return item
@@ -1296,6 +1306,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
       const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
       const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
@@ -1434,6 +1445,33 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         | undefined
       const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
       if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
+        const activeFourDPhaseKey =
+          item.viewType === '4D' ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)) : null
+        const mprViewportUpdate: IncomingMprViewportUpdate = {
+          tabKey,
+          viewportKey,
+          phaseKey: item.viewType === '4D' ? fourDViewportMatch?.phaseKey ?? activeFourDPhaseKey : null
+        }
+        if (
+          shouldSuppressMprCrosshairPreviewImageUpdate({
+            lock: options.activeMprCrosshairDragLock.value,
+            update: mprViewportUpdate,
+            imageFormat: payload.imageFormat
+          })
+        ) {
+          revokeObjectUrlIfNeeded(imageSrc)
+          return item
+        }
+        if (
+          shouldCompleteMprCrosshairSettling({
+            lock: options.activeMprCrosshairDragLock.value,
+            update: mprViewportUpdate,
+            imageFormat: payload.imageFormat
+          })
+        ) {
+          mprCrosshairSettlingCompletionUpdate = mprViewportUpdate
+        }
+
         const currentViewportImage = item.viewportImages?.[viewportKey]
         if (currentViewportKey) {
           revokeObjectUrlIfNeeded(currentViewportImage)
@@ -1458,11 +1496,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             incomingCrosshair: mprCrosshair,
             currentCrosshair: phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null,
             lock: options.activeMprCrosshairDragLock.value,
-            update: {
-              tabKey,
-              viewportKey,
-              phaseKey: fourDViewportMatch.phaseKey
-            }
+            update: mprViewportUpdate
           })
           nextFourDPhaseCache = {
             ...(item.fourDPhaseCache ?? {}),
@@ -1538,14 +1572,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           incomingCrosshair: mprCrosshair,
           currentCrosshair: item.viewportCrosshairs?.[viewportKey] ?? null,
           lock: options.activeMprCrosshairDragLock.value,
-          update: {
-            tabKey,
-            viewportKey,
-            phaseKey:
-              item.viewType === '4D'
-                ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0))
-                : null
-          }
+          update: mprViewportUpdate
         })
 
         return {
@@ -1598,6 +1625,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             [viewportKey]: null
           },
           mprMipConfig,
+          mprCrosshairMode,
           volumePreset,
           volumeRenderConfig,
           render3dMode,
@@ -1627,6 +1655,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         transformState,
         pseudocolorPreset,
         mprMipConfig,
+        mprCrosshairMode,
         volumePreset,
         volumeRenderConfig,
         render3dMode,
@@ -1634,6 +1663,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         loadingProgress: null
       }
     })
+    if (mprCrosshairSettlingCompletionUpdate) {
+      options.completeActiveMprCrosshairDragLock(mprCrosshairSettlingCompletionUpdate)
+    }
   }
 
   function normalizeProgressNumber(value: unknown): number | null {
@@ -1840,21 +1872,23 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
-    if (renderOnBind) {
+    await viewSizeUpdateDeduper.run(update, renderOnBind, async () => {
+      if (renderOnBind) {
+        await postApi('SetViewSizeApiV1ViewSetSizePost', {
+          opType: VIEW_OPERATION_TYPES.setSize,
+          size: update.size,
+          viewId: update.viewId
+        })
+        bindView(update.viewId)
+        return
+      }
+
+      await bindViewSilentlyWithAck(update.viewId)
       await postApi('SetViewSizeApiV1ViewSetSizePost', {
         opType: VIEW_OPERATION_TYPES.setSize,
         size: update.size,
         viewId: update.viewId
       })
-      bindView(update.viewId)
-      return
-    }
-
-    await bindViewSilentlyWithAck(update.viewId)
-    await postApi('SetViewSizeApiV1ViewSetSizePost', {
-      opType: VIEW_OPERATION_TYPES.setSize,
-      size: update.size,
-      viewId: update.viewId
     })
   }
 
@@ -2254,7 +2288,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         options.isViewLoading.value = false
       }
       await nextTick()
-      await renderTab(tabKey, viewType === 'MPR')
+      await renderTab(tabKey)
       options.message.value = ''
     } catch (error) {
       handleOpenSeriesViewFailure(error, seriesId, viewType, tabKey)

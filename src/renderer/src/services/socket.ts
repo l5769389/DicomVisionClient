@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import type { DragActionType, ViewOperationType } from '@shared/viewerConstants'
+import { getWorkspaceId } from './workspaceIdentity'
 import type {
   FourDPlaybackFpsRequest,
   FourDPlaybackPhaseEvent,
@@ -8,6 +9,7 @@ import type {
   FourDPlaybackStopRequest,
   MeasurementDraftPayload,
   MeasurementDraftPoint,
+  MprCrosshairMode,
   MprMipOperationConfig,
   ViewProgressInfo,
   ViewHoverPayload,
@@ -60,6 +62,7 @@ export interface ViewOperationPayload {
   wl?: number
   pseudocolorPreset?: string
   mprMipConfig?: MprMipOperationConfig
+  mprCrosshairMode?: MprCrosshairMode
   sourceViewId?: string
   hor_flip?: boolean
   ver_flip?: boolean
@@ -71,7 +74,7 @@ export interface ViewOperationPayload {
 export type ViewOperationInput = Omit<ViewOperationPayload, 'viewId'>
 
 export interface ServerToClientEvents {
-  connected: (payload: { sid: string }) => void
+  connected: (payload: { sid: string; workspaceId?: string }) => void
   image_update: (...args: ImageUpdateSocketArgs) => void
   image_error: (payload?: SocketErrorPayload) => void
   render_error: (payload?: SocketErrorPayload) => void
@@ -105,7 +108,10 @@ export function connectSocket(origin: string): ViewerSocket {
 
   socket = io(origin, {
     transports: ['websocket', 'polling'],
-    forceNew: true
+    forceNew: true,
+    auth: {
+      workspaceId: getWorkspaceId()
+    }
   }) as ViewerSocket
   measurementDraftHandlers.forEach((handler) => {
     socket?.on('measurement_draft', handler)

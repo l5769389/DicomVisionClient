@@ -44,9 +44,13 @@ import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
 import {
   resolveOptimisticMprCrosshairCenter,
-  type ActiveMprCrosshairDragLock
+  resolveOptimisticMprCrosshairRotation,
+  shouldPreserveLocalMprCrosshair,
+  type ActiveMprCrosshairDragLock,
+  type IncomingMprViewportUpdate
 } from '../views/mprInteractionGuard'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
+import { MPR_VIEWPORT_KEYS } from '../views/fourDPhaseState'
 import { createLatestRequestGuard } from '../requests/latestRequest'
 import {
   createLayoutTemplateFromHangingProtocolRule,
@@ -55,6 +59,7 @@ import {
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
 import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from './layoutDropSeries'
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
+import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
 import {
@@ -95,6 +100,7 @@ import type {
   MeasurementToolType,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
+  MprCrosshairMode,
   MprMipConfig,
   MprMipOperationConfig,
   MprViewportKey,
@@ -234,9 +240,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   // stays optimistic, while the backend receives only the last value in a burst.
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
   const MPR_MIP_CONFIG_DEBOUNCE_MS = 120
-  // During MPR crosshair drag, incoming render frames may lag one pointer event
-  // behind. This short lock preserves the user's active pointer offset visually.
-  const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 240
+  // During MPR crosshair drag, incoming render frames may lag behind the pointer.
+  // Keep the active viewport locally anchored, with the timer as a missing-end fallback.
+  const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 1800
+  // After pointerup, the final PNG may arrive behind one or more stale previews.
+  // Keep protecting the active viewport until the authoritative final frame lands.
+  const MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS = 1800
   const FOUR_D_FPS_MIN = 1
   const FOUR_D_FPS_MAX = 30
   const FOUR_D_DEFAULT_FPS = 2
@@ -402,6 +411,41 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return resolveViewIdForTabViewport(tab, viewportKey)
   }
 
+  function normalizeMprCrosshairMode(value: unknown): MprCrosshairMode {
+    return value === 'double-oblique' ? 'double-oblique' : 'orthogonal'
+  }
+
+  function getActiveMprOperationViewId(tab: ViewerTabItem): string {
+    if (isMprViewportKey(activeViewportKey.value)) {
+      return tab.viewportViewIds?.[activeViewportKey.value] ?? ''
+    }
+    return Object.values(tab.viewportViewIds ?? {}).find((viewId): viewId is string => Boolean(viewId)) ?? ''
+  }
+
+  function getMprViewIdForPreferredViewport(
+    viewIds: Partial<Record<MprViewportKey, string>> | undefined,
+    preferredViewportKey: MprViewportKey
+  ): string {
+    const fallbackViewId = MPR_VIEWPORT_KEYS.map((viewportKey) => viewIds?.[viewportKey] ?? '').find(Boolean)
+    return viewIds?.[preferredViewportKey] || fallbackViewId || ''
+  }
+
+  function getMprCrosshairModeTargetViewIds(tab: ViewerTabItem, fallbackViewId: string): string[] {
+    if (tab.viewType !== '4D') {
+      return fallbackViewId ? [fallbackViewId] : []
+    }
+
+    const preferredViewportKey = isMprViewportKey(activeViewportKey.value) ? activeViewportKey.value : 'mpr-ax'
+    const phaseViewIds = Object.values(tab.fourDPhaseViewIds ?? {})
+    const candidateViewIds = [
+      fallbackViewId,
+      getMprViewIdForPreferredViewport(tab.viewportViewIds, preferredViewportKey),
+      ...phaseViewIds.map((viewIds) => getMprViewIdForPreferredViewport(viewIds, preferredViewportKey))
+    ]
+
+    return Array.from(new Set(candidateViewIds.filter(Boolean)))
+  }
+
   function isFourDPlaybackLocked(tab: ViewerTabItem | null | undefined): boolean {
     return Boolean(tab?.viewType === '4D' && tab.fourDIsPlaying)
   }
@@ -412,6 +456,24 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       activeMprCrosshairDragLockTimer = null
     }
     activeMprCrosshairDragLock.value = null
+  }
+
+  function armActiveMprCrosshairDragLockTimer(ttlMs: number): void {
+    if (activeMprCrosshairDragLockTimer != null) {
+      window.clearTimeout(activeMprCrosshairDragLockTimer)
+    }
+    activeMprCrosshairDragLockTimer = window.setTimeout(() => {
+      activeMprCrosshairDragLockTimer = null
+      activeMprCrosshairDragLock.value = null
+    }, ttlMs)
+  }
+
+  function completeActiveMprCrosshairDragLock(update: IncomingMprViewportUpdate): void {
+    const lock = activeMprCrosshairDragLock.value
+    if (lock?.status !== 'settling' || !shouldPreserveLocalMprCrosshair(lock, update)) {
+      return
+    }
+    clearActiveMprCrosshairDragLock()
   }
 
   function getCurrentMprCrosshairPhaseKey(tab: ViewerTabItem): string | null {
@@ -425,46 +487,86 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.phase === DRAG_ACTION_TYPES.end) {
-      clearActiveMprCrosshairDragLock()
-      return
-    }
-
     const phaseKey = getCurrentMprCrosshairPhaseKey(tab)
     const mode = payload.mode === 'rotate' ? 'rotate' : 'move'
     const previousLock = activeMprCrosshairDragLock.value
+
+    if (payload.phase === DRAG_ACTION_TYPES.end) {
+      const shouldSettlePrevious =
+        previousLock != null &&
+        previousLock.tabKey === tab.key &&
+        previousLock.viewportKey === payload.viewportKey &&
+        previousLock.phaseKey === phaseKey &&
+        previousLock.mode === mode
+      if (!shouldSettlePrevious) {
+        clearActiveMprCrosshairDragLock()
+        return
+      }
+
+      activeMprCrosshairDragLock.value = {
+        ...previousLock,
+        status: 'settling',
+        line: payload.line ?? previousLock.line ?? null,
+        lastPointerX: payload.x,
+        lastPointerY: payload.y,
+        endedAt: Date.now()
+      }
+      armActiveMprCrosshairDragLockTimer(MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS)
+      return
+    }
+
     const shouldReusePreviousOffsets =
       payload.phase !== DRAG_ACTION_TYPES.start &&
-      previousLock?.tabKey === tab.key &&
+      previousLock != null &&
+      previousLock.tabKey === tab.key &&
       previousLock?.viewportKey === payload.viewportKey &&
       previousLock?.phaseKey === phaseKey &&
       previousLock?.mode === mode
 
     const nextLock: ActiveMprCrosshairDragLock = shouldReusePreviousOffsets
-      ? previousLock
-      : {
-          tabKey: tab.key,
-          viewportKey: payload.viewportKey,
-          phaseKey,
-          mode,
-          ...(mode === 'move'
-            ? (() => {
-                const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
-                return {
-                  pointerOffsetX: (geometry?.center.x ?? payload.x) - payload.x,
-                  pointerOffsetY: (geometry?.center.y ?? payload.y) - payload.y
-                }
-              })()
-            : {})
+      ? {
+          ...previousLock,
+          status: 'dragging',
+          lastPointerX: payload.x,
+          lastPointerY: payload.y
         }
+      : (() => {
+          const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
+          if (mode === 'move') {
+            return {
+              tabKey: tab.key,
+              viewportKey: payload.viewportKey,
+              phaseKey,
+              mode,
+              status: 'dragging',
+              lastPointerX: payload.x,
+              lastPointerY: payload.y,
+              pointerOffsetX: (geometry?.center.x ?? payload.x) - payload.x,
+              pointerOffsetY: (geometry?.center.y ?? payload.y) - payload.y
+            }
+          }
+
+          const centerX = geometry?.center.x ?? payload.x
+          const centerY = geometry?.center.y ?? payload.y
+          return {
+            tabKey: tab.key,
+            viewportKey: payload.viewportKey,
+            phaseKey,
+            mode,
+            status: 'dragging',
+            line: payload.line ?? null,
+            centerX,
+            centerY,
+            lastPointerX: payload.x,
+            lastPointerY: payload.y,
+            startPointerAngleRad: Math.atan2(payload.y - centerY, payload.x - centerX),
+            startHorizontalAngleRad: geometry?.horizontalAngleRad ?? 0,
+            startVerticalAngleRad: geometry?.verticalAngleRad ?? Math.PI / 2,
+            isDoubleOblique: tab.mprCrosshairMode === 'double-oblique'
+          }
+        })()
     activeMprCrosshairDragLock.value = nextLock
-    if (activeMprCrosshairDragLockTimer != null) {
-      window.clearTimeout(activeMprCrosshairDragLockTimer)
-    }
-    activeMprCrosshairDragLockTimer = window.setTimeout(() => {
-      activeMprCrosshairDragLockTimer = null
-      activeMprCrosshairDragLock.value = null
-    }, MPR_CROSSHAIR_DRAG_LOCK_TTL_MS)
+    armActiveMprCrosshairDragLockTimer(MPR_CROSSHAIR_DRAG_LOCK_TTL_MS)
   }
 
   function findFourDTab(tabKey: string): ViewerTabItem | null {
@@ -640,6 +742,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function emitMprCrosshairMode(viewId: string, mode: MprCrosshairMode): void {
+    emitViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.mprCrosshairMode,
+      mprCrosshairMode: mode
+    })
+  }
+
   function clearPendingMprMipConfig(): void {
     if (pendingMprMipConfigTimer != null) {
       window.clearTimeout(pendingMprMipConfigTimer)
@@ -709,6 +819,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'mprCrosshairMode' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
     if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && !isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType) && tab.viewType !== '3D') {
       return
     }
@@ -761,6 +875,31 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         opType: VIEW_OPERATION_TYPES.reset,
         subOpType: 'measurements'
       })
+      return
+    }
+
+    if (payload.action === 'mprCrosshairMode') {
+      const mode = normalizeMprCrosshairMode(payload.mode ?? payload.value)
+      const viewId = getActiveMprOperationViewId(tab)
+      const targetViewIds = getMprCrosshairModeTargetViewIds(tab, viewId)
+      if (!targetViewIds.length) {
+        return
+      }
+
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              mprCrosshairMode: mode
+            }
+          : item
+      )
+      targetViewIds.forEach((targetViewId) => {
+        emitMprCrosshairMode(targetViewId, mode)
+      })
+      if (tab.viewType === '4D') {
+        views.invalidateFourDMprState(tab.key)
+      }
       return
     }
 
@@ -984,6 +1123,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             mprCursor: null,
             mprFrame: null,
             mprMipConfig: createDefaultMprMipConfig(),
+            mprCrosshairMode: 'orthogonal',
             viewportCrosshairs: createEmptyMprCrosshairs(),
             viewportScaleBars: createEmptyMprScaleBars(),
             viewportOrientations: createEmptyMprOrientations(),
@@ -999,6 +1139,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
           }
         })
+        if (tab.viewType === '4D') {
+          views.invalidateFourDMprState(tab.key)
+        }
 
         emitViewOperation({
           viewId,
@@ -1143,7 +1286,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return Array.from(new Set(viewIds.filter(Boolean)))
   }
 
-  function emitMprViewOperation(
+  function emitMprViewOperationNow(
     viewportKey: string,
     payload: ViewOperationInput
   ): void {
@@ -1163,6 +1306,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId
       })
     })
+  }
+
+  function emitMprViewOperation(
+    viewportKey: string,
+    payload: ViewOperationInput
+  ): void {
+    mprInteractionOperationScheduler.emit(viewportKey, payload)
   }
 
   function emitMeasurementOperation(payload: {
@@ -1659,6 +1809,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeViewportKey,
     activeMprCrosshairDragLock,
     clearPendingVolumeConfig,
+    completeActiveMprCrosshairDragLock,
     ensureSeriesCornerInfo,
     isViewLoading,
     message,
@@ -1683,6 +1834,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     renderTab: (tabKey) => {
       void views.renderTab(tabKey)
     }
+  })
+  const mprInteractionOperationScheduler = createMprInteractionOperationScheduler({
+    emit: emitMprViewOperationNow
   })
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
@@ -1962,36 +2116,70 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {
-    if (payload.phase !== DRAG_ACTION_TYPES.move || payload.mode === 'rotate' || !isMprViewportKey(payload.viewportKey)) {
+    if (payload.phase !== DRAG_ACTION_TYPES.move || !isMprViewportKey(payload.viewportKey)) {
       return
     }
 
     const viewportKey = payload.viewportKey
+    const isRotateDrag = payload.mode === 'rotate'
     viewerTabs.value = viewerTabs.value.map((item) => {
       if (item.key !== activeTabKey.value || !isMprLikeViewType(item.viewType)) {
         return item
       }
 
-      const optimisticCenter = resolveOptimisticMprCrosshairCenter({
-        lock: activeMprCrosshairDragLock.value,
-        pointerX: payload.x,
-        pointerY: payload.y,
-        update: {
-          tabKey: item.key,
-          viewportKey,
-          phaseKey: getCurrentMprCrosshairPhaseKey(item)
-        }
-      })
-
       const previousCrosshair = item.viewportCrosshairs?.[viewportKey] ?? null
-      const nextCrosshair = {
-        centerX: optimisticCenter.x,
-        centerY: optimisticCenter.y,
-        hitRadius: previousCrosshair?.hitRadius ?? 0.025,
-        horizontalPosition: optimisticCenter.y,
-        verticalPosition: optimisticCenter.x,
-        horizontalAngleRad: previousCrosshair?.horizontalAngleRad ?? null,
-        verticalAngleRad: previousCrosshair?.verticalAngleRad ?? null
+      const geometry = getTabViewportCrosshairGeometry(item, viewportKey)
+      const phaseKey = getCurrentMprCrosshairPhaseKey(item)
+      const update = {
+        tabKey: item.key,
+        viewportKey,
+        phaseKey
+      }
+      const nextCrosshair = isRotateDrag
+        ? (() => {
+            const rotation = resolveOptimisticMprCrosshairRotation({
+              lock: activeMprCrosshairDragLock.value,
+              pointerX: payload.x,
+              pointerY: payload.y,
+              line: payload.line,
+              update,
+              currentHorizontalAngleRad: previousCrosshair?.horizontalAngleRad ?? geometry?.horizontalAngleRad ?? null,
+              currentVerticalAngleRad: previousCrosshair?.verticalAngleRad ?? geometry?.verticalAngleRad ?? null
+            })
+            if (!rotation) {
+              return null
+            }
+            const centerX = previousCrosshair?.centerX ?? geometry?.center.x ?? 0.5
+            const centerY = previousCrosshair?.centerY ?? geometry?.center.y ?? 0.5
+            return {
+              centerX,
+              centerY,
+              hitRadius: previousCrosshair?.hitRadius ?? 0.025,
+              horizontalPosition: previousCrosshair?.horizontalPosition ?? centerY,
+              verticalPosition: previousCrosshair?.verticalPosition ?? centerX,
+              horizontalAngleRad: rotation.horizontalAngleRad,
+              verticalAngleRad: rotation.verticalAngleRad
+            }
+          })()
+        : (() => {
+            const optimisticCenter = resolveOptimisticMprCrosshairCenter({
+              lock: activeMprCrosshairDragLock.value,
+              pointerX: payload.x,
+              pointerY: payload.y,
+              update
+            })
+            return {
+              centerX: optimisticCenter.x,
+              centerY: optimisticCenter.y,
+              hitRadius: previousCrosshair?.hitRadius ?? 0.025,
+              horizontalPosition: optimisticCenter.y,
+              verticalPosition: optimisticCenter.x,
+              horizontalAngleRad: previousCrosshair?.horizontalAngleRad ?? null,
+              verticalAngleRad: previousCrosshair?.verticalAngleRad ?? null
+            }
+          })()
+      if (!nextCrosshair) {
+        return item
       }
       const viewportCrosshairs = {
         ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -2005,15 +2193,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         }
       }
 
-      const phaseKey = String(Math.max(0, Math.trunc(item.fourDPhaseIndex ?? 0)))
-      const phaseCache = item.fourDPhaseCache?.[phaseKey]
+      const currentPhaseKey = String(Math.max(0, Math.trunc(item.fourDPhaseIndex ?? 0)))
+      const phaseCache = item.fourDPhaseCache?.[currentPhaseKey]
       return {
         ...item,
         viewportCrosshairs,
         fourDPhaseCache: phaseCache
           ? {
               ...(item.fourDPhaseCache ?? {}),
-              [phaseKey]: {
+              [currentPhaseKey]: {
                 ...phaseCache,
                 viewportCrosshairs: {
                   ...(phaseCache.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -2524,6 +2712,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   })
 
   onBeforeUnmount(() => {
+    mprInteractionOperationScheduler.cancel()
     flushAllPendingVolumeConfig()
     flushPendingMprMipConfig()
     clearActiveMprCrosshairDragLock()

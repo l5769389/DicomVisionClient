@@ -4,6 +4,7 @@ import type {
   AnnotationOverlayPayload as BackendAnnotationOverlayPayload,
   MeasurementPointPayload as BackendMeasurementPointPayload,
   MprCrosshairInfo as BackendMprCrosshairInfo,
+  MprCrosshairMode as BackendMprCrosshairMode,
   MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
   MprPlaneInfo as BackendMprPlaneInfo,
@@ -364,6 +365,7 @@ export interface MtfAnalyzeResponse {
 }
 
 export type MprCrosshairInfo = BackendMprCrosshairInfo
+export type MprCrosshairMode = BackendMprCrosshairMode
 export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
 export type MprPlaneInfo = BackendMprPlaneInfo
@@ -452,6 +454,7 @@ export interface ViewImageResponse {
   transform?: ViewTransformInfo | null
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
+  mprCrosshairMode?: MprCrosshairMode | null
 }
 export type ViewHoverPayload = BackendViewHoverRequest
 export type ViewHoverResponse = BackendViewHoverResponse
@@ -532,6 +535,7 @@ export interface ViewerTabItem {
   pseudocolorPreset: string
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   mprMipConfig?: MprMipConfig | null
+  mprCrosshairMode?: MprCrosshairMode
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
   render3dMode?: Render3DMode

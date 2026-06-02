@@ -174,4 +174,66 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     harness.wrapper.unmount()
   })
+
+  it('adds MPR crosshair mode options for MPR and 4D views', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR',
+      mprCrosshairMode: 'orthogonal'
+    })
+    await nextTick()
+
+    const getCrosshairTool = () => harness.toolbar.activeTools.value.find((tool) => tool.key === 'crosshair')
+
+    expect(getCrosshairTool()?.options?.map((option) => option.value)).toEqual([
+      'mprCrosshairMode:orthogonal',
+      'mprCrosshairMode:double-oblique'
+    ])
+    expect(getCrosshairTool()?.options?.find((option) => option.value === 'mprCrosshairMode:orthogonal')?.checked).toBe(true)
+
+    harness.toolbar.selectToolOption(getCrosshairTool()!, 'mprCrosshairMode:double-oblique')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'mprCrosshairMode',
+      mode: 'double-oblique'
+    })
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      mprCrosshairMode: 'double-oblique'
+    }
+    await nextTick()
+    expect(getCrosshairTool()?.options?.find((option) => option.value === 'mprCrosshairMode:double-oblique')?.checked).toBe(true)
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::4d',
+      title: 'Series 1 / 4D',
+      viewType: '4D',
+      mprCrosshairMode: 'double-oblique'
+    }
+    await nextTick()
+    expect(getCrosshairTool()?.options?.map((option) => option.value)).toEqual([
+      'mprCrosshairMode:orthogonal',
+      'mprCrosshairMode:double-oblique'
+    ])
+    expect(getCrosshairTool()?.options?.find((option) => option.value === 'mprCrosshairMode:double-oblique')?.checked).toBe(true)
+
+    harness.toolbar.selectToolOption(getCrosshairTool()!, 'mprCrosshairMode:orthogonal')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'mprCrosshairMode',
+      mode: 'orthogonal'
+    })
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      fourDIsPlaying: true
+    }
+    await nextTick()
+    expect(harness.toolbar.areToolbarActionsDisabled.value).toBe(true)
+
+    harness.wrapper.unmount()
+  })
 })

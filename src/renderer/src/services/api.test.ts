@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { getApiBaseURL, getBackendOrigin, resolveBackendAssetUrl, setApiBaseURL } from './api'
+import { api, getApiBaseURL, getBackendOrigin, resolveBackendAssetUrl, setApiBaseURL } from './api'
+import { resetWorkspaceIdentityForTest, WORKSPACE_HEADER } from './workspaceIdentity'
 
 afterEach(() => {
   setApiBaseURL(`${DESKTOP_DEV_BACKEND_ORIGIN}/api/v1`)
+  resetWorkspaceIdentityForTest()
 })
 
 describe('api service URL helpers', () => {
@@ -31,5 +33,22 @@ describe('api service URL helpers', () => {
     expect(resolveBackendAssetUrl('//cdn.example.test/image.png')).toBe('//cdn.example.test/image.png')
     expect(resolveBackendAssetUrl('data:image/png;base64,abc')).toBe('data:image/png;base64,abc')
     expect(resolveBackendAssetUrl('blob:https://app.example.test/123')).toBe('blob:https://app.example.test/123')
+  })
+
+  it('attaches the anonymous workspace id to API requests', async () => {
+    resetWorkspaceIdentityForTest('workspace-test')
+
+    const response = await api.request({
+      url: '/ping',
+      adapter: async (config) => ({
+        config,
+        data: config.headers,
+        headers: {},
+        status: 200,
+        statusText: 'OK'
+      })
+    })
+
+    expect(response.data?.[WORKSPACE_HEADER] ?? response.data?.get?.(WORKSPACE_HEADER)).toBe('workspace-test')
   })
 })

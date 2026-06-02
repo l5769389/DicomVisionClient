@@ -539,6 +539,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),
+    mprCrosshairMode: 'orthogonal',
     volumePreset: 'volumePreset:bone',
     volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
     render3dMode: 'volume',

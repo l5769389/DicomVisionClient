@@ -197,6 +197,8 @@ export interface MprCrosshairInfo {
   verticalAngleRad?: number | null
 }
 
+export type MprCrosshairMode = 'orthogonal' | 'double-oblique'
+
 export interface MprCursorInfo {
   centerWorld: [number, number, number]
   referenceCenterWorld: [number, number, number]
@@ -641,6 +643,7 @@ export interface ViewImageResponse {
   transform?: ViewTransformPayload | null
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipConfig | null
+  mprCrosshairMode?: MprCrosshairMode
   volumePreset?: string | null
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: 'volume' | 'surface' | null
@@ -664,7 +667,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprStateSync' | 'measurement'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -679,6 +682,7 @@ export interface ViewOperationRequest {
   wl?: number | null
   pseudocolorPreset?: string | null
   mprMipConfig?: MprMipConfig | null
+  mprCrosshairMode?: MprCrosshairMode | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null

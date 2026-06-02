@@ -1,5 +1,6 @@
-import axios from 'axios'
+import axios, { AxiosHeaders } from 'axios'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
+import { getWorkspaceId, WORKSPACE_HEADER } from './workspaceIdentity'
 
 const DEFAULT_API_TIMEOUT_MS = 15000
 const API_V1_SUFFIX_PATTERN = /\/api\/v1(?:\/+)?$/i
@@ -16,6 +17,13 @@ function isAbsoluteAssetUrl(value: string): boolean {
 export const api = axios.create({
   baseURL: normalizeApiBaseURL(`${DESKTOP_DEV_BACKEND_ORIGIN}/api/v1`),
   timeout: DEFAULT_API_TIMEOUT_MS
+})
+
+api.interceptors.request.use((config) => {
+  const workspaceId = getWorkspaceId()
+  config.headers = AxiosHeaders.from(config.headers)
+  config.headers.set(WORKSPACE_HEADER, workspaceId)
+  return config
 })
 
 export function setApiBaseURL(baseURL: string): void {

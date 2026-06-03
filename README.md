@@ -43,9 +43,7 @@ http://111.228.1.213/
 
 ## 基础操作演示
 
-<video src="./screenshots/basic_operations_demo.mp4" controls width="880"></video>
-
-如果当前 Markdown 预览环境无法直接播放视频，可以下载或打开 [基础操作演示视频](./screenshots/basic_operations_demo.mp4)。
+<img src="./screenshots/basic_operations_demo.gif" alt="DicomVision 基础操作演示" width="880">
 
 ## 截图
 

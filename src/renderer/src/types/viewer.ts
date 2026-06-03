@@ -82,6 +82,10 @@ export interface MprCrosshairInteractionPayload {
   phase: 'start' | 'move' | 'end'
   x: number
   y: number
+  canvasX?: number
+  canvasY?: number
+  canvasWidth?: number
+  canvasHeight?: number
   mode?: MprCrosshairInteractionMode
   line?: MprCrosshairLineTarget
 }

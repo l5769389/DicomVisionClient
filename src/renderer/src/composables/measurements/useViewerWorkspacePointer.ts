@@ -266,12 +266,26 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   })
 
   const emitThrottledCrosshairMove = throttle(
-    (payload: { viewportKey: string; x: number; y: number; mode?: 'move' | 'rotate'; line?: CrosshairLineTarget }) => {
+    (payload: {
+      viewportKey: string
+      x: number
+      y: number
+      canvasX?: number
+      canvasY?: number
+      canvasWidth?: number
+      canvasHeight?: number
+      mode?: 'move' | 'rotate'
+      line?: CrosshairLineTarget
+    }) => {
       options.emitMprCrosshair({
         viewportKey: payload.viewportKey,
         phase: DRAG_ACTION_TYPES.move,
         x: payload.x,
         y: payload.y,
+        canvasX: payload.canvasX,
+        canvasY: payload.canvasY,
+        canvasWidth: payload.canvasWidth,
+        canvasHeight: payload.canvasHeight,
         mode: payload.mode,
         line: payload.line
       })
@@ -560,6 +574,29 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
+  function getNormalizedCrosshairPointerPoint(
+    event: PointerEvent
+  ): { x: number; y: number; canvasX: number; canvasY: number; canvasWidth?: number; canvasHeight?: number } | null {
+    const imageElement = resolveViewportImageElement(event)
+    const stageElement = imageElement?.parentElement instanceof HTMLElement ? imageElement.parentElement : resolvePointerContainer(event)
+    const stageRect = stageElement?.getBoundingClientRect()
+    if (!stageRect?.width || !stageRect.height) {
+      const imagePoint = getNormalizedViewportPoint(event)
+      return imagePoint ? { ...imagePoint, canvasX: imagePoint.x, canvasY: imagePoint.y } : null
+    }
+
+    const canvasX = Math.max(0, Math.min(1, (event.clientX - stageRect.left) / stageRect.width))
+    const canvasY = Math.max(0, Math.min(1, (event.clientY - stageRect.top) / stageRect.height))
+    return {
+      x: canvasX,
+      y: canvasY,
+      canvasX,
+      canvasY,
+      canvasWidth: stageRect.width,
+      canvasHeight: stageRect.height
+    }
+  }
+
   function resolveMeasurementPointerContext(
     event: PointerEvent,
     viewportKey?: string
@@ -613,7 +650,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     mode: 'move' | 'rotate' = 'move',
     line: CrosshairLineTarget | null = null
   ): void {
-    const point = getNormalizedViewportPoint(event)
+    const point = getNormalizedCrosshairPointerPoint(event)
     if (!point) {
       return
     }
@@ -623,6 +660,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       phase,
       x: point.x,
       y: point.y,
+      canvasX: point.canvasX,
+      canvasY: point.canvasY,
+      canvasWidth: point.canvasWidth,
+      canvasHeight: point.canvasHeight,
       mode,
       line: line ?? undefined
     })
@@ -1809,7 +1850,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (crosshairDragMode.value === 'rotate') {
-      const point = getNormalizedViewportPoint(event)
+      const point = getNormalizedCrosshairPointerPoint(event)
       if (!point) {
         return true
       }
@@ -1817,13 +1858,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         viewportKey: crosshairPointerViewportKey.value,
         x: point.x,
         y: point.y,
+        canvasX: point.canvasX,
+        canvasY: point.canvasY,
+        canvasWidth: point.canvasWidth,
+        canvasHeight: point.canvasHeight,
         mode: 'rotate',
         line: crosshairRotationLine.value ?? undefined
       })
       return true
     }
 
-    const point = getNormalizedViewportPoint(event)
+    const point = getNormalizedCrosshairPointerPoint(event)
     if (!point) {
       return true
     }
@@ -1832,6 +1877,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       viewportKey: crosshairPointerViewportKey.value,
       x: point.x,
       y: point.y,
+      canvasX: point.canvasX,
+      canvasY: point.canvasY,
+      canvasWidth: point.canvasWidth,
+      canvasHeight: point.canvasHeight,
       mode: 'move'
     })
     return true

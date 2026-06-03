@@ -13,7 +13,8 @@ import {
   emitFourDPlaybackStart,
   emitFourDPlaybackStop,
   emitViewOperation,
-  ViewOperationInput
+  type ViewOperationInput,
+  type ViewOperationPayload
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
@@ -483,6 +484,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return tab.viewType === '4D' ? String(Math.max(0, Math.trunc(tab.fourDPhaseIndex ?? 0))) : null
   }
 
+  function getFinitePositiveNumber(value: number | null | undefined): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+  }
+
+  function getOptimisticMprCrosshairPointer(payload: MprCrosshairInteractionPayload): {
+    x: number
+    y: number
+    canvasWidth?: number
+    canvasHeight?: number
+  } {
+    return {
+      x: typeof payload.canvasX === 'number' && Number.isFinite(payload.canvasX) ? payload.canvasX : payload.x,
+      y: typeof payload.canvasY === 'number' && Number.isFinite(payload.canvasY) ? payload.canvasY : payload.y,
+      canvasWidth: getFinitePositiveNumber(payload.canvasWidth) ?? undefined,
+      canvasHeight: getFinitePositiveNumber(payload.canvasHeight) ?? undefined
+    }
+  }
+
+  function getMprPointerAngleRad(pointer: { x: number; y: number; canvasWidth?: number; canvasHeight?: number }, centerX: number, centerY: number): number {
+    const canvasWidth = getFinitePositiveNumber(pointer.canvasWidth) ?? 1
+    const canvasHeight = getFinitePositiveNumber(pointer.canvasHeight) ?? 1
+    return Math.atan2((pointer.y - centerY) * canvasHeight, (pointer.x - centerX) * canvasWidth)
+  }
+
   function refreshActiveMprCrosshairDragLock(payload: MprCrosshairInteractionPayload): void {
     const tab = activeTab.value
     if (!tab || !isMprLikeViewType(tab.viewType) || !isMprViewportKey(payload.viewportKey)) {
@@ -493,6 +518,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const phaseKey = getCurrentMprCrosshairPhaseKey(tab)
     const mode = payload.mode === 'rotate' ? 'rotate' : 'move'
     const previousLock = activeMprCrosshairDragLock.value
+    const optimisticPointer = getOptimisticMprCrosshairPointer(payload)
 
     if (payload.phase === DRAG_ACTION_TYPES.end) {
       const shouldSettlePrevious =
@@ -510,8 +536,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...previousLock,
         status: 'settling',
         line: payload.line ?? previousLock.line ?? null,
-        lastPointerX: payload.x,
-        lastPointerY: payload.y,
+        lastPointerX: optimisticPointer.x,
+        lastPointerY: optimisticPointer.y,
+        canvasWidth: optimisticPointer.canvasWidth ?? previousLock.canvasWidth,
+        canvasHeight: optimisticPointer.canvasHeight ?? previousLock.canvasHeight,
         endedAt: Date.now()
       }
       armActiveMprCrosshairDragLockTimer(MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS)
@@ -530,8 +558,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       ? {
           ...previousLock,
           status: 'dragging',
-          lastPointerX: payload.x,
-          lastPointerY: payload.y
+          lastPointerX: optimisticPointer.x,
+          lastPointerY: optimisticPointer.y,
+          canvasWidth: optimisticPointer.canvasWidth ?? previousLock.canvasWidth,
+          canvasHeight: optimisticPointer.canvasHeight ?? previousLock.canvasHeight
         }
       : (() => {
           const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
@@ -542,15 +572,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
               phaseKey,
               mode,
               status: 'dragging',
-              lastPointerX: payload.x,
-              lastPointerY: payload.y,
-              pointerOffsetX: (geometry?.center.x ?? payload.x) - payload.x,
-              pointerOffsetY: (geometry?.center.y ?? payload.y) - payload.y
+              lastPointerX: optimisticPointer.x,
+              lastPointerY: optimisticPointer.y,
+              canvasWidth: optimisticPointer.canvasWidth,
+              canvasHeight: optimisticPointer.canvasHeight,
+              pointerOffsetX: (geometry?.center.x ?? optimisticPointer.x) - optimisticPointer.x,
+              pointerOffsetY: (geometry?.center.y ?? optimisticPointer.y) - optimisticPointer.y
             }
           }
 
-          const centerX = geometry?.center.x ?? payload.x
-          const centerY = geometry?.center.y ?? payload.y
+          const centerX = geometry?.center.x ?? optimisticPointer.x
+          const centerY = geometry?.center.y ?? optimisticPointer.y
           return {
             tabKey: tab.key,
             viewportKey: payload.viewportKey,
@@ -560,9 +592,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             line: payload.line ?? null,
             centerX,
             centerY,
-            lastPointerX: payload.x,
-            lastPointerY: payload.y,
-            startPointerAngleRad: Math.atan2(payload.y - centerY, payload.x - centerX),
+            lastPointerX: optimisticPointer.x,
+            lastPointerY: optimisticPointer.y,
+            canvasWidth: optimisticPointer.canvasWidth,
+            canvasHeight: optimisticPointer.canvasHeight,
+            startPointerAngleRad: getMprPointerAngleRad(optimisticPointer, centerX, centerY),
             startHorizontalAngleRad: geometry?.horizontalAngleRad ?? 0,
             startVerticalAngleRad: geometry?.verticalAngleRad ?? Math.PI / 2,
             isDoubleOblique: tab.mprCrosshairMode === 'double-oblique'
@@ -840,7 +874,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'reset' || payload.action === 'resetAll') {
       clearActiveMprCrosshairDragLock()
-      mprInteractionOperationScheduler.cancel()
+      viewInteractionOperationScheduler.cancel()
     }
 
     if (payload.action === 'clearMtf' || payload.action === 'resetAll') {
@@ -1294,7 +1328,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return Array.from(new Set(viewIds.filter(Boolean)))
   }
 
-  function emitMprViewOperationNow(
+  function emitScheduledViewOperation(payload: ViewOperationPayload): void {
+    viewInteractionOperationScheduler.emit(payload.viewId, payload)
+  }
+
+  function emitMprViewOperation(
     viewportKey: string,
     payload: ViewOperationInput
   ): void {
@@ -1309,18 +1347,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         : [context.viewId]
 
     viewIds.forEach((viewId) => {
-      emitViewOperation({
+      emitScheduledViewOperation({
         ...payload,
         viewId
       })
     })
-  }
-
-  function emitMprViewOperation(
-    viewportKey: string,
-    payload: ViewOperationInput
-  ): void {
-    mprInteractionOperationScheduler.emit(viewportKey, payload)
   }
 
   function emitMeasurementOperation(payload: {
@@ -1843,8 +1874,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       void views.renderTab(tabKey)
     }
   })
-  const mprInteractionOperationScheduler = createMprInteractionOperationScheduler({
-    emit: emitMprViewOperationNow
+  const viewInteractionOperationScheduler = createMprInteractionOperationScheduler<ViewOperationPayload>({
+    emit: (_operationKey, payload) => emitViewOperation(payload)
   })
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
@@ -1892,9 +1923,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.imageFormat === 'jpeg' && isMprLikeViewType(tab.viewType)) {
+    if (payload.imageFormat === 'jpeg') {
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
-      mprInteractionOperationScheduler.recordBackendPreview(
+      viewInteractionOperationScheduler.recordBackendPreview(
+        viewId,
         typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
       )
     }
@@ -2119,7 +2151,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     resolveOperationTargets(tab, payload.viewportKey, payload.opType).forEach((target) => {
-      emitViewOperation({
+      emitScheduledViewOperation({
         viewId: target.viewId,
         opType: payload.opType,
         actionType: payload.phase,
@@ -2139,6 +2171,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const viewportKey = payload.viewportKey
     const isRotateDrag = payload.mode === 'rotate'
+    const optimisticPointer = getOptimisticMprCrosshairPointer(payload)
     viewerTabs.value = viewerTabs.value.map((item) => {
       if (item.key !== activeTabKey.value || !isMprLikeViewType(item.viewType)) {
         return item
@@ -2156,8 +2189,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ? (() => {
             const rotation = resolveOptimisticMprCrosshairRotation({
               lock: activeMprCrosshairDragLock.value,
-              pointerX: payload.x,
-              pointerY: payload.y,
+              pointerX: optimisticPointer.x,
+              pointerY: optimisticPointer.y,
+              canvasWidth: optimisticPointer.canvasWidth,
+              canvasHeight: optimisticPointer.canvasHeight,
               line: payload.line,
               update,
               currentHorizontalAngleRad: previousCrosshair?.horizontalAngleRad ?? geometry?.horizontalAngleRad ?? null,
@@ -2181,8 +2216,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         : (() => {
             const optimisticCenter = resolveOptimisticMprCrosshairCenter({
               lock: activeMprCrosshairDragLock.value,
-              pointerX: payload.x,
-              pointerY: payload.y,
+              pointerX: optimisticPointer.x,
+              pointerY: optimisticPointer.y,
               update
             })
             return {
@@ -2729,7 +2764,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   })
 
   onBeforeUnmount(() => {
-    mprInteractionOperationScheduler.cancel()
+    viewInteractionOperationScheduler.cancel()
     flushAllPendingVolumeConfig()
     flushPendingMprMipConfig()
     clearActiveMprCrosshairDragLock()

@@ -18,7 +18,13 @@ function createRect(left = 0, top = 0, width = 200, height = 200): DOMRect {
   } as DOMRect
 }
 
-function installViewport(viewportKey = 'single'): HTMLElement {
+function installViewport(
+  viewportKey = 'single',
+  options: {
+    imageNaturalHeight?: number
+    imageNaturalWidth?: number
+  } = {}
+): HTMLElement {
   const viewport = document.createElement('div')
   viewport.className = 'viewer-viewport'
   viewport.dataset.viewportKey = viewportKey
@@ -32,8 +38,8 @@ function installViewport(viewportKey = 'single'): HTMLElement {
 
   const image = document.createElement('img')
   image.className = 'viewer-image'
-  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 200 })
-  Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 200 })
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: options.imageNaturalWidth ?? 200 })
+  Object.defineProperty(image, 'naturalHeight', { configurable: true, value: options.imageNaturalHeight ?? 200 })
   Object.defineProperty(image, 'getBoundingClientRect', {
     configurable: true,
     value: () => createRect()
@@ -115,9 +121,18 @@ function hasViewportDragPhase(payloads: Array<{ opType: string; phase: string }>
 }
 
 function createPointerHarness(
-  overrides: { activeOperation?: string; activeTab?: ViewerTabItem; viewportKey?: string } = {}
+  overrides: {
+    activeOperation?: string
+    activeTab?: ViewerTabItem
+    imageNaturalHeight?: number
+    imageNaturalWidth?: number
+    viewportKey?: string
+  } = {}
 ) {
-  const viewport = installViewport(overrides.viewportKey)
+  const viewport = installViewport(overrides.viewportKey, {
+    imageNaturalHeight: overrides.imageNaturalHeight,
+    imageNaturalWidth: overrides.imageNaturalWidth
+  })
   const activeOperation = ref(overrides.activeOperation ?? 'stack:measure:freeform')
   const activeTab = ref(overrides.activeTab ?? ({ viewType: 'Stack' } as ViewerTabItem))
   let committedMeasurements: MeasurementOverlay[] = [
@@ -364,6 +379,49 @@ describe('useViewerWorkspacePointer', () => {
     expect(movePayloads()[0]).toMatchObject({ deltaX: 20, deltaY: 0 })
   })
 
+  it('emits MPR pan and zoom moves during pointer movement before pointerup', () => {
+    const callbacks: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callbacks.push(callback)
+      return callbacks.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(vi.fn())
+
+    const panHarness = createPointerHarness({
+      activeOperation: 'stack:pan',
+      activeTab: { viewType: 'MPR' } as ViewerTabItem,
+      viewportKey: 'mpr-ax'
+    })
+
+    panHarness.pointer.handleViewportPointerDown(
+      createPointerEvent(panHarness.viewport, { x: 0.2, y: 0.2 }, { pointerId: 19 }),
+      'mpr-ax'
+    )
+    panHarness.pointer.handleViewportPointerMove(createPointerEvent(panHarness.viewport, { x: 0.28, y: 0.23 }, { pointerId: 19 }))
+    callbacks[0]?.(16)
+
+    expect(hasViewportDragPhase(getViewportDragPayloads(panHarness.emitViewportDrag), VIEW_OPERATION_TYPES.pan, DRAG_ACTION_TYPES.move)).toBe(true)
+    expect(hasViewportDragPhase(getViewportDragPayloads(panHarness.emitViewportDrag), VIEW_OPERATION_TYPES.pan, DRAG_ACTION_TYPES.end)).toBe(false)
+
+    const zoomHarness = createPointerHarness({
+      activeOperation: 'stack:scroll',
+      activeTab: { viewType: 'MPR' } as ViewerTabItem,
+      viewportKey: 'mpr-cor'
+    })
+
+    zoomHarness.pointer.handleViewportPointerDown(
+      createPointerEvent(zoomHarness.viewport, { x: 0.3, y: 0.3 }, { button: 2, buttons: 2, pointerId: 22 }),
+      'mpr-cor'
+    )
+    zoomHarness.pointer.handleViewportPointerMove(
+      createPointerEvent(zoomHarness.viewport, { x: 0.3, y: 0.38 }, { button: 2, buttons: 2, pointerId: 22 })
+    )
+    callbacks[1]?.(32)
+
+    expect(hasViewportDragPhase(getViewportDragPayloads(zoomHarness.emitViewportDrag), VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.move)).toBe(true)
+    expect(hasViewportDragPhase(getViewportDragPayloads(zoomHarness.emitViewportDrag), VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.end)).toBe(false)
+  })
+
   it('keeps MPR crosshair center drag ahead of the default window drag', () => {
     const { emitMprCrosshair, emitViewportDrag, pointer, viewport } = createPointerHarness({
       activeOperation: 'stack:crosshair',
@@ -426,6 +484,32 @@ describe('useViewerWorkspacePointer', () => {
       viewportKey: 'mpr-ax',
       x: 0.68,
       y: 0.72
+    })
+  })
+
+  it('sends canvas-space coordinates for MPR crosshair drags', () => {
+    const { emitMprCrosshair, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:crosshair',
+      activeTab: createMprCrosshairTab(),
+      imageNaturalWidth: 100,
+      imageNaturalHeight: 200,
+      viewportKey: 'mpr-ax'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { pointerId: 24 }), 'mpr-ax')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.6, y: 0.5 }, { pointerId: 24 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.6, y: 0.5 }, { buttons: 0, pointerId: 24 }))
+
+    const payloads = emitMprCrosshair.mock.calls.map(([payload]) => payload)
+    expect(payloads.at(-1)).toMatchObject({
+      phase: DRAG_ACTION_TYPES.end,
+      viewportKey: 'mpr-ax',
+      x: 0.6,
+      y: 0.5,
+      canvasX: 0.6,
+      canvasY: 0.5,
+      canvasWidth: 200,
+      canvasHeight: 200
     })
   })
 

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { DRAG_ACTION_TYPES, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
 
-describe('mpr interaction operation scheduler', () => {
-  it('throttles MPR drag moves and emits only the latest payload', () => {
+describe('view interaction operation scheduler', () => {
+  it('caps interactive moves at 16ms before backend preview feedback', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -30,19 +30,25 @@ describe('mpr interaction operation scheduler', () => {
       y: 0.4
     })
 
-    expect(emit).not.toHaveBeenCalled()
-    expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(80)
-
-    now = 80
-    timers[0].callback()
     expect(emit).toHaveBeenCalledTimes(1)
-    expect(emit).toHaveBeenCalledWith('mpr-ax', {
+    expect(emit.mock.calls[0]).toEqual(['mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.crosshair,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 0.1,
+      y: 0.2
+    }])
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(16)
+
+    now = 16
+    timers[0].callback()
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit.mock.calls[1]).toEqual(['mpr-ax', {
       opType: VIEW_OPERATION_TYPES.crosshair,
       actionType: DRAG_ACTION_TYPES.move,
       x: 0.3,
       y: 0.4
-    })
+    }])
   })
 
   it('keeps start immediate and flushes the latest move before end', () => {
@@ -60,12 +66,17 @@ describe('mpr interaction operation scheduler', () => {
       }
     })
 
+    scheduler.recordBackendPreview('mpr-cor', 1)
+    now = 80
+    scheduler.recordBackendPreview('mpr-cor', 2)
+
     scheduler.emit('mpr-cor', {
       opType: VIEW_OPERATION_TYPES.window,
       actionType: DRAG_ACTION_TYPES.start,
       x: 0,
       y: 0
     })
+    now = 100
     scheduler.emit('mpr-cor', {
       opType: VIEW_OPERATION_TYPES.window,
       actionType: DRAG_ACTION_TYPES.move,
@@ -78,7 +89,7 @@ describe('mpr interaction operation scheduler', () => {
       x: 24,
       y: 6
     })
-    now = 12
+    now = 112
     scheduler.emit('mpr-cor', {
       opType: VIEW_OPERATION_TYPES.window,
       actionType: DRAG_ACTION_TYPES.end,
@@ -86,8 +97,8 @@ describe('mpr interaction operation scheduler', () => {
       y: 6
     })
 
-    expect(clearTimeout).toHaveBeenCalledWith(1)
-    expect(emit).toHaveBeenCalledTimes(3)
+    expect(clearTimeout).not.toHaveBeenCalled()
+    expect(emit).toHaveBeenCalledTimes(4)
     expect(emit.mock.calls[0]).toEqual([
       'mpr-cor',
       {
@@ -102,17 +113,73 @@ describe('mpr interaction operation scheduler', () => {
       {
         opType: VIEW_OPERATION_TYPES.window,
         actionType: DRAG_ACTION_TYPES.move,
-        x: 24,
-        y: 6
+        x: 12,
+        y: 3
       }
     ])
     expect(emit.mock.calls[2]).toEqual([
       'mpr-cor',
       {
         opType: VIEW_OPERATION_TYPES.window,
+        actionType: DRAG_ACTION_TYPES.move,
+        x: 24,
+        y: 6
+      }
+    ])
+    expect(emit.mock.calls[3]).toEqual([
+      'mpr-cor',
+      {
+        opType: VIEW_OPERATION_TYPES.window,
         actionType: DRAG_ACTION_TYPES.end,
         x: 24,
         y: 6
+      }
+    ])
+  })
+
+  it('resets move throttling at the start of each drag gesture', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 5,
+      y: 0
+    })
+    now = 10
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.start,
+      x: 0,
+      y: 0
+    })
+    now = 20
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 6,
+      y: 1
+    })
+
+    expect(timers).toHaveLength(0)
+    expect(emit.mock.calls.at(-1)).toEqual([
+      'mpr-ax',
+      {
+        opType: VIEW_OPERATION_TYPES.pan,
+        actionType: DRAG_ACTION_TYPES.move,
+        x: 6,
+        y: 1
       }
     ])
   })
@@ -131,9 +198,9 @@ describe('mpr interaction operation scheduler', () => {
       }
     })
 
-    scheduler.recordBackendPreview(1)
+    scheduler.recordBackendPreview('mpr-sag', 1)
     now = 200
-    scheduler.recordBackendPreview(2)
+    scheduler.recordBackendPreview('mpr-sag', 2)
     scheduler.emit('mpr-sag', {
       opType: VIEW_OPERATION_TYPES.mprOblique,
       actionType: DRAG_ACTION_TYPES.move,
@@ -151,6 +218,187 @@ describe('mpr interaction operation scheduler', () => {
 
     expect(emit).toHaveBeenCalledTimes(1)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(110)
+    expect(timers[0].delay).toBe(200)
+  })
+
+  it('waits for matching same-revision MPR feedback before sending the next pan move', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.recordBackendPreview('mpr-ax', 7)
+    now = 200
+    scheduler.recordBackendPreview('mpr-ax', 7)
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 4,
+      y: 2
+    })
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 8,
+      y: 4
+    })
+    scheduler.emit('mpr-cor', {
+      opType: VIEW_OPERATION_TYPES.zoom,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 0,
+      y: -12
+    })
+
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit.mock.calls[0]).toEqual([
+      'mpr-ax',
+      {
+        opType: VIEW_OPERATION_TYPES.pan,
+        actionType: DRAG_ACTION_TYPES.move,
+        x: 4,
+        y: 2
+      }
+    ])
+    expect(emit.mock.calls[1]).toEqual([
+      'mpr-cor',
+      {
+        opType: VIEW_OPERATION_TYPES.zoom,
+        actionType: DRAG_ACTION_TYPES.move,
+        x: 0,
+        y: -12
+      }
+    ])
+    expect(timers).toHaveLength(0)
+
+    now = 230
+    scheduler.recordBackendPreview('mpr-ax', 7)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(4)
+
+    now = 234
+    timers[0].callback()
+    expect(emit).toHaveBeenCalledWith('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 8,
+      y: 4
+    })
+  })
+
+  it('caps the fastest matching backend preview cadence at 16ms', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('view-1', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 1,
+      y: 0
+    })
+    scheduler.emit('view-1', {
+      opType: VIEW_OPERATION_TYPES.pan,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 2,
+      y: 0
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(0)
+
+    now = 5
+    scheduler.recordBackendPreview('view-1', null)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(11)
+  })
+
+  it('does not cap slow matching backend preview cadence', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('view-1', {
+      opType: VIEW_OPERATION_TYPES.window,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 1,
+      y: 0
+    })
+    scheduler.emit('view-1', {
+      opType: VIEW_OPERATION_TYPES.window,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 2,
+      y: 0
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(0)
+
+    now = 900
+    scheduler.recordBackendPreview('view-1', null)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(4)
+  })
+
+  it('throttles non-MPR dense view moves using backend feedback', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('stack-view', {
+      opType: VIEW_OPERATION_TYPES.rotate3d,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 4,
+      y: 2
+    })
+    scheduler.emit('stack-view', {
+      opType: VIEW_OPERATION_TYPES.rotate3d,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 8,
+      y: 4
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(0)
+
+    now = 24
+    scheduler.recordBackendPreview('stack-view', null)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(4)
   })
 })

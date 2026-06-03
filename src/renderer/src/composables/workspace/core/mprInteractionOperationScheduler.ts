@@ -1,54 +1,69 @@
-import { DRAG_ACTION_TYPES, type ViewOperationType, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
+import { DRAG_ACTION_TYPES, STACK_DRAG_OPERATIONS, type ViewOperationType, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import type { ViewOperationInput } from '../../../services/socket'
 
 type TimerHandle = ReturnType<typeof window.setTimeout>
 
-interface ScheduledMprOperation {
-  payload: ViewOperationInput
-  viewportKey: string
+type SchedulableViewOperation = Pick<ViewOperationInput, 'actionType' | 'line' | 'opType'>
+
+interface ScheduledViewOperation<TPayload extends SchedulableViewOperation> {
+  operationKey: string
+  payload: TPayload
 }
 
 interface ThrottledOperationEmitter {
-  lastSentAt: number
-  pending: ScheduledMprOperation | null
+  awaitingFeedback: boolean
+  lastSentAt: number | null
+  operationKey: string
+  pending: ScheduledViewOperation<SchedulableViewOperation> | null
   timer: TimerHandle | null
 }
 
-interface MprInteractionOperationSchedulerOptions {
+interface BackendPreviewSample {
+  at: number
+  revision: number | null
+}
+
+interface MprInteractionOperationSchedulerOptions<TPayload extends SchedulableViewOperation = ViewOperationInput> {
   clearTimeout?: (handle: TimerHandle) => void
-  emit: (viewportKey: string, payload: ViewOperationInput) => void
+  emit: (operationKey: string, payload: TPayload) => void
   now?: () => number
   setTimeout?: (callback: () => void, timeoutMs: number) => TimerHandle
 }
 
-const MPR_INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
+const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
+  ...STACK_DRAG_OPERATIONS,
   VIEW_OPERATION_TYPES.crosshair,
-  VIEW_OPERATION_TYPES.mprOblique,
-  VIEW_OPERATION_TYPES.pan,
-  VIEW_OPERATION_TYPES.window,
-  VIEW_OPERATION_TYPES.zoom
+  VIEW_OPERATION_TYPES.mprOblique
 ])
 
-const DEFAULT_MPR_MOVE_INTERVAL_MS = 80
-const MIN_MPR_MOVE_INTERVAL_MS = 60
-const MAX_MPR_MOVE_INTERVAL_MS = 240
 const BACKEND_PREVIEW_EWMA_ALPHA = 0.25
-const DUPLICATE_PREVIEW_REVISION_WINDOW_MS = 20
+const DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS = 2
+const MIN_VIEW_MOVE_INTERVAL_MS = 16
+const FRONTEND_RENDER_MARGIN_MS = 4
+const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>(STACK_DRAG_OPERATIONS)
 
-function getOperationQueueKey(viewportKey: string, payload: ViewOperationInput): string | null {
-  if (!MPR_INTERACTIVE_MOVE_OPERATION_TYPES.has(payload.opType)) {
+function getOperationQueueKey(operationKey: string, payload: SchedulableViewOperation): string | null {
+  if (!INTERACTIVE_MOVE_OPERATION_TYPES.has(payload.opType)) {
     return null
   }
 
   const lineKey = payload.opType === VIEW_OPERATION_TYPES.mprOblique ? payload.line ?? '' : ''
-  return `${viewportKey}:${payload.opType}:${lineKey}`
+  return `${operationKey}:${payload.opType}:${lineKey}`
 }
 
-function clampMoveInterval(value: number): number {
+function normalizeMoveInterval(value: number): number {
   if (!Number.isFinite(value)) {
-    return DEFAULT_MPR_MOVE_INTERVAL_MS
+    return MIN_VIEW_MOVE_INTERVAL_MS
   }
-  return Math.min(MAX_MPR_MOVE_INTERVAL_MS, Math.max(MIN_MPR_MOVE_INTERVAL_MS, value))
+  return Math.max(MIN_VIEW_MOVE_INTERVAL_MS, value)
+}
+
+function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
+  return normalizeMoveInterval(sampleMs + FRONTEND_RENDER_MARGIN_MS)
+}
+
+function shouldWaitForMatchingFeedback(payload: SchedulableViewOperation): boolean {
+  return MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
 }
 
 function logCoalescingStats(scheduledMoves: number, emittedMoves: number, intervalMs: number): void {
@@ -56,35 +71,41 @@ function logCoalescingStats(scheduledMoves: number, emittedMoves: number, interv
     return
   }
 
-  console.debug('[mpr perf] interactive moves throttled', {
+  console.debug('[view perf] interactive moves throttled', {
     emittedMoves,
     intervalMs,
     scheduledMoves
   })
 }
 
-export function createMprInteractionOperationScheduler(options: MprInteractionOperationSchedulerOptions) {
+export function createMprInteractionOperationScheduler<TPayload extends SchedulableViewOperation = ViewOperationInput>(
+  options: MprInteractionOperationSchedulerOptions<TPayload>
+) {
   const emitters = new Map<string, ThrottledOperationEmitter>()
   const getNow = options.now ?? (() => performance.now())
   const scheduleTimeout = options.setTimeout ?? ((callback, timeoutMs) => window.setTimeout(callback, timeoutMs))
   const cancelTimeout = options.clearTimeout ?? ((handle) => window.clearTimeout(handle))
   let scheduledMoves = 0
   let emittedMoves = 0
-  let backendPreviewIntervalMs = DEFAULT_MPR_MOVE_INTERVAL_MS
-  let lastBackendPreviewAt: number | null = null
-  let lastBackendPreviewRevision: number | null = null
+  let fallbackPreviewIntervalMs: number | null = null
+  const backendPreviewIntervalByKey = new Map<string, number>()
+  const lastBackendPreviewByKey = new Map<string, BackendPreviewSample>()
+  const sentMoveAtByKey = new Map<string, number>()
 
-  function getMoveIntervalMs(): number {
-    return clampMoveInterval(backendPreviewIntervalMs)
+  function getMoveIntervalMs(operationKey?: string): number {
+    const intervalMs = operationKey ? backendPreviewIntervalByKey.get(operationKey) ?? fallbackPreviewIntervalMs : fallbackPreviewIntervalMs
+    return intervalMs == null ? MIN_VIEW_MOVE_INTERVAL_MS : normalizeMoveInterval(intervalMs)
   }
 
-  function getEmitter(key: string): ThrottledOperationEmitter {
+  function getEmitter(key: string, operationKey: string): ThrottledOperationEmitter {
     const existing = emitters.get(key)
     if (existing) {
       return existing
     }
     const emitter: ThrottledOperationEmitter = {
-      lastSentAt: 0,
+      awaitingFeedback: false,
+      lastSentAt: null,
+      operationKey,
       pending: null,
       timer: null
     }
@@ -109,19 +130,27 @@ export function createMprInteractionOperationScheduler(options: MprInteractionOp
 
     clearTimer(emitter)
     emitter.pending = null
-    emitter.lastSentAt = getNow()
+    const sentAt = getNow()
+    emitter.lastSentAt = sentAt
     emittedMoves += 1
-    options.emit(operation.viewportKey, operation.payload)
-    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs())
+    if (shouldWaitForMatchingFeedback(operation.payload)) {
+      emitter.awaitingFeedback = true
+      sentMoveAtByKey.set(operation.operationKey, sentAt)
+    }
+    options.emit(operation.operationKey, operation.payload as TPayload)
+    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey))
   }
 
   function schedulePending(emitter: ThrottledOperationEmitter): void {
     if (!emitter.pending || emitter.timer != null) {
       return
     }
+    if (emitter.awaitingFeedback && shouldWaitForMatchingFeedback(emitter.pending.payload)) {
+      return
+    }
 
-    const intervalMs = getMoveIntervalMs()
-    const elapsedMs = getNow() - emitter.lastSentAt
+    const intervalMs = getMoveIntervalMs(emitter.operationKey)
+    const elapsedMs = emitter.lastSentAt == null ? intervalMs : getNow() - emitter.lastSentAt
     if (elapsedMs >= intervalMs) {
       emitScheduled(emitter)
       return
@@ -146,24 +175,26 @@ export function createMprInteractionOperationScheduler(options: MprInteractionOp
       return
     }
     clearTimer(emitter)
+    emitter.awaitingFeedback = false
+    emitter.lastSentAt = null
     emitter.pending = null
   }
 
-  function emit(viewportKey: string, payload: ViewOperationInput): void {
-    const queueKey = getOperationQueueKey(viewportKey, payload)
+  function emit(operationKey: string, payload: TPayload): void {
+    const queueKey = getOperationQueueKey(operationKey, payload)
     if (!queueKey || payload.actionType !== DRAG_ACTION_TYPES.move) {
       if (queueKey && payload.actionType === DRAG_ACTION_TYPES.end) {
         flushKey(queueKey)
       } else if (queueKey && payload.actionType === DRAG_ACTION_TYPES.start) {
         cancelKey(queueKey)
       }
-      options.emit(viewportKey, payload)
+      options.emit(operationKey, payload)
       return
     }
 
     scheduledMoves += 1
-    const emitter = getEmitter(queueKey)
-    emitter.pending = { viewportKey, payload }
+    const emitter = getEmitter(queueKey, operationKey)
+    emitter.pending = { operationKey, payload }
     schedulePending(emitter)
   }
 
@@ -175,21 +206,44 @@ export function createMprInteractionOperationScheduler(options: MprInteractionOp
     emitters.forEach((_, key) => cancelKey(key))
   }
 
-  function recordBackendPreview(mprRevision?: number | null): void {
+  function recordBackendPreview(feedbackKey: string, mprRevision?: number | null): void {
     const now = getNow()
-    if (mprRevision != null && mprRevision === lastBackendPreviewRevision) {
+    const lastBackendPreview = lastBackendPreviewByKey.get(feedbackKey)
+    if (
+      lastBackendPreview != null &&
+      now - lastBackendPreview.at < DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS &&
+      (mprRevision == null || mprRevision === lastBackendPreview.revision)
+    ) {
       return
     }
-    if (mprRevision == null && lastBackendPreviewAt != null && now - lastBackendPreviewAt < DUPLICATE_PREVIEW_REVISION_WINDOW_MS) {
-      return
+    const sentAt = sentMoveAtByKey.get(feedbackKey)
+    sentMoveAtByKey.delete(feedbackKey)
+    if (sentAt != null) {
+      const sampleMs = estimateMoveIntervalFromBackendSample(now - sentAt)
+      const previousIntervalMs = backendPreviewIntervalByKey.get(feedbackKey)
+      const nextIntervalMs =
+        previousIntervalMs == null
+          ? sampleMs
+          : previousIntervalMs * (1 - BACKEND_PREVIEW_EWMA_ALPHA) + sampleMs * BACKEND_PREVIEW_EWMA_ALPHA
+      backendPreviewIntervalByKey.set(feedbackKey, nextIntervalMs)
+    } else if (lastBackendPreview != null) {
+      const sampleMs = normalizeMoveInterval(now - lastBackendPreview.at)
+      fallbackPreviewIntervalMs =
+        fallbackPreviewIntervalMs == null
+          ? sampleMs
+          : fallbackPreviewIntervalMs * (1 - BACKEND_PREVIEW_EWMA_ALPHA) + sampleMs * BACKEND_PREVIEW_EWMA_ALPHA
     }
-    if (lastBackendPreviewAt != null) {
-      const sampleMs = clampMoveInterval(now - lastBackendPreviewAt)
-      backendPreviewIntervalMs =
-        backendPreviewIntervalMs * (1 - BACKEND_PREVIEW_EWMA_ALPHA) + sampleMs * BACKEND_PREVIEW_EWMA_ALPHA
-    }
-    lastBackendPreviewAt = now
-    lastBackendPreviewRevision = mprRevision ?? null
+    lastBackendPreviewByKey.set(feedbackKey, {
+      at: now,
+      revision: mprRevision ?? null
+    })
+    emitters.forEach((emitter) => {
+      if (emitter.operationKey !== feedbackKey || !emitter.awaitingFeedback) {
+        return
+      }
+      emitter.awaitingFeedback = false
+      schedulePending(emitter)
+    })
   }
 
   return {

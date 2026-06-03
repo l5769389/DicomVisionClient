@@ -41,6 +41,12 @@ http://111.228.1.213/
 - 客户端：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - 服务端：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
 
+## 基础操作演示
+
+<video src="./screenshots/basic_operations_demo.mp4" controls width="880"></video>
+
+如果当前 Markdown 预览环境无法直接播放视频，可以下载或打开 [基础操作演示视频](./screenshots/basic_operations_demo.mp4)。
+
 ## 截图
 
 | 工作区首页 | 已加载序列 |

@@ -472,6 +472,36 @@ describe('mprInteractionGuard', () => {
     expect(rotation?.verticalAngleRad).toBeCloseTo(0)
   })
 
+  it('uses canvas pixel aspect when resolving optimistic crosshair rotation', () => {
+    const rotation = resolveOptimisticMprCrosshairRotation({
+      lock: createLock({
+        mode: 'rotate',
+        line: 'horizontal',
+        centerX: 0.5,
+        centerY: 0.5,
+        canvasWidth: 200,
+        canvasHeight: 100,
+        startPointerAngleRad: 0,
+        startHorizontalAngleRad: 0,
+        startVerticalAngleRad: Math.PI / 2,
+        isDoubleOblique: false
+      }),
+      pointerX: 0.75,
+      pointerY: 1,
+      canvasWidth: 200,
+      canvasHeight: 100,
+      line: 'horizontal',
+      update: {
+        tabKey: 'series-1::MPR',
+        viewportKey: 'mpr-ax',
+        phaseKey: null
+      }
+    })
+
+    expect(rotation?.horizontalAngleRad).toBeCloseTo(Math.PI / 4)
+    expect(rotation?.verticalAngleRad).toBeCloseTo((Math.PI * 3) / 4)
+  })
+
   it('only rotates the grabbed line during optimistic Double Oblique updates', () => {
     const rotation = resolveOptimisticMprCrosshairRotation({
       lock: createLock({

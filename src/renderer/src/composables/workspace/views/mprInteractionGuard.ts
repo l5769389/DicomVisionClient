@@ -16,6 +16,8 @@ export interface ActiveMprCrosshairDragLock {
   centerY?: number
   lastPointerX?: number
   lastPointerY?: number
+  canvasWidth?: number
+  canvasHeight?: number
   endedAt?: number
   startPointerAngleRad?: number
   startHorizontalAngleRad?: number
@@ -116,8 +118,21 @@ function finiteNumberOrNull(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function resolvePointerAngleRad(centerX: number, centerY: number, pointerX: number, pointerY: number): number {
-  return Math.atan2(clampNormalized(pointerY) - centerY, clampNormalized(pointerX) - centerX)
+function finitePositiveNumberOrNull(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function resolvePointerAngleRad(
+  centerX: number,
+  centerY: number,
+  pointerX: number,
+  pointerY: number,
+  canvasWidth?: number | null,
+  canvasHeight?: number | null
+): number {
+  const width = finitePositiveNumberOrNull(canvasWidth) ?? 1
+  const height = finitePositiveNumberOrNull(canvasHeight) ?? 1
+  return Math.atan2((clampNormalized(pointerY) - centerY) * height, (clampNormalized(pointerX) - centerX) * width)
 }
 
 function normalizeFullTurnDelta(angleRad: number): number {
@@ -157,6 +172,8 @@ export function resolveOptimisticMprCrosshairRotation(params: {
   lock: ActiveMprCrosshairDragLock | null | undefined
   pointerX: number
   pointerY: number
+  canvasWidth?: number | null
+  canvasHeight?: number | null
   line?: MprCrosshairLineTarget | null
   update: IncomingMprViewportUpdate
   currentHorizontalAngleRad?: number | null
@@ -178,7 +195,9 @@ export function resolveOptimisticMprCrosshairRotation(params: {
     return null
   }
 
-  const pointerAngleRad = resolvePointerAngleRad(centerX, centerY, params.pointerX, params.pointerY)
+  const canvasWidth = finitePositiveNumberOrNull(params.canvasWidth) ?? finitePositiveNumberOrNull(lock.canvasWidth)
+  const canvasHeight = finitePositiveNumberOrNull(params.canvasHeight) ?? finitePositiveNumberOrNull(lock.canvasHeight)
+  const pointerAngleRad = resolvePointerAngleRad(centerX, centerY, params.pointerX, params.pointerY, canvasWidth, canvasHeight)
   const startPointerAngleRad = finiteNumberOrNull(lock.startPointerAngleRad) ?? pointerAngleRad
   const startHorizontalAngleRad = normalizeCrosshairAngle(
     finiteNumberOrNull(lock.startHorizontalAngleRad) ??

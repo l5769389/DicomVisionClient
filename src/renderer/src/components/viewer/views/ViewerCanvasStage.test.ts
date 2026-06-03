@@ -23,15 +23,15 @@ const overlayStubs = {
   VolumeOrientationCube: { template: '<div />' },
   ViewportAnnotationOverlay: { template: '<div />' },
   ViewportCornerOverlay: { template: '<div />' },
-  ViewportCrosshairOverlay: { template: '<div />' },
+  ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
   ViewportMtfOverlay: { template: '<div />' },
   ViewportMeasurementOverlay: { template: '<div />' },
   ViewportOrientationOverlay: { template: '<div />' },
   ViewportQaWaterOverlay: { template: '<div />' },
-  ViewportScaleBarOverlay: { template: '<div />' }
+  ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' }
 }
 
-function mountStage(imageSrc = 'blob:frame-1') {
+function mountStage(imageSrc = 'blob:frame-1', props: Record<string, unknown> = {}) {
   return mount(ViewerCanvasStage, {
     props: {
       alt: 'Stack',
@@ -39,12 +39,23 @@ function mountStage(imageSrc = 'blob:frame-1') {
       imageSrc,
       orientation: emptyOrientation,
       placeholder: 'Preview',
-      viewportKey: 'single'
+      viewportKey: 'single',
+      ...props
     },
     global: {
       stubs: overlayStubs
     }
   })
+}
+
+function createPointerMoveEvent(options: { buttons: number; clientX: number; clientY: number }): Event {
+  const event = new Event('pointermove', { bubbles: true, cancelable: true })
+  Object.defineProperties(event, {
+    buttons: { value: options.buttons },
+    clientX: { value: options.clientX },
+    clientY: { value: options.clientY }
+  })
+  return event
 }
 
 afterEach(() => {
@@ -104,6 +115,77 @@ describe('ViewerCanvasStage layout metrics', () => {
 
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(2)
 
+    wrapper.unmount()
+  })
+
+  it('only emits hover coordinates while no pointer button is pressed', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 200,
+          bottom: 200,
+          width: 200,
+          height: 200,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        }) as DOMRect
+    )
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(200)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(200)
+
+    const wrapper = mountStage()
+    await nextTick()
+    const viewport = wrapper.find('.viewer-viewport')
+
+    viewport.element.dispatchEvent(createPointerMoveEvent({ buttons: 1, clientX: 80, clientY: 90 }))
+    await nextTick()
+    expect(wrapper.emitted('hoverViewportChange')).toBeUndefined()
+
+    viewport.element.dispatchEvent(createPointerMoveEvent({ buttons: 0, clientX: 80, clientY: 90 }))
+    await nextTick()
+
+    expect(wrapper.emitted('hoverViewportChange')).toEqual([
+      [
+        {
+          viewportKey: 'single',
+          x: 0.4,
+          y: 0.45
+        }
+      ]
+    ])
+
+    wrapper.unmount()
+  })
+
+  it('clears hover coordinates when a pointer drag starts', async () => {
+    const wrapper = mountStage()
+    await nextTick()
+
+    await wrapper.find('.viewer-viewport').trigger('pointerdown')
+
+    expect(wrapper.emitted('hoverViewportChange')).toEqual([
+      [
+        {
+          viewportKey: 'single',
+          x: null,
+          y: null
+        }
+      ]
+    ])
+
+    wrapper.unmount()
+  })
+
+  it('renders image and overlays without a local transform layer', () => {
+    const wrapper = mountStage()
+
+    expect(wrapper.find('.viewer-image-space-layer').exists()).toBe(false)
+    expect(wrapper.find('.viewer-image').exists()).toBe(true)
+    expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
 })

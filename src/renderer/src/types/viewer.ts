@@ -242,6 +242,7 @@ export interface FourDPhaseCacheItem {
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
+  mprRevision?: number | null
   windowLabel?: string
 }
 
@@ -421,6 +422,9 @@ export interface ViewTransformInfo {
   rotationDegrees: number
   horFlip: boolean
   verFlip: boolean
+  zoom?: number | null
+  offsetX?: number | null
+  offsetY?: number | null
 }
 
 export interface ViewColorInfo {
@@ -439,6 +443,7 @@ export interface ViewImageResponse {
     wl?: number | null
   }
   mprFrame?: MprFrameInfo | null
+  mprRevision?: number | null
   mprPlane?: MprPlaneInfo | null
   mprCursor?: MprCursorInfo | null
   mpr_crosshair?: MprCrosshairInfo | null
@@ -520,6 +525,7 @@ export interface ViewerTabItem {
   mprFrame?: MprFrameInfo | null
   viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
+  mprRevision?: number | null
   viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
   measurements?: MeasurementOverlay[]
   scaleBar?: ScaleBarInfo | null

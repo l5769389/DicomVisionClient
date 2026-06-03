@@ -27,6 +27,7 @@ export interface IncomingMprViewportUpdate {
   tabKey: string
   viewportKey: MprViewportKey | null | undefined
   phaseKey: string | null | undefined
+  mprRevision?: number | null
 }
 
 export function shouldPreserveLocalMprCrosshair(
@@ -50,7 +51,7 @@ export function resolveMprCrosshairForImageUpdate(params: {
   lock: ActiveMprCrosshairDragLock | null | undefined
   update: IncomingMprViewportUpdate
 }): MprCrosshairInfo | null {
-  if (shouldPreserveLocalMprCrosshair(params.lock, params.update)) {
+  if (finiteNumberOrNull(params.update.mprRevision) == null && shouldPreserveLocalMprCrosshair(params.lock, params.update)) {
     return params.currentCrosshair ?? params.incomingCrosshair
   }
 
@@ -62,23 +63,49 @@ function normalizeImageFormat(value: string | null | undefined): string {
 }
 
 export function shouldSuppressMprCrosshairPreviewImageUpdate(params: {
+  acceptedMprRevision?: number | null
   lock: ActiveMprCrosshairDragLock | null | undefined
   update: IncomingMprViewportUpdate
   imageFormat: string | null | undefined
 }): boolean {
-  return normalizeImageFormat(params.imageFormat) === 'jpeg' && shouldPreserveLocalMprCrosshair(params.lock, params.update)
+  const isPreview = normalizeImageFormat(params.imageFormat) === 'jpeg'
+  if (isPreview && shouldPreserveLocalMprCrosshair(params.lock, params.update)) {
+    return true
+  }
+  const acceptedRevision = finiteNumberOrNull(params.acceptedMprRevision)
+  const incomingRevision = finiteNumberOrNull(params.update.mprRevision)
+  return acceptedRevision != null && incomingRevision != null && incomingRevision < acceptedRevision
 }
 
 export function shouldCompleteMprCrosshairSettling(params: {
   lock: ActiveMprCrosshairDragLock | null | undefined
   update: IncomingMprViewportUpdate
   imageFormat: string | null | undefined
+  acceptedMprRevision?: number | null
+  incomingCrosshair?: MprCrosshairInfo | null
+  currentCrosshair?: MprCrosshairInfo | null
 }): boolean {
-  return (
-    params.lock?.status === 'settling' &&
-    normalizeImageFormat(params.imageFormat) === 'png' &&
-    shouldPreserveLocalMprCrosshair(params.lock, params.update)
-  )
+  if (
+    !(
+      params.lock?.status === 'settling' &&
+      normalizeImageFormat(params.imageFormat) === 'png' &&
+      shouldPreserveLocalMprCrosshair(params.lock, params.update)
+    )
+  ) {
+    return false
+  }
+
+  const acceptedRevision = finiteNumberOrNull(params.acceptedMprRevision)
+  const incomingRevision = finiteNumberOrNull(params.update.mprRevision)
+  if (acceptedRevision != null && incomingRevision != null && incomingRevision < acceptedRevision) {
+    return false
+  }
+
+  if (params.incomingCrosshair == null) {
+    return false
+  }
+
+  return true
 }
 
 function clampNormalized(value: number): number {

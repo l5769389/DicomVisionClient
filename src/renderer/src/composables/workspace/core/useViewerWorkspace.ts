@@ -245,7 +245,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 1800
   // After pointerup, the final PNG may arrive behind one or more stale previews.
   // Keep protecting the active viewport until the authoritative final frame lands.
-  const MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS = 1800
+  const MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS = 250
   const FOUR_D_FPS_MIN = 1
   const FOUR_D_FPS_MAX = 30
   const FOUR_D_DEFAULT_FPS = 2
@@ -270,7 +270,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const DEFAULT_VIEW_TRANSFORM: ViewTransformInfo = {
     rotationDegrees: 0,
     horFlip: false,
-    verFlip: false
+    verFlip: false,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0
   }
   const { hangingProtocolRules, selectedPseudocolorKey } = useUiPreferences()
   const { locale, workspaceStatusCopy } = useUiLocale()
@@ -833,6 +836,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (tab.viewId) {
       clearPendingVolumeConfig(tab.viewId)
+    }
+
+    if (payload.action === 'reset' || payload.action === 'resetAll') {
+      clearActiveMprCrosshairDragLock()
+      mprInteractionOperationScheduler.cancel()
     }
 
     if (payload.action === 'clearMtf' || payload.action === 'resetAll') {
@@ -1884,6 +1892,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.imageFormat === 'jpeg' && isMprLikeViewType(tab.viewType)) {
+      const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
+      mprInteractionOperationScheduler.recordBackendPreview(
+        typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
+      )
+    }
     views.updateTabImage(tab.key, payload, imageBinary)
   }
 
@@ -2116,7 +2130,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {
-    if (payload.phase !== DRAG_ACTION_TYPES.move || !isMprViewportKey(payload.viewportKey)) {
+    if (
+      (payload.phase !== DRAG_ACTION_TYPES.move && payload.phase !== DRAG_ACTION_TYPES.end) ||
+      !isMprViewportKey(payload.viewportKey)
+    ) {
       return
     }
 

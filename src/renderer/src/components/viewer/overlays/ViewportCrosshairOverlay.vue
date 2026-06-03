@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useUiPreferences, type CrosshairViewportPreference } from '../../../composables/ui/useUiPreferences'
-import { getMprViewportDerivedCrosshairGeometry } from '../../../composables/workspace/views/mprFrameGeometry'
-import type { MprCrosshairInfo, MprFrameInfo, MprPlaneInfo, MprViewportKey } from '../../../types/viewer'
+import { getMprViewportCanvasCrosshairGeometry } from '../../../composables/workspace/views/mprFrameGeometry'
+import type {
+  MprCrosshairInfo,
+  MprFrameInfo,
+  MprPlaneInfo,
+  MprViewportKey
+} from '../../../types/viewer'
 
 interface ImageFrame {
   left: number
@@ -137,22 +142,25 @@ function drawCrosshair(): void {
   if (!props.mprCrosshair || props.stageWidth <= 0 || props.stageHeight <= 0) {
     return
   }
-  if (props.imageFrame.width <= 0 || props.imageFrame.height <= 0) {
-    return
-  }
-
   const axes = getViewportAxes(props.viewportKey)
   const viewportKey = props.viewportKey === 'mpr-ax' || props.viewportKey === 'mpr-cor' || props.viewportKey === 'mpr-sag'
     ? props.viewportKey
     : null
   const geometry = viewportKey
-    ? getMprViewportDerivedCrosshairGeometry(props.mprFrame, viewportKey, props.mprCrosshair, props.mprPlane)
+    ? getMprViewportCanvasCrosshairGeometry(
+        props.mprFrame,
+        viewportKey,
+        props.mprCrosshair,
+        props.mprPlane,
+        props.stageWidth,
+        props.stageHeight
+      )
     : null
   if (!geometry) {
     return
   }
-  const centerX = props.imageFrame.left + geometry.center.x * props.imageFrame.width
-  const centerY = props.imageFrame.top + geometry.center.y * props.imageFrame.height
+  const centerX = geometry.center.x
+  const centerY = geometry.center.y
   const horizontalAngle = geometry.horizontalAngleRad
   const verticalAngle = geometry.verticalAngleRad
 
@@ -164,7 +172,6 @@ watch(
   () => [
     props.stageWidth,
     props.stageHeight,
-    props.imageFrame,
     props.mprCrosshair,
     props.mprPlane,
     props.isActive,

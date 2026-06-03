@@ -107,7 +107,10 @@ export function createDefaultTransformInfo(): ViewTransformInfo {
   return {
     rotationDegrees: 0,
     horFlip: false,
-    verFlip: false
+    verFlip: false,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0
   }
 }
 
@@ -526,6 +529,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportSliceLabels: createEmptyMprSliceLabels(),
     mprCursor: null,
     mprFrame: null,
+    mprRevision: null,
     viewportPlanes: createEmptyMprPlanes(),
     viewportCrosshairs: createEmptyMprCrosshairs(),
     viewportScaleBars: createEmptyMprScaleBars(),

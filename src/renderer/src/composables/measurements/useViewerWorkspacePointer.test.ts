@@ -372,7 +372,8 @@ describe('useViewerWorkspacePointer', () => {
     })
 
     pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { pointerId: 12 }), 'mpr-ax')
-    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { buttons: 0, pointerId: 12 }))
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.62, y: 0.58 }, { pointerId: 12 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.62, y: 0.58 }, { buttons: 0, pointerId: 12 }))
 
     expect(emitMprCrosshair).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -382,6 +383,24 @@ describe('useViewerWorkspacePointer', () => {
       })
     )
     expect(emitViewportDrag).not.toHaveBeenCalled()
+  })
+
+  it('keeps explicit window drag ahead of MPR crosshair hit targets', () => {
+    const { emitMprCrosshair, emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:window',
+      activeTab: createMprCrosshairTab(),
+      viewportKey: 'mpr-ax'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.5, y: 0.5 }, { pointerId: 21 }), 'mpr-ax')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.58, y: 0.54 }, { pointerId: 21 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.58, y: 0.54 }, { buttons: 0, pointerId: 21 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(emitMprCrosshair).not.toHaveBeenCalled()
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.start)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.move)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.end)).toBe(true)
   })
 
   it('sends the pointerup crosshair position as the final optimistic move before end', () => {

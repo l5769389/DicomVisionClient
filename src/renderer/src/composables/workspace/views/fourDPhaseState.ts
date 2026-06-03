@@ -321,6 +321,7 @@ export function getFourDPhaseDisplayState(
     },
     mprCursor: cache?.mprCursor ?? null,
     mprFrame: cache?.mprFrame ?? null,
+    mprRevision: cache?.mprRevision ?? null,
     windowLabel: cache?.windowLabel ?? ''
   }
 }

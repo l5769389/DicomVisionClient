@@ -99,6 +99,36 @@ describe('mprInteractionGuard', () => {
     ).toEqual(currentCrosshair)
   })
 
+  it('accepts authoritative backend crosshair data when the update carries an MPR revision', () => {
+    expect(
+      resolveMprCrosshairForImageUpdate({
+        incomingCrosshair,
+        currentCrosshair,
+        lock: createLock({ status: 'dragging' }),
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null,
+          mprRevision: 5
+        }
+      })
+    ).toEqual(incomingCrosshair)
+
+    expect(
+      resolveMprCrosshairForImageUpdate({
+        incomingCrosshair,
+        currentCrosshair,
+        lock: createLock({ status: 'settling' }),
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null,
+          mprRevision: 5
+        }
+      })
+    ).toEqual(incomingCrosshair)
+  })
+
   it('keeps preserving the optimistic crosshair while the drag lock is settling', () => {
     expect(
       resolveMprCrosshairForImageUpdate({
@@ -114,11 +144,37 @@ describe('mprInteractionGuard', () => {
     ).toEqual(currentCrosshair)
   })
 
-  it('suppresses late JPEG previews for the active dragged MPR viewport', () => {
+  it('does not preserve optimistic crosshairs for backend-driven reference viewports', () => {
+    const lock = createLock()
+
+    expect(
+      shouldPreserveLocalMprCrosshair(lock, {
+        tabKey: 'series-1::MPR',
+        viewportKey: 'mpr-cor',
+        phaseKey: null
+      })
+    ).toBe(false)
+
+    expect(
+      resolveMprCrosshairForImageUpdate({
+        incomingCrosshair,
+        currentCrosshair,
+        lock,
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-sag',
+          phaseKey: null
+        }
+      })
+    ).toEqual(incomingCrosshair)
+  })
+
+  it('suppresses active JPEG previews and stale MPR image updates', () => {
     const update = {
       tabKey: 'series-1::MPR',
       viewportKey: 'mpr-ax' as const,
-      phaseKey: null
+      phaseKey: null,
+      mprRevision: 4
     }
 
     expect(
@@ -130,6 +186,30 @@ describe('mprInteractionGuard', () => {
     ).toBe(true)
     expect(
       shouldSuppressMprCrosshairPreviewImageUpdate({
+        acceptedMprRevision: 6,
+        lock: createLock({ status: 'dragging' }),
+        update: {
+          ...update,
+          viewportKey: 'mpr-cor',
+          mprRevision: 5
+        },
+        imageFormat: 'jpeg'
+      })
+    ).toBe(true)
+    expect(
+      shouldSuppressMprCrosshairPreviewImageUpdate({
+        acceptedMprRevision: 4,
+        lock: createLock({ status: 'dragging' }),
+        update: {
+          ...update,
+          viewportKey: 'mpr-cor',
+          mprRevision: 5
+        },
+        imageFormat: 'jpeg'
+      })
+    ).toBe(false)
+    expect(
+      shouldSuppressMprCrosshairPreviewImageUpdate({
         lock: createLock({ status: 'settling' }),
         update,
         imageFormat: 'png'
@@ -137,14 +217,19 @@ describe('mprInteractionGuard', () => {
     ).toBe(false)
     expect(
       shouldSuppressMprCrosshairPreviewImageUpdate({
-        lock: createLock({ status: 'dragging', viewportKey: 'mpr-cor' }),
-        update,
-        imageFormat: 'jpeg'
+        acceptedMprRevision: 6,
+        lock: createLock({ status: 'settling' }),
+        update: {
+          ...update,
+          viewportKey: 'mpr-cor',
+          mprRevision: 5
+        },
+        imageFormat: 'png'
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 
-  it('only completes settling on a matching final PNG for the active 4D phase', () => {
+  it('only completes settling on a backend final PNG for the active 4D phase', () => {
     const lock = createLock({
       tabKey: 'series-1::4D',
       phaseKey: '3',
@@ -159,7 +244,10 @@ describe('mprInteractionGuard', () => {
           viewportKey: 'mpr-ax',
           phaseKey: '3'
         },
-        imageFormat: 'png'
+        imageFormat: 'png',
+        currentCrosshair: incomingCrosshair,
+        incomingCrosshair: incomingCrosshair,
+        acceptedMprRevision: 4
       })
     ).toBe(true)
     expect(
@@ -184,6 +272,91 @@ describe('mprInteractionGuard', () => {
         imageFormat: 'png'
       })
     ).toBe(false)
+  })
+
+  it('does not complete settling without incoming crosshair data', () => {
+    const lock = createLock({ status: 'settling' })
+
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null,
+          mprRevision: 5
+        },
+        imageFormat: 'png',
+        acceptedMprRevision: 4,
+        currentCrosshair: incomingCrosshair
+      })
+    ).toBe(false)
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null,
+          mprRevision: 5
+        },
+        imageFormat: 'png',
+        acceptedMprRevision: 4,
+        incomingCrosshair
+      })
+    ).toBe(true)
+  })
+
+  it('completes settling on authoritative final PNG even when it corrects optimistic crosshair', () => {
+    const lock = createLock({ status: 'settling' })
+
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null,
+          mprRevision: 5
+        },
+        imageFormat: 'png',
+        acceptedMprRevision: 4,
+        currentCrosshair: {
+          ...incomingCrosshair,
+          centerX: 0.55,
+          centerY: 0.66
+        },
+        incomingCrosshair: {
+          ...incomingCrosshair,
+          centerX: 0.5,
+          centerY: 0.3
+        }
+      })
+    ).toBe(true)
+
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::MPR',
+          viewportKey: 'mpr-ax',
+          phaseKey: null,
+          mprRevision: 5
+        },
+        imageFormat: 'png',
+        acceptedMprRevision: 4,
+        currentCrosshair: {
+          ...incomingCrosshair,
+          centerX: 0.55,
+          centerY: 0.66
+        },
+        incomingCrosshair: {
+          ...incomingCrosshair,
+          centerX: 0.5509,
+          centerY: 0.6599
+        }
+      })
+    ).toBe(true)
   })
 
   it('accepts the backend crosshair when the viewport or tab does not match the active drag', () => {

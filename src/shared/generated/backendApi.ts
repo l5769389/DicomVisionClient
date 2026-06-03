@@ -634,6 +634,7 @@ export interface ViewImageResponse {
   mpr_crosshair?: MprCrosshairInfo | null
   mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
+  mprRevision?: number | null
   mprPlane?: MprPlaneInfo | null
   scaleBar?: ScaleBarInfo | null
   cornerInfo?: CornerInfoPayload | null
@@ -722,6 +723,9 @@ export interface ViewTransformPayload {
   rotationDegrees?: number
   horFlip?: boolean
   verFlip?: boolean
+  zoom?: number
+  offsetX?: number
+  offsetY?: number
 }
 
 export interface VolumeLayerConfig {

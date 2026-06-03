@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getMprViewportCanvasCrosshairGeometry,
   getMprViewportCrosshairAngles,
   getMprViewportDerivedCrosshairGeometry,
   getTabViewportCrosshairGeometry,
@@ -165,6 +166,30 @@ describe('mprFrameGeometry', () => {
     expect(geometry?.verticalAngleRad).toBeCloseTo(0.25 + Math.PI / 2, 6)
   })
 
+  it('maps backend normalized crosshair coordinates directly to viewport canvas pixels', () => {
+    const geometry = getMprViewportCanvasCrosshairGeometry(
+      null,
+      'mpr-ax',
+      {
+        centerX: 0.25,
+        centerY: 0.75,
+        hitRadius: 0.03,
+        horizontalPosition: 0.6,
+        verticalPosition: 0.4,
+        horizontalAngleRad: 0,
+        verticalAngleRad: Math.PI / 2
+      },
+      null,
+      800,
+      500
+    )
+
+    expect(geometry).not.toBeNull()
+    expect(geometry?.center).toEqual({ x: 320, y: 300 })
+    expect(geometry?.horizontalAngleRad).toBeCloseTo(0, 6)
+    expect(geometry?.verticalAngleRad).toBeCloseTo(Math.PI / 2, 6)
+  })
+
   it('uses tab mprFrame for hit-test geometry when backend angles are absent', () => {
     const tab = {
       mprFrame: {
@@ -191,4 +216,5 @@ describe('mprFrameGeometry', () => {
     expect(geometry?.horizontalAngleRad).not.toBeCloseTo(0, 6)
     expect(geometry?.verticalAngleRad).not.toBeCloseTo(Math.PI / 2, 6)
   })
+
 })

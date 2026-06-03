@@ -33,6 +33,7 @@ type ImageUpdateSocketArgs =
 
 interface SocketAckPayload {
   ok?: boolean
+  mprRevision?: number
 }
 
 interface SocketErrorPayload {
@@ -169,7 +170,7 @@ export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutM
   return new Promise((resolve) => {
     socket
       ?.timeout(timeoutMs)
-      .emit('view_operation', payload, (error: Error | null, response?: { ok?: boolean }) => {
+      .emit('view_operation', payload, (error: Error | null, response?: SocketAckPayload) => {
         resolve(!error && response?.ok !== false)
       })
   })

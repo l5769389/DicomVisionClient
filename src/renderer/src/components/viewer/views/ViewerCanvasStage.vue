@@ -196,6 +196,7 @@ function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
 }
 
 function handlePointerDown(event: PointerEvent): void {
+  emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
   emit('pointerDown', event, props.viewportKey)
 }
 
@@ -393,7 +394,6 @@ watch(
       <ViewportScaleBarOverlay
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
-        :image-frame="imageFrame"
         :scale-bar="scaleBar"
       />
       <ViewportMeasurementOverlay

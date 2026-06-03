@@ -3,16 +3,8 @@ import { computed } from 'vue'
 import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
 import type { ScaleBarInfo } from '../../../types/viewer'
 
-interface ImageFrame {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
 const props = withDefaults(
   defineProps<{
-    imageFrame: ImageFrame
     stageHeight: number
     stageWidth: number
     scaleBar?: ScaleBarInfo | null
@@ -36,22 +28,15 @@ const metrics = computed(() => {
     return null
   }
 
-  const hasFrame = props.imageFrame.width > 0 && props.imageFrame.height > 0
-  const frameLeft = Math.round(hasFrame ? props.imageFrame.left : 0)
-  const frameTop = Math.round(hasFrame ? props.imageFrame.top : 0)
-  const frameWidth = Math.round(hasFrame ? props.imageFrame.width : roundedStageWidth)
-  const frameHeight = Math.round(hasFrame ? props.imageFrame.height : roundedStageHeight)
-  const maxWidth = Math.max(0, frameWidth - 32)
+  const maxWidth = Math.max(0, roundedStageWidth - 32)
   if (rawLengthPx > maxWidth) {
     return null
   }
   const lengthPx = Math.round(rawLengthPx)
   const totalHeight = 34
-  const bottomPadding = 10
-  const left = Math.round(frameLeft + Math.max(0, (frameWidth - lengthPx) / 2))
-  const top = Math.round(
-    Math.max(12, Math.min(frameTop + frameHeight - totalHeight - bottomPadding, roundedStageHeight - totalHeight - 8))
-  )
+  const bottomPadding = 12
+  const left = Math.round(Math.max(12, (roundedStageWidth - lengthPx) / 2))
+  const top = Math.round(Math.max(12, roundedStageHeight - totalHeight - bottomPadding))
 
   return {
     color: scaleBarPreference.value.color,

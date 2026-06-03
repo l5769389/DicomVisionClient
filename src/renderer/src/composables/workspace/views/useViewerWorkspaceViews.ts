@@ -1311,6 +1311,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
       const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
+      const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
+      const mprRevision = typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
       const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
@@ -1445,15 +1447,22 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         | undefined
       const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
       if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
+        const isMprPreview = payload.imageFormat === 'jpeg'
         const activeFourDPhaseKey =
           item.viewType === '4D' ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)) : null
         const mprViewportUpdate: IncomingMprViewportUpdate = {
           tabKey,
           viewportKey,
-          phaseKey: item.viewType === '4D' ? fourDViewportMatch?.phaseKey ?? activeFourDPhaseKey : null
+          phaseKey: item.viewType === '4D' ? fourDViewportMatch?.phaseKey ?? activeFourDPhaseKey : null,
+          mprRevision
         }
+        const acceptedMprRevision =
+          item.viewType === '4D' && fourDViewportMatch
+            ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.mprRevision ?? null
+            : item.mprRevision ?? null
         if (
           shouldSuppressMprCrosshairPreviewImageUpdate({
+            acceptedMprRevision,
             lock: options.activeMprCrosshairDragLock.value,
             update: mprViewportUpdate,
             imageFormat: payload.imageFormat
@@ -1462,16 +1471,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           revokeObjectUrlIfNeeded(imageSrc)
           return item
         }
-        if (
-          shouldCompleteMprCrosshairSettling({
-            lock: options.activeMprCrosshairDragLock.value,
-            update: mprViewportUpdate,
-            imageFormat: payload.imageFormat
-          })
-        ) {
+        const shouldCompleteSettling = shouldCompleteMprCrosshairSettling({
+          lock: options.activeMprCrosshairDragLock.value,
+          update: mprViewportUpdate,
+          imageFormat: payload.imageFormat,
+          acceptedMprRevision,
+          currentCrosshair: item.viewportCrosshairs?.[viewportKey] ?? null,
+          incomingCrosshair: mprCrosshair
+        })
+        if (shouldCompleteSettling) {
           mprCrosshairSettlingCompletionUpdate = mprViewportUpdate
         }
-
+        const mprCrosshairPreservationLock = shouldCompleteSettling ? null : options.activeMprCrosshairDragLock.value
         const currentViewportImage = item.viewportImages?.[viewportKey]
         if (currentViewportKey) {
           revokeObjectUrlIfNeeded(currentViewportImage)
@@ -1495,7 +1506,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
             incomingCrosshair: mprCrosshair,
             currentCrosshair: phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null,
-            lock: options.activeMprCrosshairDragLock.value,
+            lock: mprCrosshairPreservationLock,
             update: mprViewportUpdate
           })
           nextFourDPhaseCache = {
@@ -1505,7 +1516,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               status: hasCompleteMprViewportImages(nextViewportImages) ? 'ready' : 'loading',
               windowLabel,
               mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
-              mprFrame,
+              mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
+              mprRevision: mprRevision ?? phaseCacheSeed.mprRevision ?? null,
               viewportImages: nextViewportImages,
               viewportSliceLabels: {
                 ...(phaseCacheSeed.viewportSliceLabels ?? createEmptyMprSliceLabels()),
@@ -1513,7 +1525,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportPlanes: {
                 ...(phaseCacheSeed.viewportPlanes ?? createEmptyMprPlanes()),
-                [viewportKey]: mprPlane
+                [viewportKey]: mprPlane ?? phaseCacheSeed.viewportPlanes?.[viewportKey] ?? null
               },
               viewportCrosshairs: {
                 ...(phaseCacheSeed.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -1521,23 +1533,31 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportScaleBars: {
                 ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
-                [viewportKey]: scaleBar
+                [viewportKey]: scaleBar ?? (isMprPreview ? phaseCacheSeed.viewportScaleBars?.[viewportKey] ?? null : null)
               },
               viewportMeasurements: {
                 ...(phaseCacheSeed.viewportMeasurements ?? {}),
-                [viewportKey]: (payload.measurements ?? []) as MeasurementOverlay[]
+                [viewportKey]: isMprPreview && !payload.measurements?.length
+                  ? phaseCacheSeed.viewportMeasurements?.[viewportKey] ?? []
+                  : (payload.measurements ?? []) as MeasurementOverlay[]
               },
               viewportCornerInfos: {
                 ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-                [viewportKey]: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                [viewportKey]: isMprPreview && payload.cornerInfo == null
+                  ? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                  : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
               },
               viewportOrientations: {
                 ...(phaseCacheSeed.viewportOrientations ?? createEmptyMprOrientations()),
-                [viewportKey]: orientationInfo
+                [viewportKey]: isMprPreview && payload.orientation == null
+                  ? phaseCacheSeed.viewportOrientations?.[viewportKey] ?? orientationInfo
+                  : orientationInfo
               },
               viewportTransformStates: {
                 ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
-                [viewportKey]: transformState
+                [viewportKey]: isMprPreview && payload.transform == null
+                  ? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? transformState
+                  : transformState
               },
               viewportPseudocolorPresets: {
                 ...(phaseCacheSeed.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
@@ -1571,7 +1591,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
           incomingCrosshair: mprCrosshair,
           currentCrosshair: item.viewportCrosshairs?.[viewportKey] ?? null,
-          lock: options.activeMprCrosshairDragLock.value,
+          lock: mprCrosshairPreservationLock,
           update: mprViewportUpdate
         })
 
@@ -1579,7 +1599,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           windowLabel,
           mprCursor: mprCursor ?? item.mprCursor ?? null,
-          mprFrame,
+          mprFrame: mprFrame ?? item.mprFrame ?? null,
+          mprRevision: mprRevision ?? item.mprRevision ?? null,
           viewportImages: {
             ...(item.viewportImages ?? createEmptyMprImages()),
             [viewportKey]: imageSrc
@@ -1590,7 +1611,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportPlanes: {
             ...(item.viewportPlanes ?? createEmptyMprPlanes()),
-            [viewportKey]: mprPlane
+            [viewportKey]: mprPlane ?? item.viewportPlanes?.[viewportKey] ?? null
           },
           viewportCrosshairs: {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -1598,23 +1619,31 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportScaleBars: {
             ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
-            [viewportKey]: scaleBar
+            [viewportKey]: scaleBar ?? (isMprPreview ? item.viewportScaleBars?.[viewportKey] ?? null : null)
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
-            [viewportKey]: (payload.measurements ?? []) as MeasurementOverlay[]
+            [viewportKey]: isMprPreview && !payload.measurements?.length
+              ? item.viewportMeasurements?.[viewportKey] ?? []
+              : (payload.measurements ?? []) as MeasurementOverlay[]
           },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-            [viewportKey]: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+            [viewportKey]: isMprPreview && payload.cornerInfo == null
+              ? item.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+              : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
           },
           viewportOrientations: {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
-            [viewportKey]: orientationInfo
+            [viewportKey]: isMprPreview && payload.orientation == null
+              ? item.viewportOrientations?.[viewportKey] ?? orientationInfo
+              : orientationInfo
           },
           viewportTransformStates: {
             ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
-            [viewportKey]: transformState
+            [viewportKey]: isMprPreview && payload.transform == null
+              ? item.viewportTransformStates?.[viewportKey] ?? transformState
+              : transformState
           },
           viewportPseudocolorPresets: {
             ...(item.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
@@ -1665,6 +1694,162 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
     if (mprCrosshairSettlingCompletionUpdate) {
       options.completeActiveMprCrosshairDragLock(mprCrosshairSettlingCompletionUpdate)
+    }
+  }
+
+  function updateMprState(tabKey: string, payload: Partial<ViewImageResponse>): void {
+    let mprStateCompletionUpdate: IncomingMprViewportUpdate | null = null
+    options.viewerTabs.value = options.viewerTabs.value.map((item) => {
+      if (item.key !== tabKey || (item.viewType !== 'MPR' && item.viewType !== '4D')) {
+        return item
+      }
+
+      const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
+      const currentViewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
+        | MprViewportKey
+        | undefined
+      const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
+      if (!viewportKey) {
+        return item
+      }
+      const activeFourDPhaseKey =
+        item.viewType === '4D' ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)) : null
+
+      const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
+      const mprRevision = typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
+      const acceptedMprRevision =
+        item.viewType === '4D' && fourDViewportMatch
+          ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.mprRevision ?? null
+          : item.mprRevision ?? null
+      if (mprRevision != null && acceptedMprRevision != null && mprRevision < acceptedMprRevision) {
+        return item
+      }
+      mprStateCompletionUpdate = {
+        tabKey,
+        viewportKey,
+        phaseKey: item.viewType === '4D' ? fourDViewportMatch?.phaseKey ?? activeFourDPhaseKey : null,
+        mprRevision
+      }
+
+      const sliceLabel = payload.slice_info
+        ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}`
+        : item.viewportSliceLabels?.[viewportKey] ?? item.sliceLabel
+      const ww = payload.window_info?.ww
+      const wl = payload.window_info?.wl
+      const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
+      const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
+      const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
+      const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
+      const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
+      const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
+      const orientationInfo = normalizeOrientationInfo(payload.orientation)
+      const transformState = payload.transform ?? createDefaultTransformInfo()
+      const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : item.mprCrosshairMode ?? 'orthogonal'
+
+      let nextFourDPhaseCache = item.fourDPhaseCache
+      if (item.viewType === '4D' && fourDViewportMatch) {
+        const phase = getFourDPhaseByKey(item, fourDViewportMatch.phaseKey)
+        const existingPhaseCache = item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]
+        const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
+        nextFourDPhaseCache = {
+          ...(item.fourDPhaseCache ?? {}),
+          [fourDViewportMatch.phaseKey]: {
+            ...phaseCacheSeed,
+            windowLabel,
+            mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
+            mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
+            mprRevision: mprRevision ?? phaseCacheSeed.mprRevision ?? null,
+            viewportSliceLabels: {
+              ...(phaseCacheSeed.viewportSliceLabels ?? createEmptyMprSliceLabels()),
+              [viewportKey]: sliceLabel
+            },
+            viewportPlanes: {
+              ...(phaseCacheSeed.viewportPlanes ?? createEmptyMprPlanes()),
+              [viewportKey]: mprPlane ?? phaseCacheSeed.viewportPlanes?.[viewportKey] ?? null
+            },
+            viewportCrosshairs: {
+              ...(phaseCacheSeed.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+              [viewportKey]: mprCrosshair ?? phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null
+            },
+            viewportScaleBars: {
+              ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
+              [viewportKey]: scaleBar ?? phaseCacheSeed.viewportScaleBars?.[viewportKey] ?? null
+            },
+            viewportOrientations: {
+              ...(phaseCacheSeed.viewportOrientations ?? createEmptyMprOrientations()),
+              [viewportKey]: orientationInfo
+            },
+            viewportTransformStates: {
+              ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
+              [viewportKey]: transformState
+            }
+          }
+        }
+      }
+
+      if (item.viewType === '4D' && !currentViewportKey) {
+        const activePhaseIndex = clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)
+        if (
+          fourDViewportMatch?.phaseKey === getFourDPhaseKey(activePhaseIndex) &&
+          isFourDPhaseDisplayed(item, fourDViewportMatch.phaseKey)
+        ) {
+          const nextItem = {
+            ...item,
+            fourDPhaseCache: nextFourDPhaseCache,
+            mprCrosshairMode,
+            mprMipConfig
+          }
+          return {
+            ...nextItem,
+            ...getFourDPhaseDisplayState(nextItem, activePhaseIndex, options.seriesCornerInfoMap.value)
+          }
+        }
+        return {
+          ...item,
+          fourDPhaseCache: nextFourDPhaseCache,
+          mprCrosshairMode,
+          mprMipConfig
+        }
+      }
+
+      return {
+        ...item,
+        windowLabel,
+        mprCursor: mprCursor ?? item.mprCursor ?? null,
+        mprFrame: mprFrame ?? item.mprFrame ?? null,
+        mprRevision: mprRevision ?? item.mprRevision ?? null,
+        viewportSliceLabels: {
+          ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
+          [viewportKey]: sliceLabel
+        },
+        viewportPlanes: {
+          ...(item.viewportPlanes ?? createEmptyMprPlanes()),
+          [viewportKey]: mprPlane ?? item.viewportPlanes?.[viewportKey] ?? null
+        },
+        viewportCrosshairs: {
+          ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+          [viewportKey]: mprCrosshair ?? item.viewportCrosshairs?.[viewportKey] ?? null
+        },
+        viewportScaleBars: {
+          ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
+          [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
+        },
+        viewportOrientations: {
+          ...(item.viewportOrientations ?? createEmptyMprOrientations()),
+          [viewportKey]: orientationInfo
+        },
+        viewportTransformStates: {
+          ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
+          [viewportKey]: transformState
+        },
+        mprMipConfig,
+        mprCrosshairMode,
+        fourDPhaseCache: nextFourDPhaseCache
+      }
+    })
+    if (mprStateCompletionUpdate) {
+      options.completeActiveMprCrosshairDragLock(mprStateCompletionUpdate)
     }
   }
 
@@ -2764,6 +2949,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     setLayoutSlotSeries,
     setTagTabIndex,
     selectSeries,
+    updateMprState,
     updateTabImage,
     updateViewProgress
   }

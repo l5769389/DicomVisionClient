@@ -22,6 +22,12 @@ export interface MprViewportCrosshairGeometry {
   verticalAngleRad: number
 }
 
+export interface MprViewportCanvasCrosshairGeometry {
+  center: { x: number; y: number }
+  horizontalAngleRad: number
+  verticalAngleRad: number
+}
+
 function normalizeVec3(vector: readonly number[], fallback: Vec3): Vec3 {
   if (vector.length !== 3) {
     return fallback
@@ -259,6 +265,31 @@ export function getMprViewportDerivedCrosshairGeometry(
     center,
     horizontalAngleRad: 0,
     verticalAngleRad: Math.PI / 2
+  }
+}
+
+export function getMprViewportCanvasCrosshairGeometry(
+  frame: MprFrameInfo | null | undefined,
+  viewportKey: MprViewportKey,
+  crosshairInfo: MprCrosshairInfo | null | undefined,
+  plane: MprPlaneInfo | null | undefined,
+  stageWidth: number,
+  stageHeight: number
+): MprViewportCanvasCrosshairGeometry | null {
+  if (stageWidth <= 0 || stageHeight <= 0) {
+    return null
+  }
+  const geometry = getMprViewportDerivedCrosshairGeometry(frame, viewportKey, crosshairInfo, plane)
+  if (!geometry) {
+    return null
+  }
+  return {
+    center: {
+      x: geometry.center.x * stageWidth,
+      y: geometry.center.y * stageHeight
+    },
+    horizontalAngleRad: geometry.horizontalAngleRad,
+    verticalAngleRad: geometry.verticalAngleRad
   }
 }
 

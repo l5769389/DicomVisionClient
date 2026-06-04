@@ -388,7 +388,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
         </button>
       </div>
       <div
-        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent py-4 pr-4 pl-2 transition-[grid-template-columns] duration-200 ease-out"
+        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent py-4 pr-4 pl-2"
         :data-sidebar-collapsed="viewer.isSidebarCollapsed.value ? 'true' : 'false'"
       >
         <SidebarPanel
@@ -515,7 +515,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 }
 
 .app-main-layout[data-sidebar-collapsed="true"] {
-  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
 @media (max-width: 1280px) {

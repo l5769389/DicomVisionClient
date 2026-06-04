@@ -118,6 +118,50 @@ function drawCrosshairLine(
   )
 }
 
+function drawSlabBoundaryLine(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  angleRad: number,
+  offsetX: number | null | undefined,
+  offsetY: number | null | undefined,
+  color: string,
+  thickness: number
+): void {
+  if (
+    typeof offsetX !== 'number' ||
+    typeof offsetY !== 'number' ||
+    !Number.isFinite(offsetX) ||
+    !Number.isFinite(offsetY) ||
+    Math.hypot(offsetX, offsetY) < 0.5
+  ) {
+    return
+  }
+
+  const dirX = Math.cos(angleRad)
+  const dirY = Math.sin(angleRad)
+  const lineLength = Math.hypot(props.stageWidth, props.stageHeight) + Math.max(props.stageWidth, props.stageHeight)
+  const boundaryThickness = Math.max(1, Math.min(thickness * 0.72, 1.65))
+
+  context.save()
+  context.setLineDash([8, 6])
+  context.globalAlpha = 0.46
+  context.lineCap = 'butt'
+  context.lineWidth = boundaryThickness
+  context.strokeStyle = color
+  context.beginPath()
+  context.moveTo(centerX + offsetX - dirX * lineLength, centerY + offsetY - dirY * lineLength)
+  context.lineTo(centerX + offsetX + dirX * lineLength, centerY + offsetY + dirY * lineLength)
+  context.moveTo(centerX - offsetX - dirX * lineLength, centerY - offsetY - dirY * lineLength)
+  context.lineTo(centerX - offsetX + dirX * lineLength, centerY - offsetY + dirY * lineLength)
+  context.stroke()
+  context.restore()
+}
+
+function normalizedOffsetToPixels(value: number | null | undefined, size: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value * size : null
+}
+
 function drawCrosshair(): void {
   const canvas = canvasRef.value
   if (!canvas) {
@@ -164,6 +208,26 @@ function drawCrosshair(): void {
   const horizontalAngle = geometry.horizontalAngleRad
   const verticalAngle = geometry.verticalAngleRad
 
+  drawSlabBoundaryLine(
+    context,
+    centerX,
+    centerY,
+    horizontalAngle,
+    normalizedOffsetToPixels(props.mprCrosshair.horizontalSlabOffsetX, props.stageWidth),
+    normalizedOffsetToPixels(props.mprCrosshair.horizontalSlabOffsetY, props.stageHeight),
+    axes.horizontal.color,
+    axes.horizontal.thickness
+  )
+  drawSlabBoundaryLine(
+    context,
+    centerX,
+    centerY,
+    verticalAngle,
+    normalizedOffsetToPixels(props.mprCrosshair.verticalSlabOffsetX, props.stageWidth),
+    normalizedOffsetToPixels(props.mprCrosshair.verticalSlabOffsetY, props.stageHeight),
+    axes.vertical.color,
+    axes.vertical.thickness
+  )
   drawCrosshairLine(context, centerX, centerY, horizontalAngle, axes.horizontal.color, axes.horizontal.thickness)
   drawCrosshairLine(context, centerX, centerY, verticalAngle, axes.vertical.color, axes.vertical.thickness)
 }

@@ -1377,6 +1377,10 @@ const isMtfCurveDialogOpen = ref(false)
 const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
 const canAcceptQuickPreviewDrop = computed(() => !props.isViewLoading && !props.activeTab)
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
+const isTabStripCollapsed = ref(false)
+const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
+const shouldShowTabStrip = computed(() => hasViewerTabs.value && (!isTabStripCollapsed.value || shouldForceShowTabStrip.value))
+const shouldShowTabStripToggle = computed(() => hasViewerTabs.value && Boolean(props.activeTab) && props.activeTab?.viewType !== 'Tag')
 const selectedMtfId = computed(() => activeMtfState.value?.selectedMtfId ?? null)
 const selectedMtfItem = computed(() => {
   const state = activeMtfState.value
@@ -1615,6 +1619,14 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorksp
     viewportHostRef
   })
 
+function toggleTabStripCollapsed(): void {
+  isTabStripCollapsed.value = !isTabStripCollapsed.value
+  void nextTick().then(() => {
+    notifyWorkspaceReady()
+    updateTabScrollState()
+  })
+}
+
 watch(
   () => [activeMprLayoutKey.value, props.activeTabKey] as const,
   async ([layoutKey, tabKey], previousValue) => {
@@ -1676,7 +1688,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    class="viewer-workspace-shell theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    class="viewer-workspace-shell theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
   >
     <div
       v-if="!hasSelectedSeries"
@@ -1697,9 +1709,9 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else class="flex h-full min-h-0 flex-col gap-1">
+    <div v-else class="flex h-full min-h-0 flex-col gap-0">
       <ViewerTabStrip
-        v-if="hasViewerTabs"
+        v-if="shouldShowTabStrip"
         v-model:tab-strip-ref="tabStripRef"
         :active-tab-key="activeTabKey"
         :can-scroll-tabs-left="canScrollTabsLeft"
@@ -1721,8 +1733,10 @@ onBeforeUnmount(() => {
         :is-playing="isPlaying"
         :is-playback-paused="isPlaybackPaused"
         :is-tool-selected="isToolSelected"
+        :is-tab-strip-collapsed="isTabStripCollapsed"
         :menu-icon-size="menuIconSize"
         :open-menu-key="openMenuKey"
+        :show-tab-strip-toggle="shouldShowTabStripToggle"
         :stack-tool-selections="stackToolSelections"
         :toggle-icon-size="toggleIconSize"
         :toolbar-icon-size="toolbarIconSize"
@@ -1731,6 +1745,7 @@ onBeforeUnmount(() => {
         @pause-playback="pausePlayback"
         @select-tool-option="selectToolOption"
         @set-menu-open="setMenuOpen"
+        @toggle-tab-strip="toggleTabStripCollapsed"
       />
 
       <div v-if="isViewLoading" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
@@ -1937,8 +1952,10 @@ onBeforeUnmount(() => {
           :selected-mtf-id="selectedMtfId"
           :get-corner-info="getMprCornerInfo"
           :is-tool-selected="isToolSelected"
+          :is-tab-strip-collapsed="isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
           :open-menu-key="openMenuKey"
+          :show-tab-strip-toggle="shouldShowTabStripToggle"
           :stack-tool-selections="stackToolSelections"
           :mpr-layout-key="activeMprLayoutKey"
           :toggle-icon-size="toggleIconSize"
@@ -1965,6 +1982,7 @@ onBeforeUnmount(() => {
           @update-annotation-text="handleAnnotationTextUpdate"
           @select-tool-option="selectToolOption"
           @set-menu-open="setMenuOpen"
+          @toggle-tab-strip="toggleTabStripCollapsed"
           @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
           @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
           @playback-change="emit('fourDPlaybackChange', { tabKey: activeTab.key, isPlaying: $event })"

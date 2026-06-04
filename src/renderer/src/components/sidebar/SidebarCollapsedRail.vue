@@ -3,6 +3,7 @@ import { VBtn, VChip } from 'vuetify/components'
 import AppIcon from '../AppIcon.vue'
 import type { FolderSeriesItem } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
+import SidebarBrandPanel from './SidebarBrandPanel.vue'
 import { getSeriesMetaLabel } from './seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './seriesThumbnail'
 
@@ -12,6 +13,7 @@ defineProps<{
   connectionToneClass: string
   selectedSeriesId: string
   seriesList: FolderSeriesItem[]
+  viewerPlatform: 'desktop' | 'web'
 }>()
 
 const emit = defineEmits<{
@@ -28,18 +30,14 @@ const { t } = useUiLocale()
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-visible">
-    <div class="flex items-start justify-center pt-2">
-      <div class="relative flex h-18 w-18 items-center justify-center overflow-hidden rounded-[28px] border border-[var(--theme-border-strong)] bg-[radial-gradient(circle_at_30%_20%,color-mix(in_srgb,var(--theme-accent)_34%,transparent),transparent_35%),linear-gradient(180deg,var(--theme-surface-panel-strong-solid),var(--theme-surface-panel-solid))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_28px_rgba(0,0,0,0.26)]">
-        <div class="pointer-events-none absolute inset-0 bg-[linear-gradient(color-mix(in_srgb,var(--theme-text-secondary)_14%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_srgb,var(--theme-text-secondary)_14%,transparent)_1px,transparent_1px)] bg-[size:14px_14px,14px_14px]"></div>
-        <div class="absolute inset-[10px] rounded-[20px] border border-[var(--theme-border-soft)] bg-[linear-gradient(145deg,color-mix(in_srgb,var(--theme-text-primary)_5%,transparent),transparent)]"></div>
-        <div class="relative flex items-center justify-center"><span class="text-[24px] font-black tracking-[0.18em] text-[var(--theme-text-primary)]">DV</span></div>
-      </div>
+  <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-visible">
+    <div class="flex items-start justify-center pt-1">
+      <SidebarBrandPanel compact :viewer-platform="viewerPlatform" />
     </div>
 
-    <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-visible rounded-[24px] px-2 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div class="mb-3 flex items-center justify-center">
-        <VChip size="x-small" class="rounded-full! border! border-[var(--theme-border-strong)]! bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)]! px-2! py-1! text-[9px]! font-semibold! uppercase! tracking-[0.18em]! text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]!" variant="flat">
+    <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-visible rounded-[22px] px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div class="mb-2 flex items-center justify-center">
+        <VChip size="x-small" class="rounded-full! border! border-[var(--theme-border-strong)]! bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)]! px-1.5! py-0.5! text-[9px]! font-semibold! uppercase! tracking-[0.12em]! text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]!" variant="flat">
           {{ seriesList.length || 0 }}
         </VChip>
       </div>
@@ -74,26 +72,47 @@ const { t } = useUiLocale()
   </div>
 
   <div class="mt-auto pt-2">
-    <div class="theme-shell-panel flex flex-col items-center gap-2 rounded-[24px] px-2 py-2.5">
-      <div class="flex w-full flex-col items-center gap-1 rounded-[18px] border px-2 py-2" :class="connectionToneClass">
-        <AppIcon :name="connectionIcon" :size="18" />
-        <span class="h-2.5 w-2.5 rounded-full" :class="connectionDotClass"></span>
+    <div class="theme-shell-panel flex flex-col items-center gap-2 rounded-[22px] px-1.5 py-2">
+      <div class="rail-connection-indicator" :class="connectionToneClass" :title="connectionIcon">
+        <AppIcon :name="connectionIcon" :size="17" />
+        <span class="rail-connection-indicator__dot" :class="connectionDotClass"></span>
       </div>
-      <VBtn variant="flat" class="theme-button-secondary h-10! w-10! min-w-0! rounded-2xl!" :aria-label="t('openSettings')" @click="emit('openMenu')"><AppIcon name="menu" :size="18" /></VBtn>
-      <VBtn variant="flat" class="theme-button-secondary h-10! w-10! min-w-0! rounded-2xl!" :aria-label="t('expandSidebar')" @click="emit('toggleSidebar')"><AppIcon name="chevron-right" :size="19" /></VBtn>
+      <VBtn variant="flat" class="theme-button-secondary h-9! w-9! min-w-0! rounded-2xl!" :aria-label="t('openSettings')" @click="emit('openMenu')"><AppIcon name="menu" :size="17" /></VBtn>
+      <VBtn variant="flat" class="theme-button-secondary h-9! w-9! min-w-0! rounded-2xl!" :aria-label="t('expandSidebar')" @click="emit('toggleSidebar')"><AppIcon name="chevron-right" :size="18" /></VBtn>
     </div>
   </div>
 </template>
 
 <style scoped>
+.rail-connection-indicator {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 16px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.rail-connection-indicator__dot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
+}
+
 .rail-series-thumbnail {
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--theme-border-soft);
-  border-radius: 16px;
+  border-radius: 14px;
   background:
     radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--theme-accent) 15%, transparent), transparent 46%),
     linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));

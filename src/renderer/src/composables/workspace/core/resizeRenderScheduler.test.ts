@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ViewerTabItem } from '../../../types/viewer'
 import { createResizeRenderScheduler, hasRenderableTabView } from './resizeRenderScheduler'
 
@@ -20,68 +20,69 @@ function createTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
 }
 
 describe('resize render scheduler', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('detects renderable layout slots as render targets', () => {
     expect(hasRenderableTabView(createTab({ viewId: undefined, layoutSlots: [{ id: 'slot-1', viewId: 'layout-view' }] as ViewerTabItem['layoutSlots'] }))).toBe(true)
   })
 
-  it('coalesces repeated resize notifications into one render for the latest active tab', () => {
-    const callbacks: FrameRequestCallback[] = []
+  it('debounces repeated resize notifications into one render for the latest active tab', () => {
     const renderTab = vi.fn()
     let activeTab = createTab({ key: 'tab-1' })
     const scheduler = createResizeRenderScheduler({
+      debounceMs: 180,
       getActiveTab: () => activeTab,
       isViewLoading: () => false,
-      renderTab,
-      requestAnimationFrame: (callback) => {
-        callbacks.push(callback)
-        return callbacks.length
-      },
-      cancelAnimationFrame: vi.fn()
+      renderTab
     })
 
     scheduler.schedule()
+    vi.advanceTimersByTime(90)
     scheduler.schedule()
     activeTab = createTab({ key: 'tab-2' })
 
-    expect(callbacks).toHaveLength(1)
-    callbacks[0]?.(16)
+    vi.advanceTimersByTime(179)
+    expect(renderTab).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+
     expect(renderTab).toHaveBeenCalledTimes(1)
     expect(renderTab).toHaveBeenCalledWith('tab-2')
   })
 
   it('does not render while the active view is loading', () => {
-    const callbacks: FrameRequestCallback[] = []
     const renderTab = vi.fn()
     const scheduler = createResizeRenderScheduler({
       getActiveTab: () => createTab(),
       isViewLoading: () => true,
-      renderTab,
-      requestAnimationFrame: (callback) => {
-        callbacks.push(callback)
-        return callbacks.length
-      },
-      cancelAnimationFrame: vi.fn()
+      renderTab
     })
 
     scheduler.schedule()
-    callbacks[0]?.(16)
+    vi.advanceTimersByTime(180)
 
     expect(renderTab).not.toHaveBeenCalled()
   })
 
   it('cancels a pending resize render', () => {
-    const cancelAnimationFrame = vi.fn()
+    const timerHandle = 42 as unknown as ReturnType<typeof window.setTimeout>
+    const clearTimeout = vi.fn()
     const scheduler = createResizeRenderScheduler({
+      clearTimeout,
       getActiveTab: () => createTab(),
       isViewLoading: () => false,
       renderTab: vi.fn(),
-      requestAnimationFrame: () => 42,
-      cancelAnimationFrame
+      setTimeout: () => timerHandle
     })
 
     scheduler.schedule()
     scheduler.cancel()
 
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(42)
+    expect(clearTimeout).toHaveBeenCalledWith(timerHandle)
   })
 })

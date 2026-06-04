@@ -152,8 +152,8 @@ function closeOtherTabsFromMenu(): void {
 <style scoped>
 .viewer-tab-strip-shell {
   position: relative;
-  min-height: 42px;
-  padding: 3px 6px 0;
+  min-height: 39px;
+  padding: 0 6px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-panel-strong-solid) 66%, transparent), transparent 82%),

@@ -37,10 +37,12 @@ const props = defineProps<{
   getMtfItems: (viewportKey: MprViewportKey) => ViewerMtfItem[]
   selectedMtfId?: string | null
   getCornerInfo: (viewportKey: MprViewportKey) => CornerInfo
+  isTabStripCollapsed?: boolean
   mprLayoutKey?: MprLayoutKey | null
   isToolSelected: (tool: StackTool) => boolean
   menuIconSize: number
   openMenuKey: string | null
+  showTabStripToggle?: boolean
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
   toggleIconSize: number
@@ -62,6 +64,7 @@ const emit = defineEmits<{
   selectMtf: [payload: { mtfId: string | null }]
   selectToolOption: [tool: StackTool, optionValue: string]
   setMenuOpen: [toolKey: string | null]
+  toggleTabStrip: []
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -80,8 +83,9 @@ const FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
 
 const fps = ref(props.activeTab.fourDPlaybackFps ?? 2)
 const fpsMenuOpen = ref(false)
-const { viewerCopy } = useUiLocale()
+const { toolbarCopy, viewerCopy } = useUiLocale()
 const copy = computed(() => viewerCopy.value)
+const toolbarCopyValue = computed(() => toolbarCopy.value)
 
 const phaseItems = computed<FourDPhaseItem[]>(() => {
   if (props.activeTab.fourDPhaseItems?.length) {
@@ -330,8 +334,10 @@ watch(
           :is-playing="false"
           :is-playback-paused="false"
           :is-tool-selected="isToolSelected"
+          :is-tab-strip-collapsed="props.isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
           :open-menu-key="openMenuKey"
+          :show-tab-strip-toggle="false"
           :stack-tool-selections="stackToolSelections"
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
@@ -340,6 +346,7 @@ watch(
           @pause-playback="() => undefined"
           @select-tool-option="(tool, optionValue) => emitWhenIdle(() => emit('selectToolOption', tool, optionValue))"
           @set-menu-open="emit('setMenuOpen', $event)"
+          @toggle-tab-strip="emit('toggleTabStrip')"
         />
       </div>
 
@@ -391,6 +398,16 @@ watch(
         </VMenu>
         <button class="four-d-icon-button" type="button" :disabled="playbackButtonDisabled" :aria-label="playbackButtonLabel" :title="playbackButtonTitle" @click="togglePlayback">
           <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
+        </button>
+        <button
+          v-if="props.showTabStripToggle"
+          class="four-d-icon-button four-d-tab-strip-toggle-button"
+          type="button"
+          :aria-label="props.isTabStripCollapsed ? toolbarCopyValue.showTabs : toolbarCopyValue.hideTabs"
+          :title="props.isTabStripCollapsed ? toolbarCopyValue.showTabs : toolbarCopyValue.hideTabs"
+          @click="emit('toggleTabStrip')"
+        >
+          <AppIcon :name="props.isTabStripCollapsed ? 'chevron-down' : 'chevron-up'" :size="16" :stroke-width="2.3" />
         </button>
       </div>
     </div>

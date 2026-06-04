@@ -152,9 +152,9 @@ export function createDefaultMprMipConfig(): MprMipConfig {
     enabled: false,
     algorithm: 'maximum',
     viewports: {
-      'mpr-ax': { thickness: 12 },
-      'mpr-cor': { thickness: 12 },
-      'mpr-sag': { thickness: 12 }
+      'mpr-ax': { thickness: 10 },
+      'mpr-cor': { thickness: 10 },
+      'mpr-sag': { thickness: 10 }
     }
   }
 }
@@ -170,7 +170,7 @@ export function normalizeMprMipConfig(
     if (!Number.isFinite(numericThickness)) {
       return fallbackThickness
     }
-    return Math.max(1, Math.min(80, Math.round(numericThickness)))
+    return Math.max(0, Math.min(100, Math.round(numericThickness)))
   }
 
   return {

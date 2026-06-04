@@ -152,6 +152,7 @@ function hideSeriesHoverCard(): void {
           :connection-tone-class="connectionToneClass"
           :selected-series-id="selectedSeriesId"
           :series-list="seriesList"
+          :viewer-platform="viewerPlatform"
           @hide-series-hover-card="hideSeriesHoverCard"
           @open-menu="openMenu"
           @open-series-view="emit('openSeriesView', $event, 'Stack')"

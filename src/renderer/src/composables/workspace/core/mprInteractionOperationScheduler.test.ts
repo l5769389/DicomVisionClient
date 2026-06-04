@@ -221,6 +221,81 @@ describe('view interaction operation scheduler', () => {
     expect(timers[0].delay).toBe(200)
   })
 
+  it('throttles MPR MIP slider moves with backend preview feedback and flushes final value', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.mprMipConfig,
+      actionType: DRAG_ACTION_TYPES.move,
+      mprMipConfig: {
+        enabled: true,
+        viewports: {
+          'mpr-ax': { thickness: 12 }
+        }
+      }
+    })
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.mprMipConfig,
+      actionType: DRAG_ACTION_TYPES.move,
+      mprMipConfig: {
+        enabled: true,
+        viewports: {
+          'mpr-ax': { thickness: 24 }
+        }
+      }
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(0)
+
+    now = 96
+    scheduler.recordBackendPreview('mpr-ax', 1)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(4)
+
+    now = 100
+    timers[0].callback()
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.mprMipConfig,
+      actionType: DRAG_ACTION_TYPES.end,
+      mprMipConfig: {
+        enabled: true,
+        viewports: {
+          'mpr-ax': { thickness: 36 }
+        }
+      }
+    })
+
+    expect(emit).toHaveBeenCalledTimes(3)
+    expect(emit.mock.calls[1][1]).toMatchObject({
+      actionType: DRAG_ACTION_TYPES.move,
+      mprMipConfig: {
+        viewports: {
+          'mpr-ax': { thickness: 24 }
+        }
+      }
+    })
+    expect(emit.mock.calls[2][1]).toMatchObject({
+      actionType: DRAG_ACTION_TYPES.end,
+      mprMipConfig: {
+        viewports: {
+          'mpr-ax': { thickness: 36 }
+        }
+      }
+    })
+  })
+
   it('waits for matching same-revision MPR feedback before sending the next pan move', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []

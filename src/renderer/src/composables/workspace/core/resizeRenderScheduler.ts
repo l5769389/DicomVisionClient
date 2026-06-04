@@ -1,11 +1,12 @@
 import type { ViewerTabItem } from '../../../types/viewer'
 
 interface ResizeRenderSchedulerOptions {
-  cancelAnimationFrame?: (handle: number) => void
+  clearTimeout?: (handle: ReturnType<typeof window.setTimeout>) => void
+  debounceMs?: number
   getActiveTab: () => ViewerTabItem | null
   isViewLoading: () => boolean
   renderTab: (tabKey: string) => void
-  requestAnimationFrame?: (callback: FrameRequestCallback) => number
+  setTimeout?: (callback: () => void, timeout: number) => ReturnType<typeof window.setTimeout>
 }
 
 export function hasRenderableTabView(tab: ViewerTabItem | null): boolean {
@@ -18,30 +19,31 @@ export function hasRenderableTabView(tab: ViewerTabItem | null): boolean {
 }
 
 export function createResizeRenderScheduler(options: ResizeRenderSchedulerOptions) {
-  const requestFrame = options.requestAnimationFrame ?? window.requestAnimationFrame.bind(window)
-  const cancelFrame = options.cancelAnimationFrame ?? window.cancelAnimationFrame.bind(window)
-  let pendingFrame: number | null = null
+  const setTimer = options.setTimeout ?? window.setTimeout.bind(window)
+  const clearTimer = options.clearTimeout ?? window.clearTimeout.bind(window)
+  const debounceMs = Math.max(0, options.debounceMs ?? 180)
+  let pendingTimer: ReturnType<typeof window.setTimeout> | null = null
 
   function schedule(): void {
-    if (pendingFrame != null) {
-      return
+    if (pendingTimer != null) {
+      clearTimer(pendingTimer)
     }
 
-    pendingFrame = requestFrame(() => {
-      pendingFrame = null
+    pendingTimer = setTimer(() => {
+      pendingTimer = null
       const tab = options.getActiveTab()
       if (tab && hasRenderableTabView(tab) && !options.isViewLoading()) {
         options.renderTab(tab.key)
       }
-    })
+    }, debounceMs)
   }
 
   function cancel(): void {
-    if (pendingFrame == null) {
+    if (pendingTimer == null) {
       return
     }
-    cancelFrame(pendingFrame)
-    pendingFrame = null
+    clearTimer(pendingTimer)
+    pendingTimer = null
   }
 
   return {

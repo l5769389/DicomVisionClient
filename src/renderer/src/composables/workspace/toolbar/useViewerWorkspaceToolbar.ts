@@ -1010,13 +1010,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     stopPlayback()
   }
 
-  function updateActiveMprMipConfig(config: MprMipConfig): void {
+  function updateActiveMprMipConfig(config: MprMipConfig, actionType?: 'move' | 'end'): void {
     const activeTab = options.activeTab.value
     if (!activeTab || (activeTab.viewType !== 'MPR' && activeTab.viewType !== '4D')) {
       return
     }
 
-    options.emitTriggerViewAction({ action: 'mprMipConfig', config })
+    options.emitTriggerViewAction({ action: 'mprMipConfig', actionType, config })
   }
 
   function activateModeTool(tool: StackTool): void {

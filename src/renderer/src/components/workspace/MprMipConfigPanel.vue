@@ -3,9 +3,9 @@ defineOptions({
   inheritAttrs: false
 })
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
-import { normalizeMprMipConfig, type MprMipAlgorithm, type MprMipConfig, type MprViewportKey } from '../../types/viewer'
+import { createDefaultMprMipConfig, normalizeMprMipConfig, type MprMipAlgorithm, type MprMipConfig, type MprViewportKey } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 const props = defineProps<{
@@ -13,55 +13,123 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  configChange: [config: MprMipConfig]
+  configChange: [config: MprMipConfig, actionType?: 'move' | 'end']
 }>()
 
 const isCollapsed = ref(false)
 const { locale, mprProjectionCopy } = useUiLocale()
 const copy = computed(() => mprProjectionCopy.value)
 const isZh = computed(() => locale.value === 'zh-CN')
+const draftConfig = ref<MprMipConfig | null>(null)
+const activeDraftViewport = ref<MprViewportKey | null>(null)
+const MIP_THICKNESS_MIN_MM = 0
+const MIP_THICKNESS_MAX_MM = 100
+const resetLabel = computed(() => (isZh.value ? '重置' : 'Reset'))
 
-const algorithmOptions = computed<Array<{ value: MprMipAlgorithm; label: string; description: string }>>(() => [
-  { value: 'maximum', label: 'MaxIP', description: copy.value.maximumDesc },
-  { value: 'minimum', label: 'MinIP', description: copy.value.minimumDesc },
-  { value: 'average', label: isZh.value ? '平均' : 'Average', description: copy.value.averageDesc },
-  { value: 'sum', label: isZh.value ? '求和' : 'Sum', description: copy.value.sumDesc }
-])
+const algorithmOptions: ReadonlyArray<{ value: MprMipAlgorithm; label: string }> = [
+  { value: 'maximum', label: 'MaxIP' },
+  { value: 'minimum', label: 'MinIP' },
+  { value: 'average', label: 'Average' },
+  { value: 'sum', label: 'Sum' }
+]
 
-const viewportOptions: Array<{ key: MprViewportKey; label: string }> = [
+const viewportOptions: ReadonlyArray<{ key: MprViewportKey; label: string }> = [
   { key: 'mpr-ax', label: 'AX' },
   { key: 'mpr-cor', label: 'COR' },
   { key: 'mpr-sag', label: 'SAG' }
 ]
 
 const normalizedConfig = computed(() => normalizeMprMipConfig(props.config))
+const displayedConfig = computed(() => draftConfig.value ?? normalizedConfig.value)
 
-function updateConfig(patch: Partial<MprMipConfig>): void {
-  emit('configChange', {
-    ...props.config,
+watch(
+  () => props.config,
+  () => {
+    if (activeDraftViewport.value == null) {
+      draftConfig.value = null
+    }
+  },
+  { deep: true }
+)
+
+function cloneConfig(config: MprMipConfig): MprMipConfig {
+  return normalizeMprMipConfig(config)
+}
+
+function emitConfigPatch(patch: Partial<MprMipConfig>, actionType: 'move' | 'end' = 'end'): void {
+  const nextConfig = cloneConfig({
+    ...displayedConfig.value,
     ...patch
   })
+  if (actionType === 'move') {
+    draftConfig.value = nextConfig
+  } else {
+    draftConfig.value = null
+    activeDraftViewport.value = null
+  }
+  emit('configChange', nextConfig, actionType)
 }
 
 function setMipEnabled(enabled: boolean): void {
-  updateConfig({ enabled })
+  emitConfigPatch({ enabled }, 'end')
 }
 
-function updateViewportThickness(viewportKey: MprViewportKey, thickness: number): void {
-  const normalizedThickness = Math.max(1, Math.min(80, Math.round(Number.isFinite(thickness) ? thickness : 1)))
-  emit('configChange', {
-    ...props.config,
+function clampThicknessMm(thickness: number): number {
+  return Math.max(
+    MIP_THICKNESS_MIN_MM,
+    Math.min(MIP_THICKNESS_MAX_MM, Math.round(Number.isFinite(thickness) ? thickness : MIP_THICKNESS_MIN_MM))
+  )
+}
+
+function resolveNextViewportThicknessConfig(viewportKey: MprViewportKey, thickness: number): MprMipConfig {
+  return cloneConfig({
+    ...displayedConfig.value,
     viewports: {
-      ...props.config.viewports,
+      ...displayedConfig.value.viewports,
       [viewportKey]: {
-        thickness: normalizedThickness
+        thickness: clampThicknessMm(thickness)
       }
     }
   })
 }
 
-function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string): void {
-  updateViewportThickness(viewportKey, Number(value))
+function updateViewportThickness(viewportKey: MprViewportKey, thickness: number, actionType: 'move' | 'end' = 'move'): void {
+  const nextConfig = resolveNextViewportThicknessConfig(viewportKey, thickness)
+  if (actionType === 'move') {
+    activeDraftViewport.value = viewportKey
+    draftConfig.value = nextConfig
+  } else {
+    activeDraftViewport.value = null
+    draftConfig.value = null
+  }
+  emit('configChange', nextConfig, actionType)
+}
+
+function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string, actionType: 'move' | 'end' = 'move'): void {
+  updateViewportThickness(viewportKey, Number(value), actionType)
+}
+
+function beginViewportThicknessDrag(viewportKey: MprViewportKey): void {
+  activeDraftViewport.value = viewportKey
+  draftConfig.value = cloneConfig(displayedConfig.value)
+}
+
+function endViewportThicknessDrag(viewportKey: MprViewportKey, value: string | number): void {
+  updateViewportThickness(viewportKey, Number(value), 'end')
+}
+
+function resetViewportThicknesses(): void {
+  const defaults = createDefaultMprMipConfig()
+  emitConfigPatch(
+    {
+      viewports: {
+        'mpr-ax': { thickness: defaults.viewports['mpr-ax'].thickness },
+        'mpr-cor': { thickness: defaults.viewports['mpr-cor'].thickness },
+        'mpr-sag': { thickness: defaults.viewports['mpr-sag'].thickness }
+      }
+    },
+    'end'
+  )
 }
 </script>
 
@@ -78,6 +146,40 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
       </div>
       <div class="flex items-center gap-2">
         <button
+          data-testid="mpr-mip-enable-toggle"
+          class="inline-flex h-8 items-center gap-2 px-0 text-[11px] font-semibold transition"
+          :class="
+            displayedConfig.enabled
+              ? 'text-[var(--theme-text-primary)]'
+              : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'
+          "
+          type="button"
+          :aria-pressed="displayedConfig.enabled"
+          aria-label="MIP"
+          @click="setMipEnabled(!displayedConfig.enabled)"
+        >
+          <span
+            class="relative h-4 w-7 rounded-full border transition"
+            :class="displayedConfig.enabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]' : 'border-[var(--theme-border-strong)] bg-[var(--theme-surface-card)]'"
+          >
+            <span
+              class="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-[var(--theme-text-primary)] shadow-sm transition"
+              :class="displayedConfig.enabled ? 'left-[13px]' : 'left-0.5 opacity-70'"
+            ></span>
+          </span>
+          <span v-if="!isCollapsed">MIP</span>
+        </button>
+        <button
+          data-testid="mpr-mip-reset"
+          class="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 text-[11px] font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+          type="button"
+          :title="resetLabel"
+          @click="resetViewportThicknesses"
+        >
+          <AppIcon name="reset" :size="14" />
+          <span v-if="!isCollapsed">{{ resetLabel }}</span>
+        </button>
+        <button
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
           :title="isCollapsed ? copy.expand : copy.collapse"
@@ -89,83 +191,30 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
     </div>
 
     <div
-      v-if="!isCollapsed"
-      class="mb-3 rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] p-1"
+      class="mb-3 grid grid-cols-4 gap-2 transition"
+      :class="displayedConfig.enabled ? '' : 'opacity-50 grayscale'"
     >
-      <div class="grid grid-cols-2 gap-1">
-        <button
-          type="button"
-          class="rounded-[13px] border px-3 py-2.5 text-left transition"
-          :class="
-            !props.config.enabled
-              ? 'border-[color:color-mix(in_srgb,var(--theme-accent-warm)_48%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_12%,var(--theme-surface-card))] text-[var(--theme-text-primary)] shadow-[0_8px_18px_rgba(0,0,0,0.16)]'
-              : 'border-transparent text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card-soft)] hover:text-[var(--theme-text-primary)]'
-          "
-          @click="setMipEnabled(false)"
-        >
-          <span class="flex items-center justify-between gap-2">
-            <span class="text-[12px] font-semibold">{{ copy.disabled }}</span>
-            <span
-              class="h-2.5 w-2.5 rounded-full border"
-              :class="!props.config.enabled ? 'border-[var(--theme-accent-warm)] bg-[var(--theme-accent-warm)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent-warm)_18%,transparent)]' : 'border-[var(--theme-border-strong)]'"
-            ></span>
-          </span>
-          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">{{ copy.nativeMpr }}</span>
-        </button>
-        <button
-          type="button"
-          class="rounded-[13px] border px-3 py-2.5 text-left transition"
-          :class="
-            props.config.enabled
-              ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card))] text-[var(--theme-text-primary)] shadow-[0_8px_18px_rgba(0,0,0,0.16)]'
-              : 'border-transparent text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card-soft)] hover:text-[var(--theme-text-primary)]'
-          "
-          @click="setMipEnabled(true)"
-        >
-          <span class="flex items-center justify-between gap-2">
-            <span class="text-[12px] font-semibold">{{ copy.enabled }}</span>
-            <span
-              class="h-2.5 w-2.5 rounded-full border"
-              :class="props.config.enabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-strong)]'"
-            ></span>
-          </span>
-          <span class="mt-1 block text-[10px] leading-4 text-[var(--theme-text-muted)]">{{ copy.slabProjection }}</span>
-        </button>
-      </div>
-    </div>
-
-    <div
-      v-if="!isCollapsed"
-      class="mb-3 rounded-[16px] border px-3 py-2.5 transition"
-      :class="props.config.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'"
-    >
-      <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">{{ copy.algorithm }}</div>
-      <div class="grid grid-cols-1 gap-1.5">
-        <label
-          v-for="option in algorithmOptions"
-          :key="option.value"
-          class="flex cursor-pointer items-start gap-3 rounded-[12px] border px-3 py-2 transition"
-          :class="
-            props.config.algorithm === option.value
-              ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,transparent)]'
-              : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'
-          "
-        >
-          <input
-            class="mt-0.5 h-4 w-4 accent-[var(--theme-accent)]"
-            type="radio"
-            name="mpr-mip-algorithm"
-            :disabled="!props.config.enabled"
-            :value="option.value"
-            :checked="props.config.algorithm === option.value"
-            @change="updateConfig({ algorithm: option.value })"
-          />
-          <span class="min-w-0">
-            <span class="block text-[12px] font-medium text-[var(--theme-text-primary)]">{{ option.label }}</span>
-            <span class="mt-0.5 block text-[11px] leading-5 text-[var(--theme-text-secondary)]">{{ option.description }}</span>
-          </span>
-        </label>
-      </div>
+      <label
+        v-for="option in algorithmOptions"
+        :key="option.value"
+        class="flex min-w-0 cursor-pointer items-center justify-center rounded-[12px] border px-2 py-2 text-center transition"
+        :class="
+          displayedConfig.algorithm === option.value
+            ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-text-primary)]'
+            : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-card-soft)] hover:text-[var(--theme-text-primary)]'
+        "
+      >
+        <input
+          class="sr-only"
+          type="radio"
+          name="mpr-mip-algorithm"
+          :disabled="!displayedConfig.enabled"
+          :value="option.value"
+          :checked="displayedConfig.algorithm === option.value"
+          @change="emitConfigPatch({ algorithm: option.value }, 'end')"
+        />
+        <span class="truncate text-[11px] font-semibold">{{ option.label }}</span>
+      </label>
     </div>
 
     <div class="space-y-2">
@@ -175,33 +224,40 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
         class="rounded-[16px] border px-3 transition"
         :class="[
           isCollapsed ? 'py-2' : 'py-2.5',
-          props.config.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'
+          displayedConfig.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'
         ]"
       >
         <div v-if="isCollapsed" class="flex items-center gap-2">
           <div class="w-8 shrink-0 text-[12px] font-medium text-[var(--theme-text-primary)]">
             {{ viewport.label }}
           </div>
+          <span class="w-4 text-center text-[9px] font-semibold text-[var(--theme-text-muted)]">{{ MIP_THICKNESS_MIN_MM }}</span>
           <input
             class="min-w-0 flex-1 accent-[var(--theme-accent)]"
             type="range"
-            min="1"
-            max="80"
+            :min="MIP_THICKNESS_MIN_MM"
+            :max="MIP_THICKNESS_MAX_MM"
             step="1"
-            :disabled="!props.config.enabled"
-            :value="normalizedConfig.viewports[viewport.key].thickness"
-            @input="updateViewportThickness(viewport.key, Number(($event.target as HTMLInputElement).value))"
+            :disabled="!displayedConfig.enabled"
+            :value="displayedConfig.viewports[viewport.key].thickness"
+            @pointerdown="beginViewportThicknessDrag(viewport.key)"
+            @input="updateViewportThickness(viewport.key, Number(($event.target as HTMLInputElement).value), 'move')"
+            @change="endViewportThicknessDrag(viewport.key, ($event.target as HTMLInputElement).value)"
           />
+          <span class="w-5 text-center text-[9px] font-semibold text-[var(--theme-text-muted)]">{{ MIP_THICKNESS_MAX_MM }}</span>
           <label class="flex w-[72px] items-center justify-end gap-1 text-[10px] font-semibold uppercase text-[var(--theme-text-secondary)]">
             <input
               class="w-12 rounded-[10px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-1.5 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
               type="number"
-              min="1"
-              max="80"
+              :min="MIP_THICKNESS_MIN_MM"
+              :max="MIP_THICKNESS_MAX_MM"
               step="1"
-              :disabled="!props.config.enabled"
-              :value="normalizedConfig.viewports[viewport.key].thickness"
-              @input="updateViewportThicknessInput(viewport.key, ($event.target as HTMLInputElement).value)"
+              :disabled="!displayedConfig.enabled"
+              :value="displayedConfig.viewports[viewport.key].thickness"
+              @focus="beginViewportThicknessDrag(viewport.key)"
+              @input="updateViewportThicknessInput(viewport.key, ($event.target as HTMLInputElement).value, 'move')"
+              @change="endViewportThicknessDrag(viewport.key, ($event.target as HTMLInputElement).value)"
+              @blur="endViewportThicknessDrag(viewport.key, ($event.target as HTMLInputElement).value)"
             />
             <span>mm</span>
           </label>
@@ -216,12 +272,15 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
               <input
                 class="w-12 bg-transparent text-right text-[12px] text-[var(--theme-text-primary)] outline-none"
                 type="number"
-                min="1"
-                max="80"
+                :min="MIP_THICKNESS_MIN_MM"
+                :max="MIP_THICKNESS_MAX_MM"
                 step="1"
-                :disabled="!props.config.enabled"
-                :value="normalizedConfig.viewports[viewport.key].thickness"
-                @input="updateViewportThicknessInput(viewport.key, ($event.target as HTMLInputElement).value)"
+                :disabled="!displayedConfig.enabled"
+                :value="displayedConfig.viewports[viewport.key].thickness"
+                @focus="beginViewportThicknessDrag(viewport.key)"
+                @input="updateViewportThicknessInput(viewport.key, ($event.target as HTMLInputElement).value, 'move')"
+                @change="endViewportThicknessDrag(viewport.key, ($event.target as HTMLInputElement).value)"
+                @blur="endViewportThicknessDrag(viewport.key, ($event.target as HTMLInputElement).value)"
               />
               <span>mm</span>
             </label>
@@ -230,13 +289,19 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
           <input
             class="w-full accent-[var(--theme-accent)]"
             type="range"
-            min="1"
-            max="80"
+            :min="MIP_THICKNESS_MIN_MM"
+            :max="MIP_THICKNESS_MAX_MM"
             step="1"
-            :disabled="!props.config.enabled"
-            :value="normalizedConfig.viewports[viewport.key].thickness"
-            @input="updateViewportThickness(viewport.key, Number(($event.target as HTMLInputElement).value))"
+            :disabled="!displayedConfig.enabled"
+            :value="displayedConfig.viewports[viewport.key].thickness"
+            @pointerdown="beginViewportThicknessDrag(viewport.key)"
+            @input="updateViewportThickness(viewport.key, Number(($event.target as HTMLInputElement).value), 'move')"
+            @change="endViewportThicknessDrag(viewport.key, ($event.target as HTMLInputElement).value)"
           />
+          <div class="mt-1 flex items-center justify-between text-[9px] font-semibold text-[var(--theme-text-muted)]">
+            <span>{{ MIP_THICKNESS_MIN_MM }}mm</span>
+            <span>{{ MIP_THICKNESS_MAX_MM }}mm</span>
+          </div>
         </template>
       </div>
     </div>

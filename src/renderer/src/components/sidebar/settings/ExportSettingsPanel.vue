@@ -195,7 +195,7 @@ const {
               <div class="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <div class="text-base font-semibold text-[var(--theme-text-primary)]">PNG</div>
-                  <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F10</div>
+                  <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F9</div>
                 </div>
                 <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent)_26%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">{{ imageFormatBadge }}</span>
               </div>
@@ -234,7 +234,7 @@ const {
               <div class="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <div class="text-base font-semibold text-[var(--theme-text-primary)]">DICOM</div>
-                  <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F11</div>
+                  <div class="mt-1 text-xs text-[var(--theme-text-muted)]">F10</div>
                 </div>
                 <span class="rounded-full border border-[color:color-mix(in_srgb,var(--theme-accent-warm)_28%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-text-secondary)]">{{ datasetFormatBadge }}</span>
               </div>

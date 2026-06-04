@@ -203,13 +203,13 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    if (event.key === 'F10' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (event.key === 'F9' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault()
       options.exportCurrentView('png')
       return
     }
 
-    if (event.key === 'F11' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (event.key === 'F10' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault()
       options.exportCurrentView('dicom')
       return

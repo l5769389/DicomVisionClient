@@ -1737,13 +1737,28 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
+      const metadataSeriesId =
+        item.viewType === '4D' && fourDViewportMatch
+          ? resolveFourDPhaseSeriesId(item, fourDViewportMatch.phaseKey)
+          : item.seriesId
+      const seriesCornerInfo =
+        options.seriesCornerInfoMap.value[metadataSeriesId] ??
+        options.seriesCornerInfoMap.value[item.seriesId] ??
+        createEmptyCornerInfo()
+      const hasCornerInfoPayload = payload.cornerInfo != null
+      const stateCornerInfo = hasCornerInfoPayload
+        ? options.withHoverCornerInfo(
+            mergeCornerInfo(seriesCornerInfo, options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo)))
+          )
+        : null
       const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
       const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
-      const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
-      const orientationInfo = normalizeOrientationInfo(payload.orientation)
-      const transformState = payload.transform ?? createDefaultTransformInfo()
+      const rawScaleBar = payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null)
+      const scaleBar = rawScaleBar != null ? normalizeScaleBarInfo(rawScaleBar) : null
+      const orientationInfo = payload.orientation != null ? normalizeOrientationInfo(payload.orientation) : null
+      const transformState = payload.transform ?? null
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : item.mprCrosshairMode ?? 'orthogonal'
 
@@ -1772,17 +1787,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               ...(phaseCacheSeed.viewportCrosshairs ?? createEmptyMprCrosshairs()),
               [viewportKey]: mprCrosshair ?? phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null
             },
+            viewportCornerInfos: {
+              ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
+              [viewportKey]: stateCornerInfo ?? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? createEmptyCornerInfo()
+            },
             viewportScaleBars: {
               ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
               [viewportKey]: scaleBar ?? phaseCacheSeed.viewportScaleBars?.[viewportKey] ?? null
             },
             viewportOrientations: {
               ...(phaseCacheSeed.viewportOrientations ?? createEmptyMprOrientations()),
-              [viewportKey]: orientationInfo
+              [viewportKey]: orientationInfo ?? phaseCacheSeed.viewportOrientations?.[viewportKey] ?? createEmptyOrientationInfo()
             },
             viewportTransformStates: {
               ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
-              [viewportKey]: transformState
+              [viewportKey]: transformState ?? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
             }
           }
         }
@@ -1831,17 +1850,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
           [viewportKey]: mprCrosshair ?? item.viewportCrosshairs?.[viewportKey] ?? null
         },
+        viewportCornerInfos: {
+          ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
+          [viewportKey]: stateCornerInfo ?? item.viewportCornerInfos?.[viewportKey] ?? createEmptyCornerInfo()
+        },
         viewportScaleBars: {
           ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
           [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
         },
         viewportOrientations: {
           ...(item.viewportOrientations ?? createEmptyMprOrientations()),
-          [viewportKey]: orientationInfo
+          [viewportKey]: orientationInfo ?? item.viewportOrientations?.[viewportKey] ?? createEmptyOrientationInfo()
         },
         viewportTransformStates: {
           ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
-          [viewportKey]: transformState
+          [viewportKey]: transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
         },
         mprMipConfig,
         mprCrosshairMode,

@@ -13,10 +13,12 @@ defineProps<{
   activeTools: StackTool[]
   areToolbarActionsDisabled: boolean
   embedded?: boolean
+  isTabStripCollapsed?: boolean
   isPlaying: boolean
   isPlaybackPaused: boolean
   isToolSelected: (tool: StackTool) => boolean
   openMenuKey: string | null
+  showTabStripToggle?: boolean
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
   menuIconSize: number
@@ -29,6 +31,7 @@ const emit = defineEmits<{
   pausePlayback: []
   selectToolOption: [tool: StackTool, optionValue: string]
   setMenuOpen: [toolKey: string | null]
+  toggleTabStrip: []
 }>()
 
 const { toolbarCopy: copy } = useUiLocale()
@@ -63,13 +66,13 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
 <template>
   <VCard
-    class="viewer-toolbar-card flex min-h-9 shrink-0 items-center justify-start overflow-visible rounded-xl!"
+    class="viewer-toolbar-card flex min-h-9 w-full shrink-0 items-center justify-start overflow-visible rounded-xl!"
     :class="[
       embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'viewer-toolbar-card--standalone border-0! px-2! py-1! shadow-none!',
       areToolbarActionsDisabled ? 'viewer-toolbar-card--locked' : ''
     ]"
   >
-    <div class="flex flex-1 flex-wrap items-center justify-start gap-1.5 overflow-visible">
+    <div class="viewer-toolbar-tools flex min-w-0 flex-1 flex-nowrap items-center justify-start gap-1.5 overflow-x-auto overflow-y-visible">
       <div
         v-for="tool in activeTools"
         :key="tool.key"
@@ -192,12 +195,12 @@ function getSelectedPlaybackFps(value: string | undefined): string {
               <VBtn
                 v-bind="menuProps"
                 variant="flat"
-                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-9! w-6! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l! border-l-white/10! transition hover:brightness-110"
+                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-9! w-5! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l! border-l-white/10! px-0! transition hover:brightness-110"
                 :disabled="areToolbarActionsDisabled"
                 :aria-expanded="openMenuKey === tool.key"
                 :title="copy.toolOptions(tool.label)"
               >
-                <AppIcon name="chevron-down" :size="toggleIconSize" :stroke-width="2.2" />
+                <AppIcon name="chevron-down" :size="Math.max(10, toggleIconSize - 1)" :stroke-width="2.2" />
               </VBtn>
             </template>
 
@@ -294,10 +297,50 @@ function getSelectedPlaybackFps(value: string | undefined): string {
         </template>
       </div>
     </div>
+    <div
+      v-if="showTabStripToggle"
+      class="toolbar-tab-strip-toggle ml-2 flex h-9 shrink-0 items-center border-l border-[color:color-mix(in_srgb,var(--theme-border-strong)_58%,transparent)] pl-2"
+    >
+      <VBtn
+        variant="flat"
+        type="button"
+        class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
+        :title="isTabStripCollapsed ? copy.showTabs : copy.hideTabs"
+        :aria-label="isTabStripCollapsed ? copy.showTabs : copy.hideTabs"
+        @click="emit('toggleTabStrip')"
+      >
+        <AppIcon :name="isTabStripCollapsed ? 'chevron-down' : 'chevron-up'" :size="toggleIconSize + 2" :stroke-width="2.3" />
+      </VBtn>
+    </div>
   </VCard>
 </template>
 
 <style scoped>
+.viewer-toolbar-card {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+}
+
+.viewer-toolbar-tools {
+  flex: 1 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.viewer-toolbar-tools::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar-tool-group {
+  flex: 0 0 auto;
+}
+
+.toolbar-tool-menu-button :deep(.v-btn__content) {
+  min-width: 0;
+}
+
 .viewer-toolbar-card--standalone {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card-soft) 60%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 82%, transparent)) !important;

@@ -2,6 +2,7 @@
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 defineProps<{
+  compact?: boolean
   viewerPlatform: 'desktop' | 'web'
 }>()
 
@@ -9,10 +10,13 @@ const { t } = useUiLocale()
 </script>
 
 <template>
-  <div class="sidebar-brand-card relative overflow-hidden rounded-2xl border p-3">
+  <div
+    class="sidebar-brand-card relative overflow-hidden rounded-2xl border p-3"
+    :class="{ 'sidebar-brand-card--compact': compact }"
+  >
     <div class="sidebar-brand-card__shine pointer-events-none absolute inset-x-0 top-0 h-px"></div>
 
-    <div class="relative z-[1] flex min-w-0 items-center gap-3">
+    <div class="sidebar-brand-content relative z-[1] flex min-w-0 items-center gap-3">
       <div class="sidebar-brand-mark shrink-0" aria-hidden="true">
         <span class="sidebar-brand-mark__frame"></span>
         <span class="sidebar-brand-mark__slice sidebar-brand-mark__slice--top"></span>
@@ -20,7 +24,7 @@ const { t } = useUiLocale()
         <span class="sidebar-brand-mark__letters">DV</span>
       </div>
 
-      <div class="min-w-0 flex-1">
+      <div v-if="!compact" class="min-w-0 flex-1">
         <div class="flex min-w-0 items-center gap-2">
           <div class="sidebar-brand-title min-w-0 truncate">DICOM Vision</div>
           <div class="sidebar-brand-platform shrink-0 rounded-full border">
@@ -40,6 +44,19 @@ const { t } = useUiLocale()
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 10px 20px color-mix(in srgb, black 14%, transparent);
+}
+
+.sidebar-brand-card--compact {
+  display: flex;
+  width: 62px;
+  justify-content: center;
+  border-radius: 20px;
+  padding: 4px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-content {
+  justify-content: center;
+  gap: 0;
 }
 
 .sidebar-brand-card__shine {

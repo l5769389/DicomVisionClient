@@ -162,8 +162,10 @@ export interface WorkspaceExportCopy {
 }
 
 export interface ToolbarCopy {
+  hideTabs: string
   pausePlayback: string
   resumePlayback: string
+  showTabs: string
   stopPlayback: string
   toolOptions: (toolLabel: string) => string
 }
@@ -524,8 +526,10 @@ export const uiMessages = {
       exportedTo: (location: string) => `已导出到 ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      hideTabs: '收起标签栏',
       pausePlayback: '暂停播放',
       resumePlayback: '继续播放',
+      showTabs: '展开标签栏',
       stopPlayback: '停止播放',
       toolOptions: (toolLabel: string) => `${toolLabel} 选项`
     } satisfies ToolbarCopy,
@@ -881,8 +885,10 @@ export const uiMessages = {
       exportedTo: (location: string) => `Exported to ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      hideTabs: 'Hide tabs',
       pausePlayback: 'Pause playback',
       resumePlayback: 'Resume playback',
+      showTabs: 'Show tabs',
       stopPlayback: 'Stop playback',
       toolOptions: (toolLabel: string) => `${toolLabel} options`
     } satisfies ToolbarCopy,

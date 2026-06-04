@@ -3,6 +3,7 @@ import {
   resolveMprCrosshairForImageUpdate,
   resolveOptimisticMprCrosshairCenter,
   resolveOptimisticMprCrosshairRotation,
+  resolveOptimisticMprCrosshairSlabOffsets,
   shouldCompleteMprCrosshairSettling,
   shouldPreserveLocalMprCrosshair,
   shouldSuppressMprCrosshairPreviewImageUpdate,
@@ -526,5 +527,71 @@ describe('mprInteractionGuard', () => {
 
     expect(rotation?.horizontalAngleRad).toBeCloseTo(Math.PI / 2)
     expect(rotation?.verticalAngleRad).toBeCloseTo(0.7)
+  })
+
+  it('rotates optimistic MIP slab offsets using canvas pixel aspect', () => {
+    const slabOffsets = resolveOptimisticMprCrosshairSlabOffsets({
+      currentCrosshair: {
+        centerX: 0.5,
+        centerY: 0.5,
+        hitRadius: 0.025,
+        horizontalAngleRad: 0,
+        verticalAngleRad: Math.PI / 2,
+        horizontalSlabOffsetX: 0,
+        horizontalSlabOffsetY: 0.1,
+        verticalSlabOffsetX: 0.2,
+        verticalSlabOffsetY: 0
+      },
+      lock: createLock({
+        mode: 'rotate',
+        startHorizontalAngleRad: 0,
+        startVerticalAngleRad: Math.PI / 2,
+        startHorizontalSlabOffsetX: 0,
+        startHorizontalSlabOffsetY: 0.1,
+        startVerticalSlabOffsetX: 0.2,
+        startVerticalSlabOffsetY: 0
+      }),
+      horizontalAngleRad: Math.PI / 2,
+      verticalAngleRad: 0,
+      canvasWidth: 200,
+      canvasHeight: 100
+    })
+
+    expect(slabOffsets.horizontalSlabOffsetX).toBeCloseTo(-0.05)
+    expect(slabOffsets.horizontalSlabOffsetY).toBeCloseTo(0)
+    expect(slabOffsets.verticalSlabOffsetX).toBeCloseTo(0)
+    expect(slabOffsets.verticalSlabOffsetY).toBeCloseTo(-0.4)
+  })
+
+  it('preserves optimistic MIP slab offsets when no rotation delta is applied', () => {
+    const slabOffsets = resolveOptimisticMprCrosshairSlabOffsets({
+      currentCrosshair: {
+        centerX: 0.5,
+        centerY: 0.5,
+        hitRadius: 0.025,
+        horizontalAngleRad: 0.3,
+        verticalAngleRad: 1.2,
+        horizontalSlabOffsetX: 0.01,
+        horizontalSlabOffsetY: 0.02,
+        verticalSlabOffsetX: -0.03,
+        verticalSlabOffsetY: 0.04
+      },
+      lock: createLock({
+        mode: 'move',
+        startHorizontalAngleRad: 0.3,
+        startVerticalAngleRad: 1.2
+      }),
+      horizontalAngleRad: 0.3,
+      verticalAngleRad: 1.2,
+      canvasWidth: 200,
+      canvasHeight: 100
+    })
+
+    expect(slabOffsets).toEqual({
+      horizontalSlabOffsetX: 0.01,
+      horizontalSlabOffsetY: 0.02,
+      verticalSlabOffsetX: -0.03,
+      verticalSlabOffsetY: 0.04
+    })
   })
 })

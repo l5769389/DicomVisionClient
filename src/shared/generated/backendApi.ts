@@ -195,6 +195,10 @@ export interface MprCrosshairInfo {
   verticalPosition?: number | null
   horizontalAngleRad?: number | null
   verticalAngleRad?: number | null
+  horizontalSlabOffsetX?: number | null
+  horizontalSlabOffsetY?: number | null
+  verticalSlabOffsetX?: number | null
+  verticalSlabOffsetY?: number | null
 }
 
 export type MprCrosshairMode = 'orthogonal' | 'double-oblique'

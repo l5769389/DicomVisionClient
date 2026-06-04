@@ -1,3 +1,4 @@
+import type { DragActionType } from '@shared/viewerConstants'
 import type { MprCrosshairMode, MprMipConfig } from '../../../types/viewer'
 
 export type ViewerToolbarAction =
@@ -16,6 +17,7 @@ export type ViewerToolbarAction =
 
 export interface ViewerToolbarActionPayload {
   action: ViewerToolbarAction
+  actionType?: DragActionType
   value?: string
   config?: MprMipConfig
   mode?: MprCrosshairMode

@@ -22,6 +22,10 @@ export interface ActiveMprCrosshairDragLock {
   startPointerAngleRad?: number
   startHorizontalAngleRad?: number
   startVerticalAngleRad?: number
+  startHorizontalSlabOffsetX?: number | null
+  startHorizontalSlabOffsetY?: number | null
+  startVerticalSlabOffsetX?: number | null
+  startVerticalSlabOffsetY?: number | null
   isDoubleOblique?: boolean
 }
 
@@ -227,5 +231,64 @@ export function resolveOptimisticMprCrosshairRotation(params: {
       ? startHorizontalAngleRad
       : normalizeCrosshairAngle(verticalAngleRad - Math.PI / 2),
     verticalAngleRad
+  }
+}
+
+function rotateNormalizedOffset(params: {
+  offsetX: number | null | undefined
+  offsetY: number | null | undefined
+  deltaRad: number
+  canvasWidth?: number | null
+  canvasHeight?: number | null
+}): { x: number | null; y: number | null } {
+  const x = finiteNumberOrNull(params.offsetX)
+  const y = finiteNumberOrNull(params.offsetY)
+  if (x == null || y == null) {
+    return { x, y }
+  }
+
+  const width = finitePositiveNumberOrNull(params.canvasWidth) ?? 1
+  const height = finitePositiveNumberOrNull(params.canvasHeight) ?? 1
+  const pixelX = x * width
+  const pixelY = y * height
+  const cos = Math.cos(params.deltaRad)
+  const sin = Math.sin(params.deltaRad)
+  return {
+    x: (pixelX * cos - pixelY * sin) / width,
+    y: (pixelX * sin + pixelY * cos) / height
+  }
+}
+
+export function resolveOptimisticMprCrosshairSlabOffsets(params: {
+  currentCrosshair: MprCrosshairInfo | null | undefined
+  lock: ActiveMprCrosshairDragLock | null | undefined
+  horizontalAngleRad: number
+  verticalAngleRad: number
+  canvasWidth?: number | null
+  canvasHeight?: number | null
+}): Pick<MprCrosshairInfo, 'horizontalSlabOffsetX' | 'horizontalSlabOffsetY' | 'verticalSlabOffsetX' | 'verticalSlabOffsetY'> {
+  const currentCrosshair = params.currentCrosshair ?? null
+  const lock = params.lock ?? null
+  const startHorizontalAngle = finiteNumberOrNull(lock?.startHorizontalAngleRad) ?? currentCrosshair?.horizontalAngleRad ?? 0
+  const startVerticalAngle = finiteNumberOrNull(lock?.startVerticalAngleRad) ?? currentCrosshair?.verticalAngleRad ?? Math.PI / 2
+  const horizontalOffset = rotateNormalizedOffset({
+    offsetX: lock?.startHorizontalSlabOffsetX ?? currentCrosshair?.horizontalSlabOffsetX ?? null,
+    offsetY: lock?.startHorizontalSlabOffsetY ?? currentCrosshair?.horizontalSlabOffsetY ?? null,
+    deltaRad: normalizeFullTurnDelta(params.horizontalAngleRad - startHorizontalAngle),
+    canvasWidth: params.canvasWidth,
+    canvasHeight: params.canvasHeight
+  })
+  const verticalOffset = rotateNormalizedOffset({
+    offsetX: lock?.startVerticalSlabOffsetX ?? currentCrosshair?.verticalSlabOffsetX ?? null,
+    offsetY: lock?.startVerticalSlabOffsetY ?? currentCrosshair?.verticalSlabOffsetY ?? null,
+    deltaRad: normalizeFullTurnDelta(params.verticalAngleRad - startVerticalAngle),
+    canvasWidth: params.canvasWidth,
+    canvasHeight: params.canvasHeight
+  })
+  return {
+    horizontalSlabOffsetX: horizontalOffset.x,
+    horizontalSlabOffsetY: horizontalOffset.y,
+    verticalSlabOffsetX: verticalOffset.x,
+    verticalSlabOffsetY: verticalOffset.y
   }
 }

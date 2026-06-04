@@ -41,8 +41,8 @@ import {
   mdiLanDisconnect,
   mdiLanPending,
   mdiLayersTriple,
+  mdiLoupe,
   mdiMagnify,
-  mdiMagnifyPlusCursor,
   mdiMolecule,
   mdiPaletteOutline,
   mdiPaletteSwatchOutline,
@@ -84,7 +84,7 @@ const props = defineProps<{
 
 const mdiIconMap: Record<string, string> = {
   pan: mdiCursorMove,
-  zoom: mdiMagnifyPlusCursor,
+  zoom: mdiLoupe,
   window: mdiContrastCircle,
   crosshair: mdiCrosshairsGps,
   mip: mdiLayersTriple,

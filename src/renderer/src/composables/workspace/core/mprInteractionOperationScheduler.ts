@@ -33,14 +33,19 @@ interface MprInteractionOperationSchedulerOptions<TPayload extends SchedulableVi
 const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
   VIEW_OPERATION_TYPES.crosshair,
+  VIEW_OPERATION_TYPES.mprMipConfig,
   VIEW_OPERATION_TYPES.mprOblique
 ])
 
 const BACKEND_PREVIEW_EWMA_ALPHA = 0.25
 const DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS = 2
+const BACKEND_FEEDBACK_IDLE_GAP_MS = 5000
 const MIN_VIEW_MOVE_INTERVAL_MS = 16
 const FRONTEND_RENDER_MARGIN_MS = 4
-const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>(STACK_DRAG_OPERATIONS)
+const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
+  ...STACK_DRAG_OPERATIONS,
+  VIEW_OPERATION_TYPES.mprMipConfig
+])
 
 function getOperationQueueKey(operationKey: string, payload: SchedulableViewOperation): string | null {
   if (!INTERACTIVE_MOVE_OPERATION_TYPES.has(payload.opType)) {
@@ -66,7 +71,12 @@ function shouldWaitForMatchingFeedback(payload: SchedulableViewOperation): boole
   return MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
 }
 
-function logCoalescingStats(scheduledMoves: number, emittedMoves: number, intervalMs: number): void {
+function logCoalescingStats(
+  scheduledMoves: number,
+  emittedMoves: number,
+  intervalMs: number,
+  operation: ScheduledViewOperation<SchedulableViewOperation>
+): void {
   if (!import.meta.env.DEV || scheduledMoves <= 0 || scheduledMoves % 120 !== 0) {
     return
   }
@@ -74,6 +84,8 @@ function logCoalescingStats(scheduledMoves: number, emittedMoves: number, interv
   console.debug('[view perf] interactive moves throttled', {
     emittedMoves,
     intervalMs,
+    operationKey: operation.operationKey,
+    opType: operation.payload.opType,
     scheduledMoves
   })
 }
@@ -138,7 +150,7 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
       sentMoveAtByKey.set(operation.operationKey, sentAt)
     }
     options.emit(operation.operationKey, operation.payload as TPayload)
-    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey))
+    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey), operation)
   }
 
   function schedulePending(emitter: ThrottledOperationEmitter): void {
@@ -227,11 +239,14 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
           : previousIntervalMs * (1 - BACKEND_PREVIEW_EWMA_ALPHA) + sampleMs * BACKEND_PREVIEW_EWMA_ALPHA
       backendPreviewIntervalByKey.set(feedbackKey, nextIntervalMs)
     } else if (lastBackendPreview != null) {
-      const sampleMs = normalizeMoveInterval(now - lastBackendPreview.at)
-      fallbackPreviewIntervalMs =
-        fallbackPreviewIntervalMs == null
-          ? sampleMs
-          : fallbackPreviewIntervalMs * (1 - BACKEND_PREVIEW_EWMA_ALPHA) + sampleMs * BACKEND_PREVIEW_EWMA_ALPHA
+      const elapsedSinceLastFeedbackMs = now - lastBackendPreview.at
+      if (elapsedSinceLastFeedbackMs <= BACKEND_FEEDBACK_IDLE_GAP_MS) {
+        const sampleMs = normalizeMoveInterval(elapsedSinceLastFeedbackMs)
+        fallbackPreviewIntervalMs =
+          fallbackPreviewIntervalMs == null
+            ? sampleMs
+            : fallbackPreviewIntervalMs * (1 - BACKEND_PREVIEW_EWMA_ALPHA) + sampleMs * BACKEND_PREVIEW_EWMA_ALPHA
+      }
     }
     lastBackendPreviewByKey.set(feedbackKey, {
       at: now,

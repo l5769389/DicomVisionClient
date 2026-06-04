@@ -46,6 +46,7 @@ import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
 import {
   resolveOptimisticMprCrosshairCenter,
   resolveOptimisticMprCrosshairRotation,
+  resolveOptimisticMprCrosshairSlabOffsets,
   shouldPreserveLocalMprCrosshair,
   type ActiveMprCrosshairDragLock,
   type IncomingMprViewportUpdate
@@ -240,7 +241,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   // These operations can be adjusted continuously from sliders/draggers. The UI
   // stays optimistic, while the backend receives only the last value in a burst.
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
-  const MPR_MIP_CONFIG_DEBOUNCE_MS = 120
+  const PREVIEW_PERF_IDLE_GAP_MS = 5000
   // During MPR crosshair drag, incoming render frames may lag behind the pointer.
   // Keep the active viewport locally anchored, with the timer as a missing-end fallback.
   const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 1800
@@ -284,7 +285,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let backendConnectionPromise: Promise<void> | null = null
   let removeBackendOriginChangedListener: (() => void) | null = null
   let removeBackendStatusChangedListener: (() => void) | null = null
-
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
   )
@@ -293,8 +293,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
-  let pendingMprMipConfigTimer: ReturnType<typeof window.setTimeout> | null = null
-  let pendingMprMipConfigPayload: { viewIds: string[]; config: MprMipConfig } | null = null
   let activeMprCrosshairDragLockTimer: ReturnType<typeof window.setTimeout> | null = null
   const folderLoadRequestGuard = createLatestRequestGuard()
   const fourDPlaybackStartTokens = new Map<string, number>()
@@ -565,6 +563,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         }
       : (() => {
           const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
+          const currentCrosshair = tab.viewportCrosshairs?.[payload.viewportKey] ?? null
           if (mode === 'move') {
             return {
               tabKey: tab.key,
@@ -599,6 +598,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             startPointerAngleRad: getMprPointerAngleRad(optimisticPointer, centerX, centerY),
             startHorizontalAngleRad: geometry?.horizontalAngleRad ?? 0,
             startVerticalAngleRad: geometry?.verticalAngleRad ?? Math.PI / 2,
+            startHorizontalSlabOffsetX: currentCrosshair?.horizontalSlabOffsetX ?? null,
+            startHorizontalSlabOffsetY: currentCrosshair?.horizontalSlabOffsetY ?? null,
+            startVerticalSlabOffsetX: currentCrosshair?.verticalSlabOffsetX ?? null,
+            startVerticalSlabOffsetY: currentCrosshair?.verticalSlabOffsetY ?? null,
             isDoubleOblique: tab.mprCrosshairMode === 'double-oblique'
           }
         })()
@@ -768,14 +771,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return config
   }
 
-  function emitMprMipConfig(viewIds: string[], config: MprMipConfig): void {
+  function emitMprMipConfig(viewId: string, config: MprMipConfig, actionType: 'move' | 'end' = 'end'): void {
     const mprMipConfig = createMprMipOperationConfig(config)
-    viewIds.forEach((viewId) => {
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.mprMipConfig,
-        mprMipConfig
-      })
+    viewInteractionOperationScheduler.emit(viewId, {
+      viewId,
+      opType: VIEW_OPERATION_TYPES.mprMipConfig,
+      actionType,
+      mprMipConfig
     })
   }
 
@@ -785,33 +787,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       opType: VIEW_OPERATION_TYPES.mprCrosshairMode,
       mprCrosshairMode: mode
     })
-  }
-
-  function clearPendingMprMipConfig(): void {
-    if (pendingMprMipConfigTimer != null) {
-      window.clearTimeout(pendingMprMipConfigTimer)
-      pendingMprMipConfigTimer = null
-    }
-    pendingMprMipConfigPayload = null
-  }
-
-  function flushPendingMprMipConfig(): void {
-    if (!pendingMprMipConfigPayload) {
-      return
-    }
-    const { viewIds, config } = pendingMprMipConfigPayload
-    clearPendingMprMipConfig()
-    emitMprMipConfig(viewIds, config)
-  }
-
-  function scheduleMprMipConfigEmit(viewIds: string[], config: MprMipConfig): void {
-    pendingMprMipConfigPayload = { viewIds, config }
-    if (pendingMprMipConfigTimer != null) {
-      window.clearTimeout(pendingMprMipConfigTimer)
-    }
-    pendingMprMipConfigTimer = window.setTimeout(() => {
-      flushPendingMprMipConfig()
-    }, MPR_MIP_CONFIG_DEBOUNCE_MS)
   }
 
   function hasVolumeView(tab: ViewerTabItem): boolean {
@@ -946,12 +921,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'mprMipConfig' && payload.config) {
-      const viewIds = Object.values(tab.viewportViewIds ?? {}).filter((viewId): viewId is string => Boolean(viewId))
-      if (!viewIds.length) {
+      const viewId = getActiveMprOperationViewId(tab)
+      if (!viewId) {
         return
       }
       const previousConfig = tab.mprMipConfig ?? createDefaultMprMipConfig()
       const shouldEmitDisabled = previousConfig.enabled && !payload.config.enabled
+      const actionType = payload.actionType === DRAG_ACTION_TYPES.move ? DRAG_ACTION_TYPES.move : DRAG_ACTION_TYPES.end
 
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
@@ -964,13 +940,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       if (!payload.config.enabled) {
         if (shouldEmitDisabled) {
-          clearPendingMprMipConfig()
-          emitMprMipConfig(viewIds, payload.config)
+          viewInteractionOperationScheduler.cancel()
+          emitMprMipConfig(viewId, payload.config, DRAG_ACTION_TYPES.end)
         }
         return
       }
 
-      scheduleMprMipConfigEmit(viewIds, payload.config)
+      emitMprMipConfig(viewId, payload.config, actionType)
       return
     }
 
@@ -1153,7 +1129,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         if (!viewId) {
           return
         }
-        clearPendingMprMipConfig()
+        viewInteractionOperationScheduler.cancel()
 
         viewerTabs.value = viewerTabs.value.map((item) => {
           if (item.key !== tab.key) {
@@ -1218,7 +1194,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (!viewId) {
         return
       }
-      clearPendingMprMipConfig()
+      viewInteractionOperationScheduler.cancel()
 
       viewerTabs.value = viewerTabs.value.map((item) => {
         if (item.key !== tab.key) {
@@ -1923,7 +1899,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.imageFormat === 'jpeg') {
+    logInteractivePreviewReceiveInterval(tab, payload)
+    if (payload.imageFormat === 'jpeg' || payload.imageFormat === 'png') {
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
       viewInteractionOperationScheduler.recordBackendPreview(
         viewId,
@@ -1931,6 +1908,45 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       )
     }
     views.updateTabImage(tab.key, payload, imageBinary)
+  }
+
+  const interactivePreviewTimingByView = new Map<string, number>()
+
+  function logInteractivePreviewReceiveInterval(tab: ViewerTabItem, payload: Partial<ViewImageResponse>): void {
+    if (!import.meta.env.DEV || !payload.viewId || (payload.imageFormat !== 'jpeg' && payload.imageFormat !== 'png')) {
+      return
+    }
+
+    const perfScope = isMprLikeViewType(tab.viewType) ? 'mpr' : isStackLikeViewType(tab.viewType) ? 'stack' : null
+    if (!perfScope) {
+      return
+    }
+
+    const key = `${perfScope}:${payload.viewId}`
+    const now = performance.now()
+    const previousAt = interactivePreviewTimingByView.get(key)
+    interactivePreviewTimingByView.set(key, now)
+    if (previousAt == null) {
+      return
+    }
+    const deltaMs = now - previousAt
+    if (deltaMs > PREVIEW_PERF_IDLE_GAP_MS) {
+      console.debug(`[${perfScope} perf] image_update interval restarted`, {
+        idleMs: Math.round(deltaMs * 10) / 10,
+        format: payload.imageFormat,
+        viewType: tab.viewType,
+        viewId: payload.viewId
+      })
+      return
+    }
+    const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
+    console.debug(`[${perfScope} perf] image_update interval`, {
+      deltaMs: Math.round(deltaMs * 10) / 10,
+      format: payload.imageFormat,
+      mprRevision: typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null,
+      viewType: tab.viewType,
+      viewId: payload.viewId
+    })
   }
 
   let pendingViewSizeRecovery = false
@@ -2203,14 +2219,24 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
             const centerX = previousCrosshair?.centerX ?? geometry?.center.x ?? 0.5
             const centerY = previousCrosshair?.centerY ?? geometry?.center.y ?? 0.5
+            const slabOffsets = resolveOptimisticMprCrosshairSlabOffsets({
+              currentCrosshair: previousCrosshair,
+              lock: activeMprCrosshairDragLock.value,
+              horizontalAngleRad: rotation.horizontalAngleRad,
+              verticalAngleRad: rotation.verticalAngleRad,
+              canvasWidth: optimisticPointer.canvasWidth,
+              canvasHeight: optimisticPointer.canvasHeight
+            })
             return {
+              ...(previousCrosshair ?? {}),
               centerX,
               centerY,
               hitRadius: previousCrosshair?.hitRadius ?? 0.025,
               horizontalPosition: previousCrosshair?.horizontalPosition ?? centerY,
               verticalPosition: previousCrosshair?.verticalPosition ?? centerX,
               horizontalAngleRad: rotation.horizontalAngleRad,
-              verticalAngleRad: rotation.verticalAngleRad
+              verticalAngleRad: rotation.verticalAngleRad,
+              ...slabOffsets
             }
           })()
         : (() => {
@@ -2221,6 +2247,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
               update
             })
             return {
+              ...(previousCrosshair ?? {}),
               centerX: optimisticCenter.x,
               centerY: optimisticCenter.y,
               hitRadius: previousCrosshair?.hitRadius ?? 0.025,
@@ -2766,7 +2793,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   onBeforeUnmount(() => {
     viewInteractionOperationScheduler.cancel()
     flushAllPendingVolumeConfig()
-    flushPendingMprMipConfig()
     clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()

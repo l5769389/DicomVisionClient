@@ -835,7 +835,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
     if ((payload.action === 'clearMeasurements' || payload.action === 'clearMtf' || payload.action === 'clearAnnotations') && !isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType) && tab.viewType !== '3D') {
+      return
+    }
+
+    if (payload.action === 'displayOverlay') {
+      const overlay = payload.overlay
+      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar') {
+        return
+      }
+
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              ...(overlay === 'cornerInfo'
+                ? { showCornerInfo: payload.enabled ?? item.showCornerInfo === false }
+                : { showScaleBar: payload.enabled ?? item.showScaleBar === false })
+            }
+          : item
+      )
       return
     }
 

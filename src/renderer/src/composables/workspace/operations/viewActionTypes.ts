@@ -1,6 +1,8 @@
 import type { DragActionType } from '@shared/viewerConstants'
 import type { MprCrosshairMode, MprMipConfig } from '../../../types/viewer'
 
+export type ViewerDisplayOverlayKey = 'cornerInfo' | 'scaleBar'
+
 export type ViewerToolbarAction =
   | 'reset'
   | 'clearMeasurements'
@@ -14,10 +16,13 @@ export type ViewerToolbarAction =
   | 'windowPreset'
   | 'mprMipConfig'
   | 'mprCrosshairMode'
+  | 'displayOverlay'
 
 export interface ViewerToolbarActionPayload {
   action: ViewerToolbarAction
   actionType?: DragActionType
+  enabled?: boolean
+  overlay?: ViewerDisplayOverlayKey
   value?: string
   config?: MprMipConfig
   mode?: MprCrosshairMode

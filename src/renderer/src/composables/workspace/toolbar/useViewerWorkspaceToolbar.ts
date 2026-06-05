@@ -207,6 +207,8 @@ const mprLayoutTool: StackTool = {
 }
 
 const MPR_CROSSHAIR_MODE_SELECTION_PREFIX = 'mprCrosshairMode:'
+const DISPLAY_OVERLAY_SELECTION_PREFIX = 'display:'
+type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
 
 function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
   return `${MPR_CROSSHAIR_MODE_SELECTION_PREFIX}${mode}`
@@ -215,6 +217,15 @@ function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
 function parseMprCrosshairModeSelectionValue(value: string | null | undefined): MprCrosshairMode | null {
   const mode = String(value ?? '').replace(MPR_CROSSHAIR_MODE_SELECTION_PREFIX, '')
   return mode === 'orthogonal' || mode === 'double-oblique' ? mode : null
+}
+
+function toDisplayOverlaySelectionValue(key: DisplayOverlayKey): string {
+  return `${DISPLAY_OVERLAY_SELECTION_PREFIX}${key}`
+}
+
+function parseDisplayOverlaySelectionValue(value: string | null | undefined): DisplayOverlayKey | null {
+  const key = String(value ?? '').replace(DISPLAY_OVERLAY_SELECTION_PREFIX, '')
+  return key === 'cornerInfo' || key === 'scaleBar' ? key : null
 }
 
 const tagTool: StackTool = {
@@ -483,6 +494,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const isVolumeConfigPanelOpen = ref(false)
   const isMprMipPanelOpen = ref(false)
+  const displayOverlayDraftByTabKey = ref<Record<string, Partial<Record<DisplayOverlayKey, boolean>>>>({})
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
     measure: 'measure:line',
@@ -582,8 +594,110 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.activeTab.value?.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
   )
 
+  function getTabDisplayOverlayVisible(tab: ViewerTabItem | null | undefined, key: DisplayOverlayKey): boolean {
+    if (!tab) {
+      return true
+    }
+    return key === 'cornerInfo' ? tab.showCornerInfo !== false : tab.showScaleBar !== false
+  }
+
+  function getActiveDisplayOverlayVisible(key: DisplayOverlayKey): boolean {
+    const tab = options.activeTab.value
+    if (!tab) {
+      return true
+    }
+
+    const draftValue = displayOverlayDraftByTabKey.value[tab.key]?.[key]
+    if (typeof draftValue === 'boolean') {
+      return draftValue
+    }
+    return getTabDisplayOverlayVisible(tab, key)
+  }
+
+  function setDisplayOverlayDraft(tabKey: string, key: DisplayOverlayKey, visible: boolean): void {
+    displayOverlayDraftByTabKey.value = {
+      ...displayOverlayDraftByTabKey.value,
+      [tabKey]: {
+        ...(displayOverlayDraftByTabKey.value[tabKey] ?? {}),
+        [key]: visible
+      }
+    }
+  }
+
+  function pruneSettledDisplayOverlayDraft(tab: ViewerTabItem | null | undefined): void {
+    if (!tab) {
+      return
+    }
+
+    const draft = displayOverlayDraftByTabKey.value[tab.key]
+    if (!draft) {
+      return
+    }
+
+    const nextDraft = { ...draft }
+    for (const key of ['cornerInfo', 'scaleBar'] as const) {
+      if (nextDraft[key] === getTabDisplayOverlayVisible(tab, key)) {
+        delete nextDraft[key]
+      }
+    }
+
+    if (Object.keys(nextDraft).length === Object.keys(draft).length) {
+      return
+    }
+
+    const nextDraftByTabKey = { ...displayOverlayDraftByTabKey.value }
+    if (Object.keys(nextDraft).length) {
+      nextDraftByTabKey[tab.key] = nextDraft
+    } else {
+      delete nextDraftByTabKey[tab.key]
+    }
+    displayOverlayDraftByTabKey.value = nextDraftByTabKey
+  }
+
+  const displayTool = computed<StackTool>(() => ({
+    key: 'display',
+    label: isZh.value ? '显示' : 'Display',
+    icon: 'display',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      {
+        value: toDisplayOverlaySelectionValue('cornerInfo'),
+        label: isZh.value ? '四角信息' : 'Corner Info',
+        icon: 'info',
+        checked: getActiveDisplayOverlayVisible('cornerInfo')
+      },
+      {
+        value: toDisplayOverlaySelectionValue('scaleBar'),
+        label: isZh.value ? '比例尺' : 'Scale Bar',
+        icon: 'measure',
+        checked: getActiveDisplayOverlayVisible('scaleBar')
+      }
+    ]
+  }))
+
   function withDynamicWindowTool(tools: StackTool[]): StackTool[] {
     return tools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
+  }
+
+  function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'Stack' || viewType === 'MPR' || viewType === '4D'
+  }
+
+  function withDisplayTool(tools: StackTool[]): StackTool[] {
+    if (!supportsDisplayTool(options.activeTab.value?.viewType) || tools.some((tool) => tool.key === 'display')) {
+      return tools
+    }
+
+    const insertAfterKey = tools.some((tool) => tool.key === 'export') ? 'export' : tools.some((tool) => tool.key === 'window') ? 'window' : 'layout'
+    const result: StackTool[] = []
+    for (const tool of tools) {
+      result.push(tool)
+      if (tool.key === insertAfterKey) {
+        result.push(displayTool.value)
+      }
+    }
+    return result.some((tool) => tool.key === 'display') ? result : [...result, displayTool.value]
   }
 
   function withMprCrosshairModeTool(tools: StackTool[]): StackTool[] {
@@ -662,7 +776,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeTools = computed(() => {
     const viewType = options.activeTab.value?.viewType
-    return withDynamicWindowTool(withRenderModeTools(withMprCrosshairModeTool(getBaseToolsForActiveTab())))
+    return withDisplayTool(withDynamicWindowTool(withRenderModeTools(withMprCrosshairModeTool(getBaseToolsForActiveTab()))))
       .map((tool) => withSupportedExportOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
   })
@@ -1082,6 +1196,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const toolApplyHandlers: Record<string, (tool: StackTool) => void> = {
     compareSync: toggleToolMenu,
+    display: toggleToolMenu,
     layout: toggleToolMenu,
     mprLayout: toggleToolMenu,
     reset: () => applyResetTool(),
@@ -1130,6 +1245,27 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string): void {
+    if (tool.key === 'display') {
+      const overlay = parseDisplayOverlaySelectionValue(optionValue)
+      const selectedOption = tool.options?.find((option) => option.value === optionValue)
+      const activeViewType = options.activeTab.value?.viewType
+      if (!overlay || !supportsDisplayTool(activeViewType)) {
+        return
+      }
+      const tabKey = options.activeTab.value?.key
+      const enabled = !selectedOption?.checked
+      if (tabKey) {
+        setDisplayOverlayDraft(tabKey, overlay, enabled)
+      }
+
+      options.emitTriggerViewAction({
+        action: 'displayOverlay',
+        overlay,
+        enabled
+      })
+      return
+    }
+
     if (tool.key === 'crosshair') {
       const mode = parseMprCrosshairModeSelectionValue(optionValue)
       const activeViewType = options.activeTab.value?.viewType
@@ -1405,6 +1541,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       }
     },
     { immediate: true }
+  )
+
+  watch(
+    () => [options.activeTab.value?.key, options.activeTab.value?.showCornerInfo, options.activeTab.value?.showScaleBar] as const,
+    () => pruneSettledDisplayOverlayDraft(options.activeTab.value)
   )
 
   watch(

@@ -9,7 +9,7 @@ on:
       tag:
         description: 'Release tag to publish'
         required: true
-        default: 'v1.6.0'
+        default: 'v2.0.0'
 
 permissions:
   contents: write
@@ -27,7 +27,12 @@ jobs:
           } else {
             "${{ github.ref_name }}"
           }
+          if ([string]::IsNullOrWhiteSpace($tag) -or !$tag.StartsWith("v")) {
+            throw "Release tag must use the vX.Y.Z format. Received: $tag"
+          }
+          $version = $tag.Substring(1)
           "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Checkout client
         uses: actions/checkout@v4
@@ -80,10 +85,10 @@ jobs:
         with:
           tag_name: ${{ steps.release.outputs.tag }}
           name: DicomVision ${{ steps.release.outputs.tag }}
-          body_path: DicomVisionClient/release-notes/v1.6.0.md
+          body_path: DicomVisionClient/release-notes/${{ steps.release.outputs.tag }}.md
           make_latest: true
           fail_on_unmatched_files: true
           files: |
-            DicomVisionClient/dist-electron/DicomVision-1.6.0-Setup.exe
-            DicomVisionClient/dist-electron/DicomVision-1.6.0-Setup.exe.blockmap
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-Setup.exe
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-Setup.exe.blockmap
             DicomVisionClient/dist-electron/latest.yml

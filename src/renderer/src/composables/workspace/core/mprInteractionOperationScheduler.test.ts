@@ -3,7 +3,7 @@ import { DRAG_ACTION_TYPES, VIEW_OPERATION_TYPES } from '@shared/viewerConstants
 import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
 
 describe('view interaction operation scheduler', () => {
-  it('caps interactive moves at 16ms before backend preview feedback', () => {
+  it('caps interactive moves at 30ms before backend preview feedback', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -38,9 +38,9 @@ describe('view interaction operation scheduler', () => {
       y: 0.2
     }])
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(16)
+    expect(timers[0].delay).toBe(30)
 
-    now = 16
+    now = 30
     timers[0].callback()
     expect(emit).toHaveBeenCalledTimes(2)
     expect(emit.mock.calls[1]).toEqual(['mpr-ax', {
@@ -218,7 +218,7 @@ describe('view interaction operation scheduler', () => {
 
     expect(emit).toHaveBeenCalledTimes(1)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(200)
+    expect(timers[0].delay).toBe(100)
   })
 
   it('throttles MPR MIP slider moves with backend preview feedback and flushes final value', () => {
@@ -369,7 +369,7 @@ describe('view interaction operation scheduler', () => {
     })
   })
 
-  it('caps the fastest matching backend preview cadence at 16ms', () => {
+  it('caps the fastest matching backend preview cadence at 30ms', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -402,10 +402,10 @@ describe('view interaction operation scheduler', () => {
     now = 5
     scheduler.recordBackendPreview('view-1', null)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(11)
+    expect(timers[0].delay).toBe(25)
   })
 
-  it('does not cap slow matching backend preview cadence', () => {
+  it('caps slow matching backend preview cadence at 100ms', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -437,8 +437,17 @@ describe('view interaction operation scheduler', () => {
 
     now = 900
     scheduler.recordBackendPreview('view-1', null)
-    expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(4)
+    expect(timers).toHaveLength(0)
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit.mock.calls[1]).toEqual([
+      'view-1',
+      {
+        opType: VIEW_OPERATION_TYPES.window,
+        actionType: DRAG_ACTION_TYPES.move,
+        x: 2,
+        y: 0
+      }
+    ])
   })
 
   it('throttles non-MPR dense view moves using backend feedback', () => {
@@ -474,6 +483,6 @@ describe('view interaction operation scheduler', () => {
     now = 24
     scheduler.recordBackendPreview('stack-view', null)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(4)
+    expect(timers[0].delay).toBe(6)
   })
 })

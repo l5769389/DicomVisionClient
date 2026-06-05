@@ -1301,6 +1301,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         options.seriesCornerInfoMap.value[metadataSeriesId] ??
         options.seriesCornerInfoMap.value[item.seriesId] ??
         createEmptyCornerInfo()
+      const hasCornerInfoPayload = payload.cornerInfo != null
+      const hasOrientationPayload = payload.orientation != null
+      const hasTransformPayload = payload.transform != null
+      const hasMeasurementsPayload = payload.measurements != null
+      const hasAnnotationsPayload = payload.annotations != null
+      const rawScaleBar = payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null)
+      const hasScaleBarPayload = rawScaleBar != null
       const sliceCornerInfo = options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo))
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
       const transformState = payload.transform ?? createDefaultTransformInfo()
@@ -1313,7 +1320,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
       const mprRevision = typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
-      const scaleBar = normalizeScaleBarInfo(payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null))
+      const scaleBar = normalizeScaleBarInfo(rawScaleBar)
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
         ? normalizeVolumeRenderConfig(payload.volumeConfig, payload.volumePreset ?? item.volumePreset)
@@ -1348,11 +1355,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
-            [layoutSlot.id]: (payload.measurements ?? []) as MeasurementOverlay[]
+            [layoutSlot.id]: hasMeasurementsPayload
+              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              : item.viewportMeasurements?.[layoutSlot.id] ?? []
           },
           viewportAnnotations: {
             ...(item.viewportAnnotations ?? {}),
-            [layoutSlot.id]: payloadAnnotations
+            [layoutSlot.id]: hasAnnotationsPayload
+              ? payloadAnnotations
+              : item.viewportAnnotations?.[layoutSlot.id] ?? []
           },
           layoutSlots: (item.layoutSlots ?? []).map((slot) => {
             if (slot.id !== layoutSlot.id) {
@@ -1367,10 +1378,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               ownsImageSrc: true,
               sliceLabel,
               windowLabel,
-              scaleBar,
-              cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo)),
-              orientation: orientationInfo,
-              transformState,
+              scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
+              cornerInfo: hasCornerInfoPayload
+                ? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
+                : slot.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo)),
+              orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
+              transformState: hasTransformPayload ? transformState : slot.transformState ?? transformState,
               pseudocolorPreset: layoutPseudocolorPreset
             }
           })
@@ -1413,19 +1426,27 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           compareScaleBars: {
             ...(item.compareScaleBars ?? createEmptyCompareScaleBars()),
-            [compareViewportKey]: scaleBar
+            [compareViewportKey]: hasScaleBarPayload
+              ? scaleBar
+              : item.compareScaleBars?.[compareViewportKey] ?? null
           },
           compareCornerInfos: {
             ...(item.compareCornerInfos ?? createEmptyCompareCornerInfos()),
-            [compareViewportKey]: options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+            [compareViewportKey]: hasCornerInfoPayload
+              ? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+              : item.compareCornerInfos?.[compareViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
           },
           compareOrientations: {
             ...(item.compareOrientations ?? createEmptyCompareOrientations()),
-            [compareViewportKey]: orientationInfo
+            [compareViewportKey]: hasOrientationPayload
+              ? orientationInfo
+              : item.compareOrientations?.[compareViewportKey] ?? orientationInfo
           },
           compareTransformStates: {
             ...(item.compareTransformStates ?? createEmptyCompareTransformStates()),
-            [compareViewportKey]: transformState
+            [compareViewportKey]: hasTransformPayload
+              ? transformState
+              : item.compareTransformStates?.[compareViewportKey] ?? transformState
           },
           comparePseudocolorPresets: {
             ...(item.comparePseudocolorPresets ?? createEmptyComparePseudocolorPresets()),
@@ -1433,11 +1454,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
-            [compareViewportKey]: (payload.measurements ?? []) as MeasurementOverlay[]
+            [compareViewportKey]: hasMeasurementsPayload
+              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              : item.viewportMeasurements?.[compareViewportKey] ?? []
           },
           viewportAnnotations: {
             ...(item.viewportAnnotations ?? {}),
-            [compareViewportKey]: payloadAnnotations
+            [compareViewportKey]: hasAnnotationsPayload
+              ? payloadAnnotations
+              : item.viewportAnnotations?.[compareViewportKey] ?? []
           }
         }
       }
@@ -1533,7 +1558,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportScaleBars: {
                 ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
-                [viewportKey]: scaleBar ?? (isMprPreview ? phaseCacheSeed.viewportScaleBars?.[viewportKey] ?? null : null)
+                [viewportKey]: scaleBar ?? phaseCacheSeed.viewportScaleBars?.[viewportKey] ?? null
               },
               viewportMeasurements: {
                 ...(phaseCacheSeed.viewportMeasurements ?? {}),
@@ -1543,19 +1568,19 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportCornerInfos: {
                 ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-                [viewportKey]: isMprPreview && payload.cornerInfo == null
+                [viewportKey]: payload.cornerInfo == null
                   ? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
                   : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
               },
               viewportOrientations: {
                 ...(phaseCacheSeed.viewportOrientations ?? createEmptyMprOrientations()),
-                [viewportKey]: isMprPreview && payload.orientation == null
+                [viewportKey]: payload.orientation == null
                   ? phaseCacheSeed.viewportOrientations?.[viewportKey] ?? orientationInfo
                   : orientationInfo
               },
               viewportTransformStates: {
                 ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
-                [viewportKey]: isMprPreview && payload.transform == null
+                [viewportKey]: payload.transform == null
                   ? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? transformState
                   : transformState
               },
@@ -1619,7 +1644,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportScaleBars: {
             ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
-            [viewportKey]: scaleBar ?? (isMprPreview ? item.viewportScaleBars?.[viewportKey] ?? null : null)
+            [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -1629,19 +1654,19 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-            [viewportKey]: isMprPreview && payload.cornerInfo == null
+            [viewportKey]: payload.cornerInfo == null
               ? item.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
               : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
           },
           viewportOrientations: {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
-            [viewportKey]: isMprPreview && payload.orientation == null
+            [viewportKey]: payload.orientation == null
               ? item.viewportOrientations?.[viewportKey] ?? orientationInfo
               : orientationInfo
           },
           viewportTransformStates: {
             ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
-            [viewportKey]: isMprPreview && payload.transform == null
+            [viewportKey]: payload.transform == null
               ? item.viewportTransformStates?.[viewportKey] ?? transformState
               : transformState
           },
@@ -1676,12 +1701,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         imageSrc,
         sliceLabel,
         windowLabel,
-        measurements: (payload.measurements ?? []) as MeasurementOverlay[],
-        annotations: payloadAnnotations,
-        scaleBar,
-        cornerInfo: options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
-        orientation: orientationInfo,
-        transformState,
+        measurements: hasMeasurementsPayload ? (payload.measurements ?? []) as MeasurementOverlay[] : item.measurements ?? [],
+        annotations: hasAnnotationsPayload ? payloadAnnotations : item.annotations ?? [],
+        scaleBar: hasScaleBarPayload ? scaleBar : item.scaleBar ?? null,
+        cornerInfo: hasCornerInfoPayload
+          ? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+          : item.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
+        orientation: hasOrientationPayload ? orientationInfo : item.orientation ?? orientationInfo,
+        transformState: hasTransformPayload ? transformState : item.transformState ?? transformState,
         pseudocolorPreset,
         mprMipConfig,
         mprCrosshairMode,

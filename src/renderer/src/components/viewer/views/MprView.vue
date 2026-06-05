@@ -425,6 +425,8 @@ watch(
       :mpr-frame="getItemFrame(item)"
       :mpr-plane="getItemPlane(item)"
       :scale-bar="getItemScaleBar(item)"
+      :show-corner-info="props.activeTab.showCornerInfo !== false"
+      :show-scale-bar="props.activeTab.showScaleBar !== false"
       :orientation="getItemOrientation(item)"
       :soft-image="item.kind === 'volume'"
       @clear-mtf="emit('clearMtf')"

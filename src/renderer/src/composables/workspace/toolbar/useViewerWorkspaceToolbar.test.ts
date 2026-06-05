@@ -236,4 +236,64 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     harness.wrapper.unmount()
   })
+
+  it('adds display overlay toggles for Stack, MPR, and 4D views', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack',
+      showCornerInfo: true,
+      showScaleBar: true
+    })
+    await nextTick()
+
+    const getDisplayTool = () => harness.toolbar.activeTools.value.find((tool) => tool.key === 'display')
+
+    expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual(['display:cornerInfo', 'display:scaleBar'])
+    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([true, true])
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(toolKeys.indexOf('display')).toBe(toolKeys.indexOf('export') + 1)
+    expect(toolKeys.indexOf('tag')).toBe(toolKeys.indexOf('display') + 1)
+
+    harness.toolbar.selectToolOption(getDisplayTool()!, 'display:cornerInfo')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'displayOverlay',
+      overlay: 'cornerInfo',
+      enabled: false
+    })
+    await nextTick()
+    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([false, true])
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      showCornerInfo: false
+    }
+    await nextTick()
+    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([false, true])
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    }
+    await nextTick()
+    expect(getDisplayTool()).toBeTruthy()
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::4d',
+      title: 'Series 1 / 4D',
+      viewType: '4D'
+    }
+    await nextTick()
+    expect(getDisplayTool()).toBeTruthy()
+
+    harness.activeTab.value = create3dTab()
+    await nextTick()
+    expect(getDisplayTool()).toBeUndefined()
+
+    harness.wrapper.unmount()
+  })
 })

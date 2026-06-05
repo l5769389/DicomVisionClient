@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from '../AppIcon.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 defineProps<{
@@ -6,6 +7,7 @@ defineProps<{
   viewerPlatform: 'desktop' | 'web'
 }>()
 
+const GITHUB_REPOSITORY_URL = 'https://github.com/l5769389/DicomVisionClient'
 const { t } = useUiLocale()
 </script>
 
@@ -25,14 +27,21 @@ const { t } = useUiLocale()
       </div>
 
       <div v-if="!compact" class="min-w-0 flex-1">
-        <div class="flex min-w-0 items-center gap-2">
-          <div class="sidebar-brand-title min-w-0 truncate">DICOM Vision</div>
-          <div class="sidebar-brand-platform shrink-0 rounded-full border">
-            {{ viewerPlatform === 'web' ? 'WEB' : 'DESKTOP' }}
-          </div>
-        </div>
+        <div class="sidebar-brand-title min-w-0 truncate">DICOM Vision</div>
         <div class="sidebar-brand-subtitle mt-1 truncate">{{ t('diagnosticWorkspace') }}</div>
       </div>
+
+      <a
+        v-if="!compact"
+        class="sidebar-brand-github shrink-0"
+        :href="GITHUB_REPOSITORY_URL"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="GitHub"
+        title="GitHub"
+      >
+        <AppIcon name="github" :size="18" />
+      </a>
     </div>
   </div>
 </template>
@@ -209,15 +218,33 @@ const { t } = useUiLocale()
   line-height: 1.05;
 }
 
-.sidebar-brand-platform {
-  border-color: color-mix(in srgb, var(--theme-accent) 22%, transparent);
-  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card-soft));
-  color: color-mix(in srgb, var(--theme-text-secondary) 86%, var(--theme-accent) 14%);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  padding: 5px 8px 4px;
+.sidebar-brand-github {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card-soft));
+  color: color-mix(in srgb, var(--theme-text-primary) 82%, var(--theme-accent) 18%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  text-decoration: none;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+
+.sidebar-brand-github:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card-soft));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 8px 18px color-mix(in srgb, var(--theme-accent) 14%, transparent);
+  color: var(--theme-text-primary);
 }
 
 .sidebar-brand-subtitle {

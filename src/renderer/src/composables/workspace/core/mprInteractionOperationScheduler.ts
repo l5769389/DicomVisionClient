@@ -40,7 +40,8 @@ const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
 const BACKEND_PREVIEW_EWMA_ALPHA = 0.25
 const DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS = 2
 const BACKEND_FEEDBACK_IDLE_GAP_MS = 5000
-const MIN_VIEW_MOVE_INTERVAL_MS = 16
+const MIN_VIEW_MOVE_INTERVAL_MS = 30
+const MAX_VIEW_MOVE_INTERVAL_MS = 100
 const FRONTEND_RENDER_MARGIN_MS = 4
 const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
@@ -60,7 +61,7 @@ function normalizeMoveInterval(value: number): number {
   if (!Number.isFinite(value)) {
     return MIN_VIEW_MOVE_INTERVAL_MS
   }
-  return Math.max(MIN_VIEW_MOVE_INTERVAL_MS, value)
+  return Math.min(MAX_VIEW_MOVE_INTERVAL_MS, Math.max(MIN_VIEW_MOVE_INTERVAL_MS, value))
 }
 
 function estimateMoveIntervalFromBackendSample(sampleMs: number): number {

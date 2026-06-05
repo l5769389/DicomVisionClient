@@ -22,7 +22,7 @@ const emptyOrientation: OrientationInfo = {
 const overlayStubs = {
   VolumeOrientationCube: { template: '<div />' },
   ViewportAnnotationOverlay: { template: '<div />' },
-  ViewportCornerOverlay: { template: '<div />' },
+  ViewportCornerOverlay: { template: '<div class="corner-overlay-stub" />' },
   ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
   ViewportMtfOverlay: { template: '<div />' },
   ViewportMeasurementOverlay: { template: '<div />' },
@@ -185,7 +185,20 @@ describe('ViewerCanvasStage layout metrics', () => {
     expect(wrapper.find('.viewer-image-space-layer').exists()).toBe(false)
     expect(wrapper.find('.viewer-image').exists()).toBe(true)
     expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.corner-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('can hide corner info and scale bar overlays independently', () => {
+    const wrapper = mountStage('blob:frame-1', {
+      showCornerInfo: false,
+      showScaleBar: false
+    })
+
+    expect(wrapper.find('.corner-overlay-stub').exists()).toBe(false)
+    expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(false)
+    expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
 })

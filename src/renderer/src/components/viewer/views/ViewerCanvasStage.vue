@@ -54,6 +54,8 @@ const props = withDefaults(
     placeholder: string
     renderSurfaceActive?: boolean
     scaleBar?: ScaleBarInfo | null
+    showCornerInfo?: boolean
+    showScaleBar?: boolean
     softImage?: boolean
     viewportClass?: string
     viewportKey: string
@@ -76,6 +78,8 @@ const props = withDefaults(
     qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
+    showCornerInfo: true,
+    showScaleBar: true,
     softImage: false,
     viewportClass: ''
   }
@@ -392,6 +396,7 @@ watch(
         :is-active="isActive"
       />
       <ViewportScaleBarOverlay
+        v-if="showScaleBar"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
         :scale-bar="scaleBar"
@@ -432,7 +437,7 @@ watch(
         :analysis="qaWaterAnalysis ?? null"
         :image-frame="imageFrame"
       />
-      <ViewportCornerOverlay :corner-info="cornerInfo" :viewport-key="viewportKey" />
+      <ViewportCornerOverlay v-if="showCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay :orientation="orientation" />
       <VolumeOrientationCube v-if="viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
       <div

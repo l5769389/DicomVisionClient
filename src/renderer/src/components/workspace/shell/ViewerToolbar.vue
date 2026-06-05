@@ -188,7 +188,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
             location="bottom end"
             :offset="8"
             scroll-strategy="reposition"
-            :close-on-content-click="tool.key !== 'compareSync' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'"
+            :close-on-content-click="tool.key !== 'compareSync' && tool.key !== 'display' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'"
             @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
           >
             <template #activator="{ props: menuProps }">
@@ -207,7 +207,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
             <div
               data-tool-menu-root
               class="theme-shell-panel relative inline-flex min-w-[220px] max-w-[320px] flex-col overflow-hidden rounded-[20px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-              :class="{ 'toolbar-layout-menu': tool.menuKind === 'layout', 'toolbar-mpr-layout-menu': tool.menuKind === 'mprLayout' }"
+              :class="{ 'toolbar-layout-menu': tool.menuKind === 'layout', 'toolbar-mpr-layout-menu': tool.menuKind === 'mprLayout', 'toolbar-display-menu': tool.key === 'display' }"
             >
               <div class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
               <template v-if="tool.menuKind === 'layout'">
@@ -236,8 +236,9 @@ function getSelectedPlaybackFps(value: string | undefined): string {
                   >
                     {{ option.group }}
                   </div>
-                  <div
-                    class="toolbar-menu-option group relative overflow-hidden rounded-xl! border border-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+                  <button
+                    type="button"
+                    class="toolbar-menu-option group relative w-full appearance-none overflow-hidden rounded-xl! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
                     :class="{
                       'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value || option.checked
                     }"
@@ -268,15 +269,20 @@ function getSelectedPlaybackFps(value: string | undefined): string {
                             :size="menuIconSize + 2"
                           />
                         </div>
-                        <div class="min-w-0">
-                          <div class="truncate whitespace-nowrap font-medium text-[var(--theme-text-primary)]">{{ option.label }}</div>
+                        <div :class="tool.key === 'display' ? 'min-w-[4.75rem]' : 'min-w-0'">
+                          <div
+                            class="whitespace-nowrap font-medium text-[var(--theme-text-primary)]"
+                            :class="{ truncate: tool.key !== 'display' }"
+                          >
+                            {{ option.label }}
+                          </div>
                           <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.2] text-[var(--theme-text-muted)]">
                             {{ option.description }}
                           </div>
                         </div>
                       </div>
                       <span
-                        v-if="tool.key === 'compareSync'"
+                        v-if="tool.key === 'compareSync' || tool.key === 'display'"
                         class="toolbar-menu-option__check grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[color:color-mix(in_srgb,var(--theme-border-soft)_82%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_92%,transparent)] text-[var(--theme-text-muted)]"
                         :class="{ 'border-[color:color-mix(in_srgb,var(--theme-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-accent)]': option.checked }"
                       >
@@ -289,7 +295,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
                         {{ option.badge }}
                       </span>
                     </div>
-                  </div>
+                  </button>
                 </template>
               </template>
             </div>
@@ -360,6 +366,12 @@ function getSelectedPlaybackFps(value: string | undefined): string {
   max-width: min(220px, calc(100vw - 32px)) !important;
   min-width: 0 !important;
   padding: 0 !important;
+}
+
+.toolbar-display-menu {
+  width: min(224px, calc(100vw - 32px));
+  min-width: 0 !important;
+  max-width: min(224px, calc(100vw - 32px)) !important;
 }
 
 .toolbar-tool-group--layout-anchor {

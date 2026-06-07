@@ -118,6 +118,19 @@ describe('useUiPreferences', () => {
         columns: 1
       }
     ])
+    expect(preferences.viewportCornerInfoPreference.value).toEqual({
+      topLeft: [
+        'manufacturerModel',
+        'stationName',
+        'institutionName',
+        'examDescription',
+        'seriesNumber',
+        'viewportLocation'
+      ],
+      topRight: ['patientName', 'patientSummary'],
+      bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
+      bottomRight: ['zoom', 'coordinates']
+    })
     expect(preferences.pacsPreference.value.enabled).toBe(true)
     expect(preferences.pacsPreference.value.localSourceEnabled).toBe(false)
     expect(preferences.pacsPreference.value.activeProfileId).toBe('pacs-1')
@@ -146,6 +159,12 @@ describe('useUiPreferences', () => {
         columns: 2
       }
     ])
+    preferences.setViewportCornerInfoPreference({
+      topLeft: ['patientName', 'windowLevel'],
+      topRight: ['seriesNumber'],
+      bottomLeft: [],
+      bottomRight: ['zoom']
+    })
     preferences.setPacsPreference({
       localSourceEnabled: true,
       enabled: true,
@@ -189,6 +208,12 @@ describe('useUiPreferences', () => {
         columns: 2
       }
     ])
+    expect(saved.viewportCornerInfoPreference).toEqual({
+      topLeft: ['patientName', 'windowLevel'],
+      topRight: ['seriesNumber'],
+      bottomLeft: [],
+      bottomRight: ['zoom']
+    })
     expect(saved.pacsPreference).toMatchObject({
       localSourceEnabled: true,
       enabled: true,

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { VBtn, VDialog, VLocaleProvider, VMenu } from 'vuetify/components'
-import { VDateInput } from 'vuetify/labs/VDateInput'
+import { computed, nextTick, ref, watch } from 'vue'
+import { VBtn, VDatePicker, VDialog, VLocaleProvider, VMenu } from 'vuetify/components'
 import { zhHans } from 'vuetify/locale'
 import type { PacsSeriesItem, PacsStudyItem } from '@shared/generated/backendApi'
 import AppIcon from '../AppIcon.vue'
@@ -12,6 +11,7 @@ import { showDicomJobProgressToast, waitForDicomJob } from '../../composables/wo
 import { dispatchWorkspaceStatusToast } from '../../composables/workspace/tasks/workspaceStatus'
 import type { FolderSeriesItem } from '../../types/viewer'
 import {
+  createPacsDefaultStudyDateRange,
   formatPacsDateValue,
   normalizePacsLimitValue,
   PACS_LIMIT_DEFAULT,
@@ -52,7 +52,14 @@ const isQueryingStudies = ref(false)
 const isQueryingSeries = ref(false)
 const queryError = ref('')
 const isProfileMenuOpen = ref(false)
+const isModalityMenuOpen = ref(false)
+const isLimitMenuOpen = ref(false)
+const isStudyDateFromMenuOpen = ref(false)
+const isStudyDateToMenuOpen = ref(false)
 const isAdvancedFiltersOpen = ref(false)
+const pacsFilterScrollRef = ref<HTMLElement | null>(null)
+const pacsAdvancedFilterSectionRef = ref<HTMLElement | null>(null)
+const advancedFilterRestoreScrollTop = ref<number | null>(null)
 const selectedProfileId = ref('')
 const studyInstanceUid = ref('')
 const patientKeyword = ref('')
@@ -115,6 +122,9 @@ const advancedFilterCount = computed(() => [
 ].filter((value) => value.trim()).length)
 const pacsVuetifyLocale = computed(() => (isZh.value ? 'zhHans' : 'en'))
 const pacsVuetifyLocaleMessages = { zhHans }
+const pacsModalityOptions = ['ALL', 'CT', 'MR', 'PT', 'US', 'XA', 'CR', 'DX', 'MG', 'NM', 'RF', 'OT']
+const PACS_ADVANCED_FILTER_SCROLL_DELAY_MS = 240
+let advancedFilterScrollTimeoutId: number | null = null
 const studyDateFromModel = computed<Date | null>({
   get: () => parsePacsDateValue(studyDateFrom.value),
   set: (value) => {
@@ -146,10 +156,28 @@ const pacsDownloadCopy = computed(() => ({
   )
 }))
 
+function ensureDefaultStudyDateRange(): void {
+  if (studyDateFrom.value && studyDateTo.value) {
+    return
+  }
+
+  const defaultRange = createPacsDefaultStudyDateRange()
+  if (!studyDateFrom.value) {
+    studyDateFrom.value = defaultRange.from
+  }
+  if (!studyDateTo.value) {
+    studyDateTo.value = defaultRange.to
+  }
+}
+
 watch(
   () => props.isOpen,
   (isOpen) => {
-    if (!isOpen) return
+    if (!isOpen) {
+      clearAdvancedFilterScrollTimer()
+      return
+    }
+    ensureDefaultStudyDateRange()
     selectedProfileId.value = selectedProfile.value?.id ?? ''
     queryError.value = ''
   },
@@ -167,12 +195,101 @@ function selectProfile(profileId: string): void {
   isProfileMenuOpen.value = false
 }
 
+function getModalityOptionLabel(option: string): string {
+  return option === 'ALL' ? (isZh.value ? '全部' : 'All') : option
+}
+
+function getSelectedModalityLabel(): string {
+  return modality.value ? modality.value : (isZh.value ? '全部' : 'All')
+}
+
+function selectModality(option: string): void {
+  modality.value = option === 'ALL' ? '' : option
+  isModalityMenuOpen.value = false
+}
+
+function clearStudyDate(field: 'from' | 'to'): void {
+  if (field === 'from') {
+    studyDateFrom.value = ''
+    return
+  }
+  studyDateTo.value = ''
+}
+
+function clampScrollTop(element: HTMLElement, scrollTop: number): number {
+  return Math.max(0, Math.min(scrollTop, Math.max(0, element.scrollHeight - element.clientHeight)))
+}
+
+function clearAdvancedFilterScrollTimer(): void {
+  if (advancedFilterScrollTimeoutId == null) {
+    return
+  }
+  window.clearTimeout(advancedFilterScrollTimeoutId)
+  advancedFilterScrollTimeoutId = null
+}
+
+function scrollAdvancedFiltersIntoView(behavior: ScrollBehavior = 'smooth'): void {
+  const scrollElement = pacsFilterScrollRef.value
+  const targetElement = pacsAdvancedFilterSectionRef.value
+  if (!scrollElement || !targetElement) {
+    return
+  }
+
+  const scrollRect = scrollElement.getBoundingClientRect()
+  const targetRect = targetElement.getBoundingClientRect()
+  const targetTop = scrollElement.scrollTop + targetRect.top - scrollRect.top - 12
+  scrollElement.scrollTo({
+    top: clampScrollTop(scrollElement, targetTop),
+    behavior
+  })
+}
+
+function restoreAdvancedFiltersScroll(): void {
+  const scrollElement = pacsFilterScrollRef.value
+  const restoreTop = advancedFilterRestoreScrollTop.value
+  advancedFilterRestoreScrollTop.value = null
+  if (!scrollElement || restoreTop == null) {
+    return
+  }
+  scrollElement.scrollTo({
+    top: clampScrollTop(scrollElement, restoreTop),
+    behavior: 'smooth'
+  })
+}
+
+function scheduleAdvancedFiltersIntoView(): void {
+  clearAdvancedFilterScrollTimer()
+  void nextTick(() => {
+    window.requestAnimationFrame(() => scrollAdvancedFiltersIntoView())
+    advancedFilterScrollTimeoutId = window.setTimeout(() => {
+      advancedFilterScrollTimeoutId = null
+      scrollAdvancedFiltersIntoView('auto')
+    }, PACS_ADVANCED_FILTER_SCROLL_DELAY_MS)
+  })
+}
+
 function toggleAdvancedFilters(): void {
-  isAdvancedFiltersOpen.value = !isAdvancedFiltersOpen.value
+  if (!isAdvancedFiltersOpen.value) {
+    advancedFilterRestoreScrollTop.value = pacsFilterScrollRef.value?.scrollTop ?? 0
+    isAdvancedFiltersOpen.value = true
+    scheduleAdvancedFiltersIntoView()
+    return
+  }
+
+  clearAdvancedFilterScrollTimer()
+  isAdvancedFiltersOpen.value = false
+  void nextTick(() => {
+    window.requestAnimationFrame(restoreAdvancedFiltersScroll)
+  })
 }
 
 function setLimitValue(value: unknown): void {
   limit.value = normalizePacsLimitValue(value)
+}
+
+function selectLimitValue(value: unknown): void {
+  setLimitValue(value)
+  isLimitMenuOpen.value = false
 }
 
 function queryStudyFirstPage(): void {
@@ -574,14 +691,14 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
             </div>
           </div>
         </div>
-        <VBtn class="h-11! w-11! min-w-0! rounded-2xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-card)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="emit('close')">
+        <VBtn class="pacs-dialog-close-button h-11! w-11! min-w-0! rounded-2xl!" variant="flat" @click="emit('close')">
           <AppIcon name="close" :size="22" />
         </VBtn>
       </div>
 
       <div class="pacs-browser-body grid gap-0 overflow-hidden lg:grid-cols-[330px_minmax(0,1fr)]">
         <aside class="pacs-filter-panel min-h-0 border-b border-[var(--theme-border-soft)] lg:border-b-0 lg:border-r">
-          <div class="pacs-filter-scroll flex flex-col gap-4 p-5">
+          <div ref="pacsFilterScrollRef" class="pacs-filter-scroll flex flex-col gap-4 p-5" :class="{ 'pacs-filter-scroll--advanced-open': isAdvancedFiltersOpen }">
             <div class="grid gap-1.5">
               <span class="pacs-field-label">{{ isZh ? '配置' : 'Profile' }}</span>
               <VMenu
@@ -633,7 +750,39 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
             </label>
             <label class="grid gap-1.5">
               <span class="pacs-field-label">{{ isZh ? '模态' : 'Modality' }}</span>
-              <input v-model="modality" class="pacs-input" placeholder="CT / MR / PT" @keydown.enter="queryStudyFirstPage" />
+              <VMenu
+                v-model="isModalityMenuOpen"
+                location="bottom start"
+                :offset="8"
+                scroll-strategy="reposition"
+                :close-on-content-click="true"
+              >
+                <template #activator="{ props: menuProps }">
+                  <button
+                    v-bind="menuProps"
+                    type="button"
+                    class="pacs-select-trigger"
+                    :class="{ 'pacs-select-trigger--open': isModalityMenuOpen }"
+                  >
+                    <span class="truncate">{{ getSelectedModalityLabel() }}</span>
+                    <AppIcon name="chevron-down" :size="17" />
+                  </button>
+                </template>
+                <div class="pacs-select-menu theme-shell-panel border">
+                  <button
+                    v-for="option in pacsModalityOptions"
+                    :key="option"
+                    type="button"
+                    class="toolbar-menu-option pacs-select-option"
+                    :class="{ 'toolbar-menu-option--active pacs-select-option--active': (option === 'ALL' && !modality) || modality === option }"
+                    @click="selectModality(option)"
+                  >
+                    <span class="pacs-select-option__rail"></span>
+                    <span class="min-w-0 flex-1 truncate">{{ getModalityOptionLabel(option) }}</span>
+                    <AppIcon v-if="(option === 'ALL' && !modality) || modality === option" name="check" :size="14" />
+                  </button>
+                </div>
+              </VMenu>
             </label>
             <VLocaleProvider
               :locale="pacsVuetifyLocale"
@@ -643,52 +792,118 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
               <div class="grid grid-cols-2 gap-3">
                 <div class="grid gap-1.5">
                   <span class="pacs-field-label">{{ isZh ? '开始日期' : 'From' }}</span>
-                  <VDateInput
-                    v-model="studyDateFromModel"
-                    class="pacs-vuetify-field pacs-date-input"
-                    :placeholder="isZh ? '开始日期' : 'From'"
-                    :input-format="'yyyy-mm-dd'"
-                    :display-format="formatPacsDateValue"
-                    :menu-props="{ contentClass: 'pacs-date-menu' }"
-                    clearable
-                    hide-details
-                    variant="outlined"
-                    prepend-icon=""
-                  />
+                  <div class="pacs-date-control">
+                    <VMenu
+                      v-model="isStudyDateFromMenuOpen"
+                      location="bottom start"
+                      :offset="8"
+                      scroll-strategy="reposition"
+                      :close-on-content-click="false"
+                      content-class="pacs-date-menu"
+                    >
+                      <template #activator="{ props: menuProps }">
+                        <button
+                          v-bind="menuProps"
+                          type="button"
+                          class="pacs-date-trigger"
+                          :class="{
+                            'pacs-date-trigger--active': isStudyDateFromMenuOpen,
+                            'pacs-date-trigger--empty': !studyDateFrom,
+                            'pacs-date-trigger--has-value': studyDateFrom
+                          }"
+                        >
+                          <span class="truncate">{{ studyDateFrom || (isZh ? '开始日期' : 'From') }}</span>
+                        </button>
+                      </template>
+                      <VDatePicker
+                        v-model="studyDateFromModel"
+                        hide-header
+                        class="pacs-date-picker"
+                        @update:model-value="isStudyDateFromMenuOpen = false"
+                      />
+                    </VMenu>
+                    <button v-if="studyDateFrom" type="button" class="pacs-date-clear" @click="clearStudyDate('from')">
+                      <AppIcon name="close" :size="13" />
+                    </button>
+                  </div>
                 </div>
                 <div class="grid gap-1.5">
                   <span class="pacs-field-label">{{ isZh ? '结束日期' : 'To' }}</span>
-                  <VDateInput
-                    v-model="studyDateToModel"
-                    class="pacs-vuetify-field pacs-date-input"
-                    :placeholder="isZh ? '结束日期' : 'To'"
-                    :input-format="'yyyy-mm-dd'"
-                    :display-format="formatPacsDateValue"
-                    :menu-props="{ contentClass: 'pacs-date-menu' }"
-                    clearable
-                    hide-details
-                    variant="outlined"
-                    prepend-icon=""
-                  />
+                  <div class="pacs-date-control">
+                    <VMenu
+                      v-model="isStudyDateToMenuOpen"
+                      location="bottom start"
+                      :offset="8"
+                      scroll-strategy="reposition"
+                      :close-on-content-click="false"
+                      content-class="pacs-date-menu"
+                    >
+                      <template #activator="{ props: menuProps }">
+                        <button
+                          v-bind="menuProps"
+                          type="button"
+                          class="pacs-date-trigger"
+                          :class="{
+                            'pacs-date-trigger--active': isStudyDateToMenuOpen,
+                            'pacs-date-trigger--empty': !studyDateTo,
+                            'pacs-date-trigger--has-value': studyDateTo
+                          }"
+                        >
+                          <span class="truncate">{{ studyDateTo || (isZh ? '结束日期' : 'To') }}</span>
+                        </button>
+                      </template>
+                      <VDatePicker
+                        v-model="studyDateToModel"
+                        hide-header
+                        class="pacs-date-picker"
+                        @update:model-value="isStudyDateToMenuOpen = false"
+                      />
+                    </VMenu>
+                    <button v-if="studyDateTo" type="button" class="pacs-date-clear" @click="clearStudyDate('to')">
+                      <AppIcon name="close" :size="13" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </VLocaleProvider>
             <div class="grid gap-1.5">
               <span class="pacs-field-label">{{ isZh ? '最多返回' : 'Limit' }}</span>
-              <div class="pacs-limit-options grid grid-cols-4 gap-2">
-                <button
-                  v-for="option in PACS_LIMIT_PRESETS"
-                  :key="option"
-                  type="button"
-                  class="pacs-limit-option"
-                  :class="{ 'pacs-limit-option--active': limit === option }"
-                  @click="setLimitValue(option)"
-                >
-                  {{ option }}
-                </button>
-              </div>
+              <VMenu
+                v-model="isLimitMenuOpen"
+                location="bottom start"
+                :offset="8"
+                scroll-strategy="reposition"
+                :close-on-content-click="true"
+              >
+                <template #activator="{ props: menuProps }">
+                  <button
+                    v-bind="menuProps"
+                    type="button"
+                    class="pacs-select-trigger"
+                    :class="{ 'pacs-select-trigger--open': isLimitMenuOpen }"
+                  >
+                    <span class="truncate">{{ limit }}</span>
+                    <AppIcon name="chevron-down" :size="17" />
+                  </button>
+                </template>
+                <div class="pacs-select-menu theme-shell-panel border">
+                  <button
+                    v-for="option in PACS_LIMIT_PRESETS"
+                    :key="option"
+                    type="button"
+                    class="toolbar-menu-option pacs-select-option"
+                    :class="{ 'toolbar-menu-option--active pacs-select-option--active': limit === option }"
+                    @click="selectLimitValue(option)"
+                  >
+                    <span class="pacs-select-option__rail"></span>
+                    <span class="min-w-0 flex-1 truncate">{{ option }}</span>
+                    <AppIcon v-if="limit === option" name="check" :size="14" />
+                  </button>
+                </div>
+              </VMenu>
             </div>
             <section
+              ref="pacsAdvancedFilterSectionRef"
               class="pacs-advanced-filter-section"
               :class="{ 'pacs-advanced-filter-section--open': isAdvancedFiltersOpen }"
             >
@@ -714,7 +929,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                 :class="{ 'pacs-advanced-filter-body--open': isAdvancedFiltersOpen }"
                 :inert="!isAdvancedFiltersOpen"
               >
-                <div class="pacs-advanced-filter-content grid gap-4">
+                <div class="pacs-advanced-filter-content grid gap-3">
                   <label class="grid gap-1.5">
                     <span class="pacs-field-label">{{ isZh ? '检查 UID' : 'Study UID' }}</span>
                     <input v-model="studyInstanceUid" class="pacs-input" placeholder="1.2.840..." @keydown.enter="queryStudyFirstPage" />
@@ -935,10 +1150,43 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   color: var(--theme-text-primary);
 }
 
+.pacs-dialog-close-button {
+  border: 1px solid var(--theme-border-soft) !important;
+  background: var(--theme-surface-card) !important;
+  color: var(--theme-text-secondary) !important;
+  box-shadow: none !important;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 120ms ease;
+}
+
+.pacs-dialog-close-button:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card)) !important;
+  color: var(--theme-text-primary) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent) !important;
+}
+
+.pacs-dialog-close-button:active {
+  transform: translateY(1px);
+  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-strong)) !important;
+  background: var(--theme-active-surface-soft) !important;
+  color: var(--theme-active-foreground) !important;
+}
+
+.pacs-dialog-close-button :deep(.v-btn__overlay),
+.pacs-dialog-close-button :deep(.v-btn__underlay) {
+  background: transparent !important;
+  opacity: 0 !important;
+}
+
 .pacs-browser-body {
-  height: min(72vh, 720px);
-  max-height: calc(100vh - 150px);
-  min-height: min(520px, calc(100vh - 150px));
+  height: min(78vh, 760px);
+  max-height: calc(100vh - 112px);
+  min-height: min(560px, calc(100vh - 112px));
 }
 
 .pacs-browser-main {
@@ -956,7 +1204,15 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 .pacs-filter-scroll {
   min-height: 0;
   flex: 1 1 auto;
+  gap: 12px !important;
   overflow: auto;
+  padding: 18px !important;
+  scrollbar-gutter: auto;
+}
+
+.pacs-filter-scroll--advanced-open {
+  overflow: auto;
+  padding-bottom: 22px !important;
   scrollbar-gutter: stable;
 }
 
@@ -1006,10 +1262,19 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   scrollbar-width: thin;
 }
 
+.pacs-filter-scroll:not(.pacs-filter-scroll--advanced-open) {
+  scrollbar-width: none;
+}
+
 .pacs-filter-scroll::-webkit-scrollbar,
 .pacs-scroll-list::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+}
+
+.pacs-filter-scroll:not(.pacs-filter-scroll--advanced-open)::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .pacs-filter-scroll::-webkit-scrollbar-track,
@@ -1132,7 +1397,7 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 }
 
 .pacs-advanced-filter-section--open {
-  min-height: 416px;
+  min-height: 438px;
   background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
 }
 
@@ -1215,6 +1480,84 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.pacs-date-control {
+  position: relative;
+  min-width: 0;
+}
+
+.pacs-date-trigger {
+  display: flex;
+  min-height: 42px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 16px;
+  background: var(--theme-surface-card);
+  padding: 0 12px;
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.pacs-date-trigger:hover,
+.pacs-date-trigger--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent);
+}
+
+.pacs-date-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-strong));
+  box-shadow: var(--theme-focus-ring);
+}
+
+.pacs-date-trigger--empty {
+  color: var(--theme-text-muted);
+}
+
+.pacs-date-trigger--has-value {
+  padding-right: 38px;
+}
+
+.pacs-date-trigger span {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pacs-date-clear {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  display: grid;
+  height: 20px;
+  width: 20px;
+  transform: translateY(-50%);
+  place-items: center;
+  border-radius: 999px;
+  color: var(--theme-text-muted);
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.pacs-date-clear:hover {
+  background: color-mix(in srgb, var(--theme-accent) 11%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.pacs-date-picker {
+  background: var(--theme-surface-panel-strong);
+  color: var(--theme-text-primary);
 }
 
 :deep(.pacs-vuetify-field .v-field) {
@@ -1304,6 +1647,105 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 :global(.pacs-date-menu .v-date-picker-month__day--selected .v-btn) {
   background: color-mix(in srgb, var(--theme-accent) 74%, var(--theme-surface-card)) !important;
   color: var(--theme-accent-contrast) !important;
+}
+
+:global(.pacs-date-menu .v-picker-title) {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-panel-strong)),
+      color-mix(in srgb, var(--theme-accent-warm) 8%, var(--theme-surface-panel-strong))
+    ) !important;
+  color: var(--theme-text-primary) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-header) {
+  display: none !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-header__content) {
+  display: none !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-controls) {
+  background: var(--theme-surface-panel-strong) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-controls .v-btn),
+:global(.pacs-date-menu .v-date-picker-header .v-btn) {
+  color: var(--theme-text-secondary) !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-controls .v-btn:hover),
+:global(.pacs-date-menu .v-date-picker-header .v-btn:hover) {
+  background: color-mix(in srgb, var(--theme-accent) 11%, transparent) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month) {
+  background: var(--theme-surface-panel-strong) !important;
+  color: var(--theme-text-primary) !important;
+  padding: 0 18px 18px !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__weekday) {
+  color: var(--theme-text-muted) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+
+:global(.pacs-date-menu .v-btn__overlay) {
+  background: transparent !important;
+  opacity: 0 !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__day .v-btn) {
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--theme-text-primary) !important;
+  font-weight: 700 !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__day:not(.v-date-picker-month__day--selected) .v-btn:not(.v-btn--disabled):hover) {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__day--current:not(.v-date-picker-month__day--selected) .v-btn) {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, transparent) !important;
+  color: var(--theme-active-foreground) !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__day--selected .v-btn),
+:global(.pacs-date-menu .v-date-picker-month__day--selected .v-btn:hover),
+:global(.pacs-date-menu .v-date-picker-month__day--selected.v-date-picker-month__day--current .v-btn) {
+  border-color: color-mix(in srgb, var(--theme-accent) 76%, var(--theme-border-strong)) !important;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-accent) 84%, var(--theme-surface-card)),
+      color-mix(in srgb, var(--theme-accent) 64%, var(--theme-accent-warm))
+    ) !important;
+  color: var(--theme-accent-contrast) !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--theme-accent) 22%, transparent) !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__day--adjacent .v-btn),
+:global(.pacs-date-menu .v-date-picker-month__day .v-btn--disabled) {
+  background: transparent !important;
+  color: var(--theme-text-muted) !important;
+  opacity: 0.44 !important;
+}
+
+:global(.pacs-date-menu .v-date-picker-month__day--adjacent .v-btn:hover),
+:global(.pacs-date-menu .v-date-picker-month__day .v-btn--disabled:hover) {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--theme-text-muted) !important;
 }
 
 .pacs-select-trigger {

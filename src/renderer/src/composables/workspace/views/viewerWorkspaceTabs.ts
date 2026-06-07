@@ -181,7 +181,8 @@ export function createEmptyCornerInfo(): CornerInfo {
     topLeft: [],
     topRight: [],
     bottomLeft: [],
-    bottomRight: []
+    bottomRight: [],
+    tags: {}
   }
 }
 
@@ -239,6 +240,20 @@ function getCornerValue(source: Record<string, unknown>, aliases: string[]): unk
   return undefined
 }
 
+function normalizeCornerTagMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return Object.entries(value as Record<string, unknown>).reduce<Record<string, string[]>>((accumulator, [key, tagValue]) => {
+    const normalizedLines = normalizeCornerLines(tagValue)
+    if (normalizedLines.length) {
+      accumulator[key] = normalizedLines
+    }
+    return accumulator
+  }, {})
+}
+
 export function normalizeCornerInfo(value: unknown): CornerInfo {
   if (!value) {
     return createEmptyCornerInfo()
@@ -250,7 +265,8 @@ export function normalizeCornerInfo(value: unknown): CornerInfo {
       topLeft: normalizeCornerLines(topLeft),
       topRight: normalizeCornerLines(topRight),
       bottomLeft: normalizeCornerLines(bottomLeft),
-      bottomRight: normalizeCornerLines(bottomRight)
+      bottomRight: normalizeCornerLines(bottomRight),
+      tags: {}
     }
   }
 
@@ -272,7 +288,8 @@ export function normalizeCornerInfo(value: unknown): CornerInfo {
     ),
     bottomRight: normalizeCornerLines(
       getCornerValue(record, ['bottomRight', 'bottom_right', 'rightBottom', 'right_bottom', 'br'])
-    )
+    ),
+    tags: normalizeCornerTagMap(getCornerValue(record, ['tags', 'tagLines', 'tag_lines']))
   }
 }
 
@@ -452,7 +469,7 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
 }
 
 export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerInfo {
-  return CORNER_POSITIONS.reduce(
+  const mergedCornerInfo = CORNER_POSITIONS.reduce(
     (accumulator, position) => {
       const merged = [...base[position], ...overlay[position]]
       accumulator[position] = merged.filter((item, index) => merged.indexOf(item) === index)
@@ -460,6 +477,13 @@ export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerIn
     },
     createEmptyCornerInfo()
   )
+  const mergedTags = { ...(base.tags ?? {}) }
+  for (const [key, lines] of Object.entries(overlay.tags ?? {})) {
+    const merged = [...(mergedTags[key] ?? []), ...lines]
+    mergedTags[key] = merged.filter((item, index) => merged.indexOf(item) === index)
+  }
+  mergedCornerInfo.tags = mergedTags
+  return mergedCornerInfo
 }
 
 export function isMprViewportKey(viewportKey: string): viewportKey is MprViewportKey {

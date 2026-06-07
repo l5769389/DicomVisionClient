@@ -22,6 +22,7 @@ export interface CornerInfoPayload {
   topRight?: string[]
   bottomLeft?: string[]
   bottomRight?: string[]
+  tags?: { [key: string]: string[] }
 }
 
 export interface CornerInfoRequest {

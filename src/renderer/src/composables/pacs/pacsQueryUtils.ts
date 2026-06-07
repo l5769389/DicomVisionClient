@@ -36,6 +36,21 @@ export function formatPacsDateValue(value: unknown): string {
   return `${year}-${month}-${day}`
 }
 
+export function createPacsDefaultStudyDateRange(referenceDate: Date = new Date()): { from: string; to: string } {
+  const toDate = new Date(referenceDate)
+  const fromDate = new Date(toDate)
+  const targetMonth = fromDate.getMonth()
+  fromDate.setFullYear(fromDate.getFullYear() - 1)
+  if (fromDate.getMonth() !== targetMonth) {
+    fromDate.setDate(0)
+  }
+
+  return {
+    from: formatPacsDateValue(fromDate),
+    to: formatPacsDateValue(toDate)
+  }
+}
+
 export function normalizePacsLimitValue(value: unknown): number {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {

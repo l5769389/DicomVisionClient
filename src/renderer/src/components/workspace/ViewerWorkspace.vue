@@ -7,6 +7,7 @@ import type {
   AnnotationSize,
   CompareSyncSettingKey,
   CornerInfo,
+  CornerPosition,
   DraftMeasurementMode,
   MeasurementDraft,
   MeasurementDraftPoint,
@@ -38,6 +39,7 @@ import type { ViewerToolbarActionPayload } from '../../composables/workspace/ope
 import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { applyViewportCornerInfoPreference } from '../../composables/ui/viewportCornerInfo'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { analyzeWaterPhantomView } from '../../composables/qa/waterPhantomQa'
 import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
@@ -122,7 +124,7 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t, workspaceExportCopy } = useUiLocale()
-const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions } = useUiPreferences()
+const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions, viewportCornerInfoPreference } = useUiPreferences()
 const {
   getStarredSliceIndexes,
   getStarredSliceCount,
@@ -547,7 +549,8 @@ function hasCornerInfo(cornerInfo: CornerInfo | null | undefined): boolean {
     return false
   }
 
-  return [cornerInfo.topLeft, cornerInfo.topRight, cornerInfo.bottomLeft, cornerInfo.bottomRight].some((lines) =>
+  const displayCornerInfo = applyViewportCornerInfoPreference(cornerInfo, viewportCornerInfoPreference.value)
+  return [displayCornerInfo.topLeft, displayCornerInfo.topRight, displayCornerInfo.bottomLeft, displayCornerInfo.bottomRight].some((lines) =>
     lines.some((line) => line.trim())
   )
 }
@@ -587,8 +590,9 @@ function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): 
 }
 
 function drawCornerInfo(context: CanvasRenderingContext2D, cornerInfo: CornerInfo, width: number, height: number): void {
+  const displayCornerInfo = applyViewportCornerInfoPreference(cornerInfo, viewportCornerInfoPreference.value)
   const blocks: Array<{
-    key: keyof CornerInfo
+    key: CornerPosition
     x: number
     y: number
     align: CanvasTextAlign
@@ -608,7 +612,7 @@ function drawCornerInfo(context: CanvasRenderingContext2D, cornerInfo: CornerInf
   context.lineWidth = 3
 
   blocks.forEach(({ key, x, y, align, baseline }) => {
-    const lines = cornerInfo[key].map((line) => line.trim()).filter(Boolean)
+    const lines = displayCornerInfo[key].map((line) => line.trim()).filter(Boolean)
     if (!lines.length) {
       return
     }

@@ -7,6 +7,11 @@ import {
   type MprDefaultLayoutKey
 } from '../workspace/layout/mprLayoutOptions'
 import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
+import {
+  createDefaultViewportCornerInfoPreference,
+  normalizeViewportCornerInfoPreference,
+  type ViewportCornerInfoPreference
+} from './viewportCornerInfo'
 
 export type AppLocale = 'zh-CN' | 'en-US'
 export type DicomTagDisplayMode = 'flat' | 'tree'
@@ -169,6 +174,7 @@ interface UiPreferencesState {
   selectedWindowPresetId: string
   crosshairConfigs: CrosshairViewportPreference[]
   scaleBarPreference: ScaleBarPreference
+  viewportCornerInfoPreference: ViewportCornerInfoPreference
   measurementStylePreference: MeasurementStylePreference
   dicomTagEditSavePreference: DicomTagEditSavePreference
   dicomDeidentifyPreference: DicomDeidentifyPreference
@@ -180,7 +186,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 13
+const CURRENT_PREFERENCES_VERSION = 14
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -442,6 +448,7 @@ function createDefaultState(): UiPreferencesState {
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
     crosshairConfigs: createDefaultCrosshairConfigs(),
     scaleBarPreference: createDefaultScaleBarPreference(),
+    viewportCornerInfoPreference: createDefaultViewportCornerInfoPreference(),
     measurementStylePreference: createDefaultMeasurementStylePreference(),
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
@@ -863,6 +870,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
   state.crosshairConfigs = nextState.crosshairConfigs
   state.scaleBarPreference = nextState.scaleBarPreference
+  state.viewportCornerInfoPreference = nextState.viewportCornerInfoPreference
   state.measurementStylePreference = nextState.measurementStylePreference
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
@@ -888,6 +896,12 @@ function serializeState(): UiPreferencesState {
     scaleBarPreference: {
       enabled: state.scaleBarPreference.enabled,
       color: state.scaleBarPreference.color
+    },
+    viewportCornerInfoPreference: {
+      topLeft: [...state.viewportCornerInfoPreference.topLeft],
+      topRight: [...state.viewportCornerInfoPreference.topRight],
+      bottomLeft: [...state.viewportCornerInfoPreference.bottomLeft],
+      bottomRight: [...state.viewportCornerInfoPreference.bottomRight]
     },
     measurementStylePreference: {
       editingColor: state.measurementStylePreference.editingColor,
@@ -981,6 +995,7 @@ async function hydrateState(): Promise<void> {
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
+        viewportCornerInfoPreference: normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
@@ -1125,6 +1140,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setViewportCornerInfoPreference(nextValue: ViewportCornerInfoPreference): void {
+    state.viewportCornerInfoPreference = normalizeViewportCornerInfoPreference(nextValue)
+    void persistState()
+  }
+
   function setMeasurementStylePreference(nextValue: MeasurementStylePreference): void {
     state.measurementStylePreference = normalizeMeasurementStylePreference(nextValue)
     void persistState()
@@ -1230,6 +1250,7 @@ export function useUiPreferences() {
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
+    viewportCornerInfoPreference: computed(() => state.viewportCornerInfoPreference),
     selectedPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
@@ -1243,6 +1264,7 @@ export function useUiPreferences() {
     setMprDefaultLayoutKey,
     setQaWaterMetrics,
     setScaleBarPreference,
+    setViewportCornerInfoPreference,
     setRoiStatOptions,
     addCustomWindowPreset,
     removeCustomWindowPreset,

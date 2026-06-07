@@ -1,11 +1,24 @@
 ﻿<script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, MAX_HANGING_PROTOCOL_RULES, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type HangingProtocolRule, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
+import {
+  MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION,
+  SAMPLE_VIEWPORT_CORNER_INFO,
+  VIEWPORT_CORNER_INFO_CATALOG,
+  VIEWPORT_CORNER_POSITIONS,
+  applyViewportCornerInfoPreference,
+  createDefaultViewportCornerInfoPreference,
+  filterViewportCornerInfoCatalog,
+  getViewportCornerInfoItemLabel,
+  normalizeViewportCornerInfoPreference,
+  type ViewportCornerInfoCatalogItem,
+  type ViewportCornerInfoItemKey
+} from '../../composables/ui/viewportCornerInfo'
 import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
 import { viewerRuntime } from '../../platform/runtime'
 import ExportSettingsPanel from './settings/ExportSettingsPanel.vue'
@@ -37,6 +50,7 @@ type SettingsSection =
   | 'dicomExport'
   | 'deidentifyExport'
   | 'displayCrosshair'
+  | 'displayCornerInfo'
   | 'displayMprLayout'
   | 'displayScaleBar'
   | 'displayMeasurement'
@@ -45,6 +59,27 @@ type SettingsSection =
   | 'pacs'
 type SettingsNavGroupKey = 'general' | 'dataSource' | 'display' | 'dicomTags' | 'export' | 'qa'
 type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+type ViewportCornerPosition = (typeof VIEWPORT_CORNER_POSITIONS)[number]
+type CornerInfoPreviewRenderEntry =
+  | {
+    kind: 'insert'
+    renderKey: string
+    insertIndex: number | null
+  }
+  | {
+    kind: 'item'
+    renderKey: string
+    itemKey: ViewportCornerInfoItemKey
+    itemIndex: number
+  }
+interface CornerInfoContextMenuState {
+  key: ViewportCornerInfoItemKey
+  kind: 'catalog' | 'preview'
+  sourcePosition?: ViewportCornerPosition
+  sourceIndex?: number
+  x: number
+  y: number
+}
 
 interface SettingsNavItem {
   key: SettingsSection
@@ -122,6 +157,7 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   dicomExport: ['dicom导出', '导出', '保存', '位置', 'dicom', 'export', 'save', 'location'],
   deidentifyExport: ['脱敏', '匿名', '隐私', 'deidentify', 'de-identify', 'anonymize', 'anonymous', 'privacy'],
   displayCrosshair: ['十字线', 'mpr', 'crosshair', 'axis', '定位线'],
+  displayCornerInfo: ['四角信息', '角标', '患者信息', 'corner', 'corner info', 'overlay', 'patient', 'tag'],
   displayMprLayout: ['mpr', '布局', '重建', '宫格', 'layout', 'grid', 'viewport'],
   displayScaleBar: ['比例尺', '标尺', 'scale', 'scalebar', 'ruler'],
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
@@ -321,6 +357,7 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
+  viewportCornerInfoPreference,
   setCrosshairConfigs,
   setDicomDeidentifyPreference,
   setDicomTagEditSavePreference,
@@ -330,6 +367,7 @@ const {
   setMprDefaultLayoutKey,
   setQaWaterMetrics,
   setScaleBarPreference,
+  setViewportCornerInfoPreference,
   systemWindowPresets,
   setRoiStatOptions,
   themeId,
@@ -351,10 +389,31 @@ const hangingProtocolModality = ref('CT')
 const hangingProtocolKeyword = ref('')
 const hangingProtocolRows = ref('1')
 const hangingProtocolColumns = ref('2')
+const isHangingProtocolModalityMenuOpen = ref(false)
+const cornerInfoSearch = ref('')
+const draggedCornerInfoItem = ref<{
+  key: ViewportCornerInfoItemKey
+  sourcePosition?: ViewportCornerPosition
+  sourceIndex?: number
+} | null>(null)
+const shouldHideDraggedCornerInfoSource = ref(false)
+const cornerInfoDragTarget = ref<{
+  position: ViewportCornerPosition
+  index: number | null
+} | null>(null)
+const cornerInfoContextMenu = ref<CornerInfoContextMenuState | null>(null)
 const tagEditSaveDefaultLocationLabel = ref('')
 const tagEditSaveLocationError = ref('')
 const isChoosingTagEditSaveLocation = ref(false)
 const appVersion = __APP_VERSION__
+const CORNER_INFO_DRAG_SOURCE_HIDE_DELAY_MS = 90
+const CORNER_INFO_DRAG_INSERT_SPLIT_RATIO = 0.34
+const CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX = 20
+const CORNER_INFO_DRAG_AUTOSCROLL_MAX_SPEED = 4
+let cornerInfoDragHideTimeoutId: number | null = null
+let cornerInfoAutoScrollFrameId: number | null = null
+let cornerInfoAutoScrollElement: HTMLElement | null = null
+let cornerInfoAutoScrollVelocity = 0
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = settingsCopy
@@ -367,6 +426,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
   { key: 'displayCrosshair' as const, title: copy.value.crosshairTitle, subtitle: isZh.value ? 'MPR 十字线' : 'MPR crosshair', icon: 'crosshair' },
+  { key: 'displayCornerInfo' as const, title: isZh.value ? '四角信息' : 'Corner Info', subtitle: isZh.value ? '视口角标内容' : 'Viewport corner tags', icon: 'tag' },
   { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
   { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '测量线样式' : 'Measurement style', icon: 'measure-line' },
   { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
@@ -406,6 +466,7 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
         getSection('displayMprLayout'),
         getSection('windowPresets'),
         getSection('displayCrosshair'),
+        getSection('displayCornerInfo'),
         getSection('displayScaleBar'),
         getSection('displayMeasurement'),
         getSection('displayRoi'),
@@ -477,6 +538,13 @@ const customPresetLimitLabel = computed(() => `${displayCustomWindowPresets.valu
 const hangingProtocolRuleCountLabel = computed(() => `${hangingProtocolRules.value.length}/${MAX_HANGING_PROTOCOL_RULES}`)
 const canAddHangingProtocolRule = computed(() => hangingProtocolRules.value.length < MAX_HANGING_PROTOCOL_RULES)
 const hangingProtocolModalityOptions = ['ALL', 'CT', 'MR', 'PT', 'US', 'XA', 'CR', 'DX', 'OT']
+const configuredCornerInfoItemKeySet = computed(() => new Set(VIEWPORT_CORNER_POSITIONS.flatMap((position) => viewportCornerInfoPreference.value[position])))
+const cornerInfoCatalogItems = computed(() =>
+  filterViewportCornerInfoCatalog(cornerInfoSearch.value, locale.value).filter((item) => !configuredCornerInfoItemKeySet.value.has(item.key))
+)
+const cornerInfoPreview = computed(() =>
+  applyViewportCornerInfoPreference(SAMPLE_VIEWPORT_CORNER_INFO, viewportCornerInfoPreference.value)
+)
 const mprDefaultLayoutSelectionValue = computed(() => toMprLayoutSelectionValue(mprDefaultLayoutKey.value))
 const mprDefaultLayoutOptions = computed(() =>
   MPR_LAYOUT_OPTIONS.map((option) => ({
@@ -746,6 +814,19 @@ function getHangingProtocolRuleSummary(rule: HangingProtocolRule): string {
   return `${conditionParts.join(' / ')} -> ${rule.rows} x ${rule.columns}`
 }
 
+function getHangingProtocolModalityLabel(modality: string): string {
+  return modality === 'ALL' ? (isZh.value ? '全部' : 'All') : modality
+}
+
+function toggleHangingProtocolModalityMenu(): void {
+  isHangingProtocolModalityMenuOpen.value = !isHangingProtocolModalityMenuOpen.value
+}
+
+function selectHangingProtocolModality(modality: string): void {
+  hangingProtocolModality.value = modality
+  isHangingProtocolModalityMenuOpen.value = false
+}
+
 function handleAddHangingProtocolRule(): void {
   if (!canAddHangingProtocolRule.value) {
     return
@@ -768,6 +849,559 @@ function handleAddHangingProtocolRule(): void {
 
 function toggleHangingProtocolRule(rule: HangingProtocolRule): void {
   updateHangingProtocolRule(rule.id, { enabled: !rule.enabled })
+}
+
+function getCornerPositionLabel(position: ViewportCornerPosition): string {
+  if (position === 'topLeft') {
+    return isZh.value ? '左上' : 'Top left'
+  }
+  if (position === 'topRight') {
+    return isZh.value ? '右上' : 'Top right'
+  }
+  if (position === 'bottomLeft') {
+    return isZh.value ? '左下' : 'Bottom left'
+  }
+  return isZh.value ? '右下' : 'Bottom right'
+}
+
+function getCornerInfoLimitLabel(position: ViewportCornerPosition): string {
+  return `${viewportCornerInfoPreference.value[position].length}/${MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION}`
+}
+
+function getCornerInfoCatalogItem(key: ViewportCornerInfoItemKey): ViewportCornerInfoCatalogItem | null {
+  return VIEWPORT_CORNER_INFO_CATALOG.find((item) => item.key === key) ?? null
+}
+
+function getCornerInfoItemLabel(key: ViewportCornerInfoItemKey): string {
+  const item = getCornerInfoCatalogItem(key)
+  return item ? getViewportCornerInfoItemLabel(item, locale.value) : key
+}
+
+function getCornerInfoItemMeta(item: ViewportCornerInfoCatalogItem): string {
+  return item.dicomKeywords.length ? item.dicomKeywords.join(' / ') : item.key
+}
+
+function isCornerInfoItemConfigured(key: ViewportCornerInfoItemKey): boolean {
+  return configuredCornerInfoItemKeySet.value.has(key)
+}
+
+function isCornerInfoItemInPosition(key: ViewportCornerInfoItemKey, position: ViewportCornerPosition): boolean {
+  return viewportCornerInfoPreference.value[position].includes(key)
+}
+
+function getCornerInfoItemPosition(key: ViewportCornerInfoItemKey): ViewportCornerPosition | null {
+  return VIEWPORT_CORNER_POSITIONS.find((position) => viewportCornerInfoPreference.value[position].includes(key)) ?? null
+}
+
+function isCornerInfoPositionFull(position: ViewportCornerPosition): boolean {
+  return viewportCornerInfoPreference.value[position].length >= MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION
+}
+
+function cloneCurrentCornerInfoPreference() {
+  return normalizeViewportCornerInfoPreference({
+    topLeft: viewportCornerInfoPreference.value.topLeft,
+    topRight: viewportCornerInfoPreference.value.topRight,
+    bottomLeft: viewportCornerInfoPreference.value.bottomLeft,
+    bottomRight: viewportCornerInfoPreference.value.bottomRight
+  })
+}
+
+function setCornerInfoItemPosition(
+  key: ViewportCornerInfoItemKey,
+  position: ViewportCornerPosition,
+  targetIndex: number | null = null
+): boolean {
+  const nextPreference = cloneCurrentCornerInfoPreference()
+  for (const cornerPosition of VIEWPORT_CORNER_POSITIONS) {
+    nextPreference[cornerPosition] = nextPreference[cornerPosition].filter((itemKey) => itemKey !== key)
+  }
+
+  const targetItems = nextPreference[position]
+  if (targetItems.length >= MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION) {
+    return false
+  }
+
+  const currentDrag = draggedCornerInfoItem.value
+  const adjustedIndex =
+    targetIndex == null
+      ? targetItems.length
+      : currentDrag?.sourcePosition === position && currentDrag.sourceIndex != null && currentDrag.sourceIndex < targetIndex
+        ? targetIndex - 1
+        : targetIndex
+  targetItems.splice(Math.max(0, Math.min(targetItems.length, adjustedIndex)), 0, key)
+  setViewportCornerInfoPreference(nextPreference)
+  return true
+}
+
+function canPlaceCornerInfoItem(key: ViewportCornerInfoItemKey, position: ViewportCornerPosition): boolean {
+  const nextPreference = cloneCurrentCornerInfoPreference()
+  for (const cornerPosition of VIEWPORT_CORNER_POSITIONS) {
+    nextPreference[cornerPosition] = nextPreference[cornerPosition].filter((itemKey) => itemKey !== key)
+  }
+  return nextPreference[position].length < MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION
+}
+
+function isCornerInfoDragged(
+  key: ViewportCornerInfoItemKey,
+  sourcePosition?: ViewportCornerPosition,
+  sourceIndex?: number
+): boolean {
+  const draggedItem = draggedCornerInfoItem.value
+  if (!draggedItem || draggedItem.key !== key) {
+    return false
+  }
+  if (!sourcePosition) {
+    return draggedItem.sourcePosition == null
+  }
+  return draggedItem.sourcePosition === sourcePosition && draggedItem.sourceIndex === sourceIndex
+}
+
+function shouldVisuallyHideCornerInfoDraggedSource(
+  key: ViewportCornerInfoItemKey,
+  sourcePosition?: ViewportCornerPosition,
+  sourceIndex?: number
+): boolean {
+  return shouldHideDraggedCornerInfoSource.value && isCornerInfoDragged(key, sourcePosition, sourceIndex)
+}
+
+function cancelCornerInfoDragHideFrame(): void {
+  if (cornerInfoDragHideTimeoutId == null) {
+    return
+  }
+  window.clearTimeout(cornerInfoDragHideTimeoutId)
+  cornerInfoDragHideTimeoutId = null
+}
+
+function scheduleCornerInfoDraggedSourceHide(): void {
+  cancelCornerInfoDragHideFrame()
+  shouldHideDraggedCornerInfoSource.value = false
+  cornerInfoDragHideTimeoutId = window.setTimeout(() => {
+    cornerInfoDragHideTimeoutId = null
+    if (draggedCornerInfoItem.value) {
+      shouldHideDraggedCornerInfoSource.value = true
+    }
+  }, CORNER_INFO_DRAG_SOURCE_HIDE_DELAY_MS)
+}
+
+function stopCornerInfoAutoScroll(): void {
+  if (cornerInfoAutoScrollFrameId != null) {
+    window.cancelAnimationFrame(cornerInfoAutoScrollFrameId)
+  }
+  cornerInfoAutoScrollFrameId = null
+  cornerInfoAutoScrollElement = null
+  cornerInfoAutoScrollVelocity = 0
+}
+
+function runCornerInfoAutoScroll(): void {
+  const scrollElement = cornerInfoAutoScrollElement
+  if (!scrollElement || cornerInfoAutoScrollVelocity === 0) {
+    stopCornerInfoAutoScroll()
+    return
+  }
+
+  const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight)
+  const nextScrollTop = Math.max(0, Math.min(maxScrollTop, scrollElement.scrollTop + cornerInfoAutoScrollVelocity))
+  if (nextScrollTop === scrollElement.scrollTop && (nextScrollTop === 0 || nextScrollTop === maxScrollTop)) {
+    stopCornerInfoAutoScroll()
+    return
+  }
+
+  scrollElement.scrollTop = nextScrollTop
+  cornerInfoAutoScrollFrameId = window.requestAnimationFrame(runCornerInfoAutoScroll)
+}
+
+function getCornerInfoAutoScrollVelocity(scrollElement: HTMLElement, clientY: number): number {
+  if (scrollElement.scrollHeight <= scrollElement.clientHeight) {
+    return 0
+  }
+
+  const rect = scrollElement.getBoundingClientRect()
+  const topDistance = clientY - rect.top
+  const bottomDistance = rect.bottom - clientY
+  if (topDistance < CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX) {
+    const intensity = (CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX - Math.max(0, topDistance)) / CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX
+    return -Math.max(1, Math.round(intensity * CORNER_INFO_DRAG_AUTOSCROLL_MAX_SPEED))
+  }
+  if (bottomDistance < CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX) {
+    const intensity = (CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX - Math.max(0, bottomDistance)) / CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX
+    return Math.max(1, Math.round(intensity * CORNER_INFO_DRAG_AUTOSCROLL_MAX_SPEED))
+  }
+  return 0
+}
+
+function updateCornerInfoAutoScroll(event: DragEvent): void {
+  const eventElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  const scrollElement = eventElement?.closest<HTMLElement>('.corner-info-preview-corner, .corner-info-catalog-list') ?? null
+  if (!scrollElement) {
+    stopCornerInfoAutoScroll()
+    return
+  }
+
+  const nextVelocity = getCornerInfoAutoScrollVelocity(scrollElement, event.clientY)
+  if (nextVelocity === 0) {
+    stopCornerInfoAutoScroll()
+    return
+  }
+
+  cornerInfoAutoScrollElement = scrollElement
+  cornerInfoAutoScrollVelocity = nextVelocity
+  if (cornerInfoAutoScrollFrameId == null) {
+    cornerInfoAutoScrollFrameId = window.requestAnimationFrame(runCornerInfoAutoScroll)
+  }
+}
+
+function clearCornerInfoDragState(): void {
+  cancelCornerInfoDragHideFrame()
+  stopCornerInfoAutoScroll()
+  shouldHideDraggedCornerInfoSource.value = false
+  draggedCornerInfoItem.value = null
+  cornerInfoDragTarget.value = null
+}
+
+function isCornerInfoDropTarget(position: ViewportCornerPosition, index: number | null = null): boolean {
+  return cornerInfoDragTarget.value?.position === position && cornerInfoDragTarget.value.index === index
+}
+
+function isCornerInfoDropTargetPosition(position: ViewportCornerPosition): boolean {
+  return cornerInfoDragTarget.value?.position === position
+}
+
+function isCornerInfoValidDropTarget(position: ViewportCornerPosition): boolean {
+  const draggedKey = draggedCornerInfoItem.value?.key
+  return Boolean(draggedKey && canPlaceCornerInfoItem(draggedKey, position))
+}
+
+function shouldShowCornerInfoInsertPreview(position: ViewportCornerPosition, index: number | null): boolean {
+  return isCornerInfoDropTarget(position, index) && isCornerInfoValidDropTarget(position)
+}
+
+function shouldShowCornerInfoAppendPreview(position: ViewportCornerPosition): boolean {
+  const itemCount = viewportCornerInfoPreference.value[position].length
+  return shouldShowCornerInfoInsertPreview(position, null) || shouldShowCornerInfoInsertPreview(position, itemCount)
+}
+
+function shouldShowCornerInfoEmptyState(position: ViewportCornerPosition): boolean {
+  return viewportCornerInfoPreference.value[position].length === 0 && !shouldShowCornerInfoAppendPreview(position)
+}
+
+function getCornerInfoInsertPreviewLabel(): string {
+  const draggedKey = draggedCornerInfoItem.value?.key
+  if (!draggedKey) {
+    return isZh.value ? '插入位置' : 'Insert position'
+  }
+  return isZh.value ? `插入 ${getCornerInfoItemLabel(draggedKey)}` : `Insert ${getCornerInfoItemLabel(draggedKey)}`
+}
+
+function getCornerInfoPreviewRenderEntries(position: ViewportCornerPosition): CornerInfoPreviewRenderEntry[] {
+  const entries: CornerInfoPreviewRenderEntry[] = []
+  const items = viewportCornerInfoPreference.value[position]
+  items.forEach((itemKey, itemIndex) => {
+    if (shouldShowCornerInfoInsertPreview(position, itemIndex)) {
+      entries.push({
+        kind: 'insert',
+        renderKey: `${position}-insert-${itemIndex}`,
+        insertIndex: itemIndex
+      })
+    }
+
+    entries.push({
+      kind: 'item',
+      renderKey: `${position}-item-${itemKey}`,
+      itemKey,
+      itemIndex
+    })
+  })
+
+  if (shouldShowCornerInfoAppendPreview(position)) {
+    entries.push({
+      kind: 'insert',
+      renderKey: `${position}-insert-end`,
+      insertIndex: cornerInfoDragTarget.value?.index ?? null
+    })
+  }
+
+  return entries
+}
+
+function getCornerInfoDropHint(position: ViewportCornerPosition): string {
+  const draggedKey = draggedCornerInfoItem.value?.key
+  if (draggedKey && !canPlaceCornerInfoItem(draggedKey, position)) {
+    return isZh.value ? '已满' : 'Full'
+  }
+  if (draggedKey) {
+    return isZh.value ? `放到${getCornerPositionLabel(position)}` : `Drop to ${getCornerPositionLabel(position)}`
+  }
+  return isZh.value ? '拖入显示项' : 'Drop item here'
+}
+
+function resolveCornerInfoDragTargetIndex(
+  position: ViewportCornerPosition,
+  event: DragEvent,
+  targetIndex: number | null,
+  targetKind: 'item' | 'insert' | 'corner' = 'corner'
+): number | null {
+  if (targetIndex == null) {
+    return null
+  }
+  if (targetKind !== 'item' || !(event.currentTarget instanceof HTMLElement)) {
+    return targetIndex
+  }
+
+  const rect = event.currentTarget.getBoundingClientRect()
+  const upperBoundary = rect.top + rect.height * CORNER_INFO_DRAG_INSERT_SPLIT_RATIO
+  const lowerBoundary = rect.bottom - rect.height * CORNER_INFO_DRAG_INSERT_SPLIT_RATIO
+  if (event.clientY < upperBoundary) {
+    return targetIndex
+  }
+  if (event.clientY > lowerBoundary) {
+    return targetIndex + 1
+  }
+  return cornerInfoDragTarget.value?.position === position ? cornerInfoDragTarget.value.index : targetIndex
+}
+
+function handleCornerInfoDragStart(
+  key: ViewportCornerInfoItemKey,
+  event: DragEvent,
+  sourcePosition?: ViewportCornerPosition,
+  sourceIndex?: number
+): void {
+  closeCornerInfoContextMenu()
+  cornerInfoDragTarget.value = null
+  draggedCornerInfoItem.value = { key, sourcePosition, sourceIndex }
+  event.dataTransfer?.setData('text/plain', key)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    if (event.currentTarget instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(event.currentTarget, Math.min(36, event.currentTarget.clientWidth / 2), 22)
+    }
+  }
+  scheduleCornerInfoDraggedSourceHide()
+}
+
+function handleCornerInfoDragOver(
+  position: ViewportCornerPosition,
+  event: DragEvent,
+  targetIndex: number | null = null,
+  targetKind: 'item' | 'insert' | 'corner' = 'corner'
+): void {
+  event.preventDefault()
+  updateCornerInfoAutoScroll(event)
+  cornerInfoDragTarget.value = { position, index: resolveCornerInfoDragTargetIndex(position, event, targetIndex, targetKind) }
+  const key = draggedCornerInfoItem.value?.key
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = key && canPlaceCornerInfoItem(key, position) ? 'move' : 'none'
+  }
+}
+
+function handleCornerInfoDragLeave(position: ViewportCornerPosition, event: DragEvent): void {
+  if (
+    event.currentTarget instanceof HTMLElement &&
+    event.relatedTarget instanceof Node &&
+    event.currentTarget.contains(event.relatedTarget)
+  ) {
+    return
+  }
+  if (cornerInfoDragTarget.value?.position === position) {
+    cornerInfoDragTarget.value = null
+  }
+  stopCornerInfoAutoScroll()
+}
+
+function handleCornerInfoScrollableDragOver(event: DragEvent): void {
+  if (!draggedCornerInfoItem.value) {
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  updateCornerInfoAutoScroll(event)
+}
+
+function handleCornerInfoScrollableDragLeave(event: DragEvent): void {
+  if (
+    event.currentTarget instanceof HTMLElement &&
+    event.relatedTarget instanceof Node &&
+    event.currentTarget.contains(event.relatedTarget)
+  ) {
+    return
+  }
+  stopCornerInfoAutoScroll()
+}
+
+function handleCornerInfoDrop(
+  position: ViewportCornerPosition,
+  event: DragEvent,
+  targetIndex: number | null = null,
+  targetKind: 'item' | 'insert' | 'corner' = 'corner'
+): void {
+  event.preventDefault()
+  const key = draggedCornerInfoItem.value?.key ?? (event.dataTransfer?.getData('text/plain') as ViewportCornerInfoItemKey)
+  if (!getCornerInfoCatalogItem(key)) {
+    clearCornerInfoDragState()
+    return
+  }
+  setCornerInfoItemPosition(key, position, resolveCornerInfoDragTargetIndex(position, event, targetIndex, targetKind))
+  clearCornerInfoDragState()
+}
+
+function clearCornerInfoDrag(): void {
+  clearCornerInfoDragState()
+}
+
+function removeCornerInfoItemByKey(key: ViewportCornerInfoItemKey): void {
+  const nextPreference = cloneCurrentCornerInfoPreference()
+  let hasChange = false
+  for (const position of VIEWPORT_CORNER_POSITIONS) {
+    const nextItems = nextPreference[position].filter((itemKey) => itemKey !== key)
+    hasChange ||= nextItems.length !== nextPreference[position].length
+    nextPreference[position] = nextItems
+  }
+  if (hasChange) {
+    setViewportCornerInfoPreference(nextPreference)
+  }
+}
+
+function removeCornerInfoItem(position: ViewportCornerPosition, index: number): void {
+  const nextPreference = cloneCurrentCornerInfoPreference()
+  nextPreference[position] = nextPreference[position].filter((_, itemIndex) => itemIndex !== index)
+  setViewportCornerInfoPreference(nextPreference)
+}
+
+function getCornerInfoPreviewLines(position: ViewportCornerPosition): string[] {
+  return cornerInfoPreview.value[position] ?? []
+}
+
+function getCornerInfoContextMenuPosition(event: MouseEvent): { x: number; y: number } {
+  return {
+    x: Math.max(12, Math.min(event.clientX, window.innerWidth - 250)),
+    y: Math.max(12, Math.min(event.clientY, window.innerHeight - 270))
+  }
+}
+
+function openCornerInfoCatalogContextMenu(item: ViewportCornerInfoCatalogItem, event: MouseEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+  const position = getCornerInfoContextMenuPosition(event)
+  isHangingProtocolModalityMenuOpen.value = false
+  cornerInfoContextMenu.value = {
+    kind: 'catalog',
+    key: item.key,
+    x: position.x,
+    y: position.y
+  }
+}
+
+function openCornerInfoPreviewContextMenu(
+  key: ViewportCornerInfoItemKey,
+  position: ViewportCornerPosition,
+  index: number,
+  event: MouseEvent
+): void {
+  event.preventDefault()
+  event.stopPropagation()
+  const menuPosition = getCornerInfoContextMenuPosition(event)
+  isHangingProtocolModalityMenuOpen.value = false
+  cornerInfoContextMenu.value = {
+    kind: 'preview',
+    key,
+    sourcePosition: position,
+    sourceIndex: index,
+    x: menuPosition.x,
+    y: menuPosition.y
+  }
+}
+
+function closeCornerInfoContextMenu(): void {
+  cornerInfoContextMenu.value = null
+}
+
+function handleSettingsShellClick(): void {
+  isHangingProtocolModalityMenuOpen.value = false
+  closeCornerInfoContextMenu()
+}
+
+function handleSettingsKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') {
+    return
+  }
+  isHangingProtocolModalityMenuOpen.value = false
+  closeCornerInfoContextMenu()
+}
+
+function getCornerInfoContextMenuTitle(): string {
+  const menu = cornerInfoContextMenu.value
+  return menu ? getCornerInfoItemLabel(menu.key) : ''
+}
+
+function getCornerInfoContextMenuSubtitle(): string {
+  const menu = cornerInfoContextMenu.value
+  if (!menu) {
+    return ''
+  }
+  const sourcePosition = menu.sourcePosition ?? getCornerInfoItemPosition(menu.key)
+  if (!sourcePosition) {
+    return isZh.value ? '未添加' : 'Not added'
+  }
+  return isZh.value ? `当前在${getCornerPositionLabel(sourcePosition)}` : `Currently in ${getCornerPositionLabel(sourcePosition)}`
+}
+
+function getCornerInfoContextMoveLabel(position: ViewportCornerPosition): string {
+  const menu = cornerInfoContextMenu.value
+  const positionLabel = getCornerPositionLabel(position)
+  if (menu?.kind === 'catalog' && !isCornerInfoItemConfigured(menu.key)) {
+    return isZh.value ? `添加到${positionLabel}` : `Add to ${positionLabel}`
+  }
+  return isZh.value ? `移动到${positionLabel}` : `Move to ${positionLabel}`
+}
+
+function isCornerInfoContextMoveDisabled(position: ViewportCornerPosition): boolean {
+  const menu = cornerInfoContextMenu.value
+  if (!menu) {
+    return true
+  }
+  if (menu.sourcePosition === position || (menu.kind === 'catalog' && isCornerInfoItemInPosition(menu.key, position))) {
+    return true
+  }
+  return !canPlaceCornerInfoItem(menu.key, position)
+}
+
+function getCornerInfoContextMoveTitle(position: ViewportCornerPosition): string {
+  const menu = cornerInfoContextMenu.value
+  if (!menu) {
+    return ''
+  }
+  if (isCornerInfoContextMoveDisabled(position) && isCornerInfoPositionFull(position)) {
+    return isZh.value ? `${getCornerPositionLabel(position)}已达到 6 项上限` : `${getCornerPositionLabel(position)} already has 6 items`
+  }
+  return getCornerInfoContextMoveLabel(position)
+}
+
+function moveCornerInfoContextMenuItem(position: ViewportCornerPosition): void {
+  const menu = cornerInfoContextMenu.value
+  if (!menu || isCornerInfoContextMoveDisabled(position)) {
+    return
+  }
+  setCornerInfoItemPosition(menu.key, position)
+  closeCornerInfoContextMenu()
+}
+
+function shouldShowCornerInfoContextRemove(): boolean {
+  const menu = cornerInfoContextMenu.value
+  return Boolean(menu && (menu.kind === 'preview' || isCornerInfoItemConfigured(menu.key)))
+}
+
+function removeCornerInfoContextMenuItem(): void {
+  const menu = cornerInfoContextMenu.value
+  if (!menu) {
+    return
+  }
+  if (menu.sourcePosition != null && menu.sourceIndex != null) {
+    removeCornerInfoItem(menu.sourcePosition, menu.sourceIndex)
+  } else {
+    removeCornerInfoItemByKey(menu.key)
+  }
+  closeCornerInfoContextMenu()
 }
 
 function isDicomDeidentifyFieldSelected(key: DicomDeidentifyFieldKey): boolean {
@@ -969,6 +1603,11 @@ function resetDisplaySubSection(section: SettingsSection): void {
     setScaleBarPreference(createDefaultScaleBarPreference())
     return
   }
+  if (section === 'displayCornerInfo') {
+    setViewportCornerInfoPreference(createDefaultViewportCornerInfoPreference())
+    cornerInfoSearch.value = ''
+    return
+  }
   if (section === 'displayMeasurement') {
     setMeasurementStylePreference(createDefaultMeasurementStylePreference())
   }
@@ -996,6 +1635,7 @@ function resetHangingProtocolSection(): void {
   hangingProtocolKeyword.value = ''
   hangingProtocolRows.value = '1'
   hangingProtocolColumns.value = '2'
+  isHangingProtocolModalityMenuOpen.value = false
 }
 
 function resetQaSection(): void {
@@ -1035,6 +1675,7 @@ function resetCurrentSection(): void {
     activeSection.value === 'displayCrosshair' ||
     activeSection.value === 'displayMprLayout' ||
     activeSection.value === 'displayScaleBar' ||
+    activeSection.value === 'displayCornerInfo' ||
     activeSection.value === 'displayMeasurement' ||
     activeSection.value === 'displayPseudocolor' ||
     activeSection.value === 'displayRoi'
@@ -1116,12 +1757,18 @@ watch(displayCustomWindowPresets, () => {
 })
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleSettingsKeydown)
   try {
     tagEditSaveDefaultLocationLabel.value = await getDefaultExportLocationLabel()
   } catch (error) {
     console.error('Failed to resolve DICOM tag edit default save location.', error)
     tagEditSaveDefaultLocationLabel.value = ''
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleSettingsKeydown)
+  clearCornerInfoDragState()
 })
 
 </script>
@@ -1133,7 +1780,7 @@ onMounted(async () => {
       class="settings-dialog-backdrop fixed inset-0 z-[1300] flex items-center justify-center bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-accent)_16%,transparent),transparent_38%),rgba(3,8,15,0.42)] px-4 py-6 backdrop-blur-[8px]"
       @click.self="emit('close')"
     >
-      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1320px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]">
+      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1320px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]" @click="handleSettingsShellClick">
         <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_14%,transparent),transparent_26%),radial-gradient(circle_at_bottom_left,color-mix(in_srgb,var(--theme-accent-warm)_12%,transparent),transparent_22%)]"></div>
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[color:color-mix(in_srgb,var(--theme-text-primary)_40%,transparent)] to-transparent"></div>
 
@@ -1496,15 +2143,42 @@ onMounted(async () => {
                             <div class="grid gap-3 md:grid-cols-2">
                               <label class="block">
                                 <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '检查模态 Modality' : 'Modality' }}</span>
-                                <select v-model="hangingProtocolModality" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]">
-                                  <option v-for="modality in hangingProtocolModalityOptions" :key="modality" :value="modality">
-                                    {{ modality === 'ALL' ? (isZh ? '全部' : 'All') : modality }}
-                                  </option>
-                                </select>
+                                <div class="settings-select relative" @click.stop>
+                                  <button
+                                    type="button"
+                                    class="settings-select-trigger"
+                                    :class="{ 'settings-select-trigger--open': isHangingProtocolModalityMenuOpen }"
+                                    :aria-expanded="isHangingProtocolModalityMenuOpen"
+                                    aria-haspopup="listbox"
+                                    @click="toggleHangingProtocolModalityMenu"
+                                    @keydown.escape.stop="isHangingProtocolModalityMenuOpen = false"
+                                  >
+                                    <span class="settings-select-trigger__label">{{ getHangingProtocolModalityLabel(hangingProtocolModality) }}</span>
+                                    <span class="settings-select-trigger__icon">
+                                      <AppIcon name="chevron-down" :size="16" />
+                                    </span>
+                                  </button>
+                                  <div v-if="isHangingProtocolModalityMenuOpen" class="settings-select-menu absolute left-0 top-[calc(100%+6px)] z-20" role="listbox">
+                                    <button
+                                      v-for="modality in hangingProtocolModalityOptions"
+                                      :key="modality"
+                                      type="button"
+                                      class="settings-select-option"
+                                      :class="{ 'settings-select-option--active': hangingProtocolModality === modality }"
+                                      role="option"
+                                      :aria-selected="hangingProtocolModality === modality"
+                                      @click="selectHangingProtocolModality(modality)"
+                                    >
+                                      <span class="settings-select-option__rail"></span>
+                                      <span class="min-w-0 flex-1 truncate">{{ getHangingProtocolModalityLabel(modality) }}</span>
+                                      <AppIcon v-if="hangingProtocolModality === modality" name="check" :size="14" />
+                                    </button>
+                                  </div>
+                                </div>
                               </label>
                               <label class="block">
                                 <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ isZh ? '序列描述关键字' : 'Description keyword' }}</span>
-                                <input v-model="hangingProtocolKeyword" maxlength="64" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" :placeholder="isZh ? '可留空，例如 chest / lung' : 'Optional, e.g. chest / lung'" />
+                                <input v-model="hangingProtocolKeyword" maxlength="64" class="w-full rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-4 py-3 text-sm text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-border-strong)]" :placeholder="isZh ? '例如 chest / lung' : 'e.g. chest / lung'" />
                               </label>
                             </div>
 
@@ -1897,6 +2571,7 @@ onMounted(async () => {
                 <template
                   v-else-if="
                     activeSection === 'displayCrosshair' ||
+                    activeSection === 'displayCornerInfo' ||
                     activeSection === 'displayMprLayout' ||
                     activeSection === 'displayScaleBar' ||
                     activeSection === 'displayMeasurement' ||
@@ -1968,7 +2643,7 @@ onMounted(async () => {
                               <div class="mb-2 flex items-center justify-between">
                                 <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ config.label }}</span>
                               </div>
-                              <div class="relative h-[170px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel-solid),var(--theme-surface-panel-strong-solid))]">
+                              <div class="crosshair-preview-surface relative h-[170px] overflow-hidden rounded-[16px] border">
                                 <div class="absolute left-[16%] top-[18%] h-8 w-8 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_8%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_3%,transparent)] blur-[1px]"></div>
                                 <div class="absolute right-[14%] top-[26%] h-12 w-12 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_7%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[2px]"></div>
                                 <div class="absolute bottom-[16%] left-[22%] h-10 w-10 rounded-full border border-[color:color-mix(in_srgb,var(--theme-text-primary)_6%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-text-primary)_2%,transparent)] blur-[1px]"></div>
@@ -1979,6 +2654,168 @@ onMounted(async () => {
                             </div>
                           </div>
                         </div>
+                      </div>
+                    </div>
+
+                    <div v-if="activeSection === 'displayCornerInfo'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="tag" :size="18" />
+                            <span class="text-sm font-semibold">{{ isZh ? '四角信息' : 'Corner Info' }}</span>
+                          </div>
+                          <div class="mt-2 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '配置 Stack、MPR 和 4D MPR 视口四角显示的系统信息项。' : 'Configure system corner items for Stack, MPR, and 4D MPR viewports.' }}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(250px,0.34fr)_minmax(0,1fr)]">
+                        <div class="corner-info-catalog-panel min-w-0 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-3">
+                          <div class="settings-nav-search flex min-h-11 items-center gap-2 rounded-[16px] border px-3">
+                            <AppIcon name="search" :size="16" />
+                            <input
+                              v-model="cornerInfoSearch"
+                              class="settings-nav-search__input min-w-0 flex-1 text-sm outline-none"
+                              :placeholder="isZh ? '搜索 Tag / patient / window' : 'Search tag / patient / window'"
+                            />
+                          </div>
+                          <div class="mt-3 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">
+                            <span>{{ isZh ? '常用显示项' : 'Common items' }}</span>
+                            <span>{{ cornerInfoCatalogItems.length }}/{{ VIEWPORT_CORNER_INFO_CATALOG.length }}</span>
+                          </div>
+                          <div
+                            class="corner-info-catalog-list mt-3 grid max-h-[620px] gap-2 overflow-x-hidden overflow-y-auto pr-1"
+                            @dragover="handleCornerInfoScrollableDragOver"
+                            @dragleave="handleCornerInfoScrollableDragLeave"
+                          >
+                            <div
+                              v-for="item in cornerInfoCatalogItems"
+                              :key="item.key"
+                              class="corner-info-catalog-item"
+                              :class="{
+                                'corner-info-catalog-item--used': isCornerInfoItemConfigured(item.key),
+                                'corner-info-catalog-item--dragging': shouldVisuallyHideCornerInfoDraggedSource(item.key)
+                              }"
+                              draggable="true"
+                              @dragstart="handleCornerInfoDragStart(item.key, $event)"
+                              @dragend="clearCornerInfoDrag"
+                              @contextmenu="openCornerInfoCatalogContextMenu(item, $event)"
+                            >
+                              <div class="min-w-0 flex-1 overflow-hidden">
+                                <div class="corner-info-catalog-title text-sm font-semibold text-[var(--theme-text-primary)]" :title="getViewportCornerInfoItemLabel(item, locale)">{{ getViewportCornerInfoItemLabel(item, locale) }}</div>
+                                <div class="corner-info-catalog-meta mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-muted)]" :title="getCornerInfoItemMeta(item)">{{ getCornerInfoItemMeta(item) }}</div>
+                              </div>
+                              <span class="corner-info-catalog-handle grid h-6 w-6 shrink-0 place-items-center rounded-[8px]" :title="isZh ? '拖拽调整' : 'Drag to place'">
+                                <AppIcon name="drag-handle" :size="14" />
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="corner-info-viewer-preview relative min-h-[640px] overflow-hidden rounded-[18px] border border-[color:rgba(255,255,255,0.12)]">
+                          <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_28%_18%,rgba(96,165,250,0.12),transparent_30%),radial-gradient(circle_at_70%_72%,rgba(20,184,166,0.09),transparent_34%),linear-gradient(180deg,#111827,#05080d_58%,#020409)]"></div>
+                          <div class="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] [background-size:40px_40px]"></div>
+                          <div
+                            v-for="position in VIEWPORT_CORNER_POSITIONS"
+                            :key="position"
+                            class="corner-info-preview-corner"
+                            :class="[
+                              `corner-info-preview-corner--${position}`,
+                              {
+                                'corner-info-preview-corner--drag-over': isCornerInfoDropTargetPosition(position),
+                                'corner-info-preview-corner--drop-disabled': isCornerInfoDropTargetPosition(position) && !isCornerInfoValidDropTarget(position),
+                                'corner-info-preview-corner--full': isCornerInfoPositionFull(position)
+                              }
+                            ]"
+                            @dragover="handleCornerInfoDragOver(position, $event)"
+                            @dragleave="handleCornerInfoDragLeave(position, $event)"
+                            @drop="handleCornerInfoDrop(position, $event)"
+                          >
+                            <div class="corner-info-preview-corner-header">
+                              <span>{{ getCornerPositionLabel(position) }}</span>
+                              <span>{{ getCornerInfoLimitLabel(position) }}</span>
+                            </div>
+                            <div class="corner-info-preview-drop-hint" :class="{ 'corner-info-preview-drop-hint--active': isCornerInfoDropTargetPosition(position) }">
+                              {{ getCornerInfoDropHint(position) }}
+                            </div>
+                            <div v-if="shouldShowCornerInfoEmptyState(position)" class="corner-info-preview-empty">
+                              {{ isZh ? '空' : 'Empty' }}
+                            </div>
+                            <TransitionGroup name="corner-info-chip-list" tag="div" class="corner-info-preview-chip-list">
+                              <div
+                                v-for="entry in getCornerInfoPreviewRenderEntries(position)"
+                                :key="entry.renderKey"
+                                :class="[
+                                  entry.kind === 'insert' ? 'corner-info-preview-insert' : 'corner-info-preview-chip',
+                                  entry.kind === 'item' && shouldVisuallyHideCornerInfoDraggedSource(entry.itemKey, position, entry.itemIndex) ? 'corner-info-preview-chip--dragging' : ''
+                                ]"
+                                :draggable="entry.kind === 'item'"
+                                @dragstart="entry.kind === 'item' && handleCornerInfoDragStart(entry.itemKey, $event, position, entry.itemIndex)"
+                                @dragend="clearCornerInfoDrag"
+                                @dragover.stop="handleCornerInfoDragOver(position, $event, entry.kind === 'insert' ? entry.insertIndex : entry.itemIndex, entry.kind === 'insert' ? 'insert' : 'item')"
+                                @drop.stop="handleCornerInfoDrop(position, $event, entry.kind === 'insert' ? entry.insertIndex : entry.itemIndex, entry.kind === 'insert' ? 'insert' : 'item')"
+                                @contextmenu="entry.kind === 'item' && openCornerInfoPreviewContextMenu(entry.itemKey, position, entry.itemIndex, $event)"
+                              >
+                                <template v-if="entry.kind === 'insert'">
+                                  <span>{{ getCornerInfoInsertPreviewLabel() }}</span>
+                                </template>
+                                <template v-else>
+                                  <div
+                                    class="min-w-0 flex-1 overflow-hidden"
+                                    :class="{ 'corner-info-preview-chip__content--hidden': shouldVisuallyHideCornerInfoDraggedSource(entry.itemKey, position, entry.itemIndex) }"
+                                  >
+                                    <div class="corner-info-chip-title text-[11px] font-semibold text-white/88" :title="getCornerInfoItemLabel(entry.itemKey)">{{ getCornerInfoItemLabel(entry.itemKey) }}</div>
+                                    <div class="corner-info-chip-value mt-0.5 font-mono text-[11px] text-white/62" :title="getCornerInfoPreviewLines(position)[entry.itemIndex] ?? getCornerInfoItemLabel(entry.itemKey)">{{ getCornerInfoPreviewLines(position)[entry.itemIndex] ?? getCornerInfoItemLabel(entry.itemKey) }}</div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    class="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] border border-white/12 bg-white/6 text-white/60 transition hover:border-white/28 hover:bg-white/12 hover:text-white"
+                                    :class="{ 'corner-info-preview-chip__content--hidden': shouldVisuallyHideCornerInfoDraggedSource(entry.itemKey, position, entry.itemIndex) }"
+                                    @click.stop="removeCornerInfoItem(position, entry.itemIndex)"
+                                  >
+                                    <AppIcon name="close" :size="13" />
+                                  </button>
+                                </template>
+                              </div>
+                            </TransitionGroup>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        v-if="cornerInfoContextMenu"
+                        class="corner-info-context-menu"
+                        :style="{ left: `${cornerInfoContextMenu.x}px`, top: `${cornerInfoContextMenu.y}px` }"
+                        @click.stop
+                        @contextmenu.prevent
+                      >
+                        <div class="corner-info-context-menu__header">
+                          <div class="corner-info-context-menu__title">{{ getCornerInfoContextMenuTitle() }}</div>
+                          <div class="corner-info-context-menu__subtitle">{{ getCornerInfoContextMenuSubtitle() }}</div>
+                        </div>
+                        <button
+                          v-for="position in VIEWPORT_CORNER_POSITIONS"
+                          :key="`corner-context-${position}`"
+                          type="button"
+                          class="corner-info-context-menu__item"
+                          :disabled="isCornerInfoContextMoveDisabled(position)"
+                          :title="getCornerInfoContextMoveTitle(position)"
+                          @click="moveCornerInfoContextMenuItem(position)"
+                        >
+                          <span>{{ getCornerInfoContextMoveLabel(position) }}</span>
+                          <span class="corner-info-context-menu__count">{{ getCornerInfoLimitLabel(position) }}</span>
+                        </button>
+                        <div v-if="shouldShowCornerInfoContextRemove()" class="corner-info-context-menu__separator"></div>
+                        <button
+                          v-if="shouldShowCornerInfoContextRemove()"
+                          type="button"
+                          class="corner-info-context-menu__item corner-info-context-menu__item--danger"
+                          @click="removeCornerInfoContextMenuItem"
+                        >
+                          <span>{{ isZh ? '移除' : 'Remove' }}</span>
+                          <AppIcon name="close" :size="13" />
+                        </button>
                       </div>
                     </div>
 
@@ -2073,7 +2910,7 @@ onMounted(async () => {
 
                         <div class="scale-bar-control-card rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4 xl:col-span-2">
                           <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.visualPreview }}</div>
-                          <div class="scale-bar-preview-surface relative min-h-[96px] overflow-hidden rounded-[16px] border border-[var(--theme-border-soft)] bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-text-primary)_6%,transparent),transparent_36%),linear-gradient(180deg,var(--theme-surface-panel-solid),var(--theme-surface-panel-strong-solid))]">
+                          <div class="scale-bar-preview-surface relative min-h-[96px] overflow-hidden rounded-[16px] border">
                             <div
                               class="scale-bar-preview-mark absolute bottom-3 left-1/2 -translate-x-1/2 transition duration-150"
                               :class="scaleBarPreference.enabled ? 'opacity-100' : 'opacity-30 grayscale'"
@@ -2528,5 +3365,565 @@ onMounted(async () => {
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 84%, transparent);
+}
+
+.crosshair-preview-surface,
+.scale-bar-preview-surface {
+  border-color: rgba(226, 240, 255, 0.16);
+  background:
+    radial-gradient(circle at 22% 18%, rgba(148, 163, 184, 0.18), transparent 28%),
+    radial-gradient(circle at 76% 28%, rgba(96, 165, 250, 0.12), transparent 30%),
+    linear-gradient(180deg, #121a24, #060a10 62%, #020409);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -24px 48px rgba(0, 0, 0, 0.28);
+}
+
+.settings-select-trigger {
+  display: grid;
+  min-height: 46px;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 16px;
+  background: var(--theme-surface-panel);
+  padding: 0 12px 0 16px;
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.settings-select-trigger:hover,
+.settings-select-trigger--open {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-panel));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent);
+}
+
+.settings-select-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-strong));
+  box-shadow: var(--theme-focus-ring);
+}
+
+.settings-select-trigger__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-select-trigger__icon {
+  display: grid;
+  height: 24px;
+  width: 24px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--theme-text-secondary);
+}
+
+.settings-select-trigger__icon :deep(.app-icon-svg) {
+  transition: transform 150ms ease;
+}
+
+.settings-select-trigger--open .settings-select-trigger__icon :deep(.app-icon-svg) {
+  transform: rotate(180deg);
+}
+
+.settings-select-menu {
+  display: grid;
+  width: min(290px, calc(100vw - 48px));
+  gap: 4px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 74%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%)
+    );
+  padding: 6px;
+  box-shadow:
+    0 24px 52px rgba(2, 8, 18, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.settings-select-option {
+  position: relative;
+  display: flex;
+  min-height: 38px;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  padding: 0 10px 0 12px;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.settings-select-option:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.settings-select-option--active {
+  color: var(--theme-active-foreground);
+}
+
+.settings-select-option__rail {
+  position: absolute;
+  inset: 9px auto 9px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 80%, white 8%);
+  opacity: 0;
+}
+
+.settings-select-option--active .settings-select-option__rail {
+  opacity: 0.72;
+}
+
+.corner-info-catalog-list {
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--theme-accent) 36%, transparent) transparent;
+}
+
+.corner-info-catalog-item {
+  display: flex;
+  min-height: 64px;
+  min-width: 0;
+  cursor: grab;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 16px;
+  background: var(--theme-surface-card);
+  padding: 10px 12px;
+  transition:
+    border-color 150ms ease,
+    border-width 150ms ease,
+    background 150ms ease,
+    min-height 150ms ease,
+    opacity 150ms ease,
+    padding 150ms ease,
+    transform 150ms ease;
+}
+
+.corner-info-catalog-item:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface-card));
+}
+
+.corner-info-catalog-item:active {
+  cursor: grabbing;
+  transform: scale(0.99);
+}
+
+.corner-info-catalog-item--dragging {
+  height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.98);
+}
+
+.corner-info-catalog-item--dragging > * {
+  opacity: 0;
+}
+
+.corner-info-catalog-item--used {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card));
+}
+
+.corner-info-catalog-handle {
+  border: 1px solid transparent;
+  color: var(--theme-text-muted);
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.corner-info-catalog-item:hover .corner-info-catalog-handle {
+  border-color: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 8%, transparent);
+  color: var(--theme-text-primary);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.corner-info-catalog-title,
+.corner-info-catalog-meta {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+}
+
+.corner-info-catalog-title {
+  line-height: 1.25;
+  -webkit-line-clamp: 2;
+}
+
+.corner-info-catalog-meta {
+  line-height: 1.3;
+  -webkit-line-clamp: 2;
+}
+
+.corner-info-viewer-preview {
+  background: #020409;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.corner-info-preview-corner {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  width: min(44%, 400px);
+  max-height: calc(50% - 22px);
+  align-content: start;
+  gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px dashed rgba(226, 240, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(2, 6, 14, 0.52);
+  padding: 10px;
+  backdrop-filter: blur(8px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.36) transparent;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.corner-info-preview-corner--drag-over {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, white 10%);
+  background: rgba(14, 116, 144, 0.2);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 26%, transparent),
+    0 16px 34px rgba(0, 0, 0, 0.28);
+}
+
+.corner-info-preview-corner--drop-disabled {
+  border-color: rgba(251, 191, 36, 0.46);
+  background: rgba(120, 53, 15, 0.18);
+}
+
+.corner-info-preview-corner--full {
+  border-color: rgba(251, 191, 36, 0.34);
+}
+
+.corner-info-preview-corner--topLeft {
+  top: 14px;
+  left: 14px;
+}
+
+.corner-info-preview-corner--topRight {
+  top: 14px;
+  right: 14px;
+}
+
+.corner-info-preview-corner--bottomLeft {
+  bottom: 14px;
+  left: 14px;
+}
+
+.corner-info-preview-corner--bottomRight {
+  right: 14px;
+  bottom: 14px;
+}
+
+.corner-info-preview-corner-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.corner-info-preview-corner-header span {
+  min-width: 0;
+}
+
+.corner-info-preview-corner-header span:last-child {
+  flex: 0 0 auto;
+  letter-spacing: 0;
+}
+
+.corner-info-preview-corner--full .corner-info-preview-corner-header span:last-child {
+  color: rgba(251, 191, 36, 0.86);
+}
+
+.corner-info-preview-drop-hint {
+  display: grid;
+  min-height: 24px;
+  place-items: center;
+  border: 1px dashed rgba(226, 240, 255, 0.12);
+  border-radius: 10px;
+  color: rgba(226, 240, 255, 0.42);
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.corner-info-preview-drop-hint--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, white 10%);
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.corner-info-preview-empty {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border: 1px dashed rgba(226, 240, 255, 0.14);
+  border-radius: 12px;
+  color: rgba(226, 240, 255, 0.42);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.corner-info-preview-chip-list {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.corner-info-chip-list-move,
+.corner-info-chip-list-enter-active,
+.corner-info-chip-list-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1),
+    height 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.corner-info-chip-list-enter-from,
+.corner-info-chip-list-leave-to {
+  opacity: 0;
+  transform: scaleY(0.72);
+}
+
+.corner-info-preview-insert {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border: 1px dashed color-mix(in srgb, var(--theme-accent) 72%, white 12%);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-accent) 18%, transparent),
+      rgba(255, 255, 255, 0.04)
+    );
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 0 18px color-mix(in srgb, var(--theme-accent) 20%, transparent);
+}
+
+.corner-info-preview-chip {
+  position: relative;
+  display: flex;
+  min-height: 48px;
+  min-width: 0;
+  cursor: grab;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 240, 255, 0.13);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.82);
+  padding: 7px 8px;
+  box-shadow:
+    0 10px 18px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition:
+    border-width 160ms ease,
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    min-height 160ms ease,
+    opacity 150ms ease,
+    padding 160ms ease,
+    transform 150ms ease;
+}
+
+.corner-info-preview-chip:active {
+  cursor: grabbing;
+}
+
+.corner-info-preview-chip--dragging {
+  height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  opacity: 0;
+  transform: scale(0.985);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.corner-info-preview-chip__content--hidden {
+  opacity: 0;
+}
+
+.corner-info-chip-title,
+.corner-info-chip-value {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.corner-info-chip-title {
+  line-height: 1.25;
+}
+
+.corner-info-chip-value {
+  line-height: 1.2;
+}
+
+.corner-info-context-menu {
+  position: fixed;
+  z-index: 1500;
+  display: grid;
+  width: 238px;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 70%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 8%)
+    );
+  padding: 8px;
+  color: var(--theme-text-primary);
+  box-shadow:
+    0 24px 52px rgba(2, 8, 18, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.corner-info-context-menu__header {
+  min-width: 0;
+  padding: 6px 8px 8px;
+}
+
+.corner-info-context-menu__title {
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corner-info-context-menu__subtitle {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corner-info-context-menu__item {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 0 9px;
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.corner-info-context-menu__item:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.corner-info-context-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.corner-info-context-menu__item--danger {
+  color: var(--theme-status-danger-text);
+}
+
+.corner-info-context-menu__count {
+  flex: 0 0 auto;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.corner-info-context-menu__separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--theme-border-soft);
 }
 </style>

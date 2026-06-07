@@ -44,6 +44,7 @@ export interface CornerInfo {
   topRight: string[]
   bottomLeft: string[]
   bottomRight: string[]
+  tags?: Record<string, string[]>
 }
 
 export type CornerInfoResponse = BackendCornerInfoResponse

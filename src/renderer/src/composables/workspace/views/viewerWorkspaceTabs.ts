@@ -67,6 +67,17 @@ export function resolveFusionPaneKey(value: string | null | undefined): FusionPa
   return isFusionPaneKey(value) ? value : FUSION_OVERLAY_AXIAL_PANE_KEY
 }
 
+export function resolveFusionPaneSeriesId(
+  paneKey: FusionPaneKey,
+  fusionSeriesIds: ViewerTabItem['fusionSeriesIds'] | null | undefined,
+  fallbackSeriesId: string
+): string {
+  if (paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY) {
+    return fusionSeriesIds?.petSeriesId ?? fallbackSeriesId
+  }
+  return fusionSeriesIds?.ctSeriesId ?? fallbackSeriesId
+}
+
 export function createEmptyMprImages(): Record<MprViewportKey, string> {
   return {
     'mpr-ax': '',

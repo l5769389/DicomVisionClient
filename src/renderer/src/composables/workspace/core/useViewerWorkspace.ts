@@ -18,6 +18,7 @@ import {
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
+  FUSION_PANE_KEYS,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PET_AXIAL_PANE_KEY,
   FUSION_PET_CORONAL_MIP_PANE_KEY,
@@ -872,7 +873,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PETCTFusion' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -896,6 +897,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
           : item
       )
+      return
+    }
+
+    if (payload.action === 'fusionManualRegistration') {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ manualRegistration: payload.enabled ?? !(tab.fusionManualRegistration === true) })
+      return
+    }
+
+    if (payload.action === 'fusionRegistrationReset' || payload.action === 'fusionRegistrationSave') {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ action: payload.action === 'fusionRegistrationReset' ? 'reset' : 'save' })
+      return
+    }
+
+    if (payload.action === 'fusionPseudocolor' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ pseudocolorPreset: payload.value.replace(/^fusionPseudocolor:/, '') })
       return
     }
 
@@ -1811,6 +1836,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         Object.values(tab.viewportViewIds ?? {}).some(Boolean) &&
           Object.values(tab.viewportImages ?? {}).some((imageSrc) => !imageSrc) &&
           (hasReadyViewport(payload, 'mpr-ax') || hasReadyViewport(payload, 'mpr-cor') || hasReadyViewport(payload, 'mpr-sag'))
+      )
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      return Boolean(
+        Object.values(tab.fusionViewIds ?? {}).some(Boolean) &&
+          Object.values(tab.fusionImages ?? {}).some((imageSrc) => !imageSrc) &&
+          FUSION_PANE_KEYS.some((viewportKey) => hasReadyViewport(payload, viewportKey))
       )
     }
     return false

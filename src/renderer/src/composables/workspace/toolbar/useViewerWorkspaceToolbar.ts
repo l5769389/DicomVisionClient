@@ -50,6 +50,10 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   compareSync: '同步',
   crosshair: '十字线',
   export: '导出',
+  fusionManualRegistration: '配准',
+  fusionPseudocolor: 'PET 伪彩',
+  fusionRegistrationReset: '重置配准',
+  fusionRegistrationSave: '保存配准',
   layout: '布局',
   measure: '测量',
   mprLayout: 'MPR 布局',
@@ -168,6 +172,24 @@ const pseudocolorTool: StackTool = {
   kind: 'action',
   options: PSEUDOCOLOR_PRESET_OPTIONS.map((option) => ({
     value: `pseudocolor:${option.key}`,
+    label: option.label,
+    icon: 'pseudocolor',
+    swatchKey: option.key
+  }))
+}
+
+function toFusionPseudocolorSelectionValue(value: string | null | undefined): string {
+  return `fusionPseudocolor:${String(value ?? 'pet').replace(/^pseudocolor:/, '')}`
+}
+
+const fusionPseudocolorTool: StackTool = {
+  key: 'fusionPseudocolor',
+  label: 'PET Pseudocolor',
+  icon: 'pseudocolor',
+  swatchKey: 'pet',
+  kind: 'action',
+  options: PSEUDOCOLOR_PRESET_OPTIONS.map((option) => ({
+    value: toFusionPseudocolorSelectionValue(option.key),
     label: option.label,
     icon: 'pseudocolor',
     swatchKey: option.key
@@ -364,6 +386,46 @@ const layoutStackTools: StackTool[] = stackTools
   .filter((tool) => tool.key !== 'qa')
   .map(withoutMtfResetOption)
 
+const fusionTools: StackTool[] = [
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  {
+    key: 'rotate',
+    label: 'Rotate',
+    icon: 'rotate',
+    kind: 'action',
+    options: [
+      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
+      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
+      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
+      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
+    ]
+  },
+  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  fusionPseudocolorTool,
+  { key: 'fusionManualRegistration', label: 'Registration', icon: 'crosshair', kind: 'action' },
+  { key: 'fusionRegistrationReset', label: 'Reset Registration', icon: 'reset', kind: 'action' },
+  { key: 'fusionRegistrationSave', label: 'Save Registration', icon: 'save', kind: 'action' },
+  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
+  measureTool,
+  exportTool,
+  tagTool,
+  withoutMtfResetOption({
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
+      { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurement overlays in the current view.' },
+      { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current view.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
+    ]
+  })
+]
+
 const genericTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -502,6 +564,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     qa: DEFAULT_QA_OPERATION,
     play: `playbackFps:${STACK_PLAYBACK_DEFAULT_FPS}`,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
+    fusionPseudocolor: toFusionPseudocolorSelectionValue('pet'),
     export: 'png',
     render3dMode: 'render3dMode:volume',
     volumePreset: 'volumePreset:bone',
@@ -681,7 +744,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'MPR' || viewType === '4D'
+    return viewType === 'Stack' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion'
   }
 
   function withDisplayTool(tools: StackTool[]): StackTool[] {
@@ -745,8 +808,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     const viewType = options.activeTab.value?.viewType
     switch (viewType) {
       case 'Stack':
-      case 'PETCTFusion':
         return stackTools
+      case 'PETCTFusion':
+        return fusionTools
       case 'CompareStack':
         return withSyncToolAfterLayout(compareStackTools)
       case 'MPR':
@@ -988,6 +1052,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function isToolSelected(tool: StackTool): boolean {
+    if (tool.key === 'fusionManualRegistration') {
+      return options.activeTab.value?.viewType === 'PETCTFusion' && options.activeTab.value.fusionManualRegistration === true
+    }
     if (transientActiveToolKey.value === tool.key) {
       return true
     }
@@ -1172,7 +1239,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function applySelectedViewAction(
     tool: StackTool,
-    action: 'volumePreset' | 'render3dMode' | 'rotate' | 'pseudocolor'
+    action: 'volumePreset' | 'render3dMode' | 'rotate' | 'pseudocolor' | 'fusionPseudocolor'
   ): void {
     closeMenus()
     const selectedOption = getSelectedOption(tool.key)
@@ -1213,6 +1280,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
     rotate: (tool) => applySelectedViewAction(tool, 'rotate'),
     pseudocolor: (tool) => applySelectedViewAction(tool, 'pseudocolor'),
+    fusionPseudocolor: (tool) => applySelectedViewAction(tool, 'fusionPseudocolor'),
+    fusionManualRegistration: () => {
+      closeMenus()
+      options.emitTriggerViewAction({
+        action: 'fusionManualRegistration',
+        enabled: !(options.activeTab.value?.fusionManualRegistration === true)
+      })
+    },
+    fusionRegistrationReset: () => {
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'fusionRegistrationReset' })
+    },
+    fusionRegistrationSave: () => {
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'fusionRegistrationSave' })
+    },
     measure: applySelectedModeTool,
     qa: applySelectedModeTool,
     play: () => {
@@ -1355,6 +1438,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
         options.emitTriggerViewAction({ action: 'pseudocolor', value: optionValue })
       })
+      return
+    }
+
+    if (tool.key === 'fusionPseudocolor') {
+      options.emitTriggerViewAction({ action: 'fusionPseudocolor', value: optionValue })
       return
     }
 
@@ -1640,6 +1728,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       stackToolSelections.value = {
         ...stackToolSelections.value,
         pseudocolor: toPseudocolorSelectionValue(value)
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => options.activeTab.value?.viewType === 'PETCTFusion'
+      ? options.activeTab.value.fusionInfo?.petPseudocolorPreset ?? 'pet'
+      : null,
+    (value) => {
+      if (!value) {
+        return
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        fusionPseudocolor: toFusionPseudocolorSelectionValue(value)
       }
     },
     { immediate: true }

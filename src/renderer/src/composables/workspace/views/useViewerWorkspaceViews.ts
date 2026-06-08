@@ -65,7 +65,8 @@ import {
   normalizeMprFrameInfo,
   normalizeMprPlaneInfo,
   normalizeOrientationInfo,
-  normalizeScaleBarInfo
+  normalizeScaleBarInfo,
+  resolveFusionPaneSeriesId
 } from './viewerWorkspaceTabs'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import {
@@ -1591,10 +1592,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           return item
         }
 
-        const fusionSeriesId =
-          fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY || fusionViewportKey === FUSION_OVERLAY_AXIAL_PANE_KEY
-            ? item.fusionSeriesIds?.ctSeriesId ?? item.seriesId
-            : item.fusionSeriesIds?.petSeriesId ?? item.seriesId
+        const fusionSeriesId = resolveFusionPaneSeriesId(fusionViewportKey, item.fusionSeriesIds, item.seriesId)
         const fusionSeriesCornerInfo =
           options.seriesCornerInfoMap.value[fusionSeriesId] ??
           options.seriesCornerInfoMap.value[item.seriesId] ??
@@ -2414,7 +2412,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }
 
   async function waitForFusionViewportLayout(fusionViewIds: Partial<Record<FusionPaneKey, string>>): Promise<void> {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    for (let attempt = 0; attempt < VIEWPORT_LAYOUT_WAIT_FRAMES; attempt += 1) {
       await nextTick()
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       const requiredKeys = (Object.keys(fusionViewIds) as FusionPaneKey[]).filter((key) => Boolean(fusionViewIds[key]))
@@ -2473,6 +2471,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return viewSizeUpdatesToViewIds(updates)
   }
 
+  async function renderFusionViewIds(
+    fusionViewIds: Partial<Record<FusionPaneKey, string>> | undefined,
+    force = false
+  ): Promise<void> {
+    let updates = collectFusionViewSizeUpdates(fusionViewIds, force)
+    if (!updates.length && Object.values(fusionViewIds ?? {}).some(Boolean)) {
+      await waitForFusionViewportLayout(fusionViewIds ?? {})
+      updates = collectFusionViewSizeUpdates(fusionViewIds, force)
+    }
+    await postFusionViewSizeUpdates(updates)
+  }
+
   async function renderFourDPhaseSizeUpdatesAndWait(
     tabKey: string,
     phaseKey: string,
@@ -2517,7 +2527,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     if (tab.viewType === 'PETCTFusion') {
-      await postFusionViewSizeUpdates(collectFusionViewSizeUpdates(tab.fusionViewIds, force))
+      await renderFusionViewIds(tab.fusionViewIds, force)
       return
     }
 
@@ -2920,6 +2930,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : item
       )
 
+      options.isViewLoading.value = false
       await nextTick()
       await waitForFusionViewportLayout(nextFusionViewIds)
       await bindFusionViewIdsSilentlyWithAck(nextFusionViewIds)

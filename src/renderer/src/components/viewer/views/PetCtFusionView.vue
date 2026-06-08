@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import AppIcon from '../../AppIcon.vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
-import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../../constants/pseudocolor'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -97,7 +95,6 @@ const panes = computed<FusionPaneView[]>(() =>
 )
 
 const manualRegistrationEnabled = computed(() => props.activeTab.fusionManualRegistration === true)
-const petPseudocolorPreset = computed(() => props.activeTab.fusionInfo?.petPseudocolorPreset ?? 'pet')
 const loadingLabel = computed(() => (isZh.value ? '正在加载融合视图...' : 'Loading fusion view...'))
 const placeholderLabel = computed(() => (isZh.value ? 'PET/CT 融合预览' : 'PET/CT fusion preview'))
 
@@ -172,70 +169,22 @@ function handlePointerCancel(event: PointerEvent): void {
   emit('pointerCancel', event)
 }
 
-function handlePseudocolorChange(event: Event): void {
-  const target = event.target
-  if (!(target instanceof HTMLSelectElement)) {
-    return
-  }
-  emit('fusionConfigChange', { pseudocolorPreset: target.value })
-}
 </script>
 
 <template>
-  <div class="pet-ct-fusion-view relative h-full min-h-0 w-full overflow-hidden">
-    <div class="pet-ct-fusion-view__toolbar theme-shell-panel-strong absolute right-3 top-3 z-20 flex items-center gap-2 rounded-xl border border-[var(--theme-border-soft)] p-1.5 shadow-lg">
-      <button
-        type="button"
-        class="pet-ct-fusion-view__tool"
-        :class="{ 'pet-ct-fusion-view__tool--active': manualRegistrationEnabled }"
-        :title="isZh ? '手动配准' : 'Manual registration'"
-        @click="emit('fusionConfigChange', { manualRegistration: !manualRegistrationEnabled })"
-      >
-        <AppIcon name="crosshair" :size="18" />
-      </button>
-      <button
-        type="button"
-        class="pet-ct-fusion-view__tool"
-        :title="isZh ? '重置配准' : 'Reset registration'"
-        @click="emit('fusionConfigChange', { action: 'reset' })"
-      >
-        <AppIcon name="reset" :size="18" />
-      </button>
-      <button
-        type="button"
-        class="pet-ct-fusion-view__tool"
-        :title="isZh ? '保存配准' : 'Save registration'"
-        @click="emit('fusionConfigChange', { action: 'save' })"
-      >
-        <AppIcon name="save" :size="18" />
-      </button>
-      <select
-        class="pet-ct-fusion-view__select"
-        :value="petPseudocolorPreset"
-        :title="isZh ? 'PET 伪彩' : 'PET pseudocolor'"
-        @change="handlePseudocolorChange"
-      >
-        <option
-          v-for="option in PSEUDOCOLOR_PRESET_OPTIONS"
-          :key="option.key"
-          :value="option.key"
-        >
-          {{ option.label }}
-        </option>
-      </select>
-    </div>
-
-    <div class="grid h-full min-h-0 grid-cols-2 grid-rows-2 gap-1.5">
+  <div class="pet-ct-fusion-view relative h-full min-h-0 w-full overflow-hidden bg-black">
+    <div class="pet-ct-fusion-view__grid grid h-full min-h-0 grid-cols-2 grid-rows-2 gap-[3px]">
       <section
         v-for="pane in panes"
         :key="pane.key"
-        class="theme-shell-panel-strong relative min-h-0 overflow-hidden rounded-xl border border-[var(--theme-border-soft)]"
+        class="pet-ct-fusion-view__pane relative min-h-0 overflow-hidden rounded-md border border-white/12 bg-black"
         :class="{ 'pet-ct-fusion-view__pane--active': activeViewportKey === pane.key }"
       >
-        <div class="pointer-events-none absolute left-3 top-2 z-10 rounded-md bg-black/35 px-2 py-1 text-[11px] font-semibold text-white/85">
+        <div v-if="!pane.imageSrc" class="pointer-events-none absolute left-3 top-2 z-10 rounded-md bg-black/35 px-2 py-1 text-[11px] font-semibold text-white/85">
           {{ pane.title }}
         </div>
         <ViewerCanvasStage
+          class="pet-ct-fusion-view__stage"
           :active-operation="activeOperation"
           :alt="pane.title"
           :annotations="getAnnotations(pane.key)"
@@ -280,37 +229,58 @@ function handlePseudocolorChange(event: Event): void {
 </template>
 
 <style scoped>
+.pet-ct-fusion-view__pane {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.86);
+}
+
 .pet-ct-fusion-view__pane--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 72%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 52%, transparent);
+  border-color: #1e9cff;
+  box-shadow:
+    inset 0 0 0 1px rgba(30, 156, 255, 0.9),
+    0 0 0 1px rgba(30, 156, 255, 0.36);
 }
 
-.pet-ct-fusion-view__tool {
-  display: inline-flex;
-  height: 34px;
-  width: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  color: var(--theme-text-primary);
-  transition: background-color 120ms ease, color 120ms ease;
+.pet-ct-fusion-view__stage {
+  border: 0;
+  border-radius: 4px;
+  background: #000;
 }
 
-.pet-ct-fusion-view__tool:hover,
-.pet-ct-fusion-view__tool--active {
-  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
-  color: var(--theme-accent-strong);
-}
-
-.pet-ct-fusion-view__select {
-  height: 34px;
-  max-width: 132px;
-  border-radius: 10px;
-  border: 1px solid var(--theme-border-soft);
-  background: var(--theme-control-bg);
-  padding: 0 28px 0 10px;
-  color: var(--theme-text-primary);
-  font-size: 12px;
+.pet-ct-fusion-view__stage :deep(.viewer-orientation-label) {
+  color: #ff8f8f;
+  font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 5px rgba(0, 0, 0, 0.68);
 }
+
+.pet-ct-fusion-view__stage :deep(.viewer-orientation-label--top) {
+  top: 6px;
+}
+
+.pet-ct-fusion-view__stage :deep(.viewer-orientation-label--right) {
+  right: 6px;
+}
+
+.pet-ct-fusion-view__stage :deep(.viewer-orientation-label--bottom) {
+  bottom: 6px;
+}
+
+.pet-ct-fusion-view__stage :deep(.viewer-orientation-label--left) {
+  left: 6px;
+}
+
+.pet-ct-fusion-view__stage :deep(.viewer-corner-block) {
+  max-width: min(44%, 310px);
+  padding: 9px 10px;
+  color: #ff9a9a;
+  font-size: 12px;
+  line-height: 1.34;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.92),
+    0 0 5px rgba(0, 0, 0, 0.62);
+}
+
 </style>

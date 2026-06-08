@@ -290,9 +290,85 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
     expect(getDisplayTool()).toBeTruthy()
 
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::fusion',
+      title: 'Series 1 / PETCTFusion',
+      viewType: 'PETCTFusion'
+    }
+    await nextTick()
+    expect(getDisplayTool()).toBeTruthy()
+
     harness.activeTab.value = create3dTab()
     await nextTick()
     expect(getDisplayTool()).toBeUndefined()
+
+    harness.wrapper.unmount()
+  })
+
+  it('uses fusion-specific toolbar actions without layout for PET/CT fusion', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'fusion:ct:pet',
+      title: 'CT + PET / PETCTFusion',
+      viewType: 'PETCTFusion',
+      fusionManualRegistration: false,
+      fusionInfo: {
+        paneRole: 'fusion-overlay-ax',
+        ctSeriesId: 'ct',
+        petSeriesId: 'pet',
+        petPseudocolorPreset: 'pet',
+        alpha: 0.52,
+        revision: 0,
+        registration: {
+          translateRowMm: 0,
+          translateColMm: 0,
+          rotationDegrees: 0,
+          saved: false
+        }
+      }
+    })
+    await nextTick()
+
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(toolKeys).not.toContain('layout')
+    expect(toolKeys).not.toContain('play')
+    expect(toolKeys).not.toContain('qa')
+    expect(toolKeys).toContain('fusionManualRegistration')
+    expect(toolKeys).toContain('fusionRegistrationReset')
+    expect(toolKeys).toContain('fusionRegistrationSave')
+    expect(toolKeys).toContain('fusionPseudocolor')
+
+    const manualTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionManualRegistration')!
+    expect(harness.toolbar.isToolSelected(manualTool)).toBe(false)
+    harness.toolbar.applyTool(manualTool)
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionManualRegistration',
+      enabled: true
+    })
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      fusionManualRegistration: true
+    }
+    await nextTick()
+    expect(harness.toolbar.isToolSelected(manualTool)).toBe(true)
+
+    harness.emitTriggerViewAction.mockClear()
+    const pseudocolorTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionPseudocolor')!
+    harness.toolbar.selectToolOption(pseudocolorTool, 'fusionPseudocolor:hotIron')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionPseudocolor',
+      value: 'fusionPseudocolor:hotIron'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.applyTool(harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionRegistrationReset')!)
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationReset' })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.applyTool(harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionRegistrationSave')!)
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationSave' })
 
     harness.wrapper.unmount()
   })

@@ -16,6 +16,10 @@ export type ViewerToolbarAction =
   | 'windowPreset'
   | 'mprMipConfig'
   | 'mprCrosshairMode'
+  | 'fusionManualRegistration'
+  | 'fusionRegistrationReset'
+  | 'fusionRegistrationSave'
+  | 'fusionPseudocolor'
   | 'displayOverlay'
 
 export interface ViewerToolbarActionPayload {

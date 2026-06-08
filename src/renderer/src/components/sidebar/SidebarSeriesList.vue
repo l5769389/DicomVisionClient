@@ -200,6 +200,35 @@ function hasSameStudy(a: FolderSeriesItem | null | undefined, b: FolderSeriesIte
   return Boolean(left && right && left === right)
 }
 
+function hasDifferentKnownStudies(a: FolderSeriesItem | null | undefined, b: FolderSeriesItem | null | undefined): boolean {
+  const left = String(a?.studyInstanceUid ?? '').trim()
+  const right = String(b?.studyInstanceUid ?? '').trim()
+  return Boolean(left && right && left !== right)
+}
+
+function hasSameTextField(
+  a: FolderSeriesItem | null | undefined,
+  b: FolderSeriesItem | null | undefined,
+  field: 'patientId' | 'accessionNumber' | 'studyDate'
+): boolean {
+  const left = String(a?.[field] ?? '').trim()
+  const right = String(b?.[field] ?? '').trim()
+  return Boolean(left && right && left === right)
+}
+
+function hasCompatibleFusionContext(source: FolderSeriesItem, candidate: FolderSeriesItem): boolean {
+  if (hasSameStudy(source, candidate)) {
+    return true
+  }
+  if (hasDifferentKnownStudies(source, candidate)) {
+    return false
+  }
+  if (hasSameTextField(source, candidate, 'accessionNumber')) {
+    return true
+  }
+  return hasSameTextField(source, candidate, 'patientId') && hasSameTextField(source, candidate, 'studyDate')
+}
+
 function getFusionCandidatesForSeries(source: FolderSeriesItem | null | undefined): FolderSeriesItem[] {
   if (!source?.isImageSeries) {
     return []
@@ -212,9 +241,44 @@ function getFusionCandidatesForSeries(source: FolderSeriesItem | null | undefine
   return props.seriesList.filter((series) =>
     series.seriesId !== source.seriesId &&
     series.isImageSeries &&
-    hasSameStudy(source, series) &&
+    hasCompatibleFusionContext(source, series) &&
     (wantsPet ? isPetSeries(series) : isCtSeries(series))
   )
+}
+
+function getFusionCandidateScore(source: FolderSeriesItem, candidate: FolderSeriesItem): number {
+  let score = 0
+  if (hasSameStudy(source, candidate)) {
+    score += 100
+  }
+  if (hasSameTextField(source, candidate, 'accessionNumber')) {
+    score += 24
+  }
+  if (hasSameTextField(source, candidate, 'patientId')) {
+    score += 12
+  }
+  if (hasSameTextField(source, candidate, 'studyDate')) {
+    score += 8
+  }
+  return score
+}
+
+function getAutoFusionCandidateForSeries(source: FolderSeriesItem, candidates: FolderSeriesItem[]): FolderSeriesItem | null {
+  if (candidates.length === 1) {
+    return candidates[0]
+  }
+  const ranked = candidates
+    .map((candidate) => ({
+      candidate,
+      score: getFusionCandidateScore(source, candidate)
+    }))
+    .sort((a, b) => b.score - a.score)
+  const best = ranked[0]
+  const second = ranked[1]
+  if (best && (!second || best.score > second.score)) {
+    return best.candidate
+  }
+  return null
 }
 
 const contextFusionCandidates = computed(() => getFusionCandidatesForSeries(contextSeries.value))
@@ -480,14 +544,22 @@ function emitFusionOpen(source: FolderSeriesItem, target: FolderSeriesItem): voi
 function openFusionForSeries(series: FolderSeriesItem): void {
   fusionSourceSeries.value = series
   const candidates = getFusionCandidatesForSeries(series)
-  if (candidates.length === 1) {
-    emitFusionOpen(series, candidates[0])
+  const autoCandidate = getAutoFusionCandidateForSeries(series, candidates)
+  if (autoCandidate) {
+    emitFusionOpen(series, autoCandidate)
     fusionSourceSeries.value = null
     return
   }
   if (candidates.length > 1) {
     isFusionDialogOpen.value = true
+    return
   }
+  dispatchWorkspaceStatusToast(
+    isZh.value ? '未找到可融合的 CT/PET 配对序列。' : 'No CT/PET fusion pair was found for this series.',
+    'error',
+    { busy: false, durationMs: 5000 }
+  )
+  fusionSourceSeries.value = null
 }
 
 function chooseFusionCandidate(candidate: FolderSeriesItem): void {

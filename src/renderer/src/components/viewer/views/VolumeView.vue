@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import type { CornerInfo, ViewProgressInfo, ViewerTabItem } from '../../../types/viewer'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -14,6 +16,9 @@ const emit = defineEmits<{
   pointerUp: [event: PointerEvent]
   viewportClick: [viewportKey: string]
 }>()
+
+const { locale, viewerCopy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 
 const emptyVolumeCornerInfo: CornerInfo = {
   topLeft: [],
@@ -33,6 +38,17 @@ const VIEW_PROGRESS_LABELS: Record<string, string> = {
   complete: '加载完成'
 }
 
+const VIEW_PROGRESS_LABELS_EN: Record<string, string> = {
+  queued: 'Preparing render',
+  waiting: 'Waiting for volume',
+  volume: 'Reading DICOM slices',
+  normalize: 'Preparing volume',
+  initialize: 'Initializing view',
+  render: 'Rendering image',
+  encode: 'Encoding preview',
+  complete: 'Loaded'
+}
+
 function getLoadingProgress(): ViewProgressInfo | null {
   return props.activeTab.loadingProgress ?? null
 }
@@ -43,13 +59,14 @@ function getLoadingProgressPercent(): number | null {
 }
 
 function getLoadingLabel(): string {
-  const fallback = '正在加载 3D 视图...'
+  const fallback = viewerCopy.value.loadingVolumeView
   const progress = getLoadingProgress()
   if (!progress) {
     return fallback
   }
 
-  const label = progress.message || VIEW_PROGRESS_LABELS[progress.phase] || fallback
+  const progressLabels = isZh.value ? VIEW_PROGRESS_LABELS : VIEW_PROGRESS_LABELS_EN
+  const label = progress.message || progressLabels[progress.phase] || fallback
   const hasCounts = typeof progress.loadedCount === 'number' && typeof progress.totalCount === 'number' && progress.totalCount > 0
   return hasCounts ? `${label} ${progress.loadedCount}/${progress.totalCount}` : label
 }
@@ -68,7 +85,7 @@ function getLoadingLabel(): string {
       :loading-label="getLoadingLabel()"
       :loading-progress-percent="getLoadingProgressPercent()"
       :alt="activeTab.viewType"
-      placeholder="3D 视图预留区域"
+      :placeholder="viewerCopy.volumePlaceholder"
       :corner-info="emptyVolumeCornerInfo"
       :orientation="activeTab.orientation"
       :soft-image="true"

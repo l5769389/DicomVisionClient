@@ -219,7 +219,7 @@ async function handleOpenStatusToastLocation(): Promise<void> {
     filePath: toast.filePath ?? null
   })
   if (!opened) {
-    viewer.showStatusToast('打开保存位置失败。', 'error')
+    viewer.showStatusToast(isZh.value ? '打开保存位置失败。' : 'Failed to open save location.', 'error')
   }
 }
 

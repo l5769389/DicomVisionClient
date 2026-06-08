@@ -96,7 +96,7 @@ function getSlotStyle(slot: ViewerLayoutSlot): Record<string, string> {
 }
 
 function getSlotTitle(slot: ViewerLayoutSlot, index: number): string {
-  return slot.seriesTitle ?? (isZh.value ? `槽位 ${index + 1}` : `Slot ${index + 1}`)
+  return slot.seriesTitle ?? (isZh.value ? `视口 ${index + 1}` : `Slot ${index + 1}`)
 }
 
 function isStackSlot(slot: ViewerLayoutSlot): boolean {
@@ -235,6 +235,18 @@ function canHandleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): boolean {
   return isSeriesDragEvent(event) || (canDropFilesIntoSlot(slot) && isExternalFileDragEvent(event))
 }
 
+function getLayoutLoadingLabel(): string {
+  return isZh.value ? '正在加载布局视图...' : 'Loading layout view...'
+}
+
+function getLayoutPlaceholder(): string {
+  return isZh.value ? '布局视口' : 'Layout viewport'
+}
+
+function getLayoutSliceAriaLabel(): string {
+  return isZh.value ? '切换布局切片' : 'Change layout slice'
+}
+
 function handleSlotDragEnter(event: DragEvent, slot: ViewerLayoutSlot): void {
   if (!canHandleSlotDrop(event, slot)) {
     return
@@ -339,10 +351,10 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
               :render-surface-active="true"
               :image-src="slot.imageSrc ?? ''"
               :is-loading="Boolean(slot.viewId) && !slot.imageSrc"
-              loading-label="Loading layout view..."
+              :loading-label="getLayoutLoadingLabel()"
               :alt="getSlotTitle(slot, index)"
               :active-operation="activeOperation"
-              placeholder="Layout viewport"
+              :placeholder="getLayoutPlaceholder()"
               :annotations="getAnnotations(slot.id)"
               :corner-info="slot.cornerInfo ?? activeTab.cornerInfo"
               :cursor-class="getCursorClass(slot.id)"
@@ -384,7 +396,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
                   :max="sliceInfos[slot.id]?.total ?? 1"
                   :value="sliderValues[slot.id] ?? 1"
                   orient="vertical"
-                  aria-label="Change layout slice"
+                  :aria-label="getLayoutSliceAriaLabel()"
                   @pointerdown="beginSliceSliderDrag(slot.id)"
                   @pointerup="endSliceSliderDrag(slot.id)"
                   @pointercancel="endSliceSliderDrag(slot.id)"
@@ -407,7 +419,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
 
         <template v-else>
           <div class="layout-view__slot-badge">{{ index + 1 }}</div>
-          <div class="layout-view__slot-title">Slot {{ index + 1 }}</div>
+          <div class="layout-view__slot-title">{{ getSlotTitle(slot, index) }}</div>
           <div class="layout-view__slot-subtitle">{{ isZh ? '拖入 DICOM' : 'Drop DICOM' }}</div>
         </template>
       </section>

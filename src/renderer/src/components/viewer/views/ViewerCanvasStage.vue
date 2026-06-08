@@ -24,6 +24,7 @@ import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.v
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = withDefaults(
   defineProps<{
@@ -70,7 +71,7 @@ const props = withDefaults(
     imageClass: '',
     isActive: false,
     isLoading: false,
-    loadingLabel: '正在加载视图...',
+    loadingLabel: '',
     loadingProgressPercent: null,
     mprCrosshair: null,
     mprFrame: null,
@@ -113,6 +114,7 @@ const emit = defineEmits<{
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const imageRef = ref<HTMLImageElement | null>(null)
+const { viewerCopy } = useUiLocale()
 const stageSize = ref({
   width: 0,
   height: 0
@@ -130,6 +132,8 @@ const normalizedLoadingProgressPercent = computed(() => {
   }
   return Math.max(0, Math.min(100, Math.round(props.loadingProgressPercent)))
 })
+
+const resolvedLoadingLabel = computed(() => props.loadingLabel || viewerCopy.value.loadingView)
 
 const measurementFrame = computed(() => ({
   left: 0,
@@ -447,7 +451,7 @@ watch(
         <div class="w-[min(18rem,calc(100%-2rem))] rounded-2xl border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
           <div class="flex items-center gap-3">
             <span class="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
-            <span class="min-w-0 flex-1 truncate">{{ loadingLabel }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ resolvedLoadingLabel }}</span>
             <span v-if="normalizedLoadingProgressPercent !== null" class="w-10 shrink-0 text-right text-xs font-semibold text-sky-200">
               {{ normalizedLoadingProgressPercent }}%
             </span>

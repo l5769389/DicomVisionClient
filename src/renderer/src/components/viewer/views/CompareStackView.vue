@@ -32,7 +32,12 @@ const props = defineProps<{
   isSliceStarred?: (seriesId: string, sliceIndex: number) => boolean
 }>()
 
-const { viewerCopy } = useUiLocale()
+const { locale, viewerCopy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
+const compareLoadingLabel = computed(() => (isZh.value ? '正在加载对比视图...' : 'Loading compare view...'))
+const comparePlaceholder = computed(() => (isZh.value ? 'Stack 对比预览' : 'Stack compare preview'))
+const compareSliceLabel = computed(() => (isZh.value ? '切换对比切片' : 'Change compare slice'))
+const syncedCompareSliceLabel = computed(() => (isZh.value ? '切换同步对比切片' : 'Change synced compare slice'))
 
 const emit = defineEmits<{
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
@@ -239,10 +244,10 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           :render-surface-active="true"
           :image-src="pane.imageSrc"
           :is-loading="Boolean(activeTab.compareViewIds?.[pane.key]) && !pane.imageSrc"
-          loading-label="正在加载对比视图..."
+          :loading-label="compareLoadingLabel"
           :alt="pane.title"
           :active-operation="activeOperation"
-          placeholder="Stack 对比预览"
+          :placeholder="comparePlaceholder"
           :annotations="getAnnotations(pane.key)"
           :corner-info="activeTab.compareCornerInfos?.[pane.key] ?? activeTab.cornerInfo"
           :cursor-class="getCursorClass(pane.key)"
@@ -281,7 +286,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
               :max="sliceInfos[pane.key].total"
               :value="sliderValues[pane.key]"
               orient="vertical"
-              aria-label="切换对比切片"
+              :aria-label="compareSliceLabel"
               @pointerdown="beginSliceSliderDrag(pane.key)"
               @pointerup="endSliceSliderDrag(pane.key)"
               @pointercancel="endSliceSliderDrag(pane.key)"
@@ -306,7 +311,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
             :max="syncedSliceInfo.total"
             :value="sliderValues[COMPARE_STACK_SOURCE_PANE_KEY]"
             orient="vertical"
-            aria-label="切换同步对比切片"
+            :aria-label="syncedCompareSliceLabel"
             @pointerdown="beginSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"
             @pointerup="endSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"
             @pointercancel="endSliceSliderDrag(COMPARE_STACK_SOURCE_PANE_KEY)"

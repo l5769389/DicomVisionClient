@@ -62,6 +62,7 @@ import { mergeLoadedFolderSeries } from './folderSeriesMerge'
 import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from './layoutDropSeries'
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
 import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
+import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
 import {
@@ -339,6 +340,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     } else {
       statusToastTimer = null
     }
+  }
+
+  function getLayoutSlotLoadedToastMessage(): string {
+    return locale.value === 'zh-CN' ? '布局视口已加载' : 'Layout slot loaded'
   }
 
   function resolveBackendErrorDetail(error: unknown): string {
@@ -1936,7 +1941,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const interactivePreviewTimingByView = new Map<string, number>()
 
   function logInteractivePreviewReceiveInterval(tab: ViewerTabItem, payload: Partial<ViewImageResponse>): void {
-    if (!import.meta.env.DEV || !payload.viewId || (payload.imageFormat !== 'jpeg' && payload.imageFormat !== 'png')) {
+    if (!isViewerPerfDebugEnabled() || !payload.viewId || (payload.imageFormat !== 'jpeg' && payload.imageFormat !== 'png')) {
       return
     }
 
@@ -2621,7 +2626,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         series: nextSeries,
         activateSlot: false
       })
-      showStatusToast('Layout slot loaded', 'success')
+      showStatusToast(getLayoutSlotLoadedToastMessage(), 'success')
       return
     }
 
@@ -2671,7 +2676,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       series,
       activateSlot: false
     })
-    showStatusToast('Layout slot loaded', 'success')
+    showStatusToast(getLayoutSlotLoadedToastMessage(), 'success')
   }
 
   async function applyLoadedDicomSeries(
@@ -2735,7 +2740,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (source.kind === 'files') {
         showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
           progressPercent: 100,
-          progressLabel: `${loadedSeries.length} series`,
+          progressLabel: locale.value === 'zh-CN' ? `${loadedSeries.length} 个序列` : `${loadedSeries.length} series`,
           durationMs: 3600
         })
       }

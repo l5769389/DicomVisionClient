@@ -1,5 +1,6 @@
 import { DRAG_ACTION_TYPES, STACK_DRAG_OPERATIONS, type ViewOperationType, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import type { ViewOperationInput } from '../../../services/socket'
+import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
 
 type TimerHandle = ReturnType<typeof window.setTimeout>
 
@@ -78,7 +79,7 @@ function logCoalescingStats(
   intervalMs: number,
   operation: ScheduledViewOperation<SchedulableViewOperation>
 ): void {
-  if (!import.meta.env.DEV || scheduledMoves <= 0 || scheduledMoves % 120 !== 0) {
+  if (!isViewerPerfDebugEnabled() || scheduledMoves <= 0 || scheduledMoves % 120 !== 0) {
     return
   }
 

@@ -56,6 +56,11 @@ interface DicomTagTreeNode {
   children?: DicomTagTreeNode[]
 }
 
+interface IndexedDicomTagItem {
+  item: DicomTagItem
+  searchText: string
+}
+
 interface VisibleDicomTagTreeRow extends DicomTagTreeNode {
   hasChildren: boolean
   isExpanded: boolean
@@ -97,23 +102,31 @@ const isOpeningTagEditLocation = ref(false)
 const tagEditDialogError = ref('')
 const tagEditNotice = ref<{ tone: 'success' | 'error'; message: string; detail?: string; directoryPath?: string; filePath?: string } | null>(null)
 
+const normalizedTagSearchQuery = computed(() => searchQuery.value.trim().toLowerCase())
+const indexedTagItems = computed<IndexedDicomTagItem[]>(() =>
+  (props.activeTab.tagItems ?? []).map((item) => ({
+    item,
+    searchText: buildTagSearchText(item.tag, resolveTagName(item), item.value, item.keyword, item.vr)
+  }))
+)
+
 const filteredTagItems = computed(() => {
   const items = props.activeTab.tagItems ?? []
-  const query = searchQuery.value.trim().toLowerCase()
+  const query = normalizedTagSearchQuery.value
   if (!query) {
     return items
   }
 
-  return items.filter((item) => doesTagMatchQuery(item, query))
+  return indexedTagItems.value.filter((indexedItem) => indexedItem.searchText.includes(query)).map((indexedItem) => indexedItem.item)
 })
 
-const treeTagItems = computed(() => buildTagTree(props.activeTab.tagItems ?? []))
+const treeTagItems = computed(() => buildTagTree(indexedTagItems.value))
 
 const tagTreeItemCount = computed(() => props.activeTab.tagItems?.length ?? 0)
 const tagTreeSearchText = computed(() => searchQuery.value.trim())
 const tagCountLabel = computed(() => (isZh.value ? '标签' : 'Tags'))
 const visibleTreeTagRows = computed(() =>
-  flattenTagTreeRows(treeTagItems.value, tagTreeSearchText.value.toLowerCase(), expandedTagTreeNodeIds.value)
+  flattenTagTreeRows(treeTagItems.value, normalizedTagSearchQuery.value, expandedTagTreeNodeIds.value)
 )
 const tagTreeSummaryText = computed(() =>
   tagTreeSearchText.value
@@ -617,11 +630,12 @@ function getRawTagDepth(item: DicomTagItem): number {
   return Number.isFinite(item.depth) ? Math.max(0, item.depth) : 0
 }
 
-function buildTagTree(items: DicomTagItem[]): DicomTagTreeNode[] {
+function buildTagTree(indexedItems: IndexedDicomTagItem[]): DicomTagTreeNode[] {
   const roots: DicomTagTreeNode[] = []
   const stack: DicomTagTreeNode[] = []
 
-  items.forEach((item, index) => {
+  indexedItems.forEach((indexedItem, index) => {
+    const item = indexedItem.item
     const depth = getRawTagDepth(item)
     const tag = item.tag || '--'
     const keyword = item.keyword || ''
@@ -636,7 +650,7 @@ function buildTagTree(items: DicomTagItem[]): DicomTagTreeNode[] {
       name,
       vr,
       value,
-      searchText: buildTagSearchText(tag, name, keyword, value, vr),
+      searchText: indexedItem.searchText,
       depth,
       original: item
     }
@@ -753,10 +767,6 @@ function getTreeBranchStyle(item: VisibleDicomTagTreeRow): Record<string, string
     left: `${(guideDepth - 1) * TAG_TREE_INDENT_PX + 11}px`,
     width: `${TAG_TREE_INDENT_PX - 8}px`
   }
-}
-
-function doesTagMatchQuery(item: DicomTagItem, query: string): boolean {
-  return buildTagSearchText(item.tag, item.name, item.value, item.keyword, item.vr).includes(query)
 }
 
 function goToPage(page: number): void {

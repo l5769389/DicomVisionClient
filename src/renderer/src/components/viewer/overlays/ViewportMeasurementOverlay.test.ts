@@ -6,6 +6,7 @@ vi.mock('../../../composables/ui/useUiPreferences', async () => {
   const { ref } = await import('vue')
   return {
     useUiPreferences: () => ({
+      locale: ref('zh-CN'),
       measurementStylePreference: ref({
         completedColor: '#38bdf8',
         completedLineStyle: 'solid',

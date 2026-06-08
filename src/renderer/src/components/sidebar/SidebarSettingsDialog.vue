@@ -71,6 +71,7 @@ type CornerInfoPreviewRenderEntry =
     renderKey: string
     itemKey: ViewportCornerInfoItemKey
     itemIndex: number
+    previewLine: string
   }
 interface CornerInfoContextMenuState {
   key: ViewportCornerInfoItemKey
@@ -407,9 +408,9 @@ const tagEditSaveLocationError = ref('')
 const isChoosingTagEditSaveLocation = ref(false)
 const appVersion = __APP_VERSION__
 const CORNER_INFO_DRAG_SOURCE_HIDE_DELAY_MS = 90
-const CORNER_INFO_DRAG_INSERT_SPLIT_RATIO = 0.34
 const CORNER_INFO_DRAG_AUTOSCROLL_EDGE_PX = 20
 const CORNER_INFO_DRAG_AUTOSCROLL_MAX_SPEED = 4
+const CORNER_INFO_DRAG_INSERT_STICKY_PX = 14
 let cornerInfoDragHideTimeoutId: number | null = null
 let cornerInfoAutoScrollFrameId: number | null = null
 let cornerInfoAutoScrollElement: HTMLElement | null = null
@@ -545,6 +546,12 @@ const cornerInfoCatalogItems = computed(() =>
 const cornerInfoPreview = computed(() =>
   applyViewportCornerInfoPreference(SAMPLE_VIEWPORT_CORNER_INFO, viewportCornerInfoPreference.value)
 )
+const cornerInfoPreviewRenderEntriesByPosition = computed<Record<ViewportCornerPosition, CornerInfoPreviewRenderEntry[]>>(() => ({
+  topLeft: getCornerInfoPreviewRenderEntries('topLeft'),
+  topRight: getCornerInfoPreviewRenderEntries('topRight'),
+  bottomLeft: getCornerInfoPreviewRenderEntries('bottomLeft'),
+  bottomRight: getCornerInfoPreviewRenderEntries('bottomRight')
+}))
 const mprDefaultLayoutSelectionValue = computed(() => toMprLayoutSelectionValue(mprDefaultLayoutKey.value))
 const mprDefaultLayoutOptions = computed(() =>
   MPR_LAYOUT_OPTIONS.map((option) => ({
@@ -1031,7 +1038,11 @@ function getCornerInfoAutoScrollVelocity(scrollElement: HTMLElement, clientY: nu
 
 function updateCornerInfoAutoScroll(event: DragEvent): void {
   const eventElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
-  const scrollElement = eventElement?.closest<HTMLElement>('.corner-info-preview-corner, .corner-info-catalog-list') ?? null
+  const closestCornerElement = eventElement?.closest<HTMLElement>('.corner-info-preview-corner') ?? null
+  const scrollElement =
+    eventElement?.closest<HTMLElement>('.corner-info-catalog-list') ??
+    closestCornerElement?.querySelector<HTMLElement>('.corner-info-preview-chip-list') ??
+    null
   if (!scrollElement) {
     stopCornerInfoAutoScroll()
     return
@@ -1095,11 +1106,12 @@ function getCornerInfoInsertPreviewLabel(): string {
 function getCornerInfoPreviewRenderEntries(position: ViewportCornerPosition): CornerInfoPreviewRenderEntry[] {
   const entries: CornerInfoPreviewRenderEntry[] = []
   const items = viewportCornerInfoPreference.value[position]
+  const previewLines = getCornerInfoPreviewLines(position)
   items.forEach((itemKey, itemIndex) => {
     if (shouldShowCornerInfoInsertPreview(position, itemIndex)) {
       entries.push({
         kind: 'insert',
-        renderKey: `${position}-insert-${itemIndex}`,
+        renderKey: `${position}-insert-active`,
         insertIndex: itemIndex
       })
     }
@@ -1108,14 +1120,15 @@ function getCornerInfoPreviewRenderEntries(position: ViewportCornerPosition): Co
       kind: 'item',
       renderKey: `${position}-item-${itemKey}`,
       itemKey,
-      itemIndex
+      itemIndex,
+      previewLine: previewLines[itemIndex] ?? getCornerInfoItemLabel(itemKey)
     })
   })
 
   if (shouldShowCornerInfoAppendPreview(position)) {
     entries.push({
       kind: 'insert',
-      renderKey: `${position}-insert-end`,
+      renderKey: `${position}-insert-active`,
       insertIndex: cornerInfoDragTarget.value?.index ?? null
     })
   }
@@ -1125,13 +1138,61 @@ function getCornerInfoPreviewRenderEntries(position: ViewportCornerPosition): Co
 
 function getCornerInfoDropHint(position: ViewportCornerPosition): string {
   const draggedKey = draggedCornerInfoItem.value?.key
+  const limitLabel = getCornerInfoLimitLabel(position)
   if (draggedKey && !canPlaceCornerInfoItem(draggedKey, position)) {
-    return isZh.value ? '已满' : 'Full'
+    return isZh.value ? `已满 ${limitLabel}` : `Full ${limitLabel}`
   }
   if (draggedKey) {
-    return isZh.value ? `放到${getCornerPositionLabel(position)}` : `Drop to ${getCornerPositionLabel(position)}`
+    return isZh.value ? `放置 ${limitLabel}` : `Drop ${limitLabel}`
   }
-  return isZh.value ? '拖入显示项' : 'Drop item here'
+  return isZh.value ? `拖入显示项 ${limitLabel}` : `Drop item ${limitLabel}`
+}
+
+function getCornerInfoPreviewCornerElement(element: HTMLElement): HTMLElement | null {
+  return element.closest<HTMLElement>('.corner-info-preview-corner')
+}
+
+function resolveCornerInfoDragTargetIndexFromCorner(
+  position: ViewportCornerPosition,
+  event: DragEvent,
+  cornerElement: HTMLElement
+): number | null {
+  const slotMidpoints = Array.from(cornerElement.querySelectorAll<HTMLElement>('.corner-info-preview-chip[data-corner-item-index]'))
+    .filter((element) => !element.classList.contains('corner-info-preview-chip--dragging'))
+    .map((element) => {
+      const rawIndex = Number(element.dataset.cornerItemIndex)
+      const rect = element.getBoundingClientRect()
+      return {
+        index: rawIndex,
+        midpoint: rect.top + rect.height / 2
+      }
+    })
+    .filter((slot): slot is { index: number; midpoint: number } => Number.isFinite(slot.index) && Number.isFinite(slot.midpoint))
+    .sort((left, right) => left.midpoint - right.midpoint)
+
+  if (!slotMidpoints.length) {
+    return null
+  }
+
+  const currentIndex = cornerInfoDragTarget.value?.position === position ? cornerInfoDragTarget.value.index : null
+  if (typeof currentIndex === 'number' && Number.isFinite(currentIndex)) {
+    const previousMidpoint = [...slotMidpoints].reverse().find((slot) => slot.index < currentIndex)?.midpoint ?? Number.NEGATIVE_INFINITY
+    const nextMidpoint = slotMidpoints.find((slot) => slot.index >= currentIndex)?.midpoint ?? Number.POSITIVE_INFINITY
+    if (
+      event.clientY >= previousMidpoint - CORNER_INFO_DRAG_INSERT_STICKY_PX &&
+      event.clientY <= nextMidpoint + CORNER_INFO_DRAG_INSERT_STICKY_PX
+    ) {
+      return currentIndex
+    }
+  }
+
+  for (const slot of slotMidpoints) {
+    if (event.clientY < slot.midpoint) {
+      return slot.index
+    }
+  }
+
+  return viewportCornerInfoPreference.value[position].length
 }
 
 function resolveCornerInfoDragTargetIndex(
@@ -1140,23 +1201,15 @@ function resolveCornerInfoDragTargetIndex(
   targetIndex: number | null,
   targetKind: 'item' | 'insert' | 'corner' = 'corner'
 ): number | null {
+  if (targetKind === 'corner' || targetKind === 'item') {
+    const element = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+    const cornerElement = element ? getCornerInfoPreviewCornerElement(element) : null
+    return cornerElement ? resolveCornerInfoDragTargetIndexFromCorner(position, event, cornerElement) : targetIndex
+  }
   if (targetIndex == null) {
     return null
   }
-  if (targetKind !== 'item' || !(event.currentTarget instanceof HTMLElement)) {
-    return targetIndex
-  }
-
-  const rect = event.currentTarget.getBoundingClientRect()
-  const upperBoundary = rect.top + rect.height * CORNER_INFO_DRAG_INSERT_SPLIT_RATIO
-  const lowerBoundary = rect.bottom - rect.height * CORNER_INFO_DRAG_INSERT_SPLIT_RATIO
-  if (event.clientY < upperBoundary) {
-    return targetIndex
-  }
-  if (event.clientY > lowerBoundary) {
-    return targetIndex + 1
-  }
-  return cornerInfoDragTarget.value?.position === position ? cornerInfoDragTarget.value.index : targetIndex
+  return targetIndex
 }
 
 function handleCornerInfoDragStart(
@@ -2657,22 +2710,19 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div v-if="activeSection === 'displayCornerInfo'" class="theme-card-soft rounded-[24px] p-4">
-                      <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div v-if="activeSection === 'displayCornerInfo'" class="theme-card-soft rounded-[24px] p-3">
+                      <div class="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div class="min-w-0">
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                             <AppIcon name="tag" :size="18" />
                             <span class="text-sm font-semibold">{{ isZh ? '四角信息' : 'Corner Info' }}</span>
                           </div>
-                          <div class="mt-2 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">
-                            {{ isZh ? '配置 Stack、MPR 和 4D MPR 视口四角显示的系统信息项。' : 'Configure system corner items for Stack, MPR, and 4D MPR viewports.' }}
-                          </div>
                         </div>
                       </div>
 
-                      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(250px,0.34fr)_minmax(0,1fr)]">
-                        <div class="corner-info-catalog-panel min-w-0 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-3">
-                          <div class="settings-nav-search flex min-h-11 items-center gap-2 rounded-[16px] border px-3">
+                      <div class="grid min-w-0 gap-3 xl:grid-cols-[minmax(230px,0.32fr)_minmax(0,1fr)]">
+                        <div class="corner-info-catalog-panel min-w-0 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-2.5">
+                          <div class="settings-nav-search flex min-h-10 items-center gap-2 rounded-[14px] border px-3">
                             <AppIcon name="search" :size="16" />
                             <input
                               v-model="cornerInfoSearch"
@@ -2680,12 +2730,12 @@ onBeforeUnmount(() => {
                               :placeholder="isZh ? '搜索 Tag / patient / window' : 'Search tag / patient / window'"
                             />
                           </div>
-                          <div class="mt-3 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">
+                          <div class="mt-2 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">
                             <span>{{ isZh ? '常用显示项' : 'Common items' }}</span>
                             <span>{{ cornerInfoCatalogItems.length }}/{{ VIEWPORT_CORNER_INFO_CATALOG.length }}</span>
                           </div>
                           <div
-                            class="corner-info-catalog-list mt-3 grid max-h-[620px] gap-2 overflow-x-hidden overflow-y-auto pr-1"
+                            class="corner-info-catalog-list mt-2 grid max-h-[420px] gap-1.5 overflow-x-hidden overflow-y-auto pr-1"
                             @dragover="handleCornerInfoScrollableDragOver"
                             @dragleave="handleCornerInfoScrollableDragLeave"
                           >
@@ -2713,7 +2763,7 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
 
-                        <div class="corner-info-viewer-preview relative min-h-[640px] overflow-hidden rounded-[18px] border border-[color:rgba(255,255,255,0.12)]">
+                        <div class="corner-info-viewer-preview relative min-h-[460px] overflow-hidden rounded-[18px] border border-[color:rgba(255,255,255,0.12)]">
                           <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_28%_18%,rgba(96,165,250,0.12),transparent_30%),radial-gradient(circle_at_70%_72%,rgba(20,184,166,0.09),transparent_34%),linear-gradient(180deg,#111827,#05080d_58%,#020409)]"></div>
                           <div class="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] [background-size:40px_40px]"></div>
                           <div
@@ -2732,10 +2782,6 @@ onBeforeUnmount(() => {
                             @dragleave="handleCornerInfoDragLeave(position, $event)"
                             @drop="handleCornerInfoDrop(position, $event)"
                           >
-                            <div class="corner-info-preview-corner-header">
-                              <span>{{ getCornerPositionLabel(position) }}</span>
-                              <span>{{ getCornerInfoLimitLabel(position) }}</span>
-                            </div>
                             <div class="corner-info-preview-drop-hint" :class="{ 'corner-info-preview-drop-hint--active': isCornerInfoDropTargetPosition(position) }">
                               {{ getCornerInfoDropHint(position) }}
                             </div>
@@ -2744,13 +2790,15 @@ onBeforeUnmount(() => {
                             </div>
                             <TransitionGroup name="corner-info-chip-list" tag="div" class="corner-info-preview-chip-list">
                               <div
-                                v-for="entry in getCornerInfoPreviewRenderEntries(position)"
+                                v-for="entry in cornerInfoPreviewRenderEntriesByPosition[position]"
                                 :key="entry.renderKey"
                                 :class="[
                                   entry.kind === 'insert' ? 'corner-info-preview-insert' : 'corner-info-preview-chip',
                                   entry.kind === 'item' && shouldVisuallyHideCornerInfoDraggedSource(entry.itemKey, position, entry.itemIndex) ? 'corner-info-preview-chip--dragging' : ''
                                 ]"
                                 :draggable="entry.kind === 'item'"
+                                :data-corner-entry-kind="entry.kind"
+                                :data-corner-item-index="entry.kind === 'item' ? entry.itemIndex : undefined"
                                 @dragstart="entry.kind === 'item' && handleCornerInfoDragStart(entry.itemKey, $event, position, entry.itemIndex)"
                                 @dragend="clearCornerInfoDrag"
                                 @dragover.stop="handleCornerInfoDragOver(position, $event, entry.kind === 'insert' ? entry.insertIndex : entry.itemIndex, entry.kind === 'insert' ? 'insert' : 'item')"
@@ -2766,7 +2814,7 @@ onBeforeUnmount(() => {
                                     :class="{ 'corner-info-preview-chip__content--hidden': shouldVisuallyHideCornerInfoDraggedSource(entry.itemKey, position, entry.itemIndex) }"
                                   >
                                     <div class="corner-info-chip-title text-[11px] font-semibold text-white/88" :title="getCornerInfoItemLabel(entry.itemKey)">{{ getCornerInfoItemLabel(entry.itemKey) }}</div>
-                                    <div class="corner-info-chip-value mt-0.5 font-mono text-[11px] text-white/62" :title="getCornerInfoPreviewLines(position)[entry.itemIndex] ?? getCornerInfoItemLabel(entry.itemKey)">{{ getCornerInfoPreviewLines(position)[entry.itemIndex] ?? getCornerInfoItemLabel(entry.itemKey) }}</div>
+                                    <div class="corner-info-chip-value mt-0.5 font-mono text-[11px] text-white/62" :title="entry.previewLine">{{ entry.previewLine }}</div>
                                   </div>
                                   <button
                                     type="button"
@@ -3511,16 +3559,16 @@ onBeforeUnmount(() => {
 
 .corner-info-catalog-item {
   display: flex;
-  min-height: 64px;
+  min-height: 52px;
   min-width: 0;
   cursor: grab;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   overflow: hidden;
   border: 1px solid var(--theme-border-soft);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--theme-surface-card);
-  padding: 10px 12px;
+  padding: 7px 10px;
   transition:
     border-color 150ms ease,
     border-width 150ms ease,
@@ -3592,13 +3640,16 @@ onBeforeUnmount(() => {
 }
 
 .corner-info-catalog-title {
+  font-size: 12px;
   line-height: 1.25;
   -webkit-line-clamp: 2;
 }
 
 .corner-info-catalog-meta {
+  margin-top: 2px;
+  font-size: 9px;
   line-height: 1.3;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
 }
 
 .corner-info-viewer-preview {
@@ -3612,20 +3663,23 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 1;
   display: grid;
-  width: min(44%, 400px);
-  max-height: calc(50% - 22px);
+  width: min(47%, 400px);
+  height: calc(50% - 12px);
+  max-height: 218px;
+  grid-template-rows: auto minmax(0, 1fr);
   align-content: start;
-  gap: 6px;
+  gap: 5px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
   border: 1px dashed rgba(226, 240, 255, 0.18);
   border-radius: 14px;
   background: rgba(2, 6, 14, 0.52);
-  padding: 10px;
+  padding: 8px;
   backdrop-filter: blur(8px);
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.36) transparent;
+  contain: layout paint;
   transition:
     border-color 150ms ease,
     background 150ms ease,
@@ -3650,54 +3704,28 @@ onBeforeUnmount(() => {
 }
 
 .corner-info-preview-corner--topLeft {
-  top: 14px;
-  left: 14px;
+  top: 8px;
+  left: 8px;
 }
 
 .corner-info-preview-corner--topRight {
-  top: 14px;
-  right: 14px;
+  top: 8px;
+  right: 8px;
 }
 
 .corner-info-preview-corner--bottomLeft {
-  bottom: 14px;
-  left: 14px;
+  bottom: 8px;
+  left: 8px;
 }
 
 .corner-info-preview-corner--bottomRight {
-  right: 14px;
-  bottom: 14px;
-}
-
-.corner-info-preview-corner-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: rgba(255, 255, 255, 0.48);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.corner-info-preview-corner-header span {
-  min-width: 0;
-}
-
-.corner-info-preview-corner-header span:last-child {
-  flex: 0 0 auto;
-  letter-spacing: 0;
-}
-
-.corner-info-preview-corner--full .corner-info-preview-corner-header span:last-child {
-  color: rgba(251, 191, 36, 0.86);
+  right: 8px;
+  bottom: 8px;
 }
 
 .corner-info-preview-drop-hint {
   display: grid;
-  min-height: 24px;
+  min-height: 22px;
   place-items: center;
   border: 1px dashed rgba(226, 240, 255, 0.12);
   border-radius: 10px;
@@ -3718,7 +3746,7 @@ onBeforeUnmount(() => {
 
 .corner-info-preview-empty {
   display: grid;
-  min-height: 48px;
+  min-height: 36px;
   place-items: center;
   border: 1px dashed rgba(226, 240, 255, 0.14);
   border-radius: 12px;
@@ -3729,8 +3757,17 @@ onBeforeUnmount(() => {
 
 .corner-info-preview-chip-list {
   display: grid;
+  min-height: 0;
   min-width: 0;
-  gap: 6px;
+  align-content: start;
+  gap: 5px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.34) transparent;
 }
 
 .corner-info-chip-list-move,
@@ -3738,19 +3775,48 @@ onBeforeUnmount(() => {
 .corner-info-chip-list-leave-active {
   transition:
     opacity 160ms ease,
-    transform 180ms cubic-bezier(0.2, 0, 0, 1),
-    height 180ms cubic-bezier(0.2, 0, 0, 1);
+    transform 190ms cubic-bezier(0.2, 0, 0, 1),
+    height 190ms cubic-bezier(0.2, 0, 0, 1),
+    min-height 190ms cubic-bezier(0.2, 0, 0, 1),
+    padding 190ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .corner-info-chip-list-enter-from,
 .corner-info-chip-list-leave-to {
   opacity: 0;
-  transform: scaleY(0.72);
+  transform: translateY(-4px) scaleY(0.86);
+}
+
+.corner-info-preview-insert.corner-info-chip-list-move {
+  transition: none;
+}
+
+.corner-info-preview-insert.corner-info-chip-list-enter-active {
+  transition:
+    opacity 45ms ease-out,
+    transform 45ms ease-out;
+}
+
+.corner-info-preview-insert.corner-info-chip-list-enter-from {
+  opacity: 0.78;
+  transform: none;
+}
+
+.corner-info-preview-insert.corner-info-chip-list-leave-active {
+  min-height: 0;
+  overflow: hidden;
+  border-width: 0;
+  padding: 0;
+  animation: none;
+  transition:
+    opacity 80ms ease,
+    min-height 80ms ease,
+    padding 80ms ease;
 }
 
 .corner-info-preview-insert {
   display: grid;
-  min-height: 48px;
+  min-height: 40px;
   place-items: center;
   border: 1px dashed color-mix(in srgb, var(--theme-accent) 72%, white 12%);
   border-radius: 12px;
@@ -3766,21 +3832,22 @@ onBeforeUnmount(() => {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.05),
     0 0 18px color-mix(in srgb, var(--theme-accent) 20%, transparent);
+  transform-origin: center;
 }
 
 .corner-info-preview-chip {
   position: relative;
   display: flex;
-  min-height: 48px;
+  min-height: 42px;
   min-width: 0;
   cursor: grab;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   overflow: hidden;
   border: 1px solid rgba(226, 240, 255, 0.13);
   border-radius: 12px;
   background: rgba(15, 23, 42, 0.82);
-  padding: 7px 8px;
+  padding: 6px 7px;
   box-shadow:
     0 10px 18px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);

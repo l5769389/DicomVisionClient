@@ -112,7 +112,7 @@ vi.mock('../../composables/ui/useUiLocale', async () => {
       locale: ref('en-US'),
       t: (key: string) =>
         ({
-          deleteSeries: 'Delete series',
+          deleteSeries: 'Remove series from list',
           loadingMoreSeries: 'Loading more series',
           loadingSeries: 'Loading series',
           noSeriesDesc: 'No series',
@@ -360,7 +360,7 @@ describe('SidebarSeriesList compatibility check', () => {
     })
     await nextTick()
 
-    expect(wrapper.text()).toContain('Delete series')
+    expect(wrapper.text()).toContain('Remove series from list')
     expect(wrapper.text()).not.toContain('Remove this series from the workspace')
 
     wrapper.unmount()

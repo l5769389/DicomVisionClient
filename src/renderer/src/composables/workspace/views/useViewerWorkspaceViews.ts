@@ -205,7 +205,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const renderTabScheduler = createRenderTabScheduler({
     renderNow: renderTabNow
   })
-  const { selectedPseudocolorKey } = useUiPreferences()
+  const { locale, selectedPseudocolorKey } = useUiPreferences()
+
+  function viewMessage(zh: string, en: string): string {
+    return locale.value === 'zh-CN' ? zh : en
+  }
 
   function getBackendStatusCode(error: unknown): number | null {
     const status = (error as { response?: { status?: unknown } } | null)?.response?.status
@@ -243,10 +247,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     closeIncompleteTab(tabKey)
     if (isSeriesMissingError(error)) {
       removeSeries(seriesId)
-      options.message.value = '当前序列已失效，请重新上传 DICOM 或重新加载示例影像。'
+      options.message.value = viewMessage(
+        '当前序列已失效，请重新上传 DICOM 或重新加载示例影像。',
+        'The current series is no longer available. Upload DICOM files again or reload the sample images.'
+      )
       return
     }
-    options.message.value = detail ? `${viewType} 视图打开失败：${detail}` : `${viewType} 视图打开失败。`
+    options.message.value = detail
+      ? viewMessage(`${viewType} 视图打开失败：${detail}`, `${viewType} view failed to open: ${detail}`)
+      : viewMessage(`${viewType} 视图打开失败。`, `${viewType} view failed to open.`)
   }
 
   function revokeObjectUrlIfNeeded(imageSrc: string | null | undefined): void {
@@ -539,7 +548,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const fallbackMessage =
         typeof error === 'object' && error != null && 'message' in error && typeof error.message === 'string'
           ? error.message
-          : 'DICOM Tag 加载失败。'
+          : viewMessage('DICOM Tag 加载失败。', 'Failed to load DICOM tags.')
 
       options.viewerTabs.value = options.viewerTabs.value.map((item) =>
         item.key === tabKey
@@ -932,7 +941,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         fourDIsPreloading: item.fourDIsPreloading ?? false
       }
     })
-    options.message.value = phaseItems.length > 0 || hasPreviewImage ? '' : '4D phase metadata is not available for this series.'
+    options.message.value =
+      phaseItems.length > 0 || hasPreviewImage
+        ? ''
+        : viewMessage('当前序列没有可用的 4D phase 元数据。', '4D phase metadata is not available for this series.')
   }
 
   async function ensureFourDPhaseViewIds(tabKey: string, phaseIndex: number): Promise<Record<MprViewportKey, string> | null> {
@@ -2295,11 +2307,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     options.selectedSeriesId.value = seriesId
     const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
     if (!isSeriesViewSupported(targetSeries, viewType)) {
-      options.message.value = `${viewType} view is not supported for this series.`
+      options.message.value = viewMessage(`当前序列不支持 ${viewType} 视图。`, `${viewType} view is not supported for this series.`)
       return
     }
     if (viewType === '4D' && !isFourDSeriesItem(targetSeries)) {
-      options.message.value = '当前序列不是 4D 序列。'
+      options.message.value = viewMessage('当前序列不是 4D 序列。', 'The current series is not a 4D series.')
       return
     }
 
@@ -2541,7 +2553,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const sourceSeries = options.seriesList.value.find((item) => item.seriesId === sourceSeriesId) ?? null
     const targetSeries = options.seriesList.value.find((item) => item.seriesId === targetSeriesId) ?? null
     if (!sourceSeries || !targetSeries) {
-      options.message.value = '对比序列不存在或已被移除。'
+      options.message.value = viewMessage('对比序列不存在或已被移除。', 'The compare series does not exist or has been removed.')
       return
     }
 
@@ -2656,7 +2668,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
       options.message.value = ''
     } catch (error) {
-      options.message.value = 'Stack 对比视图打开失败。'
+      options.message.value = viewMessage('Stack 对比视图打开失败。', 'Failed to open the Stack compare view.')
       console.error(error)
     } finally {
       options.isViewLoading.value = false

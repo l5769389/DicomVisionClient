@@ -16,6 +16,7 @@ import type {
   ViewerTabItem
 } from '../../../types/viewer'
 import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 type MprDisplayViewportKey = MprViewportKey | 'volume'
 
@@ -66,6 +67,9 @@ const emit = defineEmits<{
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
 }>()
+
+const { locale, viewerCopy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 
 interface MprViewportLayoutItem {
   key: MprDisplayViewportKey
@@ -240,6 +244,17 @@ const VIEW_PROGRESS_LABELS: Record<string, string> = {
   complete: '加载完成'
 }
 
+const VIEW_PROGRESS_LABELS_EN: Record<string, string> = {
+  queued: 'Preparing render',
+  waiting: 'Waiting for volume',
+  volume: 'Reading DICOM slices',
+  normalize: 'Preparing volume',
+  initialize: 'Initializing view',
+  render: 'Rendering image',
+  encode: 'Encoding preview',
+  complete: 'Loaded'
+}
+
 function getItemLoadingProgress(item: MprViewportLayoutItem): ViewProgressInfo | null {
   const viewportKey = asMprViewportKey(item)
   return viewportKey
@@ -253,13 +268,14 @@ function getItemLoadingProgressPercent(item: MprViewportLayoutItem): number | nu
 }
 
 function getItemLoadingLabel(item: MprViewportLayoutItem): string {
-  const fallback = item.kind === 'volume' ? '正在加载 3D 视图...' : '正在加载 MPR 视图...'
+  const fallback = item.kind === 'volume' ? viewerCopy.value.loadingVolumeView : viewerCopy.value.loadingMprView
   const progress = getItemLoadingProgress(item)
   if (!progress) {
     return fallback
   }
 
-  const label = progress.message || VIEW_PROGRESS_LABELS[progress.phase] || fallback
+  const progressLabels = isZh.value ? VIEW_PROGRESS_LABELS : VIEW_PROGRESS_LABELS_EN
+  const label = progress.message || progressLabels[progress.phase] || fallback
   const hasCounts = typeof progress.loadedCount === 'number' && typeof progress.totalCount === 'number' && progress.totalCount > 0
   return hasCounts ? `${label} ${progress.loadedCount}/${progress.totalCount}` : label
 }
@@ -321,6 +337,10 @@ function getItemScaleBar(item: MprViewportLayoutItem): ScaleBarInfo | null {
 function getItemOrientation(item: MprViewportLayoutItem) {
   const viewportKey = asMprViewportKey(item)
   return viewportKey ? getViewportOrientation(viewportKey) : props.activeTab.orientation
+}
+
+function getItemPlaceholder(item: MprViewportLayoutItem): string {
+  return item.kind === 'volume' ? viewerCopy.value.volumePlaceholder : viewerCopy.value.viewportPreview(item.label)
 }
 
 function normalizeOperation(operation: string): string {
@@ -412,7 +432,7 @@ watch(
       :loading-label="getItemLoadingLabel(item)"
       :loading-progress-percent="getItemLoadingProgressPercent(item)"
       :alt="item.label"
-      :placeholder="`${item.label} 预览`"
+      :placeholder="getItemPlaceholder(item)"
       :corner-info="getItemCornerInfo(item)"
       :draft-measurement-mode="getItemDraftMeasurementMode(item)"
       :draft-measurement="getItemDraftMeasurement(item)"

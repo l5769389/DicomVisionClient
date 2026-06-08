@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
 import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
+import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { getSmoothCurveSegments, isValidMeasurement } from '../../../composables/measurements/measurementGeometry'
 import {
   getFinalizedPointSequencePoints,
@@ -40,6 +41,7 @@ const draftStrokeOuter = 'rgba(56,22,4,0.92)'
 const POINT_CLOSE_EPSILON = 0.0005
 
 const { measurementStylePreference } = useUiPreferences()
+const { overlayCopy } = useUiLocale()
 
 const props = withDefaults(
   defineProps<{
@@ -647,8 +649,8 @@ function isKeyValueLabelLine(line: string): boolean {
       <button
         type="button"
         class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-amber-50 transition hover:bg-amber-300/14"
-        title="复制"
-        aria-label="复制测量"
+        :title="overlayCopy.copy"
+        :aria-label="overlayCopy.copyMeasurement"
         @click.stop="emit('copySelectedMeasurement')"
       >
         <AppIcon name="copy" :size="16" />
@@ -656,8 +658,8 @@ function isKeyValueLabelLine(line: string): boolean {
       <button
         type="button"
         class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/18 bg-red-400/10 text-red-100 transition hover:bg-red-400/18"
-        title="删除"
-        aria-label="删除测量"
+        :title="overlayCopy.delete"
+        :aria-label="overlayCopy.deleteMeasurement"
         @pointerdown.stop.prevent="emit('deleteSelectedMeasurement', renderedDraftMeasurement?.measurementId ?? undefined)"
         @click.stop.prevent
       >

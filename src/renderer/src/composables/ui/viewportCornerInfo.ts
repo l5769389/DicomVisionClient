@@ -316,6 +316,10 @@ export const VIEWPORT_CORNER_INFO_CATALOG: ViewportCornerInfoCatalogItem[] = [
 
 export const VIEWPORT_CORNER_INFO_ITEM_KEYS = VIEWPORT_CORNER_INFO_CATALOG.map((item) => item.key)
 const VIEWPORT_CORNER_INFO_ITEM_KEY_SET = new Set<ViewportCornerInfoItemKey>(VIEWPORT_CORNER_INFO_ITEM_KEYS)
+const VIEWPORT_CORNER_INFO_SEARCH_INDEX: Record<'zh-CN' | 'en-US', Map<ViewportCornerInfoItemKey, string>> = {
+  'zh-CN': createViewportCornerInfoSearchIndex('zh-CN'),
+  'en-US': createViewportCornerInfoSearchIndex('en-US')
+}
 
 const DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE: ViewportCornerInfoPreference = {
   topLeft: [
@@ -383,6 +387,24 @@ function normalizeItemKey(value: unknown): ViewportCornerInfoItemKey | null {
   return typeof value === 'string' && VIEWPORT_CORNER_INFO_ITEM_KEY_SET.has(value as ViewportCornerInfoItemKey)
     ? (value as ViewportCornerInfoItemKey)
     : null
+}
+
+function createViewportCornerInfoSearchIndex(locale: 'zh-CN' | 'en-US'): Map<ViewportCornerInfoItemKey, string> {
+  return new Map(
+    VIEWPORT_CORNER_INFO_CATALOG.map((item) => [
+      item.key,
+      [
+        item.key,
+        item.labels[locale],
+        item.labels['zh-CN'],
+        item.labels['en-US'],
+        ...item.dicomKeywords,
+        ...item.keywords
+      ]
+        .join(' ')
+        .toLowerCase()
+    ])
+  )
 }
 
 export function normalizeViewportCornerInfoPreference(value: unknown): ViewportCornerInfoPreference {
@@ -600,16 +622,7 @@ export function filterViewportCornerInfoCatalog(
   }
 
   return VIEWPORT_CORNER_INFO_CATALOG.filter((item) => {
-    const haystack = [
-      item.key,
-      item.labels[locale],
-      item.labels['zh-CN'],
-      item.labels['en-US'],
-      ...item.dicomKeywords,
-      ...item.keywords
-    ]
-      .join(' ')
-      .toLowerCase()
+    const haystack = VIEWPORT_CORNER_INFO_SEARCH_INDEX[locale].get(item.key) ?? item.key.toLowerCase()
     return tokens.every((token) => haystack.includes(token))
   })
 }

@@ -745,6 +745,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     const viewType = options.activeTab.value?.viewType
     switch (viewType) {
       case 'Stack':
+      case 'PETCTFusion':
         return stackTools
       case 'CompareStack':
         return withSyncToolAfterLayout(compareStackTools)

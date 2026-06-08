@@ -18,10 +18,14 @@ import {
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
   createEmptyMprCrosshairs,
   createEmptyMprOrientations,
   createEmptyMprScaleBars,
   isCompareStackPaneKey,
+  isFusionPaneKey,
   isMprViewportKey,
   normalizeCornerInfo
 } from '../views/viewerWorkspaceTabs'
@@ -30,6 +34,7 @@ import {
   isMprLikeViewType,
   isStackLikeViewType,
   resolveComparePaneKey,
+  resolveFusionPaneKey,
   resolveOperationTargets,
   resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
@@ -137,6 +142,18 @@ interface ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     viewportKey: string
   }) => void
+  handleFusionRegistrationDrag: (payload: {
+    deltaX: number
+    deltaY: number
+    phase: 'start' | 'move' | 'end'
+    subOpType: 'translate' | 'rotate'
+    viewportKey: string
+  }) => void
+  handleFusionConfigChange: (payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    action?: 'reset' | 'save'
+  }) => void
   handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
   handleMeasurementDraft: (payload: {
     viewportKey: string
@@ -179,6 +196,7 @@ interface ViewerWorkspaceState {
   loadDicomPaths: (paths: string[]) => Promise<void>
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
+  openPetCtFusion: (ctSeriesId: string, petSeriesId: string) => Promise<void>
   openKeySlice: (seriesId: string, sliceIndex: number) => Promise<void>
   openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
   openLayoutView: (template: ViewerLayoutTemplate) => Promise<void>
@@ -714,6 +732,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         }
       }
 
+      const fusionViewportKey = Object.entries(item.fusionViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0]
+      if (item.viewType === 'PETCTFusion' && fusionViewportKey && isFusionPaneKey(fusionViewportKey)) {
+        return {
+          ...item,
+          fusionCornerInfos: {
+            ...(item.fusionCornerInfos ?? {}),
+            [fusionViewportKey]: withHoverCornerInfo(item.fusionCornerInfos?.[fusionViewportKey] ?? item.cornerInfo, row, col)
+          }
+        }
+      }
+
       const viewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0] as
         | MprViewportKey
         | undefined
@@ -761,6 +790,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
     if (tab.viewType === 'CompareStack') {
       return tab.compareTransformStates?.[resolveComparePaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      return tab.fusionTransformStates?.[resolveFusionPaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
     }
     if (tab.viewType === 'Layout') {
       return tab.layoutSlots?.find((slot) => slot.id === viewportKey)?.transformState ?? DEFAULT_VIEW_TRANSFORM
@@ -2205,6 +2237,108 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function handleFusionRegistrationDrag(payload: {
+    deltaX: number
+    deltaY: number
+    phase: 'start' | 'move' | 'end'
+    subOpType: 'translate' | 'rotate'
+    viewportKey: string
+  }): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PETCTFusion' || !tab.fusionManualRegistration) {
+      return
+    }
+    const viewportKey = resolveFusionPaneKey(payload.viewportKey)
+    if (viewportKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
+      return
+    }
+    const viewId = tab.fusionViewIds?.[viewportKey] ?? ''
+    if (!viewId) {
+      return
+    }
+    if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
+      return
+    }
+    emitScheduledViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: payload.phase,
+      subOpType: payload.subOpType,
+      x: payload.deltaX,
+      y: payload.deltaY
+    })
+  }
+
+  function handleFusionConfigChange(payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    action?: 'reset' | 'save'
+  }): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PETCTFusion') {
+      return
+    }
+    const viewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean) ?? ''
+    if (!viewId) {
+      return
+    }
+
+    if (typeof payload.manualRegistration === 'boolean') {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionManualRegistration: payload.manualRegistration
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionManualRegistration: payload.manualRegistration
+      })
+      return
+    }
+
+    if (payload.pseudocolorPreset) {
+      const presetKey = normalizePseudocolorPresetKey(payload.pseudocolorPreset)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? {
+                    ...item.fusionInfo,
+                    petPseudocolorPreset: presetKey
+                  }
+                : item.fusionInfo,
+              fusionPseudocolorPresets: {
+                ...(item.fusionPseudocolorPresets ?? {}),
+                [FUSION_PET_AXIAL_PANE_KEY]: presetKey,
+                [FUSION_OVERLAY_AXIAL_PANE_KEY]: presetKey,
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: presetKey
+              }
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        pseudocolorPreset: presetKey
+      })
+      return
+    }
+
+    if (payload.action) {
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionRegistration,
+        actionType: 'end',
+        subOpType: payload.action
+      })
+    }
+  }
+
   function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {
     if (
       (payload.phase !== DRAG_ACTION_TYPES.move && payload.phase !== DRAG_ACTION_TYPES.end) ||
@@ -2545,6 +2679,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await views.openSeriesCompare(sourceSeriesId, targetSeriesId)
   }
 
+  async function openPetCtFusionWithBackend(ctSeriesId: string, petSeriesId: string): Promise<void> {
+    await ensureBackendConnection()
+    await views.openPetCtFusion(ctSeriesId, petSeriesId)
+  }
+
   function shouldAutoSelectLoadedSeries(): boolean {
     return !selectedSeriesId.value
   }
@@ -2862,6 +3001,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleFourDPhaseChange,
     handleFourDFpsChange,
     handleFourDPlaybackChange,
+    handleFusionConfigChange,
+    handleFusionRegistrationDrag,
     handleMprCrosshair,
     handleCompareSyncChange,
     handleViewportLayoutChange,
@@ -2880,6 +3021,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     openKeySlice,
     openSeriesView: openSeriesViewWithHangingProtocol,
     openLayoutView: openLayoutViewWithBackend,
+    openPetCtFusion: openPetCtFusionWithBackend,
     openSeriesCompare: openSeriesCompareWithBackend,
     openView: openViewWithHangingProtocol,
     removeSeries: views.removeSeries,

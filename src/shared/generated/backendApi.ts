@@ -576,9 +576,11 @@ export interface ViewColorInfo {
 
 export interface ViewCreateRequest {
   seriesId: string
-  viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
+  viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG' | 'FusionCTAxial' | 'FusionPETAxial' | 'FusionOverlayAxial' | 'FusionPETCoronalMip'
   viewGroupKey?: string | null
   fourDPhaseIndex?: number | null
+  secondarySeriesId?: string | null
+  fusionPaneRole?: string | null
 }
 
 export interface ViewCreateResponse {
@@ -650,10 +652,28 @@ export interface ViewImageResponse {
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipConfig | null
   mprCrosshairMode?: MprCrosshairMode
+  fusionInfo?: FusionInfo | null
   volumePreset?: string | null
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: 'volume' | 'surface' | null
   surfaceConfig?: SurfaceRenderConfig | null
+}
+
+export interface FusionRegistrationInfo {
+  translateRowMm?: number
+  translateColMm?: number
+  rotationDegrees?: number
+  saved?: boolean
+}
+
+export interface FusionInfo {
+  paneRole: string
+  ctSeriesId: string
+  petSeriesId: string
+  petPseudocolorPreset: string
+  alpha: number
+  revision: number
+  registration: FusionRegistrationInfo
 }
 
 export interface ViewMtfAnalyzeRequest {
@@ -673,7 +693,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'fusionRegistration' | 'fusionConfig'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -689,6 +709,8 @@ export interface ViewOperationRequest {
   pseudocolorPreset?: string | null
   mprMipConfig?: MprMipConfig | null
   mprCrosshairMode?: MprCrosshairMode | null
+  fusionAlpha?: number | null
+  fusionManualRegistration?: boolean | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null

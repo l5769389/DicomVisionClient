@@ -15,6 +15,7 @@ import {
   buildTabTitle,
   createComparePaneRecord,
   createCompareStackTabKey,
+  createDefaultFusionInfo,
   createEmptyCompareCornerInfos,
   createEmptyCompareImages,
   createEmptyCompareOrientations,
@@ -25,6 +26,15 @@ import {
   createEmptyCompareViewIds,
   createEmptyCompareWindowLabels,
   createEmptyCornerInfo,
+  createEmptyFusionCornerInfos,
+  createEmptyFusionImages,
+  createEmptyFusionOrientations,
+  createEmptyFusionPseudocolorPresets,
+  createEmptyFusionScaleBars,
+  createEmptyFusionSliceLabels,
+  createEmptyFusionTransformStates,
+  createEmptyFusionViewIds,
+  createEmptyFusionWindowLabels,
   createEmptyMprCornerInfos,
   createEmptyMprCrosshairs,
   createEmptyMprImages,
@@ -38,9 +48,16 @@ import {
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
   createLayoutTab,
+  createPetCtFusionTabKey,
   createTab,
+  FUSION_CT_AXIAL_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PANE_KEYS,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
   getSeriesDisplayName,
   isCompareStackPaneKey,
+  isFusionPaneKey,
   isMprViewportKey,
   mergeCornerInfo,
   normalizeCornerInfo,
@@ -116,6 +133,8 @@ import type {
   CornerInfo,
   DicomTagItem,
   FolderSeriesItem,
+  FusionInfo,
+  FusionPaneKey,
   FourDPhaseCacheItem,
   FourDPhaseItem,
   FourDPhasesResponse,
@@ -180,6 +199,15 @@ interface CompareViewSizeUpdate {
   }
 }
 
+interface FusionViewSizeUpdate {
+  viewportKey: FusionPaneKey
+  viewId: string
+  size: {
+    width: number
+    height: number
+  }
+}
+
 interface LayoutViewSizeUpdate {
   slotId: string
   viewId: string
@@ -228,6 +256,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return (
       Boolean(tab.viewId) ||
       Object.values(tab.compareViewIds ?? {}).some(Boolean) ||
+      Object.values(tab.fusionViewIds ?? {}).some(Boolean) ||
       Object.values(tab.viewportViewIds ?? {}).some(Boolean) ||
       getLayoutSlotViewIds(tab).length > 0 ||
       getFourDPhaseBackendViewIds(tab).length > 0
@@ -304,6 +333,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     releaseBackendViews([
       tab.viewId,
       ...Object.values(tab.compareViewIds ?? {}),
+      ...Object.values(tab.fusionViewIds ?? {}),
       ...Object.values(tab.viewportViewIds ?? {}),
       ...getFourDPhaseBackendViewIds(tab),
       ...getLayoutSlotViewIds(tab)
@@ -313,6 +343,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       viewSizeCache.delete(tab.viewId)
     }
     Object.values(tab.compareViewIds ?? {}).forEach((viewId) => {
+      if (viewId) {
+        viewSizeCache.delete(viewId)
+      }
+    })
+    Object.values(tab.fusionViewIds ?? {}).forEach((viewId) => {
       if (viewId) {
         viewSizeCache.delete(viewId)
       }
@@ -330,6 +365,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
     revokeObjectUrlIfNeeded(tab.imageSrc)
     Object.values(tab.compareImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fusionImages ?? {}).forEach(revokeObjectUrlIfNeeded)
     Object.values(tab.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
     Object.values(tab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
       Object.values(phaseCache.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
@@ -433,6 +469,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       (item) =>
         item.viewId === viewId ||
         Object.values(item.compareViewIds ?? {}).includes(viewId) ||
+        Object.values(item.fusionViewIds ?? {}).includes(viewId) ||
         Object.values(item.viewportViewIds ?? {}).includes(viewId) ||
         getLayoutSlotViewIds(item).includes(viewId) ||
         Boolean(findFourDPhaseViewportByViewId(item, viewId))
@@ -630,6 +667,46 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
+  function getCreateViewTypeForFusionPane(paneKey: FusionPaneKey): BackendCreateViewType {
+    if (paneKey === FUSION_CT_AXIAL_PANE_KEY) {
+      return 'FusionCTAxial'
+    }
+    if (paneKey === FUSION_PET_AXIAL_PANE_KEY) {
+      return 'FusionPETAxial'
+    }
+    if (paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY) {
+      return 'FusionPETCoronalMip'
+    }
+    return 'FusionOverlayAxial'
+  }
+
+  async function createFusionViewIds(
+    ctSeriesId: string,
+    petSeriesId: string,
+    viewGroupKey: string
+  ): Promise<Record<FusionPaneKey, string>> {
+    const entries = await Promise.all(
+      FUSION_PANE_KEYS.map(async (paneKey) => {
+        const data = await postApi('CreateViewApiV1ViewCreatePost', {
+          seriesId: ctSeriesId,
+          secondarySeriesId: petSeriesId,
+          viewType: getCreateViewTypeForFusionPane(paneKey),
+          fusionPaneRole: paneKey,
+          viewGroupKey
+        })
+        return [paneKey, data.viewId] as const
+      })
+    )
+
+    return entries.reduce(
+      (accumulator, [paneKey, viewId]) => ({
+        ...accumulator,
+        [paneKey]: viewId
+      }),
+      createEmptyFusionViewIds()
+    )
+  }
+
   function createFourDViewGroupKey(tab: ViewerTabItem, phaseIndex: number): string {
     return `4d:${tab.key}:${getFourDPhaseKey(phaseIndex)}`
   }
@@ -675,6 +752,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
       }
     })
+  }
+
+  async function bindFusionViewIdsSilentlyWithAck(viewIds: Partial<Record<FusionPaneKey, string>>): Promise<void> {
+    await Promise.all(
+      Object.values(viewIds).map(async (viewId) => {
+        if (viewId) {
+          await bindViewSilentlyWithAck(viewId)
+        }
+      })
+    )
   }
 
   async function bindMprViewIdsSilentlyWithAck(viewIds: Partial<Record<MprViewportKey, string>>): Promise<void> {
@@ -823,6 +910,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         bindView(tab.viewId)
       }
       Object.values(tab.compareViewIds ?? {}).forEach((viewId) => {
+        if (viewId) {
+          bindView(viewId)
+        }
+      })
+      Object.values(tab.fusionViewIds ?? {}).forEach((viewId) => {
         if (viewId) {
           bindView(viewId)
         }
@@ -1479,6 +1571,98 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
       }
 
+      const fusionViewportKey = Object.entries(item.fusionViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
+        | FusionPaneKey
+        | undefined
+      if (item.viewType === 'PETCTFusion' && fusionViewportKey) {
+        const previousFusionInfo = item.fusionInfo ?? createDefaultFusionInfo(
+          item.fusionSeriesIds?.ctSeriesId ?? item.seriesId,
+          item.fusionSeriesIds?.petSeriesId ?? ''
+        )
+        const rawFusionInfo = payload.fusionInfo ?? ((payload as { fusion_info?: unknown }).fusion_info ?? null)
+        const fusionInfo = normalizeFusionInfoPayload(rawFusionInfo, previousFusionInfo)
+        const acceptedRevision = item.fusionInfo?.revision ?? null
+        const isStalePreview =
+          payload.imageFormat === 'jpeg' &&
+          acceptedRevision != null &&
+          fusionInfo.revision < acceptedRevision
+        if (isStalePreview) {
+          revokeObjectUrlIfNeeded(imageSrc)
+          return item
+        }
+
+        const fusionSeriesId =
+          fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY || fusionViewportKey === FUSION_OVERLAY_AXIAL_PANE_KEY
+            ? item.fusionSeriesIds?.ctSeriesId ?? item.seriesId
+            : item.fusionSeriesIds?.petSeriesId ?? item.seriesId
+        const fusionSeriesCornerInfo =
+          options.seriesCornerInfoMap.value[fusionSeriesId] ??
+          options.seriesCornerInfoMap.value[item.seriesId] ??
+          createEmptyCornerInfo()
+        const currentImage = item.fusionImages?.[fusionViewportKey]
+        revokeObjectUrlIfNeeded(currentImage)
+
+        return {
+          ...item,
+          fusionInfo,
+          fusionImages: {
+            ...(item.fusionImages ?? createEmptyFusionImages()),
+            [fusionViewportKey]: imageSrc
+          },
+          fusionSliceLabels: {
+            ...(item.fusionSliceLabels ?? createEmptyFusionSliceLabels()),
+            [fusionViewportKey]: sliceLabel
+          },
+          fusionWindowLabels: {
+            ...(item.fusionWindowLabels ?? createEmptyFusionWindowLabels()),
+            [fusionViewportKey]: windowLabel
+          },
+          fusionScaleBars: {
+            ...(item.fusionScaleBars ?? createEmptyFusionScaleBars()),
+            [fusionViewportKey]: hasScaleBarPayload
+              ? scaleBar
+              : item.fusionScaleBars?.[fusionViewportKey] ?? null
+          },
+          fusionCornerInfos: {
+            ...(item.fusionCornerInfos ?? createEmptyFusionCornerInfos()),
+            [fusionViewportKey]: hasCornerInfoPayload
+              ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+              : item.fusionCornerInfos?.[fusionViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+          },
+          fusionOrientations: {
+            ...(item.fusionOrientations ?? createEmptyFusionOrientations()),
+            [fusionViewportKey]: hasOrientationPayload
+              ? orientationInfo
+              : item.fusionOrientations?.[fusionViewportKey] ?? orientationInfo
+          },
+          fusionTransformStates: {
+            ...(item.fusionTransformStates ?? createEmptyFusionTransformStates()),
+            [fusionViewportKey]: hasTransformPayload
+              ? transformState
+              : item.fusionTransformStates?.[fusionViewportKey] ?? transformState
+          },
+          fusionPseudocolorPresets: {
+            ...(item.fusionPseudocolorPresets ?? createEmptyFusionPseudocolorPresets()),
+            [fusionViewportKey]: normalizePseudocolorPresetKey(
+              payload.color?.pseudocolorPreset ??
+                (fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY ? DEFAULT_PSEUDOCOLOR_PRESET : fusionInfo.petPseudocolorPreset)
+            )
+          },
+          viewportMeasurements: {
+            ...(item.viewportMeasurements ?? {}),
+            [fusionViewportKey]: hasMeasurementsPayload
+              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              : item.viewportMeasurements?.[fusionViewportKey] ?? []
+          },
+          viewportAnnotations: {
+            ...(item.viewportAnnotations ?? {}),
+            [fusionViewportKey]: hasAnnotationsPayload
+              ? payloadAnnotations
+              : item.viewportAnnotations?.[fusionViewportKey] ?? []
+          }
+        }
+      }
+
       const currentViewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
         | MprViewportKey
         | undefined
@@ -1955,6 +2139,51 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function normalizeFusionInfoPayload(value: unknown, fallback: FusionInfo): FusionInfo {
+    if (typeof value !== 'object' || value == null) {
+      return fallback
+    }
+
+    const record = value as Record<string, unknown>
+    const registrationRecord =
+      typeof record.registration === 'object' && record.registration != null
+        ? (record.registration as Record<string, unknown>)
+        : {}
+    const numberOrFallback = (candidate: unknown, fallbackValue: number): number =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
+    const paneRoleCandidate = record.paneRole ?? record.pane_role
+    const petPresetCandidate = record.petPseudocolorPreset ?? record.pet_pseudocolor_preset
+    return {
+      paneRole: typeof paneRoleCandidate === 'string' ? paneRoleCandidate : fallback.paneRole,
+      ctSeriesId: typeof (record.ctSeriesId ?? record.ct_series_id) === 'string'
+        ? String(record.ctSeriesId ?? record.ct_series_id)
+        : fallback.ctSeriesId,
+      petSeriesId: typeof (record.petSeriesId ?? record.pet_series_id) === 'string'
+        ? String(record.petSeriesId ?? record.pet_series_id)
+        : fallback.petSeriesId,
+      petPseudocolorPreset: typeof petPresetCandidate === 'string'
+        ? normalizePseudocolorPresetKey(petPresetCandidate)
+        : fallback.petPseudocolorPreset,
+      alpha: numberOrFallback(record.alpha, fallback.alpha),
+      revision: numberOrFallback(record.revision, fallback.revision),
+      registration: {
+        translateRowMm: numberOrFallback(
+          registrationRecord.translateRowMm ?? registrationRecord.translate_row_mm,
+          fallback.registration.translateRowMm
+        ),
+        translateColMm: numberOrFallback(
+          registrationRecord.translateColMm ?? registrationRecord.translate_col_mm,
+          fallback.registration.translateColMm
+        ),
+        rotationDegrees: numberOrFallback(
+          registrationRecord.rotationDegrees ?? registrationRecord.rotation_degrees,
+          fallback.registration.rotationDegrees
+        ),
+        saved: typeof registrationRecord.saved === 'boolean' ? registrationRecord.saved : fallback.registration.saved
+      }
+    }
+  }
+
   function updateViewProgress(payload: ViewProgressInfo | undefined): void {
     const progress = normalizeViewProgressPayload(payload)
     if (!progress) {
@@ -2040,6 +2269,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       .filter((item): item is CompareViewSizeUpdate => Boolean(item))
   }
 
+  function resolveFusionViewportElement(viewportKey: FusionPaneKey): HTMLElement | null {
+    const cachedSurface = resolveCachedViewportSurface(viewportKey)
+    if (cachedSurface) {
+      return cachedSurface
+    }
+
+    return (
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`) ??
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
+      null
+    )
+  }
+
+  function collectFusionViewSizeUpdates(
+    fusionViewIds: Partial<Record<FusionPaneKey, string>> | undefined,
+    force = false
+  ): FusionViewSizeUpdate[] {
+    const entries = Object.entries(fusionViewIds ?? {}) as [FusionPaneKey, string][]
+    return entries
+      .filter(([viewportKey, viewId]) => isFusionPaneKey(viewportKey) && Boolean(viewId))
+      .map(([viewportKey, viewId]) => {
+        const update = collectViewSizeUpdate(viewId, resolveFusionViewportElement(viewportKey), force)
+        if (!update) {
+          return null
+        }
+        return { viewportKey, ...update }
+      })
+      .filter((item): item is FusionViewSizeUpdate => Boolean(item))
+  }
+
   function resolveLayoutViewportElement(slotId: string): HTMLElement | null {
     const cachedSurface = resolveCachedViewportSurface(slotId)
     if (cachedSurface) {
@@ -2106,6 +2365,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     await postViewSizeUpdates(updates, renderOnBind)
   }
 
+  async function postFusionViewSizeUpdates(updates: FusionViewSizeUpdate[], renderOnBind = true): Promise<void> {
+    await postViewSizeUpdates(updates, renderOnBind)
+  }
+
   async function postLayoutViewSizeUpdates(updates: LayoutViewSizeUpdate[], renderOnBind = true): Promise<void> {
     await postViewSizeUpdates(updates, renderOnBind)
   }
@@ -2145,6 +2408,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       const requiredKeys = (Object.keys(compareViewIds) as CompareStackPaneKey[]).filter((key) => Boolean(compareViewIds[key]))
       if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveCompareViewportElement(key))))) {
+        return
+      }
+    }
+  }
+
+  async function waitForFusionViewportLayout(fusionViewIds: Partial<Record<FusionPaneKey, string>>): Promise<void> {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const requiredKeys = (Object.keys(fusionViewIds) as FusionPaneKey[]).filter((key) => Boolean(fusionViewIds[key]))
+      if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveFusionViewportElement(key))))) {
         return
       }
     }
@@ -2242,6 +2516,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    if (tab.viewType === 'PETCTFusion') {
+      await postFusionViewSizeUpdates(collectFusionViewSizeUpdates(tab.fusionViewIds, force))
+      return
+    }
+
     if (tab.viewType === '3D') {
       await postViewSizeUpdate(collectViewSizeUpdate(tab.viewId, resolveVolumeViewportElement(), force))
       return
@@ -2300,7 +2579,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     if (!seriesId) {
       return
     }
-    if (viewType === 'CompareStack' || viewType === 'Layout') {
+    if (viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion') {
       return
     }
 
@@ -2539,6 +2818,119 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       options.message.value = ''
     } catch (error) {
       handleOpenSeriesViewFailure(error, seriesId, viewType, tabKey)
+      console.error(error)
+    } finally {
+      options.isViewLoading.value = false
+    }
+  }
+
+  async function openPetCtFusion(ctSeriesId: string, petSeriesId: string): Promise<void> {
+    if (!ctSeriesId || !petSeriesId || ctSeriesId === petSeriesId) {
+      return
+    }
+
+    const ctSeries = options.seriesList.value.find((item) => item.seriesId === ctSeriesId) ?? null
+    const petSeries = options.seriesList.value.find((item) => item.seriesId === petSeriesId) ?? null
+    if (!ctSeries || !petSeries) {
+      options.message.value = viewMessage('PET/CT 融合序列不存在或已被移除。', 'The PET/CT fusion series does not exist or has been removed.')
+      return
+    }
+
+    options.selectedSeriesId.value = ctSeriesId
+    const tabKey = createPetCtFusionTabKey(ctSeriesId, petSeriesId)
+    const existingTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    const hasExistingViews = FUSION_PANE_KEYS.every((paneKey) => Boolean(existingTab?.fusionViewIds?.[paneKey]))
+    if (existingTab && hasExistingViews) {
+      options.activeTabKey.value = existingTab.key
+      options.activeViewportKey.value = FUSION_OVERLAY_AXIAL_PANE_KEY
+      await nextTick()
+      await waitForFusionViewportLayout(existingTab.fusionViewIds ?? {})
+      await renderTab(existingTab.key, true)
+      return
+    }
+
+    if (!existingTab) {
+      const tab: ViewerTabItem = {
+        ...createTab(ctSeries, 'PETCTFusion'),
+        key: tabKey,
+        title: `${getSeriesDisplayName(ctSeries, ctSeriesId)} + ${getSeriesDisplayName(petSeries, petSeriesId)} · PET/CT`,
+        viewType: 'PETCTFusion',
+        seriesId: ctSeriesId,
+        seriesTitle: getSeriesDisplayName(ctSeries, ctSeriesId),
+        viewId: '',
+        imageSrc: '',
+        fusionSeriesIds: { ctSeriesId, petSeriesId },
+        fusionViewIds: createEmptyFusionViewIds(),
+        fusionImages: createEmptyFusionImages(),
+        fusionSliceLabels: createEmptyFusionSliceLabels(),
+        fusionWindowLabels: createEmptyFusionWindowLabels(),
+        fusionScaleBars: createEmptyFusionScaleBars(),
+        fusionCornerInfos: createEmptyFusionCornerInfos(),
+        fusionOrientations: createEmptyFusionOrientations(),
+        fusionTransformStates: createEmptyFusionTransformStates(),
+        fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+        fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
+        fusionManualRegistration: false
+      }
+      options.viewerTabs.value = [...options.viewerTabs.value, tab]
+    }
+
+    options.activeTabKey.value = tabKey
+    options.activeViewportKey.value = FUSION_OVERLAY_AXIAL_PANE_KEY
+    options.isViewLoading.value = true
+
+    try {
+      const [ctCornerInfo, petCornerInfo, nextFusionViewIds] = await Promise.all([
+        options.ensureSeriesCornerInfo(ctSeriesId),
+        options.ensureSeriesCornerInfo(petSeriesId),
+        createFusionViewIds(ctSeriesId, petSeriesId, tabKey)
+      ])
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              viewType: 'PETCTFusion',
+              title: `${getSeriesDisplayName(ctSeries, ctSeriesId)} + ${getSeriesDisplayName(petSeries, petSeriesId)} · PET/CT`,
+              seriesId: ctSeriesId,
+              seriesTitle: getSeriesDisplayName(ctSeries, ctSeriesId),
+              viewId: '',
+              imageSrc: '',
+              sliceLabel: '',
+              windowLabel: '',
+              fusionSeriesIds: { ctSeriesId, petSeriesId },
+              fusionViewIds: nextFusionViewIds,
+              fusionImages: createEmptyFusionImages(),
+              fusionSliceLabels: createEmptyFusionSliceLabels(),
+              fusionWindowLabels: createEmptyFusionWindowLabels(),
+              fusionScaleBars: createEmptyFusionScaleBars(),
+              fusionCornerInfos: {
+                [FUSION_CT_AXIAL_PANE_KEY]: options.withHoverCornerInfo(ctCornerInfo),
+                [FUSION_PET_AXIAL_PANE_KEY]: options.withHoverCornerInfo(petCornerInfo),
+                [FUSION_OVERLAY_AXIAL_PANE_KEY]: options.withHoverCornerInfo(ctCornerInfo),
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: options.withHoverCornerInfo(petCornerInfo)
+              },
+              fusionOrientations: createEmptyFusionOrientations(),
+              fusionTransformStates: createEmptyFusionTransformStates(),
+              fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+              fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
+              fusionManualRegistration: false,
+              viewportMeasurements: {},
+              viewportAnnotations: {}
+            }
+          : item
+      )
+
+      await nextTick()
+      await waitForFusionViewportLayout(nextFusionViewIds)
+      await bindFusionViewIdsSilentlyWithAck(nextFusionViewIds)
+      await renderTab(tabKey, true)
+      options.message.value = ''
+    } catch (error) {
+      closeIncompleteTab(tabKey)
+      const detail = resolveBackendErrorDetail(error)
+      options.message.value = detail
+        ? viewMessage(`PET/CT 融合浏览打开失败：${detail}`, `Failed to open PET/CT fusion view: ${detail}`)
+        : viewMessage('PET/CT 融合浏览打开失败。', 'Failed to open PET/CT fusion view.')
       console.error(error)
     } finally {
       options.isViewLoading.value = false
@@ -2867,6 +3259,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? 'volume'
             : tab.viewType === 'CompareStack'
               ? COMPARE_STACK_SOURCE_PANE_KEY
+              : tab.viewType === 'PETCTFusion'
+                ? FUSION_OVERLAY_AXIAL_PANE_KEY
               : tab.viewType === 'Layout'
                 ? getFirstLayoutViewportKey(tab)
                 : 'single'
@@ -2980,7 +3374,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     delete nextSeriesCornerInfoMap[seriesId]
     options.seriesCornerInfoMap.value = nextSeriesCornerInfoMap
 
-    const relatedTabs = options.viewerTabs.value.filter((item) => item.seriesId === seriesId)
+    const relatedTabs = options.viewerTabs.value.filter(
+      (item) =>
+        item.seriesId === seriesId ||
+        item.fusionSeriesIds?.ctSeriesId === seriesId ||
+        item.fusionSeriesIds?.petSeriesId === seriesId
+    )
     relatedTabs.forEach((tab) => closeTab(tab.key))
 
     if (options.selectedSeriesId.value === seriesId) {
@@ -3000,6 +3399,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     findTabByViewId,
     invalidateFourDMprState,
     openLayoutView,
+    openPetCtFusion,
     openSeriesCompare,
     openSeriesView,
     openView,

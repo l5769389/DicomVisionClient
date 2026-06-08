@@ -36,7 +36,17 @@ export function isFourDSeriesItem(
 export type LoadFolderResponse = BackendLoadFolderResponse
 export type ViewCreateResponse = BackendViewCreateResponse
 
-export type BackendCreateViewType = 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
+export type BackendCreateViewType =
+  | 'Stack'
+  | 'MPR'
+  | '3D'
+  | 'AX'
+  | 'COR'
+  | 'SAG'
+  | 'FusionCTAxial'
+  | 'FusionPETAxial'
+  | 'FusionOverlayAxial'
+  | 'FusionPETCoronalMip'
 export type CornerPosition = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight'
 
 export interface CornerInfo {
@@ -57,6 +67,7 @@ export interface WorkspaceReadyPayload {
 }
 
 export type MprViewportKey = 'mpr-ax' | 'mpr-cor' | 'mpr-sag'
+export type FusionPaneKey = 'fusion-ct-ax' | 'fusion-pet-ax' | 'fusion-overlay-ax' | 'fusion-pet-cor-mip'
 export type MprLayoutKey = 'three-columns' | 'right-primary' | 'three-rows' | 'quad' | 'mpr-3d'
 export type CompareStackPaneKey = 'compare-a' | 'compare-b'
 export type ViewSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform' | 'reset'
@@ -144,6 +155,23 @@ export interface MprMipConfig {
   enabled: boolean
   algorithm: MprMipAlgorithm
   viewports: Record<MprViewportKey, MprMipViewportConfig>
+}
+
+export interface FusionRegistrationInfo {
+  translateRowMm: number
+  translateColMm: number
+  rotationDegrees: number
+  saved?: boolean
+}
+
+export interface FusionInfo {
+  paneRole: FusionPaneKey | string
+  ctSeriesId: string
+  petSeriesId: string
+  petPseudocolorPreset: string
+  alpha: number
+  revision: number
+  registration: FusionRegistrationInfo
 }
 
 export type MprMipOperationConfig = (Partial<Omit<MprMipConfig, 'enabled'>> & { enabled: boolean })
@@ -465,6 +493,7 @@ export interface ViewImageResponse {
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
   mprCrosshairMode?: MprCrosshairMode | null
+  fusionInfo?: FusionInfo | null
 }
 export type ViewHoverPayload = BackendViewHoverRequest
 export type ViewHoverResponse = BackendViewHoverResponse
@@ -510,6 +539,18 @@ export interface ViewerTabItem {
   compareOrientations?: Partial<Record<CompareStackPaneKey, OrientationInfo>>
   compareTransformStates?: Partial<Record<CompareStackPaneKey, ViewTransformInfo>>
   comparePseudocolorPresets?: Partial<Record<CompareStackPaneKey, string>>
+  fusionSeriesIds?: { ctSeriesId: string; petSeriesId: string }
+  fusionViewIds?: Partial<Record<FusionPaneKey, string>>
+  fusionImages?: Partial<Record<FusionPaneKey, string>>
+  fusionSliceLabels?: Partial<Record<FusionPaneKey, string>>
+  fusionWindowLabels?: Partial<Record<FusionPaneKey, string>>
+  fusionScaleBars?: Partial<Record<FusionPaneKey, ScaleBarInfo | null>>
+  fusionCornerInfos?: Partial<Record<FusionPaneKey, CornerInfo>>
+  fusionOrientations?: Partial<Record<FusionPaneKey, OrientationInfo>>
+  fusionTransformStates?: Partial<Record<FusionPaneKey, ViewTransformInfo>>
+  fusionPseudocolorPresets?: Partial<Record<FusionPaneKey, string>>
+  fusionInfo?: FusionInfo | null
+  fusionManualRegistration?: boolean
   compareSyncScroll?: boolean
   compareSyncWindow?: boolean
   compareSyncPseudocolor?: boolean
@@ -580,6 +621,7 @@ export type CompareStackViewerTabItem = ViewerTabItem & { viewType: 'CompareStac
 export type MprViewerTabItem = ViewerTabItem & { viewType: 'MPR' }
 export type VolumeViewerTabItem = ViewerTabItem & { viewType: '3D' }
 export type FourDViewerTabItem = ViewerTabItem & { viewType: '4D' }
+export type PetCtFusionViewerTabItem = ViewerTabItem & { viewType: 'PETCTFusion' }
 export type TagViewerTabItem = ViewerTabItem & { viewType: 'Tag' }
 export type LayoutViewerTabItem = ViewerTabItem & { viewType: 'Layout' }
 
@@ -589,6 +631,7 @@ export type DiscriminatedViewerTabItem =
   | MprViewerTabItem
   | VolumeViewerTabItem
   | FourDViewerTabItem
+  | PetCtFusionViewerTabItem
   | TagViewerTabItem
   | LayoutViewerTabItem
 
@@ -647,4 +690,4 @@ export interface ViewerLayoutTemplate {
 }
 
 export type ConnectionState = 'idle' | 'starting' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'Tag' | 'Layout'
+export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'PETCTFusion' | 'Tag' | 'Layout'

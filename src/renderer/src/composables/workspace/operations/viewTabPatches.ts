@@ -1,11 +1,14 @@
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
-import type { MprViewportKey, ViewTransformInfo, ViewerTabItem } from '../../../types/viewer'
+import type { FusionPaneKey, MprViewportKey, ViewTransformInfo, ViewerTabItem } from '../../../types/viewer'
 import {
   createEmptyComparePseudocolorPresets,
   createEmptyCompareTransformStates,
+  createEmptyFusionPseudocolorPresets,
+  createEmptyFusionTransformStates,
   createEmptyMprPseudocolorPresets,
   createEmptyMprTransformStates,
   isCompareStackPaneKey,
+  isFusionPaneKey,
   isMprViewportKey
 } from '../views/viewerWorkspaceTabs'
 import type { ViewportOperationTarget } from '../views/viewerViewportTargets'
@@ -51,6 +54,21 @@ export function applyTransformToTabTargets(
             }
           : slot
       )
+    }
+  }
+
+  if (tab.viewType === 'PETCTFusion') {
+    const nextStates = {
+      ...(tab.fusionTransformStates ?? createEmptyFusionTransformStates())
+    }
+    viewportKeys.forEach((viewportKey) => {
+      if (isFusionPaneKey(viewportKey)) {
+        nextStates[viewportKey as FusionPaneKey] = transform
+      }
+    })
+    return {
+      ...tab,
+      fusionTransformStates: nextStates
     }
   }
 
@@ -115,6 +133,22 @@ export function applyPseudocolorToTabTargets(
             }
           : slot
       )
+    }
+  }
+
+  if (tab.viewType === 'PETCTFusion') {
+    const nextPresets = {
+      ...(tab.fusionPseudocolorPresets ?? createEmptyFusionPseudocolorPresets())
+    }
+    viewportKeys.forEach((viewportKey) => {
+      if (isFusionPaneKey(viewportKey)) {
+        nextPresets[viewportKey as FusionPaneKey] = presetKey
+      }
+    })
+    return {
+      ...tab,
+      fusionPseudocolorPresets: nextPresets,
+      pseudocolorPreset: presetKey
     }
   }
 

@@ -58,6 +58,7 @@ import {
   FourDView,
   LayoutView,
   MprView,
+  PetCtFusionView,
   StackView,
   VolumeView
 } from './asyncWorkspaceViews'
@@ -103,6 +104,8 @@ const emit = defineEmits<{
   triggerViewAction: [payload: ViewerToolbarActionPayload]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
+  fusionRegistrationDrag: [payload: { deltaX: number; deltaY: number; phase: 'start' | 'move' | 'end'; subOpType: 'translate' | 'rotate'; viewportKey: string }]
+  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; action?: 'reset' | 'save' }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
@@ -1914,6 +1917,36 @@ onBeforeUnmount(() => {
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @open-mtf-curve="handleOpenMtfCurve"
           @select-mtf="handleSelectMtf"
+          @viewport-click="handleViewportClick"
+          @viewport-wheel="handleViewportWheel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
+        />
+
+        <PetCtFusionView
+          v-else-if="activeTab.viewType === 'PETCTFusion'"
+          :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :get-annotations="getViewportAnnotations"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
+          @fusion-config-change="emit('fusionConfigChange', $event)"
+          @fusion-registration-drag="emit('fusionRegistrationDrag', $event)"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDownWithAnnotations"

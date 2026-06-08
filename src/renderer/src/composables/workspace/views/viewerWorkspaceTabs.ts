@@ -2,6 +2,8 @@ import type {
   CornerInfo,
   CornerPosition,
   CompareStackPaneKey,
+  FusionPaneKey,
+  FusionInfo,
   FourDPhaseItem,
   FolderSeriesItem,
   MprCursorInfo,
@@ -26,6 +28,16 @@ const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft',
 export const COMPARE_STACK_SOURCE_PANE_KEY: CompareStackPaneKey = 'compare-a'
 export const COMPARE_STACK_TARGET_PANE_KEY: CompareStackPaneKey = 'compare-b'
 export const COMPARE_STACK_PANE_KEYS: CompareStackPaneKey[] = [COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY]
+export const FUSION_CT_AXIAL_PANE_KEY: FusionPaneKey = 'fusion-ct-ax'
+export const FUSION_PET_AXIAL_PANE_KEY: FusionPaneKey = 'fusion-pet-ax'
+export const FUSION_OVERLAY_AXIAL_PANE_KEY: FusionPaneKey = 'fusion-overlay-ax'
+export const FUSION_PET_CORONAL_MIP_PANE_KEY: FusionPaneKey = 'fusion-pet-cor-mip'
+export const FUSION_PANE_KEYS: FusionPaneKey[] = [
+  FUSION_CT_AXIAL_PANE_KEY,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY
+]
 
 export function createComparePaneRecord<T>(
   factory: (paneKey: CompareStackPaneKey, index: number) => T
@@ -35,6 +47,24 @@ export function createComparePaneRecord<T>(
     record[paneKey] = factory(paneKey, index)
   })
   return record
+}
+
+export function createFusionPaneRecord<T>(
+  factory: (paneKey: FusionPaneKey, index: number) => T
+): Record<FusionPaneKey, T> {
+  const record = {} as Record<FusionPaneKey, T>
+  FUSION_PANE_KEYS.forEach((paneKey, index) => {
+    record[paneKey] = factory(paneKey, index)
+  })
+  return record
+}
+
+export function isFusionPaneKey(value: string | null | undefined): value is FusionPaneKey {
+  return Boolean(value && (FUSION_PANE_KEYS as string[]).includes(value))
+}
+
+export function resolveFusionPaneKey(value: string | null | undefined): FusionPaneKey {
+  return isFusionPaneKey(value) ? value : FUSION_OVERLAY_AXIAL_PANE_KEY
 }
 
 export function createEmptyMprImages(): Record<MprViewportKey, string> {
@@ -134,36 +164,95 @@ export function createEmptyCompareViewIds(): Record<CompareStackPaneKey, string>
   return createComparePaneRecord(() => '')
 }
 
+export function createEmptyFusionViewIds(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
+}
+
 export function createEmptyCompareImages(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => '')
+}
+
+export function createEmptyFusionImages(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
 }
 
 export function createEmptyCompareSliceLabels(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => '')
 }
 
+export function createEmptyFusionSliceLabels(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
+}
+
 export function createEmptyCompareWindowLabels(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => '')
+}
+
+export function createEmptyFusionWindowLabels(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
 }
 
 export function createEmptyCompareScaleBars(): Record<CompareStackPaneKey, null> {
   return createComparePaneRecord(() => null)
 }
 
+export function createEmptyFusionScaleBars(): Record<FusionPaneKey, null> {
+  return createFusionPaneRecord(() => null)
+}
+
 export function createEmptyCompareCornerInfos(): Record<CompareStackPaneKey, CornerInfo> {
   return createComparePaneRecord(() => createEmptyCornerInfo())
+}
+
+export function createEmptyFusionCornerInfos(): Record<FusionPaneKey, CornerInfo> {
+  return createFusionPaneRecord(() => createEmptyCornerInfo())
 }
 
 export function createEmptyCompareOrientations(): Record<CompareStackPaneKey, OrientationInfo> {
   return createComparePaneRecord(() => createEmptyOrientationInfo())
 }
 
+export function createEmptyFusionOrientations(): Record<FusionPaneKey, OrientationInfo> {
+  return createFusionPaneRecord(() => createEmptyOrientationInfo())
+}
+
 export function createEmptyCompareTransformStates(): Record<CompareStackPaneKey, ViewTransformInfo> {
   return createComparePaneRecord(() => createDefaultTransformInfo())
 }
 
+export function createEmptyFusionTransformStates(): Record<FusionPaneKey, ViewTransformInfo> {
+  return createFusionPaneRecord(() => createDefaultTransformInfo())
+}
+
 export function createEmptyComparePseudocolorPresets(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => DEFAULT_PSEUDOCOLOR_PRESET)
+}
+
+export function createEmptyFusionPseudocolorPresets(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord((paneKey) =>
+    paneKey === FUSION_CT_AXIAL_PANE_KEY ? DEFAULT_PSEUDOCOLOR_PRESET : 'pet'
+  )
+}
+
+export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): FusionInfo {
+  return {
+    paneRole: FUSION_OVERLAY_AXIAL_PANE_KEY,
+    ctSeriesId,
+    petSeriesId,
+    petPseudocolorPreset: 'pet',
+    alpha: 0.52,
+    revision: 0,
+    registration: {
+      translateRowMm: 0,
+      translateColMm: 0,
+      rotationDegrees: 0,
+      saved: false
+    }
+  }
+}
+
+export function createPetCtFusionTabKey(ctSeriesId: string, petSeriesId: string): string {
+  return `fusion:${ctSeriesId}:${petSeriesId}`
 }
 
 export function createDefaultFourDPhaseItems(phaseCount = 10): FourDPhaseItem[] {
@@ -546,6 +635,18 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     compareOrientations: createEmptyCompareOrientations(),
     compareTransformStates: createEmptyCompareTransformStates(),
     comparePseudocolorPresets: createEmptyComparePseudocolorPresets(),
+    fusionSeriesIds: { ctSeriesId: '', petSeriesId: '' },
+    fusionViewIds: createEmptyFusionViewIds(),
+    fusionImages: createEmptyFusionImages(),
+    fusionSliceLabels: createEmptyFusionSliceLabels(),
+    fusionWindowLabels: createEmptyFusionWindowLabels(),
+    fusionScaleBars: createEmptyFusionScaleBars(),
+    fusionCornerInfos: createEmptyFusionCornerInfos(),
+    fusionOrientations: createEmptyFusionOrientations(),
+    fusionTransformStates: createEmptyFusionTransformStates(),
+    fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+    fusionInfo: null,
+    fusionManualRegistration: false,
     ...createCompareSyncDefaults(),
     ...createLayoutSyncDefaults(),
     viewportViewIds: createEmptyMprViewIds(),

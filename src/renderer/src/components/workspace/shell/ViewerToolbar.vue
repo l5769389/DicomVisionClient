@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
+import FusionPetDisplayTool from './FusionPetDisplayTool.vue'
 import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
@@ -62,6 +63,13 @@ function getSelectedPlaybackFps(value: string | undefined): string {
   const match = String(value ?? '').match(/^playbackFps:(\d+)$/)
   return match?.[1] ?? '5'
 }
+
+function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
+  if (tool.key === 'export' && tool.options?.some((option) => option.value.startsWith('exportTarget:'))) {
+    return false
+  }
+  return tool.key !== 'compareSync' && tool.key !== 'display' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'
+}
 </script>
 
 <template>
@@ -94,7 +102,51 @@ function getSelectedPlaybackFps(value: string | undefined): string {
           tool.key === 'tag' ? 'toolbar-tool-group--secondary-action' : ''
         ]"
       >
-        <template v-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
+        <FusionPetDisplayTool
+          v-if="tool.inlineKind === 'fusionPetDisplay'"
+          :active-tab="activeTab"
+          :disabled="areToolbarActionsDisabled"
+          @select="emit('selectToolOption', tool, $event)"
+        />
+        <div
+          v-else-if="tool.inlineKind === 'fusionRegistration'"
+          class="fusion-registration-tool"
+          :class="{ 'fusion-registration-tool--disabled': areToolbarActionsDisabled }"
+        >
+          <VBtn
+            variant="flat"
+            type="button"
+            class="fusion-registration-tool__button fusion-registration-tool__button--toggle inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! rounded-r-none! border! border-r-0! transition hover:brightness-110"
+            :active="activeTab.fusionManualRegistration === true"
+            :class="{ 'fusion-registration-tool__button--active': activeTab.fusionManualRegistration === true }"
+            :disabled="areToolbarActionsDisabled"
+            :title="tool.label"
+            @click.stop="emit('selectToolOption', tool, 'fusionRegistration:toggle')"
+          >
+            <AppIcon name="crosshair" :size="toolbarIconSize" />
+          </VBtn>
+          <VBtn
+            variant="flat"
+            type="button"
+            class="fusion-registration-tool__button inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-none! border-y! border-r-0! transition hover:brightness-110"
+            :disabled="areToolbarActionsDisabled"
+            :title="copy.toolOptions('Reset Registration')"
+            @click.stop="emit('selectToolOption', tool, 'fusionRegistration:reset')"
+          >
+            <AppIcon name="reset" :size="toolbarIconSize" />
+          </VBtn>
+          <VBtn
+            variant="flat"
+            type="button"
+            class="fusion-registration-tool__button inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border! border-l-white/10! transition hover:brightness-110"
+            :disabled="areToolbarActionsDisabled"
+            :title="copy.toolOptions('Save Registration')"
+            @click.stop="emit('selectToolOption', tool, 'fusionRegistration:save')"
+          >
+            <AppIcon name="save" :size="toolbarIconSize" />
+          </VBtn>
+        </div>
+        <template v-else-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
           <VBtn
             variant="flat"
             class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
@@ -188,7 +240,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
             location="bottom end"
             :offset="8"
             scroll-strategy="reposition"
-            :close-on-content-click="tool.key !== 'compareSync' && tool.key !== 'display' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'"
+            :close-on-content-click="shouldCloseToolMenuOnContentClick(tool)"
             @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
           >
             <template #activator="{ props: menuProps }">
@@ -341,6 +393,45 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
 .toolbar-tool-group {
   flex: 0 0 auto;
+}
+
+.fusion-registration-tool {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 48%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 68%, transparent));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24);
+}
+
+.fusion-registration-tool--disabled {
+  opacity: 0.62;
+}
+
+.fusion-registration-tool__button {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 82%, transparent) !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card-soft) 92%, white 2%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 4%)
+    ) !important;
+  color: var(--theme-text-primary) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.fusion-registration-tool__button--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong)) !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 26%, var(--theme-surface-card-soft) 74%),
+      color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-panel-solid) 82%)
+    ) !important;
+  color: var(--theme-active-foreground) !important;
 }
 
 .toolbar-tool-menu-button :deep(.v-btn__content) {

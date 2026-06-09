@@ -50,7 +50,9 @@ import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
 import { DEFAULT_MPR_LAYOUT_KEY, parseMprLayoutSelectionValue } from '../../composables/workspace/layout/mprLayoutOptions'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
-  COMPARE_STACK_TARGET_PANE_KEY
+  COMPARE_STACK_TARGET_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  isFusionPaneKey
 } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import {
   CompareStackView,
@@ -105,7 +107,7 @@ const emit = defineEmits<{
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   fusionRegistrationDrag: [payload: { deltaX: number; deltaY: number; phase: 'start' | 'move' | 'end'; subOpType: 'translate' | 'rotate'; viewportKey: string }]
-  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; action?: 'reset' | 'save' }]
+  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
@@ -233,8 +235,8 @@ const {
   emitOpenLayoutView: (template) => emit('openLayoutView', template),
   emitViewportWheel: (payload) => emit('viewportWheel', payload),
   emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
-  exportCurrentView: (format) => {
-    void handleExportCurrentView(format)
+  exportCurrentView: (format, viewportKey) => {
+    void handleExportCurrentView(format, viewportKey)
   },
   activeViewportKey,
   cleanupPointerInteractions,
@@ -570,6 +572,10 @@ function isLayoutViewType(viewType: ViewerTabItem['viewType'] | null | undefined
   return viewType === 'Layout'
 }
 
+function isPetCtFusionViewType(viewType: ViewerTabItem['viewType'] | null | undefined): boolean {
+  return viewType === 'PETCTFusion'
+}
+
 function resolveLayoutSlot(tab: ViewerTabItem, viewportKey: string) {
   const slots = tab.layoutSlots ?? []
   return slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
@@ -588,6 +594,10 @@ function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): 
   }
   if (isLayoutViewType(tab.viewType)) {
     return resolveLayoutSlot(tab, viewportKey)?.cornerInfo ?? tab.cornerInfo
+  }
+  if (isPetCtFusionViewType(tab.viewType)) {
+    const paneKey = isFusionPaneKey(viewportKey) ? viewportKey : FUSION_OVERLAY_AXIAL_PANE_KEY
+    return tab.fusionCornerInfos?.[paneKey] ?? tab.cornerInfo
   }
   return tab.cornerInfo
 }
@@ -674,17 +684,19 @@ async function buildAnnotatedPngData(viewportKey: string, overlays: ViewerExport
   }
 }
 
-async function handleExportCurrentView(format: ViewerExportFormat): Promise<void> {
+async function handleExportCurrentView(format: ViewerExportFormat, viewportKeyOverride?: string): Promise<void> {
   try {
     if (!props.activeTab) {
       showExportNotice(null, format)
       return
     }
 
-    const exportViewportKey =
-      isMprLikeViewType(props.activeTab?.viewType) || isCompareStackViewType(props.activeTab?.viewType) || isLayoutViewType(props.activeTab?.viewType)
-        ? activeViewportKey.value
-        : 'single'
+    const shouldUseActiveViewport =
+      isMprLikeViewType(props.activeTab.viewType) ||
+      isCompareStackViewType(props.activeTab.viewType) ||
+      isLayoutViewType(props.activeTab.viewType) ||
+      isPetCtFusionViewType(props.activeTab.viewType)
+    const exportViewportKey = viewportKeyOverride ?? (shouldUseActiveViewport ? activeViewportKey.value : 'single')
     const exportFileNameStem = buildExportFileStem(props.activeTab, exportViewportKey)
     const defaultFileNameStem =
       format === 'dicom-sr'

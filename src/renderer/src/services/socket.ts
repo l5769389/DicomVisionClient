@@ -66,6 +66,9 @@ export interface ViewOperationPayload {
   mprCrosshairMode?: MprCrosshairMode
   fusionAlpha?: number
   fusionManualRegistration?: boolean
+  fusionPetUnit?: string
+  fusionPetWindowMin?: number
+  fusionPetWindowMax?: number
   sourceViewId?: string
   hor_flip?: boolean
   ver_flip?: boolean

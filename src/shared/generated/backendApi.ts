@@ -671,6 +671,10 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
@@ -711,6 +715,9 @@ export interface ViewOperationRequest {
   mprCrosshairMode?: MprCrosshairMode | null
   fusionAlpha?: number | null
   fusionManualRegistration?: boolean | null
+  fusionPetUnit?: string | null
+  fusionPetWindowMin?: number | null
+  fusionPetWindowMax?: number | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null

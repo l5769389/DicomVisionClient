@@ -13,12 +13,13 @@ import type {
   OrientationInfo,
   ScaleBarInfo,
   ViewTransformInfo,
+  ViewProgressInfo,
   ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
-import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
+import { DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET, DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
@@ -240,9 +241,19 @@ export function createEmptyComparePseudocolorPresets(): Record<CompareStackPaneK
 }
 
 export function createEmptyFusionPseudocolorPresets(): Record<FusionPaneKey, string> {
-  return createFusionPaneRecord((paneKey) =>
-    paneKey === FUSION_CT_AXIAL_PANE_KEY ? DEFAULT_PSEUDOCOLOR_PRESET : 'pet'
-  )
+  return createFusionPaneRecord((paneKey) => {
+    if (paneKey === FUSION_CT_AXIAL_PANE_KEY) {
+      return DEFAULT_PSEUDOCOLOR_PRESET
+    }
+    if (paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY) {
+      return DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
+    }
+    return 'bwinverse'
+  })
+}
+
+export function createEmptyFusionLoadingProgress(): Record<FusionPaneKey, ViewProgressInfo | null> {
+  return createFusionPaneRecord(() => null)
 }
 
 export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): FusionInfo {
@@ -250,7 +261,11 @@ export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): Fusi
     paneRole: FUSION_OVERLAY_AXIAL_PANE_KEY,
     ctSeriesId,
     petSeriesId,
-    petPseudocolorPreset: 'pet',
+    petPseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+    petUnit: 'SUVbw',
+    petUnitLabel: 'g/ml (SUVbw)',
+    petWindowMin: 0,
+    petWindowMax: 4.5,
     alpha: 0.52,
     revision: 0,
     registration: {

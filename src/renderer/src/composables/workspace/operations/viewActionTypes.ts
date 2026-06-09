@@ -20,6 +20,8 @@ export type ViewerToolbarAction =
   | 'fusionRegistrationReset'
   | 'fusionRegistrationSave'
   | 'fusionPseudocolor'
+  | 'fusionPetUnit'
+  | 'fusionPetWindow'
   | 'displayOverlay'
 
 export interface ViewerToolbarActionPayload {

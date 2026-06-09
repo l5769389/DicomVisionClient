@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION,
   SAMPLE_VIEWPORT_CORNER_INFO,
   applyViewportCornerInfoPreference,
   createDefaultViewportCornerInfoPreference,
@@ -12,7 +11,7 @@ describe('viewportCornerInfo', () => {
   it('keeps the current system corner layout by default', () => {
     expect(applyViewportCornerInfoPreference(SAMPLE_VIEWPORT_CORNER_INFO, createDefaultViewportCornerInfoPreference())).toEqual(
       {
-        topLeft: SAMPLE_VIEWPORT_CORNER_INFO.topLeft.slice(0, MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION),
+        topLeft: ['SIEMENS / SOMATOM', 'CT01', 'Chest CT', 'Se: 3', 'AXIAL  I 42.5mm', 'Im: 36/128'],
         topRight: SAMPLE_VIEWPORT_CORNER_INFO.topRight,
         bottomLeft: SAMPLE_VIEWPORT_CORNER_INFO.bottomLeft,
         bottomRight: SAMPLE_VIEWPORT_CORNER_INFO.bottomRight
@@ -64,6 +63,7 @@ describe('viewportCornerInfo', () => {
   it('searches common items by labels and DICOM keywords', () => {
     expect(filterViewportCornerInfoCatalog('患者', 'zh-CN').map((item) => item.key)).toContain('patientName')
     expect(filterViewportCornerInfoCatalog('WindowWidth', 'en-US').map((item) => item.key)).toEqual(['windowLevel'])
+    expect(filterViewportCornerInfoCatalog('Image number', 'en-US').map((item) => item.key)).toEqual(['imageIndex'])
     expect(filterViewportCornerInfoCatalog('AccessionNumber', 'en-US').map((item) => item.key)).toEqual(['accessionNumber'])
     expect(filterViewportCornerInfoCatalog('CTDIvol', 'en-US').map((item) => item.key)).toEqual(['ctdiVol'])
     expect(filterViewportCornerInfoCatalog('zoom', 'en-US').map((item) => item.key)).toEqual(['zoom'])

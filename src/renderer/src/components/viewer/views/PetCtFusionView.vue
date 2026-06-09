@@ -36,7 +36,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
-  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; action?: 'reset' | 'save' }]
+  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
   fusionRegistrationDrag: [payload: {
     viewportKey: string
     phase: 'start' | 'move' | 'end'
@@ -73,9 +73,15 @@ interface ManualRegistrationDragState {
   subOpType: 'translate' | 'rotate'
 }
 
+interface FusionCalibrationDragState {
+  pointerId: number
+}
+
 const { locale } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
 const manualDragState = ref<ManualRegistrationDragState | null>(null)
+const calibrationDragState = ref<FusionCalibrationDragState | null>(null)
+const calibrationMarkerPosition = ref({ x: 0.5, y: 0.5 })
 
 const paneTitles = computed((): Record<FusionPaneKey, string> => ({
   'fusion-ct-ax': 'CT Axial',
@@ -97,6 +103,30 @@ const panes = computed<FusionPaneView[]>(() =>
 const manualRegistrationEnabled = computed(() => props.activeTab.fusionManualRegistration === true)
 const loadingLabel = computed(() => (isZh.value ? '正在加载融合视图...' : 'Loading fusion view...'))
 const placeholderLabel = computed(() => (isZh.value ? 'PET/CT 融合预览' : 'PET/CT fusion preview'))
+const progressLabels = computed<Record<string, string>>(() => ({
+  queued: isZh.value ? '准备渲染' : 'Preparing render',
+  waiting: isZh.value ? '等待体数据' : 'Waiting for volume',
+  volume: isZh.value ? '读取切片' : 'Reading slices',
+  normalize: isZh.value ? '准备体数据' : 'Preparing volume',
+  initialize: isZh.value ? '初始化视图' : 'Initializing view',
+  render: isZh.value ? '渲染图像' : 'Rendering image',
+  encode: isZh.value ? '生成图像' : 'Encoding image',
+  complete: isZh.value ? '加载完成' : 'Loaded'
+}))
+function getPaneLoadingProgressPercent(paneKey: FusionPaneKey): number | null {
+  const progressPercent = props.activeTab.fusionLoadingProgress?.[paneKey]?.progressPercent
+  return typeof progressPercent === 'number' ? progressPercent : null
+}
+
+function getPaneLoadingLabel(paneKey: FusionPaneKey): string {
+  const progress = props.activeTab.fusionLoadingProgress?.[paneKey] ?? null
+  if (!progress) {
+    return loadingLabel.value
+  }
+  const label = progress.message || progressLabels.value[progress.phase] || loadingLabel.value
+  const hasCounts = typeof progress.loadedCount === 'number' && typeof progress.totalCount === 'number' && progress.totalCount > 0
+  return hasCounts ? `${label} ${progress.loadedCount}/${progress.totalCount}` : label
+}
 
 function emitManualRegistrationDrag(phase: 'start' | 'move' | 'end', event: PointerEvent): void {
   const state = manualDragState.value
@@ -131,6 +161,69 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
   }
 
   emit('pointerDown', event, viewportKey)
+}
+
+function clampNormalized(value: number): number {
+  return Math.min(1, Math.max(0, value))
+}
+
+function updateCalibrationMarkerFromPointer(event: PointerEvent): void {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLElement)) {
+    return
+  }
+  const pane = target.closest<HTMLElement>('.pet-ct-fusion-view__pane')
+  if (!pane) {
+    return
+  }
+  const rect = pane.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) {
+    return
+  }
+  calibrationMarkerPosition.value = {
+    x: clampNormalized((event.clientX - rect.left) / rect.width),
+    y: clampNormalized((event.clientY - rect.top) / rect.height)
+  }
+}
+
+function handleCalibrationPointerDown(event: PointerEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+  const target = event.currentTarget
+  if (target instanceof HTMLElement && typeof target.setPointerCapture === 'function') {
+    target.setPointerCapture(event.pointerId)
+  }
+  calibrationDragState.value = { pointerId: event.pointerId }
+  updateCalibrationMarkerFromPointer(event)
+}
+
+function handleCalibrationPointerMove(event: PointerEvent): void {
+  if (!calibrationDragState.value || calibrationDragState.value.pointerId !== event.pointerId) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  updateCalibrationMarkerFromPointer(event)
+}
+
+function finishCalibrationDrag(event: PointerEvent): boolean {
+  if (!calibrationDragState.value || calibrationDragState.value.pointerId !== event.pointerId) {
+    return false
+  }
+  updateCalibrationMarkerFromPointer(event)
+  const target = event.currentTarget
+  if (target instanceof HTMLElement && typeof target.hasPointerCapture === 'function' && target.hasPointerCapture(event.pointerId)) {
+    target.releasePointerCapture(event.pointerId)
+  }
+  calibrationDragState.value = null
+  return true
+}
+
+function handleCalibrationPointerUp(event: PointerEvent): void {
+  if (finishCalibrationDrag(event)) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
 }
 
 function handlePointerMove(event: PointerEvent): void {
@@ -196,7 +289,8 @@ function handlePointerCancel(event: PointerEvent): void {
           :image-src="pane.imageSrc"
           :is-active="activeViewportKey === pane.key"
           :is-loading="!pane.imageSrc"
-          :loading-label="loadingLabel"
+          :loading-label="getPaneLoadingLabel(pane.key)"
+          :loading-progress-percent="getPaneLoadingProgressPercent(pane.key)"
           :measurements="getMeasurements(pane.key)"
           :orientation="activeTab.fusionOrientations?.[pane.key] ?? activeTab.orientation"
           :placeholder="placeholderLabel"
@@ -223,6 +317,23 @@ function handlePointerCancel(event: PointerEvent): void {
           @wheel-viewport="emit('viewportWheel', $event)"
           @contextmenu.prevent
         />
+        <button
+          v-if="pane.imageSrc"
+          type="button"
+          class="pet-ct-fusion-view__marker"
+          :aria-label="isZh ? '辅助标定' : 'Calibration marker'"
+          :style="{ left: `${calibrationMarkerPosition.x * 100}%`, top: `${calibrationMarkerPosition.y * 100}%` }"
+          @pointerdown="handleCalibrationPointerDown"
+          @pointermove="handleCalibrationPointerMove"
+          @pointerup="handleCalibrationPointerUp"
+          @pointercancel="handleCalibrationPointerUp"
+          @click.stop
+        >
+          <span class="pet-ct-fusion-view__marker-segment pet-ct-fusion-view__marker-segment--top" />
+          <span class="pet-ct-fusion-view__marker-segment pet-ct-fusion-view__marker-segment--bottom" />
+          <span class="pet-ct-fusion-view__marker-segment pet-ct-fusion-view__marker-segment--left" />
+          <span class="pet-ct-fusion-view__marker-segment pet-ct-fusion-view__marker-segment--right" />
+        </button>
       </section>
     </div>
   </div>
@@ -281,6 +392,80 @@ function handlePointerCancel(event: PointerEvent): void {
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.92),
     0 0 5px rgba(0, 0, 0, 0.62);
+}
+
+.pet-ct-fusion-view__marker {
+  position: absolute;
+  z-index: 24;
+  width: 54px;
+  height: 54px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  cursor: move;
+  touch-action: none;
+}
+
+.pet-ct-fusion-view__marker::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pet-ct-fusion-view__marker:hover::before,
+.pet-ct-fusion-view__marker:focus-visible::before {
+  opacity: 1;
+}
+
+.pet-ct-fusion-view__marker:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.pet-ct-fusion-view__marker-segment {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+}
+
+.pet-ct-fusion-view__marker-segment--top,
+.pet-ct-fusion-view__marker-segment--bottom {
+  left: 25px;
+  width: 4px;
+  height: 14px;
+  background: #285dff;
+}
+
+.pet-ct-fusion-view__marker-segment--top {
+  top: 5px;
+}
+
+.pet-ct-fusion-view__marker-segment--bottom {
+  bottom: 5px;
+}
+
+.pet-ct-fusion-view__marker-segment--left,
+.pet-ct-fusion-view__marker-segment--right {
+  top: 25px;
+  width: 14px;
+  height: 4px;
+  background: #5ab929;
+}
+
+.pet-ct-fusion-view__marker-segment--left {
+  left: 5px;
+}
+
+.pet-ct-fusion-view__marker-segment--right {
+  right: 5px;
 }
 
 </style>

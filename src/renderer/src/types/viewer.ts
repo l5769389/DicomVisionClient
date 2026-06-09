@@ -169,6 +169,10 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
@@ -549,6 +553,7 @@ export interface ViewerTabItem {
   fusionOrientations?: Partial<Record<FusionPaneKey, OrientationInfo>>
   fusionTransformStates?: Partial<Record<FusionPaneKey, ViewTransformInfo>>
   fusionPseudocolorPresets?: Partial<Record<FusionPaneKey, string>>
+  fusionLoadingProgress?: Partial<Record<FusionPaneKey, ViewProgressInfo | null>>
   fusionInfo?: FusionInfo | null
   fusionManualRegistration?: boolean
   compareSyncScroll?: boolean

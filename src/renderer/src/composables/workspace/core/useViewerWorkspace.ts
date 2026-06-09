@@ -79,7 +79,11 @@ import {
   type DicomLoadSource,
   type WebUploadPickMode
 } from '../../../platform/runtime'
-import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import {
+  DEFAULT_PSEUDOCOLOR_PRESET,
+  normalizeFusionPetPseudocolorPresetKey,
+  normalizePseudocolorPresetKey
+} from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { useUiLocale } from '../../ui/useUiLocale'
@@ -153,6 +157,9 @@ interface ViewerWorkspaceState {
   handleFusionConfigChange: (payload: {
     manualRegistration?: boolean
     pseudocolorPreset?: string
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
     action?: 'reset' | 'save'
   }) => void
   handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
@@ -921,6 +928,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
       handleFusionConfigChange({ pseudocolorPreset: payload.value.replace(/^fusionPseudocolor:/, '') })
+      return
+    }
+
+    if (payload.action === 'fusionPetUnit' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ petUnit: payload.value.replace(/^fusionPetUnit:/, '') })
+      return
+    }
+
+    if (payload.action === 'fusionPetWindow' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      const [, maxValue] = payload.value.replace(/^fusionPetWindow:/, '').split(':')
+      const petWindowMax = Number(maxValue)
+      if (Number.isFinite(petWindowMax)) {
+        handleFusionConfigChange({ petWindowMin: 0, petWindowMax })
+      }
       return
     }
 
@@ -2304,6 +2331,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   function handleFusionConfigChange(payload: {
     manualRegistration?: boolean
     pseudocolorPreset?: string
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
     action?: 'reset' | 'save'
   }): void {
     const tab = activeTab.value
@@ -2333,7 +2363,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.pseudocolorPreset) {
-      const presetKey = normalizePseudocolorPresetKey(payload.pseudocolorPreset)
+      const presetKey = normalizeFusionPetPseudocolorPresetKey(payload.pseudocolorPreset)
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
@@ -2357,6 +2387,55 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId,
         opType: VIEW_OPERATION_TYPES.fusionConfig,
         pseudocolorPreset: presetKey
+      })
+      return
+    }
+
+    if (payload.petUnit) {
+      const petUnit = payload.petUnit
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? {
+                    ...item.fusionInfo,
+                    petUnit
+                  }
+                : item.fusionInfo
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionPetUnit: petUnit
+      })
+      return
+    }
+
+    if (payload.petWindowMin != null || payload.petWindowMax != null) {
+      const petWindowMin = Number.isFinite(payload.petWindowMin) ? Number(payload.petWindowMin) : (tab.fusionInfo?.petWindowMin ?? 0)
+      const petWindowMax = Number.isFinite(payload.petWindowMax) ? Number(payload.petWindowMax) : (tab.fusionInfo?.petWindowMax ?? 4.5)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? {
+                    ...item.fusionInfo,
+                    petWindowMin,
+                    petWindowMax
+                  }
+                : item.fusionInfo
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionPetWindowMin: petWindowMin,
+        fusionPetWindowMax: petWindowMax
       })
       return
     }

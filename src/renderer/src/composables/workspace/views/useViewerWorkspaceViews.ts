@@ -28,6 +28,7 @@ import {
   createEmptyCornerInfo,
   createEmptyFusionCornerInfos,
   createEmptyFusionImages,
+  createEmptyFusionLoadingProgress,
   createEmptyFusionOrientations,
   createEmptyFusionPseudocolorPresets,
   createEmptyFusionScaleBars,
@@ -101,7 +102,12 @@ import {
   normalizeFourDManifestResponse,
   resolveFourDPhasePlan
 } from './fourDPhaseManifest'
-import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
+import {
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+  DEFAULT_PSEUDOCOLOR_PRESET,
+  normalizeFusionPetPseudocolorPresetKey,
+  normalizePseudocolorPresetKey
+} from '../../../constants/pseudocolor'
 import { createDefaultMprMipConfig, isFourDSeriesItem, normalizeMprMipConfig } from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
@@ -1598,6 +1604,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           options.seriesCornerInfoMap.value[item.seriesId] ??
           createEmptyCornerInfo()
         const currentImage = item.fusionImages?.[fusionViewportKey]
+        const mergedFusionCornerInfo = hasCornerInfoPayload
+          ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+          : item.fusionCornerInfos?.[fusionViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+        const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
         revokeObjectUrlIfNeeded(currentImage)
 
         return {
@@ -1606,6 +1616,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           fusionImages: {
             ...(item.fusionImages ?? createEmptyFusionImages()),
             [fusionViewportKey]: imageSrc
+          },
+          fusionLoadingProgress: {
+            ...(item.fusionLoadingProgress ?? createEmptyFusionLoadingProgress()),
+            [fusionViewportKey]: null
           },
           fusionSliceLabels: {
             ...(item.fusionSliceLabels ?? createEmptyFusionSliceLabels()),
@@ -1623,9 +1637,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           fusionCornerInfos: {
             ...(item.fusionCornerInfos ?? createEmptyFusionCornerInfos()),
-            [fusionViewportKey]: hasCornerInfoPayload
-              ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
-              : item.fusionCornerInfos?.[fusionViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+            [fusionViewportKey]: fusionCornerInfo
           },
           fusionOrientations: {
             ...(item.fusionOrientations ?? createEmptyFusionOrientations()),
@@ -1641,10 +1653,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           fusionPseudocolorPresets: {
             ...(item.fusionPseudocolorPresets ?? createEmptyFusionPseudocolorPresets()),
-            [fusionViewportKey]: normalizePseudocolorPresetKey(
-              payload.color?.pseudocolorPreset ??
-                (fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY ? DEFAULT_PSEUDOCOLOR_PRESET : fusionInfo.petPseudocolorPreset)
-            )
+            [fusionViewportKey]:
+              fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY
+                ? normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? DEFAULT_PSEUDOCOLOR_PRESET)
+                : fusionViewportKey === FUSION_OVERLAY_AXIAL_PANE_KEY
+                  ? normalizeFusionPetPseudocolorPresetKey(
+                      payload.color?.pseudocolorPreset ??
+                        fusionInfo.petPseudocolorPreset ??
+                        DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
+                    )
+                  : normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? 'bwinverse')
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -2137,6 +2155,69 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function isLikelyCtWindowLeakedIntoPetRange(minValue: number | null | undefined, maxValue: number | null | undefined, fusionInfo: FusionInfo): boolean {
+    if (typeof minValue !== 'number' || typeof maxValue !== 'number') {
+      return false
+    }
+    const unit = String(fusionInfo.petUnit ?? fusionInfo.petUnitLabel ?? '').toLowerCase()
+    const isPetQuantUnit = unit.includes('suv') || unit.includes('sul') || unit.includes('g/ml')
+    return isPetQuantUnit && minValue < -1 && maxValue >= 100
+  }
+
+  function normalizeFusionPetWindowRange(
+    minCandidate: unknown,
+    maxCandidate: unknown,
+    fallback: FusionInfo,
+    nextInfo: Pick<FusionInfo, 'petUnit' | 'petUnitLabel'>
+  ): { min: number | null | undefined; max: number | null | undefined } {
+    const minValue = typeof minCandidate === 'number' && Number.isFinite(minCandidate) ? Number(minCandidate) : fallback.petWindowMin
+    const maxValue = typeof maxCandidate === 'number' && Number.isFinite(maxCandidate) ? Number(maxCandidate) : fallback.petWindowMax
+    const candidateInfo = {
+      ...fallback,
+      petUnit: nextInfo.petUnit,
+      petUnitLabel: nextInfo.petUnitLabel
+    }
+    if (!isLikelyCtWindowLeakedIntoPetRange(minValue, maxValue, candidateInfo)) {
+      return { min: minValue, max: maxValue }
+    }
+    const fallbackIsLeaked = isLikelyCtWindowLeakedIntoPetRange(fallback.petWindowMin, fallback.petWindowMax, candidateInfo)
+    return {
+      min: fallbackIsLeaked ? 0 : fallback.petWindowMin,
+      max: fallbackIsLeaked ? 4.5 : fallback.petWindowMax
+    }
+  }
+
+  function formatFusionPetWindowLabel(fusionInfo: FusionInfo): string | null {
+    const minValue = typeof fusionInfo.petWindowMin === 'number' && Number.isFinite(fusionInfo.petWindowMin) ? fusionInfo.petWindowMin : 0
+    const maxValue = typeof fusionInfo.petWindowMax === 'number' && Number.isFinite(fusionInfo.petWindowMax) ? fusionInfo.petWindowMax : 4.5
+    const unitLabel = fusionInfo.petUnitLabel || (fusionInfo.petUnit === 'SUVbw' ? 'g/ml (SUVbw)' : fusionInfo.petUnit) || ''
+    const unit = String(fusionInfo.petUnit ?? unitLabel).toLowerCase()
+    const prefix = unit.includes('suv') || unit.includes('sul') || unit.includes('g/ml') ? 'SUV' : 'PET'
+    return `${prefix}:${minValue.toFixed(2)}--${maxValue.toFixed(2)} ${unitLabel}`.trim()
+  }
+
+  function normalizeFusionPetCornerInfo(cornerInfo: CornerInfo, fusionInfo: FusionInfo, paneKey: FusionPaneKey): CornerInfo {
+    const label = formatFusionPetWindowLabel(fusionInfo)
+    if (!label) {
+      return cornerInfo
+    }
+    const isPetOnlyPane = paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
+    const isPetWindowLine = (line: string): boolean => /^(?:SUV|PET)\s*:/i.test(line.trim())
+    const isWindowLine = (line: string): boolean => /^\s*W\s*:/i.test(line.trim())
+    const shouldReplaceLine = (line: string): boolean => isPetWindowLine(line) || (isPetOnlyPane && isWindowLine(line))
+    const nextBottomLeft = cornerInfo.bottomLeft.map((line) => (shouldReplaceLine(line) ? label : line))
+    const hasPetLabel = nextBottomLeft.some((line) => line === label)
+    const nextTags = { ...(cornerInfo.tags ?? {}) }
+    if (isPetOnlyPane || (cornerInfo.tags?.windowLevel ?? []).some(isPetWindowLine)) {
+      nextTags.windowLevel = [label]
+    }
+    return {
+      ...cornerInfo,
+      bottomLeft: hasPetLabel || !isPetOnlyPane ? nextBottomLeft : [label, ...nextBottomLeft],
+      tags: nextTags
+    }
+  }
+
   function normalizeFusionInfoPayload(value: unknown, fallback: FusionInfo): FusionInfo {
     if (typeof value !== 'object' || value == null) {
       return fallback
@@ -2151,6 +2232,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
     const paneRoleCandidate = record.paneRole ?? record.pane_role
     const petPresetCandidate = record.petPseudocolorPreset ?? record.pet_pseudocolor_preset
+    const petUnitCandidate = record.petUnit ?? record.pet_unit
+    const petUnitLabelCandidate = record.petUnitLabel ?? record.pet_unit_label
+    const petUnit = typeof petUnitCandidate === 'string' ? petUnitCandidate : fallback.petUnit
+    const petUnitLabel = typeof petUnitLabelCandidate === 'string' ? petUnitLabelCandidate : fallback.petUnitLabel
+    const petWindow = normalizeFusionPetWindowRange(
+      record.petWindowMin ?? record.pet_window_min,
+      record.petWindowMax ?? record.pet_window_max,
+      fallback,
+      { petUnit, petUnitLabel }
+    )
     return {
       paneRole: typeof paneRoleCandidate === 'string' ? paneRoleCandidate : fallback.paneRole,
       ctSeriesId: typeof (record.ctSeriesId ?? record.ct_series_id) === 'string'
@@ -2160,8 +2251,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? String(record.petSeriesId ?? record.pet_series_id)
         : fallback.petSeriesId,
       petPseudocolorPreset: typeof petPresetCandidate === 'string'
-        ? normalizePseudocolorPresetKey(petPresetCandidate)
+        ? normalizeFusionPetPseudocolorPresetKey(petPresetCandidate)
         : fallback.petPseudocolorPreset,
+      petUnit,
+      petUnitLabel,
+      petWindowMin: petWindow.min,
+      petWindowMax: petWindow.max,
       alpha: numberOrFallback(record.alpha, fallback.alpha),
       revision: numberOrFallback(record.revision, fallback.revision),
       registration: {
@@ -2212,6 +2307,22 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportLoadingProgress: {
             ...(item.viewportLoadingProgress ?? {}),
             [viewportKey]: nextProgress
+          }
+        }
+      }
+
+      const fusionViewportKey = Object.entries(item.fusionViewIds ?? {}).find(([, viewId]) => viewId === progress.viewId)?.[0] as
+        | FusionPaneKey
+        | undefined
+      if (fusionViewportKey && item.viewType === 'PETCTFusion') {
+        if (nextProgress && item.fusionImages?.[fusionViewportKey]) {
+          return item
+        }
+        return {
+          ...item,
+          fusionLoadingProgress: {
+            ...(item.fusionLoadingProgress ?? createEmptyFusionLoadingProgress()),
+            [fusionViewportKey]: nextProgress
           }
         }
       }
@@ -2879,6 +2990,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         fusionOrientations: createEmptyFusionOrientations(),
         fusionTransformStates: createEmptyFusionTransformStates(),
         fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+        fusionLoadingProgress: createEmptyFusionLoadingProgress(),
         fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
         fusionManualRegistration: false
       }
@@ -2922,6 +3034,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               fusionOrientations: createEmptyFusionOrientations(),
               fusionTransformStates: createEmptyFusionTransformStates(),
               fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+              fusionLoadingProgress: createEmptyFusionLoadingProgress(),
               fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
               fusionManualRegistration: false,
               viewportMeasurements: {},

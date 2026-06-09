@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_BACKEND_ORIGIN?: string
+  readonly VITE_MOBILE_DEV_SAMPLE_DICOM_PATH?: string
   readonly VITE_WEB_APP_MODE?: 'demo-web' | 'web'
   readonly VITE_WEB_FOLDER_PROMPT?: string
   readonly VITE_WEB_USE_SERVER_SAMPLE?: string

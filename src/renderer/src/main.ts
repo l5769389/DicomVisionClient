@@ -1,11 +1,23 @@
+import { resolveShellKind, rewritePathForMobileShell } from './shell/shellSelection'
+
 function waitForFirstPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     return Promise.resolve()
   }
 
   return new Promise((resolve) => {
+    let settled = false
+    const finish = (): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      window.clearTimeout(timeoutId)
+      resolve()
+    }
+    const timeoutId = window.setTimeout(finish, 120)
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve())
+      window.requestAnimationFrame(finish)
     })
   })
 }
@@ -39,12 +51,45 @@ async function loadWorkspaceStyles(): Promise<void> {
   injectStyle('dicomvision-app-styles', appStyles)
 }
 
+function getPointerIsCoarse(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
+}
+
+function resolveInitialShellKind() {
+  return resolveShellKind({
+    hasDesktopRuntime: typeof window !== 'undefined' && Boolean(window.viewerApi),
+    hasCoarsePointer: getPointerIsCoarse(),
+    maxTouchPoints: typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0,
+    pathname: typeof window !== 'undefined' ? window.location.pathname : '/',
+    viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1024
+  })
+}
+
+function normalizeMobileRoute(): void {
+  if (typeof window === 'undefined' || window.location.pathname.startsWith('/mobile')) {
+    return
+  }
+
+  window.history.replaceState(
+    window.history.state,
+    '',
+    rewritePathForMobileShell(window.location.pathname, window.location.search, window.location.hash)
+  )
+}
+
 async function mountWorkspaceApp(): Promise<void> {
   await waitForFirstPaint()
+  const shellKind = resolveInitialShellKind()
+  if (shellKind === 'mobile') {
+    normalizeMobileRoute()
+  }
 
+  const appImport = shellKind === 'mobile'
+    ? import('./apps/mobile/MobileWorkspaceApp.vue')
+    : import('./WorkspaceApp.vue')
   const [{ createApp }, { default: WorkspaceApp }, { vuetify }] = await Promise.all([
     import('vue'),
-    import('./WorkspaceApp.vue'),
+    appImport,
     import('./plugins/vuetify'),
     loadWorkspaceStyles()
   ])

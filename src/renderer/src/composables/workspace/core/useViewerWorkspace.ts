@@ -179,7 +179,7 @@ interface ViewerWorkspaceState {
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
   openKeySlice: (seriesId: string, sliceIndex: number) => Promise<void>
-  openSeriesView: (seriesId: string, viewType: ViewType) => Promise<void>
+  openSeriesView: (seriesId: string, viewType: ViewType, options?: OpenSeriesViewOptions) => Promise<void>
   openLayoutView: (template: ViewerLayoutTemplate) => Promise<void>
   openView: (viewType: ViewType) => Promise<void>
   removeSeries: (seriesId: string) => void
@@ -229,6 +229,10 @@ interface WorkspaceStatusToastOptions {
 interface LoadFolderSeriesOptions {
   openFirstSeriesView?: boolean
   selectLoadedSeries?: boolean
+}
+
+interface OpenSeriesViewOptions {
+  useHangingProtocol?: boolean
 }
 
 interface DicomUploadToastProgress {
@@ -2476,7 +2480,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }))
   }
 
-  async function openSeriesViewWithHangingProtocol(seriesId: string, viewType: ViewType): Promise<void> {
+  async function openSeriesViewWithHangingProtocol(
+    seriesId: string,
+    viewType: ViewType,
+    options: OpenSeriesViewOptions = {}
+  ): Promise<void> {
     await ensureBackendConnection()
     const series = seriesList.value.find((item) => item.seriesId === seriesId) ?? null
     if (series?.isImageSeries === false && viewType !== 'Tag') {
@@ -2484,7 +2492,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (viewType !== 'Stack') {
+    if (viewType !== 'Stack' || options.useHangingProtocol === false) {
       await views.openSeriesView(seriesId, viewType)
       return
     }

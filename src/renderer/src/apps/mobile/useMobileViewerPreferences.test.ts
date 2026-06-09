@@ -1,0 +1,88 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const STORAGE_KEY = 'dicomvision-mobile-preferences'
+
+async function loadPreferencesModule() {
+  vi.resetModules()
+  return import('./useMobileViewerPreferences')
+}
+
+beforeEach(() => {
+  window.localStorage.clear()
+})
+
+describe('useMobileViewerPreferences', () => {
+  it('normalizes legacy mobile preference storage with new defaults', async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ mprDefaultViewport: 'mpr-cor' }))
+
+    const { useMobileViewerPreferences } = await loadPreferencesModule()
+    const preferences = useMobileViewerPreferences()
+
+    expect(preferences.mprDefaultViewport.value).toBe('mpr-cor')
+    expect(preferences.stackDefaultTool.value).toBe('scroll')
+    expect(preferences.mprDefaultTool.value).toBe('crosshair')
+    expect(preferences.mprShowReferenceThumbnails.value).toBe(true)
+    expect(preferences.gestureSensitivity.value).toBe('normal')
+    expect(preferences.stackPlaybackFps.value).toBe(5)
+    expect(preferences.defaultShowCornerInfo.value).toBe(true)
+    expect(preferences.defaultShowScaleBar.value).toBe(true)
+    expect(preferences.orientationLock.value).toBe('unlocked')
+  })
+
+  it('persists updated mobile viewer preferences', async () => {
+    const { useMobileViewerPreferences } = await loadPreferencesModule()
+    const preferences = useMobileViewerPreferences()
+
+    preferences.setStackDefaultTool('window')
+    preferences.setMprDefaultTool('zoom')
+    preferences.setMprDefaultViewport('mpr-sag')
+    preferences.setMprShowReferenceThumbnails(false)
+    preferences.setGestureSensitivity('high')
+    preferences.setStackPlaybackFps(15)
+    preferences.setDefaultShowCornerInfo(false)
+    preferences.setDefaultShowScaleBar(false)
+    preferences.setOrientationLock('landscape')
+
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}')).toEqual({
+      defaultShowCornerInfo: false,
+      defaultShowScaleBar: false,
+      gestureSensitivity: 'high',
+      mprDefaultTool: 'zoom',
+      mprDefaultViewport: 'mpr-sag',
+      mprShowReferenceThumbnails: false,
+      orientationLock: 'landscape',
+      stackDefaultTool: 'window',
+      stackPlaybackFps: 15
+    })
+  })
+
+  it('falls back when stored mobile preference values are invalid', async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        defaultShowCornerInfo: 'yes',
+        defaultShowScaleBar: 0,
+        gestureSensitivity: 'fast',
+        mprDefaultTool: 'measure',
+        mprDefaultViewport: 'mpr-unknown',
+        mprShowReferenceThumbnails: 'no',
+        orientationLock: 'upside-down',
+        stackDefaultTool: 'play',
+        stackPlaybackFps: 7
+      })
+    )
+
+    const { useMobileViewerPreferences } = await loadPreferencesModule()
+    const preferences = useMobileViewerPreferences()
+
+    expect(preferences.defaultShowCornerInfo.value).toBe(true)
+    expect(preferences.defaultShowScaleBar.value).toBe(true)
+    expect(preferences.gestureSensitivity.value).toBe('normal')
+    expect(preferences.mprDefaultTool.value).toBe('crosshair')
+    expect(preferences.mprDefaultViewport.value).toBe('mpr-ax')
+    expect(preferences.mprShowReferenceThumbnails.value).toBe(true)
+    expect(preferences.orientationLock.value).toBe('unlocked')
+    expect(preferences.stackDefaultTool.value).toBe('scroll')
+    expect(preferences.stackPlaybackFps.value).toBe(5)
+  })
+})

@@ -10,6 +10,12 @@ import type {
   ViewerTabItem,
   WorkspaceReadyPayload
 } from '../../types/viewer'
+import {
+  createMobileViewportDragMoveQueue,
+  getMobileGestureCenter,
+  getMobileGestureDistance,
+  type MobileViewportDragMove
+} from './mobileViewportGesture'
 
 const MPR_VIEWPORTS: Array<{ key: MprViewportKey; label: string }> = [
   { key: 'mpr-ax', label: 'AX' },
@@ -22,15 +28,6 @@ type PointerPoint = {
   x: number
   y: number
 }
-
-type PendingDragMove = {
-  deltaX: number
-  deltaY: number
-  opType: ViewOperationType
-  viewportKey: MprViewportKey
-}
-
-const DRAG_MOVE_THRESHOLD = 1.25
 
 const props = withDefaults(defineProps<{
   activeMprViewportKey: MprViewportKey
@@ -72,10 +69,17 @@ let lastPrimaryPoint: PointerPoint | null = null
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
 let isPinching = false
-let pendingDragMoves: PendingDragMove[] = []
-let pendingDragFrame: number | null = null
+const dragMoveQueue = createMobileViewportDragMoveQueue<MprViewportKey>((move: MobileViewportDragMove<MprViewportKey>) => {
+  emit('viewportDrag', {
+    deltaX: move.deltaX,
+    deltaY: move.deltaY,
+    opType: move.opType,
+    phase: 'move',
+    viewportKey: move.viewportKey
+  })
+})
 
-const mprTab = computed(() => (props.activeTab?.viewType === 'MPR' ? props.activeTab : null))
+const mprTab = computed(() => (props.activeTab?.viewType === 'MPR' || props.activeTab?.viewType === '4D' ? props.activeTab : null))
 const activeViewport = computed(() =>
   MPR_VIEWPORTS.some((viewport) => viewport.key === props.activeMprViewportKey) ? props.activeMprViewportKey : 'mpr-ax'
 )
@@ -187,24 +191,18 @@ function getPoint(event: PointerEvent, viewportKey: MprViewportKey): PointerPoin
 }
 
 function getPinchDistance(): number {
-  const points = Array.from(activePointers.values())
-  if (points.length < 2) {
-    return 0
-  }
-  const [a, b] = points
-  return Math.hypot(a.x - b.x, a.y - b.y)
+  return getMobileGestureDistance(Array.from(activePointers.values()))
 }
 
 function getPinchCenter(): PointerPoint | null {
-  const points = Array.from(activePointers.values())
-  if (points.length < 2) {
+  const center = getMobileGestureCenter(Array.from(activePointers.values()))
+  if (!center) {
     return null
   }
-  const [a, b] = points
   return {
     viewportKey: activeViewport.value,
-    x: (a.x + b.x) / 2,
-    y: (a.y + b.y) / 2
+    x: center.x,
+    y: center.y
   }
 }
 
@@ -214,10 +212,6 @@ function resolveDragOperation(): ViewOperationType | null {
     return operation
   }
   return null
-}
-
-function exceedsDragThreshold(deltaX: number, deltaY: number): boolean {
-  return Math.abs(deltaX) >= DRAG_MOVE_THRESHOLD || Math.abs(deltaY) >= DRAG_MOVE_THRESHOLD
 }
 
 function emitViewportDragStart(opType: ViewOperationType, viewportKey: MprViewportKey): void {
@@ -241,53 +235,15 @@ function emitViewportDragEnd(opType: ViewOperationType, viewportKey: MprViewport
 }
 
 function emitViewportDragMove(deltaX: number, deltaY: number, opType: ViewOperationType, viewportKey: MprViewportKey): void {
-  if (!exceedsDragThreshold(deltaX, deltaY)) {
-    return
-  }
-  pendingDragMoves.push({ deltaX, deltaY, opType, viewportKey })
-  if (pendingDragFrame != null) {
-    return
-  }
-  pendingDragFrame = window.requestAnimationFrame(flushPendingDragMoves)
+  dragMoveQueue.push({ deltaX, deltaY, opType, viewportKey })
 }
 
 function flushPendingDragMoves(): void {
-  if (pendingDragFrame != null) {
-    window.cancelAnimationFrame(pendingDragFrame)
-    pendingDragFrame = null
-  }
-  const moves = pendingDragMoves
-  pendingDragMoves = []
-  const totals = new Map<string, PendingDragMove>()
-  for (const move of moves) {
-    const key = `${move.viewportKey}:${move.opType}`
-    const total = totals.get(key) ?? {
-      deltaX: 0,
-      deltaY: 0,
-      opType: move.opType,
-      viewportKey: move.viewportKey
-    }
-    total.deltaX += move.deltaX
-    total.deltaY += move.deltaY
-    totals.set(key, total)
-  }
-  totals.forEach((total) => {
-    emit('viewportDrag', {
-      deltaX: total.deltaX,
-      deltaY: total.deltaY,
-      opType: total.opType,
-      phase: 'move',
-      viewportKey: total.viewportKey
-    })
-  })
+  dragMoveQueue.flush()
 }
 
 function cancelPendingDragMoves(): void {
-  if (pendingDragFrame != null) {
-    window.cancelAnimationFrame(pendingDragFrame)
-    pendingDragFrame = null
-  }
-  pendingDragMoves = []
+  dragMoveQueue.cancel()
 }
 
 function beginMobileDrag(operation: ViewOperationType, point: PointerPoint): void {

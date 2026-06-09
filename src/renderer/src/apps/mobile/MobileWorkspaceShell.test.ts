@@ -10,6 +10,23 @@ const setApiBaseURLMock = vi.fn()
 const getBackendStatusMock = vi.fn()
 let mockViewer: ReturnType<typeof createMockViewer>
 
+function installLocalStorageMock(): void {
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      clear: () => store.clear(),
+      getItem: (key: string) => store.get(key) ?? null,
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() {
+        return store.size
+      },
+      removeItem: (key: string) => store.delete(key),
+      setItem: (key: string, value: string) => store.set(key, String(value))
+    }
+  })
+}
+
 vi.mock('../../composables/ui/useUiLocale', () => ({
   useUiLocale: () => ({
     locale: ref('zh-CN')
@@ -89,10 +106,13 @@ vi.mock('../../composables/workspace/core/useViewerWorkspace', () => ({
 
 function createSeries(overrides: Partial<FolderSeriesItem> = {}): FolderSeriesItem {
   return {
+    height: 512,
     instanceCount: 24,
+    isImageSeries: true,
     modality: 'CT',
     seriesDescription: 'CT Demo',
     seriesId: 'series-1',
+    width: 512,
     ...overrides
   } as FolderSeriesItem
 }
@@ -147,6 +167,75 @@ function createMprTab(seriesId = 'series-1', overrides: Partial<ViewerTabItem> =
   })
 }
 
+function createCompareTab(sourceSeriesId = 'series-1', targetSeriesId = 'series-2', overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
+  return createStackTab(sourceSeriesId, {
+    compareCornerInfos: {
+      'compare-a': { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] },
+      'compare-b': { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] }
+    },
+    compareImages: {
+      'compare-a': 'blob:compare-a',
+      'compare-b': 'blob:compare-b'
+    },
+    compareScaleBars: {
+      'compare-a': null,
+      'compare-b': null
+    },
+    compareSeriesIds: {
+      'compare-a': sourceSeriesId,
+      'compare-b': targetSeriesId
+    },
+    compareSeriesTitles: {
+      'compare-a': 'Source CT',
+      'compare-b': 'Target CT'
+    },
+    compareSliceLabels: {
+      'compare-a': '1 / 10',
+      'compare-b': '3 / 12'
+    },
+    compareViewIds: {
+      'compare-a': 'compare-view-a',
+      'compare-b': 'compare-view-b'
+    },
+    key: 'compare-tab',
+    title: 'Compare',
+    viewId: '',
+    viewType: 'CompareStack',
+    ...overrides
+  })
+}
+
+function createVolumeTab(seriesId = 'series-1', overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
+  return createStackTab(seriesId, {
+    key: 'volume-tab',
+    render3dMode: 'volume',
+    title: 'CT 3D',
+    viewId: 'volume-view',
+    viewType: '3D',
+    volumePreset: 'volumePreset:bone',
+    ...overrides
+  })
+}
+
+function createFourDTab(seriesId = 'series-1', overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
+  return createMprTab(seriesId, {
+    fourDIsPlaying: false,
+    fourDPhaseCount: 4,
+    fourDPhaseIndex: 1,
+    fourDPhaseItems: [
+      { phaseIndex: 0, label: 'P1', seriesId: 'phase-1' },
+      { phaseIndex: 1, label: 'P2', seriesId: 'phase-2' },
+      { phaseIndex: 2, label: 'P3', seriesId: 'phase-3' },
+      { phaseIndex: 3, label: 'P4', seriesId: 'phase-4' }
+    ],
+    fourDPlaybackFps: 2,
+    key: 'four-d-tab',
+    title: 'CT 4D',
+    viewType: '4D',
+    ...overrides
+  })
+}
+
 function createTagTab(seriesId = 'series-1', overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
   return createStackTab(seriesId, {
     imageSrc: '',
@@ -174,13 +263,18 @@ function createMockViewer() {
     activeTabKey: ref(''),
     applyLoadedDicomSeries: vi.fn(),
     closeTab: vi.fn(),
+    handleCompareSyncChange: vi.fn(),
     handleHoverViewportChange: vi.fn(),
+    handleFourDFpsChange: vi.fn(),
+    handleFourDPhaseChange: vi.fn(),
+    handleFourDPlaybackChange: vi.fn(),
     handleMprCrosshair: vi.fn(),
     handleTagIndexChange: vi.fn(),
     handleViewportDrag: vi.fn(),
     handleViewportWheel: vi.fn(),
     isLoadingFolder: ref(false),
     isViewLoading: ref(false),
+    openSeriesCompare: vi.fn(),
     openSeriesView: vi.fn(),
     selectSeries: vi.fn((seriesId: string) => {
       selectedSeriesId.value = seriesId
@@ -207,6 +301,10 @@ function mountShell() {
     global: {
       stubs: {
         AppIcon: { props: ['name'], template: '<span class="app-icon-stub">{{ name }}</span>' },
+        MobileCompareStackViewport: {
+          emits: ['activeViewportChange'],
+          template: '<div data-testid="mobile-compare-stub"><button data-testid="stub-compare-b" @click="$emit(\'activeViewportChange\', \'compare-b\')">B</button></div>'
+        },
         MobileMprViewport: {
           emits: ['activeViewportChange'],
           template: '<div class="mobile-mpr-stub"><button data-testid="stub-mpr-cor" @click="$emit(\'activeViewportChange\', \'mpr-cor\')">COR</button></div>'
@@ -216,7 +314,11 @@ function mountShell() {
           emits: ['close'],
           template: '<div v-if="isOpen" data-testid="mobile-settings-overlay"><button data-testid="mobile-settings-close-stub" @click="$emit(\'close\')">Close</button></div>'
         },
-        MobileStackViewport: { template: '<div class="mobile-stack-stub" />' }
+        MobileStackViewport: { template: '<div class="mobile-stack-stub" />' },
+        MobileVolumeViewport: {
+          emits: ['activeViewportChange'],
+          template: '<div class="mobile-volume-stub" data-testid="mobile-volume-stub"><button data-testid="stub-volume-active" @click="$emit(\'activeViewportChange\', \'volume\')">Volume</button></div>'
+        }
       }
     }
   })
@@ -224,6 +326,7 @@ function mountShell() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  installLocalStorageMock()
   window.localStorage.clear()
   mockViewer = createMockViewer()
   getBackendStatusMock.mockResolvedValue({ origin: 'http://backend.test', ready: true, starting: false, error: null })
@@ -231,6 +334,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllEnvs()
 })
 
 describe('MobileWorkspaceShell', () => {
@@ -240,9 +344,13 @@ describe('MobileWorkspaceShell', () => {
   })
 
   it('loads the server sample and opens the first series as Stack without hanging protocol', async () => {
+    vi.stubEnv('VITE_MOBILE_SAMPLE_MODE', 'server-sample')
     const series = createSeries()
     postApiMock.mockResolvedValue({ seriesList: [series] })
-    mockViewer.applyLoadedDicomSeries.mockResolvedValue([series])
+    mockViewer.applyLoadedDicomSeries.mockImplementation(async () => {
+      mockViewer.seriesList.value = [series]
+      return [series]
+    })
 
     const wrapper = mountShell()
     await wrapper.find('.mobile-shell__primary-action').trigger('click')
@@ -257,20 +365,23 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
   })
 
-  it('falls back to the configured local dev sample path when the server sample path is missing', async () => {
+  it('loads the configured local dev sample path directly in local-path mode', async () => {
+    vi.stubEnv('VITE_MOBILE_SAMPLE_MODE', 'local-path')
+    vi.stubEnv('VITE_MOBILE_DEV_SAMPLE_DICOM_PATH', 'D:/test/sample')
     const series = createSeries()
-    postApiMock
-      .mockRejectedValueOnce({ response: { data: { detail: 'WEB_SAMPLE_DICOM_PATH is not configured' } } })
-      .mockResolvedValueOnce({ seriesList: [series] })
-    mockViewer.applyLoadedDicomSeries.mockResolvedValue([series])
+    postApiMock.mockResolvedValueOnce({ seriesList: [series] })
+    mockViewer.applyLoadedDicomSeries.mockImplementation(async () => {
+      mockViewer.seriesList.value = [series]
+      return [series]
+    })
 
     const wrapper = mountShell()
     await wrapper.find('.mobile-shell__primary-action').trigger('click')
     await flushPromises()
 
-    expect(postApiMock).toHaveBeenNthCalledWith(1, 'LoadSampleFolderApiV1DicomLoadSamplePost', undefined)
-    expect(postApiMock).toHaveBeenNthCalledWith(2, 'LoadFolderApiV1DicomLoadFolderPost', {
-      folderPath: 'D:/testDicom/sample'
+    expect(postApiMock).toHaveBeenCalledTimes(1)
+    expect(postApiMock).toHaveBeenCalledWith('LoadFolderApiV1DicomLoadFolderPost', {
+      folderPath: 'D:/test/sample'
     })
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
   })
@@ -296,11 +407,12 @@ describe('MobileWorkspaceShell', () => {
     const slider = wrapper.get('[data-testid="mobile-slice-range"]')
     ;(slider.element as HTMLInputElement).value = '7'
     await slider.trigger('input')
+    await slider.trigger('pointerup')
 
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 4 })
   })
 
-  it('keeps slice slider deltas based on local draft values during continuous input', async () => {
+  it('keeps slice slider deltas based on local draft values and flushes continuous input once', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createMprTab('series-1', {
@@ -318,9 +430,10 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('input')
     ;(slider.element as HTMLInputElement).value = '8'
     await slider.trigger('input')
+    await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenNthCalledWith(1, { viewportKey: 'mpr-cor', deltaY: 3 })
-    expect(mockViewer.handleViewportWheel).toHaveBeenNthCalledWith(2, { viewportKey: 'mpr-cor', deltaY: 1 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledTimes(1)
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 4 })
     expect((slider.element as HTMLInputElement).value).toBe('8')
   })
 
@@ -373,8 +486,8 @@ describe('MobileWorkspaceShell', () => {
     })
   })
 
-  it('offers Stack and MPR open actions from the mobile series sheet', async () => {
-    mockViewer.seriesList.value = [createSeries()]
+  it('offers Stack, MPR, 3D, and 4D open actions from the mobile series sheet', async () => {
+    mockViewer.seriesList.value = [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createStackTab())
 
@@ -390,10 +503,84 @@ describe('MobileWorkspaceShell', () => {
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'MPR', { useHangingProtocol: false })
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-ax')
+
+    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-open-3d"]').trigger('click')
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', '3D', { useHangingProtocol: false })
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('volume')
+
+    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-open-4d"]').trigger('click')
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', '4D', { useHangingProtocol: false })
   })
 
-  it('highlights the active Stack or MPR view action in the series sheet', async () => {
-    mockViewer.seriesList.value = [createSeries()]
+  it('opens Compare from the mobile series sheet using the current series as source', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'series-1', seriesDescription: 'Source CT' }),
+      createSeries({ seriesId: 'series-2', seriesDescription: 'Target CT' })
+    ]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab('series-1'))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    const compareButtons = wrapper.findAll('[data-testid="mobile-open-compare"]')
+
+    expect(compareButtons[0].attributes('disabled')).toBeDefined()
+    expect(compareButtons[1].attributes('disabled')).toBeUndefined()
+
+    await compareButtons[1].trigger('click')
+
+    expect(mockViewer.openSeriesCompare).toHaveBeenCalledWith('series-1', 'series-2')
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('compare-a')
+  })
+
+  it('uses the active Compare pane for slice slider deltas', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'series-1', seriesDescription: 'Source CT' }),
+      createSeries({ seriesId: 'series-2', seriesDescription: 'Target CT' })
+    ]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createCompareTab())
+
+    const wrapper = mountShell()
+    expect(wrapper.find('[data-testid="mobile-compare-stub"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="stub-compare-b"]').trigger('click')
+
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('compare-b')
+
+    const slider = wrapper.get('[data-testid="mobile-slice-range"]')
+    ;(slider.element as HTMLInputElement).value = '6'
+    await slider.trigger('input')
+    await slider.trigger('pointerup')
+
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'compare-b', deltaY: 3 })
+  })
+
+  it('toggles Compare sync settings from the More sheet', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'series-1', seriesDescription: 'Source CT' }),
+      createSeries({ seriesId: 'series-2', seriesDescription: 'Target CT' })
+    ]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createCompareTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.findAll('[data-testid="mobile-compare-sync"]')[0].trigger('click')
+
+    expect(mockViewer.handleCompareSyncChange).toHaveBeenCalledWith({
+      tabKey: 'compare-tab',
+      key: 'scroll',
+      value: false
+    })
+  })
+
+  it('highlights the active Stack, MPR, 3D, or 4D view action in the series sheet', async () => {
+    mockViewer.seriesList.value = [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createStackTab())
 
@@ -409,6 +596,58 @@ describe('MobileWorkspaceShell', () => {
 
     expect(wrapper.get('[data-testid="mobile-open-stack"]').attributes('data-active')).toBe('false')
     expect(wrapper.get('[data-testid="mobile-open-mpr"]').attributes('data-active')).toBe('true')
+
+    mockViewer.__setActiveTab(createVolumeTab())
+    await flushPromises()
+    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="mobile-open-3d"]').attributes('data-active')).toBe('true')
+
+    mockViewer.__setActiveTab(createFourDTab())
+    await flushPromises()
+    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="mobile-open-4d"]').attributes('data-active')).toBe('true')
+  })
+
+  it('renders the mobile 3D viewport and exposes volume render controls', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createVolumeTab())
+
+    const wrapper = mountShell()
+
+    expect(wrapper.find('[data-testid="mobile-volume-stub"]').exists()).toBe(true)
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`)
+
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.findAll('[data-testid="mobile-volume-render-mode"]')[0].trigger('click')
+
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'render3dMode', value: 'render3dMode:volume' })
+  })
+
+  it('uses 4D MPR controls for phase, playback, and active plane scrolling', async () => {
+    mockViewer.seriesList.value = [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createFourDTab())
+
+    const wrapper = mountShell()
+    const phaseRange = wrapper.get('[data-testid="mobile-four-d-phase-range"]')
+    ;(phaseRange.element as HTMLInputElement).value = '3'
+    await phaseRange.trigger('input')
+
+    expect(mockViewer.handleFourDPhaseChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', phaseIndex: 2 })
+
+    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    expect(mockViewer.handleFourDPlaybackChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', isPlaying: true })
+
+    await wrapper.get('[data-testid="mobile-mpr-plane-mpr-cor"]').trigger('click')
+    const slider = wrapper.get('[data-testid="mobile-slice-range"]')
+    ;(slider.element as HTMLInputElement).value = '7'
+    await slider.trigger('input')
+    await slider.trigger('pointerup')
+
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
   })
 
   it('uses the active MPR plane for plane switches and slice slider deltas', async () => {
@@ -424,6 +663,7 @@ describe('MobileWorkspaceShell', () => {
     const slider = wrapper.get('[data-testid="mobile-slice-range"]')
     ;(slider.element as HTMLInputElement).value = '7'
     await slider.trigger('input')
+    await slider.trigger('pointerup')
 
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
   })
@@ -441,6 +681,7 @@ describe('MobileWorkspaceShell', () => {
     const slider = wrapper.get('[data-testid="mobile-slice-range"]')
     ;(slider.element as HTMLInputElement).value = '7'
     await slider.trigger('input')
+    await slider.trigger('pointerup')
 
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
   })

@@ -18,7 +18,7 @@ export const desktopViewerCapabilityProfile: ViewerCapabilityProfile = {
 export const mobileViewerCapabilityProfile: ViewerCapabilityProfile = {
   shellKind: 'mobile',
   dataSources: ['server-sample'],
-  viewTypes: ['Stack', 'MPR', 'Tag']
+  viewTypes: ['Stack', 'CompareStack', 'MPR', '3D', '4D', 'Tag']
 }
 
 export function supportsViewerDataSource(profile: ViewerCapabilityProfile, dataSource: ViewerDataSourceKind): boolean {

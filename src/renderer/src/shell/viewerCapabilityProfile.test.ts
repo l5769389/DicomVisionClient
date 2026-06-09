@@ -12,8 +12,10 @@ describe('viewerCapabilityProfile', () => {
     expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'pacs')).toBe(false)
 
     expect(supportsViewerViewType(mobileViewerCapabilityProfile, 'Stack')).toBe(true)
+    expect(supportsViewerViewType(mobileViewerCapabilityProfile, 'CompareStack')).toBe(true)
     expect(supportsViewerViewType(mobileViewerCapabilityProfile, 'MPR')).toBe(true)
+    expect(supportsViewerViewType(mobileViewerCapabilityProfile, '3D')).toBe(true)
+    expect(supportsViewerViewType(mobileViewerCapabilityProfile, '4D')).toBe(true)
     expect(supportsViewerViewType(mobileViewerCapabilityProfile, 'Tag')).toBe(true)
-    expect(supportsViewerViewType(mobileViewerCapabilityProfile, '3D')).toBe(false)
   })
 })

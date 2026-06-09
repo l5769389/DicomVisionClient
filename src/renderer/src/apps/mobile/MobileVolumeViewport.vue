@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import {
-  STACK_OPERATION_PREFIX,
-  type ViewOperationType,
-  VIEW_OPERATION_TYPES
-} from '@shared/viewerConstants'
-import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
-import type { CornerInfo, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES, type ViewOperationType } from '@shared/viewerConstants'
+import VolumeView from '../../components/viewer/views/VolumeView.vue'
+import type { ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
 import {
   createMobileViewportDragMoveQueue,
   getMobileGestureCenter,
@@ -19,39 +15,28 @@ type PointerPoint = {
   y: number
 }
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   activeOperation: string
   activeTab: ViewerTabItem | null
-  isViewLoading: boolean
-  scrollThreshold?: number
-}>(), {
-  scrollThreshold: 28
-})
+}>()
 
 const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
 const viewportHostRef = ref<HTMLElement | null>(null)
+const volumeTab = computed(() => (props.activeTab?.viewType === '3D' ? props.activeTab : null))
 const activePointers = new Map<number, PointerPoint>()
-const emptyCornerInfo: CornerInfo = {
-  topLeft: [],
-  topRight: [],
-  bottomLeft: [],
-  bottomRight: []
-}
 
 let lastPrimaryPoint: PointerPoint | null = null
 let activeDragOperation: ViewOperationType | null = null
-let scrollAccumulator = 0
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
 let isPinching = false
-const dragMoveQueue = createMobileViewportDragMoveQueue<'single'>((move: MobileViewportDragMove<'single'>) => {
+
+const dragMoveQueue = createMobileViewportDragMoveQueue<'volume'>((move: MobileViewportDragMove<'volume'>) => {
   emit('viewportDrag', {
     deltaX: move.deltaX,
     deltaY: move.deltaY,
@@ -61,16 +46,14 @@ const dragMoveQueue = createMobileViewportDragMoveQueue<'single'>((move: MobileV
   })
 })
 
-const stackTab = computed(() => (props.activeTab?.viewType === 'Stack' ? props.activeTab : null))
-const viewportPlaceholder = computed(() => (stackTab.value ? '移动端单视口预览' : '选择序列后打开 Stack 视图'))
-
 function emitWorkspaceReady(): void {
   const element = viewportHostRef.value
+  const volumeElement = element?.querySelector<HTMLElement>('[data-viewport-key="volume"]') ?? element
   emit('workspaceReady', {
     element,
-    viewportKey: 'single',
+    viewportKey: 'volume',
     viewportElements: {
-      single: element
+      volume: volumeElement
     }
   })
 }
@@ -79,12 +62,12 @@ function normalizeOperation(operation: string): string {
   return operation.startsWith(STACK_OPERATION_PREFIX) ? operation.slice(STACK_OPERATION_PREFIX.length) : operation
 }
 
-function resolveDragOperation(): ViewOperationType | null {
+function resolveDragOperation(): ViewOperationType {
   const operation = normalizeOperation(props.activeOperation)
-  if (operation === VIEW_OPERATION_TYPES.pan || operation === VIEW_OPERATION_TYPES.window || operation === VIEW_OPERATION_TYPES.zoom) {
+  if (operation === VIEW_OPERATION_TYPES.pan || operation === VIEW_OPERATION_TYPES.zoom || operation === VIEW_OPERATION_TYPES.rotate3d) {
     return operation
   }
-  return null
+  return VIEW_OPERATION_TYPES.rotate3d
 }
 
 function getPoint(event: PointerEvent): PointerPoint {
@@ -102,8 +85,28 @@ function getPinchCenter(): PointerPoint | null {
   return getMobileGestureCenter(Array.from(activePointers.values()))
 }
 
+function emitViewportDragStart(opType: ViewOperationType): void {
+  emit('viewportDrag', {
+    deltaX: 0,
+    deltaY: 0,
+    opType,
+    phase: 'start',
+    viewportKey: 'volume'
+  })
+}
+
+function emitViewportDragEnd(opType: ViewOperationType): void {
+  emit('viewportDrag', {
+    deltaX: 0,
+    deltaY: 0,
+    opType,
+    phase: 'end',
+    viewportKey: 'volume'
+  })
+}
+
 function emitViewportDragMove(deltaX: number, deltaY: number, opType: ViewOperationType): void {
-  dragMoveQueue.push({ deltaX, deltaY, opType, viewportKey: 'single' })
+  dragMoveQueue.push({ deltaX, deltaY, opType, viewportKey: 'volume' })
 }
 
 function flushPendingDragMoves(): void {
@@ -114,35 +117,19 @@ function cancelPendingDragMoves(): void {
   dragMoveQueue.cancel()
 }
 
-function beginDrag(operation: ViewOperationType | null, point: PointerPoint): void {
+function beginDrag(operation: ViewOperationType, point: PointerPoint): void {
   activeDragOperation = operation
   lastPrimaryPoint = point
-  scrollAccumulator = 0
-  if (operation) {
-    emit('viewportDrag', {
-      deltaX: 0,
-      deltaY: 0,
-      opType: operation,
-      phase: 'start',
-      viewportKey: 'single'
-    })
-  }
+  emitViewportDragStart(operation)
 }
 
 function endDrag(): void {
   flushPendingDragMoves()
   if (activeDragOperation) {
-    emit('viewportDrag', {
-      deltaX: 0,
-      deltaY: 0,
-      opType: activeDragOperation,
-      phase: 'end',
-      viewportKey: 'single'
-    })
+    emitViewportDragEnd(activeDragOperation)
   }
   activeDragOperation = null
   lastPrimaryPoint = null
-  scrollAccumulator = 0
 }
 
 function beginPinch(): void {
@@ -150,20 +137,8 @@ function beginPinch(): void {
   isPinching = true
   lastPinchDistance = getPinchDistance()
   lastPinchCenter = getPinchCenter()
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.zoom,
-    phase: 'start',
-    viewportKey: 'single'
-  })
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.pan,
-    phase: 'start',
-    viewportKey: 'single'
-  })
+  emitViewportDragStart(VIEW_OPERATION_TYPES.zoom)
+  emitViewportDragStart(VIEW_OPERATION_TYPES.pan)
 }
 
 function endPinch(): void {
@@ -171,47 +146,26 @@ function endPinch(): void {
     return
   }
   flushPendingDragMoves()
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.zoom,
-    phase: 'end',
-    viewportKey: 'single'
-  })
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.pan,
-    phase: 'end',
-    viewportKey: 'single'
-  })
+  emitViewportDragEnd(VIEW_OPERATION_TYPES.zoom)
+  emitViewportDragEnd(VIEW_OPERATION_TYPES.pan)
   isPinching = false
   lastPinchDistance = 0
   lastPinchCenter = null
 }
 
+function handleViewportClick(viewportKey: string): void {
+  emit('activeViewportChange', viewportKey)
+}
+
 function handlePointerDown(event: PointerEvent): void {
   event.preventDefault()
-  emit('activeViewportChange', 'single')
+  emit('activeViewportChange', 'volume')
   activePointers.set(event.pointerId, getPoint(event))
   if (activePointers.size >= 2) {
     beginPinch()
     return
   }
   beginDrag(resolveDragOperation(), getPoint(event))
-}
-
-function handleScrollDrag(deltaY: number): void {
-  scrollAccumulator += deltaY
-  const sliceDelta = Math.trunc(scrollAccumulator / props.scrollThreshold)
-  if (!sliceDelta) {
-    return
-  }
-  scrollAccumulator -= sliceDelta * props.scrollThreshold
-  emit('viewportWheel', {
-    viewportKey: 'single',
-    deltaY: sliceDelta
-  })
 }
 
 function handlePointerMove(event: PointerEvent): void {
@@ -246,12 +200,6 @@ function handlePointerMove(event: PointerEvent): void {
   const deltaX = nextPoint.x - lastPoint.x
   const deltaY = nextPoint.y - lastPoint.y
   lastPrimaryPoint = nextPoint
-
-  if (normalizeOperation(props.activeOperation) === VIEW_OPERATION_TYPES.scroll) {
-    handleScrollDrag(deltaY)
-    return
-  }
-
   if (activeDragOperation && (deltaX || deltaY)) {
     emitViewportDragMove(deltaX, deltaY, activeDragOperation)
   }
@@ -267,9 +215,8 @@ function handlePointerUp(event: PointerEvent): void {
     endPinch()
   }
   if (activePointers.size === 1) {
-    const nextPoint = Array.from(activePointers.values())[0]
+    lastPrimaryPoint = Array.from(activePointers.values())[0] ?? null
     activeDragOperation = null
-    lastPrimaryPoint = nextPoint
     return
   }
   endDrag()
@@ -295,7 +242,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => stackTab.value?.key,
+  () => volumeTab.value?.key,
   () => {
     void nextTick(emitWorkspaceReady)
   }
@@ -303,54 +250,37 @@ watch(
 </script>
 
 <template>
-  <section ref="viewportHostRef" class="mobile-stack-viewport">
-    <ViewerCanvasStage
-      class="min-h-0"
-      viewport-key="single"
-      viewport-class="mobile-stack-viewport__stage"
-      image-class="mobile-stack-viewport__image"
-      :is-active="true"
-      :render-surface-active="Boolean(stackTab)"
-      :image-src="stackTab?.imageSrc ?? ''"
-      :is-loading="Boolean(stackTab?.viewId) && (!stackTab?.imageSrc || isViewLoading)"
-      loading-label="正在加载影像..."
-      :alt="stackTab?.viewType ?? 'Stack'"
+  <section ref="viewportHostRef" class="mobile-volume-viewport" data-testid="mobile-volume-viewport">
+    <VolumeView
+      v-if="volumeTab"
+      :active-tab="volumeTab"
       :active-operation="activeOperation"
-      :placeholder="viewportPlaceholder"
-      :annotations="[]"
-      :corner-info="stackTab?.cornerInfo ?? emptyCornerInfo"
-      :measurements="[]"
-      :scale-bar="stackTab?.scaleBar ?? null"
-      :show-corner-info="stackTab?.showCornerInfo !== false"
-      :show-scale-bar="stackTab?.showScaleBar !== false"
-      :orientation="stackTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
-      @hover-viewport-change="emit('hoverViewportChange', $event)"
-      @wheel-viewport="emit('viewportWheel', $event)"
+      @pointer-cancel="handlePointerCancel"
       @pointer-down="handlePointerDown"
       @pointer-move="handlePointerMove"
       @pointer-up="handlePointerUp"
-      @pointer-cancel="handlePointerCancel"
-      @pointer-leave="() => {}"
+      @viewport-click="handleViewportClick"
     />
   </section>
 </template>
 
 <style scoped>
-.mobile-stack-viewport {
-  min-height: 0;
-  height: 100%;
+.mobile-volume-viewport {
   width: 100%;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
+  background: #02050a;
   touch-action: none;
 }
 
-.mobile-stack-viewport :deep(.mobile-stack-viewport__stage) {
-  border-radius: 0 !important;
-  border: 0 !important;
-  background: #02050a !important;
+.mobile-volume-viewport :deep(.viewer-viewport--active) {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: 0 !important;
 }
 
-.mobile-stack-viewport :deep(.mobile-stack-viewport__image) {
+.mobile-volume-viewport :deep(img) {
   user-select: none;
   -webkit-user-drag: none;
 }

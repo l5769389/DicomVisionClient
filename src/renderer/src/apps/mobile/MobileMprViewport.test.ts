@@ -44,13 +44,14 @@ function createMprTab(): ViewerTabItem {
 
 function mountMprViewport(
   activeMprViewportKey: MprViewportKey = 'mpr-ax',
-  activeOperation = `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`
+  activeOperation = `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`,
+  activeTab: ViewerTabItem = createMprTab()
 ) {
   return mount(MobileMprViewport, {
     props: {
       activeMprViewportKey,
       activeOperation,
-      activeTab: createMprTab(),
+      activeTab,
       isViewLoading: false
     },
     global: {
@@ -123,6 +124,17 @@ describe('MobileMprViewport', () => {
     expect(wrapper.findAll('[data-testid="mobile-mpr-reference"]')).toHaveLength(2)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-corner-info="false"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-scale-bar="false"]').exists()).toBe(true)
+  })
+
+  it('uses the same mobile MPR surface for 4D tabs', async () => {
+    const wrapper = mountMprViewport('mpr-ax', `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`, {
+      ...createMprTab(),
+      viewType: '4D'
+    } as ViewerTabItem)
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-active-render-surface="true"]')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-ax"]').exists()).toBe(true)
   })
 
   it('switches the active MPR plane when a reference thumbnail is clicked', async () => {

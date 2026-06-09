@@ -2,12 +2,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const STORAGE_KEY = 'dicomvision-mobile-preferences'
 
+function installLocalStorageMock(): void {
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      clear: () => store.clear(),
+      getItem: (key: string) => store.get(key) ?? null,
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() {
+        return store.size
+      },
+      removeItem: (key: string) => store.delete(key),
+      setItem: (key: string, value: string) => store.set(key, String(value))
+    }
+  })
+}
+
 async function loadPreferencesModule() {
   vi.resetModules()
   return import('./useMobileViewerPreferences')
 }
 
 beforeEach(() => {
+  installLocalStorageMock()
   window.localStorage.clear()
 })
 

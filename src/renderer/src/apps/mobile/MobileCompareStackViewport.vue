@@ -62,6 +62,11 @@ let scrollAccumulator = 0
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
 let isPinching = false
+let totalDragDeltaX = 0
+let totalDragDeltaY = 0
+let totalPinchPanDeltaX = 0
+let totalPinchPanDeltaY = 0
+let totalPinchZoomDeltaY = 0
 
 const dragMoveQueue = createMobileViewportDragMoveQueue<CompareStackPaneKey>((move: MobileViewportDragMove<CompareStackPaneKey>) => {
   emit('viewportDrag', {
@@ -179,6 +184,8 @@ function beginDrag(operation: ViewOperationType | null, point: PointerPoint): vo
   activeDragViewportKey = point.viewportKey
   lastPrimaryPoint = point
   scrollAccumulator = 0
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
   if (operation) {
     emitViewportDragStart(operation, point.viewportKey)
   }
@@ -193,6 +200,8 @@ function endDrag(): void {
   activeDragViewportKey = null
   lastPrimaryPoint = null
   scrollAccumulator = 0
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
 }
 
 function beginPinch(): void {
@@ -200,6 +209,9 @@ function beginPinch(): void {
   isPinching = true
   lastPinchDistance = getPinchDistance()
   lastPinchCenter = getPinchCenter()
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
   emitViewportDragStart(VIEW_OPERATION_TYPES.zoom, activeViewport.value)
   emitViewportDragStart(VIEW_OPERATION_TYPES.pan, activeViewport.value)
 }
@@ -214,6 +226,9 @@ function endPinch(): void {
   isPinching = false
   lastPinchDistance = 0
   lastPinchCenter = null
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
 }
 
 function handlePointerDown(event: PointerEvent, viewportKey: string): void {
@@ -221,6 +236,9 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
     return
   }
   event.preventDefault()
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
   emit('activeViewportChange', viewportKey)
   const point = getPoint(event, viewportKey)
   activePointers.set(event.pointerId, point)
@@ -263,16 +281,19 @@ function handlePointerMove(event: PointerEvent): void {
     lastPinchDistance = nextDistance
     const nextCenter = getPinchCenter()
     if (nextCenter && lastPinchCenter) {
+      totalPinchPanDeltaX += nextCenter.x - lastPinchCenter.x
+      totalPinchPanDeltaY += nextCenter.y - lastPinchCenter.y
       emitViewportDragMove(
-        nextCenter.x - lastPinchCenter.x,
-        nextCenter.y - lastPinchCenter.y,
+        totalPinchPanDeltaX,
+        totalPinchPanDeltaY,
         VIEW_OPERATION_TYPES.pan,
         activeViewport.value
       )
     }
     lastPinchCenter = nextCenter
     if (deltaDistance) {
-      emitViewportDragMove(0, -deltaDistance, VIEW_OPERATION_TYPES.zoom, activeViewport.value)
+      totalPinchZoomDeltaY += -deltaDistance
+      emitViewportDragMove(0, totalPinchZoomDeltaY, VIEW_OPERATION_TYPES.zoom, activeViewport.value)
     }
     return
   }
@@ -288,11 +309,14 @@ function handlePointerMove(event: PointerEvent): void {
   }
 
   if (activeDragOperation && activeDragViewportKey && (deltaX || deltaY)) {
-    emitViewportDragMove(deltaX, deltaY, activeDragOperation, activeDragViewportKey)
+    totalDragDeltaX += deltaX
+    totalDragDeltaY += deltaY
+    emitViewportDragMove(totalDragDeltaX, totalDragDeltaY, activeDragOperation, activeDragViewportKey)
   }
 }
 
 function handlePointerUp(event: PointerEvent): void {
+  event.preventDefault()
   activePointers.delete(event.pointerId)
   if (activePointers.size >= 2) {
     lastPinchDistance = getPinchDistance()
@@ -311,6 +335,7 @@ function handlePointerUp(event: PointerEvent): void {
 }
 
 function handlePointerCancel(event: PointerEvent): void {
+  event.preventDefault()
   activePointers.delete(event.pointerId)
   if (activePointers.size === 0) {
     endPinch()
@@ -324,6 +349,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activePointers.clear()
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
   cancelPendingDragMoves()
   endPinch()
   endDrag()
@@ -366,7 +396,7 @@ watch(
         placeholder="Compare preview"
         :annotations="[]"
         :corner-info="compareTab?.compareCornerInfos?.[pane.key] ?? compareTab?.cornerInfo ?? emptyCornerInfo"
-        :measurements="[]"
+        :measurements="compareTab?.viewportMeasurements?.[pane.key] ?? []"
         :scale-bar="compareTab?.compareScaleBars?.[pane.key] ?? null"
         :show-corner-info="compareTab?.showCornerInfo !== false"
         :show-scale-bar="compareTab?.showScaleBar !== false"

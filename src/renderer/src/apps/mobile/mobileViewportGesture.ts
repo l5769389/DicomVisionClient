@@ -55,21 +55,13 @@ export function createMobileViewportDragMoveQueue<ViewportKey extends string>(
 
     const moves = pendingMoves
     pendingMoves = []
-    const totals = new Map<string, MobileViewportDragMove<ViewportKey>>()
+    const latest = new Map<string, MobileViewportDragMove<ViewportKey>>()
     for (const move of moves) {
       const key = `${move.viewportKey}:${move.opType}`
-      const total = totals.get(key) ?? {
-        deltaX: 0,
-        deltaY: 0,
-        opType: move.opType,
-        viewportKey: move.viewportKey
-      }
-      total.deltaX += move.deltaX
-      total.deltaY += move.deltaY
-      totals.set(key, total)
+      latest.set(key, move)
     }
 
-    totals.forEach(emitMove)
+    latest.forEach(emitMove)
   }
 
   function cancel(): void {

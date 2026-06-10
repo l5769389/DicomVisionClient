@@ -2130,6 +2130,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
+    event.preventDefault()
+
     if (handleMtfPointerMove(event)) {
       return
     }
@@ -2159,6 +2161,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (activePointerId.value !== event.pointerId) {
       return
     }
+
+    event.preventDefault()
 
     if (handleMtfInteractionPointerUp(event.currentTarget)) {
       return

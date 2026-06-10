@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import AppIcon from '../../components/AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS, getPseudocolorGradient } from '../../constants/pseudocolor'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { useUiPreferences, type WindowTemplatePreset } from '../../composables/ui/useUiPreferences'
+import {
+  MAX_CUSTOM_WINDOW_PRESETS,
+  useUiPreferences,
+  type WindowTemplatePreset
+} from '../../composables/ui/useUiPreferences'
 import { useViewerWorkspace } from '../../composables/workspace/core/useViewerWorkspace'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../../composables/workspace/sync/viewSyncConfig'
@@ -14,7 +18,7 @@ import { setApiBaseURL } from '../../services/api'
 import { postApi } from '../../services/typedApi'
 import { viewerRuntime } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
-import type { CompareStackPaneKey, CompareSyncSettingKey, DicomTagItem, FolderSeriesItem, MprViewportKey, ViewerTabItem, ViewType } from '../../types/viewer'
+import type { CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, MprViewportKey, ViewerTabItem, ViewType } from '../../types/viewer'
 import MobileCompareStackViewport from './MobileCompareStackViewport.vue'
 import MobileMprViewport from './MobileMprViewport.vue'
 import MobileSettingsOverlay from './MobileSettingsOverlay.vue'
@@ -29,9 +33,10 @@ import {
 } from './useMobileViewerPreferences'
 
 type MobileViewportKind = 'Stack' | 'Compare' | 'MPR' | '3D' | '4D' | 'Tag'
-type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'rotate3d' | 'play'
-type MobileSheetKind = 'series' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'tag' | null
+type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'tag' | 'compare'
+type MobileSheetKind = 'series' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
+type MobileSheetPresentation = 'menu' | 'focused'
 type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
 type MobileScreenOrientationLockType = 'portrait-primary' | 'landscape-primary'
 type LockableScreenOrientation = ScreenOrientation & {
@@ -92,9 +97,12 @@ const VOLUME_PRESET_OPTIONS = [
 const viewer = useViewerWorkspace()
 const { locale } = useUiLocale()
 const {
+  addCustomWindowPreset,
   getWindowPresetLabel,
+  removeCustomWindowPresets,
   selectedPseudocolorKey,
   selectedWindowPresetId,
+  systemWindowPresets,
   windowPresets
 } = useUiPreferences()
 const {
@@ -109,24 +117,32 @@ const {
   stackPlaybackFps
 } = useMobileViewerPreferences()
 const {
-  getStarredSliceCount,
   isSliceStarred,
   toggleSliceStar
 } = useKeySliceStars()
 
 const activeTool = ref<MobileToolKey>('scroll')
 const activeSheetKind = ref<MobileSheetKind>(null)
+const activeSheetPresentation = ref<MobileSheetPresentation | null>(null)
+const customPresetZhName = ref('')
+const customPresetEnName = ref('')
+const customPresetWw = ref('400')
+const customPresetWl = ref('40')
+const selectedCustomPresetIds = ref<string[]>([])
 const activeCompareViewportKey = ref<CompareStackPaneKey>(COMPARE_STACK_SOURCE_PANE_KEY)
 const activeMprViewportKey = ref<MprViewportKey>(mprDefaultViewport.value)
 const isLoadingDemo = ref(false)
 const isSettingsOpen = ref(false)
 const isPlayingStack = ref(false)
+const fourDPlaybackStarting = ref(false)
+const compareSourceSeriesId = ref<string | null>(null)
 const playbackFps = ref<MobileStackPlaybackFps>(stackPlaybackFps.value)
 const sliceSliderState = ref<MobileSliceSliderState | null>(null)
 const tagSearchQuery = ref('')
 const orientationLockNoticeShown = ref(false)
 
 let playbackTimer: ReturnType<typeof window.setInterval> | null = null
+let fourDPlaybackStartingTimer: ReturnType<typeof window.setTimeout> | null = null
 let sliceSliderFrame: number | null = null
 
 const isZh = computed(() => locale.value === 'zh-CN')
@@ -168,7 +184,6 @@ const canOpenMpr = computed(() => supportsViewerViewType(mobileViewerCapabilityP
 const canOpenVolume = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, '3D'))
 const canOpenFourD = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, '4D'))
 const canOpenTag = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'Tag'))
-const seriesCountLabel = computed(() => `${mobileSeriesList.value.length}`)
 const activeSeriesId = computed(() =>
   activeCompareTab.value?.compareSeriesIds?.[activeCompareViewportKey.value] ||
   activeImageTab.value?.seriesId ||
@@ -184,6 +199,7 @@ const activeTitle = computed(() => {
   const series = selectedSeries.value
   return series?.seriesDescription || series?.seriesId || (isZh.value ? '移动端阅片' : 'Mobile Viewer')
 })
+const hasActiveView = computed(() => Boolean(viewer.activeTabKey.value))
 
 const activeSliceLabelSource = computed(() => {
   if (activeStackTab.value) {
@@ -227,7 +243,6 @@ const activeStackSlice = computed(() => (activeStackTab.value ? parseSliceLabel(
 const isCurrentStackSliceStarred = computed(() =>
   Boolean(activeStackTab.value && activeStackSlice.value && isSliceStarred(activeStackTab.value.seriesId, activeStackSlice.value.index))
 )
-const activeStackStarCount = computed(() => getStarredSliceCount(activeStackTab.value?.seriesId))
 const canPlayStack = computed(() => Boolean(activeStackSlice.value && activeStackSlice.value.total > 1 && activeStackTab.value))
 const showSlicePanel = computed(() => Boolean(activeStackTab.value || activeCompareTab.value || activeMprLikeTab.value))
 const fourDPhaseCount = computed(() => Math.max(1, activeFourDTab.value?.fourDPhaseItems?.length ?? activeFourDTab.value?.fourDPhaseCount ?? 1))
@@ -240,6 +255,19 @@ const canPlayFourD = computed(() => Boolean(activeFourDTab.value && fourDPhaseCo
 const isPlayingFourD = computed(() => Boolean(activeFourDTab.value?.fourDIsPlaying))
 const activePlaybackFps = computed(() => (activeFourDTab.value ? activeFourDTab.value.fourDPlaybackFps ?? 2 : playbackFps.value))
 const canPlayActive = computed(() => (activeFourDTab.value ? canPlayFourD.value : canPlayStack.value))
+const activePlayLabel = computed(() => {
+  if (activeFourDTab.value && fourDPlaybackStarting.value) {
+    return isZh.value ? '加载' : 'Loading'
+  }
+  const isPlaying = activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value
+  return isPlaying ? (isZh.value ? '暂停' : 'Pause') : (isZh.value ? '播放' : 'Play')
+})
+const activePlayIcon = computed(() => {
+  if (activeFourDTab.value && fourDPlaybackStarting.value) {
+    return 'connecting'
+  }
+  return (activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value) ? 'pause' : 'play'
+})
 const scrollDragThreshold = computed(() => GESTURE_SCROLL_THRESHOLDS[gestureSensitivity.value] ?? GESTURE_SCROLL_THRESHOLDS.normal)
 const filteredTagItems = computed(() => {
   const items = activeTagTab.value?.tagItems ?? []
@@ -254,55 +282,36 @@ const mobileShellClasses = computed(() => ({
   'mobile-shell--orientation-portrait': orientationLock.value === 'portrait'
 }))
 
-const mobileTools = computed<MobileToolbarItem[]>(() => {
-  if (activeCompareTab.value) {
-    return [
-      { key: 'scroll', icon: 'page', label: 'Scroll' },
-      { key: 'window', icon: 'window', label: 'Window' },
-      { key: 'pan', icon: 'pan', label: 'Pan' },
-      { key: 'zoom', icon: 'zoom', label: 'Zoom' },
-      { key: 'more', icon: 'menu', label: 'More' }
-    ]
-  }
-
+const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
   if (activeVolumeTab.value) {
     return [
-      { key: 'rotate3d', icon: 'rotate3d', label: 'Rotate' },
-      { key: 'pan', icon: 'pan', label: 'Pan' },
-      { key: 'zoom', icon: 'zoom', label: 'Zoom' },
-      { key: 'window', icon: 'window', label: 'Window' },
-      { key: 'more', icon: 'menu', label: 'More' }
-    ]
-  }
-
-  if (activeMprLikeTab.value) {
-    const tools: MobileToolbarItem[] = [
-      { key: 'crosshair', icon: 'crosshair', label: isZh.value ? '十字线' : 'Cross' },
-      { key: 'scroll', icon: 'page', label: isZh.value ? '滚片' : 'Scroll' },
       { key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' },
       { key: 'pan', icon: 'pan', label: isZh.value ? '平移' : 'Pan' },
       { key: 'zoom', icon: 'zoom', label: isZh.value ? '缩放' : 'Zoom' },
-      { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
+      { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' }
     ]
-    if (activeFourDTab.value) {
-      tools.splice(tools.length - 1, 0, {
-        key: 'play',
-        icon: isPlayingFourD.value ? 'pause' : 'play',
-        label: isPlayingFourD.value ? (isZh.value ? '暂停' : 'Pause') : (isZh.value ? '播放' : 'Play')
-      })
-    }
-    return tools
   }
 
+  const scrollTool: MobileToolbarItem = activeMprLikeTab.value
+    ? { key: 'crosshair', icon: 'crosshair', label: isZh.value ? '十字线' : 'Cross' }
+    : { key: 'scroll', icon: 'page', label: isZh.value ? '翻页' : 'Scroll' }
+
   return [
-    { key: 'scroll', icon: 'page', label: isZh.value ? '滚片' : 'Scroll' },
     { key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' },
     { key: 'pan', icon: 'pan', label: isZh.value ? '平移' : 'Pan' },
     { key: 'zoom', icon: 'zoom', label: isZh.value ? '缩放' : 'Zoom' },
-    { key: 'play', icon: isPlayingStack.value ? 'pause' : 'play', label: isPlayingStack.value ? (isZh.value ? '暂停' : 'Pause') : (isZh.value ? '播放' : 'Play') },
-    { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
+    scrollTool,
+    { key: 'play', icon: activePlayIcon.value, label: activePlayLabel.value }
   ]
 })
+
+const secondaryMobileTools = computed<MobileToolbarItem[]>(() => [
+  { key: 'measure', icon: 'measure', label: isZh.value ? '测量' : 'Measure' },
+  { key: 'reset', icon: 'reset', label: isZh.value ? '重置' : 'Reset' },
+  { key: 'color', icon: activeVolumeTab.value ? 'render-volume' : 'pseudocolor', label: isZh.value ? '伪彩' : 'Color' },
+  { key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' },
+  { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
+])
 
 const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; label: string }>>(() => {
   const tabs: Array<{ key: MobileSheetTabKey; icon: string; label: string }> = [
@@ -319,7 +328,6 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
       { key: 'display', icon: 'display', label: isZh.value ? '显示' : 'Display' },
       { key: 'color', icon: 'pseudocolor', label: isZh.value ? '伪彩' : 'Color' },
       { key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' },
-      { key: 'compare', icon: 'compare', label: isZh.value ? '同步' : 'Sync' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
     return tabs
@@ -367,23 +375,35 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
 
 const sheetTitle = computed(() => {
   const titleMap: Record<MobileSheetTabKey, string> = {
-    color: isZh.value ? '伪彩' : 'Pseudocolor',
-    display: isZh.value ? '显示叠加' : 'Display',
+    color: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Pseudocolor'),
+    display: isZh.value ? '显示' : 'Display',
     mpr: 'MPR',
+    measure: isZh.value ? '测量' : 'Measure',
     playback: isZh.value ? '播放' : 'Playback',
-    compare: isZh.value ? '对比同步' : 'Compare Sync',
+    compare: activeCompareTab.value ? (isZh.value ? '对比同步' : 'Compare Sync') : (isZh.value ? '选择对比序列' : 'Compare Target'),
     series: isZh.value ? '序列' : 'Series',
     tag: 'DICOM Tag',
-    transform: isZh.value ? '变换' : 'Transform',
+    transform: activeVolumeTab.value ? (isZh.value ? '3D 参数' : '3D Tools') : (isZh.value ? '变换' : 'Transform'),
     window: isZh.value ? '窗模板' : 'Window Presets'
   }
   return activeSheetKind.value ? titleMap[activeSheetKind.value] : ''
 })
 
+const showSheetTabBar = computed(() => activeSheetPresentation.value === 'menu')
+
 const displayOverlayOptions = computed<Array<{ key: DisplayOverlayKey; icon: string; label: string; enabled: boolean }>>(() => [
   { key: 'cornerInfo', icon: 'info', label: isZh.value ? '四角信息' : 'Corner Info', enabled: activeImageTab.value?.showCornerInfo !== false },
   { key: 'scaleBar', icon: 'measure', label: isZh.value ? '比例尺' : 'Scale Bar', enabled: activeImageTab.value?.showScaleBar !== false }
 ])
+const displayCustomWindowPresets = computed(() => windowPresets.value.filter((preset) => preset.source === 'custom'))
+const selectedCustomPresetIdSet = computed(() => new Set(selectedCustomPresetIds.value))
+const hasSelectedCustomPresets = computed(() => selectedCustomPresetIds.value.length > 0)
+const areAllCustomPresetsSelected = computed(() =>
+  displayCustomWindowPresets.value.length > 0 &&
+  displayCustomWindowPresets.value.every((preset) => selectedCustomPresetIdSet.value.has(preset.id))
+)
+const canAddCustomWindowPreset = computed(() => displayCustomWindowPresets.value.length < MAX_CUSTOM_WINDOW_PRESETS)
+const customPresetLimitLabel = computed(() => `${displayCustomWindowPresets.value.length}/${MAX_CUSTOM_WINDOW_PRESETS}`)
 
 const compareSyncOptions = computed(() =>
   VIEW_SYNC_OPTION_CONFIGS.map((option) => ({
@@ -391,10 +411,56 @@ const compareSyncOptions = computed(() =>
     enabled: activeCompareTab.value ? getViewSyncEnabled(activeCompareTab.value, option.key) : false
   }))
 )
+const compareSourceSeries = computed(() =>
+  compareSourceSeriesId.value ? viewer.seriesList.value.find((series) => series.seriesId === compareSourceSeriesId.value) ?? null : null
+)
+const compareCandidateSeries = computed(() => {
+  const source = compareSourceSeries.value
+  if (!source) {
+    return []
+  }
+  const sourceStudyUid = getSeriesStudyInstanceUid(source)
+  const candidates = mobileSeriesList.value.filter((series) =>
+    series.seriesId !== source.seriesId &&
+    isSeriesActionSupported(series, 'CompareStack')
+  )
+  if (!sourceStudyUid) {
+    return candidates
+  }
+  const sameStudy = candidates.filter((series) => getSeriesStudyInstanceUid(series) === sourceStudyUid)
+  return sameStudy.length ? sameStudy : candidates
+})
+const currentConnectionState = computed<ConnectionState>(() => viewer.connectionState?.value ?? 'idle')
+const connectionIcon = computed(() => getConnectionIcon(currentConnectionState.value))
+const connectionToneClass = computed(() => `mobile-shell__connection mobile-shell__connection--${getConnectionTone(currentConnectionState.value)}`)
 const activeVolumeRenderModeValue = computed(() => `render3dMode:${activeVolumeTab.value?.render3dMode ?? 'volume'}`)
 const activeVolumePresetValue = computed(() => activeVolumeTab.value?.volumePreset ?? 'volumePreset:bone')
 
+function getConnectionTone(state: ConnectionState): 'connected' | 'connecting' | 'disconnected' {
+  if (state === 'connected') {
+    return 'connected'
+  }
+  if (state === 'starting' || state === 'connecting' || state === 'reconnecting') {
+    return 'connecting'
+  }
+  return 'disconnected'
+}
+
+function getConnectionIcon(state: ConnectionState): string {
+  const tone = getConnectionTone(state)
+  if (tone === 'connected') {
+    return 'connected'
+  }
+  if (tone === 'connecting') {
+    return 'connecting'
+  }
+  return 'disconnected'
+}
+
 function normalizeToolOperation(tool: MobileToolKey): string {
+  if (tool === 'measure') {
+    return 'measure:line'
+  }
   const operation = tool === 'scroll' ? VIEW_OPERATION_TYPES.scroll : tool
   return `${STACK_OPERATION_PREFIX}${operation}`
 }
@@ -408,7 +474,7 @@ function setActiveMobileTool(tool: MobileToolKey, options: { closeSheet?: boolea
   activeTool.value = tool
   viewer.setActiveOperation(normalizeToolOperation(tool))
   if (options.closeSheet !== false) {
-    activeSheetKind.value = null
+    dismissSheet()
   }
 }
 
@@ -482,6 +548,11 @@ function isSeriesActionSupported(series: FolderSeriesItem | null | undefined, vi
   return isMobileViewTypeEnabled(viewType) && isSeriesViewSupported(series, viewType)
 }
 
+function getSeriesStudyInstanceUid(series: FolderSeriesItem | null | undefined): string {
+  const value = (series as { studyInstanceUid?: unknown } | null | undefined)?.studyInstanceUid
+  return typeof value === 'string' ? value : ''
+}
+
 async function openSeriesView(seriesId: string, viewType: ViewType): Promise<void> {
   const series = viewer.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
   if (!isSeriesActionSupported(series, viewType)) {
@@ -503,7 +574,7 @@ async function openSeriesView(seriesId: string, viewType: ViewType): Promise<voi
   if (viewType === 'Stack' || viewType === 'MPR' || viewType === '3D' || viewType === '4D') {
     applyMobileViewDefaults(viewType)
   }
-  activeSheetKind.value = null
+  dismissSheet()
 }
 
 async function openSeriesStack(seriesId: string): Promise<void> {
@@ -518,17 +589,25 @@ function getCompareSourceSeriesId(): string | null {
   return activeImageTab.value?.seriesId || viewer.selectedSeriesId.value || null
 }
 
-function canCompareWithSeries(series: FolderSeriesItem): boolean {
-  const sourceSeriesId = getCompareSourceSeriesId()
-  return Boolean(
-    sourceSeriesId &&
-    sourceSeriesId !== series.seriesId &&
-    isSeriesActionSupported(series, 'CompareStack')
-  )
+function canStartCompareFromSeries(series: FolderSeriesItem): boolean {
+  return canOpenCompare.value && isSeriesActionSupported(series, 'CompareStack')
+}
+
+function openComparePicker(sourceSeriesId = getCompareSourceSeriesId()): void {
+  if (!sourceSeriesId || !canOpenCompare.value) {
+    return
+  }
+  const source = viewer.seriesList.value.find((series) => series.seriesId === sourceSeriesId) ?? null
+  if (!isSeriesActionSupported(source, 'CompareStack')) {
+    return
+  }
+  compareSourceSeriesId.value = sourceSeriesId
+  viewer.selectSeries(sourceSeriesId)
+  openFocusedSheet('compare')
 }
 
 async function openSeriesCompareTo(targetSeriesId: string): Promise<void> {
-  const sourceSeriesId = getCompareSourceSeriesId()
+  const sourceSeriesId = compareSourceSeriesId.value || getCompareSourceSeriesId()
   if (!sourceSeriesId || sourceSeriesId === targetSeriesId) {
     return
   }
@@ -538,7 +617,8 @@ async function openSeriesCompareTo(targetSeriesId: string): Promise<void> {
   await viewer.openSeriesCompare(sourceSeriesId, targetSeriesId)
   viewer.setActiveViewportKey(COMPARE_STACK_SOURCE_PANE_KEY)
   applyMobileViewDefaults('CompareStack')
-  activeSheetKind.value = null
+  compareSourceSeriesId.value = null
+  dismissSheet()
 }
 
 async function openSeriesMpr(seriesId: string): Promise<void> {
@@ -612,28 +692,67 @@ async function loadDemoSeries(): Promise<void> {
   }
 }
 
-function openSheet(kind: MobileSheetTabKey): void {
+function dismissSheet(): void {
+  activeSheetKind.value = null
+  activeSheetPresentation.value = null
+}
+
+function openFocusedSheet(kind: MobileSheetTabKey): void {
+  activeSheetPresentation.value = 'focused'
   activeSheetKind.value = kind
+}
+
+function openMenuSheet(kind: MobileSheetTabKey): void {
+  activeSheetPresentation.value = 'menu'
+  activeSheetKind.value = kind
+}
+
+function openSheet(kind: MobileSheetTabKey): void {
+  openMenuSheet(kind)
 }
 
 function openMoreSheet(): void {
   if (activeCompareTab.value) {
-    activeSheetKind.value = 'compare'
+    openFocusedSheet('compare')
     return
   }
   if (activeMprLikeTab.value) {
-    activeSheetKind.value = 'mpr'
+    openMenuSheet('mpr')
     return
   }
   if (activeVolumeTab.value) {
-    activeSheetKind.value = 'color'
+    openMenuSheet('color')
     return
   }
-  activeSheetKind.value = 'window'
+  openMenuSheet('window')
 }
 
 function closeSheet(): void {
-  activeSheetKind.value = null
+  if (activeSheetKind.value === 'compare') {
+    compareSourceSeriesId.value = null
+  }
+  dismissSheet()
+}
+
+function isSeriesSelected(seriesId: string): boolean {
+  return viewer.selectedSeriesId.value === seriesId
+}
+
+function selectSeriesForActions(seriesId: string): void {
+  viewer.selectSeries(seriesId)
+}
+
+function closeActiveView(): void {
+  const tabKey = viewer.activeTabKey.value
+  if (!tabKey) {
+    openSheet('series')
+    return
+  }
+  stopStackPlayback()
+  viewer.closeTab(tabKey)
+  void nextTick(() => {
+    openSheet('series')
+  })
 }
 
 function clampSliceValue(value: number, total: number): number {
@@ -750,8 +869,63 @@ function formatWindowPresetDetail(preset: WindowTemplatePreset): string {
 function applyWindowPreset(preset: WindowTemplatePreset): void {
   selectedWindowPresetId.value = preset.id
   viewer.triggerViewAction({ action: 'windowPreset', value: formatWindowPresetValue(preset) })
-  activeSheetKind.value = null
+  dismissSheet()
 }
+
+function syncSelectedCustomPresetIds(): void {
+  const availableIds = new Set(displayCustomWindowPresets.value.map((preset) => preset.id))
+  selectedCustomPresetIds.value = selectedCustomPresetIds.value.filter((id) => availableIds.has(id))
+}
+
+function toggleCustomPresetSelection(id: string): void {
+  if (selectedCustomPresetIdSet.value.has(id)) {
+    selectedCustomPresetIds.value = selectedCustomPresetIds.value.filter((item) => item !== id)
+    return
+  }
+  selectedCustomPresetIds.value = [...selectedCustomPresetIds.value, id]
+}
+
+function toggleAllCustomPresetSelection(): void {
+  if (areAllCustomPresetsSelected.value) {
+    selectedCustomPresetIds.value = []
+    return
+  }
+  selectedCustomPresetIds.value = displayCustomWindowPresets.value.map((preset) => preset.id)
+}
+
+function handleRemoveSelectedCustomWindowPresets(): void {
+  syncSelectedCustomPresetIds()
+  if (!selectedCustomPresetIds.value.length) {
+    return
+  }
+  removeCustomWindowPresets(selectedCustomPresetIds.value)
+  selectedCustomPresetIds.value = []
+}
+
+function handleAddCustomWindowPreset(): void {
+  if (!canAddCustomWindowPreset.value) {
+    return
+  }
+  const nextId = addCustomWindowPreset({
+    zhName: customPresetZhName.value,
+    enName: customPresetEnName.value,
+    ww: Number.parseFloat(customPresetWw.value),
+    wl: Number.parseFloat(customPresetWl.value)
+  })
+  selectedWindowPresetId.value = nextId
+  const createdPreset = windowPresets.value.find((preset) => preset.id === nextId)
+  if (createdPreset) {
+    viewer.triggerViewAction({ action: 'windowPreset', value: formatWindowPresetValue(createdPreset) })
+  }
+  customPresetZhName.value = ''
+  customPresetEnName.value = ''
+  customPresetWw.value = '400'
+  customPresetWl.value = '40'
+}
+
+watch(displayCustomWindowPresets, () => {
+  syncSelectedCustomPresetIds()
+})
 
 function toggleDisplayOverlay(key: DisplayOverlayKey): void {
   const option = displayOverlayOptions.value.find((item) => item.key === key)
@@ -765,27 +939,27 @@ function toggleDisplayOverlay(key: DisplayOverlayKey): void {
 function applyPseudocolor(value: string): void {
   selectedPseudocolorKey.value = value.replace(/^pseudocolor:/, '')
   viewer.triggerViewAction({ action: 'pseudocolor', value })
-  activeSheetKind.value = null
+  dismissSheet()
 }
 
 function applyVolumeRenderMode(value: string): void {
   viewer.triggerViewAction({ action: 'render3dMode', value })
-  activeSheetKind.value = null
+  dismissSheet()
 }
 
 function applyVolumePreset(value: string): void {
   viewer.triggerViewAction({ action: 'volumePreset', value })
-  activeSheetKind.value = null
+  dismissSheet()
 }
 
 function applyTransform(value: string): void {
   viewer.triggerViewAction({ action: 'rotate', value })
-  activeSheetKind.value = null
+  dismissSheet()
 }
 
 function handleResetView(): void {
   viewer.triggerViewAction({ action: 'reset' })
-  activeSheetKind.value = null
+  dismissSheet()
 }
 
 function selectMprViewport(viewportKey: MprViewportKey): void {
@@ -861,6 +1035,23 @@ function stopStackPlayback(): void {
   isPlayingStack.value = false
 }
 
+function clearFourDPlaybackStarting(): void {
+  if (fourDPlaybackStartingTimer != null) {
+    window.clearTimeout(fourDPlaybackStartingTimer)
+    fourDPlaybackStartingTimer = null
+  }
+  fourDPlaybackStarting.value = false
+}
+
+function markFourDPlaybackStarting(): void {
+  clearFourDPlaybackStarting()
+  fourDPlaybackStarting.value = true
+  fourDPlaybackStartingTimer = window.setTimeout(() => {
+    fourDPlaybackStartingTimer = null
+    fourDPlaybackStarting.value = false
+  }, 12000)
+}
+
 function toggleStackPlayback(): void {
   if (isPlayingStack.value) {
     stopStackPlayback()
@@ -871,8 +1062,13 @@ function toggleStackPlayback(): void {
 
 function toggleFourDPlayback(): void {
   const tab = activeFourDTab.value
-  if (!tab || !canPlayFourD.value) {
+  if (!tab || !canPlayFourD.value || fourDPlaybackStarting.value) {
     return
+  }
+  if (!tab.fourDIsPlaying) {
+    markFourDPlaybackStarting()
+  } else {
+    clearFourDPlaybackStarting()
   }
   viewer.handleFourDPlaybackChange({
     tabKey: tab.key,
@@ -904,7 +1100,7 @@ function setPlaybackFps(value: MobileStackPlaybackFps): void {
 
 function handleFourDPhaseSliderInput(event: Event): void {
   const tab = activeFourDTab.value
-  if (!tab || tab.fourDIsPlaying) {
+  if (!tab || tab.fourDIsPlaying || fourDPlaybackStarting.value) {
     return
   }
   const value = Number((event.target as HTMLInputElement | null)?.value)
@@ -964,17 +1160,39 @@ function isSeriesCompareActive(seriesId: string): boolean {
 
 function isToolbarItemActive(tool: MobileToolbarItem): boolean {
   if (tool.key === 'more') {
-    return activeSheetKind.value !== null
+    return activeSheetPresentation.value === 'menu' && Boolean(activeSheetKind.value)
+  }
+  if (tool.key === 'measure') {
+    return (activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'measure') ||
+      viewer.activeOperation.value.startsWith('measure:')
+  }
+  if (tool.key === 'reset') {
+    return false
+  }
+  if (tool.key === 'color') {
+    return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'color'
+  }
+  if (tool.key === 'transform') {
+    return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'transform'
   }
   if (tool.key === 'play') {
-    return activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value
+    return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingStack.value
   }
   return activeTool.value === tool.key
 }
 
 function isToolbarItemDisabled(tool: MobileToolbarItem): boolean {
   if (tool.key === 'play') {
-    return !canPlayActive.value
+    return !canPlayActive.value || fourDPlaybackStarting.value
+  }
+  if (tool.key === 'measure') {
+    return !activeImageTab.value || Boolean(activeVolumeTab.value)
+  }
+  if (tool.key === 'color') {
+    return !activeImageTab.value
+  }
+  if (tool.key === 'transform') {
+    return !activeImageTab.value || Boolean(activeVolumeTab.value)
   }
   return !activeImageTab.value
 }
@@ -982,6 +1200,30 @@ function isToolbarItemDisabled(tool: MobileToolbarItem): boolean {
 function handleToolbarItem(tool: MobileToolbarItem): void {
   if (tool.key === 'more') {
     openMoreSheet()
+    return
+  }
+  if (tool.key === 'measure') {
+    openFocusedSheet('measure')
+    return
+  }
+  if (tool.key === 'reset') {
+    handleResetView()
+    return
+  }
+  if (tool.key === 'color') {
+    openFocusedSheet('color')
+    return
+  }
+  if (tool.key === 'transform') {
+    openFocusedSheet('transform')
+    return
+  }
+  if (tool.key === 'tag') {
+    openActiveSeriesTag()
+    return
+  }
+  if (tool.key === 'compare') {
+    openComparePicker()
     return
   }
   setActiveMobileTool(tool.key)
@@ -1080,6 +1322,7 @@ watch(
   () => viewer.activeTabKey.value,
   () => {
     stopStackPlayback()
+    clearFourDPlaybackStarting()
     flushSliceSliderDelta()
     sliceSliderState.value = null
     tagSearchQuery.value = ''
@@ -1130,6 +1373,15 @@ watch(
 )
 
 watch(
+  [isPlayingFourD, activeFourDTab],
+  ([isPlaying, tab]) => {
+    if (isPlaying || !tab) {
+      clearFourDPlaybackStarting()
+    }
+  }
+)
+
+watch(
   [defaultShowCornerInfo, defaultShowScaleBar],
   () => {
     applyDisplayOverlayDefaults()
@@ -1146,6 +1398,7 @@ watch(
 
 onBeforeUnmount(() => {
   stopStackPlayback()
+  clearFourDPlaybackStarting()
   flushSliceSliderDelta()
   void applyOrientationLock('unlocked')
 })
@@ -1154,20 +1407,29 @@ onBeforeUnmount(() => {
 <template>
   <div class="mobile-shell" :class="mobileShellClasses">
     <header class="mobile-shell__header">
-      <div class="mobile-shell__title-group">
+      <button type="button" class="mobile-shell__title-group" data-testid="mobile-title-series-button" @click="openSheet('series')">
         <div class="mobile-shell__eyebrow">{{ isZh ? 'DicomVision 移动端' : 'DicomVision Mobile' }}</div>
         <div class="mobile-shell__title">{{ activeTitle }}</div>
-      </div>
+      </button>
       <div class="mobile-shell__header-actions">
         <button
           type="button"
           class="mobile-shell__icon-button"
-          :disabled="mobileSeriesList.length === 0"
-          data-testid="mobile-series-button"
-          @click="openSheet('series')"
+          :class="connectionToneClass"
+          data-testid="mobile-connection-status"
+          :aria-label="currentConnectionState"
         >
-          <AppIcon name="layout" :size="18" />
-          <span>{{ seriesCountLabel }}</span>
+          <AppIcon :name="connectionIcon" :size="18" />
+        </button>
+        <button
+          v-if="hasActiveView"
+          type="button"
+          class="mobile-shell__icon-button"
+          data-testid="mobile-close-view-button"
+          :aria-label="isZh ? '关闭当前视图' : 'Close current view'"
+          @click="closeActiveView"
+        >
+          <AppIcon name="close" :size="18" />
         </button>
         <button
           type="button"
@@ -1189,6 +1451,7 @@ onBeforeUnmount(() => {
         :scroll-threshold="scrollDragThreshold"
         @active-viewport-change="viewer.setActiveViewportKey"
         @hover-viewport-change="viewer.handleHoverViewportChange"
+        @measurement-create="viewer.handleMeasurementCreate"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
         @workspace-ready="viewer.setViewerStage"
@@ -1280,8 +1543,8 @@ onBeforeUnmount(() => {
 
       <div v-if="!activeImageTab && !activeTagTab" class="mobile-shell__empty">
         <div class="mobile-shell__empty-panel">
-          <div class="mobile-shell__empty-mark">
-            <AppIcon name="play" :size="28" />
+          <div class="mobile-shell__empty-mark" :class="connectionToneClass">
+            <AppIcon :name="connectionIcon" :size="28" />
           </div>
           <div class="mobile-shell__empty-title">{{ isZh ? '加载示例影像' : 'Load Demo Images' }}</div>
           <button
@@ -1295,12 +1558,20 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
+
+      <div v-if="fourDPlaybackStarting" class="mobile-shell__playback-loading" role="status" data-testid="mobile-four-d-loading">
+        <AppIcon name="connecting" :size="18" />
+        <span>{{ isZh ? '正在准备 4D 播放...' : 'Preparing 4D playback...' }}</span>
+      </div>
     </main>
 
     <section
       v-if="showSlicePanel"
       class="mobile-shell__slice-panel"
-      :class="{ 'mobile-shell__slice-panel--mpr': activeMprLikeTab }"
+      :class="{
+        'mobile-shell__slice-panel--mpr': activeMprLikeTab,
+        'mobile-shell__slice-panel--stack': activeStackTab
+      }"
       aria-label="Slice navigation"
     >
       <div v-if="activeMprLikeTab" class="mobile-shell__plane-tabs" data-testid="mobile-mpr-plane-tabs">
@@ -1328,7 +1599,7 @@ onBeforeUnmount(() => {
           :max="fourDPhaseCount"
           step="1"
           :value="fourDPhaseSliderValue"
-          :disabled="fourDPhaseCount <= 1 || isPlayingFourD"
+          :disabled="fourDPhaseCount <= 1 || isPlayingFourD || fourDPlaybackStarting"
           @change="handleFourDPhaseSliderInput"
           @input="handleFourDPhaseSliderInput"
         />
@@ -1352,22 +1623,52 @@ onBeforeUnmount(() => {
         @pointerdown="beginSliceSliderInteraction"
         @pointerup="finishSliceSliderInteraction"
       />
+      <button
+        v-if="activeStackTab"
+        type="button"
+        class="mobile-shell__slice-star"
+        :class="{ 'mobile-shell__slice-star--active': isCurrentStackSliceStarred }"
+        data-testid="mobile-toggle-star"
+        :aria-label="isCurrentStackSliceStarred ? (isZh ? '取消收藏当前切片' : 'Unstar current slice') : (isZh ? '收藏当前切片' : 'Star current slice')"
+        :aria-pressed="isCurrentStackSliceStarred"
+        :disabled="!activeStackSlice"
+        @click="toggleStackStarForCurrentSlice"
+      >
+        <AppIcon :name="isCurrentStackSliceStarred ? 'star' : 'star-outline'" :size="20" />
+      </button>
     </section>
 
     <nav v-if="activeImageTab" class="mobile-shell__toolbar" aria-label="Mobile viewer tools">
-      <button
-        v-for="tool in mobileTools"
-        :key="tool.key"
-        type="button"
-        class="mobile-shell__tool"
-        :class="{ 'mobile-shell__tool--active': isToolbarItemActive(tool) }"
-        :disabled="isToolbarItemDisabled(tool)"
-        :data-testid="tool.key === 'more' ? 'mobile-more-button' : `mobile-tool-${tool.key}`"
-        @click="handleToolbarItem(tool)"
-      >
-        <AppIcon :name="tool.icon" :size="18" />
-        <span>{{ tool.label }}</span>
-      </button>
+      <div class="mobile-shell__toolbar-row">
+        <button
+          v-for="tool in primaryMobileTools"
+          :key="`primary-${tool.key}`"
+          type="button"
+          class="mobile-shell__tool"
+          :class="{ 'mobile-shell__tool--active': isToolbarItemActive(tool) }"
+          :disabled="isToolbarItemDisabled(tool)"
+          :data-testid="`mobile-tool-${tool.key}`"
+          @click="handleToolbarItem(tool)"
+        >
+          <AppIcon :name="tool.icon" :size="18" />
+          <span>{{ tool.label }}</span>
+        </button>
+      </div>
+      <div class="mobile-shell__toolbar-row">
+        <button
+          v-for="tool in secondaryMobileTools"
+          :key="`secondary-${tool.key}`"
+          type="button"
+          class="mobile-shell__tool"
+          :class="{ 'mobile-shell__tool--active': isToolbarItemActive(tool) }"
+          :disabled="isToolbarItemDisabled(tool)"
+          :data-testid="tool.key === 'more' ? 'mobile-more-button' : `mobile-tool-${tool.key}`"
+          @click="handleToolbarItem(tool)"
+        >
+          <AppIcon :name="tool.icon" :size="18" />
+          <span>{{ tool.label }}</span>
+        </button>
+      </div>
     </nav>
 
     <div v-if="activeSheetKind" class="mobile-shell__sheet-backdrop" @click.self="closeSheet">
@@ -1382,7 +1683,7 @@ onBeforeUnmount(() => {
             <AppIcon name="close" :size="18" />
           </button>
         </div>
-        <div class="mobile-shell__sheet-tabs" role="tablist" aria-label="Mobile quick tools">
+        <div v-if="showSheetTabBar" class="mobile-shell__sheet-tabs" role="tablist" aria-label="Mobile quick tools">
           <button
             v-for="tab in mobileSheetTabs"
             :key="tab.key"
@@ -1390,13 +1691,12 @@ onBeforeUnmount(() => {
             class="mobile-shell__sheet-tab"
             :class="{ 'mobile-shell__sheet-tab--active': activeSheetKind === tab.key }"
             :data-testid="`mobile-sheet-tab-${tab.key}`"
-            @click="activeSheetKind = tab.key"
+            @click="openMenuSheet(tab.key)"
           >
             <AppIcon :name="tab.icon" :size="15" />
             <span>{{ tab.label }}</span>
           </button>
         </div>
-
         <div class="mobile-shell__sheet-content">
           <div v-if="activeSheetKind === 'series'" class="mobile-shell__series-list">
             <div
@@ -1404,13 +1704,14 @@ onBeforeUnmount(() => {
               :key="series.seriesId"
               class="mobile-shell__series-row"
               :class="{ 'mobile-shell__series-row--active': viewer.selectedSeriesId.value === series.seriesId }"
+              @click="selectSeriesForActions(series.seriesId)"
             >
               <span class="mobile-shell__series-modality">{{ series.modality || 'DICOM' }}</span>
               <span class="mobile-shell__series-body">
                 <span class="mobile-shell__series-title">{{ series.seriesDescription || series.seriesId }}</span>
                 <span class="mobile-shell__series-meta">{{ formatSeriesMeta(series) }}</span>
               </span>
-              <span class="mobile-shell__series-actions">
+              <span v-if="isSeriesSelected(series.seriesId)" class="mobile-shell__series-actions" @click.stop>
                 <button
                   type="button"
                   class="mobile-shell__series-view-button"
@@ -1428,8 +1729,8 @@ onBeforeUnmount(() => {
                   :class="{ 'mobile-shell__series-view-button--active': isSeriesCompareActive(series.seriesId) }"
                   data-testid="mobile-open-compare"
                   :data-active="isSeriesCompareActive(series.seriesId)"
-                  :disabled="!canCompareWithSeries(series)"
-                  @click="openSeriesCompareTo(series.seriesId)"
+                  :disabled="!canStartCompareFromSeries(series)"
+                  @click="openComparePicker(series.seriesId)"
                 >
                   Compare
                 </button>
@@ -1470,22 +1771,127 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-else-if="activeSheetKind === 'window'" class="mobile-shell__action-list">
-            <button
-              v-for="preset in windowPresets"
-              :key="preset.id"
-              type="button"
-              class="mobile-shell__action-row"
-              :class="{ 'mobile-shell__action-row--active': selectedWindowPresetId === preset.id }"
-              data-testid="mobile-window-preset"
-              @click="applyWindowPreset(preset)"
-            >
-              <span class="mobile-shell__swatch" :style="{ background: preset.accent }" aria-hidden="true"></span>
-              <span>
-                <strong>{{ getWindowPresetLabel(preset) }}</strong>
-                <small>{{ formatWindowPresetDetail(preset) }}</small>
-              </span>
-            </button>
+          <div v-else-if="activeSheetKind === 'window'" class="mobile-shell__window-panel">
+            <section class="mobile-shell__window-section">
+              <div class="mobile-shell__window-subhead">{{ isZh ? '系统预设' : 'System Presets' }}</div>
+              <div class="mobile-shell__action-list">
+                <button
+                  v-for="preset in systemWindowPresets"
+                  :key="preset.id"
+                  type="button"
+                  class="mobile-shell__action-row"
+                  :class="{ 'mobile-shell__action-row--active': selectedWindowPresetId === preset.id }"
+                  data-testid="mobile-window-preset"
+                  @click="applyWindowPreset(preset)"
+                >
+                  <span class="mobile-shell__swatch" :style="{ background: preset.accent }" aria-hidden="true"></span>
+                  <span>
+                    <strong>{{ getWindowPresetLabel(preset) }}</strong>
+                    <small>{{ formatWindowPresetDetail(preset) }}</small>
+                  </span>
+                </button>
+              </div>
+            </section>
+
+            <section class="mobile-shell__window-section">
+              <div class="mobile-shell__window-subhead-row">
+                <span class="mobile-shell__window-subhead">{{ isZh ? '我的预设' : 'My Presets' }}</span>
+                <span class="mobile-shell__window-limit">{{ customPresetLimitLabel }}</span>
+              </div>
+              <div class="mobile-shell__window-actions">
+                <button
+                  type="button"
+                  class="mobile-shell__window-action"
+                  :disabled="!displayCustomWindowPresets.length"
+                  data-testid="mobile-window-select-all"
+                  @click="toggleAllCustomPresetSelection"
+                >
+                  {{ areAllCustomPresetsSelected ? (isZh ? '取消全选' : 'Clear') : (isZh ? '全选' : 'Select All') }}
+                </button>
+                <button
+                  type="button"
+                  class="mobile-shell__window-action"
+                  :disabled="!hasSelectedCustomPresets"
+                  data-testid="mobile-window-remove-selected"
+                  @click="handleRemoveSelectedCustomWindowPresets"
+                >
+                  {{ isZh ? '删除选中' : 'Remove Selected' }}
+                </button>
+              </div>
+              <div v-if="displayCustomWindowPresets.length" class="mobile-shell__action-list">
+                <div
+                  v-for="preset in displayCustomWindowPresets"
+                  :key="preset.id"
+                  class="mobile-shell__custom-preset-row"
+                  :class="{
+                    'mobile-shell__custom-preset-row--active': selectedWindowPresetId === preset.id,
+                    'mobile-shell__custom-preset-row--selected': selectedCustomPresetIdSet.has(preset.id)
+                  }"
+                >
+                  <button
+                    type="button"
+                    class="mobile-shell__custom-preset-check"
+                    :aria-pressed="selectedCustomPresetIdSet.has(preset.id)"
+                    data-testid="mobile-window-custom-select"
+                    @click.stop="toggleCustomPresetSelection(preset.id)"
+                  >
+                    <AppIcon v-if="selectedCustomPresetIdSet.has(preset.id)" name="check" :size="14" />
+                  </button>
+                  <button
+                    type="button"
+                    class="mobile-shell__custom-preset-main"
+                    data-testid="mobile-window-custom-preset"
+                    @click="applyWindowPreset(preset)"
+                  >
+                    <span class="mobile-shell__swatch" :style="{ background: preset.accent }" aria-hidden="true"></span>
+                    <span>
+                      <strong>{{ getWindowPresetLabel(preset) }}</strong>
+                      <small>{{ formatWindowPresetDetail(preset) }}</small>
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div v-else class="mobile-shell__empty-inline" data-testid="mobile-window-custom-empty">
+                {{ isZh ? '还没有自定义窗模板' : 'No custom window templates yet' }}
+              </div>
+            </section>
+
+            <section class="mobile-shell__window-section">
+              <div class="mobile-shell__window-subhead-row">
+                <span class="mobile-shell__window-subhead">{{ isZh ? '新增自定义窗模板' : 'Add Custom Template' }}</span>
+                <span class="mobile-shell__window-limit">{{ customPresetLimitLabel }}</span>
+              </div>
+              <div class="mobile-shell__window-form">
+                <label class="mobile-shell__window-field">
+                  <span>{{ isZh ? '中文名称' : 'Chinese Name' }}</span>
+                  <input v-model="customPresetZhName" type="text" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-zh" />
+                </label>
+                <label class="mobile-shell__window-field">
+                  <span>{{ isZh ? '英文名称' : 'English Name' }}</span>
+                  <input v-model="customPresetEnName" type="text" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-en" />
+                </label>
+                <label class="mobile-shell__window-field">
+                  <span>{{ isZh ? '窗宽 WW' : 'Window Width' }}</span>
+                  <input v-model="customPresetWw" type="number" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-ww" />
+                </label>
+                <label class="mobile-shell__window-field">
+                  <span>{{ isZh ? '窗位 WL' : 'Window Level' }}</span>
+                  <input v-model="customPresetWl" type="number" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-wl" />
+                </label>
+              </div>
+              <p v-if="!canAddCustomWindowPreset" class="mobile-shell__window-hint">
+                {{ isZh ? `最多只能保留 ${MAX_CUSTOM_WINDOW_PRESETS} 个自定义模板。` : `Up to ${MAX_CUSTOM_WINDOW_PRESETS} custom templates can be saved.` }}
+              </p>
+              <button
+                type="button"
+                class="mobile-shell__window-submit"
+                :disabled="!canAddCustomWindowPreset"
+                data-testid="mobile-window-add-custom"
+                @click="handleAddCustomWindowPreset"
+              >
+                {{ isZh ? '添加模板' : 'Add Template' }}
+              </button>
+            </section>
           </div>
 
           <div v-else-if="activeSheetKind === 'display'" class="mobile-shell__action-list">
@@ -1503,13 +1909,6 @@ onBeforeUnmount(() => {
               </span>
               <span class="mobile-shell__switch" :class="{ 'mobile-shell__switch--on': option.enabled }" aria-hidden="true">
                 <span></span>
-              </span>
-            </button>
-            <button type="button" class="mobile-shell__action-row" data-testid="mobile-reset-view" @click="handleResetView">
-              <AppIcon name="reset" :size="18" />
-              <span>
-                <strong>{{ isZh ? '重置当前视图' : 'Reset View' }}</strong>
-                <small>{{ isZh ? '恢复当前视口显示状态' : 'Restore the active viewport state' }}</small>
               </span>
             </button>
           </div>
@@ -1575,13 +1974,6 @@ onBeforeUnmount(() => {
               <AppIcon :name="option.icon" :size="18" />
               <span><strong>{{ isZh ? option.zh : option.en }}</strong></span>
             </button>
-            <button type="button" class="mobile-shell__action-row" data-testid="mobile-toggle-star" @click="toggleStackStarForCurrentSlice">
-              <AppIcon :name="isCurrentStackSliceStarred ? 'star' : 'star-outline'" :size="18" />
-              <span>
-                <strong>{{ isCurrentStackSliceStarred ? (isZh ? '取消关键帧' : 'Unstar Slice') : (isZh ? '收藏关键帧' : 'Star Slice') }}</strong>
-                <small>{{ activeStackStarCount }} {{ isZh ? '张已收藏' : 'starred' }}</small>
-              </span>
-            </button>
           </div>
 
           <div v-else-if="activeSheetKind === 'playback'" class="mobile-shell__action-list">
@@ -1604,25 +1996,50 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-else-if="activeSheetKind === 'compare'" class="mobile-shell__action-list">
-            <button
-              v-for="option in compareSyncOptions"
-              :key="option.key"
-              type="button"
-              class="mobile-shell__display-row"
-              data-testid="mobile-compare-sync"
-              @click="toggleCompareSync(option.key)"
-            >
-              <span class="mobile-shell__display-leading">
-                <AppIcon :name="option.icon" :size="18" />
-                <span>
-                  <strong>{{ option.label }}</strong>
-                  <small>{{ option.description }}</small>
+            <template v-if="activeCompareTab">
+              <button
+                v-for="option in compareSyncOptions"
+                :key="option.key"
+                type="button"
+                class="mobile-shell__display-row"
+                data-testid="mobile-compare-sync"
+                @click="toggleCompareSync(option.key)"
+              >
+                <span class="mobile-shell__display-leading">
+                  <AppIcon :name="option.icon" :size="18" />
+                  <span>
+                    <strong>{{ option.label }}</strong>
+                    <small>{{ option.description }}</small>
+                  </span>
                 </span>
-              </span>
-              <span class="mobile-shell__switch" :class="{ 'mobile-shell__switch--on': option.enabled }" aria-hidden="true">
-                <span></span>
-              </span>
-            </button>
+                <span class="mobile-shell__switch" :class="{ 'mobile-shell__switch--on': option.enabled }" aria-hidden="true">
+                  <span></span>
+                </span>
+              </button>
+            </template>
+            <template v-else>
+              <div v-if="compareSourceSeries" class="mobile-shell__compare-source">
+                <span>{{ isZh ? '源序列' : 'Source' }}</span>
+                <strong>{{ compareSourceSeries.seriesDescription || compareSourceSeries.seriesId }}</strong>
+              </div>
+              <button
+                v-for="series in compareCandidateSeries"
+                :key="series.seriesId"
+                type="button"
+                class="mobile-shell__action-row"
+                data-testid="mobile-compare-target"
+                @click="openSeriesCompareTo(series.seriesId)"
+              >
+                <span class="mobile-shell__series-modality">{{ series.modality || 'DICOM' }}</span>
+                <span>
+                  <strong>{{ series.seriesDescription || series.seriesId }}</strong>
+                  <small>{{ formatSeriesMeta(series) }}</small>
+                </span>
+              </button>
+              <div v-if="!compareCandidateSeries.length" class="mobile-shell__empty-inline" data-testid="mobile-compare-empty">
+                {{ isZh ? '没有可用于对比的其它影像序列' : 'No other image series can be compared.' }}
+              </div>
+            </template>
           </div>
 
           <div v-else-if="activeSheetKind === 'mpr'" class="mobile-shell__action-list">
@@ -1642,6 +2059,22 @@ onBeforeUnmount(() => {
             <button type="button" class="mobile-shell__action-row" data-testid="mobile-mpr-reset" @click="handleResetView">
               <AppIcon name="reset" :size="18" />
               <span><strong>{{ isZh ? '重置当前平面' : 'Reset Plane' }}</strong></span>
+            </button>
+          </div>
+
+          <div v-else-if="activeSheetKind === 'measure'" class="mobile-shell__action-list">
+            <button
+              type="button"
+              class="mobile-shell__action-row"
+              :class="{ 'mobile-shell__action-row--active': viewer.activeOperation.value === 'measure:line' }"
+              data-testid="mobile-measure-line"
+              @click="setActiveMobileTool('measure')"
+            >
+              <AppIcon name="measure-line" :size="18" />
+              <span>
+                <strong>Line</strong>
+                <small>{{ isZh ? '拖动生成线段测量' : 'Drag to create a line measurement' }}</small>
+              </span>
             </button>
           </div>
 
@@ -1707,7 +2140,14 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__title-group {
+  display: block;
   min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .mobile-shell__eyebrow {
@@ -1755,6 +2195,27 @@ onBeforeUnmount(() => {
   opacity: 0.48;
 }
 
+.mobile-shell__icon-button--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.mobile-shell__connection--connected {
+  border-color: color-mix(in srgb, #36d982 62%, var(--theme-border-strong));
+  color: #36d982;
+}
+
+.mobile-shell__connection--connecting {
+  border-color: color-mix(in srgb, #f4b84a 62%, var(--theme-border-strong));
+  color: #f4b84a;
+}
+
+.mobile-shell__connection--disconnected {
+  border-color: color-mix(in srgb, #f87171 62%, var(--theme-border-strong));
+  color: #f87171;
+}
+
 .mobile-shell__viewer {
   position: relative;
   min-height: 0;
@@ -1797,6 +2258,26 @@ onBeforeUnmount(() => {
   font-weight: 900;
 }
 
+.mobile-shell__playback-loading {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, black);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
+  color: var(--theme-text-primary);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
 .mobile-shell__primary-action {
   display: inline-flex;
   align-items: center;
@@ -1818,9 +2299,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
+  padding-right: calc(12px + env(safe-area-inset-right, 0px));
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
   background: rgba(7, 12, 19, 0.86);
   backdrop-filter: blur(18px);
+}
+
+.mobile-shell__slice-panel--stack {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .mobile-shell__plane-tabs {
@@ -1905,14 +2391,41 @@ onBeforeUnmount(() => {
   touch-action: pan-x;
 }
 
+.mobile-shell__slice-star {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-muted);
+}
+
+.mobile-shell__slice-star--active {
+  border-color: color-mix(in srgb, var(--theme-accent-warm) 64%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent-warm) 18%, var(--theme-surface-card));
+  color: var(--theme-accent-warm);
+}
+
+.mobile-shell__slice-star:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .mobile-shell__toolbar {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
+  gap: 7px;
   padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 10px);
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
   background: rgba(7, 12, 19, 0.9);
   backdrop-filter: blur(18px);
+}
+
+.mobile-shell__toolbar-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .mobile-shell__tool {
@@ -1940,14 +2453,18 @@ onBeforeUnmount(() => {
 .mobile-shell__sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 50;
   display: flex;
   align-items: flex-end;
   background: rgba(0, 0, 0, 0.48);
+  overscroll-behavior: contain;
 }
 
 .mobile-shell__sheet {
+  display: flex;
+  flex-direction: column;
   width: 100%;
+  height: min(74dvh, 640px);
   max-height: min(74dvh, 640px);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 80%, transparent);
@@ -1955,6 +2472,8 @@ onBeforeUnmount(() => {
   border-radius: 8px 8px 0 0;
   background: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, black);
   box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.45);
+  padding-right: env(safe-area-inset-right, 0px);
+  isolation: isolate;
 }
 
 .mobile-shell__sheet-handle {
@@ -1985,9 +2504,20 @@ onBeforeUnmount(() => {
 
 .mobile-shell__sheet-tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 6px;
   overflow-x: auto;
-  padding: 0 10px 10px;
+  overscroll-behavior-x: contain;
+  padding: 0 calc(10px + env(safe-area-inset-right, 0px)) 10px 10px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-shell__sheet-tabs::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .mobile-shell__sheet-tab {
@@ -2012,15 +2542,185 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__sheet-content {
-  max-height: calc(min(74dvh, 640px) - 136px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 0 10px 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-shell__sheet-content::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .mobile-shell__series-list,
 .mobile-shell__action-list {
   display: grid;
   gap: 7px;
+}
+
+.mobile-shell__window-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.mobile-shell__window-section {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-shell__window-subhead,
+.mobile-shell__window-subhead-row {
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mobile-shell__window-subhead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mobile-shell__window-limit {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.mobile-shell__window-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mobile-shell__window-action {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 10px;
+}
+
+.mobile-shell__window-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.mobile-shell__custom-preset-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.mobile-shell__custom-preset-row--active .mobile-shell__custom-preset-main {
+  border-color: color-mix(in srgb, var(--theme-accent) 64%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 17%, var(--theme-surface-card));
+}
+
+.mobile-shell__custom-preset-row--selected .mobile-shell__custom-preset-check {
+  border-color: color-mix(in srgb, var(--theme-accent) 64%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.mobile-shell__custom-preset-check {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  min-height: 54px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: transparent;
+}
+
+.mobile-shell__custom-preset-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.mobile-shell__window-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mobile-shell__window-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mobile-shell__window-field span {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mobile-shell__window-field input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 88%, transparent);
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  padding: 0 10px;
+}
+
+.mobile-shell__window-field input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.mobile-shell__window-hint {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mobile-shell__window-submit {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.mobile-shell__window-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .mobile-shell__series-row {
@@ -2097,6 +2797,41 @@ onBeforeUnmount(() => {
     color-mix(in srgb, var(--theme-accent) 24%, var(--theme-surface-card)) !important;
   color: var(--theme-text-primary) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 24%, transparent);
+}
+
+.mobile-shell__compare-source,
+.mobile-shell__empty-inline {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  color: var(--theme-text-secondary);
+  padding: 10px 12px;
+}
+
+.mobile-shell__compare-source span,
+.mobile-shell__compare-source strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-shell__compare-source span {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mobile-shell__compare-source strong {
+  margin-top: 2px;
+  color: var(--theme-text-primary);
+  font-size: 14px;
+}
+
+.mobile-shell__empty-inline {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .mobile-shell__action-row,
@@ -2408,11 +3143,8 @@ onBeforeUnmount(() => {
   }
 
   .mobile-shell__sheet {
+    height: min(64dvh, 360px);
     max-height: min(64dvh, 360px);
-  }
-
-  .mobile-shell__sheet-content {
-    max-height: calc(min(64dvh, 360px) - 128px);
   }
 
   .mobile-shell__toast {

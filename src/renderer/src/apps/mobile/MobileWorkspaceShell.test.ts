@@ -33,34 +33,43 @@ vi.mock('../../composables/ui/useUiLocale', () => ({
   })
 }))
 
-vi.mock('../../composables/ui/useUiPreferences', () => ({
-  useUiPreferences: () => ({
-    windowPresets: ref([
-      {
-        id: 'lung',
-        source: 'system',
-        ww: 1500,
-        wl: -600,
-        accent: 'linear-gradient(135deg,#6fd3ff,#f7fbff)',
-        labels: { 'zh-CN': 'Lung CN', 'en-US': 'Lung' }
-      },
-      {
-        id: 'soft',
-        source: 'custom',
-        ww: 400,
-        wl: 40,
-        accent: 'linear-gradient(135deg,#ffd0b6,#ff8452)',
-        labels: { 'zh-CN': 'Soft CN', 'en-US': 'Soft Tissue' }
-      }
-    ]),
-    getWindowPresetLabel: (preset: { labels: Record<string, string> }) => preset.labels['zh-CN'],
-    locale: ref('zh-CN'),
-    selectedPseudocolorKey: ref('bw'),
-    selectedWindowPresetId: ref('lung'),
-    setLocale: vi.fn(),
-    themeId: ref('industrial-utility')
-  })
-}))
+vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../composables/ui/useUiPreferences')>()
+  const windowPresets = ref([
+    {
+      id: 'lung',
+      source: 'system' as const,
+      ww: 1500,
+      wl: -600,
+      accent: 'linear-gradient(135deg,#6fd3ff,#f7fbff)',
+      labels: { 'zh-CN': 'Lung CN', 'en-US': 'Lung' }
+    },
+    {
+      id: 'soft',
+      source: 'custom' as const,
+      ww: 400,
+      wl: 40,
+      accent: 'linear-gradient(135deg,#ffd0b6,#ff8452)',
+      labels: { 'zh-CN': 'Soft CN', 'en-US': 'Soft Tissue' }
+    }
+  ])
+
+  return {
+    ...actual,
+    useUiPreferences: () => ({
+      addCustomWindowPreset: vi.fn(() => 'soft'),
+      getWindowPresetLabel: (preset: { labels: Record<string, string> }) => preset.labels['zh-CN'],
+      locale: ref('zh-CN'),
+      removeCustomWindowPresets: vi.fn(),
+      selectedPseudocolorKey: ref('bw'),
+      selectedWindowPresetId: ref('lung'),
+      setLocale: vi.fn(),
+      systemWindowPresets: windowPresets.value.filter((preset) => preset.source === 'system'),
+      themeId: ref('industrial-utility'),
+      windowPresets
+    })
+  }
+})
 
 vi.mock('./useMobileViewerPreferences', () => ({
   MOBILE_STACK_PLAYBACK_FPS_OPTIONS: [1, 2, 5, 10, 15, 30],
@@ -392,8 +401,7 @@ describe('MobileWorkspaceShell', () => {
     mockViewer.__setActiveTab(createStackTab())
 
     const wrapper = mountShell()
-    const windowButton = wrapper.findAll('.mobile-shell__tool')[1]
-    await windowButton.trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-window"]').trigger('click')
 
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
   })
@@ -437,21 +445,18 @@ describe('MobileWorkspaceShell', () => {
     expect((slider.element as HTMLInputElement).value).toBe('8')
   })
 
-  it('opens the More sheet and applies a window preset action', async () => {
+  it('switches the Window toolbar tool directly', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createStackTab())
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
-    expect(wrapper.find('[data-testid="mobile-window-preset"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-tool-window"]').trigger('click')
 
-    await wrapper.findAll('[data-testid="mobile-window-preset"]')[0].trigger('click')
-
-    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '1500|-600' })
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
   })
 
-  it('switches sheet sections and filters the series list to image series', async () => {
+  it('opens focused sheets and filters the series list to image series', async () => {
     mockViewer.seriesList.value = [
       createSeries({ seriesId: 'series-1', isImageSeries: true }),
       createSeries({ seriesId: 'sr-1', modality: 'SR', seriesDescription: 'Report', isImageSeries: false })
@@ -461,10 +466,13 @@ describe('MobileWorkspaceShell', () => {
 
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-sheet-tab-window"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-sheet-tab-display"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-sheet-tab-compare"]').exists()).toBe(false)
     await wrapper.get('[data-testid="mobile-sheet-tab-display"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-display-cornerInfo"]').exists()).toBe(true)
 
-    await wrapper.get('[data-testid="mobile-sheet-tab-series"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     expect(wrapper.findAll('.mobile-shell__series-row')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('Report')
   })
@@ -492,25 +500,24 @@ describe('MobileWorkspaceShell', () => {
     mockViewer.__setActiveTab(createStackTab())
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-sheet-tab-series"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-open-stack"]').trigger('click')
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
 
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-open-mpr"]').trigger('click')
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'MPR', { useHangingProtocol: false })
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-ax')
 
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-open-3d"]').trigger('click')
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', '3D', { useHangingProtocol: false })
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('volume')
 
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-open-4d"]').trigger('click')
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', '4D', { useHangingProtocol: false })
@@ -525,13 +532,16 @@ describe('MobileWorkspaceShell', () => {
     mockViewer.__setActiveTab(createStackTab('series-1'))
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+    const rows = wrapper.findAll('.mobile-shell__series-row')
+    await rows[0].trigger('click')
     const compareButtons = wrapper.findAll('[data-testid="mobile-open-compare"]')
 
-    expect(compareButtons[0].attributes('disabled')).toBeDefined()
-    expect(compareButtons[1].attributes('disabled')).toBeUndefined()
+    expect(compareButtons).toHaveLength(1)
+    expect(compareButtons[0].attributes('disabled')).toBeUndefined()
 
-    await compareButtons[1].trigger('click')
+    await compareButtons[0].trigger('click')
+    await wrapper.get('[data-testid="mobile-compare-target"]').trigger('click')
 
     expect(mockViewer.openSeriesCompare).toHaveBeenCalledWith('series-1', 'series-2')
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('compare-a')
@@ -560,7 +570,7 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'compare-b', deltaY: 3 })
   })
 
-  it('toggles Compare sync settings from the More sheet', async () => {
+  it('toggles Compare sync settings from a focused Compare sheet opened via More', async () => {
     mockViewer.seriesList.value = [
       createSeries({ seriesId: 'series-1', seriesDescription: 'Source CT' }),
       createSeries({ seriesId: 'series-2', seriesDescription: 'Target CT' })
@@ -585,27 +595,27 @@ describe('MobileWorkspaceShell', () => {
     mockViewer.__setActiveTab(createStackTab())
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
 
     expect(wrapper.get('[data-testid="mobile-open-stack"]').attributes('data-active')).toBe('true')
     expect(wrapper.get('[data-testid="mobile-open-mpr"]').attributes('data-active')).toBe('false')
 
     mockViewer.__setActiveTab(createMprTab())
     await flushPromises()
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
 
     expect(wrapper.get('[data-testid="mobile-open-stack"]').attributes('data-active')).toBe('false')
     expect(wrapper.get('[data-testid="mobile-open-mpr"]').attributes('data-active')).toBe('true')
 
     mockViewer.__setActiveTab(createVolumeTab())
     await flushPromises()
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
 
     expect(wrapper.get('[data-testid="mobile-open-3d"]').attributes('data-active')).toBe('true')
 
     mockViewer.__setActiveTab(createFourDTab())
     await flushPromises()
-    await wrapper.get('[data-testid="mobile-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
 
     expect(wrapper.get('[data-testid="mobile-open-4d"]').attributes('data-active')).toBe('true')
   })
@@ -620,7 +630,7 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.find('[data-testid="mobile-volume-stub"]').exists()).toBe(true)
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`)
 
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
     await wrapper.findAll('[data-testid="mobile-volume-render-mode"]')[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'render3dMode', value: 'render3dMode:volume' })
@@ -686,27 +696,25 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
   })
 
-  it('applies mobile color, transform, and reset actions through the More sheet', async () => {
+  it('applies mobile color, transform, and reset actions through focused toolbar entries', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createStackTab())
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-sheet-tab-color"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-sheet-tab-window"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="mobile-pseudocolor"]').length).toBeGreaterThan(0)
     await wrapper.findAll('[data-testid="mobile-pseudocolor"]')[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'pseudocolor', value: 'pseudocolor:blackbody' })
 
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-sheet-tab-transform"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-transform"]').trigger('click')
     await wrapper.findAll('[data-testid="mobile-transform"]')[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'rotate', value: 'rotate:cw90' })
 
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-sheet-tab-display"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-reset-view"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-reset"]').trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'reset' })
   })
@@ -732,14 +740,12 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.handleViewportWheel).not.toHaveBeenCalled()
   })
 
-  it('stars the current Stack slice from the transform sheet', async () => {
+  it('stars the current Stack slice from the slice panel star control', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createStackTab('series-1', { sliceLabel: '3 / 9' }))
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-sheet-tab-transform"]').trigger('click')
     await wrapper.get('[data-testid="mobile-toggle-star"]').trigger('click')
 
     expect(JSON.parse(window.localStorage.getItem('dicomvision-key-slice-stars') ?? '{}')).toEqual({

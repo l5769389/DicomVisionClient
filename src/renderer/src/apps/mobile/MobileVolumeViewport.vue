@@ -29,12 +29,18 @@ const emit = defineEmits<{
 const viewportHostRef = ref<HTMLElement | null>(null)
 const volumeTab = computed(() => (props.activeTab?.viewType === '3D' ? props.activeTab : null))
 const activePointers = new Map<number, PointerPoint>()
+const MOBILE_VOLUME_ROTATE_SENSITIVITY = 0.45
 
 let lastPrimaryPoint: PointerPoint | null = null
 let activeDragOperation: ViewOperationType | null = null
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
 let isPinching = false
+let totalDragDeltaX = 0
+let totalDragDeltaY = 0
+let totalPinchPanDeltaX = 0
+let totalPinchPanDeltaY = 0
+let totalPinchZoomDeltaY = 0
 
 const dragMoveQueue = createMobileViewportDragMoveQueue<'volume'>((move: MobileViewportDragMove<'volume'>) => {
   emit('viewportDrag', {
@@ -64,7 +70,12 @@ function normalizeOperation(operation: string): string {
 
 function resolveDragOperation(): ViewOperationType {
   const operation = normalizeOperation(props.activeOperation)
-  if (operation === VIEW_OPERATION_TYPES.pan || operation === VIEW_OPERATION_TYPES.zoom || operation === VIEW_OPERATION_TYPES.rotate3d) {
+  if (
+    operation === VIEW_OPERATION_TYPES.pan ||
+    operation === VIEW_OPERATION_TYPES.zoom ||
+    operation === VIEW_OPERATION_TYPES.window ||
+    operation === VIEW_OPERATION_TYPES.rotate3d
+  ) {
     return operation
   }
   return VIEW_OPERATION_TYPES.rotate3d
@@ -106,7 +117,8 @@ function emitViewportDragEnd(opType: ViewOperationType): void {
 }
 
 function emitViewportDragMove(deltaX: number, deltaY: number, opType: ViewOperationType): void {
-  dragMoveQueue.push({ deltaX, deltaY, opType, viewportKey: 'volume' })
+  const sensitivity = opType === VIEW_OPERATION_TYPES.rotate3d ? MOBILE_VOLUME_ROTATE_SENSITIVITY : 1
+  dragMoveQueue.push({ deltaX: deltaX * sensitivity, deltaY: deltaY * sensitivity, opType, viewportKey: 'volume' })
 }
 
 function flushPendingDragMoves(): void {
@@ -120,6 +132,8 @@ function cancelPendingDragMoves(): void {
 function beginDrag(operation: ViewOperationType, point: PointerPoint): void {
   activeDragOperation = operation
   lastPrimaryPoint = point
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
   emitViewportDragStart(operation)
 }
 
@@ -130,6 +144,8 @@ function endDrag(): void {
   }
   activeDragOperation = null
   lastPrimaryPoint = null
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
 }
 
 function beginPinch(): void {
@@ -137,6 +153,9 @@ function beginPinch(): void {
   isPinching = true
   lastPinchDistance = getPinchDistance()
   lastPinchCenter = getPinchCenter()
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
   emitViewportDragStart(VIEW_OPERATION_TYPES.zoom)
   emitViewportDragStart(VIEW_OPERATION_TYPES.pan)
 }
@@ -151,6 +170,9 @@ function endPinch(): void {
   isPinching = false
   lastPinchDistance = 0
   lastPinchCenter = null
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
 }
 
 function handleViewportClick(viewportKey: string): void {
@@ -187,11 +209,14 @@ function handlePointerMove(event: PointerEvent): void {
     lastPinchDistance = nextDistance
     const nextCenter = getPinchCenter()
     if (nextCenter && lastPinchCenter) {
-      emitViewportDragMove(nextCenter.x - lastPinchCenter.x, nextCenter.y - lastPinchCenter.y, VIEW_OPERATION_TYPES.pan)
+      totalPinchPanDeltaX += nextCenter.x - lastPinchCenter.x
+      totalPinchPanDeltaY += nextCenter.y - lastPinchCenter.y
+      emitViewportDragMove(totalPinchPanDeltaX, totalPinchPanDeltaY, VIEW_OPERATION_TYPES.pan)
     }
     lastPinchCenter = nextCenter
     if (deltaDistance) {
-      emitViewportDragMove(0, -deltaDistance, VIEW_OPERATION_TYPES.zoom)
+      totalPinchZoomDeltaY += -deltaDistance
+      emitViewportDragMove(0, totalPinchZoomDeltaY, VIEW_OPERATION_TYPES.zoom)
     }
     return
   }
@@ -201,7 +226,9 @@ function handlePointerMove(event: PointerEvent): void {
   const deltaY = nextPoint.y - lastPoint.y
   lastPrimaryPoint = nextPoint
   if (activeDragOperation && (deltaX || deltaY)) {
-    emitViewportDragMove(deltaX, deltaY, activeDragOperation)
+    totalDragDeltaX += deltaX
+    totalDragDeltaY += deltaY
+    emitViewportDragMove(totalDragDeltaX, totalDragDeltaY, activeDragOperation)
   }
 }
 
@@ -236,6 +263,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activePointers.clear()
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
   cancelPendingDragMoves()
   endPinch()
   endDrag()

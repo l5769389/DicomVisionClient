@@ -66,6 +66,11 @@ const emptyCornerInfo: CornerInfo = {
 let activeDragOperation: ViewOperationType | null = null
 let activeDragViewportKey: MprViewportKey | null = null
 let lastPrimaryPoint: PointerPoint | null = null
+let totalDragDeltaX = 0
+let totalDragDeltaY = 0
+let totalPinchPanDeltaX = 0
+let totalPinchPanDeltaY = 0
+let totalPinchZoomDeltaY = 0
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
 let isPinching = false
@@ -250,6 +255,8 @@ function beginMobileDrag(operation: ViewOperationType, point: PointerPoint): voi
   activeDragOperation = operation
   activeDragViewportKey = point.viewportKey
   lastPrimaryPoint = point
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
   emitViewportDragStart(operation, point.viewportKey)
 }
 
@@ -261,6 +268,8 @@ function endMobileDrag(): void {
   activeDragOperation = null
   activeDragViewportKey = null
   lastPrimaryPoint = null
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
 }
 
 function beginPinch(): void {
@@ -271,6 +280,9 @@ function beginPinch(): void {
   isPinching = true
   lastPinchDistance = getPinchDistance()
   lastPinchCenter = getPinchCenter()
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
   emitViewportDragStart(VIEW_OPERATION_TYPES.zoom, activeViewport.value)
   emitViewportDragStart(VIEW_OPERATION_TYPES.pan, activeViewport.value)
 }
@@ -285,6 +297,9 @@ function endPinch(): void {
   isPinching = false
   lastPinchDistance = 0
   lastPinchCenter = null
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
 }
 
 function handlePointerDown(event: PointerEvent, viewportKey: string): void {
@@ -347,16 +362,19 @@ function handlePointerMove(event: PointerEvent): void {
     lastPinchDistance = nextDistance
     const nextCenter = getPinchCenter()
     if (nextCenter && lastPinchCenter) {
+      totalPinchPanDeltaX += nextCenter.x - lastPinchCenter.x
+      totalPinchPanDeltaY += nextCenter.y - lastPinchCenter.y
       emitViewportDragMove(
-        nextCenter.x - lastPinchCenter.x,
-        nextCenter.y - lastPinchCenter.y,
+        totalPinchPanDeltaX,
+        totalPinchPanDeltaY,
         VIEW_OPERATION_TYPES.pan,
         activeViewport.value
       )
     }
     lastPinchCenter = nextCenter
     if (deltaDistance) {
-      emitViewportDragMove(0, -deltaDistance, VIEW_OPERATION_TYPES.zoom, activeViewport.value)
+      totalPinchZoomDeltaY += -deltaDistance
+      emitViewportDragMove(0, totalPinchZoomDeltaY, VIEW_OPERATION_TYPES.zoom, activeViewport.value)
     }
     return
   }
@@ -383,9 +401,11 @@ function handlePointerMove(event: PointerEvent): void {
     const lastPoint = lastPrimaryPoint ?? trackedPoint
     const nextPoint = getPoint(event, activeDragViewportKey)
     lastPrimaryPoint = nextPoint
+    totalDragDeltaX += nextPoint.x - lastPoint.x
+    totalDragDeltaY += nextPoint.y - lastPoint.y
     emitViewportDragMove(
-      nextPoint.x - lastPoint.x,
-      nextPoint.y - lastPoint.y,
+      totalDragDeltaX,
+      totalDragDeltaY,
       activeDragOperation,
       activeDragViewportKey
     )
@@ -452,6 +472,11 @@ onBeforeUnmount(() => {
   activeScrollPointer.value = null
   activePointers.clear()
   workspacePointerIds.clear()
+  totalDragDeltaX = 0
+  totalDragDeltaY = 0
+  totalPinchPanDeltaX = 0
+  totalPinchPanDeltaY = 0
+  totalPinchZoomDeltaY = 0
   cancelPendingDragMoves()
   endPinch()
   endMobileDrag()
@@ -498,7 +523,7 @@ watch(
         :cursor-class="viewportCursorClasses[viewport.key] ?? 'cursor-crosshair'"
         :draft-measurement-mode="getDraftMeasurementMode(viewport.key)"
         :draft-measurement="null"
-        :measurements="[]"
+        :measurements="mprTab?.viewportMeasurements?.[viewport.key] ?? []"
         :mtf-draft-mode="getMtfDraftMode(viewport.key)"
         :mtf-draft="getMtfDraft(viewport.key)"
         :mtf-items="[]"

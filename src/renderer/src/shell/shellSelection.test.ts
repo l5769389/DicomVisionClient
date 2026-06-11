@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { resolveShellKind, rewritePathForMobileShell } from './shellSelection'
 
 describe('shellSelection', () => {
-  it('forces the mobile shell for the /mobile route', () => {
-    expect(resolveShellKind({ pathname: '/mobile', viewportWidth: 1280 })).toBe('mobile')
-    expect(resolveShellKind({ pathname: '/mobile/study', viewportWidth: 1280 })).toBe('mobile')
+  it('forces the mobile shell for the /m route', () => {
+    expect(resolveShellKind({ pathname: '/m', viewportWidth: 1280 })).toBe('mobile')
+    expect(resolveShellKind({ pathname: '/m/study', viewportWidth: 1280 })).toBe('mobile')
   })
 
   it('forces the mobile shell for mobile hostnames', () => {
@@ -16,7 +16,7 @@ describe('shellSelection', () => {
     expect(resolveShellKind({
       hasDesktopRuntime: true,
       hostname: 'm.example.com',
-      pathname: '/mobile',
+      pathname: '/m',
       viewportWidth: 390,
       maxTouchPoints: 5
     })).toBe('desktop')
@@ -30,7 +30,7 @@ describe('shellSelection', () => {
     expect(resolveShellKind({ pathname: '/', viewportWidth: 390, hasCoarsePointer: true, maxTouchPoints: 5 })).toBe('mobile')
   })
 
-  it('rewrites automatic mobile entry to /mobile while preserving query and hash', () => {
-    expect(rewritePathForMobileShell('/', '?case=demo', '#view')).toBe('/mobile?case=demo#view')
+  it('rewrites automatic mobile entry to /m while preserving query and hash', () => {
+    expect(rewritePathForMobileShell('/', '?case=demo', '#view')).toBe('/m?case=demo#view')
   })
 })

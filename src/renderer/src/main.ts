@@ -1,4 +1,4 @@
-import { isMobileHostname, resolveShellKind, rewritePathForMobileShell } from './shell/shellSelection'
+import { isMobileHostname, isMobileRoute, resolveShellKind, rewritePathForMobileShell } from './shell/shellSelection'
 
 function waitForFirstPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -69,7 +69,7 @@ function resolveInitialShellKind() {
 function normalizeMobileRoute(): void {
   if (
     typeof window === 'undefined' ||
-    window.location.pathname.startsWith('/mobile') ||
+    isMobileRoute(window.location.pathname) ||
     isMobileHostname(window.location.hostname)
   ) {
     return

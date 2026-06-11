@@ -15,11 +15,11 @@
   ],
   "rewrites": [
     {
-      "source": "/mobile",
+      "source": "/m",
       "destination": "/index.html"
     },
     {
-      "source": "/mobile/(.*)",
+      "source": "/m/(.*)",
       "destination": "/index.html"
     }
   ]

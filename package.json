@@ -1,7 +1,7 @@
 {
   "name": "dicom-vision",
   "productName": "DicomVision",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Vue3 + Electron + electron-vite + Socket.IO + Axios + Tailwind CSS DICOM viewer frontend",
   "author": "DicomVision",

@@ -9,7 +9,7 @@ export interface ShellSelectionInput {
   viewportWidth?: number
 }
 
-const MOBILE_ROUTE_PATTERN = /^\/mobile(?:\/|$)/i
+const MOBILE_ROUTE_PATTERN = /^\/m(?:\/|$)/i
 const MOBILE_HOST_PATTERN = /^(m|mobile)\./i
 const MOBILE_WIDTH_MAX = 820
 
@@ -45,5 +45,5 @@ export function rewritePathForMobileShell(pathname: string, search = '', hash = 
   if (isMobileRoute(pathname)) {
     return `${pathname}${search}${hash}`
   }
-  return `/mobile${search}${hash}`
+  return `/m${search}${hash}`
 }

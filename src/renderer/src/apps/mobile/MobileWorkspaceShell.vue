@@ -35,7 +35,7 @@ import {
 const PacsBrowserDialog = defineAsyncComponent(() => import('../../components/sidebar/PacsBrowserDialog.vue'))
 
 type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'measure' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'tag' | 'compare'
-type MobileSheetKind = 'series' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'tag' | null
+type MobileSheetKind = 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
 type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
@@ -67,6 +67,14 @@ interface MobileSliceSliderState {
   pendingDeltaY: number
   total: number
   viewportKey: string
+}
+
+interface MobileFavoriteSliceItem {
+  displaySlice: number
+  series: FolderSeriesItem | null
+  seriesId: string
+  sliceIndex: number
+  total: number | null
 }
 
 const DEFAULT_MOBILE_DEV_SAMPLE_DICOM_PATH = 'D:/test/sample'
@@ -178,6 +186,7 @@ const {
   stackPlaybackFps
 } = useMobileViewerPreferences()
 const {
+  starredBySeries,
   isSliceStarred,
   toggleSliceStar
 } = useKeySliceStars()
@@ -197,6 +206,7 @@ const isLoadingLocal = ref(false)
 const isPacsBrowserOpen = ref(false)
 const isSettingsOpen = ref(false)
 const isPlayingStack = ref(false)
+const isPlayingMpr = ref(false)
 const fourDPlaybackStarting = ref(false)
 const compareSourceSeriesId = ref<string | null>(null)
 const playbackFps = ref<MobileStackPlaybackFps>(stackPlaybackFps.value)
@@ -292,10 +302,14 @@ const activeSliceLabel = computed(() => {
 })
 const sliceSliderValue = computed(() => displayedSlice.value?.current ?? 1)
 const activeStackSlice = computed(() => (activeStackTab.value ? parseSliceLabel(activeStackTab.value.sliceLabel) : null))
+const activeMprSlice = computed(() => (
+  activeMprTab.value ? parseSliceLabel(activeMprTab.value.viewportSliceLabels?.[activeMprViewportKey.value] ?? '') : null
+))
 const isCurrentStackSliceStarred = computed(() =>
   Boolean(activeStackTab.value && activeStackSlice.value && isSliceStarred(activeStackTab.value.seriesId, activeStackSlice.value.index))
 )
 const canPlayStack = computed(() => Boolean(activeStackSlice.value && activeStackSlice.value.total > 1 && activeStackTab.value))
+const canPlayMpr = computed(() => Boolean(activeMprSlice.value && activeMprSlice.value.total > 1 && activeMprTab.value))
 const showSlicePanel = computed(() => Boolean(activeStackTab.value || activeCompareTab.value || activeMprLikeTab.value))
 const fourDPhaseCount = computed(() => Math.max(1, activeFourDTab.value?.fourDPhaseItems?.length ?? activeFourDTab.value?.fourDPhaseCount ?? 1))
 const fourDPhaseIndex = computed(() =>
@@ -311,19 +325,28 @@ const activePlaybackFpsIndex = computed(() => {
   return index >= 0 ? index : 0
 })
 const activePlaybackFpsLabel = computed(() => `${activePlaybackFps.value} FPS`)
-const canPlayActive = computed(() => (activeFourDTab.value ? canPlayFourD.value : canPlayStack.value))
+const canPlayActive = computed(() => {
+  if (activeFourDTab.value) {
+    return canPlayFourD.value
+  }
+  if (activeMprTab.value) {
+    return canPlayMpr.value
+  }
+  return canPlayStack.value
+})
+const isPlayingActiveSlicePlayback = computed(() => (activeMprTab.value ? isPlayingMpr.value : isPlayingStack.value))
 const activePlayLabel = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
     return isZh.value ? '加载' : 'Loading'
   }
-  const isPlaying = activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value
+  const isPlaying = activeFourDTab.value ? isPlayingFourD.value : isPlayingActiveSlicePlayback.value
   return isPlaying ? (isZh.value ? '暂停' : 'Pause') : (isZh.value ? '播放' : 'Play')
 })
 const activePlayIcon = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
     return 'connecting'
   }
-  return (activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value) ? 'pause' : 'play'
+  return (activeFourDTab.value ? isPlayingFourD.value : isPlayingActiveSlicePlayback.value) ? 'pause' : 'play'
 })
 const scrollDragThreshold = computed(() => GESTURE_SCROLL_THRESHOLDS[gestureSensitivity.value] ?? GESTURE_SCROLL_THRESHOLDS.normal)
 const filteredTagItems = computed(() => {
@@ -338,6 +361,35 @@ const mobileShellClasses = computed(() => ({
   'mobile-shell--orientation-landscape': orientationLock.value === 'landscape',
   'mobile-shell--orientation-portrait': orientationLock.value === 'portrait'
 }))
+const favoriteSliceItems = computed<MobileFavoriteSliceItem[]>(() => {
+  const seriesById = new Map(viewer.seriesList.value.map((series) => [series.seriesId, series]))
+  return Object.entries(starredBySeries.value)
+    .flatMap(([seriesId, sliceIndexes]) => {
+      const series = seriesById.get(seriesId) ?? null
+      const total = typeof series?.instanceCount === 'number' && series.instanceCount > 0 ? series.instanceCount : null
+      return sliceIndexes.map((sliceIndex) => ({
+        displaySlice: sliceIndex + 1,
+        series,
+        seriesId,
+        sliceIndex,
+        total
+      }))
+    })
+    .sort((left, right) => {
+      const leftSeriesIndex = viewer.seriesList.value.findIndex((series) => series.seriesId === left.seriesId)
+      const rightSeriesIndex = viewer.seriesList.value.findIndex((series) => series.seriesId === right.seriesId)
+      const normalizedLeftSeriesIndex = leftSeriesIndex >= 0 ? leftSeriesIndex : Number.MAX_SAFE_INTEGER
+      const normalizedRightSeriesIndex = rightSeriesIndex >= 0 ? rightSeriesIndex : Number.MAX_SAFE_INTEGER
+      if (normalizedLeftSeriesIndex !== normalizedRightSeriesIndex) {
+        return normalizedLeftSeriesIndex - normalizedRightSeriesIndex
+      }
+      if (left.seriesId !== right.seriesId) {
+        return left.seriesId.localeCompare(right.seriesId)
+      }
+      return left.sliceIndex - right.sliceIndex
+    })
+})
+const favoriteSliceCount = computed(() => favoriteSliceItems.value.length)
 
 const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
   if (activeVolumeTab.value) {
@@ -370,7 +422,8 @@ const secondaryMobileTools = computed<MobileToolbarItem[]>(() => [
 
 const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; label: string }>>(() => {
   const tabs: Array<{ key: MobileSheetTabKey; icon: string; label: string }> = [
-    { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' }
+    { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' },
+    { key: 'favorites', icon: 'star', label: isZh.value ? '收藏' : 'Favorites' }
   ]
 
   if (!activeImageTab.value) {
@@ -420,6 +473,7 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
     )
   } else if (activeMprTab.value) {
     tabs.push(
+      { key: 'playback', icon: 'play', label: isZh.value ? '播放' : 'Playback' },
       { key: 'mpr', icon: 'crosshair', label: 'MPR' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
@@ -432,6 +486,7 @@ const sheetTitle = computed(() => {
   const titleMap: Record<MobileSheetTabKey, string> = {
     color: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Pseudocolor'),
     display: isZh.value ? '显示' : 'Display',
+    favorites: isZh.value ? '收藏 DICOM' : 'Favorite DICOM',
     mpr: 'MPR',
     measure: isZh.value ? '测量' : 'Measure',
     playback: isZh.value ? '播放' : 'Playback',
@@ -622,7 +677,7 @@ async function openSeriesView(seriesId: string, viewType: ViewType): Promise<voi
     return
   }
 
-  stopStackPlayback()
+  stopSlicePlayback()
   viewer.selectSeries(seriesId)
   if (viewType === 'MPR' || viewType === '4D') {
     activeMprViewportKey.value = mprDefaultViewport.value
@@ -675,7 +730,7 @@ async function openSeriesCompareTo(targetSeriesId: string): Promise<void> {
     return
   }
 
-  stopStackPlayback()
+  stopSlicePlayback()
   activeCompareViewportKey.value = COMPARE_STACK_SOURCE_PANE_KEY
   await viewer.openSeriesCompare(sourceSeriesId, targetSeriesId)
   viewer.setActiveViewportKey(COMPARE_STACK_SOURCE_PANE_KEY)
@@ -780,7 +835,7 @@ async function loadDemoSeries(): Promise<void> {
   }
 }
 
-async function loadLocalFiles(): Promise<void> {
+async function loadLocalFolder(): Promise<void> {
   if (!canLoadLocal.value || isLoadingLocal.value) {
     return
   }
@@ -789,7 +844,7 @@ async function loadLocalFiles(): Promise<void> {
   try {
     const backendStatus = await viewerRuntime.getBackendStatus()
     setApiBaseURL(`${backendStatus.origin}/api/v1`)
-    const selection = await viewerRuntime.chooseFolder('files')
+    const selection = await viewerRuntime.chooseFolder('folder')
     if (!selection) {
       return
     }
@@ -801,7 +856,7 @@ async function loadLocalFiles(): Promise<void> {
     }
   } catch (error) {
     console.error(error)
-    viewer.showStatusToast(isZh.value ? '本地文件加载失败，请确认文件格式和后端服务。' : 'Failed to load local files. Check the files and backend service.', 'error')
+    viewer.showStatusToast(isZh.value ? '本地文件夹加载失败，请确认文件格式和后端服务。' : 'Failed to load the local folder. Check the files and backend service.', 'error')
   } finally {
     isLoadingLocal.value = false
   }
@@ -872,7 +927,7 @@ function closeActiveView(): void {
     openSheet('series')
     return
   }
-  stopStackPlayback()
+  stopSlicePlayback()
   viewer.closeTab(tabKey)
   void nextTick(() => {
     openSheet('series')
@@ -1127,9 +1182,51 @@ function toggleStackStarForCurrentSlice(): void {
   toggleSliceStar(tab.seriesId, slice.index)
 }
 
+function getFavoriteSliceTitle(item: MobileFavoriteSliceItem): string {
+  return item.series?.seriesDescription || item.series?.seriesId || item.seriesId
+}
+
+function getFavoriteSliceMeta(item: MobileFavoriteSliceItem): string {
+  const parts = [
+    item.series?.modality,
+    item.total ? `${isZh.value ? '第' : 'Slice'} ${item.displaySlice} / ${item.total}` : `${isZh.value ? '第' : 'Slice'} ${item.displaySlice}`
+  ].filter(Boolean)
+  return parts.join(' / ')
+}
+
+function canOpenFavoriteSlice(item: MobileFavoriteSliceItem): boolean {
+  return isSeriesActionSupported(item.series, 'Stack')
+}
+
+async function openFavoriteSlice(item: MobileFavoriteSliceItem): Promise<void> {
+  if (!canOpenFavoriteSlice(item)) {
+    return
+  }
+
+  await openSeriesStack(item.seriesId)
+  await nextTick()
+  const openedSlice = activeStackTab.value?.seriesId === item.seriesId ? parseSliceLabel(activeStackTab.value.sliceLabel) : null
+  const currentIndex = openedSlice?.index ?? 0
+  const deltaY = item.sliceIndex - currentIndex
+  if (deltaY) {
+    viewer.handleViewportWheel({ viewportKey: 'single', deltaY })
+  }
+}
+
+function removeFavoriteSlice(item: MobileFavoriteSliceItem): void {
+  if (isSliceStarred(item.seriesId, item.sliceIndex)) {
+    toggleSliceStar(item.seriesId, item.sliceIndex)
+  }
+}
+
 function getCurrentStackSliceInfo(): { current: number; total: number } | null {
   const slice = activeStackSlice.value
   return slice && slice.total > 1 ? { current: slice.current, total: slice.total } : null
+}
+
+function getCurrentMprSliceInfo(): { current: number; total: number; viewportKey: MprViewportKey } | null {
+  const slice = activeMprSlice.value
+  return slice && slice.total > 1 ? { current: slice.current, total: slice.total, viewportKey: activeMprViewportKey.value } : null
 }
 
 function tickStackPlayback(): void {
@@ -1146,17 +1243,51 @@ function startStackPlayback(): void {
   if (!canPlayStack.value) {
     return
   }
-  stopStackPlayback()
+  stopSlicePlayback()
   isPlayingStack.value = true
   playbackTimer = window.setInterval(tickStackPlayback, Math.max(34, Math.round(1000 / playbackFps.value)))
 }
 
-function stopStackPlayback(): void {
+function clearSlicePlaybackTimer(): void {
   if (playbackTimer != null) {
     window.clearInterval(playbackTimer)
     playbackTimer = null
   }
+}
+
+function stopStackPlayback(): void {
+  clearSlicePlaybackTimer()
   isPlayingStack.value = false
+}
+
+function tickMprPlayback(): void {
+  const sliceInfo = getCurrentMprSliceInfo()
+  if (!sliceInfo || sliceInfo.current >= sliceInfo.total) {
+    stopMprPlayback()
+    return
+  }
+
+  viewer.handleViewportWheel({ viewportKey: sliceInfo.viewportKey, deltaY: 1 })
+}
+
+function startMprPlayback(): void {
+  if (!canPlayMpr.value) {
+    return
+  }
+  stopSlicePlayback()
+  isPlayingMpr.value = true
+  playbackTimer = window.setInterval(tickMprPlayback, Math.max(34, Math.round(1000 / playbackFps.value)))
+}
+
+function stopMprPlayback(): void {
+  clearSlicePlaybackTimer()
+  isPlayingMpr.value = false
+}
+
+function stopSlicePlayback(): void {
+  clearSlicePlaybackTimer()
+  isPlayingStack.value = false
+  isPlayingMpr.value = false
 }
 
 function clearFourDPlaybackStarting(): void {
@@ -1184,6 +1315,14 @@ function toggleStackPlayback(): void {
   startStackPlayback()
 }
 
+function toggleMprPlayback(): void {
+  if (isPlayingMpr.value) {
+    stopMprPlayback()
+    return
+  }
+  startMprPlayback()
+}
+
 function toggleFourDPlayback(): void {
   const tab = activeFourDTab.value
   if (!tab || !canPlayFourD.value || fourDPlaybackStarting.value) {
@@ -1205,6 +1344,10 @@ function toggleActivePlayback(): void {
     toggleFourDPlayback()
     return
   }
+  if (activeMprTab.value) {
+    toggleMprPlayback()
+    return
+  }
   toggleStackPlayback()
 }
 
@@ -1219,6 +1362,10 @@ function setPlaybackFps(value: MobileStackPlaybackFps): void {
   playbackFps.value = value
   if (isPlayingStack.value) {
     startStackPlayback()
+    return
+  }
+  if (isPlayingMpr.value) {
+    startMprPlayback()
   }
 }
 
@@ -1309,7 +1456,7 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'transform'
   }
   if (tool.key === 'play') {
-    return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingStack.value
+    return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingActiveSlicePlayback.value
   }
   return activeTool.value === tool.key
 }
@@ -1417,7 +1564,7 @@ watch(
   () => viewer.activeTab.value?.viewType,
   (viewType) => {
     closeSheet()
-    stopStackPlayback()
+    stopSlicePlayback()
     if (viewType === 'MPR' || viewType === '4D') {
       viewer.setActiveViewportKey(activeMprViewportKey.value)
       applyMobileViewDefaults(viewType)
@@ -1454,7 +1601,7 @@ watch(
 watch(
   () => viewer.activeTabKey.value,
   () => {
-    stopStackPlayback()
+    stopSlicePlayback()
     clearFourDPlaybackStarting()
     flushSliceSliderDelta()
     sliceSliderState.value = null
@@ -1501,6 +1648,10 @@ watch(
     playbackFps.value = value
     if (isPlayingStack.value) {
       startStackPlayback()
+      return
+    }
+    if (isPlayingMpr.value) {
+      startMprPlayback()
     }
   }
 )
@@ -1530,7 +1681,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  stopStackPlayback()
+  stopSlicePlayback()
   clearFourDPlaybackStarting()
   flushSliceSliderDelta()
   void applyOrientationLock('unlocked')
@@ -1699,10 +1850,10 @@ onBeforeUnmount(() => {
               class="mobile-shell__source-action"
               data-testid="mobile-load-local"
               :disabled="!canLoadLocal || isLoadingLocal"
-              @click="loadLocalFiles"
+              @click="loadLocalFolder"
             >
-              <AppIcon :name="isLoadingLocal ? 'connecting' : 'file-upload'" :size="18" />
-              <span>{{ isLoadingLocal ? (isZh ? '正在上传...' : 'Uploading...') : (isZh ? '本地文件' : 'Local Files') }}</span>
+              <AppIcon :name="isLoadingLocal ? 'connecting' : 'folder-upload'" :size="18" />
+              <span>{{ isLoadingLocal ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? '本地文件夹' : 'Local Folder') }}</span>
             </button>
             <button
               type="button"
@@ -1929,6 +2080,47 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <div v-else-if="activeSheetKind === 'favorites'" class="mobile-shell__favorite-panel">
+            <div class="mobile-shell__favorite-summary" data-testid="mobile-favorites-summary">
+              <span>{{ isZh ? '已收藏' : 'Saved' }}</span>
+              <strong>{{ favoriteSliceCount }}</strong>
+            </div>
+            <div v-if="!favoriteSliceItems.length" class="mobile-shell__empty-inline" data-testid="mobile-favorites-empty">
+              {{ isZh ? '还没有收藏的 DICOM 切片' : 'No favorite DICOM slices yet' }}
+            </div>
+            <div v-else class="mobile-shell__action-list">
+              <div
+                v-for="item in favoriteSliceItems"
+                :key="`${item.seriesId}-${item.sliceIndex}`"
+                class="mobile-shell__favorite-row"
+                data-testid="mobile-favorite-slice"
+              >
+                <button
+                  type="button"
+                  class="mobile-shell__favorite-open"
+                  :disabled="!canOpenFavoriteSlice(item)"
+                  data-testid="mobile-open-favorite-slice"
+                  @click="openFavoriteSlice(item)"
+                >
+                  <AppIcon name="star" :size="18" />
+                  <span>
+                    <strong>{{ getFavoriteSliceTitle(item) }}</strong>
+                    <small>{{ getFavoriteSliceMeta(item) }}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="mobile-shell__favorite-remove"
+                  :aria-label="isZh ? '取消收藏' : 'Remove favorite'"
+                  data-testid="mobile-remove-favorite-slice"
+                  @click="removeFavoriteSlice(item)"
+                >
+                  <AppIcon name="trash" :size="16" />
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div v-else-if="activeSheetKind === 'window'" class="mobile-shell__window-panel">
             <section class="mobile-shell__window-section">
               <div class="mobile-shell__window-subhead">{{ isZh ? '系统预设' : 'System Presets' }}</div>
@@ -2136,8 +2328,8 @@ onBeforeUnmount(() => {
 
           <div v-else-if="activeSheetKind === 'playback'" class="mobile-shell__action-list">
             <button type="button" class="mobile-shell__action-row" data-testid="mobile-playback-toggle" :disabled="!canPlayActive" @click="toggleActivePlayback">
-              <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingStack ? 'pause' : 'play')" :size="18" />
-              <span><strong>{{ isPlayingStack ? (isZh ? '暂停播放' : 'Pause') : (isZh ? '开始播放' : 'Play') }}</strong></span>
+              <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingActiveSlicePlayback ? 'pause' : 'play')" :size="18" />
+              <span><strong>{{ isPlayingActiveSlicePlayback || isPlayingFourD ? (isZh ? '暂停播放' : 'Pause') : (isZh ? '开始播放' : 'Play') }}</strong></span>
             </button>
             <div class="mobile-shell__fps-control" data-testid="mobile-playback-fps-control">
               <div class="mobile-shell__fps-copy">
@@ -2289,7 +2481,7 @@ onBeforeUnmount(() => {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   height: 100dvh;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(10, 16, 24, 0.96), rgba(3, 7, 12, 0.99));
+  background: var(--theme-app-background);
   color: var(--theme-text-primary);
   touch-action: none;
 }
@@ -2310,7 +2502,7 @@ onBeforeUnmount(() => {
   min-height: 62px;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
-  background: rgba(7, 12, 19, 0.84);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2411,7 +2603,7 @@ onBeforeUnmount(() => {
   width: min(100%, 320px);
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
   border-radius: 8px;
-  background: rgba(9, 16, 26, 0.92);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 94%, transparent);
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.34);
   padding: 20px;
   text-align: center;
@@ -2445,7 +2637,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   border: 1px solid color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, black);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
   color: var(--theme-text-primary);
   padding: 8px 12px;
@@ -2517,7 +2709,7 @@ onBeforeUnmount(() => {
   padding: 8px 12px;
   padding-right: calc(12px + env(safe-area-inset-right, 0px));
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
-  background: rgba(7, 12, 19, 0.86);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2632,7 +2824,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 10px);
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
-  background: rgba(7, 12, 19, 0.9);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2684,7 +2876,7 @@ onBeforeUnmount(() => {
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 80%, transparent);
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, black);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, transparent);
   box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.45);
   padding-right: env(safe-area-inset-right, 0px);
   isolation: isolate;
@@ -3047,6 +3239,86 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.mobile-shell__favorite-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-shell__favorite-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  color: var(--theme-text-secondary);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.mobile-shell__favorite-summary strong {
+  color: var(--theme-accent-warm);
+  font-size: 18px;
+}
+
+.mobile-shell__favorite-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 7px;
+  align-items: stretch;
+}
+
+.mobile-shell__favorite-open,
+.mobile-shell__favorite-remove {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.mobile-shell__favorite-open {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 56px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.mobile-shell__favorite-open > .app-icon,
+.mobile-shell__favorite-open > :first-child {
+  justify-self: center;
+  color: var(--theme-accent-warm);
+}
+
+.mobile-shell__favorite-open strong,
+.mobile-shell__favorite-open small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-shell__favorite-open small {
+  margin-top: 3px;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+}
+
+.mobile-shell__favorite-open:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mobile-shell__favorite-remove {
+  display: grid;
+  place-items: center;
+  color: var(--theme-text-muted);
+}
+
 .mobile-shell__empty-inline {
   text-align: center;
   font-size: 13px;
@@ -3120,7 +3392,7 @@ onBeforeUnmount(() => {
   height: 24px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 88%, black);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent);
 }
 
 .mobile-shell__switch span {
@@ -3204,7 +3476,7 @@ onBeforeUnmount(() => {
   grid-template-rows: auto auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  background: #05080d;
+  background: var(--theme-surface-panel-solid);
 }
 
 .mobile-shell__tag-header {
@@ -3334,7 +3606,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 82%, transparent);
   border-radius: 8px;
-  background: rgba(8, 14, 22, 0.94);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 94%, transparent);
   color: var(--theme-text-primary);
   padding: 10px 12px;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);

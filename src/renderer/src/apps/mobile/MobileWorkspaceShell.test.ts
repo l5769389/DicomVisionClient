@@ -423,7 +423,7 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
   })
 
-  it('loads local files from the mobile entry and opens the first Stack series', async () => {
+  it('loads a local folder from the mobile entry and opens the first Stack series', async () => {
     const file = new File(['dicom'], 'image.dcm', { type: 'application/dicom' })
     const series = createSeries()
     chooseFolderMock.mockResolvedValue({
@@ -440,7 +440,7 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-load-local"]').trigger('click')
     await flushPromises()
 
-    expect(chooseFolderMock).toHaveBeenCalledWith('files')
+    expect(chooseFolderMock).toHaveBeenCalledWith('folder')
     expect(postDicomUploadMock).toHaveBeenCalledWith([{ file, relativePath: 'image.dcm' }])
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
   })
@@ -830,6 +830,26 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.handleViewportWheel).not.toHaveBeenCalled()
   })
 
+  it('plays the active MPR viewport with the front-end timer', async () => {
+    vi.useFakeTimers()
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.activeTabKey.value = 'mpr-tab'
+    mockViewer.__setActiveTab(createMprTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+
+    vi.advanceTimersByTime(210)
+    expect(mockViewer.handleViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-ax', deltaY: 1 })
+
+    mockViewer.handleViewportWheel.mockClear()
+    await wrapper.get('[data-testid="mobile-mpr-plane-mpr-cor"]').trigger('click')
+    vi.advanceTimersByTime(210)
+
+    expect(mockViewer.handleViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-cor', deltaY: 1 })
+  })
+
   it('uses a discrete FPS slider in the mobile playback sheet', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
@@ -860,6 +880,32 @@ describe('MobileWorkspaceShell', () => {
     expect(JSON.parse(window.localStorage.getItem('dicomvision-key-slice-stars') ?? '{}')).toEqual({
       'series-1': [2]
     })
+  })
+
+  it('shows all favorite DICOM slices from the More sheet', async () => {
+    window.localStorage.setItem('dicomvision-key-slice-stars', JSON.stringify({ 'series-1': [4] }))
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab('series-1', { sliceLabel: '1 / 9' }))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-favorites"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="mobile-favorites-summary"]').text()).toContain('1')
+    expect(wrapper.findAll('[data-testid="mobile-favorite-slice"]')).toHaveLength(1)
+
+    await wrapper.get('[data-testid="mobile-open-favorite-slice"]').trigger('click')
+    await flushPromises()
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 4 })
+
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-favorites"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-remove-favorite-slice"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-favorites-empty"]').exists()).toBe(true)
   })
 
   it('opens Tag as a read-only mobile view and pages tag instances', async () => {

@@ -34,12 +34,16 @@ import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../sync/viewSyncCo
 import type { ViewerToolbarActionPayload } from '../operations/viewActionTypes'
 import {
   createDefaultMprMipConfig,
+  createDefaultMprSegmentationConfig,
+  createDefaultMprSegmentationVoiBox,
+  normalizeMprSegmentationConfig,
   normalizeMprMipConfig,
   type CompareSyncSettingKey,
   type CompareStackPaneKey,
   type FusionPaneKey,
   type MprCrosshairMode,
   type MprMipConfig,
+  type MprSegmentationConfig,
   type ViewerLayoutTemplate,
   type ViewerTabItem,
   type VolumeRenderConfig
@@ -47,7 +51,7 @@ import {
 import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate', 'segmentation'])
 const DEFAULT_QA_OPERATION = 'qa:mtf'
 const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
 const STACK_PLAYBACK_DEFAULT_FPS = 5
@@ -626,6 +630,27 @@ const volumePresetTool: StackTool = {
   ]
 }
 
+const segmentationTool: StackTool = {
+  key: 'segmentation',
+  label: '阈值分割',
+  icon: 'segmentation',
+  kind: 'action',
+  options: [
+    {
+      value: 'segmentation:threshold',
+      label: '阈值分割',
+      icon: 'segmentation-threshold',
+      description: 'Preview a HU threshold mask'
+    },
+    {
+      value: 'segmentation:voi',
+      label: 'VOI',
+      icon: 'segmentation-voi',
+      description: 'Edit a 3D volume of interest'
+    }
+  ]
+}
+
 const volumeTools: StackTool[] = [
   layoutTool,
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
@@ -678,8 +703,12 @@ const genericToolsWithCrosshair: StackTool[] = [
   }
 ]
 
+const mprToolsWithSegmentation: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
+  tool.key === 'mprMip' ? [tool, segmentationTool] : [tool]
+)
+
 const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
-  tool.key === 'mprMip' ? [tool, render3dModeTool, volumeParamsTool, volumePresetTool] : [tool]
+  tool.key === 'mprMip' ? [tool, segmentationTool, render3dModeTool, volumeParamsTool, volumePresetTool] : [tool]
 )
 
 interface ViewerWorkspaceToolbarOptions {
@@ -717,6 +746,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const isVolumeConfigPanelOpen = ref(false)
   const isMprMipPanelOpen = ref(false)
+  const isMprSegmentationPanelOpen = ref(false)
   const displayOverlayDraftByTabKey = ref<Record<string, Partial<Record<DisplayOverlayKey, boolean>>>>({})
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
@@ -733,6 +763,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
     crosshair: toMprCrosshairModeSelectionValue('orthogonal'),
+    segmentation: 'segmentation:threshold',
     reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
@@ -976,7 +1007,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       case 'CompareStack':
         return withSyncToolAfterLayout(compareStackTools)
       case 'MPR':
-        return isActiveMpr3dLayout.value ? mprWithVolumeTools : genericToolsWithCrosshair
+        return isActiveMpr3dLayout.value ? mprWithVolumeTools : mprToolsWithSegmentation
       case '4D':
         return genericToolsWithCrosshair
       case 'Layout':
@@ -1041,6 +1072,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     return normalizeMprMipConfig(activeTab.mprMipConfig, createDefaultMprMipConfig())
+  })
+
+  const activeMprSegmentationConfig = computed(() => {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'MPR') {
+      return null
+    }
+
+    return normalizeMprSegmentationConfig(activeTab.mprSegmentationConfig, createDefaultMprSegmentationConfig())
   })
 
   function getModeOperationValue(toolKey: string): string {
@@ -1379,6 +1419,59 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.emitTriggerViewAction({ action: 'mprMipConfig', actionType, config })
   }
 
+  function updateActiveMprSegmentationConfig(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'MPR') {
+      return
+    }
+
+    options.emitTriggerViewAction({ action: 'mprSegmentation', actionType, segmentationConfig: config })
+  }
+
+  function closeMprSegmentationPanel(): void {
+    isMprSegmentationPanelOpen.value = false
+  }
+
+  function isSegmentationOption(value: string | null | undefined): value is 'segmentation:threshold' | 'segmentation:voi' {
+    return value === 'segmentation:threshold' || value === 'segmentation:voi'
+  }
+
+  function createSegmentationConfigForOption(value: string): MprSegmentationConfig | null {
+    const current = activeMprSegmentationConfig.value
+    if (!current || !isSegmentationOption(value)) {
+      return null
+    }
+    if (value === 'segmentation:threshold') {
+      return normalizeMprSegmentationConfig({
+        ...current,
+        enabled: true,
+        voiBox: current.voiBox ?? createDefaultMprSegmentationVoiBox()
+      })
+    }
+    return normalizeMprSegmentationConfig({
+      ...current,
+      voiBox: current.voiBox ?? createDefaultMprSegmentationVoiBox()
+    })
+  }
+
+  function activateSegmentationOption(value: string): void {
+    const nextConfig = createSegmentationConfigForOption(value)
+    if (!nextConfig) {
+      return
+    }
+    closeMenus()
+    options.stopViewportDrag()
+    setToolbarToolActive('segmentation')
+    isMprMipPanelOpen.value = false
+    isMprSegmentationPanelOpen.value = true
+    stackToolSelections.value = {
+      ...stackToolSelections.value,
+      segmentation: value
+    }
+    options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
+    updateActiveMprSegmentationConfig(nextConfig, 'end')
+  }
+
   function activateModeTool(tool: StackTool): void {
     closeMenus()
     options.stopViewportDrag()
@@ -1452,7 +1545,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     },
     mprMip: () => {
       closeMenus()
+      isMprSegmentationPanelOpen.value = false
       isMprMipPanelOpen.value = !isMprMipPanelOpen.value
+    },
+    segmentation: () => {
+      const selectedOption = stackToolSelections.value.segmentation ?? 'segmentation:threshold'
+      if (!isSegmentationOption(selectedOption) || options.activeTab.value?.viewType !== 'MPR') {
+        return
+      }
+      if (isMprSegmentationPanelOpen.value) {
+        isMprSegmentationPanelOpen.value = false
+        return
+      }
+      activateSegmentationOption(selectedOption)
     },
     volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
     render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
@@ -1567,6 +1672,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         mprLayout: optionValue
       }
       closeMenus()
+      return
+    }
+
+    if (tool.key === 'segmentation') {
+      if (options.activeTab.value?.viewType !== 'MPR') {
+        return
+      }
+      activateSegmentationOption(optionValue)
       return
     }
 
@@ -1786,6 +1899,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         stopPlayback()
         isVolumeConfigPanelOpen.value = false
         isMprMipPanelOpen.value = false
+        isMprSegmentationPanelOpen.value = false
         options.setActiveViewport(
           viewType === 'MPR' || viewType === '4D'
             ? 'mpr-ax'
@@ -2025,9 +2139,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     activeTools,
     activeToolbarToolKey,
     activeMprMipConfig,
+    activeMprSegmentationConfig,
     activeVolumeRenderConfig,
     applyTool,
     areToolbarActionsDisabled,
+    closeMprSegmentationPanel,
     closeMenus,
     endPlayback,
     handleViewportClick,
@@ -2035,6 +2151,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     isPlaying,
     isPlaybackPaused,
     isMprMipPanelOpen,
+    isMprSegmentationPanelOpen,
     isToolSelected,
     isVolumeConfigPanelOpen,
     menuIconSize,
@@ -2045,6 +2162,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     stackToolSelections,
     toolbarIconSize,
     toggleIconSize,
-    updateActiveMprMipConfig
+    updateActiveMprMipConfig,
+    updateActiveMprSegmentationConfig
   }
 }

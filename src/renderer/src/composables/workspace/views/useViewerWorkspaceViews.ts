@@ -113,7 +113,13 @@ import {
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
 } from '../../../constants/pseudocolor'
-import { createDefaultMprMipConfig, isFourDSeriesItem, normalizeMprMipConfig } from '../../../types/viewer'
+import {
+  createDefaultMprMipConfig,
+  createDefaultMprSegmentationConfig,
+  isFourDSeriesItem,
+  normalizeMprMipConfig,
+  normalizeMprSegmentationConfig
+} from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
@@ -200,6 +206,10 @@ interface ViewSizeUpdate {
     width: number
     height: number
   }
+}
+
+function getMprSegmentationConfigPayload(payload: Partial<ViewImageResponse>) {
+  return payload.mprSegmentationConfig ?? (payload as { mpr_segmentation_config?: ViewImageResponse['mprSegmentationConfig'] | null }).mpr_segmentation_config
 }
 
 interface CompareViewSizeUpdate {
@@ -1429,6 +1439,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const mprSegmentationConfig = normalizeMprSegmentationConfig(
+        getMprSegmentationConfigPayload(payload),
+        item.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
+      )
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
       const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
@@ -1909,6 +1923,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             [viewportKey]: null
           },
           mprMipConfig,
+          mprSegmentationConfig,
           mprCrosshairMode,
           volumePreset,
           volumeRenderConfig,
@@ -1941,6 +1956,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         transformState: hasTransformPayload ? transformState : item.transformState ?? transformState,
         pseudocolorPreset,
         mprMipConfig,
+        mprSegmentationConfig,
         mprCrosshairMode,
         volumePreset,
         volumeRenderConfig,
@@ -2017,6 +2033,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const orientationInfo = payload.orientation != null ? normalizeOrientationInfo(payload.orientation) : null
       const transformState = payload.transform ?? null
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const mprSegmentationConfig = normalizeMprSegmentationConfig(
+        getMprSegmentationConfigPayload(payload),
+        item.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
+      )
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : item.mprCrosshairMode ?? 'orthogonal'
 
       let nextFourDPhaseCache = item.fourDPhaseCache
@@ -2074,7 +2094,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...item,
             fourDPhaseCache: nextFourDPhaseCache,
             mprCrosshairMode,
-            mprMipConfig
+            mprMipConfig,
+            mprSegmentationConfig
           }
           return {
             ...nextItem,
@@ -2085,7 +2106,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           fourDPhaseCache: nextFourDPhaseCache,
           mprCrosshairMode,
-          mprMipConfig
+          mprMipConfig,
+          mprSegmentationConfig
         }
       }
 
@@ -2124,6 +2146,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           [viewportKey]: transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
         },
         mprMipConfig,
+        mprSegmentationConfig,
         mprCrosshairMode,
         fourDPhaseCache: nextFourDPhaseCache
       }
@@ -2944,6 +2967,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                     }
                   : createEmptyMprPseudocolorPresets(),
               mprMipConfig: createDefaultMprMipConfig(),
+              mprSegmentationConfig: createDefaultMprSegmentationConfig(),
               volumePreset: 'volumePreset:bone',
               volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
               render3dMode: 'volume',

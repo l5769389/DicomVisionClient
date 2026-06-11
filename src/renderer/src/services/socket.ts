@@ -11,6 +11,7 @@ import type {
   MeasurementDraftPoint,
   MprCrosshairMode,
   MprMipOperationConfig,
+  MprSegmentationOperationConfig,
   ViewProgressInfo,
   ViewHoverPayload,
   ViewHoverResponse,
@@ -63,6 +64,7 @@ export interface ViewOperationPayload {
   wl?: number
   pseudocolorPreset?: string
   mprMipConfig?: MprMipOperationConfig
+  mprSegmentationConfig?: MprSegmentationOperationConfig
   mprCrosshairMode?: MprCrosshairMode
   fusionAlpha?: number
   fusionManualRegistration?: boolean

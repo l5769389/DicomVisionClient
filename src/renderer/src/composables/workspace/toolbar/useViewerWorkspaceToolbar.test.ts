@@ -409,6 +409,43 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.emitTriggerViewAction.mockClear()
     harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:save')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationSave' })
+    harness.wrapper.unmount()
+  })
+
+  it('shows segmentation only for regular MPR views', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    })
+    await nextTick()
+
+    const getToolKeys = () => harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(getToolKeys()).toContain('segmentation')
+    expect(getToolKeys().indexOf('segmentation')).toBe(getToolKeys().indexOf('mprMip') + 1)
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::4d',
+      title: 'Series 1 / 4D',
+      viewType: '4D'
+    }
+    await nextTick()
+    expect(getToolKeys()).not.toContain('segmentation')
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    }
+    await nextTick()
+    expect(getToolKeys()).not.toContain('segmentation')
+
+    harness.activeTab.value = create3dTab()
+    await nextTick()
+    expect(getToolKeys()).not.toContain('segmentation')
 
     harness.wrapper.unmount()
   })
@@ -446,6 +483,51 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
     harness.toolbar.selectToolOption(exportTool, 'dicom')
     expect(harness.exportCurrentView).toHaveBeenCalledWith('dicom', 'compare-a')
+    harness.wrapper.unmount()
+  })
+
+  it('selects MPR segmentation threshold and VOI operations', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    })
+    await nextTick()
+
+    const segmentationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'segmentation')!
+    expect(segmentationTool.options?.map((option) => option.value)).toEqual(['segmentation:threshold', 'segmentation:voi'])
+
+    harness.toolbar.selectToolOption(segmentationTool, 'segmentation:threshold')
+    expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:threshold')
+    expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
+      action: 'mprSegmentation',
+      actionType: 'end',
+      segmentationConfig: expect.objectContaining({
+        enabled: true,
+        lowerHu: 300,
+        upperHu: 3071
+      })
+    })
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(true)
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(segmentationTool, 'segmentation:voi')
+    expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:voi')
+    expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
+      action: 'mprSegmentation',
+      actionType: 'end',
+      segmentationConfig: expect.objectContaining({
+        voiBox: expect.objectContaining({
+          xMin: 0,
+          xMax: 1,
+          yMin: 0,
+          yMax: 1,
+          zMin: 0,
+          zMax: 1
+        })
+      })
+    })
 
     harness.wrapper.unmount()
   })

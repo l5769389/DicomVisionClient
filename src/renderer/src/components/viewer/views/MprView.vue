@@ -9,6 +9,7 @@ import type {
   MeasurementDraft,
   MeasurementOverlay,
   MprLayoutKey,
+  MprSegmentationConfig,
   MprViewportKey,
   ScaleBarInfo,
   ViewProgressInfo,
@@ -27,6 +28,7 @@ const props = withDefaults(
     activeViewportKey: string
     allowViewportMaximize?: boolean
     layoutKey?: MprLayoutKey | null
+    mprSegmentationConfig?: MprSegmentationConfig | null
     getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
     getCursorClass: (viewportKey: MprViewportKey) => string
     getDraftAnnotation: (viewportKey: MprViewportKey) => AnnotationDraft | null
@@ -42,6 +44,7 @@ const props = withDefaults(
   {
     allowViewportMaximize: true,
     layoutKey: DEFAULT_MPR_LAYOUT_KEY,
+    mprSegmentationConfig: null,
     selectedMtfId: null
   }
 )
@@ -56,6 +59,7 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
+  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: 'move' | 'end']
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -347,6 +351,22 @@ function normalizeOperation(operation: string): string {
   return operation.startsWith('stack:') ? operation.slice('stack:'.length) : operation
 }
 
+function isVoiEditOperation(): boolean {
+  return normalizeOperation(props.activeOperation) === 'segmentation:voi'
+}
+
+function isItemVoiOblique(item: MprViewportLayoutItem): boolean {
+  return Boolean(props.activeTab.mprCrosshairMode === 'double-oblique' || getItemPlane(item)?.isOblique)
+}
+
+function isItemVoiEditable(item: MprViewportLayoutItem): boolean {
+  return item.kind === 'mpr' && isVoiEditOperation() && !isItemVoiOblique(item)
+}
+
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+  emit('mprSegmentationConfigChange', config, actionType)
+}
+
 function getViewportClass(viewportKey: MprDisplayViewportKey, className: string): string {
   return maximizedViewportKey.value === viewportKey ? 'col-start-1 row-start-1' : className
 }
@@ -444,6 +464,9 @@ watch(
       :mpr-crosshair="getItemCrosshair(item)"
       :mpr-frame="getItemFrame(item)"
       :mpr-plane="getItemPlane(item)"
+      :mpr-segmentation-config="props.mprSegmentationConfig"
+      :voi-editable="isItemVoiEditable(item)"
+      :voi-oblique="isItemVoiOblique(item)"
       :scale-bar="getItemScaleBar(item)"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-scale-bar="props.activeTab.showScaleBar !== false"
@@ -460,6 +483,7 @@ watch(
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @open-mtf-curve="emit('openMtfCurve')"
       @select-mtf="emit('selectMtf', $event)"
+      @mpr-segmentation-config-change="handleMprSegmentationConfigChange"
       @wheel-viewport="handleViewportWheel"
       @pointer-down="emit('pointerDown', $event, item.key)"
       @pointer-leave="emit('pointerLeave', $event)"

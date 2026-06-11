@@ -14,7 +14,7 @@ import type {
   MeasurementOverlay,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
-  MprMipConfig,
+  MprSegmentationConfig,
   QaWaterAnalysis,
   QaWaterMetricKey,
   ViewerLayoutTemplate,
@@ -30,6 +30,7 @@ import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useVi
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import MprMipConfigPanel from './MprMipConfigPanel.vue'
+import MprSegmentationPanel from './MprSegmentationPanel.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
@@ -205,9 +206,11 @@ const {
 const {
   activeTools,
   activeMprMipConfig,
+  activeMprSegmentationConfig,
   activeVolumeRenderConfig,
   applyTool,
   areToolbarActionsDisabled,
+  closeMprSegmentationPanel,
   closeMenus,
   endPlayback,
   handleViewportClick,
@@ -215,6 +218,7 @@ const {
   isPlaying,
   isPlaybackPaused,
   isMprMipPanelOpen,
+  isMprSegmentationPanelOpen,
   isToolSelected,
   isVolumeConfigPanelOpen,
   menuIconSize,
@@ -225,7 +229,8 @@ const {
   stackToolSelections,
   toolbarIconSize,
   toggleIconSize,
-  updateActiveMprMipConfig
+  updateActiveMprMipConfig,
+  updateActiveMprSegmentationConfig
 } = useViewerWorkspaceToolbar({
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
@@ -246,6 +251,10 @@ const {
 
 function closeVolumeConfigPanel(): void {
   isVolumeConfigPanelOpen.value = false
+}
+
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+  updateActiveMprSegmentationConfig(config, actionType)
 }
 
 const activeMprLayoutKey = computed(() => {
@@ -1801,6 +1810,18 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <div
+          v-if="activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen && activeMprSegmentationConfig"
+          class="pointer-events-none absolute inset-y-0 right-0 z-[21] flex items-start"
+        >
+          <MprSegmentationPanel
+            class="pointer-events-auto max-h-full rounded-r-[18px]!"
+            :config="activeMprSegmentationConfig"
+            @close="closeMprSegmentationPanel"
+            @config-change="handleMprSegmentationConfigChange"
+          />
+        </div>
+
         <CompareStackView
           v-if="activeTab.viewType === 'CompareStack'"
           :active-tab="activeTab"
@@ -1909,6 +1930,7 @@ onBeforeUnmount(() => {
           :active-operation="props.activeOperation"
           :active-viewport-key="activeViewportKey"
           :layout-key="activeMprLayoutKey"
+          :mpr-segmentation-config="activeTab.mprSegmentationConfig ?? null"
           :get-annotations="getViewportAnnotations"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
           :get-draft-annotation="getViewportDraftAnnotation"
@@ -1929,6 +1951,7 @@ onBeforeUnmount(() => {
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @open-mtf-curve="handleOpenMtfCurve"
           @select-mtf="handleSelectMtf"
+          @mpr-segmentation-config-change="handleMprSegmentationConfigChange"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDownWithAnnotations"

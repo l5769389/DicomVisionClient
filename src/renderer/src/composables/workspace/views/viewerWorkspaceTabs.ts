@@ -19,7 +19,7 @@ import type {
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
-import { createDefaultMprMipConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig } from '../../../types/viewer'
 import {
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
@@ -763,6 +763,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),
+    mprSegmentationConfig: createDefaultMprSegmentationConfig(),
     mprCrosshairMode: 'orthogonal',
     volumePreset: 'volumePreset:bone',
     volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),

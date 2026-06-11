@@ -87,7 +87,11 @@ import {
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
 } from '../../../constants/pseudocolor'
-import { createDefaultMprMipConfig } from '../../../types/viewer'
+import {
+  createDefaultMprMipConfig,
+  createDefaultMprSegmentationConfig,
+  normalizeMprSegmentationConfig
+} from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { useUiLocale } from '../../ui/useUiLocale'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
@@ -119,6 +123,7 @@ import type {
   MprCrosshairMode,
   MprMipConfig,
   MprMipOperationConfig,
+  MprSegmentationConfig,
   MprViewportKey,
   ViewImageResponse,
   ViewProgressInfo,
@@ -835,6 +840,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function emitMprSegmentationConfig(viewId: string, config: MprSegmentationConfig, actionType: 'move' | 'end' = 'end'): void {
+    viewInteractionOperationScheduler.emit(viewId, {
+      viewId,
+      opType: VIEW_OPERATION_TYPES.mprSegmentation,
+      actionType,
+      mprSegmentationConfig: normalizeMprSegmentationConfig(config)
+    })
+  }
+
   function emitMprCrosshairMode(viewId: string, mode: MprCrosshairMode): void {
     emitViewOperation({
       viewId,
@@ -882,6 +896,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'mprMipConfig' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
+    if (payload.action === 'mprSegmentation' && tab.viewType !== 'MPR') {
       return
     }
 
@@ -1068,6 +1086,37 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
 
       emitMprMipConfig(viewId, payload.config, actionType)
+      return
+    }
+
+    if (payload.action === 'mprSegmentation' && payload.segmentationConfig) {
+      const viewId = getActiveMprOperationViewId(tab)
+      if (!viewId) {
+        return
+      }
+      const previousConfig = tab.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
+      const nextConfig = normalizeMprSegmentationConfig(payload.segmentationConfig, previousConfig)
+      const shouldEmitDisabled = previousConfig.enabled && !nextConfig.enabled
+      const actionType = payload.actionType === DRAG_ACTION_TYPES.move ? DRAG_ACTION_TYPES.move : DRAG_ACTION_TYPES.end
+
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              mprSegmentationConfig: nextConfig
+            }
+          : item
+      )
+
+      if (!nextConfig.enabled) {
+        if (shouldEmitDisabled) {
+          viewInteractionOperationScheduler.cancel()
+          emitMprSegmentationConfig(viewId, nextConfig, DRAG_ACTION_TYPES.end)
+        }
+        return
+      }
+
+      emitMprSegmentationConfig(viewId, nextConfig, actionType)
       return
     }
 
@@ -1262,6 +1311,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             mprCursor: null,
             mprFrame: null,
             mprMipConfig: createDefaultMprMipConfig(),
+            mprSegmentationConfig: createDefaultMprSegmentationConfig(),
             mprCrosshairMode: 'orthogonal',
             viewportCrosshairs: createEmptyMprCrosshairs(),
             viewportScaleBars: createEmptyMprScaleBars(),
@@ -1327,6 +1377,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           mprCursor: null,
           mprFrame: null,
           mprMipConfig: createDefaultMprMipConfig(),
+          mprSegmentationConfig: createDefaultMprSegmentationConfig(),
           viewportCrosshairs: createEmptyMprCrosshairs(),
           viewportScaleBars: createEmptyMprScaleBars(),
           viewportOrientations: createEmptyMprOrientations(),

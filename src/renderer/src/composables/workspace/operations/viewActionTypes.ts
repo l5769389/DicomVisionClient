@@ -1,5 +1,5 @@
 import type { DragActionType } from '@shared/viewerConstants'
-import type { MprCrosshairMode, MprMipConfig } from '../../../types/viewer'
+import type { MprCrosshairMode, MprMipConfig, MprSegmentationConfig } from '../../../types/viewer'
 
 export type ViewerDisplayOverlayKey = 'cornerInfo' | 'scaleBar'
 
@@ -15,6 +15,7 @@ export type ViewerToolbarAction =
   | 'pseudocolor'
   | 'windowPreset'
   | 'mprMipConfig'
+  | 'mprSegmentation'
   | 'mprCrosshairMode'
   | 'fusionManualRegistration'
   | 'fusionRegistrationReset'
@@ -31,5 +32,6 @@ export interface ViewerToolbarActionPayload {
   overlay?: ViewerDisplayOverlayKey
   value?: string
   config?: MprMipConfig
+  segmentationConfig?: MprSegmentationConfig
   mode?: MprCrosshairMode
 }

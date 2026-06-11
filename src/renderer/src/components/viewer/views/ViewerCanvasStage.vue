@@ -10,6 +10,7 @@ import type {
   MprCrosshairInfo,
   MprFrameInfo,
   MprPlaneInfo,
+  MprSegmentationConfig,
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
@@ -24,6 +25,7 @@ import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.v
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
+import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = withDefaults(
@@ -51,6 +53,7 @@ const props = withDefaults(
     mprCrosshair?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
     mprPlane?: MprPlaneInfo | null
+    mprSegmentationConfig?: MprSegmentationConfig | null
     orientation: OrientationInfo
     placeholder: string
     renderSurfaceActive?: boolean
@@ -58,6 +61,8 @@ const props = withDefaults(
     showCornerInfo?: boolean
     showScaleBar?: boolean
     softImage?: boolean
+    voiEditable?: boolean
+    voiOblique?: boolean
     viewportClass?: string
     viewportKey: string
   }>(),
@@ -76,12 +81,15 @@ const props = withDefaults(
     mprCrosshair: null,
     mprFrame: null,
     mprPlane: null,
+    mprSegmentationConfig: null,
     qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
     showScaleBar: true,
     softImage: false,
+    voiEditable: false,
+    voiOblique: false,
     viewportClass: ''
   }
 )
@@ -106,6 +114,7 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: 'move' | 'end']
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
@@ -218,6 +227,10 @@ function handlePointerMove(event: PointerEvent): void {
 function handlePointerLeave(): void {
   emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
   emit('pointerLeave', props.viewportKey)
+}
+
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+  emit('mprSegmentationConfigChange', config, actionType)
 }
 
 function getRenderedImageRect(image: HTMLImageElement): DOMRect {
@@ -398,6 +411,14 @@ watch(
         :mpr-plane="mprPlane"
         :viewport-key="viewportKey"
         :is-active="isActive"
+      />
+      <ViewportVoiOverlay
+        :config="mprSegmentationConfig"
+        :editable="voiEditable"
+        :image-frame="imageFrame"
+        :is-oblique="voiOblique"
+        :viewport-key="viewportKey"
+        @config-change="handleMprSegmentationConfigChange"
       />
       <ViewportScaleBarOverlay
         v-if="showScaleBar"

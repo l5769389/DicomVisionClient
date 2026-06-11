@@ -36,6 +36,7 @@ const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
   VIEW_OPERATION_TYPES.crosshair,
   VIEW_OPERATION_TYPES.fusionRegistration,
   VIEW_OPERATION_TYPES.mprMipConfig,
+  VIEW_OPERATION_TYPES.mprSegmentation,
   VIEW_OPERATION_TYPES.mprOblique
 ])
 
@@ -47,7 +48,8 @@ const MAX_VIEW_MOVE_INTERVAL_MS = 100
 const FRONTEND_RENDER_MARGIN_MS = 4
 const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
-  VIEW_OPERATION_TYPES.mprMipConfig
+  VIEW_OPERATION_TYPES.mprMipConfig,
+  VIEW_OPERATION_TYPES.mprSegmentation
 ])
 
 function getOperationQueueKey(operationKey: string, payload: SchedulableViewOperation): string | null {

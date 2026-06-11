@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import type {
@@ -7,8 +7,10 @@ import type {
   AnnotationOverlay,
   DraftMeasurementMode,
   FusionPaneKey,
+  FusionProjectionInfo,
   MeasurementDraft,
   MeasurementOverlay,
+  Vec3,
   ViewerTabItem
 } from '../../../types/viewer'
 import {
@@ -82,6 +84,11 @@ const isZh = computed(() => locale.value === 'zh-CN')
 const manualDragState = ref<ManualRegistrationDragState | null>(null)
 const calibrationDragState = ref<FusionCalibrationDragState | null>(null)
 const calibrationMarkerPosition = ref({ x: 0.5, y: 0.5 })
+const calibrationMarkerWorld = ref<Vec3 | null>(null)
+const markerLayoutRevision = ref(0)
+const paneElements = new Map<FusionPaneKey, HTMLElement>()
+let paneResizeObserver: ResizeObserver | null = null
+let markerLayoutRaf: number | null = null
 
 const paneTitles = computed((): Record<FusionPaneKey, string> => ({
   'fusion-ct-ax': 'CT Axial',
@@ -167,6 +174,143 @@ function clampNormalized(value: number): number {
   return Math.min(1, Math.max(0, value))
 }
 
+function bumpMarkerLayoutRevision(): void {
+  markerLayoutRevision.value += 1
+}
+
+function scheduleMarkerLayoutUpdate(): void {
+  if (markerLayoutRaf != null || typeof window === 'undefined') {
+    return
+  }
+  markerLayoutRaf = window.requestAnimationFrame(() => {
+    markerLayoutRaf = null
+    bumpMarkerLayoutRevision()
+  })
+}
+
+function getRenderedImageRect(image: HTMLImageElement): DOMRect {
+  const rect = image.getBoundingClientRect()
+  const naturalWidth = image.naturalWidth
+  const naturalHeight = image.naturalHeight
+  if (!naturalWidth || !naturalHeight || !rect.width || !rect.height) {
+    return rect
+  }
+
+  const elementAspectRatio = rect.width / rect.height
+  const imageAspectRatio = naturalWidth / naturalHeight
+  if (elementAspectRatio > imageAspectRatio) {
+    const renderedWidth = rect.height * imageAspectRatio
+    const offsetX = (rect.width - renderedWidth) / 2
+    return new DOMRect(rect.left + offsetX, rect.top, renderedWidth, rect.height)
+  }
+
+  const renderedHeight = rect.width / imageAspectRatio
+  const offsetY = (rect.height - renderedHeight) / 2
+  return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
+}
+
+function getPaneImageRect(pane: HTMLElement): DOMRect {
+  const image = pane.querySelector<HTMLImageElement>('.viewer-image')
+  if (!image) {
+    return pane.getBoundingClientRect()
+  }
+  const imageRect = getRenderedImageRect(image)
+  if (!imageRect.width || !imageRect.height) {
+    return pane.getBoundingClientRect()
+  }
+  return imageRect
+}
+
+function setPaneRef(paneKey: FusionPaneKey, element: Element | ComponentPublicInstance | null): void {
+  const nextElement = element instanceof HTMLElement ? element : null
+  const previousElement = paneElements.get(paneKey)
+  if (previousElement && previousElement !== nextElement) {
+    paneResizeObserver?.unobserve(previousElement)
+    paneElements.delete(paneKey)
+  }
+  if (!nextElement) {
+    return
+  }
+  paneElements.set(paneKey, nextElement)
+  paneResizeObserver?.observe(nextElement)
+  scheduleMarkerLayoutUpdate()
+}
+
+function isFiniteVec3(value: Vec3 | null | undefined): value is Vec3 {
+  return Array.isArray(value) && value.length === 3 && value.every((item) => Number.isFinite(item))
+}
+
+function getFusionProjection(paneKey: FusionPaneKey): FusionProjectionInfo | null {
+  return props.activeTab.fusionProjections?.[paneKey] ?? null
+}
+
+function getFirstFusionProjection(): FusionProjectionInfo | null {
+  return FUSION_PANE_KEYS.map((paneKey) => getFusionProjection(paneKey)).find((projection): projection is FusionProjectionInfo => projection != null) ?? null
+}
+
+function dotWorld(coefficients: readonly [number, number, number, number], world: Vec3): number {
+  return coefficients[0] * world[0] + coefficients[1] * world[1] + coefficients[2] * world[2] + coefficients[3]
+}
+
+function normalizedToWorld(projection: FusionProjectionInfo, x: number, y: number): Vec3 {
+  return [
+    projection.normalizedToWorldOrigin[0] + projection.normalizedToWorldX[0] * x + projection.normalizedToWorldY[0] * y,
+    projection.normalizedToWorldOrigin[1] + projection.normalizedToWorldX[1] * x + projection.normalizedToWorldY[1] * y,
+    projection.normalizedToWorldOrigin[2] + projection.normalizedToWorldX[2] * x + projection.normalizedToWorldY[2] * y
+  ]
+}
+
+function getCalibrationMarkerWorld(): Vec3 | null {
+  if (isFiniteVec3(calibrationMarkerWorld.value)) {
+    return calibrationMarkerWorld.value
+  }
+  const projection = getFirstFusionProjection()
+  return isFiniteVec3(projection?.referenceWorld) ? projection.referenceWorld : null
+}
+
+function getCalibrationMarkerPositionForPane(paneKey: FusionPaneKey): { x: number; y: number } {
+  const projection = getFusionProjection(paneKey)
+  const world = getCalibrationMarkerWorld()
+  if (!projection || !world) {
+    return calibrationMarkerPosition.value
+  }
+
+  const x = dotWorld(projection.worldToNormalizedX, world)
+  const y = dotWorld(projection.worldToNormalizedY, world)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return calibrationMarkerPosition.value
+  }
+  return { x, y }
+}
+
+function getCalibrationMarkerStyle(paneKey: FusionPaneKey): Record<string, string> {
+  void markerLayoutRevision.value
+  const markerPosition = getCalibrationMarkerPositionForPane(paneKey)
+  const pane = paneElements.get(paneKey)
+  if (!pane) {
+    return {
+      left: `${markerPosition.x * 100}%`,
+      top: `${markerPosition.y * 100}%`
+    }
+  }
+
+  const paneRect = pane.getBoundingClientRect()
+  const imageRect = getPaneImageRect(pane)
+  if (!paneRect.width || !paneRect.height || !imageRect.width || !imageRect.height) {
+    return {
+      left: `${markerPosition.x * 100}%`,
+      top: `${markerPosition.y * 100}%`
+    }
+  }
+
+  const left = imageRect.left - paneRect.left + markerPosition.x * imageRect.width
+  const top = imageRect.top - paneRect.top + markerPosition.y * imageRect.height
+  return {
+    left: `${left}px`,
+    top: `${top}px`
+  }
+}
+
 function updateCalibrationMarkerFromPointer(event: PointerEvent): void {
   const target = event.currentTarget
   if (!(target instanceof HTMLElement)) {
@@ -176,13 +320,19 @@ function updateCalibrationMarkerFromPointer(event: PointerEvent): void {
   if (!pane) {
     return
   }
-  const rect = pane.getBoundingClientRect()
+  const rect = getPaneImageRect(pane)
   if (rect.width <= 0 || rect.height <= 0) {
     return
   }
-  calibrationMarkerPosition.value = {
+  const normalizedPosition = {
     x: clampNormalized((event.clientX - rect.left) / rect.width),
     y: clampNormalized((event.clientY - rect.top) / rect.height)
+  }
+  calibrationMarkerPosition.value = normalizedPosition
+  const paneKey = pane.dataset.fusionPaneKey as FusionPaneKey | undefined
+  const projection = paneKey ? getFusionProjection(paneKey) : null
+  if (projection) {
+    calibrationMarkerWorld.value = normalizedToWorld(projection, normalizedPosition.x, normalizedPosition.y)
   }
 }
 
@@ -226,6 +376,11 @@ function handleCalibrationPointerUp(event: PointerEvent): void {
   }
 }
 
+function handlePaneImageLoaded(viewportKey: string): void {
+  scheduleMarkerLayoutUpdate()
+  emit('imageLoaded', viewportKey)
+}
+
 function handlePointerMove(event: PointerEvent): void {
   if (manualDragState.value) {
     event.preventDefault()
@@ -262,6 +417,45 @@ function handlePointerCancel(event: PointerEvent): void {
   emit('pointerCancel', event)
 }
 
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') {
+    paneResizeObserver = new ResizeObserver(() => {
+      scheduleMarkerLayoutUpdate()
+    })
+    paneElements.forEach((element) => paneResizeObserver?.observe(element))
+  }
+  window.addEventListener('resize', scheduleMarkerLayoutUpdate)
+})
+
+onBeforeUnmount(() => {
+  if (markerLayoutRaf != null) {
+    window.cancelAnimationFrame(markerLayoutRaf)
+    markerLayoutRaf = null
+  }
+  paneResizeObserver?.disconnect()
+  paneResizeObserver = null
+  paneElements.clear()
+  window.removeEventListener('resize', scheduleMarkerLayoutUpdate)
+})
+
+watch(
+  () => props.activeTab.fusionImages,
+  async () => {
+    await nextTick()
+    scheduleMarkerLayoutUpdate()
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.activeTab.key,
+  () => {
+    calibrationMarkerWorld.value = null
+    calibrationMarkerPosition.value = { x: 0.5, y: 0.5 }
+    scheduleMarkerLayoutUpdate()
+  }
+)
+
 </script>
 
 <template>
@@ -270,6 +464,8 @@ function handlePointerCancel(event: PointerEvent): void {
       <section
         v-for="pane in panes"
         :key="pane.key"
+        :ref="(element) => setPaneRef(pane.key, element)"
+        :data-fusion-pane-key="pane.key"
         class="pet-ct-fusion-view__pane relative min-h-0 overflow-hidden rounded-md border border-white/12 bg-black"
         :class="{ 'pet-ct-fusion-view__pane--active': activeViewportKey === pane.key }"
       >
@@ -305,7 +501,7 @@ function handlePointerCancel(event: PointerEvent): void {
           @delete-annotation="emit('deleteAnnotation', $event)"
           @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
-          @image-loaded="emit('imageLoaded', $event)"
+          @image-loaded="handlePaneImageLoaded"
           @pointer-cancel="handlePointerCancel"
           @pointer-down="handlePointerDown"
           @pointer-leave="emit('pointerLeave', $event)"
@@ -322,7 +518,7 @@ function handlePointerCancel(event: PointerEvent): void {
           type="button"
           class="pet-ct-fusion-view__marker"
           :aria-label="isZh ? '辅助标定' : 'Calibration marker'"
-          :style="{ left: `${calibrationMarkerPosition.x * 100}%`, top: `${calibrationMarkerPosition.y * 100}%` }"
+          :style="getCalibrationMarkerStyle(pane.key)"
           @pointerdown="handleCalibrationPointerDown"
           @pointermove="handleCalibrationPointerMove"
           @pointerup="handleCalibrationPointerUp"

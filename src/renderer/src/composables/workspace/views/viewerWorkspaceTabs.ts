@@ -4,6 +4,7 @@ import type {
   CompareStackPaneKey,
   FusionPaneKey,
   FusionInfo,
+  FusionProjectionInfo,
   FourDPhaseItem,
   FolderSeriesItem,
   MprCursorInfo,
@@ -19,7 +20,13 @@ import type {
   ViewType
 } from '../../../types/viewer'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
-import { DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET, DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
+import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+  DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PSEUDOCOLOR_PRESET
+} from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
@@ -248,8 +255,12 @@ export function createEmptyFusionPseudocolorPresets(): Record<FusionPaneKey, str
     if (paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY) {
       return DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
     }
-    return 'bwinverse'
+    return DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
   })
+}
+
+export function createEmptyFusionProjections(): Record<FusionPaneKey, null> {
+  return createFusionPaneRecord(() => null)
 }
 
 export function createEmptyFusionLoadingProgress(): Record<FusionPaneKey, ViewProgressInfo | null> {
@@ -264,8 +275,8 @@ export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): Fusi
     petPseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
     petUnit: 'SUVbw',
     petUnitLabel: 'g/ml (SUVbw)',
-    petWindowMin: 0,
-    petWindowMax: 4.5,
+    petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+    petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
     alpha: 0.52,
     revision: 0,
     registration: {
@@ -583,6 +594,61 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
   }
 }
 
+function normalizeFiniteNumber(value: unknown, fallback: number): number {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : fallback
+}
+
+function normalizeVec3(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  if (!Array.isArray(value) || value.length < 3) {
+    return fallback
+  }
+  return [
+    normalizeFiniteNumber(value[0], fallback[0]),
+    normalizeFiniteNumber(value[1], fallback[1]),
+    normalizeFiniteNumber(value[2], fallback[2])
+  ]
+}
+
+function normalizeVec4(value: unknown, fallback: [number, number, number, number]): [number, number, number, number] {
+  if (!Array.isArray(value) || value.length < 4) {
+    return fallback
+  }
+  return [
+    normalizeFiniteNumber(value[0], fallback[0]),
+    normalizeFiniteNumber(value[1], fallback[1]),
+    normalizeFiniteNumber(value[2], fallback[2]),
+    normalizeFiniteNumber(value[3], fallback[3])
+  ]
+}
+
+export function normalizeFusionProjectionInfo(value: unknown): FusionProjectionInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const nestedProjection = (record.fusionProjection ?? record.fusion_projection ?? record.projection) as unknown
+  if (nestedProjection && nestedProjection !== value) {
+    return normalizeFusionProjectionInfo(nestedProjection)
+  }
+
+  const paneRole = typeof (record.paneRole ?? record.pane_role) === 'string'
+    ? String(record.paneRole ?? record.pane_role)
+    : FUSION_OVERLAY_AXIAL_PANE_KEY
+  return {
+    paneRole,
+    referenceWorld: normalizeVec3(record.referenceWorld ?? record.reference_world, [0, 0, 0]),
+    referenceX: normalizeFiniteNumber(record.referenceX ?? record.reference_x, 0.5),
+    referenceY: normalizeFiniteNumber(record.referenceY ?? record.reference_y, 0.5),
+    normalizedToWorldOrigin: normalizeVec3(record.normalizedToWorldOrigin ?? record.normalized_to_world_origin, [0, 0, 0]),
+    normalizedToWorldX: normalizeVec3(record.normalizedToWorldX ?? record.normalized_to_world_x, [1, 0, 0]),
+    normalizedToWorldY: normalizeVec3(record.normalizedToWorldY ?? record.normalized_to_world_y, [0, 1, 0]),
+    worldToNormalizedX: normalizeVec4(record.worldToNormalizedX ?? record.world_to_normalized_x, [0, 0, 0, 0.5]),
+    worldToNormalizedY: normalizeVec4(record.worldToNormalizedY ?? record.world_to_normalized_y, [0, 0, 0, 0.5])
+  }
+}
+
 export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerInfo {
   const mergedCornerInfo = CORNER_POSITIONS.reduce(
     (accumulator, position) => {
@@ -671,6 +737,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionOrientations: createEmptyFusionOrientations(),
     fusionTransformStates: createEmptyFusionTransformStates(),
     fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+    fusionProjections: createEmptyFusionProjections(),
     fusionInfo: null,
     fusionManualRegistration: false,
     ...createCompareSyncDefaults(),

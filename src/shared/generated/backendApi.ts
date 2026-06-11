@@ -22,7 +22,7 @@ export interface CornerInfoPayload {
   topRight?: string[]
   bottomLeft?: string[]
   bottomRight?: string[]
-  tags?: { [key: string]: string[] }
+  tags?: Record<string, string[]>
 }
 
 export interface CornerInfoRequest {
@@ -157,6 +157,39 @@ export interface FourDPlaybackStopRequest {
   tabKey: string
 }
 
+export interface FusionInfo {
+  paneRole: string
+  ctSeriesId: string
+  petSeriesId: string
+  petPseudocolorPreset: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  alpha: number
+  revision: number
+  registration: FusionRegistrationInfo
+}
+
+export interface FusionProjectionInfo {
+  paneRole: string
+  referenceWorld: [number, number, number]
+  referenceX: number
+  referenceY: number
+  normalizedToWorldOrigin: [number, number, number]
+  normalizedToWorldX: [number, number, number]
+  normalizedToWorldY: [number, number, number]
+  worldToNormalizedX: [number, number, number, number]
+  worldToNormalizedY: [number, number, number, number]
+}
+
+export interface FusionRegistrationInfo {
+  translateRowMm?: number
+  translateColMm?: number
+  rotationDegrees?: number
+  saved?: boolean
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[]
 }
@@ -202,8 +235,6 @@ export interface MprCrosshairInfo {
   verticalSlabOffsetY?: number | null
 }
 
-export type MprCrosshairMode = 'orthogonal' | 'double-oblique'
-
 export interface MprCursorInfo {
   centerWorld: [number, number, number]
   referenceCenterWorld: [number, number, number]
@@ -242,6 +273,24 @@ export interface MprPlaneInfo {
   col: [number, number, number]
   normal: [number, number, number]
   isOblique: boolean
+}
+
+export interface MprSegmentationConfig {
+  enabled?: boolean
+  lowerHu?: number
+  upperHu?: number
+  opacity?: number
+  color?: string
+  voiBox?: MprSegmentationVoiBox | null
+}
+
+export interface MprSegmentationVoiBox {
+  xMin?: number
+  xMax?: number
+  yMin?: number
+  yMax?: number
+  zMin?: number
+  zMax?: number
 }
 
 export interface MtfCurvePointPayload {
@@ -577,10 +626,10 @@ export interface ViewColorInfo {
 export interface ViewCreateRequest {
   seriesId: string
   viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG' | 'FusionCTAxial' | 'FusionPETAxial' | 'FusionOverlayAxial' | 'FusionPETCoronalMip'
-  viewGroupKey?: string | null
-  fourDPhaseIndex?: number | null
   secondarySeriesId?: string | null
   fusionPaneRole?: string | null
+  viewGroupKey?: string | null
+  fourDPhaseIndex?: number | null
 }
 
 export interface ViewCreateResponse {
@@ -650,34 +699,15 @@ export interface ViewImageResponse {
   orientation?: OrientationInfo | null
   transform?: ViewTransformPayload | null
   color?: ViewColorInfo | null
-  mprMipConfig?: MprMipConfig | null
-  mprCrosshairMode?: MprCrosshairMode
   fusionInfo?: FusionInfo | null
+  fusionProjection?: FusionProjectionInfo | null
+  mprMipConfig?: MprMipConfig | null
+  mprSegmentationConfig?: MprSegmentationConfig | null
+  mprCrosshairMode?: 'orthogonal' | 'double-oblique'
   volumePreset?: string | null
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: 'volume' | 'surface' | null
   surfaceConfig?: SurfaceRenderConfig | null
-}
-
-export interface FusionRegistrationInfo {
-  translateRowMm?: number
-  translateColMm?: number
-  rotationDegrees?: number
-  saved?: boolean
-}
-
-export interface FusionInfo {
-  paneRole: string
-  ctSeriesId: string
-  petSeriesId: string
-  petPseudocolorPreset: string
-  petUnit?: string
-  petUnitLabel?: string
-  petWindowMin?: number | null
-  petWindowMax?: number | null
-  alpha: number
-  revision: number
-  registration: FusionRegistrationInfo
 }
 
 export interface ViewMtfAnalyzeRequest {
@@ -697,7 +727,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'fusionRegistration' | 'fusionConfig'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'fusionRegistration' | 'fusionConfig'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -711,13 +741,14 @@ export interface ViewOperationRequest {
   ww?: number | null
   wl?: number | null
   pseudocolorPreset?: string | null
-  mprMipConfig?: MprMipConfig | null
-  mprCrosshairMode?: MprCrosshairMode | null
   fusionAlpha?: number | null
   fusionManualRegistration?: boolean | null
   fusionPetUnit?: string | null
   fusionPetWindowMin?: number | null
   fusionPetWindowMax?: number | null
+  mprMipConfig?: MprMipConfig | null
+  mprSegmentationConfig?: MprSegmentationConfig | null
+  mprCrosshairMode?: 'orthogonal' | 'double-oblique' | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null
@@ -831,5 +862,7 @@ export interface ApiOperations {
   AnalyzeMtfApiV1ViewMtfAnalyzePost: { method: 'POST'; path: '/api/v1/view/mtf/analyze'; request: ViewMtfAnalyzeRequest; response: ViewMtfAnalyzeResponse }
   AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost: { method: 'POST'; path: '/api/v1/view/qa/water/analyze'; request: ViewQaWaterAnalyzeRequest; response: ViewQaWaterAnalyzeResponse }
   SetViewSizeApiV1ViewSetSizePost: { method: 'POST'; path: '/api/v1/view/setSize'; request: ViewSetSizeRequest; response: OperationAcceptedResponse }
+  ReleaseWorkspaceApiV1WorkspaceReleasePost: { method: 'POST'; path: '/api/v1/workspace/release'; request: never; response: Record<string, unknown> }
+  GetWorkspaceStatsApiV1WorkspaceStatsGet: { method: 'GET'; path: '/api/v1/workspace/stats'; request: never; response: Record<string, unknown> }
   HealthcheckHealthGet: { method: 'GET'; path: '/health'; request: never; response: Record<string, string> }
 }

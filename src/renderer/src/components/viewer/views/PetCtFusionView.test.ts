@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import PetCtFusionView from './PetCtFusionView.vue'
-import type { FusionPaneKey, OrientationInfo, ViewerTabItem } from '../../../types/viewer'
+import type { FusionPaneKey, FusionProjectionInfo, OrientationInfo, ViewerTabItem } from '../../../types/viewer'
 import {
   FUSION_CT_AXIAL_PANE_KEY,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
@@ -87,6 +87,24 @@ function createFusionTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem 
   } as ViewerTabItem
 }
 
+function createProjection(
+  paneRole: FusionPaneKey,
+  overrides: Partial<FusionProjectionInfo> = {}
+): FusionProjectionInfo {
+  return {
+    paneRole,
+    referenceWorld: [0.5, 0.5, 0],
+    referenceX: 0.5,
+    referenceY: 0.5,
+    normalizedToWorldOrigin: [0, 0, 0],
+    normalizedToWorldX: [1, 0, 0],
+    normalizedToWorldY: [0, 1, 0],
+    worldToNormalizedX: [1, 0, 0, 0],
+    worldToNormalizedY: [0, 1, 0, 0],
+    ...overrides
+  }
+}
+
 function mountFusionView(activeTab = createFusionTab()) {
   return mount(PetCtFusionView, {
     props: {
@@ -104,9 +122,9 @@ function mountFusionView(activeTab = createFusionTab()) {
       stubs: {
         ViewerCanvasStage: {
           name: 'ViewerCanvasStage',
-          props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent'],
+          props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc'],
           template:
-            '<div class="viewer-stage-stub" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" />'
+            '<div class="viewer-stage-stub" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" /></div>'
         }
       }
     }
@@ -182,8 +200,40 @@ describe('PetCtFusionView', () => {
     const markers = wrapper.findAll<HTMLButtonElement>('.pet-ct-fusion-view__marker')
     expect(markers).toHaveLength(4)
 
-    const pane = markers[0].element.closest('.pet-ct-fusion-view__pane') as HTMLElement
-    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({
+    wrapper.findAll<HTMLElement>('.pet-ct-fusion-view__pane').forEach((pane) => {
+      vi.spyOn(pane.element, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 200,
+        height: 100,
+        right: 200,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      } as DOMRect)
+    })
+
+    dispatchPointerEvent(markers[0].element, 'pointerdown', { pointerId: 9, clientX: 100, clientY: 50 })
+    dispatchPointerEvent(markers[0].element, 'pointermove', { pointerId: 9, clientX: 40, clientY: 70 })
+    await nextTick()
+
+    wrapper.findAll<HTMLButtonElement>('.pet-ct-fusion-view__marker').forEach((marker) => {
+      expect(marker.attributes('style')).toContain('left: 40px')
+      expect(marker.attributes('style')).toContain('top: 70px')
+    })
+
+    wrapper.unmount()
+  })
+
+  it('keeps the MIP calibration marker inside the rendered image area when the pane is letterboxed', async () => {
+    const wrapper = mountFusionView()
+    const panes = wrapper.findAll<HTMLElement>('.pet-ct-fusion-view__pane')
+    const mipPane = panes[FUSION_PANE_KEYS.indexOf(FUSION_PET_CORONAL_MIP_PANE_KEY)]!
+    const mipMarker = mipPane.find<HTMLButtonElement>('.pet-ct-fusion-view__marker')
+    const mipImage = mipPane.find<HTMLImageElement>('.viewer-image')
+
+    vi.spyOn(mipPane.element, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       top: 0,
       width: 200,
@@ -194,15 +244,63 @@ describe('PetCtFusionView', () => {
       y: 0,
       toJSON: () => ({})
     } as DOMRect)
+    vi.spyOn(mipImage.element, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+    Object.defineProperty(mipImage.element, 'naturalWidth', { configurable: true, value: 50 })
+    Object.defineProperty(mipImage.element, 'naturalHeight', { configurable: true, value: 100 })
 
-    dispatchPointerEvent(markers[0].element, 'pointerdown', { pointerId: 9, clientX: 100, clientY: 50 })
-    dispatchPointerEvent(markers[0].element, 'pointermove', { pointerId: 9, clientX: 40, clientY: 70 })
+    dispatchPointerEvent(mipMarker.element, 'pointerdown', { pointerId: 12, clientX: 20, clientY: 50 })
     await nextTick()
 
-    wrapper.findAll<HTMLButtonElement>('.pet-ct-fusion-view__marker').forEach((marker) => {
-      expect(marker.attributes('style')).toContain('left: 20%')
-      expect(marker.attributes('style')).toContain('top: 70%')
+    expect(mipMarker.attributes('style')).toContain('left: 75px')
+    expect(mipMarker.attributes('style')).toContain('top: 50px')
+
+    wrapper.unmount()
+  })
+
+  it('projects the calibration marker into the MIP pane from the selected physical world point', async () => {
+    const wrapper = mountFusionView(createFusionTab({
+      fusionProjections: {
+        [FUSION_CT_AXIAL_PANE_KEY]: createProjection(FUSION_CT_AXIAL_PANE_KEY),
+        [FUSION_PET_AXIAL_PANE_KEY]: createProjection(FUSION_PET_AXIAL_PANE_KEY),
+        [FUSION_OVERLAY_AXIAL_PANE_KEY]: createProjection(FUSION_OVERLAY_AXIAL_PANE_KEY),
+        [FUSION_PET_CORONAL_MIP_PANE_KEY]: createProjection(FUSION_PET_CORONAL_MIP_PANE_KEY, {
+          worldToNormalizedX: [0, 1, 0, 0],
+          worldToNormalizedY: [1, 0, 0, 0]
+        })
+      }
+    }))
+    const panes = wrapper.findAll<HTMLElement>('.pet-ct-fusion-view__pane')
+    panes.forEach((pane) => {
+      vi.spyOn(pane.element, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 200,
+        height: 100,
+        right: 200,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      } as DOMRect)
     })
+
+    const ctMarker = panes[FUSION_PANE_KEYS.indexOf(FUSION_CT_AXIAL_PANE_KEY)]!.find<HTMLButtonElement>('.pet-ct-fusion-view__marker')
+    const mipMarker = panes[FUSION_PANE_KEYS.indexOf(FUSION_PET_CORONAL_MIP_PANE_KEY)]!.find<HTMLButtonElement>('.pet-ct-fusion-view__marker')
+    dispatchPointerEvent(ctMarker.element, 'pointerdown', { pointerId: 13, clientX: 50, clientY: 75 })
+    await nextTick()
+
+    expect(mipMarker.attributes('style')).toContain('left: 150px')
+    expect(mipMarker.attributes('style')).toContain('top: 25px')
 
     wrapper.unmount()
   })

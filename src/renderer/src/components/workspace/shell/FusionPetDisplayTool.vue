@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { VCombobox } from 'vuetify/components'
+import { VBtn, VMenu } from 'vuetify/components'
+import AppIcon from '../../AppIcon.vue'
 import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   getFusionPetPseudocolorGradient
 } from '../../../constants/pseudocolor'
@@ -9,7 +12,6 @@ import type { ViewerTabItem } from '../../../types/viewer'
 
 const PET_RANGE_EMIT_INTERVAL_MS = 80
 const DEFAULT_PET_RANGE_MAX = 30
-const DEFAULT_PET_WINDOW_MAX = 4.5
 const PET_RANGE_MAX_DEBOUNCE_MS = 360
 const PET_RANGE_OPTIMISTIC_TTL_MS = 1600
 const petRangeMaxOptions = [5, 10, 20, 30, 40]
@@ -41,18 +43,19 @@ function isLikelyCtWindowLeakedIntoPetRange(minValue: number, maxValue: number):
 
 const selectedUnit = computed(() => props.activeTab.fusionInfo?.petUnit ?? 'SUVbw')
 const backendWindowMax = computed(() => {
-  const minValue = Number(props.activeTab.fusionInfo?.petWindowMin ?? 0)
-  const value = Number(props.activeTab.fusionInfo?.petWindowMax ?? DEFAULT_PET_WINDOW_MAX)
+  const minValue = Number(props.activeTab.fusionInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+  const value = Number(props.activeTab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
   if (Number.isFinite(minValue) && Number.isFinite(value) && isLikelyCtWindowLeakedIntoPetRange(minValue, value)) {
-    return DEFAULT_PET_WINDOW_MAX
+    return DEFAULT_FUSION_PET_WINDOW_MAX
   }
-  return Number.isFinite(value) ? Math.max(0, value) : DEFAULT_PET_WINDOW_MAX
+  return Number.isFinite(value) ? Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value) : DEFAULT_FUSION_PET_WINDOW_MAX
 })
 const draftWindowMax = ref(backendWindowMax.value)
 const rangeUpperLimit = ref(Math.max(DEFAULT_PET_RANGE_MAX, Math.ceil(backendWindowMax.value)))
 const draftRangeUpperLimit = ref(rangeUpperLimit.value)
 const rangeUpperLimitSearch = ref(formatRangeUpperLimit(rangeUpperLimit.value))
 const isDragging = ref(false)
+const isRangeMenuOpen = ref(false)
 let pendingTimer: ReturnType<typeof window.setTimeout> | null = null
 let pendingValue: number | null = null
 let pendingRangeMaxTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -60,8 +63,9 @@ let pendingOptimisticWindowMax: number | null = null
 let pendingOptimisticUntil = 0
 
 const rangeGradient = computed(() => getFusionPetPseudocolorGradient(DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET))
-const displayWindowMax = computed(() => Number(draftWindowMax.value).toFixed(draftWindowMax.value < 10 ? 1 : 0))
+const displayWindowMax = computed(() => Number(draftWindowMax.value).toFixed(draftWindowMax.value < 10 ? 2 : 0))
 const rangeUpperLimitModel = computed(() => formatRangeUpperLimit(draftRangeUpperLimit.value))
+const selectedUnitLabel = computed(() => fusionPetUnitOptions.find((option) => option.value === selectedUnit.value)?.label ?? selectedUnit.value)
 const rangeValueLabelPosition = computed(() => {
   if (rangeUpperLimit.value <= 0) {
     return 7
@@ -108,14 +112,14 @@ function formatRangeUpperLimit(value: number): string {
 }
 
 function markOptimisticWindowMax(value: number): void {
-  pendingOptimisticWindowMax = Math.max(0, value)
+  pendingOptimisticWindowMax = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value)
   pendingOptimisticUntil = Date.now() + PET_RANGE_OPTIMISTIC_TTL_MS
 }
 
 function emitWindowMax(value: number): void {
-  const nextValue = Math.max(0, value)
+  const nextValue = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value)
   markOptimisticWindowMax(nextValue)
-  emit('select', `fusionPetWindow:0:${nextValue}`)
+  emit('select', `fusionPetWindow:${DEFAULT_FUSION_PET_WINDOW_MIN}:${nextValue}`)
 }
 
 function scheduleWindowMax(value: number): void {
@@ -143,7 +147,7 @@ function updateDraftWindowMax(rawValue: string, flush = false): void {
   if (!Number.isFinite(nextValue)) {
     return
   }
-  const clamped = Math.max(0, Math.min(nextValue, rangeUpperLimit.value))
+  const clamped = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, Math.min(nextValue, rangeUpperLimit.value))
   draftWindowMax.value = clamped
   markOptimisticWindowMax(clamped)
   if (flush) {
@@ -170,11 +174,11 @@ function updateRangeUpperLimit(rawValue: string): void {
 function applyRangeUpperLimit(rawValue: number): void {
   const previousUpperLimit = Math.max(1, rangeUpperLimit.value)
   const nextUpperLimit = Math.max(1, rawValue)
-  const ratio = Math.max(0, Math.min(1, draftWindowMax.value / previousUpperLimit))
+  const ratio = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, Math.min(1, draftWindowMax.value / previousUpperLimit))
   rangeUpperLimit.value = nextUpperLimit
   draftRangeUpperLimit.value = nextUpperLimit
   rangeUpperLimitSearch.value = formatRangeUpperLimit(nextUpperLimit)
-  draftWindowMax.value = Math.max(0, Math.min(nextUpperLimit, ratio * nextUpperLimit))
+  draftWindowMax.value = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, Math.min(nextUpperLimit, ratio * nextUpperLimit))
   flushWindowMax()
 }
 
@@ -201,8 +205,18 @@ function handleRangeUpperLimitModelUpdate(rawValue: string | number | null): voi
   handleRangeUpperLimitCommit(String(rawValue))
 }
 
-function handleUnitChange(event: Event): void {
-  const value = (event.target as HTMLSelectElement | null)?.value
+function handleRangeUpperLimitOption(rawValue: string): void {
+  clearPendingRangeMaxTimer()
+  handleRangeUpperLimitCommit(rawValue)
+  isRangeMenuOpen.value = false
+}
+
+function isRangeUpperLimitOptionActive(rawValue: string): boolean {
+  const value = Number(rawValue)
+  return Number.isFinite(value) && Math.abs(value - rangeUpperLimit.value) < 0.001
+}
+
+function handleUnitValue(value: string): void {
   if (value) {
     emit('select', `fusionPetUnit:${value}`)
   }
@@ -237,7 +251,7 @@ onBeforeUnmount(() => {
           type="range"
           min="0"
           :max="rangeUpperLimit"
-          step="0.1"
+          step="0.01"
           :disabled="disabled"
           :value="draftWindowMax"
           @input="updateDraftWindowMax(($event.target as HTMLInputElement).value)"
@@ -253,32 +267,89 @@ onBeforeUnmount(() => {
           {{ displayWindowMax }}
         </span>
       </div>
-      <VCombobox
-        class="fusion-pet-display-tool__range-max"
-        density="compact"
-        hide-details
-        inputmode="decimal"
-        :disabled="disabled"
-        :items="petRangeMaxOptionLabels"
-        :menu-props="{ contentClass: 'fusion-pet-display-tool__range-max-menu', maxHeight: 220 }"
-        :model-value="rangeUpperLimitModel"
-        :search="rangeUpperLimitSearch"
-        single-line
-        variant="solo"
-        @update:model-value="handleRangeUpperLimitModelUpdate"
-        @update:search="handleRangeUpperLimitSearch"
-      />
+      <VMenu
+        :model-value="isRangeMenuOpen"
+        location="bottom end"
+        :offset="8"
+        scroll-strategy="reposition"
+        :close-on-content-click="false"
+        @update:model-value="isRangeMenuOpen = $event"
+      >
+        <template #activator="{ props: menuProps }">
+          <VBtn
+            v-bind="menuProps"
+            variant="flat"
+            type="button"
+            class="fusion-pet-display-tool__dropdown-button fusion-pet-display-tool__dropdown-button--range theme-button-secondary"
+            :disabled="disabled"
+            :title="rangeUpperLimitModel"
+          >
+            <span class="fusion-pet-display-tool__range-max-value">{{ rangeUpperLimitModel }}</span>
+            <AppIcon name="chevron-down" :size="13" :stroke-width="2.2" />
+          </VBtn>
+        </template>
+
+        <div data-tool-menu-root class="fusion-pet-display-tool__menu fusion-pet-display-tool__menu--range theme-shell-panel">
+          <input
+            class="fusion-pet-display-tool__range-max-input"
+            inputmode="decimal"
+            :disabled="disabled"
+            :value="rangeUpperLimitSearch"
+            aria-label="PET range maximum"
+            @input="handleRangeUpperLimitSearch(($event.target as HTMLInputElement).value)"
+            @change="handleRangeUpperLimitModelUpdate(($event.target as HTMLInputElement).value)"
+            @keydown.enter.prevent="handleRangeUpperLimitOption(($event.target as HTMLInputElement).value)"
+          />
+          <button
+            v-for="option in petRangeMaxOptionLabels"
+            :key="option"
+            type="button"
+            class="fusion-pet-display-tool__menu-option fusion-pet-display-tool__range-option"
+            :class="{ 'fusion-pet-display-tool__menu-option--active': isRangeUpperLimitOptionActive(option) }"
+            @click="handleRangeUpperLimitOption(option)"
+          >
+            <span class="fusion-pet-display-tool__menu-option-rail" />
+            <span>{{ option }}</span>
+            <AppIcon v-if="isRangeUpperLimitOptionActive(option)" name="check" :size="14" />
+          </button>
+        </div>
+      </VMenu>
     </div>
-    <select
-      class="fusion-pet-display-tool__select fusion-pet-display-tool__select--unit"
-      :disabled="disabled"
-      :value="selectedUnit"
-      @change="handleUnitChange"
+    <VMenu
+      location="bottom end"
+      :offset="8"
+      scroll-strategy="reposition"
+      :close-on-content-click="true"
     >
-      <option v-for="option in fusionPetUnitOptions" :key="option.value" :value="option.value">
-        {{ option.label }}
-      </option>
-    </select>
+      <template #activator="{ props: menuProps }">
+        <VBtn
+          v-bind="menuProps"
+          variant="flat"
+          type="button"
+          class="fusion-pet-display-tool__dropdown-button fusion-pet-display-tool__dropdown-button--unit theme-button-secondary"
+          :disabled="disabled"
+          :title="selectedUnitLabel"
+        >
+          <span class="fusion-pet-display-tool__unit-label">{{ selectedUnitLabel }}</span>
+          <AppIcon name="chevron-down" :size="13" :stroke-width="2.2" />
+        </VBtn>
+      </template>
+
+      <div data-tool-menu-root class="fusion-pet-display-tool__menu fusion-pet-display-tool__menu--unit theme-shell-panel">
+        <button
+          v-for="option in fusionPetUnitOptions"
+          :key="option.value"
+          type="button"
+          class="fusion-pet-display-tool__menu-option fusion-pet-display-tool__unit-option"
+          :class="{ 'fusion-pet-display-tool__menu-option--active': selectedUnit === option.value }"
+          @click="handleUnitValue(option.value)"
+        >
+          <span class="fusion-pet-display-tool__menu-option-rail" />
+          <span>{{ option.label }}</span>
+          <AppIcon v-if="selectedUnit === option.value" name="check" :size="14" />
+        </button>
+      </div>
+    </VMenu>
   </div>
 </template>
 
@@ -310,22 +381,6 @@ onBeforeUnmount(() => {
   font-weight: 800;
   letter-spacing: 0;
   color: var(--theme-text-primary);
-}
-
-.fusion-pet-display-tool__select {
-  height: 26px;
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, black 4%);
-  color: var(--theme-text-primary);
-  font-size: 11px;
-  font-weight: 700;
-  outline: none;
-}
-
-.fusion-pet-display-tool__select--unit {
-  width: 98px;
 }
 
 .fusion-pet-display-tool__range {
@@ -391,116 +446,172 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.fusion-pet-display-tool__range-max {
-  width: 76px;
+.fusion-pet-display-tool__dropdown-button {
+  display: inline-flex !important;
+  min-width: 0 !important;
+  height: 28px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent) !important;
+  border-radius: 9px !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-surface-card-soft) 92%, white 3%),
+    color-mix(in srgb, var(--theme-surface-panel-solid) 92%, black 4%)
+  ) !important;
+  color: var(--theme-text-primary) !important;
+  padding: 0 8px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  text-transform: none !important;
+  transition: border-color 0.15s ease, filter 0.15s ease;
+}
+
+.fusion-pet-display-tool__dropdown-button:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong)) !important;
+  filter: brightness(1.08);
+}
+
+.fusion-pet-display-tool__dropdown-button--range {
+  width: 76px !important;
   flex: 0 0 76px;
 }
 
-:deep(.fusion-pet-display-tool__range-max .v-input__control) {
-  min-height: 26px;
+.fusion-pet-display-tool__dropdown-button--unit {
+  width: 112px !important;
+  flex: 0 0 112px;
 }
 
-:deep(.fusion-pet-display-tool__range-max .v-field) {
-  min-height: 26px;
-  height: 26px;
+.fusion-pet-display-tool__range-max-value,
+.fusion-pet-display-tool__unit-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.fusion-pet-display-tool__range-max-value {
+  flex: 1 1 auto;
+  text-align: center;
+}
+
+.fusion-pet-display-tool__unit-label {
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.fusion-pet-display-tool__menu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 74%, transparent);
+  border-radius: 18px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
+    color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%)
+  );
+  padding: 6px;
+  box-shadow: 0 24px 52px rgba(2, 8, 18, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.fusion-pet-display-tool__menu--range {
+  width: 104px;
+  gap: 4px;
+}
+
+.fusion-pet-display-tool__menu--unit {
+  min-width: 164px;
+}
+
+.fusion-pet-display-tool__range-max-input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, black 4%);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, black 5%);
   color: var(--theme-text-primary);
-  box-shadow: none;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-:deep(.fusion-pet-display-tool__range-max .v-field:hover) {
-  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong));
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-field.v-field--focused) {
+.fusion-pet-display-tool__range-max-input:focus {
   border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent);
 }
 
-:deep(.fusion-pet-display-tool__range-max .v-field__overlay),
-:deep(.fusion-pet-display-tool__range-max .v-field__outline) {
-  display: none;
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-field__input) {
-  min-height: 24px;
-  align-items: center;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  padding: 0 2px 0 8px;
-  color: var(--theme-text-primary);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-field__input input) {
+.fusion-pet-display-tool__menu-option {
+  position: relative;
+  display: inline-flex;
   width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 0;
-  background: transparent !important;
-  color: var(--theme-text-primary);
-  font: inherit;
-  line-height: 1.25;
-  text-align: center;
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-combobox__selection) {
-  max-width: none;
-  margin: 0;
-  overflow: visible;
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-combobox__selection-text) {
-  overflow: visible;
-  text-overflow: clip;
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-field__append-inner) {
   align-items: center;
-  padding: 0 4px 0 0;
-  color: var(--theme-text-secondary);
-}
-
-:deep(.fusion-pet-display-tool__range-max .v-icon) {
-  color: var(--theme-text-secondary);
-  font-size: 14px;
-}
-
-:global(.fusion-pet-display-tool__range-max-menu),
-:global(.fusion-pet-display-tool__range-max-menu .v-overlay__content) {
+  justify-content: space-between;
+  gap: 10px;
+  appearance: none;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
-  border-radius: 14px;
-  background: var(--theme-surface-panel-strong);
-  color: var(--theme-text-primary);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
-}
-
-:global(.fusion-pet-display-tool__range-max-menu .v-list) {
-  background: var(--theme-surface-panel-strong);
-  color: var(--theme-text-primary);
-  padding: 4px;
-}
-
-:global(.fusion-pet-display-tool__range-max-menu .v-list-item) {
-  min-height: 30px;
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  padding: 6px 10px;
   color: var(--theme-text-secondary);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-:global(.fusion-pet-display-tool__range-max-menu .v-list-item:hover) {
+.fusion-pet-display-tool__menu-option:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent);
   background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
   color: var(--theme-text-primary);
 }
 
-:global(.fusion-pet-display-tool__range-max-menu .v-list-item--active) {
-  background: var(--theme-active-surface-soft);
-  color: var(--theme-active-foreground);
+.fusion-pet-display-tool__menu-option--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 16%, transparent),
+    color-mix(in srgb, var(--theme-accent) 10%, transparent)
+  );
+  color: var(--theme-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.fusion-pet-display-tool__range-option {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fusion-pet-display-tool__unit-option {
+  min-height: 34px;
+}
+
+.fusion-pet-display-tool__menu-option-rail {
+  position: absolute;
+  inset: 6px auto 6px 4px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--theme-accent);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.fusion-pet-display-tool__menu-option--active .fusion-pet-display-tool__menu-option-rail {
+  opacity: 0.9;
 }
 </style>

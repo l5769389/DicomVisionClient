@@ -80,6 +80,9 @@ import {
   type WebUploadPickMode
 } from '../../../platform/runtime'
 import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
+  DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET,
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
@@ -269,6 +272,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   // stays optimistic, while the backend receives only the last value in a burst.
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
   const PREVIEW_PERF_IDLE_GAP_MS = 5000
+  const FUSION_PET_WINDOW_DRAG_RANGE_FRACTION = 0.01
   // During MPR crosshair drag, incoming render frames may lag behind the pointer.
   // Keep the active viewport locally anchored, with the timer as a missing-end fallback.
   const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 1800
@@ -325,6 +329,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const fourDPlaybackStartTokens = new Map<string, number>()
   const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
   const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
+  let fusionPetWindowDragOriginMax: number | null = null
 
   function dismissStatusToast(): void {
     if (statusToastTimer != null) {
@@ -2254,6 +2259,96 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function isFusionPetDisplayPane(viewportKey: string): boolean {
+    const paneKey = resolveFusionPaneKey(viewportKey)
+    return paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
+  }
+
+  function resolveFusionPetWindowMax(tab: ViewerTabItem): number {
+    const value = Number(tab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+    return Number.isFinite(value) ? Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value) : DEFAULT_FUSION_PET_WINDOW_MAX
+  }
+
+  function resolveFusionPetWindowDragSensitivity(windowMax: number): number {
+    return Math.max(0.001, Math.abs(windowMax) * FUSION_PET_WINDOW_DRAG_RANGE_FRACTION)
+  }
+
+  function applyOptimisticFusionPetWindowRange(tabKey: string, petWindowMax: number): void {
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tabKey
+        ? {
+            ...item,
+            fusionInfo: item.fusionInfo
+              ? {
+                  ...item.fusionInfo,
+                  petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+                  petWindowMax
+                }
+              : item.fusionInfo
+          }
+        : item
+    )
+  }
+
+  function handleFusionPetWindowDrag(
+    tab: ViewerTabItem,
+    payload: {
+      deltaX: number
+      deltaY: number
+      opType: ViewOperationType
+      phase: 'start' | 'move' | 'end'
+      viewportKey: string
+    }
+  ): boolean {
+    if (tab.viewType !== 'PETCTFusion' || payload.opType !== VIEW_OPERATION_TYPES.window || !isFusionPetDisplayPane(payload.viewportKey)) {
+      return false
+    }
+
+    const paneKey = resolveFusionPaneKey(payload.viewportKey)
+    const viewId = tab.fusionViewIds?.[paneKey] ?? ''
+    if (!viewId) {
+      return true
+    }
+
+    if (payload.phase === DRAG_ACTION_TYPES.start) {
+      fusionPetWindowDragOriginMax = resolveFusionPetWindowMax(tab)
+      return true
+    }
+
+    if (payload.phase === DRAG_ACTION_TYPES.end) {
+      const petWindowMax = resolveFusionPetWindowMax(tab)
+      fusionPetWindowDragOriginMax = null
+      emitScheduledViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        actionType: DRAG_ACTION_TYPES.end,
+        fusionPetWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+        fusionPetWindowMax: petWindowMax
+      })
+      return true
+    }
+
+    if (!payload.deltaX && !payload.deltaY) {
+      return true
+    }
+
+    const baseMax = fusionPetWindowDragOriginMax ?? resolveFusionPetWindowMax(tab)
+    const dragSensitivity = resolveFusionPetWindowDragSensitivity(baseMax)
+    const petWindowMax = Math.max(
+      DEFAULT_FUSION_PET_WINDOW_MIN,
+      baseMax + (Number(payload.deltaX || 0) - Number(payload.deltaY || 0)) * dragSensitivity
+    )
+    applyOptimisticFusionPetWindowRange(tab.key, petWindowMax)
+    emitScheduledViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.fusionConfig,
+      actionType: DRAG_ACTION_TYPES.move,
+      fusionPetWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+      fusionPetWindowMax: petWindowMax
+    })
+    return true
+  }
+
   function handleViewportDrag(payload: {
     deltaX: number
     deltaY: number
@@ -2268,6 +2363,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
     if (!viewId) {
+      return
+    }
+
+    if (handleFusionPetWindowDrag(tab, payload)) {
       return
     }
 
@@ -2376,9 +2475,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                 : item.fusionInfo,
               fusionPseudocolorPresets: {
                 ...(item.fusionPseudocolorPresets ?? {}),
-                [FUSION_PET_AXIAL_PANE_KEY]: presetKey,
+                [FUSION_PET_AXIAL_PANE_KEY]: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
                 [FUSION_OVERLAY_AXIAL_PANE_KEY]: presetKey,
-                [FUSION_PET_CORONAL_MIP_PANE_KEY]: presetKey
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
               }
             }
           : item
@@ -2415,8 +2514,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.petWindowMin != null || payload.petWindowMax != null) {
-      const petWindowMin = Number.isFinite(payload.petWindowMin) ? Number(payload.petWindowMin) : (tab.fusionInfo?.petWindowMin ?? 0)
-      const petWindowMax = Number.isFinite(payload.petWindowMax) ? Number(payload.petWindowMax) : (tab.fusionInfo?.petWindowMax ?? 4.5)
+      const petWindowMin = Number.isFinite(payload.petWindowMin)
+        ? Number(payload.petWindowMin)
+        : (tab.fusionInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+      const petWindowMax = Number.isFinite(payload.petWindowMax)
+        ? Number(payload.petWindowMax)
+        : (tab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {

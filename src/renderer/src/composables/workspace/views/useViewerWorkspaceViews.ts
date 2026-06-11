@@ -30,6 +30,7 @@ import {
   createEmptyFusionImages,
   createEmptyFusionLoadingProgress,
   createEmptyFusionOrientations,
+  createEmptyFusionProjections,
   createEmptyFusionPseudocolorPresets,
   createEmptyFusionScaleBars,
   createEmptyFusionSliceLabels,
@@ -62,6 +63,7 @@ import {
   isMprViewportKey,
   mergeCornerInfo,
   normalizeCornerInfo,
+  normalizeFusionProjectionInfo,
   normalizeMprCursorInfo,
   normalizeMprFrameInfo,
   normalizeMprPlaneInfo,
@@ -103,7 +105,10 @@ import {
   resolveFourDPhasePlan
 } from './fourDPhaseManifest'
 import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+  DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET,
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
@@ -1588,6 +1593,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         )
         const rawFusionInfo = payload.fusionInfo ?? ((payload as { fusion_info?: unknown }).fusion_info ?? null)
         const fusionInfo = normalizeFusionInfoPayload(rawFusionInfo, previousFusionInfo)
+        const payloadRecord = payload as Record<string, unknown>
+        const hasFusionProjectionPayload = 'fusionProjection' in payloadRecord || 'fusion_projection' in payloadRecord
+        const rawFusionProjection = payload.fusionProjection ?? ((payload as { fusion_projection?: unknown }).fusion_projection ?? null)
+        const fusionProjection = normalizeFusionProjectionInfo(rawFusionProjection)
         const acceptedRevision = item.fusionInfo?.revision ?? null
         const isStalePreview =
           payload.imageFormat === 'jpeg' &&
@@ -1662,7 +1671,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                         fusionInfo.petPseudocolorPreset ??
                         DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
                     )
-                  : normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? 'bwinverse')
+                  : normalizePseudocolorPresetKey(
+                      payload.color?.pseudocolorPreset ??
+                      DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+                    )
+          },
+          fusionProjections: {
+            ...(item.fusionProjections ?? createEmptyFusionProjections()),
+            [fusionViewportKey]: hasFusionProjectionPayload
+              ? fusionProjection
+              : item.fusionProjections?.[fusionViewportKey] ?? null
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -2182,18 +2200,28 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
     const fallbackIsLeaked = isLikelyCtWindowLeakedIntoPetRange(fallback.petWindowMin, fallback.petWindowMax, candidateInfo)
     return {
-      min: fallbackIsLeaked ? 0 : fallback.petWindowMin,
-      max: fallbackIsLeaked ? 4.5 : fallback.petWindowMax
+      min: fallbackIsLeaked ? DEFAULT_FUSION_PET_WINDOW_MIN : fallback.petWindowMin,
+      max: fallbackIsLeaked ? DEFAULT_FUSION_PET_WINDOW_MAX : fallback.petWindowMax
     }
   }
 
   function formatFusionPetWindowLabel(fusionInfo: FusionInfo): string | null {
-    const minValue = typeof fusionInfo.petWindowMin === 'number' && Number.isFinite(fusionInfo.petWindowMin) ? fusionInfo.petWindowMin : 0
-    const maxValue = typeof fusionInfo.petWindowMax === 'number' && Number.isFinite(fusionInfo.petWindowMax) ? fusionInfo.petWindowMax : 4.5
-    const unitLabel = fusionInfo.petUnitLabel || (fusionInfo.petUnit === 'SUVbw' ? 'g/ml (SUVbw)' : fusionInfo.petUnit) || ''
+    const minValue =
+      typeof fusionInfo.petWindowMin === 'number' && Number.isFinite(fusionInfo.petWindowMin)
+        ? fusionInfo.petWindowMin
+        : DEFAULT_FUSION_PET_WINDOW_MIN
+    const maxValue =
+      typeof fusionInfo.petWindowMax === 'number' && Number.isFinite(fusionInfo.petWindowMax)
+        ? fusionInfo.petWindowMax
+        : DEFAULT_FUSION_PET_WINDOW_MAX
+    const unitLabel = stripTrailingUnitDetail(fusionInfo.petUnitLabel || (fusionInfo.petUnit === 'SUVbw' ? 'g/ml (SUVbw)' : fusionInfo.petUnit) || '')
     const unit = String(fusionInfo.petUnit ?? unitLabel).toLowerCase()
     const prefix = unit.includes('suv') || unit.includes('sul') || unit.includes('g/ml') ? 'SUV' : 'PET'
-    return `${prefix}:${minValue.toFixed(2)}--${maxValue.toFixed(2)} ${unitLabel}`.trim()
+    return `${prefix}:${minValue.toFixed(2)}--${maxValue.toFixed(2)}${unitLabel}`.trim()
+  }
+
+  function stripTrailingUnitDetail(value: string): string {
+    return value.replace(/\s*\([^)]*\)\s*$/, '').trim()
   }
 
   function normalizeFusionPetCornerInfo(cornerInfo: CornerInfo, fusionInfo: FusionInfo, paneKey: FusionPaneKey): CornerInfo {
@@ -2205,11 +2233,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const isPetWindowLine = (line: string): boolean => /^(?:SUV|PET)\s*:/i.test(line.trim())
     const isWindowLine = (line: string): boolean => /^\s*W\s*:/i.test(line.trim())
     const shouldReplaceLine = (line: string): boolean => isPetWindowLine(line) || (isPetOnlyPane && isWindowLine(line))
-    const nextBottomLeft = cornerInfo.bottomLeft.map((line) => (shouldReplaceLine(line) ? label : line))
+    const isMipPane = paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
+    const sliceThicknessLines = new Set(cornerInfo.tags?.sliceThickness ?? [])
+    const shouldHideMipSourceSliceLine = (line: string): boolean => isMipPane && sliceThicknessLines.has(line)
+    const nextBottomLeft = cornerInfo.bottomLeft
+      .map((line) => (shouldReplaceLine(line) ? label : line))
+      .filter((line) => !shouldHideMipSourceSliceLine(line))
     const hasPetLabel = nextBottomLeft.some((line) => line === label)
     const nextTags = { ...(cornerInfo.tags ?? {}) }
     if (isPetOnlyPane || (cornerInfo.tags?.windowLevel ?? []).some(isPetWindowLine)) {
       nextTags.windowLevel = [label]
+    }
+    if (isMipPane) {
+      delete nextTags.imageIndex
+      delete nextTags.sliceThickness
     }
     return {
       ...cornerInfo,
@@ -2990,6 +3027,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         fusionOrientations: createEmptyFusionOrientations(),
         fusionTransformStates: createEmptyFusionTransformStates(),
         fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+        fusionProjections: createEmptyFusionProjections(),
         fusionLoadingProgress: createEmptyFusionLoadingProgress(),
         fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
         fusionManualRegistration: false
@@ -3034,6 +3072,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               fusionOrientations: createEmptyFusionOrientations(),
               fusionTransformStates: createEmptyFusionTransformStates(),
               fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+              fusionProjections: createEmptyFusionProjections(),
               fusionLoadingProgress: createEmptyFusionLoadingProgress(),
               fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
               fusionManualRegistration: false,

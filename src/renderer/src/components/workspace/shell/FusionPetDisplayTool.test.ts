@@ -2,47 +2,37 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import FusionPetDisplayTool from './FusionPetDisplayTool.vue'
+import { DEFAULT_FUSION_PET_WINDOW_MAX, DEFAULT_FUSION_PET_WINDOW_MIN } from '../../../constants/pseudocolor'
 import type { ViewerTabItem } from '../../../types/viewer'
 
 vi.mock('vuetify/components', () => ({
-  VCombobox: {
-    name: 'VCombobox',
+  VBtn: {
+    name: 'VBtn',
     props: {
       disabled: Boolean,
-      items: {
-        type: Array,
-        default: () => []
-      },
-      modelValue: {
-        type: [Number, String],
-        default: ''
-      }
+      title: String
     },
-    emits: ['update:modelValue', 'update:search'],
     template: `
-      <div class="v-combobox-stub">
-        <input
-          class="v-combobox-stub__input"
-          :disabled="disabled"
-          :value="modelValue"
-          @input="$emit('update:search', $event.target.value)"
-          @change="$emit('update:modelValue', $event.target.value)"
-        />
-        <button
-          v-for="item in items"
-          :key="item"
-          class="v-combobox-stub__option"
-          type="button"
-          @click="$emit('update:modelValue', item)"
-        >
-          {{ item }}
-        </button>
+      <button type="button" :disabled="disabled" :title="title">
+        <slot />
+      </button>
+    `
+  },
+  VMenu: {
+    name: 'VMenu',
+    template: `
+      <div class="v-menu-stub">
+        <slot name="activator" :props="{}" />
+        <slot />
       </div>
     `
   }
 }))
 
-function createFusionTab(petWindowMax = 4.5, petWindowMin = 0): ViewerTabItem {
+function createFusionTab(
+  petWindowMax = DEFAULT_FUSION_PET_WINDOW_MAX,
+  petWindowMin = DEFAULT_FUSION_PET_WINDOW_MIN
+): ViewerTabItem {
   return {
     key: 'fusion:ct:pet',
     seriesId: 'ct',
@@ -87,11 +77,14 @@ describe('FusionPetDisplayTool', () => {
       }
     })
 
-    const selects = wrapper.findAll('select')
-    expect(selects).toHaveLength(1)
-    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.5')
-    expect(wrapper.find<HTMLInputElement>('.v-combobox-stub__input').element.value).toBe('30')
-    await selects[0].setValue('kBqml')
+    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.49')
+    expect(wrapper.findAll('.fusion-pet-display-tool__dropdown-button')).toHaveLength(2)
+    expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
+    const unitOption = wrapper
+      .findAll<HTMLButtonElement>('.fusion-pet-display-tool__unit-option')
+      .find((button) => button.text().includes('kBq/ml'))
+    expect(unitOption).toBeTruthy()
+    await unitOption?.trigger('click')
     const slider = wrapper.find('input[type="range"]')
     await slider.setValue('12.5')
     vi.advanceTimersByTime(90)
@@ -113,7 +106,7 @@ describe('FusionPetDisplayTool', () => {
       }
     })
 
-    const maxInput = wrapper.find<HTMLInputElement>('.v-combobox-stub__input')
+    const maxInput = wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input')
     maxInput.element.value = '60'
     await maxInput.trigger('input')
 
@@ -135,7 +128,7 @@ describe('FusionPetDisplayTool', () => {
     })
 
     const option = wrapper
-      .findAll<HTMLButtonElement>('.v-combobox-stub__option')
+      .findAll<HTMLButtonElement>('.fusion-pet-display-tool__range-option')
       .find((button) => button.text() === '10')
     expect(option).toBeTruthy()
     await option?.trigger('click')
@@ -155,8 +148,8 @@ describe('FusionPetDisplayTool', () => {
 
     await wrapper.setProps({ activeTab: createFusionTab(240, -160) })
 
-    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.5')
-    expect(wrapper.find<HTMLInputElement>('.v-combobox-stub__input').element.value).toBe('30')
+    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.49')
+    expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
 
     wrapper.unmount()
   })
@@ -168,8 +161,8 @@ describe('FusionPetDisplayTool', () => {
       }
     })
 
-    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.5')
-    expect(wrapper.find<HTMLInputElement>('.v-combobox-stub__input').element.value).toBe('30')
+    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.49')
+    expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
 
     wrapper.unmount()
   })

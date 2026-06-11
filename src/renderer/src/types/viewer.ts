@@ -4,7 +4,6 @@ import type {
   AnnotationOverlayPayload as BackendAnnotationOverlayPayload,
   MeasurementPointPayload as BackendMeasurementPointPayload,
   MprCrosshairInfo as BackendMprCrosshairInfo,
-  MprCrosshairMode as BackendMprCrosshairMode,
   MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
   MprPlaneInfo as BackendMprPlaneInfo,
@@ -176,6 +175,21 @@ export interface FusionInfo {
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
+}
+
+export type Vec3 = [number, number, number]
+export type Vec4 = [number, number, number, number]
+
+export interface FusionProjectionInfo {
+  paneRole: FusionPaneKey | string
+  referenceWorld: Vec3
+  referenceX: number
+  referenceY: number
+  normalizedToWorldOrigin: Vec3
+  normalizedToWorldX: Vec3
+  normalizedToWorldY: Vec3
+  worldToNormalizedX: Vec4
+  worldToNormalizedY: Vec4
 }
 
 export type MprMipOperationConfig = (Partial<Omit<MprMipConfig, 'enabled'>> & { enabled: boolean })
@@ -403,7 +417,7 @@ export interface MtfAnalyzeResponse {
 }
 
 export type MprCrosshairInfo = BackendMprCrosshairInfo
-export type MprCrosshairMode = BackendMprCrosshairMode
+export type MprCrosshairMode = 'orthogonal' | 'double-oblique'
 export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
 export type MprPlaneInfo = BackendMprPlaneInfo
@@ -498,6 +512,7 @@ export interface ViewImageResponse {
   mprMipConfig?: MprMipOperationConfig | null
   mprCrosshairMode?: MprCrosshairMode | null
   fusionInfo?: FusionInfo | null
+  fusionProjection?: FusionProjectionInfo | null
 }
 export type ViewHoverPayload = BackendViewHoverRequest
 export type ViewHoverResponse = BackendViewHoverResponse
@@ -553,6 +568,7 @@ export interface ViewerTabItem {
   fusionOrientations?: Partial<Record<FusionPaneKey, OrientationInfo>>
   fusionTransformStates?: Partial<Record<FusionPaneKey, ViewTransformInfo>>
   fusionPseudocolorPresets?: Partial<Record<FusionPaneKey, string>>
+  fusionProjections?: Partial<Record<FusionPaneKey, FusionProjectionInfo | null>>
   fusionLoadingProgress?: Partial<Record<FusionPaneKey, ViewProgressInfo | null>>
   fusionInfo?: FusionInfo | null
   fusionManualRegistration?: boolean

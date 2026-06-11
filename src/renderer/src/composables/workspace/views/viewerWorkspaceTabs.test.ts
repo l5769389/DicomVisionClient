@@ -4,6 +4,7 @@ import {
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PET_AXIAL_PANE_KEY,
   FUSION_PET_CORONAL_MIP_PANE_KEY,
+  createEmptyFusionPseudocolorPresets,
   resolveFusionPaneSeriesId
 } from './viewerWorkspaceTabs'
 
@@ -23,5 +24,14 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
   it('falls back to the tab series id when fusion series ids are missing', () => {
     expect(resolveFusionPaneSeriesId(FUSION_PET_AXIAL_PANE_KEY, null, 'fallback')).toBe('fallback')
     expect(resolveFusionPaneSeriesId(FUSION_OVERLAY_AXIAL_PANE_KEY, undefined, 'fallback')).toBe('fallback')
+  })
+
+  it('uses grayscale PET panes and PET-CT pseudocolor for the overlay by default', () => {
+    const presets = createEmptyFusionPseudocolorPresets()
+
+    expect(presets[FUSION_CT_AXIAL_PANE_KEY]).toBe('bw')
+    expect(presets[FUSION_PET_AXIAL_PANE_KEY]).toBe('bwinverse')
+    expect(presets[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('petct-rainbow')
+    expect(presets[FUSION_PET_CORONAL_MIP_PANE_KEY]).toBe('bwinverse')
   })
 })

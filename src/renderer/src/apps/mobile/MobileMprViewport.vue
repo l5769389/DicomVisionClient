@@ -5,6 +5,9 @@ import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.v
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import type {
   CornerInfo,
+  MeasurementDraft,
+  MeasurementDraftPoint,
+  MeasurementToolType,
   MprCrosshairInteractionPayload,
   MprViewportKey,
   ViewerTabItem,
@@ -44,6 +47,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
   mprCrosshair: [payload: MprCrosshairInteractionPayload]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [payload: { viewportKey: string; deltaY: number }]
@@ -92,8 +96,28 @@ const referenceViewportKeys = computed(() =>
   MPR_VIEWPORTS.map((viewport) => viewport.key).filter((viewportKey) => viewportKey !== activeViewport.value)
 )
 
+function createMeasurementId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `mobile-measure-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function emitMeasurementCreate(payload: {
+  viewportKey: string
+  toolType: MeasurementToolType
+  points: MeasurementDraftPoint[]
+  measurementId?: string
+  labelLines?: string[]
+}): void {
+  emit('measurementCreate', {
+    ...payload,
+    measurementId: payload.measurementId?.trim() || createMeasurementId()
+  })
+}
+
 const {
   cleanupPointerInteractions,
+  draftMeasurements,
   getDraftMeasurementMode,
   getMtfDraft,
   getMtfDraftMode,
@@ -109,14 +133,14 @@ const {
   emitActiveViewportChange: emitActiveViewportChange,
   emitOperationChange: () => {},
   emitMeasurementDraft: () => {},
-  emitMeasurementCreate: () => {},
+  emitMeasurementCreate,
   emitMeasurementDelete: () => {},
   emitMtfCommit: () => {},
   emitMtfDelete: () => {},
   emitMtfSelect: () => {},
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
   emitViewportDrag: (payload) => emit('viewportDrag', payload),
-  getCommittedMeasurements: () => [],
+  getCommittedMeasurements: (viewportKey) => mprTab.value?.viewportMeasurements?.[viewportKey] ?? [],
   getMtfItems: () => []
 })
 
@@ -151,6 +175,10 @@ function getCornerInfo(viewportKey: MprViewportKey): CornerInfo {
 
 function getSliceLabel(viewportKey: MprViewportKey): string {
   return mprTab.value?.viewportSliceLabels?.[viewportKey] ?? ''
+}
+
+function getDraftMeasurement(viewportKey: MprViewportKey): MeasurementDraft | null {
+  return draftMeasurements.value[viewportKey] ?? null
 }
 
 function isViewportLoading(viewportKey: MprViewportKey): boolean {
@@ -522,7 +550,7 @@ watch(
         :corner-info="isReferenceViewport(viewport.key) ? emptyCornerInfo : getCornerInfo(viewport.key)"
         :cursor-class="viewportCursorClasses[viewport.key] ?? 'cursor-crosshair'"
         :draft-measurement-mode="getDraftMeasurementMode(viewport.key)"
-        :draft-measurement="null"
+        :draft-measurement="getDraftMeasurement(viewport.key)"
         :measurements="mprTab?.viewportMeasurements?.[viewport.key] ?? []"
         :mtf-draft-mode="getMtfDraftMode(viewport.key)"
         :mtf-draft="getMtfDraft(viewport.key)"

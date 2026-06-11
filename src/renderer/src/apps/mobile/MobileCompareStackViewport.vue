@@ -2,7 +2,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES, type ViewOperationType } from '@shared/viewerConstants'
 import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
-import type { CompareStackPaneKey, CornerInfo, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
+import type {
+  CompareStackPaneKey,
+  CornerInfo,
+  MeasurementDraft,
+  MeasurementDraftPoint,
+  MeasurementToolType,
+  ViewerTabItem,
+  WorkspaceReadyPayload
+} from '../../types/viewer'
 import {
   COMPARE_STACK_PANE_KEYS,
   COMPARE_STACK_SOURCE_PANE_KEY,
@@ -45,13 +54,17 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   activeViewportChange: [viewportKey: CompareStackPaneKey]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [payload: { viewportKey: string; deltaY: number }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
+const activeTabRef = computed(() => props.activeTab)
+const activeOperationRef = computed(() => props.activeOperation)
 const viewportHostRef = ref<HTMLElement | null>(null)
 const activePointers = new Map<number, PointerPoint>()
+const workspacePointerIds = new Set<number>()
 const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
 const emptyOrientationInfo = createEmptyOrientationInfo()
 
@@ -92,6 +105,56 @@ const activeViewport = computed(() =>
   isCompareStackPaneKey(props.activeCompareViewportKey) ? props.activeCompareViewportKey : COMPARE_STACK_SOURCE_PANE_KEY
 )
 
+function createMeasurementId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `mobile-measure-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function emitMeasurementCreate(payload: {
+  viewportKey: string
+  toolType: MeasurementToolType
+  points: MeasurementDraftPoint[]
+  measurementId?: string
+  labelLines?: string[]
+}): void {
+  emit('measurementCreate', {
+    ...payload,
+    measurementId: payload.measurementId?.trim() || createMeasurementId()
+  })
+}
+
+const {
+  cleanupPointerInteractions,
+  draftMeasurements,
+  getDraftMeasurementMode,
+  handleViewportPointerCancel,
+  handleViewportPointerDown,
+  handleViewportPointerLeave,
+  handleViewportPointerMove,
+  handleViewportPointerUp,
+  viewportCursorClasses
+} = useViewerWorkspacePointer({
+  activeOperation: activeOperationRef,
+  activeTab: activeTabRef,
+  emitActiveViewportChange: emitActiveViewportChange,
+  emitOperationChange: () => {},
+  emitMeasurementDraft: () => {},
+  emitMeasurementCreate,
+  emitMeasurementDelete: () => {},
+  emitMtfCommit: () => {},
+  emitMtfDelete: () => {},
+  emitMtfSelect: () => {},
+  emitMprCrosshair: () => {},
+  emitViewportDrag: (payload) => emit('viewportDrag', payload),
+  getCommittedMeasurements: (viewportKey) => compareTab.value?.viewportMeasurements?.[viewportKey] ?? [],
+  getMtfItems: () => []
+})
+
+function getDraftMeasurement(viewportKey: CompareStackPaneKey): MeasurementDraft | null {
+  return draftMeasurements.value[viewportKey] ?? null
+}
+
 function getViewportElement(viewportKey: CompareStackPaneKey): HTMLElement | null {
   return viewportHostRef.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ?? null
 }
@@ -107,6 +170,10 @@ function emitWorkspaceReady(): void {
 
 function normalizeOperation(operation: string): string {
   return operation.startsWith(STACK_OPERATION_PREFIX) ? operation.slice(STACK_OPERATION_PREFIX.length) : operation
+}
+
+function isMeasureOperation(): boolean {
+  return normalizeOperation(props.activeOperation).startsWith('measure:')
 }
 
 function resolveDragOperation(): ViewOperationType | null {
@@ -205,6 +272,8 @@ function endDrag(): void {
 }
 
 function beginPinch(): void {
+  cleanupPointerInteractions()
+  workspacePointerIds.clear()
   endDrag()
   isPinching = true
   lastPinchDistance = getPinchDistance()
@@ -240,6 +309,11 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
   emit('activeViewportChange', viewportKey)
+  if (isMeasureOperation() && event.isPrimary && event.button === 0) {
+    workspacePointerIds.add(event.pointerId)
+    handleViewportPointerDown(event, viewportKey)
+    return
+  }
   const point = getPoint(event, viewportKey)
   activePointers.set(event.pointerId, point)
   if (activePointers.size >= 2) {
@@ -263,6 +337,10 @@ function handleScrollDrag(deltaY: number, viewportKey: CompareStackPaneKey): voi
 }
 
 function handlePointerMove(event: PointerEvent): void {
+  if (workspacePointerIds.has(event.pointerId)) {
+    handleViewportPointerMove(event)
+    return
+  }
   const previousPoint = activePointers.get(event.pointerId)
   if (!previousPoint) {
     return
@@ -317,6 +395,10 @@ function handlePointerMove(event: PointerEvent): void {
 
 function handlePointerUp(event: PointerEvent): void {
   event.preventDefault()
+  if (workspacePointerIds.delete(event.pointerId)) {
+    handleViewportPointerUp(event)
+    return
+  }
   activePointers.delete(event.pointerId)
   if (activePointers.size >= 2) {
     lastPinchDistance = getPinchDistance()
@@ -336,6 +418,10 @@ function handlePointerUp(event: PointerEvent): void {
 
 function handlePointerCancel(event: PointerEvent): void {
   event.preventDefault()
+  if (workspacePointerIds.delete(event.pointerId)) {
+    handleViewportPointerCancel(event)
+    return
+  }
   activePointers.delete(event.pointerId)
   if (activePointers.size === 0) {
     endPinch()
@@ -349,6 +435,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activePointers.clear()
+  workspacePointerIds.clear()
   totalDragDeltaX = 0
   totalDragDeltaY = 0
   totalPinchPanDeltaX = 0
@@ -357,6 +444,7 @@ onBeforeUnmount(() => {
   cancelPendingDragMoves()
   endPinch()
   endDrag()
+  cleanupPointerInteractions()
 })
 
 watch(
@@ -393,9 +481,12 @@ watch(
         loading-label="Loading compare view..."
         :alt="pane.title"
         :active-operation="activeOperation"
+        :cursor-class="viewportCursorClasses[pane.key] ?? ''"
         placeholder="Compare preview"
         :annotations="[]"
         :corner-info="compareTab?.compareCornerInfos?.[pane.key] ?? compareTab?.cornerInfo ?? emptyCornerInfo"
+        :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
+        :draft-measurement="getDraftMeasurement(pane.key)"
         :measurements="compareTab?.viewportMeasurements?.[pane.key] ?? []"
         :scale-bar="compareTab?.compareScaleBars?.[pane.key] ?? null"
         :show-corner-info="compareTab?.showCornerInfo !== false"
@@ -408,7 +499,7 @@ watch(
         @pointer-move="handlePointerMove"
         @pointer-up="handlePointerUp"
         @pointer-cancel="handlePointerCancel"
-        @pointer-leave="() => {}"
+        @pointer-leave="handleViewportPointerLeave"
       />
     </div>
   </section>

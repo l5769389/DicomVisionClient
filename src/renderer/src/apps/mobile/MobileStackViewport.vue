@@ -6,7 +6,14 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
-import type { CornerInfo, MeasurementDraft, MeasurementDraftPoint, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import { createMeasurementDraft, isValidMeasurement } from '../../composables/measurements/measurementGeometry'
+import {
+  getFinalizedPointSequencePoints,
+  isMeasurementToolType,
+  isPointSequenceMeasurement
+} from '../../composables/measurements/measurementToolRules'
+import { buildRectRoiDraftPoints } from '../../composables/measurements/rectRoiPointerController'
+import type { CornerInfo, MeasurementDraft, MeasurementDraftPoint, MeasurementToolType, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
 import {
   createMobileViewportDragMoveQueue,
   getMobileGestureCenter,
@@ -18,6 +25,12 @@ type PointerPoint = {
   x: number
   y: number
 }
+
+type MeasureSessionKind = 'create' | 'extend'
+
+const POINT_SEQUENCE_DOUBLE_TAP_MS = 420
+const POINT_SEQUENCE_DOUBLE_TAP_DISTANCE = 0.025
+const DISTINCT_POINT_EPSILON = 0.01
 
 const props = withDefaults(defineProps<{
   activeOperation: string
@@ -59,6 +72,9 @@ let totalPinchPanDeltaY = 0
 let totalPinchZoomDeltaY = 0
 const draftMeasurement = ref<MeasurementDraft | null>(null)
 let measurePointerId: number | null = null
+let measureToolType: MeasurementToolType | null = null
+let measureSessionKind: MeasureSessionKind | null = null
+let lastPointSequenceTap: { toolType: MeasurementToolType; point: MeasurementDraftPoint; timeStamp: number } | null = null
 const dragMoveQueue = createMobileViewportDragMoveQueue<'single'>((move: MobileViewportDragMove<'single'>) => {
   emit('viewportDrag', {
     deltaX: move.deltaX,
@@ -87,8 +103,17 @@ function normalizeOperation(operation: string): string {
   return operation.startsWith(STACK_OPERATION_PREFIX) ? operation.slice(STACK_OPERATION_PREFIX.length) : operation
 }
 
+function getMeasurementToolType(): MeasurementToolType | null {
+  const operation = normalizeOperation(props.activeOperation)
+  const [toolKey, toolType] = operation.split(':')
+  if (toolKey === 'measure' && isMeasurementToolType(toolType)) {
+    return toolType
+  }
+  return null
+}
+
 function isMeasureOperation(): boolean {
-  return props.activeOperation.startsWith('measure:')
+  return getMeasurementToolType() != null
 }
 
 function resolveDragOperation(): ViewOperationType | null {
@@ -127,17 +152,98 @@ function createMeasurementId(): string {
     : `mobile-measure-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
-function beginMeasure(event: PointerEvent): boolean {
-  const point = getNormalizedPoint(event)
+function getPointerEventTimestamp(event?: PointerEvent): number {
+  return typeof event?.timeStamp === 'number' && Number.isFinite(event.timeStamp)
+    ? event.timeStamp
+    : window.performance.now()
+}
+
+function replaceLastMeasurementPoint(points: MeasurementDraftPoint[], point: MeasurementDraftPoint): MeasurementDraftPoint[] {
+  if (!points.length) {
+    return [point]
+  }
+  return points.map((currentPoint, index) => (index === points.length - 1 ? point : currentPoint))
+}
+
+function areDistinctPoints(a: MeasurementDraftPoint | undefined, b: MeasurementDraftPoint | undefined): boolean {
+  return Boolean(a && b && Math.hypot(a.x - b.x, a.y - b.y) > DISTINCT_POINT_EPSILON)
+}
+
+function rememberPointSequenceTap(toolType: MeasurementToolType, point: MeasurementDraftPoint | undefined, event?: PointerEvent): void {
   if (!point) {
+    lastPointSequenceTap = null
+    return
+  }
+  lastPointSequenceTap = {
+    toolType,
+    point,
+    timeStamp: getPointerEventTimestamp(event)
+  }
+}
+
+function isPointSequenceDoubleTap(toolType: MeasurementToolType, point: MeasurementDraftPoint | undefined, event?: PointerEvent): boolean {
+  if (!point || !lastPointSequenceTap || lastPointSequenceTap.toolType !== toolType) {
+    return false
+  }
+  const elapsed = getPointerEventTimestamp(event) - lastPointSequenceTap.timeStamp
+  if (elapsed < 0 || elapsed > POINT_SEQUENCE_DOUBLE_TAP_MS) {
+    return false
+  }
+  return Math.hypot(point.x - lastPointSequenceTap.point.x, point.y - lastPointSequenceTap.point.y) <= POINT_SEQUENCE_DOUBLE_TAP_DISTANCE
+}
+
+function buildTwoPointDraftPoints(
+  toolType: MeasurementToolType,
+  anchorPoint: MeasurementDraftPoint,
+  currentPoint: MeasurementDraftPoint
+): MeasurementDraftPoint[] {
+  return toolType === 'rect' || toolType === 'ellipse'
+    ? buildRectRoiDraftPoints(anchorPoint, currentPoint)
+    : [anchorPoint, currentPoint]
+}
+
+function commitMeasurement(toolType: MeasurementToolType, points: MeasurementDraftPoint[]): boolean {
+  if (!isValidMeasurement(toolType, points)) {
+    return false
+  }
+  emit('measurementCreate', {
+    viewportKey: 'single',
+    toolType,
+    points,
+    measurementId: createMeasurementId()
+  })
+  return true
+}
+
+function beginMeasure(event: PointerEvent): boolean {
+  const toolType = getMeasurementToolType()
+  const point = getNormalizedPoint(event)
+  if (!toolType || !point) {
     return false
   }
   measurePointerId = event.pointerId
-  draftMeasurement.value = {
-    toolType: 'line',
-    points: [point, point],
-    labelLines: []
+  measureToolType = toolType
+
+  const existingDraft = draftMeasurement.value
+  if (existingDraft && !existingDraft.measurementId && existingDraft.toolType === toolType && existingDraft.points.length) {
+    measureSessionKind = 'extend'
+    if (toolType === 'angle') {
+      const [anchorPoint, vertexPoint] = existingDraft.points
+      draftMeasurement.value = createMeasurementDraft(
+        toolType,
+        anchorPoint && vertexPoint ? [anchorPoint, vertexPoint, point] : buildTwoPointDraftPoints(toolType, anchorPoint ?? point, point)
+      )
+    } else if (isPointSequenceMeasurement(toolType)) {
+      draftMeasurement.value = createMeasurementDraft(toolType, replaceLastMeasurementPoint(existingDraft.points, point))
+    } else {
+      const anchorPoint = existingDraft.points[0] ?? point
+      draftMeasurement.value = createMeasurementDraft(toolType, buildTwoPointDraftPoints(toolType, anchorPoint, point))
+    }
+  } else {
+    measureSessionKind = 'create'
+    draftMeasurement.value = createMeasurementDraft(toolType, buildTwoPointDraftPoints(toolType, point, point))
   }
+
   if (event.currentTarget instanceof HTMLElement) {
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -145,38 +251,89 @@ function beginMeasure(event: PointerEvent): boolean {
 }
 
 function moveMeasure(event: PointerEvent): boolean {
-  if (measurePointerId !== event.pointerId || !draftMeasurement.value) {
+  if (measurePointerId !== event.pointerId || !draftMeasurement.value || !measureToolType) {
     return false
   }
   const point = getNormalizedPoint(event)
   if (!point) {
     return true
   }
-  const start = draftMeasurement.value.points[0] ?? point
-  draftMeasurement.value = {
-    ...draftMeasurement.value,
-    points: [start, point]
+  const currentDraft = draftMeasurement.value
+  const anchorPoint = currentDraft.points[0] ?? point
+  let points: MeasurementDraftPoint[]
+  if (measureToolType === 'angle' && currentDraft.points.length >= 3) {
+    points = [currentDraft.points[0], currentDraft.points[1], point]
+  } else if (isPointSequenceMeasurement(measureToolType)) {
+    points = replaceLastMeasurementPoint(currentDraft.points, point)
+  } else {
+    points = buildTwoPointDraftPoints(measureToolType, anchorPoint, point)
   }
+  draftMeasurement.value = createMeasurementDraft(measureToolType, points)
   return true
 }
 
 function endMeasure(event: PointerEvent): boolean {
-  if (measurePointerId !== event.pointerId || !draftMeasurement.value) {
+  if (measurePointerId !== event.pointerId || !draftMeasurement.value || !measureToolType) {
     return false
   }
   moveMeasure(event)
+  const toolType = measureToolType
   const points = draftMeasurement.value.points
-  const [start, end] = points
-  if (start && end && Math.hypot(end.x - start.x, end.y - start.y) > 0.01) {
-    emit('measurementCreate', {
-      viewportKey: 'single',
-      toolType: 'line',
-      points,
-      measurementId: createMeasurementId()
-    })
+  const releaseSession = (): void => {
+    measurePointerId = null
+    measureToolType = null
+    measureSessionKind = null
   }
+
+  if (toolType === 'line' || toolType === 'rect' || toolType === 'ellipse') {
+    commitMeasurement(toolType, points)
+    draftMeasurement.value = null
+    releaseSession()
+    return true
+  }
+
+  if (toolType === 'angle') {
+    if (points.length >= 3 && commitMeasurement(toolType, points)) {
+      draftMeasurement.value = null
+    } else if (points.length >= 2 && isValidMeasurement('line', points.slice(0, 2))) {
+      draftMeasurement.value = createMeasurementDraft(toolType, points.slice(0, 2))
+    } else {
+      draftMeasurement.value = null
+    }
+    releaseSession()
+    return true
+  }
+
+  if (isPointSequenceMeasurement(toolType)) {
+    const pointerPoint = getNormalizedPoint(event) ?? points.at(-1)
+    const nextConfirmedPoints = pointerPoint ? replaceLastMeasurementPoint(points, pointerPoint) : points
+    const finalizedPoints = getFinalizedPointSequencePoints(nextConfirmedPoints)
+    if (
+      measureSessionKind === 'extend' &&
+      isPointSequenceDoubleTap(toolType, pointerPoint, event) &&
+      isValidMeasurement(toolType, finalizedPoints)
+    ) {
+      commitMeasurement(toolType, finalizedPoints)
+      draftMeasurement.value = null
+      lastPointSequenceTap = null
+      releaseSession()
+      return true
+    }
+
+    rememberPointSequenceTap(toolType, pointerPoint, event)
+    if (measureSessionKind === 'create' && !areDistinctPoints(nextConfirmedPoints[0], nextConfirmedPoints[1])) {
+      draftMeasurement.value = createMeasurementDraft(toolType, nextConfirmedPoints.slice(0, 2))
+    } else if (pointerPoint) {
+      draftMeasurement.value = createMeasurementDraft(toolType, [...nextConfirmedPoints, pointerPoint])
+    } else {
+      draftMeasurement.value = createMeasurementDraft(toolType, nextConfirmedPoints)
+    }
+    releaseSession()
+    return true
+  }
+
   draftMeasurement.value = null
-  measurePointerId = null
+  releaseSession()
   return true
 }
 
@@ -198,6 +355,18 @@ function flushPendingDragMoves(): void {
 
 function cancelPendingDragMoves(): void {
   dragMoveQueue.cancel()
+}
+
+function clearMeasureSession(options: { clearDraft?: boolean; clearPointSequence?: boolean } = {}): void {
+  measurePointerId = null
+  measureToolType = null
+  measureSessionKind = null
+  if (options.clearDraft) {
+    draftMeasurement.value = null
+  }
+  if (options.clearPointSequence) {
+    lastPointSequenceTap = null
+  }
 }
 
 function beginDrag(operation: ViewOperationType | null, point: PointerPoint): void {
@@ -393,8 +562,7 @@ function handlePointerUp(event: PointerEvent): void {
 function handlePointerCancel(event: PointerEvent): void {
   event.preventDefault()
   if (measurePointerId === event.pointerId) {
-    draftMeasurement.value = null
-    measurePointerId = null
+    clearMeasureSession({ clearDraft: true, clearPointSequence: true })
   }
   activePointers.delete(event.pointerId)
   if (activePointers.size === 0) {
@@ -409,8 +577,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activePointers.clear()
-  draftMeasurement.value = null
-  measurePointerId = null
+  clearMeasureSession({ clearDraft: true, clearPointSequence: true })
   totalDragDeltaX = 0
   totalDragDeltaY = 0
   totalPinchPanDeltaX = 0
@@ -425,6 +592,16 @@ watch(
   () => stackTab.value?.key,
   () => {
     void nextTick(emitWorkspaceReady)
+  }
+)
+
+watch(
+  () => props.activeOperation,
+  () => {
+    const nextToolType = getMeasurementToolType()
+    if (draftMeasurement.value && draftMeasurement.value.toolType !== nextToolType) {
+      clearMeasureSession({ clearDraft: true, clearPointSequence: true })
+    }
   }
 )
 </script>

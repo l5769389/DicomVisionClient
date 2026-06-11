@@ -466,15 +466,35 @@ describe('MobileWorkspaceShell', () => {
 
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    expect(wrapper.get('[data-testid="mobile-sheet-tab-series"]').text()).toContain('series')
     expect(wrapper.find('[data-testid="mobile-sheet-tab-window"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-sheet-tab-display"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-sheet-tab-compare"]').exists()).toBe(false)
+    expect(wrapper.find('.mobile-shell__sheet-subtitle').exists()).toBe(false)
+    expect(wrapper.find('.mobile-shell__window-system-list').exists()).toBe(true)
     await wrapper.get('[data-testid="mobile-sheet-tab-display"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-display-cornerInfo"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     expect(wrapper.findAll('.mobile-shell__series-row')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('Report')
+  })
+
+  it('offers every measurement mode from the mobile measurement sheet', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-tool-measure"]').trigger('click')
+
+    for (const toolType of ['line', 'rect', 'ellipse', 'angle', 'curve', 'freeform']) {
+      expect(wrapper.find(`[data-testid="mobile-measure-${toolType}"]`).exists()).toBe(true)
+    }
+
+    await wrapper.get('[data-testid="mobile-measure-rect"]').trigger('click')
+
+    expect(mockViewer.setActiveOperation.mock.calls.map(([operation]) => operation)).toContain('measure:rect')
   })
 
   it('toggles mobile display overlays through viewer actions', async () => {

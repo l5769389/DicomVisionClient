@@ -1,4 +1,4 @@
-import { resolveShellKind, rewritePathForMobileShell } from './shell/shellSelection'
+import { isMobileHostname, resolveShellKind, rewritePathForMobileShell } from './shell/shellSelection'
 
 function waitForFirstPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -59,6 +59,7 @@ function resolveInitialShellKind() {
   return resolveShellKind({
     hasDesktopRuntime: typeof window !== 'undefined' && Boolean(window.viewerApi),
     hasCoarsePointer: getPointerIsCoarse(),
+    hostname: typeof window !== 'undefined' ? window.location.hostname : '',
     maxTouchPoints: typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0,
     pathname: typeof window !== 'undefined' ? window.location.pathname : '/',
     viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1024
@@ -66,7 +67,11 @@ function resolveInitialShellKind() {
 }
 
 function normalizeMobileRoute(): void {
-  if (typeof window === 'undefined' || window.location.pathname.startsWith('/mobile')) {
+  if (
+    typeof window === 'undefined' ||
+    window.location.pathname.startsWith('/mobile') ||
+    isMobileHostname(window.location.hostname)
+  ) {
     return
   }
 

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import MobileStackViewport from './MobileStackViewport.vue'
 import type { ViewerTabItem } from '../../types/viewer'
@@ -49,16 +49,35 @@ function mountStackViewport(activeOperation = `${STACK_OPERATION_PREFIX}${VIEW_O
 async function dispatchPointerEvent(
   element: Element,
   type: string,
-  init: { clientX: number; clientY: number; pointerId: number }
+  init: { button?: number; clientX: number; clientY: number; isPrimary?: boolean; pointerId: number; timeStamp?: number }
 ): Promise<void> {
   const event = new Event(type, { bubbles: true, cancelable: true })
   Object.defineProperties(event, {
+    button: { value: init.button ?? 0 },
     clientX: { value: init.clientX },
     clientY: { value: init.clientY },
+    isPrimary: { value: init.isPrimary ?? true },
     pointerId: { value: init.pointerId }
   })
+  if (typeof init.timeStamp === 'number') {
+    Object.defineProperty(event, 'timeStamp', { value: init.timeStamp })
+  }
   element.dispatchEvent(event)
   await nextTick()
+}
+
+function stubViewportRect(wrapper: ReturnType<typeof mountStackViewport>): void {
+  vi.spyOn(wrapper.element, 'getBoundingClientRect').mockReturnValue({
+    bottom: 100,
+    height: 100,
+    left: 0,
+    right: 100,
+    top: 0,
+    width: 100,
+    x: 0,
+    y: 0,
+    toJSON: () => ({})
+  } as DOMRect)
 }
 
 describe('MobileStackViewport', () => {
@@ -109,5 +128,79 @@ describe('MobileStackViewport', () => {
         return event.opType === VIEW_OPERATION_TYPES.pan && event.phase === 'move'
       })
     ).toBe(true)
+  })
+
+  it('creates rectangular measurements from drag gestures', async () => {
+    const wrapper = mountStackViewport('measure:rect')
+    stubViewportRect(wrapper)
+    const stage = wrapper.get('[data-testid="stack-stage"]')
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 10, clientY: 20, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 60, clientY: 80, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 60, clientY: 80, pointerId: 1 })
+
+    const payload = wrapper.emitted('measurementCreate')?.[0]?.[0] as {
+      measurementId?: string
+      points: Array<{ x: number; y: number }>
+      toolType: string
+      viewportKey: string
+    }
+    expect(payload).toMatchObject({
+      toolType: 'rect',
+      viewportKey: 'single',
+      points: [
+        { x: 0.1, y: 0.2 },
+        { x: 0.6, y: 0.8 }
+      ]
+    })
+    expect(payload.measurementId).toEqual(expect.any(String))
+  })
+
+  it('creates angle measurements from two mobile segments', async () => {
+    const wrapper = mountStackViewport('measure:angle')
+    stubViewportRect(wrapper)
+    const stage = wrapper.get('[data-testid="stack-stage"]')
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 50, clientY: 10, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 10, pointerId: 1 })
+    expect(wrapper.emitted('measurementCreate')).toBeUndefined()
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 50, clientY: 50, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 50, pointerId: 2 })
+
+    const payload = wrapper.emitted('measurementCreate')?.[0]?.[0] as {
+      points: Array<{ x: number; y: number }>
+      toolType: string
+    }
+    expect(payload.toolType).toBe('angle')
+    expect(payload.points).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.1 },
+      { x: 0.5, y: 0.5 }
+    ])
+  })
+
+  it('finishes curve measurements with a double tap on the last point', async () => {
+    const wrapper = mountStackViewport('measure:curve')
+    stubViewportRect(wrapper)
+    const stage = wrapper.get('[data-testid="stack-stage"]')
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 1, timeStamp: 0 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 10, clientY: 10, pointerId: 1, timeStamp: 10 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 50, clientY: 50, pointerId: 2, timeStamp: 500 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 50, pointerId: 2, timeStamp: 510 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 50, clientY: 50, pointerId: 3, timeStamp: 700 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 50, pointerId: 3, timeStamp: 710 })
+
+    const payload = wrapper.emitted('measurementCreate')?.[0]?.[0] as {
+      points: Array<{ x: number; y: number }>
+      toolType: string
+    }
+    expect(payload.toolType).toBe('curve')
+    expect(payload.points).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.5 }
+    ])
   })
 })

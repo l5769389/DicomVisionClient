@@ -18,7 +18,7 @@ import { setApiBaseURL } from '../../services/api'
 import { postApi } from '../../services/typedApi'
 import { viewerRuntime } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
-import type { CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, MprViewportKey, ViewerTabItem, ViewType } from '../../types/viewer'
+import type { CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, MeasurementToolType, MprViewportKey, ViewerTabItem, ViewType } from '../../types/viewer'
 import MobileCompareStackViewport from './MobileCompareStackViewport.vue'
 import MobileMprViewport from './MobileMprViewport.vue'
 import MobileSettingsOverlay from './MobileSettingsOverlay.vue'
@@ -32,7 +32,6 @@ import {
   useMobileViewerPreferences
 } from './useMobileViewerPreferences'
 
-type MobileViewportKind = 'Stack' | 'Compare' | 'MPR' | '3D' | '4D' | 'Tag'
 type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'tag' | 'compare'
 type MobileSheetKind = 'series' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
@@ -48,6 +47,15 @@ interface MobileToolbarItem {
   key: MobileToolKey | 'more'
   icon: string
   label: string
+}
+
+interface MobileMeasurementTool {
+  toolType: MeasurementToolType
+  icon: string
+  zh: string
+  en: string
+  hintZh: string
+  hintEn: string
 }
 
 interface MobileSliceSliderState {
@@ -92,6 +100,57 @@ const VOLUME_PRESET_OPTIONS = [
   { value: 'volumePreset:cardiac', icon: 'volume-preset-cardiac', label: 'Cardiac' },
   { value: 'volumePreset:muscle', icon: 'volume-preset-muscle', label: 'Muscle' },
   { value: 'volumePreset:mip', icon: 'volume-preset-mip', label: 'MIP' }
+]
+
+const MOBILE_MEASUREMENT_TOOLS: MobileMeasurementTool[] = [
+  {
+    toolType: 'line',
+    icon: 'measure-line',
+    zh: '线段',
+    en: 'Line',
+    hintZh: '拖动生成线段测量',
+    hintEn: 'Drag to create a line measurement'
+  },
+  {
+    toolType: 'rect',
+    icon: 'measure-rect',
+    zh: '矩形',
+    en: 'Rect',
+    hintZh: '拖动框选矩形 ROI',
+    hintEn: 'Drag to draw a rectangular ROI'
+  },
+  {
+    toolType: 'ellipse',
+    icon: 'measure-ellipse',
+    zh: '椭圆',
+    en: 'Ellipse',
+    hintZh: '拖动框选椭圆 ROI',
+    hintEn: 'Drag to draw an elliptical ROI'
+  },
+  {
+    toolType: 'angle',
+    icon: 'measure-angle',
+    zh: '角度',
+    en: 'Angle',
+    hintZh: '点选两段线完成角度',
+    hintEn: 'Tap two segments to complete an angle'
+  },
+  {
+    toolType: 'curve',
+    icon: 'measure-curve',
+    zh: '曲线',
+    en: 'Curve',
+    hintZh: '连续点选，双击结束',
+    hintEn: 'Tap points, double-tap to finish'
+  },
+  {
+    toolType: 'freeform',
+    icon: 'measure-freeform',
+    zh: '自由手绘',
+    en: 'Freeform',
+    hintZh: '连续点选 ROI，双击闭合',
+    hintEn: 'Tap ROI points, double-tap to close'
+  }
 ]
 
 const viewer = useViewerWorkspace()
@@ -154,27 +213,6 @@ const activeFourDTab = computed(() => (viewer.activeTab.value?.viewType === '4D'
 const activeMprLikeTab = computed(() => activeMprTab.value ?? activeFourDTab.value)
 const activeTagTab = computed(() => (viewer.activeTab.value?.viewType === 'Tag' ? viewer.activeTab.value : null))
 const activeImageTab = computed(() => activeStackTab.value ?? activeCompareTab.value ?? activeMprTab.value ?? activeVolumeTab.value ?? activeFourDTab.value)
-const activeViewportKind = computed<MobileViewportKind | null>(() => {
-  if (activeStackTab.value) {
-    return 'Stack'
-  }
-  if (activeCompareTab.value) {
-    return 'Compare'
-  }
-  if (activeMprTab.value) {
-    return 'MPR'
-  }
-  if (activeVolumeTab.value) {
-    return '3D'
-  }
-  if (activeFourDTab.value) {
-    return '4D'
-  }
-  if (activeTagTab.value) {
-    return 'Tag'
-  }
-  return null
-})
 const selectedSeries = computed(() => viewer.seriesList.value.find((series) => series.seriesId === viewer.selectedSeriesId.value) ?? null)
 const mobileSeriesList = computed(() => viewer.seriesList.value.filter((series) => series.isImageSeries !== false))
 const canLoadDemo = computed(() => supportsViewerDataSource(mobileViewerCapabilityProfile, 'server-sample'))
@@ -315,7 +353,7 @@ const secondaryMobileTools = computed<MobileToolbarItem[]>(() => [
 
 const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; label: string }>>(() => {
   const tabs: Array<{ key: MobileSheetTabKey; icon: string; label: string }> = [
-    { key: 'series', icon: 'layout', label: isZh.value ? '序列' : 'Series' }
+    { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' }
   ]
 
   if (!activeImageTab.value) {
@@ -473,6 +511,14 @@ function setActiveMobileTool(tool: MobileToolKey, options: { closeSheet?: boolea
 
   activeTool.value = tool
   viewer.setActiveOperation(normalizeToolOperation(tool))
+  if (options.closeSheet !== false) {
+    dismissSheet()
+  }
+}
+
+function setActiveMeasurementTool(toolType: MeasurementToolType, options: { closeSheet?: boolean } = {}): void {
+  activeTool.value = 'measure'
+  viewer.setActiveOperation(`measure:${toolType}`)
   if (options.closeSheet !== false) {
     dismissSheet()
   }
@@ -1466,6 +1512,7 @@ onBeforeUnmount(() => {
         :scroll-threshold="scrollDragThreshold"
         @active-viewport-change="handleCompareActiveViewportChange"
         @hover-viewport-change="viewer.handleHoverViewportChange"
+        @measurement-create="viewer.handleMeasurementCreate"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
         @workspace-ready="viewer.setViewerStage"
@@ -1490,6 +1537,7 @@ onBeforeUnmount(() => {
         :show-reference-thumbnails="mprShowReferenceThumbnails"
         @active-viewport-change="handleMprActiveViewportChange"
         @hover-viewport-change="viewer.handleHoverViewportChange"
+        @measurement-create="viewer.handleMeasurementCreate"
         @mpr-crosshair="viewer.handleMprCrosshair"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
@@ -1677,7 +1725,6 @@ onBeforeUnmount(() => {
         <div class="mobile-shell__sheet-header">
           <div>
             <div class="mobile-shell__sheet-title">{{ sheetTitle }}</div>
-            <div class="mobile-shell__sheet-subtitle">{{ activeViewportKind || 'Mobile' }}</div>
           </div>
           <button type="button" class="mobile-shell__sheet-close" @click="closeSheet">
             <AppIcon name="close" :size="18" />
@@ -1774,7 +1821,7 @@ onBeforeUnmount(() => {
           <div v-else-if="activeSheetKind === 'window'" class="mobile-shell__window-panel">
             <section class="mobile-shell__window-section">
               <div class="mobile-shell__window-subhead">{{ isZh ? '系统预设' : 'System Presets' }}</div>
-              <div class="mobile-shell__action-list">
+              <div class="mobile-shell__action-list mobile-shell__window-system-list">
                 <button
                   v-for="preset in systemWindowPresets"
                   :key="preset.id"
@@ -2064,16 +2111,18 @@ onBeforeUnmount(() => {
 
           <div v-else-if="activeSheetKind === 'measure'" class="mobile-shell__action-list">
             <button
+              v-for="tool in MOBILE_MEASUREMENT_TOOLS"
+              :key="tool.toolType"
               type="button"
               class="mobile-shell__action-row"
-              :class="{ 'mobile-shell__action-row--active': viewer.activeOperation.value === 'measure:line' }"
-              data-testid="mobile-measure-line"
-              @click="setActiveMobileTool('measure')"
+              :class="{ 'mobile-shell__action-row--active': viewer.activeOperation.value === `measure:${tool.toolType}` }"
+              :data-testid="`mobile-measure-${tool.toolType}`"
+              @click="setActiveMeasurementTool(tool.toolType)"
             >
-              <AppIcon name="measure-line" :size="18" />
+              <AppIcon :name="tool.icon" :size="18" />
               <span>
-                <strong>Line</strong>
-                <small>{{ isZh ? '拖动生成线段测量' : 'Drag to create a line measurement' }}</small>
+                <strong>{{ isZh ? tool.zh : tool.en }}</strong>
+                <small>{{ isZh ? tool.hintZh : tool.hintEn }}</small>
               </span>
             </button>
           </div>
@@ -2479,7 +2528,7 @@ onBeforeUnmount(() => {
 .mobile-shell__sheet-handle {
   width: 44px;
   height: 4px;
-  margin: 10px auto 6px;
+  margin: 7px auto 4px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--theme-text-muted) 56%, transparent);
 }
@@ -2489,17 +2538,13 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 14px 12px;
+  padding: 4px 12px 8px;
 }
 
 .mobile-shell__sheet-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
-}
-
-.mobile-shell__sheet-subtitle {
-  color: var(--theme-text-muted);
-  font-size: 12px;
+  line-height: 1.15;
 }
 
 .mobile-shell__sheet-tabs {
@@ -2572,6 +2617,15 @@ onBeforeUnmount(() => {
 .mobile-shell__window-section {
   display: grid;
   gap: 8px;
+}
+
+.mobile-shell__window-system-list {
+  max-height: min(32dvh, 260px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .mobile-shell__window-subhead,

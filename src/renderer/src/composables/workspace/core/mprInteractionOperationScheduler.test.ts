@@ -137,6 +137,53 @@ describe('view interaction operation scheduler', () => {
     ])
   })
 
+  it('throttles fusion registration moves while keeping the latest drag delta', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.move,
+      subOpType: 'translate',
+      x: 2,
+      y: 1
+    })
+    now = 6
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.move,
+      subOpType: 'translate',
+      x: 12,
+      y: 8
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(1)
+
+    now = 30
+    timers[0].callback()
+    expect(emit.mock.calls[1]).toEqual([
+      'fusion-overlay',
+      {
+        opType: VIEW_OPERATION_TYPES.fusionRegistration,
+        actionType: DRAG_ACTION_TYPES.move,
+        subOpType: 'translate',
+        x: 12,
+        y: 8
+      }
+    ])
+  })
+
   it('resets move throttling at the start of each drag gesture', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []

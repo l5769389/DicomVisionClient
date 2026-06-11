@@ -2,6 +2,9 @@ import type {
   CornerInfo,
   CornerPosition,
   CompareStackPaneKey,
+  FusionPaneKey,
+  FusionInfo,
+  FusionProjectionInfo,
   FourDPhaseItem,
   FolderSeriesItem,
   MprCursorInfo,
@@ -11,12 +14,19 @@ import type {
   OrientationInfo,
   ScaleBarInfo,
   ViewTransformInfo,
+  ViewProgressInfo,
   ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
 import { createDefaultMprMipConfig } from '../../../types/viewer'
-import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
+import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+  DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PSEUDOCOLOR_PRESET
+} from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
@@ -26,6 +36,16 @@ const CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft',
 export const COMPARE_STACK_SOURCE_PANE_KEY: CompareStackPaneKey = 'compare-a'
 export const COMPARE_STACK_TARGET_PANE_KEY: CompareStackPaneKey = 'compare-b'
 export const COMPARE_STACK_PANE_KEYS: CompareStackPaneKey[] = [COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY]
+export const FUSION_CT_AXIAL_PANE_KEY: FusionPaneKey = 'fusion-ct-ax'
+export const FUSION_PET_AXIAL_PANE_KEY: FusionPaneKey = 'fusion-pet-ax'
+export const FUSION_OVERLAY_AXIAL_PANE_KEY: FusionPaneKey = 'fusion-overlay-ax'
+export const FUSION_PET_CORONAL_MIP_PANE_KEY: FusionPaneKey = 'fusion-pet-cor-mip'
+export const FUSION_PANE_KEYS: FusionPaneKey[] = [
+  FUSION_CT_AXIAL_PANE_KEY,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY
+]
 
 export function createComparePaneRecord<T>(
   factory: (paneKey: CompareStackPaneKey, index: number) => T
@@ -35,6 +55,35 @@ export function createComparePaneRecord<T>(
     record[paneKey] = factory(paneKey, index)
   })
   return record
+}
+
+export function createFusionPaneRecord<T>(
+  factory: (paneKey: FusionPaneKey, index: number) => T
+): Record<FusionPaneKey, T> {
+  const record = {} as Record<FusionPaneKey, T>
+  FUSION_PANE_KEYS.forEach((paneKey, index) => {
+    record[paneKey] = factory(paneKey, index)
+  })
+  return record
+}
+
+export function isFusionPaneKey(value: string | null | undefined): value is FusionPaneKey {
+  return Boolean(value && (FUSION_PANE_KEYS as string[]).includes(value))
+}
+
+export function resolveFusionPaneKey(value: string | null | undefined): FusionPaneKey {
+  return isFusionPaneKey(value) ? value : FUSION_OVERLAY_AXIAL_PANE_KEY
+}
+
+export function resolveFusionPaneSeriesId(
+  paneKey: FusionPaneKey,
+  fusionSeriesIds: ViewerTabItem['fusionSeriesIds'] | null | undefined,
+  fallbackSeriesId: string
+): string {
+  if (paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY) {
+    return fusionSeriesIds?.petSeriesId ?? fallbackSeriesId
+  }
+  return fusionSeriesIds?.ctSeriesId ?? fallbackSeriesId
 }
 
 export function createEmptyMprImages(): Record<MprViewportKey, string> {
@@ -134,36 +183,113 @@ export function createEmptyCompareViewIds(): Record<CompareStackPaneKey, string>
   return createComparePaneRecord(() => '')
 }
 
+export function createEmptyFusionViewIds(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
+}
+
 export function createEmptyCompareImages(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => '')
+}
+
+export function createEmptyFusionImages(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
 }
 
 export function createEmptyCompareSliceLabels(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => '')
 }
 
+export function createEmptyFusionSliceLabels(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
+}
+
 export function createEmptyCompareWindowLabels(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => '')
+}
+
+export function createEmptyFusionWindowLabels(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord(() => '')
 }
 
 export function createEmptyCompareScaleBars(): Record<CompareStackPaneKey, null> {
   return createComparePaneRecord(() => null)
 }
 
+export function createEmptyFusionScaleBars(): Record<FusionPaneKey, null> {
+  return createFusionPaneRecord(() => null)
+}
+
 export function createEmptyCompareCornerInfos(): Record<CompareStackPaneKey, CornerInfo> {
   return createComparePaneRecord(() => createEmptyCornerInfo())
+}
+
+export function createEmptyFusionCornerInfos(): Record<FusionPaneKey, CornerInfo> {
+  return createFusionPaneRecord(() => createEmptyCornerInfo())
 }
 
 export function createEmptyCompareOrientations(): Record<CompareStackPaneKey, OrientationInfo> {
   return createComparePaneRecord(() => createEmptyOrientationInfo())
 }
 
+export function createEmptyFusionOrientations(): Record<FusionPaneKey, OrientationInfo> {
+  return createFusionPaneRecord(() => createEmptyOrientationInfo())
+}
+
 export function createEmptyCompareTransformStates(): Record<CompareStackPaneKey, ViewTransformInfo> {
   return createComparePaneRecord(() => createDefaultTransformInfo())
 }
 
+export function createEmptyFusionTransformStates(): Record<FusionPaneKey, ViewTransformInfo> {
+  return createFusionPaneRecord(() => createDefaultTransformInfo())
+}
+
 export function createEmptyComparePseudocolorPresets(): Record<CompareStackPaneKey, string> {
   return createComparePaneRecord(() => DEFAULT_PSEUDOCOLOR_PRESET)
+}
+
+export function createEmptyFusionPseudocolorPresets(): Record<FusionPaneKey, string> {
+  return createFusionPaneRecord((paneKey) => {
+    if (paneKey === FUSION_CT_AXIAL_PANE_KEY) {
+      return DEFAULT_PSEUDOCOLOR_PRESET
+    }
+    if (paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY) {
+      return DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
+    }
+    return DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+  })
+}
+
+export function createEmptyFusionProjections(): Record<FusionPaneKey, null> {
+  return createFusionPaneRecord(() => null)
+}
+
+export function createEmptyFusionLoadingProgress(): Record<FusionPaneKey, ViewProgressInfo | null> {
+  return createFusionPaneRecord(() => null)
+}
+
+export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): FusionInfo {
+  return {
+    paneRole: FUSION_OVERLAY_AXIAL_PANE_KEY,
+    ctSeriesId,
+    petSeriesId,
+    petPseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+    petUnit: 'SUVbw',
+    petUnitLabel: 'g/ml (SUVbw)',
+    petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+    petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
+    alpha: 0.52,
+    revision: 0,
+    registration: {
+      translateRowMm: 0,
+      translateColMm: 0,
+      rotationDegrees: 0,
+      saved: false
+    }
+  }
+}
+
+export function createPetCtFusionTabKey(ctSeriesId: string, petSeriesId: string): string {
+  return `fusion:${ctSeriesId}:${petSeriesId}`
 }
 
 export function createDefaultFourDPhaseItems(phaseCount = 10): FourDPhaseItem[] {
@@ -468,6 +594,61 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
   }
 }
 
+function normalizeFiniteNumber(value: unknown, fallback: number): number {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : fallback
+}
+
+function normalizeVec3(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  if (!Array.isArray(value) || value.length < 3) {
+    return fallback
+  }
+  return [
+    normalizeFiniteNumber(value[0], fallback[0]),
+    normalizeFiniteNumber(value[1], fallback[1]),
+    normalizeFiniteNumber(value[2], fallback[2])
+  ]
+}
+
+function normalizeVec4(value: unknown, fallback: [number, number, number, number]): [number, number, number, number] {
+  if (!Array.isArray(value) || value.length < 4) {
+    return fallback
+  }
+  return [
+    normalizeFiniteNumber(value[0], fallback[0]),
+    normalizeFiniteNumber(value[1], fallback[1]),
+    normalizeFiniteNumber(value[2], fallback[2]),
+    normalizeFiniteNumber(value[3], fallback[3])
+  ]
+}
+
+export function normalizeFusionProjectionInfo(value: unknown): FusionProjectionInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const nestedProjection = (record.fusionProjection ?? record.fusion_projection ?? record.projection) as unknown
+  if (nestedProjection && nestedProjection !== value) {
+    return normalizeFusionProjectionInfo(nestedProjection)
+  }
+
+  const paneRole = typeof (record.paneRole ?? record.pane_role) === 'string'
+    ? String(record.paneRole ?? record.pane_role)
+    : FUSION_OVERLAY_AXIAL_PANE_KEY
+  return {
+    paneRole,
+    referenceWorld: normalizeVec3(record.referenceWorld ?? record.reference_world, [0, 0, 0]),
+    referenceX: normalizeFiniteNumber(record.referenceX ?? record.reference_x, 0.5),
+    referenceY: normalizeFiniteNumber(record.referenceY ?? record.reference_y, 0.5),
+    normalizedToWorldOrigin: normalizeVec3(record.normalizedToWorldOrigin ?? record.normalized_to_world_origin, [0, 0, 0]),
+    normalizedToWorldX: normalizeVec3(record.normalizedToWorldX ?? record.normalized_to_world_x, [1, 0, 0]),
+    normalizedToWorldY: normalizeVec3(record.normalizedToWorldY ?? record.normalized_to_world_y, [0, 1, 0]),
+    worldToNormalizedX: normalizeVec4(record.worldToNormalizedX ?? record.world_to_normalized_x, [0, 0, 0, 0.5]),
+    worldToNormalizedY: normalizeVec4(record.worldToNormalizedY ?? record.world_to_normalized_y, [0, 0, 0, 0.5])
+  }
+}
+
 export function mergeCornerInfo(base: CornerInfo, overlay: CornerInfo): CornerInfo {
   const mergedCornerInfo = CORNER_POSITIONS.reduce(
     (accumulator, position) => {
@@ -546,6 +727,19 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     compareOrientations: createEmptyCompareOrientations(),
     compareTransformStates: createEmptyCompareTransformStates(),
     comparePseudocolorPresets: createEmptyComparePseudocolorPresets(),
+    fusionSeriesIds: { ctSeriesId: '', petSeriesId: '' },
+    fusionViewIds: createEmptyFusionViewIds(),
+    fusionImages: createEmptyFusionImages(),
+    fusionSliceLabels: createEmptyFusionSliceLabels(),
+    fusionWindowLabels: createEmptyFusionWindowLabels(),
+    fusionScaleBars: createEmptyFusionScaleBars(),
+    fusionCornerInfos: createEmptyFusionCornerInfos(),
+    fusionOrientations: createEmptyFusionOrientations(),
+    fusionTransformStates: createEmptyFusionTransformStates(),
+    fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+    fusionProjections: createEmptyFusionProjections(),
+    fusionInfo: null,
+    fusionManualRegistration: false,
     ...createCompareSyncDefaults(),
     ...createLayoutSyncDefaults(),
     viewportViewIds: createEmptyMprViewIds(),

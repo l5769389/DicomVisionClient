@@ -17,6 +17,8 @@ export const VIEW_OPERATION_TYPES = {
   mprOblique: 'mprOblique',
   mprCrosshairMode: 'mprCrosshairMode',
   mprStateSync: 'mprStateSync',
+  fusionRegistration: 'fusionRegistration',
+  fusionConfig: 'fusionConfig',
   measurement: 'measurement'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]

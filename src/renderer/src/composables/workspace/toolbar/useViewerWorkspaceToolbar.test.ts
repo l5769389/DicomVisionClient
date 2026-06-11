@@ -59,6 +59,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     activeOperation.value = value
   })
   const emitTriggerViewAction = vi.fn()
+  const exportCurrentView = vi.fn()
   let toolbar!: ReturnType<typeof useViewerWorkspaceToolbar>
 
   const wrapper = mount(
@@ -75,7 +76,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
           emitSetActiveOperation,
           emitTriggerViewAction,
           emitViewportWheel: vi.fn(),
-          exportCurrentView: vi.fn(),
+          exportCurrentView,
           setActiveViewport: vi.fn((viewportKey: string) => {
             activeViewportKey.value = viewportKey
           }),
@@ -92,6 +93,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     activeViewportKey,
     emitSetActiveOperation,
     emitTriggerViewAction,
+    exportCurrentView,
     toolbar,
     wrapper
   }
@@ -290,9 +292,160 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
     expect(getDisplayTool()).toBeTruthy()
 
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      key: 'series-1::fusion',
+      title: 'Series 1 / PETCTFusion',
+      viewType: 'PETCTFusion'
+    }
+    await nextTick()
+    expect(getDisplayTool()).toBeTruthy()
+
     harness.activeTab.value = create3dTab()
     await nextTick()
     expect(getDisplayTool()).toBeUndefined()
+
+    harness.wrapper.unmount()
+  })
+
+  it('uses fusion-specific toolbar actions without layout for PET/CT fusion', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'fusion:ct:pet',
+      title: 'CT + PET / PETCTFusion',
+      viewType: 'PETCTFusion',
+      fusionViewIds: {
+        'fusion-ct-ax': 'ct-view',
+        'fusion-pet-ax': 'pet-view',
+        'fusion-overlay-ax': 'overlay-view',
+        'fusion-pet-cor-mip': 'mip-view'
+      },
+      fusionManualRegistration: false,
+      fusionInfo: {
+        paneRole: 'fusion-overlay-ax',
+        ctSeriesId: 'ct',
+        petSeriesId: 'pet',
+        petPseudocolorPreset: 'petct-rainbow',
+        alpha: 0.52,
+        revision: 0,
+        registration: {
+          translateRowMm: 0,
+          translateColMm: 0,
+          rotationDegrees: 0,
+          saved: false
+        }
+      }
+    })
+    await nextTick()
+
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(toolKeys).not.toContain('layout')
+    expect(toolKeys).not.toContain('play')
+    expect(toolKeys).not.toContain('qa')
+    expect(toolKeys).toContain('fusionRegistration')
+    expect(toolKeys).toContain('fusionPetDisplay')
+    expect(toolKeys.at(-2)).toBe('fusionPetDisplay')
+    expect(toolKeys.at(-1)).toBe('fusionRegistration')
+
+    const exportTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'export')!
+    expect(exportTool.options?.map((option) => option.value)).toEqual([
+      'exportTarget:fusion-ct-ax',
+      'exportTarget:fusion-pet-ax',
+      'exportTarget:fusion-overlay-ax',
+      'exportTarget:fusion-pet-cor-mip',
+      'png',
+      'dicom',
+      'dicom-sr',
+      'dicom-gsps'
+    ])
+    expect(exportTool.options?.find((option) => option.value === 'exportTarget:fusion-overlay-ax')?.checked).toBe(true)
+    harness.toolbar.applyTool(exportTool)
+    expect(harness.toolbar.openMenuKey.value).toBe('export')
+    expect(harness.exportCurrentView).not.toHaveBeenCalled()
+    harness.toolbar.selectToolOption(exportTool, 'exportTarget:fusion-pet-ax')
+    expect(harness.exportCurrentView).not.toHaveBeenCalled()
+    await nextTick()
+    expect(harness.toolbar.activeTools.value.find((tool) => tool.key === 'export')?.options?.find((option) => option.value === 'exportTarget:fusion-pet-ax')?.checked).toBe(true)
+    harness.toolbar.selectToolOption(exportTool, 'png')
+    expect(harness.exportCurrentView).toHaveBeenCalledWith('png', 'fusion-pet-ax')
+
+    const manualTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionRegistration')!
+    expect(harness.toolbar.isToolSelected(manualTool)).toBe(false)
+    harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:toggle')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionManualRegistration',
+      enabled: true
+    })
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      fusionManualRegistration: true
+    }
+    await nextTick()
+    expect(harness.toolbar.isToolSelected(manualTool)).toBe(true)
+
+    harness.emitTriggerViewAction.mockClear()
+    const petDisplayTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionPetDisplay')!
+    expect(petDisplayTool.inlineKind).toBe('fusionPetDisplay')
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetUnit:SUVbw')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionPetUnit',
+      value: 'fusionPetUnit:SUVbw'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetWindow:0:12.5')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionPetWindow',
+      value: 'fusionPetWindow:0:12.5'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:reset')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationReset' })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:save')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationSave' })
+
+    harness.wrapper.unmount()
+  })
+
+  it('asks for an export target before exporting multi-pane compare tabs', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'compare:one:two',
+      title: 'Compare',
+      viewType: 'CompareStack',
+      compareViewIds: {
+        'compare-a': 'source-view',
+        'compare-b': 'target-view'
+      },
+      compareSeriesTitles: {
+        'compare-a': 'Source CT',
+        'compare-b': 'Prior CT'
+      }
+    })
+    harness.activeViewportKey.value = 'compare-b'
+    await nextTick()
+
+    const exportTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'export')!
+    expect(exportTool.options?.slice(0, 2).map((option) => option.value)).toEqual([
+      'exportTarget:compare-a',
+      'exportTarget:compare-b'
+    ])
+    expect(exportTool.options?.find((option) => option.value === 'exportTarget:compare-b')?.checked).toBe(true)
+
+    harness.toolbar.applyTool(exportTool)
+    expect(harness.exportCurrentView).not.toHaveBeenCalled()
+    expect(harness.toolbar.openMenuKey.value).toBe('export')
+
+    harness.toolbar.selectToolOption(exportTool, 'exportTarget:compare-a')
+    await nextTick()
+    harness.toolbar.selectToolOption(exportTool, 'dicom')
+    expect(harness.exportCurrentView).toHaveBeenCalledWith('dicom', 'compare-a')
 
     harness.wrapper.unmount()
   })

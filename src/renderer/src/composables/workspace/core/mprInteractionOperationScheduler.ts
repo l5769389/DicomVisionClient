@@ -34,6 +34,7 @@ interface MprInteractionOperationSchedulerOptions<TPayload extends SchedulableVi
 const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
   VIEW_OPERATION_TYPES.crosshair,
+  VIEW_OPERATION_TYPES.fusionRegistration,
   VIEW_OPERATION_TYPES.mprMipConfig,
   VIEW_OPERATION_TYPES.mprOblique
 ])

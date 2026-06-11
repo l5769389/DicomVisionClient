@@ -122,10 +122,10 @@ describe('useUiPreferences', () => {
       topLeft: [
         'manufacturerModel',
         'stationName',
-        'institutionName',
         'examDescription',
         'seriesNumber',
-        'viewportLocation'
+        'viewportLocation',
+        'imageIndex'
       ],
       topRight: ['patientName', 'patientSummary'],
       bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
@@ -218,6 +218,44 @@ describe('useUiPreferences', () => {
       localSourceEnabled: true,
       enabled: true,
       activeProfileId: 'pacs-2'
+    })
+  })
+
+  it('migrates the previous default corner layout to include Im without changing custom layouts', async () => {
+    const preferences = await loadPreferences({
+      version: 14,
+      viewportCornerInfoPreference: {
+        topLeft: ['manufacturerModel', 'stationName', 'institutionName', 'examDescription', 'seriesNumber', 'viewportLocation'],
+        topRight: ['patientName', 'patientSummary'],
+        bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
+        bottomRight: ['zoom', 'coordinates']
+      }
+    })
+
+    expect(preferences.viewportCornerInfoPreference.value.topLeft).toEqual([
+      'manufacturerModel',
+      'stationName',
+      'examDescription',
+      'seriesNumber',
+      'viewportLocation',
+      'imageIndex'
+    ])
+
+    const customPreferences = await loadPreferences({
+      version: 14,
+      viewportCornerInfoPreference: {
+        topLeft: ['patientName', 'windowLevel'],
+        topRight: ['seriesNumber'],
+        bottomLeft: [],
+        bottomRight: ['zoom']
+      }
+    })
+
+    expect(customPreferences.viewportCornerInfoPreference.value).toEqual({
+      topLeft: ['patientName', 'windowLevel'],
+      topRight: ['seriesNumber'],
+      bottomLeft: [],
+      bottomRight: ['zoom']
     })
   })
 

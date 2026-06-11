@@ -46,6 +46,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   compareSeries: [sourceSeriesId: string, targetSeriesId: string]
   openKeySlice: [seriesId: string, sliceIndex: number]
+  openPetCtFusion: [ctSeriesId: string, petSeriesId: string]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
   selectSeries: [seriesId: string]
@@ -60,6 +61,7 @@ type SeriesContextAction =
   | '4D'
   | 'Tag'
   | 'compare'
+  | 'petCtFusion'
   | 'keySlices'
   | 'compatibility'
   | 'openFileManager'
@@ -81,6 +83,7 @@ const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
 const { clearSeriesStars, getStarredSliceIndexes, getStarredSliceCount } = useKeySliceStars()
 const isContextMenuOpen = ref(false)
 const isCompareDialogOpen = ref(false)
+const isFusionDialogOpen = ref(false)
 const isCompatibilityDialogOpen = ref(false)
 const isCheckingCompatibility = ref(false)
 const isKeySliceDialogOpen = ref(false)
@@ -90,6 +93,7 @@ const compatibilityDialogSeries = ref<FolderSeriesItem | null>(null)
 const compatibilityIssues = ref<CompatibilityIssue[]>([])
 const compatibilityCheckError = ref('')
 const compareSourceSeries = ref<FolderSeriesItem | null>(null)
+const fusionSourceSeries = ref<FolderSeriesItem | null>(null)
 const keySliceDialogSeries = ref<FolderSeriesItem | null>(null)
 const isDeidentifyingSeriesId = ref('')
 const seriesSearch = ref('')
@@ -176,6 +180,109 @@ const canOpenContextSeriesInFileManager = computed(() => (
   Boolean(window.viewerApi?.openPathInFileManager) &&
   Boolean(contextSeries.value?.folderPath?.trim())
 ))
+
+function normalizeModality(series: FolderSeriesItem | null | undefined): string {
+  return String(series?.modality ?? '').trim().toUpperCase()
+}
+
+function isCtSeries(series: FolderSeriesItem | null | undefined): boolean {
+  return normalizeModality(series) === 'CT'
+}
+
+function isPetSeries(series: FolderSeriesItem | null | undefined): boolean {
+  const modality = normalizeModality(series)
+  return modality === 'PT' || modality === 'PET'
+}
+
+function hasSameStudy(a: FolderSeriesItem | null | undefined, b: FolderSeriesItem | null | undefined): boolean {
+  const left = String(a?.studyInstanceUid ?? '').trim()
+  const right = String(b?.studyInstanceUid ?? '').trim()
+  return Boolean(left && right && left === right)
+}
+
+function hasDifferentKnownStudies(a: FolderSeriesItem | null | undefined, b: FolderSeriesItem | null | undefined): boolean {
+  const left = String(a?.studyInstanceUid ?? '').trim()
+  const right = String(b?.studyInstanceUid ?? '').trim()
+  return Boolean(left && right && left !== right)
+}
+
+function hasSameTextField(
+  a: FolderSeriesItem | null | undefined,
+  b: FolderSeriesItem | null | undefined,
+  field: 'patientId' | 'accessionNumber' | 'studyDate'
+): boolean {
+  const left = String(a?.[field] ?? '').trim()
+  const right = String(b?.[field] ?? '').trim()
+  return Boolean(left && right && left === right)
+}
+
+function hasCompatibleFusionContext(source: FolderSeriesItem, candidate: FolderSeriesItem): boolean {
+  if (hasSameStudy(source, candidate)) {
+    return true
+  }
+  if (hasDifferentKnownStudies(source, candidate)) {
+    return false
+  }
+  if (hasSameTextField(source, candidate, 'accessionNumber')) {
+    return true
+  }
+  return hasSameTextField(source, candidate, 'patientId') && hasSameTextField(source, candidate, 'studyDate')
+}
+
+function getFusionCandidatesForSeries(source: FolderSeriesItem | null | undefined): FolderSeriesItem[] {
+  if (!source?.isImageSeries) {
+    return []
+  }
+  const wantsPet = isCtSeries(source)
+  const wantsCt = isPetSeries(source)
+  if (!wantsPet && !wantsCt) {
+    return []
+  }
+  return props.seriesList.filter((series) =>
+    series.seriesId !== source.seriesId &&
+    series.isImageSeries &&
+    hasCompatibleFusionContext(source, series) &&
+    (wantsPet ? isPetSeries(series) : isCtSeries(series))
+  )
+}
+
+function getFusionCandidateScore(source: FolderSeriesItem, candidate: FolderSeriesItem): number {
+  let score = 0
+  if (hasSameStudy(source, candidate)) {
+    score += 100
+  }
+  if (hasSameTextField(source, candidate, 'accessionNumber')) {
+    score += 24
+  }
+  if (hasSameTextField(source, candidate, 'patientId')) {
+    score += 12
+  }
+  if (hasSameTextField(source, candidate, 'studyDate')) {
+    score += 8
+  }
+  return score
+}
+
+function getAutoFusionCandidateForSeries(source: FolderSeriesItem, candidates: FolderSeriesItem[]): FolderSeriesItem | null {
+  if (candidates.length === 1) {
+    return candidates[0]
+  }
+  const ranked = candidates
+    .map((candidate) => ({
+      candidate,
+      score: getFusionCandidateScore(source, candidate)
+    }))
+    .sort((a, b) => b.score - a.score)
+  const best = ranked[0]
+  const second = ranked[1]
+  if (best && (!second || best.score > second.score)) {
+    return best.candidate
+  }
+  return null
+}
+
+const contextFusionCandidates = computed(() => getFusionCandidatesForSeries(contextSeries.value))
+const fusionDialogCandidates = computed(() => getFusionCandidatesForSeries(fusionSourceSeries.value))
 const fileManagerCopy = computed(() => ({
   actionTitle: isZh.value ? '在资源管理器中打开' : 'Open in Explorer',
   actionSubtitle: isZh.value ? '打开此序列的来源目录' : 'Show this series source folder',
@@ -218,6 +325,16 @@ const contextMenuActions = computed<SeriesContextMenuActionItem[]>(() => [
     subtitle: isZh.value ? 'DICOM 标签' : 'DICOM Tags',
     badge: 'TAG'
   },
+  ...(contextFusionCandidates.value.length > 0
+    ? [
+        {
+          key: 'petCtFusion' as const,
+          title: isZh.value ? 'PET/CT 融合浏览' : 'PET/CT Fusion',
+          subtitle: isZh.value ? '以 CT 为参考打开融合四宫格' : 'Open a CT-referenced fusion layout',
+          badge: 'PET/CT'
+        }
+      ]
+    : []),
   {
     key: 'compatibility' as const,
     title: compatibilityCopy.value.actionTitle,
@@ -289,6 +406,9 @@ const compareSourcePreview = computed(() => {
 
 const compareCandidates = computed(() =>
   props.seriesList.filter((series) => series.seriesId !== compareSourceSeries.value?.seriesId)
+)
+const fusionSourceSeriesTitle = computed(() =>
+  fusionSourceSeries.value?.seriesDescription || fusionSourceSeries.value?.seriesId || t('unnamedSeries')
 )
 
 function isPatientGroupCollapsed(group: SeriesTreePatientGroup): boolean {
@@ -385,6 +505,10 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
     isCompareDialogOpen.value = true
     closeContextMenu()
     return
+  } else if (action === 'petCtFusion') {
+    openFusionForSeries(series)
+    closeContextMenu()
+    return
   } else if (action === 'keySlices') {
     openKeySliceDialog(series)
     closeContextMenu()
@@ -406,6 +530,46 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   }
 
   closeContextMenu()
+}
+
+function emitFusionOpen(source: FolderSeriesItem, target: FolderSeriesItem): void {
+  const ctSeries = isCtSeries(source) ? source : target
+  const petSeries = isPetSeries(source) ? source : target
+  if (!ctSeries?.seriesId || !petSeries?.seriesId || ctSeries.seriesId === petSeries.seriesId) {
+    return
+  }
+  emit('openPetCtFusion', ctSeries.seriesId, petSeries.seriesId)
+}
+
+function openFusionForSeries(series: FolderSeriesItem): void {
+  fusionSourceSeries.value = series
+  const candidates = getFusionCandidatesForSeries(series)
+  const autoCandidate = getAutoFusionCandidateForSeries(series, candidates)
+  if (autoCandidate) {
+    emitFusionOpen(series, autoCandidate)
+    fusionSourceSeries.value = null
+    return
+  }
+  if (candidates.length > 1) {
+    isFusionDialogOpen.value = true
+    return
+  }
+  dispatchWorkspaceStatusToast(
+    isZh.value ? '未找到可融合的 CT/PET 配对序列。' : 'No CT/PET fusion pair was found for this series.',
+    'error',
+    { busy: false, durationMs: 5000 }
+  )
+  fusionSourceSeries.value = null
+}
+
+function chooseFusionCandidate(candidate: FolderSeriesItem): void {
+  const source = fusionSourceSeries.value
+  if (!source) {
+    return
+  }
+  emitFusionOpen(source, candidate)
+  isFusionDialogOpen.value = false
+  fusionSourceSeries.value = null
 }
 
 async function openSeriesInFileManager(series: FolderSeriesItem): Promise<void> {
@@ -904,6 +1068,42 @@ function handleSeriesDragEnd(): void {
           <div v-if="!hasKeySliceDialogItems" class="key-slice-dialog__empty theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm text-[var(--theme-text-muted)]">
             <AppIcon name="star-outline" :size="20" />
             <span>{{ viewerCopy.keySliceDialogEmpty }}</span>
+          </div>
+        </div>
+      </VCard>
+    </VDialog>
+
+    <VDialog v-model="isFusionDialogOpen" max-width="760">
+      <VCard class="series-compare-dialog theme-shell-panel overflow-hidden rounded-[24px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_28px_70px_rgba(0,0,0,0.52)]!">
+        <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
+          <div class="min-w-0">
+            <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '选择融合序列' : 'Choose fusion series' }}</div>
+            <div class="mt-1 truncate text-xs text-[var(--theme-text-secondary)]">{{ fusionSourceSeriesTitle }}</div>
+          </div>
+          <VBtn class="h-10! w-10! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isFusionDialogOpen = false">
+            <AppIcon name="close" :size="16" />
+          </VBtn>
+        </div>
+        <div class="p-5">
+          <div class="series-compare-dialog__list max-h-[420px] space-y-2 overflow-auto pr-1">
+            <button
+              v-for="candidate in fusionDialogCandidates"
+              :key="candidate.seriesId"
+              type="button"
+              class="series-compare-dialog__candidate theme-card-soft grid w-full grid-cols-[50px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-3 text-left transition duration-150"
+              @click="chooseFusionCandidate(candidate)"
+            >
+              <span class="series-compare-dialog__thumb">
+                <img v-if="getSeriesThumbnailSrc(candidate)" :src="getSeriesThumbnailSrc(candidate)" :alt="candidate.seriesDescription || t('unnamedSeries')" loading="lazy" decoding="async" draggable="false" />
+                <span v-else>{{ getSeriesFallbackLabel(candidate) }}</span>
+              </span>
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ candidate.seriesDescription || t('unnamedSeries') }}</span>
+                <span class="mt-1 block truncate text-xs text-[var(--theme-text-secondary)]">{{ getSeriesMetaLabel(candidate) }}</span>
+                <span class="mt-1 block truncate font-mono text-[11px] text-[var(--theme-text-muted)]" :title="candidate.seriesId">{{ candidate.seriesId }}</span>
+              </span>
+              <span class="series-compare-dialog__target-action">{{ isZh ? '打开' : 'Open' }}</span>
+            </button>
           </div>
         </div>
       </VCard>

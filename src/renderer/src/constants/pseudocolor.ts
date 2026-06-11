@@ -1,4 +1,8 @@
 export const DEFAULT_PSEUDOCOLOR_PRESET = 'bw'
+export const DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET = 'petct-rainbow'
+export const DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET = 'bwinverse'
+export const DEFAULT_FUSION_PET_WINDOW_MIN = 0
+export const DEFAULT_FUSION_PET_WINDOW_MAX = 4.49
 
 export const PSEUDOCOLOR_PRESET_OPTIONS = [
   {
@@ -40,6 +44,17 @@ export const PSEUDOCOLOR_PRESET_OPTIONS = [
 
 export type PseudocolorPresetKey = (typeof PSEUDOCOLOR_PRESET_OPTIONS)[number]['key']
 
+export const FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS = [
+  {
+    key: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+    label: 'Rainbow',
+    gradient:
+      'linear-gradient(90deg, #000000 0%, #3a0000 12%, #8d0000 30%, #e21b00 52%, #ff8a00 72%, #ffe100 88%, #fffef0 100%)'
+  }
+] as const
+
+export type FusionPetPseudocolorPresetKey = (typeof FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS)[number]['key']
+
 export function normalizePseudocolorPresetKey(value: string | null | undefined): PseudocolorPresetKey {
   const normalized = String(value ?? '')
     .trim()
@@ -60,5 +75,27 @@ export function getPseudocolorGradient(value: string | null | undefined): string
   return (
     PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === key)?.gradient ??
     PSEUDOCOLOR_PRESET_OPTIONS[1].gradient
+  )
+}
+
+export function normalizeFusionPetPseudocolorPresetKey(
+  value: string | null | undefined
+): FusionPetPseudocolorPresetKey {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^pseudocolor:/, '')
+
+  return (
+    FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === normalized)?.key ??
+    DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
+  )
+}
+
+export function getFusionPetPseudocolorGradient(value: string | null | undefined): string {
+  const key = normalizeFusionPetPseudocolorPresetKey(value)
+  return (
+    FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === key)?.gradient ??
+    FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS[0].gradient
   )
 }

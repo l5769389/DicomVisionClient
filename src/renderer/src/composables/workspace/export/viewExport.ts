@@ -1,12 +1,13 @@
 import { api } from '../../../services/api'
 import { saveExportedFile, type ExportedFileResult } from '../../../platform/exporting'
 import type { ExportPreference } from '../../ui/useUiPreferences'
-import type { AnnotationOverlay, CornerInfo, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import type { AnnotationOverlay, CornerInfo, FusionPaneKey, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
 import {
   COMPARE_STACK_TARGET_PANE_KEY,
   MPR_PRIMARY_VIEWPORT_KEY,
   isMprLikeViewType,
   resolveComparePaneKey,
+  resolveFusionPaneKey,
   resolveMprViewportKey,
   resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
@@ -70,6 +71,20 @@ function resolveExportViewportKey(activeViewportKey: string): MprViewportKey {
   return resolveMprViewportKey(activeViewportKey)
 }
 
+function getFusionExportPaneLabel(paneKey: FusionPaneKey): string {
+  switch (paneKey) {
+    case 'fusion-ct-ax':
+      return 'ct-ax'
+    case 'fusion-pet-ax':
+      return 'pet-ax'
+    case 'fusion-pet-cor-mip':
+      return 'pet-cor-mip'
+    case 'fusion-overlay-ax':
+    default:
+      return 'fusion-ax'
+  }
+}
+
 export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey: string): string {
   const activeLayoutSlot =
     activeTab.viewType === 'Layout'
@@ -83,6 +98,9 @@ export function buildExportFileStem(activeTab: ViewerTabItem, activeViewportKey:
   if (activeTab.viewType === 'Layout') {
     const slotLabel = activeLayoutSlot?.id.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'slot'
     return `${safeTitle}-layout-${slotLabel}`
+  }
+  if (activeTab.viewType === 'PETCTFusion') {
+    return `${safeTitle}-${getFusionExportPaneLabel(resolveFusionPaneKey(activeViewportKey))}`
   }
   if (!isMprLikeViewType(activeTab.viewType)) {
     return `${safeTitle}-${activeTab.viewType.toLowerCase()}`
@@ -101,6 +119,10 @@ function resolveExportViewId(activeTab: ViewerTabItem, activeViewportKey: string
 
   if (activeTab.viewType === 'Layout') {
     return resolveViewIdForTabViewport(activeTab, activeViewportKey) || null
+  }
+
+  if (activeTab.viewType === 'PETCTFusion') {
+    return activeTab.fusionViewIds?.[resolveFusionPaneKey(activeViewportKey)] ?? null
   }
 
   if (!isMprLikeViewType(activeTab.viewType)) {

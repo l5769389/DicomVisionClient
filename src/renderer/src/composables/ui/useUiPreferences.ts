@@ -186,7 +186,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 14
+const CURRENT_PREFERENCES_VERSION = 15
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -202,6 +202,12 @@ const PREVIOUS_DEFAULT_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key
   'mpr-ax': '#22c55e',
   'mpr-cor': '#3b82f6',
   'mpr-sag': '#ef4444'
+}
+const PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE: ViewportCornerInfoPreference = {
+  topLeft: ['manufacturerModel', 'stationName', 'institutionName', 'examDescription', 'seriesNumber', 'viewportLocation'],
+  topRight: ['patientName', 'patientSummary'],
+  bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
+  bottomRight: ['zoom', 'coordinates']
 }
 
 const systemWindowPresets: WindowTemplatePreset[] = [
@@ -799,6 +805,32 @@ function migrateCrosshairConfigs(version: number, value: CrosshairViewportPrefer
   return nextValue
 }
 
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function areViewportCornerInfoPreferencesEqual(
+  left: ViewportCornerInfoPreference,
+  right: ViewportCornerInfoPreference
+): boolean {
+  return (
+    areStringArraysEqual(left.topLeft, right.topLeft) &&
+    areStringArraysEqual(left.topRight, right.topRight) &&
+    areStringArraysEqual(left.bottomLeft, right.bottomLeft) &&
+    areStringArraysEqual(left.bottomRight, right.bottomRight)
+  )
+}
+
+function migrateViewportCornerInfoPreference(
+  version: number,
+  value: ViewportCornerInfoPreference
+): ViewportCornerInfoPreference {
+  if (version >= 15 || !areViewportCornerInfoPreferencesEqual(value, PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE)) {
+    return value
+  }
+  return createDefaultViewportCornerInfoPreference()
+}
+
 function normalizeRoiStatOptions(value: unknown): RoiStatPreference[] {
   const defaults = createDefaultRoiStatOptions()
   const parsed = Array.isArray(value) ? value : []
@@ -995,7 +1027,10 @@ async function hydrateState(): Promise<void> {
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
-        viewportCornerInfoPreference: normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference),
+        viewportCornerInfoPreference: migrateViewportCornerInfoPreference(
+          storedVersion,
+          normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference)
+        ),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),

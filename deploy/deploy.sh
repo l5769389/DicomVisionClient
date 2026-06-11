@@ -2,8 +2,8 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/dicomvision}"
-PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-http://111.228.1.213}"
-WEB_PORT="${WEB_PORT:-80}"
+PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-same-origin}"
+WEB_PORT="${WEB_PORT:-127.0.0.1:18080}"
 
 CLIENT_REPO="${CLIENT_REPO:-https://github.com/l5769389/DicomVisionClient.git}"
 SERVER_REPO="${SERVER_REPO:-https://github.com/l5769389/DicomVisionServer.git}"

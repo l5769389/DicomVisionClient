@@ -79,6 +79,13 @@ function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '')
 }
 
+function resolveSameOriginBackendOrigin(): string | null {
+  if (typeof window === 'undefined' || !window.location.origin) {
+    return null
+  }
+  return normalizeOrigin(window.location.origin)
+}
+
 function normalizeBackendStatus(status: ViewerBackendStatusPayload | null | undefined, fallbackOrigin: string): BackendStatus {
   const origin = typeof status?.origin === 'string' && status.origin.trim() ? normalizeOrigin(status.origin) : fallbackOrigin
   return {
@@ -92,6 +99,14 @@ function normalizeBackendStatus(status: ViewerBackendStatusPayload | null | unde
 function resolveWebBackendOrigin(): string {
   const configuredOrigin = getTrimmedEnvValue(import.meta.env.VITE_BACKEND_ORIGIN)
   if (configuredOrigin) {
+    const normalizedConfiguredOrigin = configuredOrigin.toLowerCase()
+    if (
+      normalizedConfiguredOrigin === 'same-origin' ||
+      normalizedConfiguredOrigin === 'self' ||
+      normalizedConfiguredOrigin === 'auto'
+    ) {
+      return resolveSameOriginBackendOrigin() ?? APP_BACKEND_CONFIG.web.prodOrigin
+    }
     return normalizeOrigin(configuredOrigin)
   }
 

@@ -28,7 +28,8 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          PUBLIC_ORIGIN: ${{ secrets.JDCLOUD_PUBLIC_ORIGIN || 'http://111.228.1.213' }}
+          PUBLIC_ORIGIN: ${{ secrets.JDCLOUD_PUBLIC_ORIGIN || 'same-origin' }}
+          WEB_PORT: ${{ secrets.JDCLOUD_WEB_PORT || '127.0.0.1:18080' }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_HOST"
@@ -78,7 +79,7 @@ jobs:
           scp "${SSH_OPTS[@]}" "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
 
           ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-http://$DEPLOY_HOST}' CLIENT_ARCHIVE='$CLIENT_ARCHIVE' SERVER_ARCHIVE='$SERVER_ARCHIVE' bash -s" <<'EOF'
+            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-same-origin}' WEB_PORT='${WEB_PORT:-127.0.0.1:18080}' CLIENT_ARCHIVE='$CLIENT_ARCHIVE' SERVER_ARCHIVE='$SERVER_ARCHIVE' bash -s" <<'EOF'
           set -euo pipefail
           exec 8>/var/lock/dicomvision-upload.lock
           flock 8

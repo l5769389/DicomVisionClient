@@ -2,8 +2,8 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/dicomvision}"
-PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-http://111.228.1.213}"
-WEB_PORT="${WEB_PORT:-80}"
+PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-same-origin}"
+WEB_PORT="${WEB_PORT:-127.0.0.1:18080}"
 LOG_DIR="${DEPLOY_LOG_DIR:-/var/log/dicomvision}"
 LOCK_FILE="${DEPLOY_LOCK_FILE:-/var/lock/dicomvision-deploy.lock}"
 

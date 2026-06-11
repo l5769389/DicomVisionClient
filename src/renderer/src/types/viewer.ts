@@ -4,9 +4,10 @@ import type {
   AnnotationOverlayPayload as BackendAnnotationOverlayPayload,
   MeasurementPointPayload as BackendMeasurementPointPayload,
   MprCrosshairInfo as BackendMprCrosshairInfo,
-  MprCrosshairMode as BackendMprCrosshairMode,
   MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
+  MprSegmentationConfig as BackendMprSegmentationConfig,
+  MprSegmentationVoiBox as BackendMprSegmentationVoiBox,
   MprPlaneInfo as BackendMprPlaneInfo,
   OperationAcceptedResponse as BackendOperationAcceptedResponse,
   OrientationInfo as BackendOrientationInfo,
@@ -191,6 +192,101 @@ export function normalizeMprMipConfig(
   }
 }
 
+export interface MprSegmentationVoiBox extends Required<BackendMprSegmentationVoiBox> {}
+
+export interface MprSegmentationConfig extends BackendMprSegmentationConfig {
+  enabled: boolean
+  lowerHu: number
+  upperHu: number
+  opacity: number
+  color: string
+  voiBox?: MprSegmentationVoiBox | null
+}
+
+export type MprSegmentationOperationConfig = MprSegmentationConfig
+
+export const MPR_SEGMENTATION_HU_LIMITS = {
+  min: -1024,
+  max: 3071
+} as const
+
+export const DEFAULT_MPR_SEGMENTATION_COLOR = '#22d3ee'
+
+export function createDefaultMprSegmentationVoiBox(): MprSegmentationVoiBox {
+  return {
+    xMin: 0,
+    xMax: 1,
+    yMin: 0,
+    yMax: 1,
+    zMin: 0,
+    zMax: 1
+  }
+}
+
+export function createDefaultMprSegmentationConfig(): MprSegmentationConfig {
+  return {
+    enabled: false,
+    lowerHu: 300,
+    upperHu: 3071,
+    opacity: 0.45,
+    color: DEFAULT_MPR_SEGMENTATION_COLOR,
+    voiBox: createDefaultMprSegmentationVoiBox()
+  }
+}
+
+function clampUnitRange(value: unknown, fallback: number): number {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) {
+    return fallback
+  }
+  return Math.max(0, Math.min(1, numericValue))
+}
+
+function normalizeVoiRange(minValue: unknown, maxValue: unknown): [number, number] {
+  const min = clampUnitRange(minValue, 0)
+  const max = clampUnitRange(maxValue, 1)
+  return min <= max ? [min, max] : [max, min]
+}
+
+export function normalizeMprSegmentationVoiBox(
+  value?: Partial<MprSegmentationVoiBox> | null,
+  fallback: MprSegmentationVoiBox = createDefaultMprSegmentationVoiBox()
+): MprSegmentationVoiBox {
+  const [xMin, xMax] = normalizeVoiRange(value?.xMin ?? fallback.xMin, value?.xMax ?? fallback.xMax)
+  const [yMin, yMax] = normalizeVoiRange(value?.yMin ?? fallback.yMin, value?.yMax ?? fallback.yMax)
+  const [zMin, zMax] = normalizeVoiRange(value?.zMin ?? fallback.zMin, value?.zMax ?? fallback.zMax)
+  return { xMin, xMax, yMin, yMax, zMin, zMax }
+}
+
+export function normalizeMprSegmentationConfig(
+  value?: Partial<MprSegmentationOperationConfig | MprSegmentationConfig> | null,
+  fallback: MprSegmentationConfig = createDefaultMprSegmentationConfig()
+): MprSegmentationConfig {
+  const rawLowerHu = Number(value?.lowerHu ?? fallback.lowerHu)
+  const rawUpperHu = Number(value?.upperHu ?? fallback.upperHu)
+  const lowerHu = Number.isFinite(rawLowerHu) ? rawLowerHu : fallback.lowerHu
+  const upperHu = Number.isFinite(rawUpperHu) ? rawUpperHu : fallback.upperHu
+  const minHu = Math.max(MPR_SEGMENTATION_HU_LIMITS.min, Math.min(MPR_SEGMENTATION_HU_LIMITS.max, Math.round(Math.min(lowerHu, upperHu))))
+  const maxHu = Math.max(MPR_SEGMENTATION_HU_LIMITS.min, Math.min(MPR_SEGMENTATION_HU_LIMITS.max, Math.round(Math.max(lowerHu, upperHu))))
+  const rawOpacity = Number(value?.opacity ?? fallback.opacity)
+  const opacity = Number.isFinite(rawOpacity) ? Math.max(0, Math.min(1, rawOpacity)) : fallback.opacity
+  const color = typeof value?.color === 'string' && /^#[\da-f]{6}$/i.test(value.color)
+    ? value.color
+    : fallback.color
+
+  return {
+    enabled: Boolean(value?.enabled ?? fallback.enabled),
+    lowerHu: minHu,
+    upperHu: maxHu,
+    opacity,
+    color,
+    voiBox:
+      value?.voiBox === null
+        ? null
+        : normalizeMprSegmentationVoiBox(value?.voiBox ?? fallback.voiBox ?? createDefaultMprSegmentationVoiBox())
+  }
+}
+
 export interface MtfMetrics {
   mtf50: number | null
   mtf10: number | null
@@ -371,7 +467,7 @@ export interface MtfAnalyzeResponse {
 }
 
 export type MprCrosshairInfo = BackendMprCrosshairInfo
-export type MprCrosshairMode = BackendMprCrosshairMode
+export type MprCrosshairMode = 'orthogonal' | 'double-oblique'
 export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
 export type MprPlaneInfo = BackendMprPlaneInfo
@@ -464,6 +560,7 @@ export interface ViewImageResponse {
   transform?: ViewTransformInfo | null
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
+  mprSegmentationConfig?: MprSegmentationOperationConfig | null
   mprCrosshairMode?: MprCrosshairMode | null
 }
 export type ViewHoverPayload = BackendViewHoverRequest
@@ -548,6 +645,7 @@ export interface ViewerTabItem {
   pseudocolorPreset: string
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   mprMipConfig?: MprMipConfig | null
+  mprSegmentationConfig?: MprSegmentationConfig | null
   mprCrosshairMode?: MprCrosshairMode
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null

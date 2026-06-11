@@ -12,13 +12,19 @@ import {
 const DEFAULT_TRANSFORM: ViewTransformInfo = {
   rotationDegrees: 0,
   horFlip: false,
-  verFlip: false
+  verFlip: false,
+  zoom: 1,
+  offsetX: 0,
+  offsetY: 0
 }
 
 const ROTATED_TRANSFORM: ViewTransformInfo = {
   rotationDegrees: 90,
   horFlip: true,
-  verFlip: false
+  verFlip: false,
+  zoom: 1,
+  offsetX: 0,
+  offsetY: 0
 }
 
 function createTab(overrides: Partial<ViewerTabItem>): ViewerTabItem {

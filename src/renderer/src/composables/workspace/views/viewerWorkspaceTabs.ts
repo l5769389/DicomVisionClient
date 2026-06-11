@@ -15,7 +15,7 @@ import type {
   ViewerTabItem,
   ViewType
 } from '../../../types/viewer'
-import { createDefaultMprMipConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig } from '../../../types/viewer'
 import { DEFAULT_PSEUDOCOLOR_PRESET } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
@@ -569,6 +569,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),
+    mprSegmentationConfig: createDefaultMprSegmentationConfig(),
     mprCrosshairMode: 'orthogonal',
     volumePreset: 'volumePreset:bone',
     volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),

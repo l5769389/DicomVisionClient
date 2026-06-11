@@ -52,7 +52,7 @@ describe('useMobileViewerPreferences', () => {
     const preferences = useMobileViewerPreferences()
 
     preferences.setStackDefaultTool('window')
-    preferences.setMprDefaultTool('zoom')
+    preferences.setMprDefaultTool('pan')
     preferences.setMprDefaultViewport('mpr-sag')
     preferences.setMprShowReferenceThumbnails(false)
     preferences.setGestureSensitivity('high')
@@ -65,7 +65,7 @@ describe('useMobileViewerPreferences', () => {
       defaultShowCornerInfo: false,
       defaultShowScaleBar: false,
       gestureSensitivity: 'high',
-      mprDefaultTool: 'zoom',
+      mprDefaultTool: 'pan',
       mprDefaultViewport: 'mpr-sag',
       mprShowReferenceThumbnails: false,
       orientationLock: 'landscape',

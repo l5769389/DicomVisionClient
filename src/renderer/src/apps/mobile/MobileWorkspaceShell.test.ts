@@ -6,8 +6,10 @@ import MobileWorkspaceShell from './MobileWorkspaceShell.vue'
 import type { FolderSeriesItem, ViewerTabItem } from '../../types/viewer'
 
 const postApiMock = vi.fn()
+const postDicomUploadMock = vi.fn()
 const setApiBaseURLMock = vi.fn()
 const getBackendStatusMock = vi.fn()
+const chooseFolderMock = vi.fn()
 let mockViewer: ReturnType<typeof createMockViewer>
 
 function installLocalStorageMock(): void {
@@ -60,6 +62,19 @@ vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
       addCustomWindowPreset: vi.fn(() => 'soft'),
       getWindowPresetLabel: (preset: { labels: Record<string, string> }) => preset.labels['zh-CN'],
       locale: ref('zh-CN'),
+      pacsPreference: ref({
+        activeProfileId: 'pacs-1',
+        enabled: true,
+        localSourceEnabled: true,
+        profiles: [
+          {
+            id: 'pacs-1',
+            name: 'Demo PACS',
+            enabled: true,
+            protocol: 'dicomweb'
+          }
+        ]
+      }),
       removeCustomWindowPresets: vi.fn(),
       selectedPseudocolorKey: ref('bw'),
       selectedWindowPresetId: ref('lung'),
@@ -100,11 +115,15 @@ vi.mock('../../services/api', () => ({
 }))
 
 vi.mock('../../services/typedApi', () => ({
-  postApi: (...args: unknown[]) => postApiMock(...args)
+  postApi: (...args: unknown[]) => postApiMock(...args),
+  postDicomUpload: (...args: unknown[]) => postDicomUploadMock(...args)
 }))
 
 vi.mock('../../platform/runtime', () => ({
   viewerRuntime: {
+    canChooseFolder: true,
+    chooseFolder: (...args: unknown[]) => chooseFolderMock(...args),
+    folderSourceMode: 'web-upload',
     getBackendStatus: (...args: unknown[]) => getBackendStatusMock(...args)
   }
 }))
@@ -279,6 +298,7 @@ function createMockViewer() {
     handleFourDPlaybackChange: vi.fn(),
     handleMprCrosshair: vi.fn(),
     handleTagIndexChange: vi.fn(),
+    handleMeasurementDelete: vi.fn(),
     handleViewportDrag: vi.fn(),
     handleViewportWheel: vi.fn(),
     isLoadingFolder: ref(false),
@@ -323,6 +343,11 @@ function mountShell() {
           emits: ['close'],
           template: '<div v-if="isOpen" data-testid="mobile-settings-overlay"><button data-testid="mobile-settings-close-stub" @click="$emit(\'close\')">Close</button></div>'
         },
+        PacsBrowserDialog: {
+          props: ['isOpen', 'loadedSeriesList'],
+          emits: ['close', 'seriesLoaded'],
+          template: '<div v-if="isOpen" data-testid="mobile-pacs-dialog"><button data-testid="mobile-pacs-load-stub" @click="$emit(\'seriesLoaded\', { seriesList: [{ seriesId: \'series-pacs\', seriesDescription: \'PACS CT\', modality: \'CT\', instanceCount: 3, isImageSeries: true }] })">Load PACS</button></div>'
+        },
         MobileStackViewport: { template: '<div class="mobile-stack-stub" />' },
         MobileVolumeViewport: {
           emits: ['activeViewportChange'],
@@ -347,9 +372,12 @@ afterEach(() => {
 })
 
 describe('MobileWorkspaceShell', () => {
-  it('renders the demo loading entry before any Stack tab is open', () => {
+  it('renders demo, local file, and PACS entries before any Stack tab is open', () => {
     const wrapper = mountShell()
-    expect(wrapper.find('.mobile-shell__primary-action').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-load-demo"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-load-local"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-open-pacs"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mobile-open-pacs"]').attributes('disabled')).toBeUndefined()
   })
 
   it('loads the server sample and opens the first series as Stack without hanging protocol', async () => {
@@ -362,7 +390,7 @@ describe('MobileWorkspaceShell', () => {
     })
 
     const wrapper = mountShell()
-    await wrapper.find('.mobile-shell__primary-action').trigger('click')
+    await wrapper.get('[data-testid="mobile-load-demo"]').trigger('click')
     await flushPromises()
 
     expect(setApiBaseURLMock).toHaveBeenCalledWith('http://backend.test/api/v1')
@@ -385,7 +413,7 @@ describe('MobileWorkspaceShell', () => {
     })
 
     const wrapper = mountShell()
-    await wrapper.find('.mobile-shell__primary-action').trigger('click')
+    await wrapper.get('[data-testid="mobile-load-demo"]').trigger('click')
     await flushPromises()
 
     expect(postApiMock).toHaveBeenCalledTimes(1)
@@ -393,6 +421,47 @@ describe('MobileWorkspaceShell', () => {
       folderPath: 'D:/test/sample'
     })
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+  })
+
+  it('loads local files from the mobile entry and opens the first Stack series', async () => {
+    const file = new File(['dicom'], 'image.dcm', { type: 'application/dicom' })
+    const series = createSeries()
+    chooseFolderMock.mockResolvedValue({
+      kind: 'files',
+      files: [{ file, relativePath: 'image.dcm' }]
+    })
+    postDicomUploadMock.mockResolvedValue({ seriesList: [series] })
+    mockViewer.applyLoadedDicomSeries.mockImplementation(async () => {
+      mockViewer.seriesList.value = [series]
+      return [series]
+    })
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-load-local"]').trigger('click')
+    await flushPromises()
+
+    expect(chooseFolderMock).toHaveBeenCalledWith('files')
+    expect(postDicomUploadMock).toHaveBeenCalledWith([{ file, relativePath: 'image.dcm' }])
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+  })
+
+  it('opens PACS from the mobile entry and opens loaded PACS series as Stack', async () => {
+    const series = createSeries({ seriesId: 'series-pacs', seriesDescription: 'PACS CT' })
+    mockViewer.applyLoadedDicomSeries.mockImplementation(async () => {
+      mockViewer.seriesList.value = [series]
+      return [series]
+    })
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-open-pacs"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-pacs-load-stub"]').trigger('click')
+    await flushPromises()
+
+    expect(mockViewer.applyLoadedDicomSeries).toHaveBeenCalledWith(
+      { seriesList: [{ seriesId: 'series-pacs', seriesDescription: 'PACS CT', modality: 'CT', instanceCount: 3, isImageSeries: true }] },
+      { openFirstSeriesView: false, selectLoadedSeries: true }
+    )
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-pacs', 'Stack', { useHangingProtocol: false })
   })
 
   it('switches bottom toolbar tools through stack operations', async () => {
@@ -403,6 +472,7 @@ describe('MobileWorkspaceShell', () => {
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-tool-window"]').trigger('click')
 
+    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(false)
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
   })
 
@@ -758,6 +828,25 @@ describe('MobileWorkspaceShell', () => {
     vi.advanceTimersByTime(250)
 
     expect(mockViewer.handleViewportWheel).not.toHaveBeenCalled()
+  })
+
+  it('uses a discrete FPS slider in the mobile playback sheet', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab('series-1', { sliceLabel: '1 / 24' }))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-playback"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-playback-fps"]').exists()).toBe(false)
+
+    const slider = wrapper.get('[data-testid="mobile-playback-fps-slider"]')
+    ;(slider.element as HTMLInputElement).value = '4'
+    await slider.trigger('input')
+
+    expect((slider.element as HTMLInputElement).value).toBe('4')
+    expect(wrapper.get('[data-testid="mobile-playback-fps-control"]').text()).toContain('15 FPS')
   })
 
   it('stars the current Stack slice from the slice panel star control', async () => {

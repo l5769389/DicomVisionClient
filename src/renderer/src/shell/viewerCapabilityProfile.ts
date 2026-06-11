@@ -17,7 +17,7 @@ export const desktopViewerCapabilityProfile: ViewerCapabilityProfile = {
 
 export const mobileViewerCapabilityProfile: ViewerCapabilityProfile = {
   shellKind: 'mobile',
-  dataSources: ['server-sample'],
+  dataSources: ['desktop-picker', 'web-upload', 'server-sample', 'pacs'],
   viewTypes: ['Stack', 'CompareStack', 'MPR', '3D', '4D', 'Tag']
 }
 

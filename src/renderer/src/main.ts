@@ -82,6 +82,14 @@ function normalizeMobileRoute(): void {
   )
 }
 
+function loadMobileWorkspaceApp() {
+  return import('./apps/mobile/MobileWorkspaceApp.vue')
+}
+
+function loadDesktopWorkspaceApp() {
+  return import('./WorkspaceApp.vue')
+}
+
 async function mountWorkspaceApp(): Promise<void> {
   await waitForFirstPaint()
   const shellKind = resolveInitialShellKind()
@@ -90,8 +98,8 @@ async function mountWorkspaceApp(): Promise<void> {
   }
 
   const appImport = shellKind === 'mobile'
-    ? import('./apps/mobile/MobileWorkspaceApp.vue')
-    : import('./WorkspaceApp.vue')
+    ? loadMobileWorkspaceApp()
+    : loadDesktopWorkspaceApp()
   const [{ createApp }, { default: WorkspaceApp }, { vuetify }] = await Promise.all([
     import('vue'),
     appImport,

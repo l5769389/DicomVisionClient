@@ -6,10 +6,11 @@ import {
 } from './viewerCapabilityProfile'
 
 describe('viewerCapabilityProfile', () => {
-  it('limits the mobile shell to demo source and mobile-ready views', () => {
+  it('allows mobile-ready sources and views', () => {
     expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'server-sample')).toBe(true)
-    expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'web-upload')).toBe(false)
-    expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'pacs')).toBe(false)
+    expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'web-upload')).toBe(true)
+    expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'desktop-picker')).toBe(true)
+    expect(supportsViewerDataSource(mobileViewerCapabilityProfile, 'pacs')).toBe(true)
 
     expect(supportsViewerViewType(mobileViewerCapabilityProfile, 'Stack')).toBe(true)
     expect(supportsViewerViewType(mobileViewerCapabilityProfile, 'CompareStack')).toBe(true)

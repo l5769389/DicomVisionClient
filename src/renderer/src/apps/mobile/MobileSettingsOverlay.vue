@@ -105,8 +105,7 @@ const mprViewportOptions: Array<{ key: MprViewportKey; label: string; desc: stri
 const stackToolOptions: Array<{ key: MobileStackDefaultTool; zh: string; en: string }> = [
   { key: 'scroll', zh: '滚片', en: 'Scroll' },
   { key: 'window', zh: '调窗', en: 'Window' },
-  { key: 'pan', zh: '平移', en: 'Pan' },
-  { key: 'zoom', zh: '缩放', en: 'Zoom' }
+  { key: 'pan', zh: '平移', en: 'Pan' }
 ]
 
 const mprToolOptions: Array<{ key: MobileMprDefaultTool; zh: string; en: string }> = [

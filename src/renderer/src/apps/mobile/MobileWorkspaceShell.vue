@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import AppIcon from '../../components/AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS, getPseudocolorGradient } from '../../constants/pseudocolor'
@@ -15,8 +15,8 @@ import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../../composables/
 import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
 import { COMPARE_STACK_SOURCE_PANE_KEY } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import { setApiBaseURL } from '../../services/api'
-import { postApi } from '../../services/typedApi'
-import { viewerRuntime } from '../../platform/runtime'
+import { postApi, postDicomUpload, type LoadFolderResponse } from '../../services/typedApi'
+import { viewerRuntime, type DicomLoadSelection, type DicomLoadSource } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
 import type { CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, MeasurementToolType, MprViewportKey, ViewerTabItem, ViewType } from '../../types/viewer'
 import MobileCompareStackViewport from './MobileCompareStackViewport.vue'
@@ -32,7 +32,9 @@ import {
   useMobileViewerPreferences
 } from './useMobileViewerPreferences'
 
-type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'tag' | 'compare'
+const PacsBrowserDialog = defineAsyncComponent(() => import('../../components/sidebar/PacsBrowserDialog.vue'))
+
+type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'measure' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'tag' | 'compare'
 type MobileSheetKind = 'series' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
@@ -191,6 +193,8 @@ const selectedCustomPresetIds = ref<string[]>([])
 const activeCompareViewportKey = ref<CompareStackPaneKey>(COMPARE_STACK_SOURCE_PANE_KEY)
 const activeMprViewportKey = ref<MprViewportKey>(mprDefaultViewport.value)
 const isLoadingDemo = ref(false)
+const isLoadingLocal = ref(false)
+const isPacsBrowserOpen = ref(false)
 const isSettingsOpen = ref(false)
 const isPlayingStack = ref(false)
 const fourDPlaybackStarting = ref(false)
@@ -216,6 +220,16 @@ const activeImageTab = computed(() => activeStackTab.value ?? activeCompareTab.v
 const selectedSeries = computed(() => viewer.seriesList.value.find((series) => series.seriesId === viewer.selectedSeriesId.value) ?? null)
 const mobileSeriesList = computed(() => viewer.seriesList.value.filter((series) => series.isImageSeries !== false))
 const canLoadDemo = computed(() => supportsViewerDataSource(mobileViewerCapabilityProfile, 'server-sample'))
+const canLoadLocal = computed(() => (
+  viewerRuntime.canChooseFolder &&
+  (
+    supportsViewerDataSource(mobileViewerCapabilityProfile, 'web-upload') ||
+    supportsViewerDataSource(mobileViewerCapabilityProfile, 'desktop-picker')
+  )
+))
+const canOpenPacs = computed(() => (
+  supportsViewerDataSource(mobileViewerCapabilityProfile, 'pacs')
+))
 const canOpenStack = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'Stack'))
 const canOpenCompare = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'CompareStack'))
 const canOpenMpr = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'MPR'))
@@ -292,6 +306,11 @@ const fourDPhaseLabel = computed(() => `${fourDPhaseSliderValue.value} / ${fourD
 const canPlayFourD = computed(() => Boolean(activeFourDTab.value && fourDPhaseCount.value > 1))
 const isPlayingFourD = computed(() => Boolean(activeFourDTab.value?.fourDIsPlaying))
 const activePlaybackFps = computed(() => (activeFourDTab.value ? activeFourDTab.value.fourDPlaybackFps ?? 2 : playbackFps.value))
+const activePlaybackFpsIndex = computed(() => {
+  const index = MOBILE_STACK_PLAYBACK_FPS_OPTIONS.indexOf(activePlaybackFps.value as MobileStackPlaybackFps)
+  return index >= 0 ? index : 0
+})
+const activePlaybackFpsLabel = computed(() => `${activePlaybackFps.value} FPS`)
 const canPlayActive = computed(() => (activeFourDTab.value ? canPlayFourD.value : canPlayStack.value))
 const activePlayLabel = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
@@ -325,7 +344,6 @@ const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
     return [
       { key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' },
       { key: 'pan', icon: 'pan', label: isZh.value ? '平移' : 'Pan' },
-      { key: 'zoom', icon: 'zoom', label: isZh.value ? '缩放' : 'Zoom' },
       { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' }
     ]
   }
@@ -337,7 +355,6 @@ const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
   return [
     { key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' },
     { key: 'pan', icon: 'pan', label: isZh.value ? '平移' : 'Pan' },
-    { key: 'zoom', icon: 'zoom', label: isZh.value ? '缩放' : 'Zoom' },
     scrollTool,
     { key: 'play', icon: activePlayIcon.value, label: activePlayLabel.value }
   ]
@@ -712,6 +729,38 @@ async function loadMobileDemoResponse() {
   return postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined)
 }
 
+function normalizeMobileLoadSelection(selection: DicomLoadSelection): DicomLoadSource[] {
+  return Array.isArray(selection) ? selection : [selection]
+}
+
+async function openFirstMobileLoadedSeries(loadedSeries: FolderSeriesItem[]): Promise<void> {
+  const firstStackSeries = loadedSeries.find((series) => series.isImageSeries !== false) ?? loadedSeries[0] ?? null
+  if (firstStackSeries) {
+    await openSeriesStack(firstStackSeries.seriesId)
+  }
+}
+
+async function applyMobileLoadResponse(response: LoadFolderResponse): Promise<void> {
+  const loadedSeries = await viewer.applyLoadedDicomSeries(response, {
+    openFirstSeriesView: false,
+    selectLoadedSeries: true
+  })
+  await openFirstMobileLoadedSeries(loadedSeries)
+}
+
+async function loadMobileLocalSource(source: DicomLoadSource): Promise<LoadFolderResponse | null> {
+  if (source.kind === 'files') {
+    return postDicomUpload(source.files)
+  }
+  if (source.kind === 'path') {
+    return postApi('LoadFolderApiV1DicomLoadFolderPost', { folderPath: source.path })
+  }
+  if (source.kind === 'server-sample') {
+    return loadMobileDemoResponse()
+  }
+  return null
+}
+
 async function loadDemoSeries(): Promise<void> {
   if (!canLoadDemo.value || isLoadingDemo.value) {
     return
@@ -722,19 +771,48 @@ async function loadDemoSeries(): Promise<void> {
     const backendStatus = await viewerRuntime.getBackendStatus()
     setApiBaseURL(`${backendStatus.origin}/api/v1`)
     const response = await loadMobileDemoResponse()
-    const loadedSeries = await viewer.applyLoadedDicomSeries(response, {
-      openFirstSeriesView: false,
-      selectLoadedSeries: true
-    })
-    const firstStackSeries = loadedSeries.find((series) => series.isImageSeries !== false) ?? loadedSeries[0] ?? null
-    if (firstStackSeries) {
-      await openSeriesStack(firstStackSeries.seriesId)
-    }
+    await applyMobileLoadResponse(response)
   } catch (error) {
     console.error(error)
     viewer.showStatusToast(isZh.value ? '示例影像加载失败，请检查后端服务。' : 'Failed to load demo images. Check the backend service.', 'error')
   } finally {
     isLoadingDemo.value = false
+  }
+}
+
+async function loadLocalFiles(): Promise<void> {
+  if (!canLoadLocal.value || isLoadingLocal.value) {
+    return
+  }
+
+  isLoadingLocal.value = true
+  try {
+    const backendStatus = await viewerRuntime.getBackendStatus()
+    setApiBaseURL(`${backendStatus.origin}/api/v1`)
+    const selection = await viewerRuntime.chooseFolder('files')
+    if (!selection) {
+      return
+    }
+    for (const source of normalizeMobileLoadSelection(selection)) {
+      const response = await loadMobileLocalSource(source)
+      if (response) {
+        await applyMobileLoadResponse(response)
+      }
+    }
+  } catch (error) {
+    console.error(error)
+    viewer.showStatusToast(isZh.value ? '本地文件加载失败，请确认文件格式和后端服务。' : 'Failed to load local files. Check the files and backend service.', 'error')
+  } finally {
+    isLoadingLocal.value = false
+  }
+}
+
+async function handlePacsSeriesLoaded(response: LoadFolderResponse): Promise<void> {
+  try {
+    await applyMobileLoadResponse(response)
+  } catch (error) {
+    console.error(error)
+    viewer.showStatusToast(isZh.value ? 'PACS 序列打开失败。' : 'Failed to open PACS series.', 'error')
   }
 }
 
@@ -1144,6 +1222,15 @@ function setPlaybackFps(value: MobileStackPlaybackFps): void {
   }
 }
 
+function handlePlaybackFpsSliderInput(event: Event): void {
+  const rawIndex = Number((event.target as HTMLInputElement | null)?.value)
+  const clampedIndex = Math.max(
+    0,
+    Math.min(MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1, Number.isFinite(rawIndex) ? Math.trunc(rawIndex) : activePlaybackFpsIndex.value)
+  )
+  setPlaybackFps(MOBILE_STACK_PLAYBACK_FPS_OPTIONS[clampedIndex])
+}
+
 function handleFourDPhaseSliderInput(event: Event): void {
   const tab = activeFourDTab.value
   if (!tab || tab.fourDIsPlaying || fourDPlaybackStarting.value) {
@@ -1498,6 +1585,7 @@ onBeforeUnmount(() => {
         @active-viewport-change="viewer.setActiveViewportKey"
         @hover-viewport-change="viewer.handleHoverViewportChange"
         @measurement-create="viewer.handleMeasurementCreate"
+        @measurement-delete="viewer.handleMeasurementDelete"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
         @workspace-ready="viewer.setViewerStage"
@@ -1594,16 +1682,39 @@ onBeforeUnmount(() => {
           <div class="mobile-shell__empty-mark" :class="connectionToneClass">
             <AppIcon :name="connectionIcon" :size="28" />
           </div>
-          <div class="mobile-shell__empty-title">{{ isZh ? '加载示例影像' : 'Load Demo Images' }}</div>
-          <button
-            type="button"
-            class="mobile-shell__primary-action"
-            :disabled="!canLoadDemo || isLoadingDemo"
-            @click="loadDemoSeries"
-          >
-            <AppIcon :name="isLoadingDemo ? 'connecting' : 'play'" :size="18" />
-            <span>{{ isLoadingDemo ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? '加载示例影像' : 'Load Demo') }}</span>
-          </button>
+          <div class="mobile-shell__empty-title">{{ isZh ? '加载影像' : 'Load Images' }}</div>
+          <div class="mobile-shell__source-actions">
+            <button
+              type="button"
+              class="mobile-shell__source-action mobile-shell__source-action--primary"
+              data-testid="mobile-load-demo"
+              :disabled="!canLoadDemo || isLoadingDemo"
+              @click="loadDemoSeries"
+            >
+              <AppIcon :name="isLoadingDemo ? 'connecting' : 'play'" :size="18" />
+              <span>{{ isLoadingDemo ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? 'Demo 影像' : 'Demo') }}</span>
+            </button>
+            <button
+              type="button"
+              class="mobile-shell__source-action"
+              data-testid="mobile-load-local"
+              :disabled="!canLoadLocal || isLoadingLocal"
+              @click="loadLocalFiles"
+            >
+              <AppIcon :name="isLoadingLocal ? 'connecting' : 'file-upload'" :size="18" />
+              <span>{{ isLoadingLocal ? (isZh ? '正在上传...' : 'Uploading...') : (isZh ? '本地文件' : 'Local Files') }}</span>
+            </button>
+            <button
+              type="button"
+              class="mobile-shell__source-action"
+              data-testid="mobile-open-pacs"
+              :disabled="!canOpenPacs"
+              @click="isPacsBrowserOpen = true"
+            >
+              <AppIcon name="pacs" :size="18" />
+              <span>PACS</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1687,7 +1798,7 @@ onBeforeUnmount(() => {
     </section>
 
     <nav v-if="activeImageTab" class="mobile-shell__toolbar" aria-label="Mobile viewer tools">
-      <div class="mobile-shell__toolbar-row">
+      <div class="mobile-shell__toolbar-row" :style="{ gridTemplateColumns: `repeat(${primaryMobileTools.length}, minmax(0, 1fr))` }">
         <button
           v-for="tool in primaryMobileTools"
           :key="`primary-${tool.key}`"
@@ -1702,7 +1813,7 @@ onBeforeUnmount(() => {
           <span>{{ tool.label }}</span>
         </button>
       </div>
-      <div class="mobile-shell__toolbar-row">
+      <div class="mobile-shell__toolbar-row" :style="{ gridTemplateColumns: `repeat(${secondaryMobileTools.length}, minmax(0, 1fr))` }">
         <button
           v-for="tool in secondaryMobileTools"
           :key="`secondary-${tool.key}`"
@@ -2028,17 +2139,26 @@ onBeforeUnmount(() => {
               <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingStack ? 'pause' : 'play')" :size="18" />
               <span><strong>{{ isPlayingStack ? (isZh ? '暂停播放' : 'Pause') : (isZh ? '开始播放' : 'Play') }}</strong></span>
             </button>
-            <div class="mobile-shell__fps-grid">
-              <button
-                v-for="fps in MOBILE_STACK_PLAYBACK_FPS_OPTIONS"
-                :key="fps"
-                type="button"
-                :class="{ active: activePlaybackFps === fps }"
-                data-testid="mobile-playback-fps"
-                @click="setPlaybackFps(fps)"
-              >
-                {{ fps }} FPS
-              </button>
+            <div class="mobile-shell__fps-control" data-testid="mobile-playback-fps-control">
+              <div class="mobile-shell__fps-copy">
+                <span>{{ isZh ? '播放速度' : 'Speed' }}</span>
+                <strong>{{ activePlaybackFpsLabel }}</strong>
+              </div>
+              <input
+                class="mobile-shell__fps-range"
+                data-testid="mobile-playback-fps-slider"
+                type="range"
+                min="0"
+                :max="MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1"
+                step="1"
+                :value="activePlaybackFpsIndex"
+                :disabled="!canPlayActive"
+                @change="handlePlaybackFpsSliderInput"
+                @input="handlePlaybackFpsSliderInput"
+              />
+              <div class="mobile-shell__fps-ticks" aria-hidden="true">
+                <span v-for="fps in MOBILE_STACK_PLAYBACK_FPS_OPTIONS" :key="fps">{{ fps }}</span>
+              </div>
             </div>
           </div>
 
@@ -2154,6 +2274,12 @@ onBeforeUnmount(() => {
     </div>
 
     <MobileSettingsOverlay :is-open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <PacsBrowserDialog
+      :is-open="isPacsBrowserOpen"
+      :loaded-series-list="viewer.seriesList.value"
+      @close="isPacsBrowserOpen = false"
+      @series-loaded="handlePacsSeriesLoaded"
+    />
   </div>
 </template>
 
@@ -2240,6 +2366,7 @@ onBeforeUnmount(() => {
 .mobile-shell__icon-button:disabled,
 .mobile-shell__tool:disabled,
 .mobile-shell__primary-action:disabled,
+.mobile-shell__source-action:disabled,
 .mobile-shell__action-row:disabled {
   opacity: 0.48;
 }
@@ -2342,6 +2469,46 @@ onBeforeUnmount(() => {
   font-weight: 900;
 }
 
+.mobile-shell__source-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.mobile-shell__source-action {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+  padding: 6px 12px 6px 8px;
+  text-align: left;
+  font-weight: 900;
+}
+
+.mobile-shell__source-action > .app-icon,
+.mobile-shell__source-action > :first-child {
+  justify-self: center;
+}
+
+.mobile-shell__source-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-shell__source-action--primary {
+  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+}
+
 .mobile-shell__slice-panel {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2398,7 +2565,6 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__plane-tabs button,
-.mobile-shell__fps-grid button,
 .mobile-shell__plane-grid button {
   min-height: 34px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
@@ -2410,7 +2576,6 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__plane-tabs button.active,
-.mobile-shell__fps-grid button.active,
 .mobile-shell__plane-grid button.active {
   border-color: color-mix(in srgb, var(--theme-accent) 64%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
@@ -2977,11 +3142,50 @@ onBeforeUnmount(() => {
   background: var(--theme-accent);
 }
 
-.mobile-shell__fps-grid,
 .mobile-shell__plane-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
+}
+
+.mobile-shell__fps-control {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 78%, transparent);
+  padding: 10px 11px 9px;
+}
+
+.mobile-shell__fps-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mobile-shell__fps-copy strong {
+  color: var(--theme-text-primary);
+  font-size: 14px;
+}
+
+.mobile-shell__fps-range {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--theme-accent);
+  touch-action: pan-x;
+}
+
+.mobile-shell__fps-ticks {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .mobile-shell__plane-grid button {

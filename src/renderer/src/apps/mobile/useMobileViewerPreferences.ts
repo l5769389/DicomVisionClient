@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue'
 import type { MprViewportKey } from '../../types/viewer'
 
-export type MobileStackDefaultTool = 'scroll' | 'window' | 'pan' | 'zoom'
+export type MobileStackDefaultTool = 'scroll' | 'window' | 'pan'
 export type MobileMprDefaultTool = 'crosshair' | MobileStackDefaultTool
 export type MobileGestureSensitivity = 'low' | 'normal' | 'high'
 export type MobileStackPlaybackFps = 1 | 2 | 5 | 10 | 15 | 30
@@ -41,7 +41,7 @@ function isMprViewportKey(value: unknown): value is MprViewportKey {
 }
 
 function isStackDefaultTool(value: unknown): value is MobileStackDefaultTool {
-  return value === 'scroll' || value === 'window' || value === 'pan' || value === 'zoom'
+  return value === 'scroll' || value === 'window' || value === 'pan'
 }
 
 function isMprDefaultTool(value: unknown): value is MobileMprDefaultTool {

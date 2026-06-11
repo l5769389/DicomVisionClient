@@ -473,3 +473,19 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.viewer-viewport,
+.viewer-viewport * {
+  touch-action: none;
+}
+
+.viewer-viewport {
+  overscroll-behavior: contain;
+}
+
+.viewer-image {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+</style>

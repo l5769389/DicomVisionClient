@@ -205,6 +205,7 @@ let fourDPlaybackStartingTimer: ReturnType<typeof window.setTimeout> | null = nu
 let sliceSliderFrame: number | null = null
 
 const isZh = computed(() => locale.value === 'zh-CN')
+const isWebPlatform = computed(() => viewerRuntime.platform === 'web')
 const activeStackTab = computed(() => (viewer.activeTab.value?.viewType === 'Stack' ? viewer.activeTab.value : null))
 const activeCompareTab = computed(() => (viewer.activeTab.value?.viewType === 'CompareStack' ? viewer.activeTab.value : null))
 const activeMprTab = computed(() => (viewer.activeTab.value?.viewType === 'MPR' ? viewer.activeTab.value : null))
@@ -1718,6 +1719,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </nav>
+    <footer v-if="isWebPlatform" class="mobile-shell__icp-footer">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">皖ICP备2026017376号</a>
+    </footer>
 
     <div v-if="activeSheetKind" class="mobile-shell__sheet-backdrop" @click.self="closeSheet">
       <section class="mobile-shell__sheet" aria-label="Mobile tools">
@@ -2160,7 +2164,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .mobile-shell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   height: 100dvh;
   overflow: hidden;
   background: linear-gradient(180deg, rgba(10, 16, 24, 0.96), rgba(3, 7, 12, 0.99));
@@ -2497,6 +2501,32 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
   color: var(--theme-text-primary);
+}
+
+.mobile-shell__icp-footer {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 2px);
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
+  background: rgba(7, 12, 19, 0.9);
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  line-height: 1;
+  backdrop-filter: blur(18px);
+}
+
+.mobile-shell__icp-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.mobile-shell__icp-footer a:active,
+.mobile-shell__icp-footer a:focus-visible {
+  color: var(--theme-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .mobile-shell__sheet-backdrop {

@@ -63,6 +63,7 @@ type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
 type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
 
 const isZh = computed(() => locale.value === 'zh-CN')
+const isWebPlatform = computed(() => viewer.viewerPlatform === 'web')
 const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
@@ -370,6 +371,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   <VApp class="bg-transparent text-[var(--theme-text-primary)]">
     <VMain
       class="relative h-full overflow-hidden bg-transparent text-[var(--theme-text-primary)]"
+      :data-platform="viewer.viewerPlatform"
       @dragenter="handleDicomFileDragEnter"
       @dragover="handleDicomFileDragOver"
       @dragleave="handleDicomFileDragLeave"
@@ -456,6 +458,9 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @workspace-ready="viewer.setViewerStage"
         />
       </div>
+      <footer v-if="isWebPlatform" class="app-icp-footer">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">皖ICP备2026017376号</a>
+      </footer>
       <div v-if="isDicomFileDropActive" class="dicom-file-drop-overlay" aria-live="polite">
         <div class="dicom-file-drop-overlay__panel">
           <div class="dicom-file-drop-overlay__icon" :data-kind="dicomDropPreviewKind" aria-hidden="true" v-html="dicomDropPreviewIcon" />
@@ -516,6 +521,45 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 
 .app-main-layout[data-sidebar-collapsed="true"] {
   grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.v-main[data-platform="web"] .app-main-layout {
+  height: calc(100vh - 28px);
+  max-height: calc(100vh - 28px);
+  padding-bottom: 8px;
+}
+
+.app-icp-footer {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 78%, transparent);
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  backdrop-filter: blur(10px);
+}
+
+.app-icp-footer a {
+  color: inherit;
+  pointer-events: auto;
+  text-decoration: none;
+}
+
+.app-icp-footer a:hover,
+.app-icp-footer a:focus-visible {
+  color: var(--theme-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 @media (max-width: 1280px) {

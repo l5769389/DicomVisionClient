@@ -3,7 +3,11 @@ import { computed } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import type { FolderSeriesItem, ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
-import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
+import {
+  isPrimaryTwoDimensionalViewSupported,
+  isSeriesViewSupported,
+  resolvePrimaryTwoDimensionalViewType
+} from '../../composables/workspace/views/seriesViewSupport'
 import type { WebUploadPickMode } from '../../platform/runtime'
 import { normalizeInlineSvg } from '../../utils/svg'
 import AppIcon from '../AppIcon.vue'
@@ -82,6 +86,7 @@ const sourcePickerActions = computed<SourcePickerAction[]>(() => {
     }
   ]
 })
+const primaryTwoDimensionalViewType = computed(() => resolvePrimaryTwoDimensionalViewType(props.selectedSeries))
 
 const folderActionLabel = computed(() => {
   if (props.viewerFolderSourceMode === 'server-sample') {
@@ -94,8 +99,8 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   {
     label: '2D',
     title: t('quickPreview'),
-    viewType: 'Stack',
-    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, 'Stack')
+    viewType: primaryTwoDimensionalViewType.value,
+    disabled: !props.hasSelectedSeries || !isPrimaryTwoDimensionalViewSupported(props.selectedSeries)
   },
   {
     label: '3D',

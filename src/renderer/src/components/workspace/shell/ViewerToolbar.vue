@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
 import FusionPetDisplayTool from './FusionPetDisplayTool.vue'
@@ -36,6 +37,63 @@ const emit = defineEmits<{
 }>()
 
 const { toolbarCopy: copy } = useUiLocale()
+const isFusionRegistrationHelpOpen = ref(false)
+
+const fusionRegistrationMenuOptions = [
+  { value: 'fusionRegistration:reset', label: '重置配准', icon: 'reset' },
+  { value: 'fusionRegistration:load', label: '加载配准', icon: 'folder-import' },
+  { value: 'fusionRegistration:save', label: '保存配准', icon: 'save' },
+  { value: 'fusionRegistration:exit', label: '退出配准模式', icon: 'close' },
+  { value: 'fusionRegistration:help', label: '使用说明', icon: 'info' }
+]
+
+const fusionRegistrationHelpItems = [
+  '鼠标需在融合图像上',
+  '鼠标左键：可平移 PET 图像',
+  '鼠标右键：可旋转 PET 图像',
+  '双击右键或按 Esc：退出手动配准模式'
+]
+
+function closeFusionRegistrationHelp(): void {
+  isFusionRegistrationHelpOpen.value = false
+}
+
+function handleFusionRegistrationMenuSelect(tool: StackTool, optionValue: string): void {
+  emit('setMenuOpen', null)
+  if (optionValue === 'fusionRegistration:help') {
+    isFusionRegistrationHelpOpen.value = true
+    return
+  }
+  emit('selectToolOption', tool, optionValue)
+}
+
+function handleFusionRegistrationHelpKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !isFusionRegistrationHelpOpen.value) {
+    return
+  }
+  event.preventDefault()
+  closeFusionRegistrationHelp()
+}
+
+watch(
+  isFusionRegistrationHelpOpen,
+  (isOpen) => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (isOpen) {
+      window.addEventListener('keydown', handleFusionRegistrationHelpKeydown)
+    } else {
+      window.removeEventListener('keydown', handleFusionRegistrationHelpKeydown)
+    }
+  }
+)
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleFusionRegistrationHelpKeydown)
+  }
+})
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
   return viewType === 'Stack' || viewType === 'Layout'
@@ -116,35 +174,62 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
           <VBtn
             variant="flat"
             type="button"
-            class="fusion-registration-tool__button fusion-registration-tool__button--toggle inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! rounded-r-none! border! border-r-0! transition hover:brightness-110"
+            data-testid="fusion-registration-toggle"
+            class="fusion-registration-tool__button fusion-registration-tool__button--toggle inline-flex! h-9! w-9! min-w-0! items-center! justify-center! border! transition hover:brightness-110"
             :active="activeTab.fusionManualRegistration === true"
-            :class="{ 'fusion-registration-tool__button--active': activeTab.fusionManualRegistration === true }"
+            :class="[
+              activeTab.fusionManualRegistration === true ? 'rounded-l-xl! rounded-r-none! border-r-0!' : 'rounded-xl!',
+              { 'fusion-registration-tool__button--active': activeTab.fusionManualRegistration === true }
+            ]"
             :disabled="areToolbarActionsDisabled"
             :title="tool.label"
             @click.stop="emit('selectToolOption', tool, 'fusionRegistration:toggle')"
           >
             <AppIcon name="crosshair" :size="toolbarIconSize" />
           </VBtn>
-          <VBtn
-            variant="flat"
-            type="button"
-            class="fusion-registration-tool__button inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-none! border-y! border-r-0! transition hover:brightness-110"
-            :disabled="areToolbarActionsDisabled"
-            :title="copy.toolOptions('Reset Registration')"
-            @click.stop="emit('selectToolOption', tool, 'fusionRegistration:reset')"
+          <VMenu
+            v-if="activeTab.fusionManualRegistration === true"
+            :model-value="openMenuKey === tool.key"
+            location="bottom end"
+            :offset="8"
+            scroll-strategy="reposition"
+            :close-on-content-click="true"
+            @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
           >
-            <AppIcon name="reset" :size="toolbarIconSize" />
-          </VBtn>
-          <VBtn
-            variant="flat"
-            type="button"
-            class="fusion-registration-tool__button inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border! border-l-white/10! transition hover:brightness-110"
-            :disabled="areToolbarActionsDisabled"
-            :title="copy.toolOptions('Save Registration')"
-            @click.stop="emit('selectToolOption', tool, 'fusionRegistration:save')"
-          >
-            <AppIcon name="save" :size="toolbarIconSize" />
-          </VBtn>
+            <template #activator="{ props: menuProps }">
+              <VBtn
+                v-bind="menuProps"
+                variant="flat"
+                type="button"
+                data-testid="fusion-registration-menu-button"
+                class="fusion-registration-tool__button fusion-registration-tool__menu-button inline-flex! h-9! w-6! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l-white/10! px-0! transition hover:brightness-110"
+                :disabled="areToolbarActionsDisabled"
+                :aria-expanded="openMenuKey === tool.key"
+                :title="copy.toolOptions('Registration Actions')"
+              >
+                <AppIcon name="chevron-down" :size="Math.max(10, toggleIconSize - 1)" />
+              </VBtn>
+            </template>
+
+            <div
+              data-tool-menu-root
+              data-testid="fusion-registration-menu"
+              class="fusion-registration-menu theme-shell-panel relative inline-flex min-w-[172px] flex-col overflow-hidden rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+            >
+              <button
+                v-for="option in fusionRegistrationMenuOptions"
+                :key="option.value"
+                type="button"
+                class="fusion-registration-menu__option group relative inline-flex w-full items-center gap-2.5 overflow-hidden rounded-xl border border-transparent bg-transparent px-2.5 py-1.5 text-left text-[13px] text-[var(--theme-text-secondary)] transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)] hover:text-[var(--theme-text-primary)]"
+                :data-testid="`fusion-registration-action-${option.value.replace('fusionRegistration:', '')}`"
+                @click="handleFusionRegistrationMenuSelect(tool, option.value)"
+              >
+                <AppIcon :name="option.icon" :size="menuIconSize" />
+                <span class="font-medium">{{ option.label }}</span>
+              </button>
+            </div>
+          </VMenu>
+
         </div>
         <template v-else-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
           <VBtn
@@ -371,6 +456,42 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
       </VBtn>
     </div>
   </VCard>
+  <Teleport to="body">
+    <div
+      v-if="isFusionRegistrationHelpOpen"
+      class="fusion-registration-help-overlay"
+      data-testid="fusion-registration-help-overlay"
+      @click.self="closeFusionRegistrationHelp"
+    >
+      <section
+        class="fusion-registration-help-panel theme-shell-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="手动配准使用说明"
+        data-testid="fusion-registration-help"
+      >
+        <div class="fusion-registration-help-panel__header">
+          <div class="fusion-registration-help-panel__title">
+            <AppIcon name="info" :size="24" />
+            <span>手动配准使用说明</span>
+          </div>
+          <button
+            type="button"
+            class="fusion-registration-help-panel__close"
+            aria-label="关闭"
+            data-testid="fusion-registration-help-close"
+            @click="closeFusionRegistrationHelp"
+          >
+            <AppIcon name="close" :size="16" />
+          </button>
+        </div>
+        <p class="fusion-registration-help-panel__intro">用于对图像融合位置进行微调，请在融合图像上操作。</p>
+        <ul class="fusion-registration-help-panel__list">
+          <li v-for="item in fusionRegistrationHelpItems" :key="item">{{ item }}</li>
+        </ul>
+      </section>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -396,9 +517,10 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
 }
 
 .fusion-registration-tool {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 0.75rem;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 48%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 68%, transparent));
@@ -432,6 +554,109 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
       color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-panel-solid) 82%)
     ) !important;
   color: var(--theme-active-foreground) !important;
+}
+
+.fusion-registration-tool__menu-button {
+  border-left-color: color-mix(in srgb, var(--theme-border-soft) 74%, transparent) !important;
+}
+
+.fusion-registration-help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: color-mix(in srgb, var(--theme-overlay-scrim, rgba(0, 0, 0, 0.56)) 54%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.fusion-registration-help-panel {
+  width: min(600px, calc(100vw - 32px));
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%)
+    );
+  color: var(--theme-text-primary);
+  padding: 14px 16px 16px;
+  box-shadow: 0 24px 52px rgba(2, 8, 18, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.fusion-registration-help-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fusion-registration-help-panel__title {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  color: var(--theme-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.fusion-registration-help-panel__title :deep(.app-icon-svg) {
+  flex: 0 0 auto;
+  color: var(--theme-text-secondary);
+}
+
+.fusion-registration-help-panel__title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fusion-registration-help-panel__close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.fusion-registration-help-panel__close:hover {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 56%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.fusion-registration-help-panel__intro {
+  margin: 8px 38px 0;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.fusion-registration-help-panel__list {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 0 38px;
+  padding: 0;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.fusion-registration-help-panel__list li {
+  white-space: nowrap;
 }
 
 .toolbar-tool-menu-button :deep(.v-btn__content) {

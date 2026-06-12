@@ -35,16 +35,24 @@ const fusionPetUnitOptions = [
   { value: 'source', label: 'Source' }
 ]
 
+const petDisplayInfo = computed(() =>
+  props.activeTab.viewType === 'PET'
+    ? props.activeTab.petInfo
+    : props.activeTab.fusionInfo
+)
+const petUnitEventPrefix = computed(() => (props.activeTab.viewType === 'PET' ? 'petUnit' : 'fusionPetUnit'))
+const petWindowEventPrefix = computed(() => (props.activeTab.viewType === 'PET' ? 'petWindow' : 'fusionPetWindow'))
+
 function isLikelyCtWindowLeakedIntoPetRange(minValue: number, maxValue: number): boolean {
-  const unit = String(props.activeTab.fusionInfo?.petUnit ?? props.activeTab.fusionInfo?.petUnitLabel ?? '').toLowerCase()
+  const unit = String(petDisplayInfo.value?.petUnit ?? petDisplayInfo.value?.petUnitLabel ?? '').toLowerCase()
   const isPetQuantUnit = unit.includes('suv') || unit.includes('sul') || unit.includes('g/ml')
   return isPetQuantUnit && minValue < -1 && maxValue >= 100
 }
 
-const selectedUnit = computed(() => props.activeTab.fusionInfo?.petUnit ?? 'SUVbw')
+const selectedUnit = computed(() => petDisplayInfo.value?.petUnit ?? 'SUVbw')
 const backendWindowMax = computed(() => {
-  const minValue = Number(props.activeTab.fusionInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
-  const value = Number(props.activeTab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+  const minValue = Number(petDisplayInfo.value?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+  const value = Number(petDisplayInfo.value?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
   if (Number.isFinite(minValue) && Number.isFinite(value) && isLikelyCtWindowLeakedIntoPetRange(minValue, value)) {
     return DEFAULT_FUSION_PET_WINDOW_MAX
   }
@@ -119,7 +127,7 @@ function markOptimisticWindowMax(value: number): void {
 function emitWindowMax(value: number): void {
   const nextValue = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value)
   markOptimisticWindowMax(nextValue)
-  emit('select', `fusionPetWindow:${DEFAULT_FUSION_PET_WINDOW_MIN}:${nextValue}`)
+  emit('select', `${petWindowEventPrefix.value}:${DEFAULT_FUSION_PET_WINDOW_MIN}:${nextValue}`)
 }
 
 function scheduleWindowMax(value: number): void {
@@ -218,7 +226,7 @@ function isRangeUpperLimitOptionActive(rawValue: string): boolean {
 
 function handleUnitValue(value: string): void {
   if (value) {
-    emit('select', `fusionPetUnit:${value}`)
+    emit('select', `${petUnitEventPrefix.value}:${value}`)
   }
 }
 
@@ -357,7 +365,7 @@ onBeforeUnmount(() => {
 .fusion-pet-display-tool {
   display: inline-flex;
   height: 36px;
-  min-width: 448px;
+  min-width: 452px;
   align-items: center;
   gap: 8px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
@@ -467,19 +475,30 @@ onBeforeUnmount(() => {
   transition: border-color 0.15s ease, filter 0.15s ease;
 }
 
+.fusion-pet-display-tool__dropdown-button :deep(.v-btn__content) {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 .fusion-pet-display-tool__dropdown-button:hover {
   border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-strong)) !important;
   filter: brightness(1.08);
 }
 
 .fusion-pet-display-tool__dropdown-button--range {
-  width: 76px !important;
-  flex: 0 0 76px;
+  width: 58px !important;
+  flex: 0 0 58px;
+  padding: 0 6px !important;
 }
 
 .fusion-pet-display-tool__dropdown-button--unit {
-  width: 112px !important;
-  flex: 0 0 112px;
+  width: 128px !important;
+  flex: 0 0 128px;
+  padding: 0 8px !important;
 }
 
 .fusion-pet-display-tool__range-max-value,
@@ -527,7 +546,7 @@ onBeforeUnmount(() => {
 }
 
 .fusion-pet-display-tool__menu--unit {
-  min-width: 164px;
+  min-width: 168px;
 }
 
 .fusion-pet-display-tool__range-max-input {

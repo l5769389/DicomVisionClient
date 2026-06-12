@@ -12,6 +12,7 @@ import type {
   MprPlaneInfo,
   MprViewportKey,
   OrientationInfo,
+  PetInfo,
   ScaleBarInfo,
   ViewTransformInfo,
   ViewProgressInfo,
@@ -285,6 +286,17 @@ export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): Fusi
       rotationDegrees: 0,
       saved: false
     }
+  }
+}
+
+export function createDefaultPetInfo(seriesId = ''): PetInfo {
+  return {
+    seriesId,
+    petUnit: 'SUVbw',
+    petUnitLabel: 'g/ml (SUVbw)',
+    petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+    petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
+    pseudocolorPreset: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
   }
 }
 
@@ -740,6 +752,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionProjections: createEmptyFusionProjections(),
     fusionInfo: null,
     fusionManualRegistration: false,
+    petInfo: viewType === 'PET' ? createDefaultPetInfo(series.seriesId) : null,
     ...createCompareSyncDefaults(),
     ...createLayoutSyncDefaults(),
     viewportViewIds: createEmptyMprViewIds(),
@@ -760,7 +773,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     transformState: createDefaultTransformInfo(),
     viewportTransformStates: createEmptyMprTransformStates(),
     scaleBar: null,
-    pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
+    pseudocolorPreset: viewType === 'PET' ? DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET : DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),
     mprSegmentationConfig: createDefaultMprSegmentationConfig(),

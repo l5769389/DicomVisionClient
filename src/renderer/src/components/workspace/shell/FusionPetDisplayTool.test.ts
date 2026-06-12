@@ -14,7 +14,9 @@ vi.mock('vuetify/components', () => ({
     },
     template: `
       <button type="button" :disabled="disabled" :title="title">
-        <slot />
+        <span class="v-btn__content">
+          <slot />
+        </span>
       </button>
     `
   },
@@ -68,6 +70,26 @@ function createFusionTab(
   } as ViewerTabItem
 }
 
+function createPetTab(): ViewerTabItem {
+  return {
+    ...createFusionTab(),
+    key: 'pet-tab',
+    seriesId: 'pet',
+    seriesTitle: 'PET FDG SUV',
+    title: 'PET FDG SUV · PET',
+    viewType: 'PET',
+    fusionInfo: null,
+    petInfo: {
+      seriesId: 'pet',
+      petUnit: 'SUVbw',
+      petUnitLabel: 'g/ml (SUVbw)',
+      petWindowMin: 0,
+      petWindowMax: 8,
+      pseudocolorPreset: 'bwinverse'
+    }
+  } as ViewerTabItem
+}
+
 describe('FusionPetDisplayTool', () => {
   it('emits fusion-specific PET display selections', async () => {
     vi.useFakeTimers()
@@ -79,6 +101,11 @@ describe('FusionPetDisplayTool', () => {
 
     expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.49')
     expect(wrapper.findAll('.fusion-pet-display-tool__dropdown-button')).toHaveLength(2)
+    expect(wrapper.find('.fusion-pet-display-tool__dropdown-button--range').exists()).toBe(true)
+    const unitButton = wrapper.find('.fusion-pet-display-tool__dropdown-button--unit')
+    expect(unitButton.exists()).toBe(true)
+    expect(unitButton.attributes('title')).toBe('g/ml (SUVbw)')
+    expect(wrapper.find('.fusion-pet-display-tool__unit-label').text()).toBe('g/ml (SUVbw)')
     expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
     const unitOption = wrapper
       .findAll<HTMLButtonElement>('.fusion-pet-display-tool__unit-option')
@@ -92,6 +119,31 @@ describe('FusionPetDisplayTool', () => {
     expect(wrapper.emitted('select')).toEqual([
       ['fusionPetUnit:kBqml'],
       ['fusionPetWindow:0:12.5']
+    ])
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('emits standalone PET display selections with petConfig prefixes', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(FusionPetDisplayTool, {
+      props: {
+        activeTab: createPetTab()
+      }
+    })
+
+    const unitOption = wrapper
+      .findAll<HTMLButtonElement>('.fusion-pet-display-tool__unit-option')
+      .find((button) => button.text().includes('kBq/ml'))
+    await unitOption?.trigger('click')
+    const slider = wrapper.find('input[type="range"]')
+    await slider.setValue('6')
+    vi.advanceTimersByTime(90)
+
+    expect(wrapper.emitted('select')).toEqual([
+      ['petUnit:kBqml'],
+      ['petWindow:0:6']
     ])
 
     wrapper.unmount()

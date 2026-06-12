@@ -16,6 +16,7 @@ import {
   createComparePaneRecord,
   createCompareStackTabKey,
   createDefaultFusionInfo,
+  createDefaultPetInfo,
   createEmptyCompareCornerInfos,
   createEmptyCompareImages,
   createEmptyCompareOrientations,
@@ -77,7 +78,7 @@ import {
   getOwnedLayoutSlotImageSrcs
 } from '../layout/viewerLayoutSlotSeeds'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
-import { isSeriesViewSupported } from './seriesViewSupport'
+import { isSeriesViewSupported, resolvePrimaryTwoDimensionalViewType } from './seriesViewSupport'
 import {
   FourDPhaseRenderTracker,
   MPR_VIEWPORT_KEYS,
@@ -158,6 +159,7 @@ import type {
   FourDPhasesResponse,
   MeasurementOverlay,
   MprViewportKey,
+  PetInfo,
   ViewImageResponse,
   ViewProgressInfo,
   ViewerLayoutSlot,
@@ -1938,6 +1940,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return item
       }
 
+      const previousPetInfo = item.petInfo ?? createDefaultPetInfo(item.seriesId)
+      const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
+      const petInfo = item.viewType === 'PET' ? normalizePetInfoPayload(rawPetInfo, previousPetInfo) : item.petInfo ?? null
+      const singlePseudocolorPreset = item.viewType === 'PET'
+        ? normalizePseudocolorPresetKey(
+            payload.color?.pseudocolorPreset ??
+            petInfo?.pseudocolorPreset ??
+            DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+          )
+        : pseudocolorPreset
+
       revokeObjectUrlIfNeeded(item.imageSrc)
 
       return {
@@ -1954,7 +1967,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : item.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
         orientation: hasOrientationPayload ? orientationInfo : item.orientation ?? orientationInfo,
         transformState: hasTransformPayload ? transformState : item.transformState ?? transformState,
-        pseudocolorPreset,
+        pseudocolorPreset: singlePseudocolorPreset,
+        petInfo,
         mprMipConfig,
         mprSegmentationConfig,
         mprCrosshairMode,
@@ -2334,6 +2348,35 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ),
         saved: typeof registrationRecord.saved === 'boolean' ? registrationRecord.saved : fallback.registration.saved
       }
+    }
+  }
+
+  function normalizePetInfoPayload(value: unknown, fallback: PetInfo): PetInfo {
+    if (typeof value !== 'object' || value == null) {
+      return fallback
+    }
+
+    const record = value as Record<string, unknown>
+    const petWindowMin = record.petWindowMin ?? record.pet_window_min
+    const petWindowMax = record.petWindowMax ?? record.pet_window_max
+    const pseudocolorPreset = record.pseudocolorPreset ?? record.pseudocolor_preset
+    const numberOrFallback = (candidate: unknown, fallbackValue: number | null | undefined): number | null | undefined =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
+    return {
+      seriesId: typeof (record.seriesId ?? record.series_id) === 'string'
+        ? String(record.seriesId ?? record.series_id)
+        : fallback.seriesId,
+      petUnit: typeof (record.petUnit ?? record.pet_unit) === 'string'
+        ? String(record.petUnit ?? record.pet_unit)
+        : fallback.petUnit,
+      petUnitLabel: typeof (record.petUnitLabel ?? record.pet_unit_label) === 'string'
+        ? String(record.petUnitLabel ?? record.pet_unit_label)
+        : fallback.petUnitLabel,
+      petWindowMin: numberOrFallback(petWindowMin, fallback.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN),
+      petWindowMax: numberOrFallback(petWindowMax, fallback.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX),
+      pseudocolorPreset: typeof pseudocolorPreset === 'string'
+        ? normalizePseudocolorPresetKey(pseudocolorPreset)
+        : (fallback.pseudocolorPreset ?? DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET)
     }
   }
 
@@ -2811,7 +2854,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await nextTick()
         await renderTab(existingTab.key, true)
       }
-      if (viewType === 'Stack' && !existingTab.imageSrc) {
+      if ((viewType === 'Stack' || viewType === 'PET') && !existingTab.imageSrc) {
         options.activeViewportKey.value = 'single'
         options.isViewLoading.value = false
         await nextTick()
@@ -2890,7 +2933,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
 
       const seriesCornerInfo = options.withHoverCornerInfo(await options.ensureSeriesCornerInfo(options.selectedSeriesId.value))
-      const initialPseudocolorPreset = normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+      const initialPseudocolorPreset = viewType === 'PET'
+        ? DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+        : normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
 
@@ -2958,6 +3003,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               transformState: createDefaultTransformInfo(),
               viewportTransformStates: createEmptyMprTransformStates(),
               pseudocolorPreset: initialPseudocolorPreset,
+              petInfo: viewType === 'PET' ? createDefaultPetInfo(seriesId) : item.petInfo ?? null,
               viewportPseudocolorPresets:
                 viewType === 'MPR'
                   ? {
@@ -3042,6 +3088,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         viewId: '',
         imageSrc: '',
         fusionSeriesIds: { ctSeriesId, petSeriesId },
+        fusionSeriesDescriptions: {
+          ct: getSeriesDisplayName(ctSeries, ctSeriesId),
+          pet: getSeriesDisplayName(petSeries, petSeriesId)
+        },
         fusionViewIds: createEmptyFusionViewIds(),
         fusionImages: createEmptyFusionImages(),
         fusionSliceLabels: createEmptyFusionSliceLabels(),
@@ -3082,6 +3132,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               sliceLabel: '',
               windowLabel: '',
               fusionSeriesIds: { ctSeriesId, petSeriesId },
+              fusionSeriesDescriptions: {
+                ct: getSeriesDisplayName(ctSeries, ctSeriesId),
+                pet: getSeriesDisplayName(petSeries, petSeriesId)
+              },
               fusionViewIds: nextFusionViewIds,
               fusionImages: createEmptyFusionImages(),
               fusionSliceLabels: createEmptyFusionSliceLabels(),
@@ -3415,7 +3469,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
-    await openSeriesView(options.selectedSeriesId.value, viewType)
+    const resolvedViewType = viewType === 'Stack'
+      ? resolvePrimaryTwoDimensionalViewType(options.selectedSeries.value)
+      : viewType
+    await openSeriesView(options.selectedSeriesId.value, resolvedViewType)
   }
 
   function selectSeries(seriesId: string): void {

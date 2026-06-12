@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { FolderSeriesItem } from '../../../types/viewer'
-import { isSeriesViewSupported, isSeriesVolumeViewSupported, resolveInitialSeriesViewType } from './seriesViewSupport'
+import {
+  isSeriesViewSupported,
+  isSeriesVolumeViewSupported,
+  resolveInitialSeriesViewType,
+  resolvePrimaryTwoDimensionalViewType
+} from './seriesViewSupport'
 
 function createSeries(overrides: Partial<FolderSeriesItem> = {}): FolderSeriesItem {
   return {
@@ -70,6 +75,21 @@ describe('series view support', () => {
   it('resolves tag-preferred series to Tag regardless of preferredViewType casing', () => {
     expect(resolveInitialSeriesViewType(createSeries({ preferredViewType: 'tag' }))).toBe('Tag')
     expect(resolveInitialSeriesViewType(createSeries({ preferredViewType: ' TAG ' }))).toBe('Tag')
+  })
+
+  it('defaults PET modality image series to PET while keeping Stack available', () => {
+    const petSeries = createSeries({ modality: 'PT', seriesDescription: 'PET FDG SUV' })
+
+    expect(resolveInitialSeriesViewType(petSeries)).toBe('PET')
+    expect(resolvePrimaryTwoDimensionalViewType(petSeries)).toBe('PET')
+    expect(isSeriesViewSupported(petSeries, 'PET')).toBe(true)
+    expect(isSeriesViewSupported(petSeries, 'Stack')).toBe(true)
+  })
+
+  it('does not expose PET view for non-PET image series', () => {
+    expect(resolveInitialSeriesViewType(createSeries({ modality: 'CT' }))).toBe('Stack')
+    expect(resolvePrimaryTwoDimensionalViewType(createSeries({ modality: 'CT' }))).toBe('Stack')
+    expect(isSeriesViewSupported(createSeries({ modality: 'CT' }), 'PET')).toBe(false)
   })
 
   it('disables Stack for tag-preferred image series but keeps tags available', () => {

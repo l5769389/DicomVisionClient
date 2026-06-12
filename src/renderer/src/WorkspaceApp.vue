@@ -9,6 +9,7 @@ import { useViewerWorkspace } from './composables/workspace/core/useViewerWorksp
 import { openExportLocation } from './platform/exporting'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
+import { resolvePrimaryTwoDimensionalViewType } from './composables/workspace/views/seriesViewSupport'
 import { normalizeInlineSvg } from './utils/svg'
 
 const SidebarBootFallback = defineComponent({
@@ -244,7 +245,8 @@ onBeforeUnmount(() => {
 })
 
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
-  void viewer.openSeriesView(seriesId, 'Stack')
+  const series = viewer.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+  void viewer.openSeriesView(seriesId, resolvePrimaryTwoDimensionalViewType(series))
 }
 
 const handleQuickPreviewSelectedSeries = (): void => {
@@ -252,7 +254,8 @@ const handleQuickPreviewSelectedSeries = (): void => {
     return
   }
 
-  void viewer.openSeriesView(viewer.selectedSeriesId.value, 'Stack')
+  const series = viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value) ?? null
+  void viewer.openSeriesView(viewer.selectedSeriesId.value, resolvePrimaryTwoDimensionalViewType(series))
 }
 
 const handleLayoutSlotDicomDrop = (payload: { tabKey: string; slotId: string; drop: DicomDropInput }): void => {

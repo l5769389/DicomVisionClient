@@ -44,8 +44,17 @@ import { applyViewportCornerInfoPreference } from '../../composables/ui/viewport
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { analyzeWaterPhantomView } from '../../composables/qa/waterPhantomQa'
 import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
-import type { DicomDropInput } from '../../platform/runtime'
+import { resolveBackendErrorDetail } from '../../composables/workspace/tasks/workspaceStatus'
+import { viewerRuntime, type DicomDropInput } from '../../platform/runtime'
+import { chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation, saveBinaryFile } from '../../platform/exporting'
+import {
+  postFusionRegistrationExport,
+  postFusionRegistrationExportArtifact,
+  type FusionRegistrationExportMode,
+  type FusionRegistrationExportResponse
+} from '../../services/typedApi'
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
+import FusionRegistrationSaveDialog from './export/FusionRegistrationSaveDialog.vue'
 import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
 import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
 import { DEFAULT_MPR_LAYOUT_KEY, parseMprLayoutSelectionValue } from '../../composables/workspace/layout/mprLayoutOptions'
@@ -294,6 +303,19 @@ const {
   showExportFailureNotice,
   showExportNotice
 } = useWorkspaceExportUi(workspaceExportCopy, exportNameInputRef)
+const isFusionRegistrationSaveDialogOpen = ref(false)
+const isFusionRegistrationSaving = ref(false)
+const fusionRegistrationSaveMode = ref<FusionRegistrationExportMode>('newDicom')
+const fusionRegistrationSeriesDescription = ref('')
+const fusionRegistrationOutputDirectory = ref('')
+const fusionRegistrationSaveError = ref<string | null>(null)
+const lastFusionRegistrationExport = ref<FusionRegistrationExportResponse | null>(null)
+const fusionRegistrationFileInputRef = ref<HTMLInputElement | null>(null)
+const isFusionRegistrationWebMode = computed(() => viewerRuntime.platform === 'web')
+const fusionRegistrationSourceSeriesDescription = computed(() => getFusionPetSeriesDescription(props.activeTab) || 'PET')
+const canOpenFusionRegistrationFolder = computed(() =>
+  !isFusionRegistrationWebMode.value && Boolean(lastFusionRegistrationExport.value?.directoryPath && window.viewerApi?.openExportLocation)
+)
 
 function resolveActiveExportImageElement(viewportKey: string): HTMLImageElement | null {
   const host = viewportHostRef.value
@@ -780,6 +802,7 @@ function createAnnotationId(): string {
 function isAnnotationOperationEnabled(): boolean {
   return (
     (props.activeTab?.viewType === 'Stack' ||
+      props.activeTab?.viewType === 'PET' ||
       isCompareStackViewType(props.activeTab?.viewType) ||
       isLayoutViewType(props.activeTab?.viewType) ||
       isMprLikeViewType(props.activeTab?.viewType)) &&
@@ -799,7 +822,7 @@ function getAnnotations(viewportKey: string): AnnotationOverlay[] {
   }
 
   const importedAnnotations =
-    activeTab.viewType === 'Stack'
+    activeTab.viewType === 'Stack' || activeTab.viewType === 'PET'
       ? (activeTab.annotations ?? [])
       : (activeTab.viewportAnnotations?.[viewportKey] ?? [])
   const localAnnotations = annotationStore.value[tabKey]?.[viewportKey] ?? []
@@ -843,7 +866,207 @@ function clearAllAnnotationsForActiveTab(): void {
   annotationInteraction.value = { kind: 'idle' }
 }
 
+function getFusionPetSeriesDescription(tab: ViewerTabItem | null): string {
+  const fromMetadata = tab?.fusionSeriesDescriptions?.pet?.trim()
+  if (fromMetadata) {
+    return fromMetadata
+  }
+  const title = tab?.title ?? ''
+  const titleMatch = /\+\s*(.+?)(?:\s+(?:路|·)\s*PET\/CT|\s+PET\/CT|$)/i.exec(title)
+  const fromTitle = titleMatch?.[1]?.trim()
+  if (fromTitle) {
+    return fromTitle
+  }
+  return tab?.fusionInfo?.petSeriesId?.trim() || 'PET'
+}
+
+function buildFusionRegistrationSeriesDescription(tab: ViewerTabItem | null): string {
+  return `${getFusionPetSeriesDescription(tab)}_Reg`.slice(0, 64)
+}
+
+async function resolveFusionRegistrationDefaultOutputDirectory(): Promise<string> {
+  const customDirectory =
+    exportPreference.value.locationMode === 'custom'
+      ? exportPreference.value.desktopDirectory?.trim()
+      : ''
+  if (customDirectory) {
+    return customDirectory
+  }
+  const defaultDirectory = (await getDefaultExportLocationLabel()).trim()
+  return defaultDirectory === 'Browser default downloads' ? '' : defaultDirectory
+}
+
+async function openFusionRegistrationSaveDialog(): Promise<void> {
+  if (!props.activeTab || props.activeTab.viewType !== 'PETCTFusion') {
+    return
+  }
+  fusionRegistrationSaveMode.value = 'newDicom'
+  fusionRegistrationSeriesDescription.value = buildFusionRegistrationSeriesDescription(props.activeTab)
+  fusionRegistrationSaveError.value = null
+  lastFusionRegistrationExport.value = null
+  isFusionRegistrationSaveDialogOpen.value = true
+  if (isFusionRegistrationWebMode.value) {
+    fusionRegistrationOutputDirectory.value = ''
+    return
+  }
+  try {
+    fusionRegistrationOutputDirectory.value = await resolveFusionRegistrationDefaultOutputDirectory()
+  } catch {
+    fusionRegistrationOutputDirectory.value = ''
+  }
+}
+
+async function handleFusionRegistrationBrowseDirectory(): Promise<void> {
+  try {
+    const selectedDirectory = await chooseCustomExportDirectory()
+    if (selectedDirectory?.desktopDirectory) {
+      fusionRegistrationOutputDirectory.value = selectedDirectory.desktopDirectory
+      fusionRegistrationSaveError.value = null
+      return
+    }
+    if (selectedDirectory?.webDirectoryName) {
+      fusionRegistrationSaveError.value = '当前保存配准结果需要桌面文件夹路径，请选择本地文件夹。'
+    }
+  } catch (error) {
+    fusionRegistrationSaveError.value = resolveBackendErrorDetail(error) || '选择输出文件夹失败。'
+  }
+}
+
+function resolveFusionRegistrationExportViewId(tab: ViewerTabItem): string | null {
+  const overlayViewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+  if (overlayViewId) {
+    return overlayViewId
+  }
+  return Object.values(tab.fusionViewIds ?? {}).find((value): value is string => Boolean(value)) ?? null
+}
+
+async function handleFusionRegistrationSaveConfirm(): Promise<void> {
+  const tab = props.activeTab
+  if (!tab || tab.viewType !== 'PETCTFusion') {
+    fusionRegistrationSaveError.value = '当前没有可保存的 PET/CT 配准视图。'
+    return
+  }
+  const viewId = resolveFusionRegistrationExportViewId(tab)
+  if (!viewId) {
+    fusionRegistrationSaveError.value = '融合视图尚未初始化，请等待图像加载完成后再保存。'
+    return
+  }
+  const outputDirectory = fusionRegistrationOutputDirectory.value.trim()
+  if (!isFusionRegistrationWebMode.value && !outputDirectory) {
+    fusionRegistrationSaveError.value = '请选择输出路径。'
+    return
+  }
+  const seriesDescription = fusionRegistrationSeriesDescription.value.trim() || buildFusionRegistrationSeriesDescription(tab)
+  isFusionRegistrationSaving.value = true
+  fusionRegistrationSaveError.value = null
+  try {
+    if (isFusionRegistrationWebMode.value) {
+      const artifact = await postFusionRegistrationExportArtifact({
+        mode: fusionRegistrationSaveMode.value,
+        seriesDescription,
+        viewId
+      })
+      await saveBinaryFile({
+        data: artifact.data,
+        fileName: artifact.fileName,
+        mimeType: artifact.mediaType,
+        preference: { locationMode: 'default' }
+      })
+      exportNotice.value = {
+        canOpenLocation: false,
+        filePath: null,
+        message: `已生成 ${artifact.fileCount} 个文件并发送到浏览器下载。`,
+        title: workspaceExportCopy.value.exportComplete
+      }
+      emit('triggerViewAction', { action: 'fusionRegistrationSave' })
+      return
+    }
+
+    const result = await postFusionRegistrationExport({
+      mode: fusionRegistrationSaveMode.value,
+      outputDirectory,
+      seriesDescription,
+      viewId
+    })
+    lastFusionRegistrationExport.value = result
+    fusionRegistrationSeriesDescription.value = result.seriesDescription
+    exportNotice.value = {
+      canOpenLocation: Boolean(result.directoryPath && window.viewerApi?.openExportLocation),
+      directoryPath: result.directoryPath,
+      filePath: result.filePath ?? null,
+      message: `已保存 ${result.fileCount} 个文件到 ${result.directoryPath}`,
+      title: workspaceExportCopy.value.exportComplete
+    }
+    emit('triggerViewAction', { action: 'fusionRegistrationSave' })
+  } catch (error) {
+    fusionRegistrationSaveError.value = resolveBackendErrorDetail(error) || '保存配准结果失败。'
+  } finally {
+    isFusionRegistrationSaving.value = false
+  }
+}
+
+async function handleOpenFusionRegistrationFolder(): Promise<void> {
+  const result = lastFusionRegistrationExport.value
+  if (!result?.directoryPath) {
+    return
+  }
+  const opened = await openExportLocation({
+    directoryPath: result.directoryPath,
+    filePath: null
+  })
+  if (!opened) {
+    fusionRegistrationSaveError.value = workspaceExportCopy.value.openLocationFailed
+  }
+}
+
+function handleOpenFusionRegistrationLoadFile(): void {
+  if (!props.activeTab || props.activeTab.viewType !== 'PETCTFusion') {
+    return
+  }
+  if (fusionRegistrationFileInputRef.value) {
+    fusionRegistrationFileInputRef.value.value = ''
+    fusionRegistrationFileInputRef.value.click()
+  }
+}
+
+async function handleFusionRegistrationFileSelected(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file) {
+    return
+  }
+  if (!file.name.toLowerCase().endsWith('.br')) {
+    exportNotice.value = {
+      canOpenLocation: false,
+      message: '请选择 DicomVision .br 配准文件。',
+      title: workspaceExportCopy.value.exportFailed
+    }
+    return
+  }
+  try {
+    const parsed = JSON.parse(await file.text()) as Record<string, unknown>
+    emit('triggerViewAction', { action: 'fusionRegistrationLoad', registrationFile: parsed })
+  } catch {
+    exportNotice.value = {
+      canOpenLocation: false,
+      message: '配准文件不是有效的 JSON。',
+      title: workspaceExportCopy.value.exportFailed
+    }
+  }
+}
+
 function handleToolbarViewAction(payload: ViewerToolbarActionPayload): void {
+  if (payload.action === 'fusionRegistrationSave' && props.activeTab?.viewType === 'PETCTFusion') {
+    void openFusionRegistrationSaveDialog()
+    return
+  }
+
+  if (payload.action === 'fusionRegistrationLoad' && props.activeTab?.viewType === 'PETCTFusion') {
+    handleOpenFusionRegistrationLoadFile()
+    return
+  }
+
   if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
     clearAllAnnotationsForActiveTab()
     if (payload.action === 'clearAnnotations') {
@@ -1454,7 +1677,7 @@ function isStackCurrentSliceStarred(tab: ViewerTabItem): boolean {
 }
 
 function handleStackSliceStar(payload: { sliceIndex: number }): void {
-  if (props.activeTab?.viewType !== 'Stack') {
+  if (props.activeTab?.viewType !== 'Stack' && props.activeTab?.viewType !== 'PET') {
     return
   }
   toggleSliceStar(props.activeTab.seriesId, payload.sliceIndex)
@@ -1884,7 +2107,7 @@ onBeforeUnmount(() => {
         />
 
         <StackView
-          v-else-if="activeTab.viewType === 'Stack'"
+          v-else-if="activeTab.viewType === 'Stack' || activeTab.viewType === 'PET'"
           :active-tab="activeTab"
           :active-operation="props.activeOperation"
           :annotations="getViewportAnnotations('single')"
@@ -2090,6 +2313,31 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <FusionRegistrationSaveDialog
+      v-model:mode="fusionRegistrationSaveMode"
+      v-model:output-directory="fusionRegistrationOutputDirectory"
+      v-model:series-description="fusionRegistrationSeriesDescription"
+      :can-open-folder="canOpenFusionRegistrationFolder"
+      :error="fusionRegistrationSaveError"
+      :is-open="isFusionRegistrationSaveDialogOpen"
+      :is-saving="isFusionRegistrationSaving"
+      :is-web="isFusionRegistrationWebMode"
+      :saved-directory="lastFusionRegistrationExport?.directoryPath ?? null"
+      :source-series-description="fusionRegistrationSourceSeriesDescription"
+      @browse="handleFusionRegistrationBrowseDirectory"
+      @close="isFusionRegistrationSaveDialogOpen = false"
+      @open-folder="handleOpenFusionRegistrationFolder"
+      @save="handleFusionRegistrationSaveConfirm"
+    />
+
+    <input
+      ref="fusionRegistrationFileInputRef"
+      class="hidden"
+      type="file"
+      accept=".br,application/json"
+      @change="handleFusionRegistrationFileSelected"
+    />
 
     <WorkspaceExportNameDialog
       v-if="isExportNameDialogOpen"

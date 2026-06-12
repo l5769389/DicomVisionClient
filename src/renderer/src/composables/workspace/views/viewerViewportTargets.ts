@@ -27,7 +27,7 @@ export function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefine
 }
 
 export function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-  return viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion'
+  return viewType === 'Stack' || viewType === 'PET' || viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion'
 }
 
 export function resolveMprViewportKey(viewportKey: string): MprViewportKey {

@@ -11,6 +11,7 @@ import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
 import PacsBrowserDialog from './sidebar/PacsBrowserDialog.vue'
 import { useUiPreferences } from '../composables/ui/useUiPreferences'
 import { useUiLocale } from '../composables/ui/useUiLocale'
+import { resolveInitialSeriesViewType } from '../composables/workspace/views/seriesViewSupport'
 import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
 import type { WebUploadPickMode } from '../platform/runtime'
@@ -96,6 +97,11 @@ function handleOpenSeriesView(seriesId: string, viewType: ViewType): void {
   emit('openSeriesView', seriesId, viewType)
 }
 
+function handleCollapsedOpenSeriesView(seriesId: string): void {
+  const series = props.seriesList.find((item) => item.seriesId === seriesId) ?? null
+  emit('openSeriesView', seriesId, resolveInitialSeriesViewType(series))
+}
+
 function handleCompareSeries(sourceSeriesId: string, targetSeriesId: string): void {
   emit('compareSeries', sourceSeriesId, targetSeriesId)
 }
@@ -160,7 +166,7 @@ function hideSeriesHoverCard(): void {
           :viewer-platform="viewerPlatform"
           @hide-series-hover-card="hideSeriesHoverCard"
           @open-menu="openMenu"
-          @open-series-view="emit('openSeriesView', $event, 'Stack')"
+          @open-series-view="handleCollapsedOpenSeriesView"
           @select-series="emit('selectSeries', $event)"
           @show-series-hover-card="showSeriesHoverCard"
           @toggle-sidebar="emit('toggleSidebar')"

@@ -13,6 +13,7 @@ import {
   emitFourDPlaybackStart,
   emitFourDPlaybackStop,
   emitViewOperation,
+  emitViewOperationWithAck,
   type ViewOperationInput,
   type ViewOperationPayload
 } from '../../../services/socket'
@@ -722,7 +723,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function updateHoverCornerInfoByViewId(viewId: string, row: number | null = null, col: number | null = null): void {
     viewerTabs.value = viewerTabs.value.map((item) => {
-      if (item.viewId === viewId && item.viewType === 'Stack') {
+      if (item.viewId === viewId && (item.viewType === 'Stack' || item.viewType === 'PET')) {
         return {
           ...item,
           cornerInfo: withHoverCornerInfo(item.cornerInfo, row, col)
@@ -907,7 +908,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PETCTFusion' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -939,6 +940,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
       handleFusionConfigChange({ manualRegistration: payload.enabled ?? !(tab.fusionManualRegistration === true) })
+      return
+    }
+
+    if (payload.action === 'fusionRegistrationLoad') {
+      if (tab.viewType !== 'PETCTFusion' || !payload.registrationFile) {
+        return
+      }
+      void handleFusionRegistrationLoad(payload.registrationFile)
       return
     }
 
@@ -974,6 +983,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const petWindowMax = Number(maxValue)
       if (Number.isFinite(petWindowMax)) {
         handleFusionConfigChange({ petWindowMin: 0, petWindowMax })
+      }
+      return
+    }
+
+    if (payload.action === 'petUnit' && payload.value) {
+      if (tab.viewType !== 'PET') {
+        return
+      }
+      handlePetConfigChange({ petUnit: payload.value.replace(/^petUnit:/, '') })
+      return
+    }
+
+    if (payload.action === 'petWindow' && payload.value) {
+      if (tab.viewType !== 'PET') {
+        return
+      }
+      const [, maxValue] = payload.value.replace(/^petWindow:/, '').split(':')
+      const petWindowMax = Number(maxValue)
+      if (Number.isFinite(petWindowMax)) {
+        handlePetConfigChange({ petWindowMin: 0, petWindowMax })
       }
       return
     }
@@ -2472,6 +2501,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
       return
     }
+    if (payload.phase === DRAG_ACTION_TYPES.move) {
+      return
+    }
     emitScheduledViewOperation({
       viewId,
       opType: VIEW_OPERATION_TYPES.fusionRegistration,
@@ -2479,6 +2511,57 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       subOpType: payload.subOpType,
       x: payload.deltaX,
       y: payload.deltaY
+    })
+  }
+
+  function handlePetConfigChange(payload: {
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
+  }): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PET') {
+      return
+    }
+    const viewId = tab.viewId
+    if (!viewId) {
+      return
+    }
+
+    const petUnit = payload.petUnit
+    const petWindowMin = Number.isFinite(payload.petWindowMin)
+      ? Number(payload.petWindowMin)
+      : (tab.petInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+    const petWindowMax = Number.isFinite(payload.petWindowMax)
+      ? Number(payload.petWindowMax)
+      : (tab.petInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            petInfo: {
+              seriesId: item.seriesId,
+              ...(item.petInfo ?? {}),
+              ...(petUnit ? { petUnit } : {}),
+              ...(payload.petWindowMin != null || payload.petWindowMax != null
+                ? { petWindowMin, petWindowMax }
+                : {})
+            }
+          }
+        : item
+    )
+
+    emitViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.petConfig,
+      ...(petUnit ? { petUnit } : {}),
+      ...(payload.petWindowMin != null || payload.petWindowMax != null
+        ? {
+            petWindowMin,
+            petWindowMax
+          }
+        : {})
     })
   }
 
@@ -2606,6 +2689,26 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         subOpType: payload.action
       })
     }
+  }
+
+  async function handleFusionRegistrationLoad(registrationFile: Record<string, unknown>): Promise<void> {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PETCTFusion') {
+      return
+    }
+    const viewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean) ?? ''
+    if (!viewId) {
+      showStatusToast('融合视图尚未初始化，请等待图像加载完成后再加载配准文件。', 'warning')
+      return
+    }
+    const ok = await emitViewOperationWithAck({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: 'end',
+      subOpType: 'load',
+      fusionRegistrationFile: registrationFile
+    })
+    showStatusToast(ok ? '配准文件已加载。' : '加载配准文件失败，请确认 CT/PET 序列匹配。', ok ? 'success' : 'error')
   }
 
   function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {

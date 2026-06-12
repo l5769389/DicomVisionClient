@@ -12,7 +12,7 @@ export interface ViewerCapabilityProfile {
 export const desktopViewerCapabilityProfile: ViewerCapabilityProfile = {
   shellKind: 'desktop',
   dataSources: ['desktop-picker', 'web-upload', 'server-sample', 'pacs'],
-  viewTypes: ['Stack', 'CompareStack', 'MPR', '3D', '4D', 'Tag', 'Layout']
+  viewTypes: ['Stack', 'PET', 'CompareStack', 'MPR', '3D', '4D', 'Tag', 'Layout']
 }
 
 export const mobileViewerCapabilityProfile: ViewerCapabilityProfile = {

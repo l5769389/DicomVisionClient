@@ -183,6 +183,29 @@ export interface FusionProjectionInfo {
   worldToNormalizedY: [number, number, number, number]
 }
 
+export interface FusionRegistrationArtifactExportRequest {
+  viewId: string
+  mode: 'newDicom' | 'br'
+  seriesDescription?: string | null
+}
+
+export interface FusionRegistrationExportRequest {
+  viewId: string
+  mode: 'newDicom' | 'br'
+  seriesDescription?: string | null
+  outputDirectory: string
+}
+
+export interface FusionRegistrationExportResponse {
+  mode: 'newDicom' | 'br'
+  directoryPath: string
+  filePath?: string | null
+  fileCount: number
+  seriesDescription: string
+  petUnit: string
+  petUnitLabel: string
+}
+
 export interface FusionRegistrationInfo {
   translateRowMm?: number
   translateColMm?: number
@@ -509,6 +532,15 @@ export interface PacsWadoSeriesDownloadRequest {
   seriesInstanceUid: string
 }
 
+export interface PetInfo {
+  seriesId: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  pseudocolorPreset?: string
+}
+
 export interface QaWaterAccuracyMetricsPayload {
   centerMean: number
   deviationHu: number
@@ -625,7 +657,7 @@ export interface ViewColorInfo {
 
 export interface ViewCreateRequest {
   seriesId: string
-  viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG' | 'FusionCTAxial' | 'FusionPETAxial' | 'FusionOverlayAxial' | 'FusionPETCoronalMip'
+  viewType: 'Stack' | 'MPR' | '3D' | 'PET' | 'AX' | 'COR' | 'SAG' | 'FusionCTAxial' | 'FusionPETAxial' | 'FusionOverlayAxial' | 'FusionPETCoronalMip'
   secondarySeriesId?: string | null
   fusionPaneRole?: string | null
   viewGroupKey?: string | null
@@ -699,6 +731,7 @@ export interface ViewImageResponse {
   orientation?: OrientationInfo | null
   transform?: ViewTransformPayload | null
   color?: ViewColorInfo | null
+  petInfo?: PetInfo | null
   fusionInfo?: FusionInfo | null
   fusionProjection?: FusionProjectionInfo | null
   mprMipConfig?: MprMipConfig | null
@@ -727,7 +760,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'fusionRegistration' | 'fusionConfig'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
   measurementId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
@@ -746,6 +779,10 @@ export interface ViewOperationRequest {
   fusionPetUnit?: string | null
   fusionPetWindowMin?: number | null
   fusionPetWindowMax?: number | null
+  petUnit?: string | null
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  fusionRegistrationFile?: Record<string, unknown> | null
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
   mprCrosshairMode?: 'orthogonal' | 'double-oblique' | null
@@ -859,6 +896,8 @@ export interface ApiOperations {
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }
   CreateViewApiV1ViewCreatePost: { method: 'POST'; path: '/api/v1/view/create'; request: ViewCreateRequest; response: ViewCreateResponse }
   ExportViewApiV1ViewExportPost: { method: 'POST'; path: '/api/v1/view/export'; request: ViewExportRequest; response: unknown }
+  ExportFusionRegistrationApiV1ViewFusionRegistrationExportPost: { method: 'POST'; path: '/api/v1/view/fusion/registration/export'; request: FusionRegistrationExportRequest; response: FusionRegistrationExportResponse }
+  ExportFusionRegistrationArtifactApiV1ViewFusionRegistrationExportArtifactPost: { method: 'POST'; path: '/api/v1/view/fusion/registration/export/artifact'; request: FusionRegistrationArtifactExportRequest; response: unknown }
   AnalyzeMtfApiV1ViewMtfAnalyzePost: { method: 'POST'; path: '/api/v1/view/mtf/analyze'; request: ViewMtfAnalyzeRequest; response: ViewMtfAnalyzeResponse }
   AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost: { method: 'POST'; path: '/api/v1/view/qa/water/analyze'; request: ViewQaWaterAnalyzeRequest; response: ViewQaWaterAnalyzeResponse }
   SetViewSizeApiV1ViewSetSizePost: { method: 'POST'; path: '/api/v1/view/setSize'; request: ViewSetSizeRequest; response: OperationAcceptedResponse }

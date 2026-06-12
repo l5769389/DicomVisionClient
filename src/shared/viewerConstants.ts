@@ -20,6 +20,7 @@ export const VIEW_OPERATION_TYPES = {
   mprStateSync: 'mprStateSync',
   fusionRegistration: 'fusionRegistration',
   fusionConfig: 'fusionConfig',
+  petConfig: 'petConfig',
   measurement: 'measurement'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]

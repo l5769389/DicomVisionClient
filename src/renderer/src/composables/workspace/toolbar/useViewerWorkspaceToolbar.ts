@@ -67,6 +67,7 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   fusionPseudocolor: 'PET 伪彩',
   fusionRegistrationReset: '重置配准',
   fusionRegistrationSave: '保存配准',
+  fusionRegistrationLoad: '加载配准',
   layout: '布局',
   measure: '测量',
   mprLayout: 'MPR 布局',
@@ -591,6 +592,44 @@ const fusionTools: StackTool[] = [
   fusionRegistrationTool
 ]
 
+const petTools: StackTool[] = [
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  {
+    key: 'rotate',
+    label: 'Rotate',
+    icon: 'rotate',
+    kind: 'action',
+    options: [
+      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
+      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
+      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
+      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
+    ]
+  },
+  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  pseudocolorTool,
+  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
+  measureTool,
+  exportTool,
+  tagTool,
+  withoutMtfResetOption({
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
+      { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurement overlays in the current view.' },
+      { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current view.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
+    ]
+  }),
+  fusionPetDisplayTool
+]
+
 const genericTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -937,7 +976,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion'
   }
 
   function withDisplayTool(tools: StackTool[]): StackTool[] {
@@ -1002,6 +1041,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     switch (viewType) {
       case 'Stack':
         return stackTools
+      case 'PET':
+        return petTools
       case 'PETCTFusion':
         return fusionTools
       case 'CompareStack':
@@ -1586,6 +1627,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       closeMenus()
       options.emitTriggerViewAction({ action: 'fusionRegistrationSave' })
     },
+    fusionRegistrationLoad: () => {
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'fusionRegistrationLoad' })
+    },
     measure: applySelectedModeTool,
     qa: applySelectedModeTool,
     play: () => {
@@ -1792,6 +1837,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         options.emitTriggerViewAction({ action: 'fusionPetWindow', value: optionValue })
         return
       }
+      if (optionValue.startsWith('petUnit:')) {
+        options.emitTriggerViewAction({ action: 'petUnit', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('petWindow:')) {
+        options.emitTriggerViewAction({ action: 'petWindow', value: optionValue })
+        return
+      }
     }
 
     if (tool.key === 'fusionRegistration') {
@@ -1802,12 +1855,26 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         })
         return
       }
+      if (optionValue === 'fusionRegistration:exit') {
+        options.emitTriggerViewAction({
+          action: 'fusionManualRegistration',
+          enabled: false
+        })
+        return
+      }
+      if (optionValue === 'fusionRegistration:help') {
+        return
+      }
       if (optionValue === 'fusionRegistration:reset') {
         options.emitTriggerViewAction({ action: 'fusionRegistrationReset' })
         return
       }
       if (optionValue === 'fusionRegistration:save') {
         options.emitTriggerViewAction({ action: 'fusionRegistrationSave' })
+        return
+      }
+      if (optionValue === 'fusionRegistration:load') {
+        options.emitTriggerViewAction({ action: 'fusionRegistrationLoad' })
       }
       return
     }

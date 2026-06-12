@@ -41,6 +41,7 @@ export type BackendCreateViewType =
   | 'Stack'
   | 'MPR'
   | '3D'
+  | 'PET'
   | 'AX'
   | 'COR'
   | 'SAG'
@@ -177,6 +178,15 @@ export interface FusionInfo {
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
+}
+
+export interface PetInfo {
+  seriesId: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  pseudocolorPreset?: string
 }
 
 export type Vec3 = [number, number, number]
@@ -609,6 +619,7 @@ export interface ViewImageResponse {
   mprMipConfig?: MprMipOperationConfig | null
   mprSegmentationConfig?: MprSegmentationOperationConfig | null
   mprCrosshairMode?: MprCrosshairMode | null
+  petInfo?: PetInfo | null
   fusionInfo?: FusionInfo | null
   fusionProjection?: FusionProjectionInfo | null
 }
@@ -657,6 +668,7 @@ export interface ViewerTabItem {
   compareTransformStates?: Partial<Record<CompareStackPaneKey, ViewTransformInfo>>
   comparePseudocolorPresets?: Partial<Record<CompareStackPaneKey, string>>
   fusionSeriesIds?: { ctSeriesId: string; petSeriesId: string }
+  fusionSeriesDescriptions?: { ct?: string | null; pet?: string | null }
   fusionViewIds?: Partial<Record<FusionPaneKey, string>>
   fusionImages?: Partial<Record<FusionPaneKey, string>>
   fusionSliceLabels?: Partial<Record<FusionPaneKey, string>>
@@ -669,6 +681,7 @@ export interface ViewerTabItem {
   fusionProjections?: Partial<Record<FusionPaneKey, FusionProjectionInfo | null>>
   fusionLoadingProgress?: Partial<Record<FusionPaneKey, ViewProgressInfo | null>>
   fusionInfo?: FusionInfo | null
+  petInfo?: PetInfo | null
   fusionManualRegistration?: boolean
   compareSyncScroll?: boolean
   compareSyncWindow?: boolean
@@ -737,6 +750,7 @@ export interface ViewerTabItem {
 }
 
 export type StackViewerTabItem = ViewerTabItem & { viewType: 'Stack' }
+export type PetViewerTabItem = ViewerTabItem & { viewType: 'PET' }
 export type CompareStackViewerTabItem = ViewerTabItem & { viewType: 'CompareStack' }
 export type MprViewerTabItem = ViewerTabItem & { viewType: 'MPR' }
 export type VolumeViewerTabItem = ViewerTabItem & { viewType: '3D' }
@@ -747,6 +761,7 @@ export type LayoutViewerTabItem = ViewerTabItem & { viewType: 'Layout' }
 
 export type DiscriminatedViewerTabItem =
   | StackViewerTabItem
+  | PetViewerTabItem
   | CompareStackViewerTabItem
   | MprViewerTabItem
   | VolumeViewerTabItem
@@ -810,4 +825,4 @@ export interface ViewerLayoutTemplate {
 }
 
 export type ConnectionState = 'idle' | 'starting' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'PETCTFusion' | 'Tag' | 'Layout'
+export type ViewType = 'Stack' | 'PET' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'PETCTFusion' | 'Tag' | 'Layout'

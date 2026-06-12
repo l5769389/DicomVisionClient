@@ -407,8 +407,71 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationReset' })
 
     harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:load')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationLoad' })
+
+    harness.emitTriggerViewAction.mockClear()
     harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:save')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationSave' })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:exit')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionManualRegistration',
+      enabled: false
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:help')
+    expect(harness.emitTriggerViewAction).not.toHaveBeenCalled()
+    harness.wrapper.unmount()
+  })
+
+  it('uses standalone PET toolbar actions without fusion registration', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'pet::PET',
+      seriesId: 'pet',
+      seriesTitle: 'PET FDG SUV',
+      title: 'PET FDG SUV · PET',
+      viewType: 'PET',
+      viewId: 'pet-view',
+      activeViewportKey: 'single',
+      pseudocolorPreset: 'bwinverse',
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 8,
+        pseudocolorPreset: 'bwinverse'
+      }
+    } as Partial<ViewerTabItem> as ViewerTabItem)
+    harness.activeViewportKey.value = 'single'
+    await nextTick()
+
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(toolKeys).not.toContain('layout')
+    expect(toolKeys).not.toContain('play')
+    expect(toolKeys).not.toContain('qa')
+    expect(toolKeys).not.toContain('fusionRegistration')
+    expect(toolKeys).toContain('pseudocolor')
+    expect(toolKeys).toContain('fusionPetDisplay')
+
+    const petDisplayTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionPetDisplay')!
+    harness.toolbar.selectToolOption(petDisplayTool, 'petUnit:kBqml')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'petUnit',
+      value: 'petUnit:kBqml'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(petDisplayTool, 'petWindow:0:12.5')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'petWindow',
+      value: 'petWindow:0:12.5'
+    })
+
     harness.wrapper.unmount()
   })
 

@@ -7,7 +7,12 @@ import type { FolderSeriesItem, ViewType } from '../../types/viewer'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
-import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
+import {
+  isPrimaryTwoDimensionalViewSupported,
+  isSeriesViewSupported,
+  resolveInitialSeriesViewType,
+  resolvePrimaryTwoDimensionalViewType
+} from '../../composables/workspace/views/seriesViewSupport'
 import { saveBinaryFile, type SaveFilePreference } from '../../platform/exporting'
 import {
   getDicomDeidentifyJob,
@@ -294,9 +299,9 @@ const contextMenuActions = computed<SeriesContextMenuActionItem[]>(() => [
   {
     key: 'Stack' as const,
     title: t('quickPreview'),
-    subtitle: 'Stack view',
+    subtitle: isZh.value ? '二维浏览' : '2D viewer',
     badge: '2D',
-    disabled: !isSeriesViewSupported(contextSeries.value, 'Stack')
+    disabled: !isPrimaryTwoDimensionalViewSupported(contextSeries.value)
   },
   {
     key: 'MPR' as const,
@@ -494,7 +499,10 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   if (!series) {
     return
   }
-  if ((action === 'Stack' || action === 'MPR' || action === '3D' || action === '4D' || action === 'Tag') && !isSeriesViewSupported(series, action)) {
+  if (action === 'Stack' && !isPrimaryTwoDimensionalViewSupported(series)) {
+    return
+  }
+  if ((action === 'MPR' || action === '3D' || action === '4D' || action === 'Tag') && !isSeriesViewSupported(series, action)) {
     return
   }
 
@@ -526,7 +534,7 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
     await exportDeidentifiedSeries(series)
     return
   } else {
-    emit('openSeriesView', series.seriesId, action)
+    emit('openSeriesView', series.seriesId, action === 'Stack' ? resolvePrimaryTwoDimensionalViewType(series) : action)
   }
 
   closeContextMenu()
@@ -907,7 +915,7 @@ function handleSeriesDragEnd(): void {
                   :key-slice-count="getStarredSliceCount(series.seriesId)"
                   :selected="series.seriesId === selectedSeriesId"
                   :series="series"
-                  @open-stack="emit('openSeriesView', $event, 'Stack')"
+                  @open-stack="emit('openSeriesView', series.seriesId, resolveInitialSeriesViewType(series))"
                   @remove="emit('removeSeries', $event)"
                   @select="emit('selectSeries', $event)"
                   @series-context-menu="handleSeriesContextMenu"

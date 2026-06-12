@@ -71,6 +71,10 @@ export interface ViewOperationPayload {
   fusionPetUnit?: string
   fusionPetWindowMin?: number
   fusionPetWindowMax?: number
+  petUnit?: string
+  petWindowMin?: number
+  petWindowMax?: number
+  fusionRegistrationFile?: Record<string, unknown>
   sourceViewId?: string
   hor_flip?: boolean
   ver_flip?: boolean

@@ -20,9 +20,12 @@ export type ViewerToolbarAction =
   | 'fusionManualRegistration'
   | 'fusionRegistrationReset'
   | 'fusionRegistrationSave'
+  | 'fusionRegistrationLoad'
   | 'fusionPseudocolor'
   | 'fusionPetUnit'
   | 'fusionPetWindow'
+  | 'petUnit'
+  | 'petWindow'
   | 'displayOverlay'
 
 export interface ViewerToolbarActionPayload {
@@ -34,4 +37,5 @@ export interface ViewerToolbarActionPayload {
   config?: MprMipConfig
   segmentationConfig?: MprSegmentationConfig
   mode?: MprCrosshairMode
+  registrationFile?: Record<string, unknown>
 }

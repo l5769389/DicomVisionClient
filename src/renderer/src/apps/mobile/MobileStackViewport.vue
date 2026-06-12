@@ -8,7 +8,18 @@ import {
 import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
 import { isMeasurementToolType } from '../../composables/measurements/measurementToolRules'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
-import type { CornerInfo, MeasurementDraftPoint, MeasurementToolType, ViewerTabItem, WorkspaceReadyPayload } from '../../types/viewer'
+import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  AnnotationSize,
+  CornerInfo,
+  MeasurementDraftPoint,
+  MeasurementToolType,
+  QaWaterAnalysis,
+  ViewerMtfItem,
+  ViewerTabItem,
+  WorkspaceReadyPayload
+} from '../../types/viewer'
 import {
   createMobileViewportDragMoveQueue,
   getMobileGestureCenter,
@@ -24,17 +35,43 @@ type PointerPoint = {
 const props = withDefaults(defineProps<{
   activeOperation: string
   activeTab: ViewerTabItem | null
+  annotationPointerCancel?: (event: PointerEvent) => boolean
+  annotationPointerDown?: (event: PointerEvent, viewportKey: string) => boolean
+  annotationPointerLeave?: (viewportKey: string) => void
+  annotationPointerMove?: (event: PointerEvent) => boolean
+  annotationPointerUp?: (event: PointerEvent) => boolean
+  annotations?: AnnotationOverlay[]
+  draftAnnotation?: AnnotationDraft | null
   isViewLoading: boolean
+  mtfItems?: ViewerMtfItem[]
+  qaWaterAnalysis?: QaWaterAnalysis | null
   scrollThreshold?: number
+  selectedMtfId?: string | null
 }>(), {
+  annotations: () => [],
+  draftAnnotation: null,
+  mtfItems: () => [],
+  qaWaterAnalysis: null,
   scrollThreshold: 28
 })
 
 const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
+  clearMtf: [payload?: { mtfId?: string | null }]
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  copySelectedAnnotation: [viewportKey: string]
+  copySelectedMtf: [viewportKey: string]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteSelectedAnnotation: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
+  mtfCommit: [payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }]
+  openMtfCurve: []
+  selectMtf: [payload: { mtfId: string | null }]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: AnnotationSize }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [payload: { viewportKey: string; deltaY: number }]
   workspaceReady: [payload: WorkspaceReadyPayload]
@@ -102,6 +139,8 @@ const {
   deleteSelectedMeasurement,
   draftMeasurements,
   getDraftMeasurementMode,
+  getMtfDraft,
+  getMtfDraftMode,
   handleViewportPointerCancel,
   handleViewportPointerDown,
   handleViewportPointerLeave,
@@ -116,13 +155,13 @@ const {
   emitMeasurementDraft: () => {},
   emitMeasurementCreate,
   emitMeasurementDelete: (payload) => emit('measurementDelete', payload),
-  emitMtfCommit: () => {},
-  emitMtfDelete: () => {},
-  emitMtfSelect: () => {},
+  emitMtfCommit: (payload) => emit('mtfCommit', payload),
+  emitMtfDelete: (payload) => emit('clearMtf', payload),
+  emitMtfSelect: (payload) => emit('selectMtf', payload),
   emitMprCrosshair: () => {},
   emitViewportDrag: (payload) => emit('viewportDrag', payload),
   getCommittedMeasurements: () => stackTab.value?.measurements ?? [],
-  getMtfItems: () => []
+  getMtfItems: () => props.mtfItems ?? []
 })
 
 function getDraftMeasurement() {
@@ -155,6 +194,15 @@ function getMeasurementToolType(): MeasurementToolType | null {
 
 function isMeasureOperation(): boolean {
   return getMeasurementToolType() != null
+}
+
+function isMtfOperation(): boolean {
+  const operation = normalizeOperation(props.activeOperation)
+  return operation === 'mtf' || operation.startsWith('mtf:') || operation === 'qa:mtf' || operation.startsWith('qa:mtf')
+}
+
+function isWorkspacePointerOperation(): boolean {
+  return isMeasureOperation() || isMtfOperation()
 }
 
 function resolveDragOperation(): ViewOperationType | null {
@@ -282,6 +330,9 @@ function endPinch(): void {
 
 function handlePointerDown(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerDown?.(event, 'single')) {
+    return
+  }
   if (event.currentTarget instanceof HTMLElement) {
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -291,7 +342,7 @@ function handlePointerDown(event: PointerEvent): void {
     beginPinch()
     return
   }
-  if (isMeasureOperation() && event.isPrimary && event.button === 0) {
+  if (isWorkspacePointerOperation() && event.isPrimary && event.button === 0) {
     workspacePointerIds.add(event.pointerId)
     handleViewportPointerDown(event, 'single')
     return
@@ -313,6 +364,9 @@ function handleScrollDrag(deltaY: number): void {
 }
 
 function handlePointerMove(event: PointerEvent): void {
+  if (props.annotationPointerMove?.(event)) {
+    return
+  }
   const previousPoint = activePointers.get(event.pointerId)
   if (previousPoint) {
     activePointers.set(event.pointerId, getPoint(event))
@@ -370,6 +424,9 @@ function handlePointerMove(event: PointerEvent): void {
 
 function handlePointerUp(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerUp?.(event)) {
+    return
+  }
   activePointers.delete(event.pointerId)
   if (workspacePointerIds.delete(event.pointerId)) {
     handleViewportPointerUp(event)
@@ -393,6 +450,9 @@ function handlePointerUp(event: PointerEvent): void {
 
 function handlePointerCancel(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerCancel?.(event)) {
+    return
+  }
   if (workspacePointerIds.delete(event.pointerId)) {
     handleViewportPointerCancel(event)
     return
@@ -402,6 +462,11 @@ function handlePointerCancel(event: PointerEvent): void {
     endPinch()
     endDrag()
   }
+}
+
+function handlePointerLeave(viewportKey: string): void {
+  props.annotationPointerLeave?.(viewportKey)
+  handleViewportPointerLeave(viewportKey)
 }
 
 onMounted(() => {
@@ -457,24 +522,39 @@ watch(
       :active-operation="activeOperation"
       :placeholder="viewportPlaceholder"
       :cursor-class="viewportCursorClasses.single ?? ''"
-      :annotations="[]"
+      :annotations="annotations"
       :corner-info="stackTab?.cornerInfo ?? emptyCornerInfo"
+      :draft-annotation="draftAnnotation"
       :draft-measurement-mode="getDraftMeasurementMode('single')"
       :draft-measurement="getDraftMeasurement()"
       :measurements="stackTab?.measurements ?? []"
+      :mtf-draft-mode="getMtfDraftMode('single')"
+      :mtf-draft="getMtfDraft('single')"
+      :mtf-items="mtfItems"
+      :qa-water-analysis="qaWaterAnalysis"
+      :selected-mtf-id="selectedMtfId ?? null"
       :scale-bar="stackTab?.scaleBar ?? null"
       :show-corner-info="stackTab?.showCornerInfo !== false"
       :show-scale-bar="stackTab?.showScaleBar !== false"
       :orientation="stackTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
+      @copy-annotation="emit('copyAnnotation', $event)"
+      @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="copySelectedMeasurement"
+      @delete-annotation="emit('deleteAnnotation', $event)"
       @delete-selected-measurement="deleteSelectedMeasurement"
+      @clear-mtf="emit('clearMtf')"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
+      @open-mtf-curve="emit('openMtfCurve')"
+      @select-mtf="emit('selectMtf', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
       @pointer-down="handlePointerDown"
       @pointer-move="handlePointerMove"
       @pointer-up="handlePointerUp"
       @pointer-cancel="handlePointerCancel"
-      @pointer-leave="handleViewportPointerLeave"
+      @pointer-leave="handlePointerLeave"
+      @update-annotation-color="emit('updateAnnotationColor', $event)"
+      @update-annotation-size="emit('updateAnnotationSize', $event)"
+      @update-annotation-text="emit('updateAnnotationText', $event)"
     />
   </section>
 </template>

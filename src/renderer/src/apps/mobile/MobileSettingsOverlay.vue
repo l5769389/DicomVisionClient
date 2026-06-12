@@ -6,7 +6,6 @@ import {
   useUiPreferences,
   type AppLocale,
   type CrosshairViewportPreference,
-  type DicomTagDisplayMode,
   type ExportPreference,
   type MeasurementLineStyle,
   type MeasurementStylePreference,
@@ -22,6 +21,7 @@ import {
   type MobileMprDefaultTool,
   type MobileOrientationLock,
   type MobileStackDefaultTool,
+  type MobileVolumeDefaultTool,
   useMobileViewerPreferences
 } from './useMobileViewerPreferences'
 
@@ -35,7 +35,6 @@ const emit = defineEmits<{
 
 const {
   crosshairConfigs,
-  dicomTagDisplayMode,
   exportPreference,
   getWindowPresetLabel,
   locale,
@@ -63,6 +62,7 @@ const {
   orientationLock,
   stackDefaultTool,
   stackPlaybackFps,
+  volumeDefaultTool,
   setDefaultShowCornerInfo,
   setDefaultShowScaleBar,
   setGestureSensitivity,
@@ -71,7 +71,8 @@ const {
   setMprShowReferenceThumbnails,
   setOrientationLock,
   setStackDefaultTool,
-  setStackPlaybackFps
+  setStackPlaybackFps,
+  setVolumeDefaultTool
 } = useMobileViewerPreferences()
 
 type MobileSettingsPanelKey =
@@ -99,6 +100,13 @@ interface ThemeOption {
 interface ColorPreset {
   value: string
   label: string
+}
+
+interface MobileDefaultToolOption<T extends string> {
+  key: T
+  icon: string
+  zh: string
+  en: string
 }
 
 const isZh = computed(() => locale.value === 'zh-CN')
@@ -143,15 +151,21 @@ const mprViewportOptions: Array<{ key: MprViewportKey; label: string; desc: stri
   { key: 'mpr-sag', label: 'SAG', desc: 'Sagittal' }
 ]
 
-const stackToolOptions: Array<{ key: MobileStackDefaultTool; zh: string; en: string }> = [
-  { key: 'scroll', zh: '滚片', en: 'Scroll' },
-  { key: 'window', zh: '调窗', en: 'Window' },
-  { key: 'pan', zh: '平移', en: 'Pan' }
+const stackToolOptions: Array<MobileDefaultToolOption<MobileStackDefaultTool>> = [
+  { key: 'scroll', icon: 'page', zh: '滚片', en: 'Scroll' },
+  { key: 'window', icon: 'window', zh: '调窗', en: 'Window' },
+  { key: 'pan', icon: 'pan', zh: '平移', en: 'Pan' }
 ]
 
-const mprToolOptions: Array<{ key: MobileMprDefaultTool; zh: string; en: string }> = [
-  { key: 'crosshair', zh: '十字线', en: 'Crosshair' },
+const mprToolOptions: Array<MobileDefaultToolOption<MobileMprDefaultTool>> = [
+  { key: 'crosshair', icon: 'crosshair', zh: '十字线', en: 'Crosshair' },
   ...stackToolOptions
+]
+
+const volumeToolOptions: Array<MobileDefaultToolOption<MobileVolumeDefaultTool>> = [
+  { key: 'rotate3d', icon: 'rotate3d', zh: '旋转', en: 'Rotate' },
+  { key: 'window', icon: 'window', zh: '调窗', en: 'Window' },
+  { key: 'pan', icon: 'pan', zh: '平移', en: 'Pan' }
 ]
 
 const gestureSensitivityLabels: Record<MobileGestureSensitivity, { zh: string; en: string }> = {
@@ -174,6 +188,19 @@ const scaleBarColorPresets: ColorPreset[] = [
   { value: '#a855f7', label: 'Violet' }
 ]
 
+const DEFAULT_MOBILE_SCALE_BAR_PREFERENCE: ScaleBarPreference = {
+  enabled: true,
+  color: '#f8fafc'
+}
+
+function createDefaultMobileCrosshairConfigs(): CrosshairViewportPreference[] {
+  return [
+    { key: 'mpr-ax', label: 'AX', color: '#ef4444', thickness: 2 },
+    { key: 'mpr-cor', label: 'COR', color: '#22c55e', thickness: 2 },
+    { key: 'mpr-sag', label: 'SAG', color: '#3b82f6', thickness: 2 }
+  ]
+}
+
 const measurementColorPresets: ColorPreset[] = [
   { value: '#ffb84d', label: 'Amber' },
   { value: '#55e7ff', label: 'Cyan' },
@@ -187,19 +214,6 @@ const lineStyleOptions: Array<{ value: MeasurementLineStyle; zh: string; en: str
   { value: 'solid', zh: '实线', en: 'Solid' },
   { value: 'dash', zh: '虚线', en: 'Dashed' }
 ]
-
-const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; title: string; badge: string }>>(() => [
-  {
-    value: 'tree',
-    title: isZh.value ? '树形缩进' : 'Tree indent',
-    badge: 'TREE'
-  },
-  {
-    value: 'flat',
-    title: isZh.value ? '平铺列表' : 'Flat list',
-    badge: 'LIST'
-  }
-])
 
 const selectedThemeLabel = computed(() => {
   const theme = themeOptions.find((item) => item.id === themeId.value)
@@ -221,23 +235,29 @@ const selectedStackToolLabel = computed(() =>
 const selectedMprToolLabel = computed(() =>
   mprToolOptions.find((tool) => tool.key === mprDefaultTool.value)?.[isZh.value ? 'zh' : 'en'] ?? mprDefaultTool.value
 )
+const selectedVolumeToolLabel = computed(() =>
+  volumeToolOptions.find((tool) => tool.key === volumeDefaultTool.value)?.[isZh.value ? 'zh' : 'en'] ?? volumeDefaultTool.value
+)
 const displayDefaultsLabel = computed(() => {
   const enabledCount = [defaultShowCornerInfo.value, defaultShowScaleBar.value].filter(Boolean).length
   return isZh.value ? `${enabledCount} 项开启` : `${enabledCount} on`
 })
+const crosshairThickness = computed(() => {
+  if (!crosshairConfigs.value.length) {
+    return 2
+  }
+  const average = crosshairConfigs.value.reduce((sum, item) => sum + item.thickness, 0) / crosshairConfigs.value.length
+  return Math.round(average * 2) / 2
+})
 const overlayStyleLabel = computed(() => {
   const scaleBarLabel = scaleBarPreference.value.enabled ? (isZh.value ? '比例尺开' : 'Scale on') : (isZh.value ? '比例尺关' : 'Scale off')
-  const averageThickness = crosshairConfigs.value.length
-    ? Math.round(crosshairConfigs.value.reduce((sum, item) => sum + item.thickness, 0) / crosshairConfigs.value.length)
-    : 2
-  return isZh.value ? `${scaleBarLabel} · 十字线 ${averageThickness}px` : `${scaleBarLabel} · Crosshair ${averageThickness}px`
+  return isZh.value ? `${scaleBarLabel} · 十字线 ${crosshairThickness.value}px` : `${scaleBarLabel} · Crosshair ${crosshairThickness.value}px`
 })
 const measurementStyleLabel = computed(() => {
   const enabledCount = roiStatOptions.value.filter((item) => item.enabled).length
   return isZh.value ? `${measurementStylePreference.value.lineWidth}px · ROI ${enabledCount} 项` : `${measurementStylePreference.value.lineWidth}px · ${enabledCount} ROI`
 })
 const dicomExportLabel = computed(() => {
-  const tagLabel = dicomTagDisplayModeOptions.value.find((item) => item.value === dicomTagDisplayMode.value)?.title ?? dicomTagDisplayMode.value
   const enabledExportCount = [
     exportPreference.value.includePngMeasurements,
     exportPreference.value.includePngAnnotations,
@@ -245,7 +265,15 @@ const dicomExportLabel = computed(() => {
     exportPreference.value.includeDicomMeasurements,
     exportPreference.value.includeDicomAnnotations
   ].filter(Boolean).length
-  return isZh.value ? `${tagLabel} · 导出 ${enabledExportCount} 项` : `${tagLabel} · ${enabledExportCount} export`
+  return isZh.value ? `导出 ${enabledExportCount} 项` : `${enabledExportCount} export options`
+})
+const stackPlaybackFpsIndex = computed(() => {
+  const index = MOBILE_STACK_PLAYBACK_FPS_OPTIONS.indexOf(stackPlaybackFps.value)
+  return index >= 0 ? index : 0
+})
+const gestureSensitivityIndex = computed(() => {
+  const index = MOBILE_GESTURE_SENSITIVITY_OPTIONS.indexOf(gestureSensitivity.value)
+  return index >= 0 ? index : 1
 })
 const activePanelTitle = computed(() => {
   if (!activePanel.value) {
@@ -286,6 +314,26 @@ function updateCrosshairConfig(key: CrosshairViewportPreference['key'], patch: P
   setCrosshairConfigs(crosshairConfigs.value.map((item) => (item.key === key ? { ...item, ...patch, key } : item)))
 }
 
+function setCrosshairThickness(value: number): void {
+  if (!Number.isFinite(value)) {
+    return
+  }
+  setCrosshairConfigs(crosshairConfigs.value.map((item) => ({
+    ...item,
+    thickness: value
+  })))
+}
+
+function handleCrosshairThicknessInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null
+  setCrosshairThickness(Number.parseFloat(target?.value ?? ''))
+}
+
+function resetOverlayStylePreferences(): void {
+  setScaleBarPreference({ ...DEFAULT_MOBILE_SCALE_BAR_PREFERENCE })
+  setCrosshairConfigs(createDefaultMobileCrosshairConfigs())
+}
+
 function updateScaleBarPreference(patch: Partial<ScaleBarPreference>): void {
   setScaleBarPreference({ ...scaleBarPreference.value, ...patch })
 }
@@ -306,12 +354,20 @@ function updateRoiStatOption(key: RoiStatPreference['key'], enabled: boolean): v
   setRoiStatOptions(roiStatOptions.value.map((item) => (item.key === key ? { ...item, enabled } : item)))
 }
 
-function setDicomTagMode(value: DicomTagDisplayMode): void {
-  dicomTagDisplayMode.value = value
-}
-
 function updateExportPreference(patch: Partial<ExportPreference>): void {
   setExportPreference({ ...exportPreference.value, ...patch })
+}
+
+function handleStackPlaybackFpsInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null
+  const index = Math.max(0, Math.min(MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1, Number.parseInt(target?.value ?? '', 10)))
+  setStackPlaybackFps(MOBILE_STACK_PLAYBACK_FPS_OPTIONS[index])
+}
+
+function handleGestureSensitivityInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null
+  const index = Math.max(0, Math.min(MOBILE_GESTURE_SENSITIVITY_OPTIONS.length - 1, Number.parseInt(target?.value ?? '', 10)))
+  setGestureSensitivity(MOBILE_GESTURE_SENSITIVITY_OPTIONS[index])
 }
 </script>
 
@@ -353,7 +409,7 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
               <AppIcon name="page" :size="20" />
               <span>
                 <strong>{{ isZh ? '阅片默认' : 'Reading Defaults' }}</strong>
-                <small>Stack {{ selectedStackToolLabel }} · MPR {{ selectedMprToolLabel }}</small>
+                <small>Stack {{ selectedStackToolLabel }} · MPR {{ selectedMprToolLabel }} · 3D {{ selectedVolumeToolLabel }}</small>
               </span>
               <AppIcon name="chevron-right" :size="18" />
             </button>
@@ -477,6 +533,7 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
               data-testid="mobile-settings-stack-tool"
               @click="setStackDefaultTool(tool.key)"
             >
+              <AppIcon :name="tool.icon" :size="16" />
               <span>{{ isZh ? tool.zh : tool.en }}</span>
             </button>
           </div>
@@ -491,6 +548,22 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
               data-testid="mobile-settings-mpr-tool"
               @click="setMprDefaultTool(tool.key)"
             >
+              <AppIcon :name="tool.icon" :size="16" />
+              <span>{{ isZh ? tool.zh : tool.en }}</span>
+            </button>
+          </div>
+          <div class="mobile-settings__subhead">{{ isZh ? '3D 默认工具' : '3D Default Tool' }}</div>
+          <div class="mobile-settings__option-grid">
+            <button
+              v-for="tool in volumeToolOptions"
+              :key="tool.key"
+              type="button"
+              class="mobile-settings__option"
+              :class="{ active: volumeDefaultTool === tool.key }"
+              data-testid="mobile-settings-volume-tool"
+              @click="setVolumeDefaultTool(tool.key)"
+            >
+              <AppIcon :name="tool.icon" :size="16" />
               <span>{{ isZh ? tool.zh : tool.en }}</span>
             </button>
           </div>
@@ -598,6 +671,18 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
         <section v-else-if="activePanel === 'overlays'" class="mobile-settings__section">
           <button
             type="button"
+            class="mobile-settings__reset-row"
+            data-testid="mobile-settings-overlay-reset"
+            @click="resetOverlayStylePreferences"
+          >
+            <AppIcon name="reset" :size="18" />
+            <span>
+              <strong>{{ isZh ? '重置覆盖层样式' : 'Reset Overlay Style' }}</strong>
+              <small>{{ isZh ? '恢复比例尺和 MPR 十字线默认样式' : 'Restore scale bar and MPR crosshair defaults' }}</small>
+            </span>
+          </button>
+          <button
+            type="button"
             class="mobile-settings__switch-row"
             data-testid="mobile-settings-overlay-scale-enabled"
             @click="updateScaleBarPreference({ enabled: !scaleBarPreference.enabled })"
@@ -632,6 +717,20 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
 
           <div class="mobile-settings__control-block">
             <div class="mobile-settings__subhead">{{ isZh ? 'MPR 十字线' : 'MPR Crosshair' }}</div>
+            <div class="mobile-settings__range-head">
+              <span>{{ isZh ? '整体粗细' : 'Overall Thickness' }}</span>
+              <strong>{{ crosshairThickness }} px</strong>
+            </div>
+            <input
+              class="mobile-settings__range"
+              data-testid="mobile-settings-crosshair-thickness"
+              type="range"
+              min="1"
+              max="4"
+              step="0.5"
+              :value="crosshairThickness"
+              @input="handleCrosshairThicknessInput"
+            />
             <div class="mobile-settings__crosshair-list">
               <div v-for="config in crosshairConfigs" :key="config.key" class="mobile-settings__crosshair-row">
                 <span class="mobile-settings__crosshair-label">{{ config.label }}</span>
@@ -648,18 +747,6 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
                     @click="updateCrosshairConfig(config.key, { color: preset.value })"
                   >
                     <span></span>
-                  </button>
-                </div>
-                <div class="mobile-settings__mini-segmented">
-                  <button
-                    v-for="thickness in [1, 2, 3, 4]"
-                    :key="`${config.key}-${thickness}`"
-                    type="button"
-                    :class="{ active: Math.round(config.thickness) === thickness }"
-                    data-testid="mobile-settings-crosshair-thickness"
-                    @click="updateCrosshairConfig(config.key, { thickness })"
-                  >
-                    {{ thickness }}
                   </button>
                 </div>
               </div>
@@ -774,115 +861,124 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
         </section>
 
         <section v-else-if="activePanel === 'dicomExport'" class="mobile-settings__section">
-          <div class="mobile-settings__subhead">{{ isZh ? 'DICOM Tag 显示' : 'DICOM Tag Display' }}</div>
-          <div class="mobile-settings__option-grid">
+          <div class="mobile-settings__note-card">
+            <AppIcon name="tag" :size="18" />
+            <span>
+              <strong>{{ isZh ? 'DICOM Tag 浏览' : 'DICOM Tag Browser' }}</strong>
+              <small>{{ isZh ? '移动端简洁浏览布局' : 'Compact mobile browsing layout' }}</small>
+            </span>
+          </div>
+
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__subhead">{{ isZh ? '导出文件名' : 'Export File Name' }}</div>
             <button
-              v-for="option in dicomTagDisplayModeOptions"
-              :key="option.value"
               type="button"
-              class="mobile-settings__option"
-              :class="{ active: dicomTagDisplayMode === option.value }"
-              data-testid="mobile-settings-dicom-tag-mode"
-              @click="setDicomTagMode(option.value)"
+              class="mobile-settings__switch-row mobile-settings__switch-row--embedded"
+              data-testid="mobile-settings-export-default-name"
+              @click="updateExportPreference({ useDefaultFileName: !exportPreference.useDefaultFileName })"
             >
-              <strong>{{ option.badge }}</strong>
-              <span>{{ option.title }}</span>
+              <span>
+                <strong>{{ isZh ? '自动使用默认文件名' : 'Use automatic file name' }}</strong>
+                <small>{{ exportPreference.useDefaultFileName ? (isZh ? '导出时直接按序列和视口命名' : 'Exports are named from series and viewport') : (isZh ? '导出前询问文件名' : 'Ask for a file name before export') }}</small>
+              </span>
+              <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.useDefaultFileName }" aria-hidden="true">
+                <span></span>
+              </span>
             </button>
           </div>
 
-          <button
-            type="button"
-            class="mobile-settings__switch-row"
-            data-testid="mobile-settings-export-default-name"
-            @click="updateExportPreference({ useDefaultFileName: !exportPreference.useDefaultFileName })"
-          >
-            <span>
-              <strong>{{ isZh ? '使用默认文件名' : 'Use Default File Name' }}</strong>
-              <small>{{ exportPreference.useDefaultFileName ? (isZh ? '已开启' : 'Enabled') : (isZh ? '已关闭' : 'Disabled') }}</small>
-            </span>
-            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.useDefaultFileName }" aria-hidden="true">
-              <span></span>
-            </span>
-          </button>
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__subhead">{{ isZh ? 'PNG 截图内容' : 'PNG Snapshot Content' }}</div>
+            <button
+              type="button"
+              class="mobile-settings__switch-row mobile-settings__switch-row--embedded"
+              data-testid="mobile-settings-export-png-measurements"
+              @click="updateExportPreference({ includePngMeasurements: !exportPreference.includePngMeasurements })"
+            >
+              <span><strong>{{ isZh ? '包含测量' : 'Measurements' }}</strong></span>
+              <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includePngMeasurements }" aria-hidden="true"><span></span></span>
+            </button>
+            <button
+              type="button"
+              class="mobile-settings__switch-row mobile-settings__switch-row--embedded"
+              data-testid="mobile-settings-export-png-annotations"
+              @click="updateExportPreference({ includePngAnnotations: !exportPreference.includePngAnnotations })"
+            >
+              <span><strong>{{ isZh ? '包含标注' : 'Annotations' }}</strong></span>
+              <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includePngAnnotations }" aria-hidden="true"><span></span></span>
+            </button>
+            <button
+              type="button"
+              class="mobile-settings__switch-row mobile-settings__switch-row--embedded"
+              data-testid="mobile-settings-export-png-corner"
+              @click="updateExportPreference({ includePngCornerInfo: !exportPreference.includePngCornerInfo })"
+            >
+              <span><strong>{{ isZh ? '包含四角信息' : 'Corner Info' }}</strong></span>
+              <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includePngCornerInfo }" aria-hidden="true"><span></span></span>
+            </button>
+          </div>
 
-          <div class="mobile-settings__subhead">PNG</div>
-          <button
-            type="button"
-            class="mobile-settings__switch-row"
-            data-testid="mobile-settings-export-png-measurements"
-            @click="updateExportPreference({ includePngMeasurements: !exportPreference.includePngMeasurements })"
-          >
-            <span><strong>{{ isZh ? '包含测量' : 'Measurements' }}</strong></span>
-            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includePngMeasurements }" aria-hidden="true"><span></span></span>
-          </button>
-          <button
-            type="button"
-            class="mobile-settings__switch-row"
-            data-testid="mobile-settings-export-png-annotations"
-            @click="updateExportPreference({ includePngAnnotations: !exportPreference.includePngAnnotations })"
-          >
-            <span><strong>{{ isZh ? '包含标注' : 'Annotations' }}</strong></span>
-            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includePngAnnotations }" aria-hidden="true"><span></span></span>
-          </button>
-          <button
-            type="button"
-            class="mobile-settings__switch-row"
-            data-testid="mobile-settings-export-png-corner"
-            @click="updateExportPreference({ includePngCornerInfo: !exportPreference.includePngCornerInfo })"
-          >
-            <span><strong>{{ isZh ? '包含四角信息' : 'Corner Info' }}</strong></span>
-            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includePngCornerInfo }" aria-hidden="true"><span></span></span>
-          </button>
-
-          <div class="mobile-settings__subhead">DICOM</div>
-          <button
-            type="button"
-            class="mobile-settings__switch-row"
-            data-testid="mobile-settings-export-dicom-measurements"
-            @click="updateExportPreference({ includeDicomMeasurements: !exportPreference.includeDicomMeasurements })"
-          >
-            <span><strong>{{ isZh ? '包含测量' : 'Measurements' }}</strong></span>
-            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includeDicomMeasurements }" aria-hidden="true"><span></span></span>
-          </button>
-          <button
-            type="button"
-            class="mobile-settings__switch-row"
-            data-testid="mobile-settings-export-dicom-annotations"
-            @click="updateExportPreference({ includeDicomAnnotations: !exportPreference.includeDicomAnnotations })"
-          >
-            <span><strong>{{ isZh ? '包含标注' : 'Annotations' }}</strong></span>
-            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includeDicomAnnotations }" aria-hidden="true"><span></span></span>
-          </button>
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__subhead">{{ isZh ? 'DICOM 导出内容' : 'DICOM Export Content' }}</div>
+            <button
+              type="button"
+              class="mobile-settings__switch-row mobile-settings__switch-row--embedded"
+              data-testid="mobile-settings-export-dicom-measurements"
+              @click="updateExportPreference({ includeDicomMeasurements: !exportPreference.includeDicomMeasurements })"
+            >
+              <span><strong>{{ isZh ? '包含测量' : 'Measurements' }}</strong></span>
+              <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includeDicomMeasurements }" aria-hidden="true"><span></span></span>
+            </button>
+            <button
+              type="button"
+              class="mobile-settings__switch-row mobile-settings__switch-row--embedded"
+              data-testid="mobile-settings-export-dicom-annotations"
+              @click="updateExportPreference({ includeDicomAnnotations: !exportPreference.includeDicomAnnotations })"
+            >
+              <span><strong>{{ isZh ? '包含标注' : 'Annotations' }}</strong></span>
+              <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': exportPreference.includeDicomAnnotations }" aria-hidden="true"><span></span></span>
+            </button>
+          </div>
         </section>
 
         <section v-else-if="activePanel === 'playback'" class="mobile-settings__section">
-          <div class="mobile-settings__subhead">{{ isZh ? 'Stack / MPR 播放 FPS' : 'Stack / MPR Playback FPS' }}</div>
-          <div class="mobile-settings__option-grid mobile-settings__fps-grid">
-            <button
-              v-for="fps in MOBILE_STACK_PLAYBACK_FPS_OPTIONS"
-              :key="fps"
-              type="button"
-              class="mobile-settings__option"
-              :class="{ active: stackPlaybackFps === fps }"
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__range-head">
+              <span class="mobile-settings__subhead">{{ isZh ? 'Stack / MPR 播放 FPS' : 'Stack / MPR Playback FPS' }}</span>
+              <strong>{{ stackPlaybackFps }} FPS</strong>
+            </div>
+            <input
+              class="mobile-settings__range"
               data-testid="mobile-settings-playback-fps"
-              @click="setStackPlaybackFps(fps)"
-            >
-              <span>{{ fps }} FPS</span>
-            </button>
+              type="range"
+              min="0"
+              :max="MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1"
+              step="1"
+              :value="stackPlaybackFpsIndex"
+              @input="handleStackPlaybackFpsInput"
+            />
+            <div class="mobile-settings__range-ticks" aria-hidden="true">
+              <span v-for="fps in MOBILE_STACK_PLAYBACK_FPS_OPTIONS" :key="fps">{{ fps }}</span>
+            </div>
           </div>
-          <div class="mobile-settings__subhead">{{ isZh ? '滚片灵敏度' : 'Scroll Sensitivity' }}</div>
-          <div class="mobile-settings__option-grid mobile-settings__sensitivity-grid">
-            <button
-              v-for="item in MOBILE_GESTURE_SENSITIVITY_OPTIONS"
-              :key="item"
-              type="button"
-              class="mobile-settings__option"
-              :class="{ active: gestureSensitivity === item }"
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__range-head">
+              <span class="mobile-settings__subhead">{{ isZh ? '滚片灵敏度' : 'Scroll Sensitivity' }}</span>
+              <strong>{{ isZh ? gestureSensitivityLabels[gestureSensitivity].zh : gestureSensitivityLabels[gestureSensitivity].en }}</strong>
+            </div>
+            <input
+              class="mobile-settings__range"
               data-testid="mobile-settings-gesture-sensitivity"
-              @click="setGestureSensitivity(item)"
-            >
-              <span>{{ isZh ? gestureSensitivityLabels[item].zh : gestureSensitivityLabels[item].en }}</span>
-            </button>
+              type="range"
+              min="0"
+              :max="MOBILE_GESTURE_SENSITIVITY_OPTIONS.length - 1"
+              step="1"
+              :value="gestureSensitivityIndex"
+              @input="handleGestureSensitivityInput"
+            />
+            <div class="mobile-settings__range-ticks" aria-hidden="true">
+              <span v-for="item in MOBILE_GESTURE_SENSITIVITY_OPTIONS" :key="item">{{ isZh ? gestureSensitivityLabels[item].zh : gestureSensitivityLabels[item].en }}</span>
+            </div>
           </div>
           <div class="mobile-settings__subhead">{{ isZh ? '屏幕方向' : 'Orientation Lock' }}</div>
           <div class="mobile-settings__option-grid mobile-settings__orientation-grid">
@@ -1086,6 +1182,8 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
 .mobile-settings__option,
 .mobile-settings__row,
 .mobile-settings__switch-row,
+.mobile-settings__reset-row,
+.mobile-settings__note-card,
 .mobile-settings__control-block {
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
   border-radius: 8px;
@@ -1096,7 +1194,9 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
 .mobile-settings__segmented button,
 .mobile-settings__option,
 .mobile-settings__row,
-.mobile-settings__switch-row {
+.mobile-settings__switch-row,
+.mobile-settings__reset-row,
+.mobile-settings__note-card {
   min-height: 44px;
 }
 
@@ -1297,12 +1397,63 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
   text-align: left;
 }
 
+.mobile-settings__switch-row--embedded {
+  margin-top: 0;
+  border-color: color-mix(in srgb, var(--theme-border-soft) 54%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 58%, transparent);
+}
+
 .mobile-settings__switch-row strong,
 .mobile-settings__switch-row small {
   display: block;
 }
 
 .mobile-settings__switch-row small {
+  margin-top: 3px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+}
+
+.mobile-settings__reset-row,
+.mobile-settings__note-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+}
+
+.mobile-settings__reset-row {
+  color: var(--theme-text-primary);
+}
+
+.mobile-settings__reset-row > .app-icon,
+.mobile-settings__reset-row > :first-child {
+  color: var(--theme-accent);
+  justify-self: center;
+}
+
+.mobile-settings__note-card {
+  color: var(--theme-text-secondary);
+}
+
+.mobile-settings__note-card > .app-icon,
+.mobile-settings__note-card > :first-child {
+  color: var(--theme-accent);
+  justify-self: center;
+}
+
+.mobile-settings__reset-row strong,
+.mobile-settings__reset-row small,
+.mobile-settings__note-card strong,
+.mobile-settings__note-card small {
+  display: block;
+}
+
+.mobile-settings__reset-row small,
+.mobile-settings__note-card small {
   margin-top: 3px;
   color: var(--theme-text-muted);
   font-size: 11px;
@@ -1394,7 +1545,7 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
 
 .mobile-settings__crosshair-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) minmax(112px, auto);
+  grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -1441,11 +1592,31 @@ function updateExportPreference(patch: Partial<ExportPreference>): void {
   font-size: 12px;
 }
 
+.mobile-settings__range-head > span {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .mobile-settings__range {
   width: 100%;
   min-width: 0;
   accent-color: var(--theme-accent);
   touch-action: pan-x;
+}
+
+.mobile-settings__range-ticks {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.mobile-settings__range-ticks span {
+  min-width: 0;
+  text-align: center;
 }
 
 .mobile-settings__line-style-grid {

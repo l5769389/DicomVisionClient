@@ -31,8 +31,58 @@ function installLocalStorageMock(): void {
 
 vi.mock('../../composables/ui/useUiLocale', () => ({
   useUiLocale: () => ({
-    locale: ref('zh-CN')
+    locale: ref('zh-CN'),
+    workspaceExportCopy: computed(() => ({
+      cancel: 'Cancel',
+      closeExportNotification: 'Close',
+      editNameHint: 'Edit name',
+      export: 'Export',
+      exportComplete: 'Export complete',
+      exportFailed: 'Export failed',
+      exportFailedMessage: 'Export failed',
+      exportName: 'Export name',
+      exportNotCompleted: 'Export not completed',
+      invalidFileName: 'Invalid file name',
+      openFileLocation: 'Open location',
+      openLocationFailed: 'Open location failed',
+      sentToDownloads: (formatLabel: string) => `${formatLabel} downloaded`,
+      setExportName: 'Set export name',
+      unableToExport: 'Unable to export',
+      exportedTo: (location: string) => `Exported to ${location}`
+    }))
   })
+}))
+
+vi.mock('../../components/viewer/overlays/MtfCurveDialog.vue', () => ({
+  default: {
+    props: ['isOpen', 'mtfItem'],
+    emits: ['close'],
+    template: '<div v-if="isOpen" data-testid="mobile-mtf-dialog"></div>'
+  }
+}))
+
+vi.mock('../../components/workspace/VolumeRenderConfigPanel.vue', () => ({
+  default: {
+    props: ['config'],
+    emits: ['close', 'configChange'],
+    template: '<div data-testid="mobile-volume-config-panel"><button data-testid="mobile-volume-config-change" @click="$emit(\'configChange\', config)">Config</button></div>'
+  }
+}))
+
+vi.mock('../../components/workspace/export/WorkspaceExportNameDialog.vue', () => ({
+  default: {
+    props: ['copy', 'error', 'extension', 'format', 'modelValue'],
+    emits: ['cancel', 'confirm', 'update:modelValue', 'update:inputRef'],
+    template: '<div data-testid="mobile-export-name-dialog"></div>'
+  }
+}))
+
+vi.mock('../../components/workspace/export/WorkspaceExportNotice.vue', () => ({
+  default: {
+    props: ['copy', 'notice'],
+    emits: ['close', 'openLocation'],
+    template: '<div data-testid="mobile-export-notice"></div>'
+  }
 }))
 
 vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
@@ -75,12 +125,27 @@ vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
           }
         ]
       }),
+      exportPreference: ref({
+        includeDicomAnnotations: true,
+        includeDicomMeasurements: true,
+        includePngAnnotations: true,
+        includePngCornerInfo: true,
+        includePngMeasurements: true,
+        useDefaultFileName: true
+      }),
+      qaWaterMetrics: ref([
+        { key: 'accuracy', enabled: true },
+        { key: 'uniformity', enabled: true },
+        { key: 'noise', enabled: true }
+      ]),
       removeCustomWindowPresets: vi.fn(),
+      roiStatOptions: ref([]),
       selectedPseudocolorKey: ref('bw'),
       selectedWindowPresetId: ref('lung'),
       setLocale: vi.fn(),
       systemWindowPresets: windowPresets.value.filter((preset) => preset.source === 'system'),
       themeId: ref('industrial-utility'),
+      viewportCornerInfoPreference: ref({ topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }),
       windowPresets
     })
   }
@@ -98,6 +163,7 @@ vi.mock('./useMobileViewerPreferences', () => ({
     orientationLock: ref('unlocked'),
     stackDefaultTool: ref('scroll'),
     stackPlaybackFps: ref(5),
+    volumeDefaultTool: ref('rotate3d'),
     setDefaultShowCornerInfo: vi.fn(),
     setDefaultShowScaleBar: vi.fn(),
     setGestureSensitivity: vi.fn(),
@@ -106,7 +172,8 @@ vi.mock('./useMobileViewerPreferences', () => ({
     setMprShowReferenceThumbnails: vi.fn(),
     setOrientationLock: vi.fn(),
     setStackDefaultTool: vi.fn(),
-    setStackPlaybackFps: vi.fn()
+    setStackPlaybackFps: vi.fn(),
+    setVolumeDefaultTool: vi.fn()
   })
 }))
 
@@ -296,9 +363,15 @@ function createMockViewer() {
     handleFourDFpsChange: vi.fn(),
     handleFourDPhaseChange: vi.fn(),
     handleFourDPlaybackChange: vi.fn(),
+    handleMtfClear: vi.fn(),
+    handleMtfCommit: vi.fn(),
+    handleMtfCopy: vi.fn(),
+    handleMtfSelect: vi.fn(),
     handleMprCrosshair: vi.fn(),
     handleTagIndexChange: vi.fn(),
+    handleMeasurementCreate: vi.fn(),
     handleMeasurementDelete: vi.fn(),
+    handleVolumeConfigChange: vi.fn(),
     handleViewportDrag: vi.fn(),
     handleViewportWheel: vi.fn(),
     isLoadingFolder: ref(false),
@@ -330,6 +403,26 @@ function mountShell() {
     global: {
       stubs: {
         AppIcon: { props: ['name'], template: '<span class="app-icon-stub">{{ name }}</span>' },
+        MtfCurveDialog: {
+          props: ['isOpen', 'mtfItem'],
+          emits: ['close'],
+          template: '<div v-if="isOpen" data-testid="mobile-mtf-dialog"></div>'
+        },
+        VolumeRenderConfigPanel: {
+          props: ['config'],
+          emits: ['close', 'configChange'],
+          template: '<div data-testid="mobile-volume-config-panel"><button data-testid="mobile-volume-config-change" @click="$emit(\'configChange\', config)">Config</button></div>'
+        },
+        WorkspaceExportNameDialog: {
+          props: ['copy', 'error', 'extension', 'format', 'modelValue'],
+          emits: ['cancel', 'confirm', 'update:modelValue', 'update:inputRef'],
+          template: '<div data-testid="mobile-export-name-dialog"></div>'
+        },
+        WorkspaceExportNotice: {
+          props: ['copy', 'notice'],
+          emits: ['close', 'openLocation'],
+          template: '<div data-testid="mobile-export-notice"></div>'
+        },
         MobileCompareStackViewport: {
           emits: ['activeViewportChange'],
           template: '<div data-testid="mobile-compare-stub"><button data-testid="stub-compare-b" @click="$emit(\'activeViewportChange\', \'compare-b\')">B</button></div>'
@@ -567,6 +660,31 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.setActiveOperation.mock.calls.map(([operation]) => operation)).toContain('measure:rect')
   })
 
+  it('adds mobile Stack annotation/export entries and keeps QA in More', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab())
+
+    const wrapper = mountShell()
+
+    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-annotate"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-qa"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-export"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="mobile-tool-annotate"]').trigger('click')
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}annotate:arrow`)
+
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-qa"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-qa-open-mtf"]').exists()).toBe(false)
+    await wrapper.findAll('[data-testid="mobile-qa-tool"]')[1].trigger('click')
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}qa:water-phantom`)
+
+    await wrapper.get('[data-testid="mobile-tool-export"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="mobile-export-format"]')).toHaveLength(4)
+  })
+
   it('toggles mobile display overlays through viewer actions', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
@@ -611,6 +729,20 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-open-4d"]').trigger('click')
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', '4D', { useHangingProtocol: false })
+  })
+
+  it('hides unsupported view actions from the mobile series sheet', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-open-stack"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-open-mpr"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-open-3d"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-open-4d"]').exists()).toBe(false)
   })
 
   it('opens Compare from the mobile series sheet using the current series as source', async () => {
@@ -719,11 +851,22 @@ describe('MobileWorkspaceShell', () => {
 
     expect(wrapper.find('[data-testid="mobile-volume-stub"]').exists()).toBe(true)
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`)
+    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-measure"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-transform"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-volumeParams"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-export"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
     await wrapper.findAll('[data-testid="mobile-volume-render-mode"]')[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'render3dMode', value: 'render3dMode:volume' })
+
+    await wrapper.get('[data-testid="mobile-tool-volumeParams"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-volume-config-panel"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="mobile-tool-export"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="mobile-export-format"]')).toHaveLength(2)
   })
 
   it('uses 4D MPR controls for phase, playback, and active plane scrolling', async () => {
@@ -738,7 +881,7 @@ describe('MobileWorkspaceShell', () => {
 
     expect(mockViewer.handleFourDPhaseChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', phaseIndex: 2 })
 
-    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-slice-play"]').trigger('click')
     expect(mockViewer.handleFourDPlaybackChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', isPlaying: true })
 
     await wrapper.get('[data-testid="mobile-mpr-plane-mpr-cor"]').trigger('click')
@@ -817,7 +960,7 @@ describe('MobileWorkspaceShell', () => {
     mockViewer.__setActiveTab(createStackTab('series-1', { sliceLabel: '1 / 24' }))
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-slice-play"]').trigger('click')
 
     vi.advanceTimersByTime(210)
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 1 })
@@ -838,7 +981,7 @@ describe('MobileWorkspaceShell', () => {
     mockViewer.__setActiveTab(createMprTab())
 
     const wrapper = mountShell()
-    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-slice-play"]').trigger('click')
 
     vi.advanceTimersByTime(210)
     expect(mockViewer.handleViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-ax', deltaY: 1 })

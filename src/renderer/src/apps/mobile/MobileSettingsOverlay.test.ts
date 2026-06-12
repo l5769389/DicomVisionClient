@@ -66,9 +66,11 @@ const settingsState = vi.hoisted(() => ({
   setScaleBarPreferenceMock: vi.fn(),
   setStackDefaultToolMock: vi.fn(),
   setStackPlaybackFpsMock: vi.fn(),
+  setVolumeDefaultToolMock: vi.fn(),
   stackDefaultTool: 'scroll',
   stackPlaybackFps: 5,
-  themeId: 'industrial-utility'
+  themeId: 'industrial-utility',
+  volumeDefaultTool: 'rotate3d'
 }))
 
 vi.mock('../../composables/ui/useUiPreferences', () => ({
@@ -168,6 +170,7 @@ vi.mock('./useMobileViewerPreferences', () => ({
     orientationLock: computed(() => settingsState.orientationLock),
     stackDefaultTool: computed(() => settingsState.stackDefaultTool),
     stackPlaybackFps: computed(() => settingsState.stackPlaybackFps),
+    volumeDefaultTool: computed(() => settingsState.volumeDefaultTool),
     setDefaultShowCornerInfo: (value: boolean) => {
       settingsState.defaultShowCornerInfo = value
       settingsState.setDefaultShowCornerInfoMock(value)
@@ -203,6 +206,10 @@ vi.mock('./useMobileViewerPreferences', () => ({
     setStackPlaybackFps: (value: number) => {
       settingsState.stackPlaybackFps = value
       settingsState.setStackPlaybackFpsMock(value)
+    },
+    setVolumeDefaultTool: (value: string) => {
+      settingsState.volumeDefaultTool = value
+      settingsState.setVolumeDefaultToolMock(value)
     }
   })
 }))
@@ -267,6 +274,7 @@ beforeEach(() => {
   settingsState.stackDefaultTool = 'scroll'
   settingsState.stackPlaybackFps = 5
   settingsState.themeId = 'industrial-utility'
+  settingsState.volumeDefaultTool = 'rotate3d'
   settingsState.setCrosshairConfigsMock.mockClear()
   settingsState.setDefaultShowCornerInfoMock.mockClear()
   settingsState.setDefaultShowScaleBarMock.mockClear()
@@ -282,6 +290,7 @@ beforeEach(() => {
   settingsState.setScaleBarPreferenceMock.mockClear()
   settingsState.setStackDefaultToolMock.mockClear()
   settingsState.setStackPlaybackFpsMock.mockClear()
+  settingsState.setVolumeDefaultToolMock.mockClear()
 })
 
 describe('MobileSettingsOverlay', () => {
@@ -306,6 +315,7 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-nav-reading"]').trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-stack-tool"]')[1].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-mpr-tool"]')[3].trigger('click')
+    await wrapper.findAll('[data-testid="mobile-settings-volume-tool"]')[2].trigger('click')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-mpr"]').trigger('click')
@@ -319,10 +329,11 @@ describe('MobileSettingsOverlay', () => {
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-overlays"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-overlay-reset"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-overlay-scale-enabled"]').trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-scale-color"]')[2].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-crosshair-color"]')[1].trigger('click')
-    await wrapper.findAll('[data-testid="mobile-settings-crosshair-thickness"]')[2].trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-crosshair-thickness"]').setValue('3')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-measurements"]').trigger('click')
@@ -335,15 +346,15 @@ describe('MobileSettingsOverlay', () => {
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-dicom-export"]').trigger('click')
-    await wrapper.findAll('[data-testid="mobile-settings-dicom-tag-mode"]')[1].trigger('click')
+    expect(wrapper.find('[data-testid="mobile-settings-dicom-tag-mode"]').exists()).toBe(false)
     await wrapper.get('[data-testid="mobile-settings-export-default-name"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-export-png-measurements"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-export-dicom-annotations"]').trigger('click')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-playback"]').trigger('click')
-    await wrapper.findAll('[data-testid="mobile-settings-playback-fps"]')[4].trigger('click')
-    await wrapper.findAll('[data-testid="mobile-settings-gesture-sensitivity"]')[2].trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-playback-fps"]').setValue('4')
+    await wrapper.get('[data-testid="mobile-settings-gesture-sensitivity"]').setValue('2')
     await wrapper.findAll('[data-testid="mobile-settings-orientation-lock"]')[2].trigger('click')
 
     expect(settingsState.setLocaleMock).toHaveBeenCalledWith('en-US')
@@ -353,6 +364,7 @@ describe('MobileSettingsOverlay', () => {
     expect(settingsState.selectedPseudocolorKey).toBe('blackbody')
     expect(settingsState.setStackDefaultToolMock).toHaveBeenCalledWith('window')
     expect(settingsState.setMprDefaultToolMock).toHaveBeenCalledWith('pan')
+    expect(settingsState.setVolumeDefaultToolMock).toHaveBeenCalledWith('pan')
     expect(settingsState.setMprDefaultViewportMock).toHaveBeenCalledWith('mpr-sag')
     expect(settingsState.setMprShowReferenceThumbnailsMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowCornerInfoMock).toHaveBeenCalledWith(false)
@@ -367,7 +379,7 @@ describe('MobileSettingsOverlay', () => {
       lineWidth: 4
     })
     expect(settingsState.roiStatOptions[0]).toEqual({ key: 'mean', label: 'Mean', enabled: false })
-    expect(settingsState.dicomTagDisplayMode).toBe('flat')
+    expect(settingsState.dicomTagDisplayMode).toBe('tree')
     expect(settingsState.exportPreference).toEqual({
       desktopDirectory: null,
       includeDicomAnnotations: false,

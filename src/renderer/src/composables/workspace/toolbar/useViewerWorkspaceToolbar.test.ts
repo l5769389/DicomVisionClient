@@ -559,18 +559,25 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
 
     const segmentationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'segmentation')!
+    expect(segmentationTool.icon).toBe('segmentation')
     expect(segmentationTool.options?.map((option) => option.value)).toEqual(['segmentation:threshold', 'segmentation:voi'])
+    expect(segmentationTool.options?.map((option) => option.icon)).toEqual(['segmentation-threshold', 'segmentation-voi'])
 
     harness.toolbar.selectToolOption(segmentationTool, 'segmentation:threshold')
     expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:threshold')
     expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
       action: 'mprSegmentation',
       actionType: 'end',
-      segmentationConfig: expect.objectContaining({
+      segmentationConfig: {
         enabled: true,
-        lowerHu: 300,
-        upperHu: 3071
-      })
+        clientRevision: 0,
+        selectedRegionId: null,
+        selectedVoi: false,
+        selectedVoiId: null,
+        thresholdRegions: [],
+        voiSpheres: [],
+        voiSphere: null
+      }
     })
     expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(true)
 
@@ -580,16 +587,16 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
       action: 'mprSegmentation',
       actionType: 'end',
-      segmentationConfig: expect.objectContaining({
-        voiBox: expect.objectContaining({
-          xMin: 0,
-          xMax: 1,
-          yMin: 0,
-          yMax: 1,
-          zMin: 0,
-          zMax: 1
-        })
-      })
+      segmentationConfig: {
+        enabled: false,
+        clientRevision: 0,
+        selectedRegionId: null,
+        selectedVoi: false,
+        selectedVoiId: null,
+        thresholdRegions: [],
+        voiSpheres: [],
+        voiSphere: null
+      }
     })
 
     harness.wrapper.unmount()

@@ -5,6 +5,8 @@ export interface OverlayImageFrame {
   top: number
   width: number
   height: number
+  naturalWidth?: number
+  naturalHeight?: number
 }
 
 export interface OverlayScreenPoint {

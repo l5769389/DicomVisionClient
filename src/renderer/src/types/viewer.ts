@@ -7,7 +7,6 @@ import type {
   MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
   MprSegmentationConfig as BackendMprSegmentationConfig,
-  MprSegmentationVoiBox as BackendMprSegmentationVoiBox,
   MprPlaneInfo as BackendMprPlaneInfo,
   OperationAcceptedResponse as BackendOperationAcceptedResponse,
   OrientationInfo as BackendOrientationInfo,
@@ -282,25 +281,128 @@ export function normalizeMprMipConfig(
   }
 }
 
-export interface MprSegmentationVoiBox extends Required<BackendMprSegmentationVoiBox> {}
+export interface MprSegmentationVoiBox {
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  zMin: number
+  zMax: number
+}
 
-export interface MprSegmentationConfig extends BackendMprSegmentationConfig {
+export interface MprThresholdRegionStats {
+  huMean: number | null
+  huMin: number | null
+  huMax: number | null
+  huStdDev: number | null
+  volumeCm3: number
+  sampleCount: number
+  effectiveThresholdHu: number | null
+}
+
+export interface MprThresholdRegionBox {
+  centerWorld: Vec3
+  rowWorld: Vec3
+  colWorld: Vec3
+  normalWorld: Vec3
+  widthMm: number
+  heightMm: number
+  depthMm: number
+  sourceViewport: MprViewportKey
+}
+
+export interface MprThresholdRegion {
+  id: string
   enabled: boolean
-  lowerHu: number
-  upperHu: number
-  opacity: number
+  label: string
+  thresholdHu: number
+  thresholdMode: 'hu' | 'percentile'
+  thresholdPercentile: number
   color: string
+  box: MprThresholdRegionBox
+  stats?: MprThresholdRegionStats | null
+}
+
+export interface MprVoiSphere {
+  id: string
+  label: string
+  enabled: boolean
+  centerWorld: Vec3
+  radiusMm: number
+  color: string
+  stats?: MprVoiSphereStats | null
+}
+
+export interface MprVoiSphereStats {
+  huMean: number | null
+  huMin: number | null
+  huMax: number | null
+  huStdDev: number | null
+  volumeCm3: number
+  sampleCount: number
+}
+
+export interface MprSegmentationConfig extends Omit<
+  BackendMprSegmentationConfig,
+  'selectedRegionId' | 'selectedVoi' | 'selectedVoiId' | 'thresholdRegions' | 'voiSpheres' | 'voiSphere' | 'lowerHu' | 'upperHu' | 'opacity' | 'color' | 'voiBox'
+> {
+  enabled: boolean
+  clientRevision: number
+  selectedRegionId: string | null
+  selectedVoi: boolean
+  selectedVoiId: string | null
+  thresholdRegions: MprThresholdRegion[]
+  voiSpheres: MprVoiSphere[]
+  voiSphere?: MprVoiSphere | null
+  lowerHu?: number | null
+  upperHu?: number | null
+  opacity?: number
+  color?: string
   voiBox?: MprSegmentationVoiBox | null
 }
 
 export type MprSegmentationOperationConfig = MprSegmentationConfig
+
+export interface MprSegmentationOverlayRect {
+  xMin: number
+  yMin: number
+  xMax: number
+  yMax: number
+}
+
+export interface MprSegmentationOverlayRegion {
+  regionId: string
+  visible: boolean
+  rect: MprSegmentationOverlayRect | null
+  sampleRevision?: number
+  samples?: MprSegmentationOverlaySamples | null
+}
+
+export interface MprSegmentationOverlay {
+  regions: MprSegmentationOverlayRegion[]
+}
+
+export interface MprSegmentationOverlaySamples {
+  points: number[]
+  totalCount: number
+  sampledCount: number
+}
+
+export type MprSegmentationConfigActionType = 'local' | 'move' | 'end'
 
 export const MPR_SEGMENTATION_HU_LIMITS = {
   min: -1024,
   max: 3071
 } as const
 
-export const DEFAULT_MPR_SEGMENTATION_COLOR = '#22d3ee'
+export const MPR_SEGMENTATION_DEPTH_LIMITS = {
+  min: 0.1,
+  max: 500
+} as const
+
+export const DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU = 300
+export const DEFAULT_MPR_SEGMENTATION_COLOR = '#ff4df8'
+export const DEFAULT_MPR_VOI_COLOR = '#22d3ee'
 
 export function createDefaultMprSegmentationVoiBox(): MprSegmentationVoiBox {
   return {
@@ -316,11 +418,13 @@ export function createDefaultMprSegmentationVoiBox(): MprSegmentationVoiBox {
 export function createDefaultMprSegmentationConfig(): MprSegmentationConfig {
   return {
     enabled: false,
-    lowerHu: 300,
-    upperHu: 3071,
-    opacity: 0.45,
-    color: DEFAULT_MPR_SEGMENTATION_COLOR,
-    voiBox: createDefaultMprSegmentationVoiBox()
+    clientRevision: 0,
+    selectedRegionId: null,
+    selectedVoi: false,
+    selectedVoiId: null,
+    thresholdRegions: [],
+    voiSpheres: [],
+    voiSphere: null
   }
 }
 
@@ -348,33 +452,299 @@ export function normalizeMprSegmentationVoiBox(
   return { xMin, xMax, yMin, yMax, zMin, zMax }
 }
 
+function clampNumber(value: unknown, minimum: number, maximum: number, fallback: number): number {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) {
+    return fallback
+  }
+  return Math.max(minimum, Math.min(maximum, numericValue))
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && /^#[\da-f]{6}$/i.test(value) ? value.toLowerCase() : fallback
+}
+
+function normalizeVec3(value: unknown, fallback: Vec3): Vec3 {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return fallback
+  }
+  const next = value.map((component) => Number(component))
+  return next.every(Number.isFinite) ? [next[0], next[1], next[2]] : fallback
+}
+
+function normalizeUnitVec3(value: unknown, fallback: Vec3): Vec3 {
+  const vector = normalizeVec3(value, fallback)
+  const length = Math.hypot(vector[0], vector[1], vector[2])
+  if (!Number.isFinite(length) || length <= 1e-6) {
+    return fallback
+  }
+  return [vector[0] / length, vector[1] / length, vector[2] / length]
+}
+
+function normalizeNullableMetric(value: unknown): number | null {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
+function normalizeMprViewportKey(value: unknown, fallback: MprViewportKey = 'mpr-ax'): MprViewportKey {
+  return value === 'mpr-ax' || value === 'mpr-cor' || value === 'mpr-sag' ? value : fallback
+}
+
+export function normalizeMprThresholdRegionStats(value?: Partial<MprThresholdRegionStats> | null): MprThresholdRegionStats | null {
+  if (!value) {
+    return null
+  }
+  return {
+    huMean: normalizeNullableMetric(value.huMean),
+    huMin: normalizeNullableMetric(value.huMin),
+    huMax: normalizeNullableMetric(value.huMax),
+    huStdDev: normalizeNullableMetric(value.huStdDev),
+    volumeCm3: clampNumber(value.volumeCm3, 0, Number.MAX_SAFE_INTEGER, 0),
+    sampleCount: Math.round(clampNumber(value.sampleCount, 0, Number.MAX_SAFE_INTEGER, 0)),
+    effectiveThresholdHu: normalizeNullableMetric(value.effectiveThresholdHu)
+  }
+}
+
+function normalizeMprThresholdMode(value: unknown): 'hu' | 'percentile' {
+  return value === 'percentile' ? 'percentile' : 'hu'
+}
+
+export function normalizeMprThresholdRegionBox(value?: Partial<MprThresholdRegionBox> | null): MprThresholdRegionBox | null {
+  if (!value) {
+    return null
+  }
+  return {
+    centerWorld: normalizeVec3(value.centerWorld, [0, 0, 0]),
+    rowWorld: normalizeUnitVec3(value.rowWorld, [0, 1, 0]),
+    colWorld: normalizeUnitVec3(value.colWorld, [0, 0, 1]),
+    normalWorld: normalizeUnitVec3(value.normalWorld, [1, 0, 0]),
+    widthMm: clampNumber(value.widthMm, 0.1, 10000, 1),
+    heightMm: clampNumber(value.heightMm, 0.1, 10000, 1),
+    depthMm: clampNumber(value.depthMm, MPR_SEGMENTATION_DEPTH_LIMITS.min, MPR_SEGMENTATION_DEPTH_LIMITS.max, 1),
+    sourceViewport: normalizeMprViewportKey(value.sourceViewport)
+  }
+}
+
+export function normalizeMprThresholdRegion(value?: Partial<MprThresholdRegion> | null): MprThresholdRegion | null {
+  if (!value) {
+    return null
+  }
+  const id = typeof value.id === 'string' ? value.id.trim() : ''
+  const box = normalizeMprThresholdRegionBox(value.box)
+  if (!id || !box) {
+    return null
+  }
+  return {
+    id,
+    enabled: value.enabled !== false,
+    label: typeof value.label === 'string' && value.label.trim() ? value.label.trim() : id,
+    thresholdHu: Math.round(clampNumber(value.thresholdHu, MPR_SEGMENTATION_HU_LIMITS.min, MPR_SEGMENTATION_HU_LIMITS.max, DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU)),
+    thresholdMode: normalizeMprThresholdMode(value.thresholdMode),
+    thresholdPercentile: clampNumber(value.thresholdPercentile, 0, 100, 80),
+    color: normalizeHexColor(value.color, DEFAULT_MPR_SEGMENTATION_COLOR),
+    box,
+    stats: normalizeMprThresholdRegionStats(value.stats)
+  }
+}
+
+export function normalizeMprVoiSphere(
+  value?: Partial<MprVoiSphere> | null,
+  fallback?: Partial<MprVoiSphere> | null,
+  defaultIndex = 1
+): MprVoiSphere | null {
+  if (!value) {
+    return null
+  }
+  const rawId = typeof value.id === 'string' && value.id.trim()
+    ? value.id.trim()
+    : typeof fallback?.id === 'string' && fallback.id.trim()
+      ? fallback.id.trim()
+      : `voi-${defaultIndex}`
+  const rawLabel = typeof value.label === 'string' && value.label.trim()
+    ? value.label.trim()
+    : typeof fallback?.label === 'string' && fallback.label.trim()
+      ? fallback.label.trim()
+      : String(defaultIndex)
+  return {
+    id: rawId,
+    label: rawLabel,
+    enabled: value.enabled !== false,
+    centerWorld: normalizeVec3(value.centerWorld, normalizeVec3(fallback?.centerWorld, [0, 0, 0])),
+    radiusMm: clampNumber(value.radiusMm, 0.1, 10000, clampNumber(fallback?.radiusMm, 0.1, 10000, 10)),
+    color: normalizeHexColor(value.color, normalizeHexColor(fallback?.color, DEFAULT_MPR_VOI_COLOR)),
+    stats: normalizeMprVoiSphereStats(value.stats ?? fallback?.stats)
+  }
+}
+
+export function normalizeMprVoiSphereStats(value?: Partial<MprVoiSphereStats> | null): MprVoiSphereStats | null {
+  if (!value) {
+    return null
+  }
+  return {
+    huMean: normalizeNullableMetric(value.huMean),
+    huMin: normalizeNullableMetric(value.huMin),
+    huMax: normalizeNullableMetric(value.huMax),
+    huStdDev: normalizeNullableMetric(value.huStdDev),
+    volumeCm3: clampNumber(value.volumeCm3, 0, Number.MAX_SAFE_INTEGER, 0),
+    sampleCount: Math.round(clampNumber(value.sampleCount, 0, Number.MAX_SAFE_INTEGER, 0))
+  }
+}
+
 export function normalizeMprSegmentationConfig(
   value?: Partial<MprSegmentationOperationConfig | MprSegmentationConfig> | null,
   fallback: MprSegmentationConfig = createDefaultMprSegmentationConfig()
 ): MprSegmentationConfig {
-  const rawLowerHu = Number(value?.lowerHu ?? fallback.lowerHu)
-  const rawUpperHu = Number(value?.upperHu ?? fallback.upperHu)
-  const lowerHu = Number.isFinite(rawLowerHu) ? rawLowerHu : fallback.lowerHu
-  const upperHu = Number.isFinite(rawUpperHu) ? rawUpperHu : fallback.upperHu
-  const minHu = Math.max(MPR_SEGMENTATION_HU_LIMITS.min, Math.min(MPR_SEGMENTATION_HU_LIMITS.max, Math.round(Math.min(lowerHu, upperHu))))
-  const maxHu = Math.max(MPR_SEGMENTATION_HU_LIMITS.min, Math.min(MPR_SEGMENTATION_HU_LIMITS.max, Math.round(Math.max(lowerHu, upperHu))))
-  const rawOpacity = Number(value?.opacity ?? fallback.opacity)
-  const opacity = Number.isFinite(rawOpacity) ? Math.max(0, Math.min(1, rawOpacity)) : fallback.opacity
-  const color = typeof value?.color === 'string' && /^#[\da-f]{6}$/i.test(value.color)
-    ? value.color
-    : fallback.color
+  const regions = [
+    ...((value?.thresholdRegions ?? fallback.thresholdRegions ?? []) as Array<Partial<MprThresholdRegion>>)
+  ]
+    .map((region) => normalizeMprThresholdRegion(region))
+    .filter((region): region is MprThresholdRegion => region !== null)
+  const requestedSelectedId = typeof value?.selectedRegionId === 'string'
+    ? value.selectedRegionId
+    : typeof fallback.selectedRegionId === 'string'
+      ? fallback.selectedRegionId
+      : null
+  const selectedRegionId = requestedSelectedId && regions.some((region) => region.id === requestedSelectedId)
+    ? requestedSelectedId
+    : regions[0]?.id ?? null
+  const rawVoiSpheres = Array.isArray(value?.voiSpheres)
+    ? value.voiSpheres
+    : value?.voiSphere
+      ? [value.voiSphere]
+      : fallback.voiSpheres.length > 0
+        ? fallback.voiSpheres
+        : fallback.voiSphere
+          ? [fallback.voiSphere]
+          : []
+  const usedVoiIds = new Set<string>()
+  const voiSpheres = rawVoiSpheres
+    .map((sphere, index) => {
+      const normalized = normalizeMprVoiSphere(sphere, fallback.voiSpheres[index] ?? null, index + 1)
+      if (!normalized) {
+        return null
+      }
+      const baseId = normalized.id
+      let nextId = baseId
+      let suffix = 2
+      while (usedVoiIds.has(nextId)) {
+        nextId = `${baseId}-${suffix}`
+        suffix += 1
+      }
+      usedVoiIds.add(nextId)
+      return {
+        ...normalized,
+        id: nextId,
+        label: normalized.label || String(index + 1)
+      }
+    })
+    .filter((sphere): sphere is MprVoiSphere => sphere !== null)
+  const requestedSelectedVoiId = typeof value?.selectedVoiId === 'string' && value.selectedVoiId.trim()
+    ? value.selectedVoiId.trim()
+    : typeof fallback.selectedVoiId === 'string' && fallback.selectedVoiId.trim()
+      ? fallback.selectedVoiId.trim()
+      : null
+  const selectedVoiId = requestedSelectedVoiId && voiSpheres.some((sphere) => sphere.id === requestedSelectedVoiId)
+    ? requestedSelectedVoiId
+    : Boolean(value?.selectedVoi ?? fallback.selectedVoi)
+      ? voiSpheres[0]?.id ?? null
+      : null
+  const selectedVoi = selectedVoiId !== null
+  const legacyVoiSphere = (selectedVoiId ? voiSpheres.find((sphere) => sphere.id === selectedVoiId) : null) ?? voiSpheres[0] ?? null
 
   return {
     enabled: Boolean(value?.enabled ?? fallback.enabled),
-    lowerHu: minHu,
-    upperHu: maxHu,
-    opacity,
-    color,
-    voiBox:
-      value?.voiBox === null
-        ? null
-        : normalizeMprSegmentationVoiBox(value?.voiBox ?? fallback.voiBox ?? createDefaultMprSegmentationVoiBox())
+    clientRevision: Math.round(clampNumber(value?.clientRevision ?? fallback.clientRevision, 0, Number.MAX_SAFE_INTEGER, 0)),
+    selectedRegionId: selectedVoi ? null : selectedRegionId,
+    selectedVoi,
+    selectedVoiId,
+    thresholdRegions: regions,
+    voiSpheres,
+    voiSphere: legacyVoiSphere
   }
+}
+
+function nearlyEqualSegmentationNumber(left: number, right: number, epsilon = 1e-3): boolean {
+  return Math.abs(left - right) <= epsilon
+}
+
+function nearlyEqualSegmentationVec3(left: Vec3, right: Vec3, epsilon = 1e-3): boolean {
+  return left.every((value, index) => nearlyEqualSegmentationNumber(value, right[index], epsilon))
+}
+
+function isSameMprThresholdRegionGeometry(left: MprThresholdRegion, right: MprThresholdRegion): boolean {
+  return left.enabled === right.enabled &&
+    left.thresholdHu === right.thresholdHu &&
+    left.thresholdMode === right.thresholdMode &&
+    nearlyEqualSegmentationNumber(left.thresholdPercentile, right.thresholdPercentile) &&
+    left.color === right.color &&
+    left.box.sourceViewport === right.box.sourceViewport &&
+    nearlyEqualSegmentationVec3(left.box.centerWorld, right.box.centerWorld) &&
+    nearlyEqualSegmentationVec3(left.box.rowWorld, right.box.rowWorld) &&
+    nearlyEqualSegmentationVec3(left.box.colWorld, right.box.colWorld) &&
+    nearlyEqualSegmentationVec3(left.box.normalWorld, right.box.normalWorld) &&
+    nearlyEqualSegmentationNumber(left.box.widthMm, right.box.widthMm) &&
+    nearlyEqualSegmentationNumber(left.box.heightMm, right.box.heightMm) &&
+    nearlyEqualSegmentationNumber(left.box.depthMm, right.box.depthMm)
+}
+
+function isSameMprVoiSphereGeometry(left: MprVoiSphere, right: MprVoiSphere): boolean {
+  return left.enabled === right.enabled &&
+    left.color === right.color &&
+    nearlyEqualSegmentationVec3(left.centerWorld, right.centerWorld) &&
+    nearlyEqualSegmentationNumber(left.radiusMm, right.radiusMm)
+}
+
+export function mergeMprSegmentationPreviewConfig(
+  currentConfig: MprSegmentationConfig,
+  incomingConfig: MprSegmentationConfig
+): MprSegmentationConfig {
+  if (isStaleMprSegmentationPreviewConfig(currentConfig, incomingConfig)) {
+    return currentConfig
+  }
+  const incomingRegionsById = new Map(incomingConfig.thresholdRegions.map((region) => [region.id, region]))
+  const incomingVoiSpheresById = new Map(incomingConfig.voiSpheres.map((sphere) => [sphere.id, sphere]))
+  const nextVoiSpheres = currentConfig.voiSpheres.map((sphere) => {
+    const incomingSphere = incomingVoiSpheresById.get(sphere.id)
+    if (!incomingSphere || !isSameMprVoiSphereGeometry(sphere, incomingSphere)) {
+      return sphere
+    }
+    return {
+      ...sphere,
+      stats: incomingSphere.stats ?? null
+    }
+  })
+  const nextSelectedVoiId = incomingConfig.selectedVoiId && nextVoiSpheres.some((sphere) => sphere.id === incomingConfig.selectedVoiId)
+    ? incomingConfig.selectedVoiId
+    : currentConfig.selectedVoiId && nextVoiSpheres.some((sphere) => sphere.id === currentConfig.selectedVoiId)
+      ? currentConfig.selectedVoiId
+      : null
+  const nextVoiSphere = (nextSelectedVoiId ? nextVoiSpheres.find((sphere) => sphere.id === nextSelectedVoiId) : null) ?? nextVoiSpheres[0] ?? null
+  return {
+    ...currentConfig,
+    clientRevision: incomingConfig.clientRevision,
+    selectedRegionId: nextSelectedVoiId ? null : currentConfig.selectedRegionId,
+    selectedVoi: nextSelectedVoiId !== null,
+    selectedVoiId: nextSelectedVoiId,
+    voiSpheres: nextVoiSpheres,
+    voiSphere: nextVoiSphere,
+    thresholdRegions: currentConfig.thresholdRegions.map((region) => {
+      const incomingRegion = incomingRegionsById.get(region.id)
+      if (!incomingRegion || !isSameMprThresholdRegionGeometry(region, incomingRegion)) {
+        return region
+      }
+      return {
+        ...region,
+        stats: incomingRegion.stats ?? null
+      }
+    })
+  }
+}
+
+export function isStaleMprSegmentationPreviewConfig(
+  currentConfig: Pick<MprSegmentationConfig, 'clientRevision'>,
+  incomingConfig: Pick<MprSegmentationConfig, 'clientRevision'>
+): boolean {
+  return (incomingConfig.clientRevision ?? 0) < (currentConfig.clientRevision ?? 0)
 }
 
 export interface MtfMetrics {
@@ -560,7 +930,10 @@ export type MprCrosshairInfo = BackendMprCrosshairInfo
 export type MprCrosshairMode = 'orthogonal' | 'double-oblique'
 export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
-export type MprPlaneInfo = BackendMprPlaneInfo
+export interface MprPlaneInfo extends BackendMprPlaneInfo {
+  pixelSpacingNormalMm: number
+  imageToCanvasMatrix?: [[number, number, number], [number, number, number], [number, number, number]] | null
+}
 export type ScaleBarInfo = BackendScaleBarInfo
 export type OrientationInfo = BackendOrientationInfo
 
@@ -653,6 +1026,7 @@ export interface ViewImageResponse {
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
   mprSegmentationConfig?: MprSegmentationOperationConfig | null
+  mprSegmentationOverlay?: MprSegmentationOverlay | null
   mprCrosshairMode?: MprCrosshairMode | null
   petInfo?: PetInfo | null
   fusionInfo?: FusionInfo | null
@@ -761,6 +1135,7 @@ export interface ViewerTabItem {
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
+  viewportSegmentationOverlays?: Partial<Record<MprViewportKey, MprSegmentationOverlay | null>>
   mprCrosshairMode?: MprCrosshairMode
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null

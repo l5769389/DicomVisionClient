@@ -14,6 +14,7 @@ import type {
   MeasurementOverlay,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
+  MprSegmentationConfigActionType,
   MprSegmentationConfig,
   QaWaterAnalysis,
   QaWaterMetricKey,
@@ -275,8 +276,17 @@ function closeVolumeConfigPanel(): void {
   isVolumeConfigPanelOpen.value = false
 }
 
-function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
   updateActiveMprSegmentationConfig(config, actionType)
+}
+
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi'): void {
+  const segmentationTool = activeTools.value.find((tool) => tool.key === 'segmentation')
+  if (segmentationTool) {
+    selectToolOption(segmentationTool, mode)
+    return
+  }
+  emit('setActiveOperation', `stack:${mode}`)
 }
 
 const activeMprLayoutKey = computed(() => {
@@ -1640,6 +1650,11 @@ function handleViewportPointerLeaveWithAnnotations(viewportKey: string): void {
 const isMtfCurveDialogOpen = ref(false)
 const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
 const canAcceptQuickPreviewDrop = computed(() => !props.isViewLoading && !props.activeTab)
+const MPR_SEGMENTATION_PROGRESS_VIEWPORTS = ['mpr-ax', 'mpr-cor', 'mpr-sag'] as const
+const isMprSegmentationProcessing = computed(() => {
+  const progress = props.activeTab?.viewportLoadingProgress
+  return MPR_SEGMENTATION_PROGRESS_VIEWPORTS.some((viewportKey) => Boolean(progress?.[viewportKey]))
+})
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const isTabStripCollapsed = ref(false)
 const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
@@ -2048,13 +2063,15 @@ onBeforeUnmount(() => {
 
         <div
           v-if="activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen && activeMprSegmentationConfig"
-          class="pointer-events-none absolute inset-y-0 right-0 z-[21] flex items-start"
+          class="contents"
         >
           <MprSegmentationPanel
-            class="pointer-events-auto max-h-full rounded-r-[18px]!"
+            class="pointer-events-auto"
             :config="activeMprSegmentationConfig"
+            :is-processing="isMprSegmentationProcessing"
             @close="closeMprSegmentationPanel"
             @config-change="handleMprSegmentationConfigChange"
+            @mode-change="handleMprSegmentationModeChange"
           />
         </div>
 
@@ -2188,6 +2205,7 @@ onBeforeUnmount(() => {
           @open-mtf-curve="handleOpenMtfCurve"
           @select-mtf="handleSelectMtf"
           @mpr-segmentation-config-change="handleMprSegmentationConfigChange"
+          @mpr-segmentation-mode-change="handleMprSegmentationModeChange"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDownWithAnnotations"

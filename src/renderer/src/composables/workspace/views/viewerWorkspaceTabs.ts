@@ -12,6 +12,7 @@ import type {
   MprCursorInfo,
   MprFrameInfo,
   MprPlaneInfo,
+  MprSegmentationOverlay,
   MprViewportKey,
   OrientationInfo,
   PetInfo,
@@ -130,6 +131,14 @@ export function createEmptyMprPlanes(): Record<MprViewportKey, null> {
 }
 
 export function createEmptyMprScaleBars(): Record<MprViewportKey, null> {
+  return {
+    'mpr-ax': null,
+    'mpr-cor': null,
+    'mpr-sag': null
+  }
+}
+
+export function createEmptyMprSegmentationOverlays(): Record<MprViewportKey, MprSegmentationOverlay | null> {
   return {
     'mpr-ax': null,
     'mpr-cor': null,
@@ -595,6 +604,24 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
     : [0, 0]
   const pixelSpacingRowMm = Number(record.pixelSpacingRowMm ?? record.pixel_spacing_row_mm ?? 1)
   const pixelSpacingColMm = Number(record.pixelSpacingColMm ?? record.pixel_spacing_col_mm ?? 1)
+  const pixelSpacingNormalMm = Number(record.pixelSpacingNormalMm ?? record.pixel_spacing_normal_mm ?? 1)
+  const imageToCanvasMatrixValue = record.imageToCanvasMatrix ?? record.image_to_canvas_matrix
+  const imageToCanvasMatrix = Array.isArray(imageToCanvasMatrixValue) && imageToCanvasMatrixValue.length === 3
+    ? imageToCanvasMatrixValue.map((rowValue) =>
+        Array.isArray(rowValue) && rowValue.length === 3
+          ? [
+              Number(rowValue[0]),
+              Number(rowValue[1]),
+              Number(rowValue[2])
+            ]
+          : [Number.NaN, Number.NaN, Number.NaN]
+      )
+    : null
+  const normalizedImageToCanvasMatrix =
+    imageToCanvasMatrix &&
+    imageToCanvasMatrix.every((rowValue) => rowValue.every((entry) => Number.isFinite(entry)))
+      ? imageToCanvasMatrix as [[number, number, number], [number, number, number], [number, number, number]]
+      : null
 
   return {
     viewport: typeof record.viewport === 'string' ? record.viewport : '',
@@ -605,6 +632,7 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
     normalWorld,
     pixelSpacingRowMm: Number.isFinite(pixelSpacingRowMm) ? pixelSpacingRowMm : 1,
     pixelSpacingColMm: Number.isFinite(pixelSpacingColMm) ? pixelSpacingColMm : 1,
+    pixelSpacingNormalMm: Number.isFinite(pixelSpacingNormalMm) ? pixelSpacingNormalMm : 1,
     outputShape: [
       Number.isFinite(outputShape[0]) ? outputShape[0] : 0,
       Number.isFinite(outputShape[1]) ? outputShape[1] : 0
@@ -612,6 +640,7 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
     row,
     col,
     normal,
+    imageToCanvasMatrix: normalizedImageToCanvasMatrix,
     isOblique: Boolean(record.isOblique ?? record.is_oblique ?? false)
   }
 }
@@ -790,6 +819,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     mprMipConfig: createDefaultMprMipConfig(),
     mprSegmentationConfig: createDefaultMprSegmentationConfig(),
+    viewportSegmentationOverlays: createEmptyMprSegmentationOverlays(),
     mprCrosshairMode: 'orthogonal',
     volumePreset: 'volumePreset:bone',
     volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),

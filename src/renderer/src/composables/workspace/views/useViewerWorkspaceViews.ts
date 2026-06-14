@@ -47,6 +47,7 @@ import {
   createEmptyMprPlanes,
   createEmptyMprPseudocolorPresets,
   createEmptyMprScaleBars,
+  createEmptyMprSegmentationOverlays,
   createEmptyMprSliceLabels,
   createEmptyMprTransformStates,
   createEmptyMprViewIds,
@@ -119,7 +120,9 @@ import {
 import {
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
+  isStaleMprSegmentationPreviewConfig,
   isFourDSeriesItem,
+  mergeMprSegmentationPreviewConfig,
   normalizeMprMipConfig,
   normalizeMprSegmentationConfig
 } from '../../../types/viewer'
@@ -162,6 +165,7 @@ import type {
   FourDPhaseItem,
   FourDPhasesResponse,
   MeasurementOverlay,
+  MprSegmentationOverlay,
   MprViewportKey,
   PetInfo,
   ViewImageResponse,
@@ -216,6 +220,36 @@ interface ViewSizeUpdate {
 
 function getMprSegmentationConfigPayload(payload: Partial<ViewImageResponse>) {
   return payload.mprSegmentationConfig ?? (payload as { mpr_segmentation_config?: ViewImageResponse['mprSegmentationConfig'] | null }).mpr_segmentation_config
+}
+
+function getMprSegmentationOverlayPayload(payload: Partial<ViewImageResponse>) {
+  return payload.mprSegmentationOverlay ?? (payload as { mpr_segmentation_overlay?: ViewImageResponse['mprSegmentationOverlay'] | null }).mpr_segmentation_overlay
+}
+
+function mergeMprSegmentationOverlaySamples(
+  currentOverlay: MprSegmentationOverlay | null | undefined,
+  incomingOverlay: MprSegmentationOverlay | null | undefined
+): MprSegmentationOverlay | null {
+  if (!incomingOverlay) {
+    return incomingOverlay ?? null
+  }
+  const currentRegionsById = new Map((currentOverlay?.regions ?? []).map((region) => [region.regionId, region]))
+  return {
+    ...incomingOverlay,
+    regions: incomingOverlay.regions.map((region) => {
+      if (region.samples?.points?.length) {
+        return region
+      }
+      const currentRegion = currentRegionsById.get(region.regionId)
+      if (currentRegion?.samples?.points?.length) {
+        return {
+          ...region,
+          samples: currentRegion.samples
+        }
+      }
+      return region
+    })
+  }
 }
 
 interface CompareViewSizeUpdate {
@@ -1429,6 +1463,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
       const mimeType = payload.imageFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
+      const currentMprSegmentationConfig = normalizeMprSegmentationConfig(
+        item.mprSegmentationConfig,
+        createDefaultMprSegmentationConfig()
+      )
+      const mprSegmentationPayload = getMprSegmentationConfigPayload(payload)
+      const incomingMprSegmentationConfig = normalizeMprSegmentationConfig(
+        mprSegmentationPayload,
+        currentMprSegmentationConfig
+      )
+      if (
+        mprSegmentationPayload != null &&
+        isStaleMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      ) {
+        return item
+      }
       const imageSrc = imageUrlRegistry.create(imageBinary, mimeType)
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
@@ -1453,10 +1502,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const transformState = payload.transform ?? createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
-      const mprSegmentationConfig = normalizeMprSegmentationConfig(
-        getMprSegmentationConfigPayload(payload),
-        item.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
-      )
+      const mprSegmentationConfig = mprSegmentationPayload == null
+        ? currentMprSegmentationConfig
+        : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      const mprSegmentationOverlayPayload = getMprSegmentationOverlayPayload(payload)
+      const shouldAcceptMprSegmentationOverlay = mprSegmentationPayload == null ||
+        incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
       const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
@@ -1804,7 +1855,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
         const mprCrosshairPreservationLock = shouldCompleteSettling ? null : options.activeMprCrosshairDragLock.value
         const currentViewportImage = item.viewportImages?.[viewportKey]
-        if (currentViewportKey) {
+        const currentSegmentationProgress = item.viewportLoadingProgress?.[viewportKey] ?? null
+        const shouldPreserveImageForMprSegmentationUpdate =
+          item.viewType === 'MPR' &&
+          mprSegmentationPayload != null &&
+          currentViewportKey != null &&
+          currentViewportImage != null &&
+          currentSegmentationProgress?.phase === 'render'
+        if (shouldPreserveImageForMprSegmentationUpdate) {
+          revokeObjectUrlIfNeeded(imageSrc)
+        } else if (currentViewportKey) {
           revokeObjectUrlIfNeeded(currentViewportImage)
         }
 
@@ -1921,10 +1981,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           mprCursor: mprCursor ?? item.mprCursor ?? null,
           mprFrame: mprFrame ?? item.mprFrame ?? null,
           mprRevision: mprRevision ?? item.mprRevision ?? null,
-          viewportImages: {
-            ...(item.viewportImages ?? createEmptyMprImages()),
-            [viewportKey]: imageSrc
-          },
+          viewportImages: shouldPreserveImageForMprSegmentationUpdate
+            ? item.viewportImages ?? createEmptyMprImages()
+            : {
+                ...(item.viewportImages ?? createEmptyMprImages()),
+                [viewportKey]: imageSrc
+              },
           viewportSliceLabels: {
             ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
             [viewportKey]: sliceLabel
@@ -1940,6 +2002,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportScaleBars: {
             ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
             [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
+          },
+          viewportSegmentationOverlays: {
+            ...(item.viewportSegmentationOverlays ?? createEmptyMprSegmentationOverlays()),
+            [viewportKey]: shouldAcceptMprSegmentationOverlay
+              ? mergeMprSegmentationOverlaySamples(
+                  item.viewportSegmentationOverlays?.[viewportKey] ?? null,
+                  mprSegmentationOverlayPayload ?? null
+                )
+              : item.viewportSegmentationOverlays?.[viewportKey] ?? null
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -2096,10 +2167,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const orientationInfo = payload.orientation != null ? normalizeOrientationInfo(payload.orientation) : null
       const transformState = payload.transform ?? null
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
-      const mprSegmentationConfig = normalizeMprSegmentationConfig(
-        getMprSegmentationConfigPayload(payload),
-        item.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
+      const currentMprSegmentationConfig = normalizeMprSegmentationConfig(
+        item.mprSegmentationConfig,
+        createDefaultMprSegmentationConfig()
       )
+      const mprSegmentationPayload = getMprSegmentationConfigPayload(payload)
+      const incomingMprSegmentationConfig = normalizeMprSegmentationConfig(
+        mprSegmentationPayload,
+        currentMprSegmentationConfig
+      )
+      const mprSegmentationConfig = mprSegmentationPayload == null
+        ? currentMprSegmentationConfig
+        : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      const mprSegmentationOverlayPayload = getMprSegmentationOverlayPayload(payload)
+      const shouldAcceptMprSegmentationOverlay = mprSegmentationPayload == null ||
+        incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : item.mprCrosshairMode ?? 'orthogonal'
 
       let nextFourDPhaseCache = item.fourDPhaseCache
@@ -2199,6 +2281,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         viewportScaleBars: {
           ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
           [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
+        },
+        viewportSegmentationOverlays: {
+          ...(item.viewportSegmentationOverlays ?? createEmptyMprSegmentationOverlays()),
+          [viewportKey]: shouldAcceptMprSegmentationOverlay
+            ? mergeMprSegmentationOverlaySamples(
+                item.viewportSegmentationOverlays?.[viewportKey] ?? null,
+                mprSegmentationOverlayPayload ?? null
+              )
+            : item.viewportSegmentationOverlays?.[viewportKey] ?? null
         },
         viewportOrientations: {
           ...(item.viewportOrientations ?? createEmptyMprOrientations()),

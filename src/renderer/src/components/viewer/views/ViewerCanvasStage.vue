@@ -10,11 +10,14 @@ import type {
   MprCrosshairInfo,
   MprFrameInfo,
   MprPlaneInfo,
+  MprSegmentationConfigActionType,
   MprSegmentationConfig,
+  MprSegmentationOverlay,
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
   ViewerImageLayer,
+  ViewTransformInfo,
   ViewerMtfItem
 } from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
@@ -27,6 +30,7 @@ import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.v
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
+import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = withDefaults(
@@ -56,6 +60,7 @@ const props = withDefaults(
     mprFrame?: MprFrameInfo | null
     mprPlane?: MprPlaneInfo | null
     mprSegmentationConfig?: MprSegmentationConfig | null
+    mprSegmentationOverlay?: MprSegmentationOverlay | null
     orientation: OrientationInfo
     placeholder: string
     renderSurfaceActive?: boolean
@@ -63,6 +68,7 @@ const props = withDefaults(
     showCornerInfo?: boolean
     showScaleBar?: boolean
     softImage?: boolean
+    viewportTransform?: ViewTransformInfo | null
     voiEditable?: boolean
     voiOblique?: boolean
     viewportClass?: string
@@ -85,12 +91,14 @@ const props = withDefaults(
     mprFrame: null,
     mprPlane: null,
     mprSegmentationConfig: null,
+    mprSegmentationOverlay: null,
     qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
     showScaleBar: true,
     softImage: false,
+    viewportTransform: null,
     voiEditable: false,
     voiOblique: false,
     viewportClass: ''
@@ -117,7 +125,8 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
-  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: 'move' | 'end']
+  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
+  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi']
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
@@ -131,11 +140,13 @@ const stageSize = ref({
   width: 0,
   height: 0
 })
-const imageFrame = ref({
+const imageFrame = ref<OverlayImageFrame>({
   left: 0,
   top: 0,
   width: 0,
-  height: 0
+  height: 0,
+  naturalWidth: 0,
+  naturalHeight: 0
 })
 
 const normalizedLoadingProgressPercent = computed(() => {
@@ -232,8 +243,12 @@ function handlePointerLeave(): void {
   emit('pointerLeave', props.viewportKey)
 }
 
-function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
   emit('mprSegmentationConfigChange', config, actionType)
+}
+
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi'): void {
+  emit('mprSegmentationModeChange', mode)
 }
 
 function getRenderedImageRect(image: HTMLImageElement): DOMRect {
@@ -279,7 +294,9 @@ function updateStageMetricsNow(): void {
       left: 0,
       top: 0,
       width: 0,
-      height: 0
+      height: 0,
+      naturalWidth: 0,
+      naturalHeight: 0
     }
     return
   }
@@ -289,7 +306,9 @@ function updateStageMetricsNow(): void {
     left: toStablePixel(imageRect.left - stageRect.left),
     top: toStablePixel(imageRect.top - stageRect.top),
     width: toStablePixel(imageRect.width),
-    height: toStablePixel(imageRect.height)
+    height: toStablePixel(imageRect.height),
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight
   }
 }
 
@@ -428,12 +447,18 @@ watch(
         :is-active="isActive"
       />
       <ViewportVoiOverlay
+        :active-operation="props.activeOperation"
         :config="mprSegmentationConfig"
         :editable="voiEditable"
         :image-frame="imageFrame"
+        :is-active="isActive"
         :is-oblique="voiOblique"
+        :mpr-plane="mprPlane"
+        :segmentation-overlay="mprSegmentationOverlay"
+        :viewport-transform="viewportTransform"
         :viewport-key="viewportKey"
         @config-change="handleMprSegmentationConfigChange"
+        @mode-change="handleMprSegmentationModeChange"
       />
       <ViewportScaleBarOverlay
         v-if="showScaleBar"

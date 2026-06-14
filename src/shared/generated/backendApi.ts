@@ -308,20 +308,54 @@ export interface MprPlaneInfo {
   normalWorld: [number, number, number]
   pixelSpacingRowMm: number
   pixelSpacingColMm: number
+  pixelSpacingNormalMm?: number
   outputShape: [number, number]
   row: [number, number, number]
   col: [number, number, number]
   normal: [number, number, number]
+  imageToCanvasMatrix?: [[number, number, number], [number, number, number], [number, number, number]] | null
   isOblique: boolean
 }
 
 export interface MprSegmentationConfig {
   enabled?: boolean
-  lowerHu?: number
-  upperHu?: number
+  clientRevision?: number
+  selectedRegionId?: string | null
+  selectedVoi?: boolean
+  selectedVoiId?: string | null
+  thresholdRegions?: MprThresholdRegion[]
+  voiSpheres?: MprVoiSphere[]
+  voiSphere?: MprVoiSphere | null
+  lowerHu?: number | null
+  upperHu?: number | null
   opacity?: number
   color?: string
   voiBox?: MprSegmentationVoiBox | null
+}
+
+export interface MprSegmentationOverlay {
+  regions?: MprSegmentationOverlayRegion[]
+}
+
+export interface MprSegmentationOverlayRect {
+  xMin?: number
+  yMin?: number
+  xMax?: number
+  yMax?: number
+}
+
+export interface MprSegmentationOverlayRegion {
+  regionId: string
+  visible?: boolean
+  rect?: MprSegmentationOverlayRect | null
+  sampleRevision?: number
+  samples?: MprSegmentationOverlaySamples | null
+}
+
+export interface MprSegmentationOverlaySamples {
+  points?: number[]
+  totalCount?: number
+  sampledCount?: number
 }
 
 export interface MprSegmentationVoiBox {
@@ -331,6 +365,58 @@ export interface MprSegmentationVoiBox {
   yMax?: number
   zMin?: number
   zMax?: number
+}
+
+export interface MprThresholdRegion {
+  id: string
+  enabled?: boolean
+  label?: string
+  thresholdHu?: number
+  thresholdMode?: string
+  thresholdPercentile?: number
+  color?: string
+  box: MprThresholdRegionBox
+  stats?: MprThresholdRegionStats | null
+}
+
+export interface MprThresholdRegionBox {
+  centerWorld: [number, number, number]
+  rowWorld: [number, number, number]
+  colWorld: [number, number, number]
+  normalWorld: [number, number, number]
+  widthMm?: number
+  heightMm?: number
+  depthMm?: number
+  sourceViewport?: string
+}
+
+export interface MprThresholdRegionStats {
+  huMean?: number | null
+  huMin?: number | null
+  huMax?: number | null
+  huStdDev?: number | null
+  volumeCm3?: number
+  sampleCount?: number
+  effectiveThresholdHu?: number | null
+}
+
+export interface MprVoiSphere {
+  id?: string | null
+  label?: string
+  enabled?: boolean
+  centerWorld: [number, number, number]
+  radiusMm?: number
+  color?: string
+  stats?: MprVoiSphereStats | null
+}
+
+export interface MprVoiSphereStats {
+  huMean?: number | null
+  huMin?: number | null
+  huMax?: number | null
+  huStdDev?: number | null
+  volumeCm3?: number
+  sampleCount?: number
 }
 
 export interface MtfCurvePointPayload {
@@ -756,6 +842,7 @@ export interface ViewImageResponse {
   fusionProjection?: FusionProjectionInfo | null
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
+  mprSegmentationOverlay?: MprSegmentationOverlay | null
   mprCrosshairMode?: 'orthogonal' | 'double-oblique'
   volumePreset?: string | null
   volumeConfig?: VolumeRenderConfig | null

@@ -1130,14 +1130,47 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
       const previousConfig = tab.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
-      const nextConfig = normalizeMprSegmentationConfig(payload.segmentationConfig, previousConfig)
+      const normalizedConfig = normalizeMprSegmentationConfig(payload.segmentationConfig, previousConfig)
+      if (payload.actionType === 'local') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                mprSegmentationConfig: normalizedConfig
+              }
+            : item
+        )
+        return
+      }
+      const nextConfig = normalizeMprSegmentationConfig({
+        ...normalizedConfig,
+        clientRevision: Math.max(previousConfig.clientRevision ?? 0, normalizedConfig.clientRevision ?? 0) + 1
+      }, normalizedConfig)
       const shouldEmitDisabled = previousConfig.enabled && !nextConfig.enabled
       const actionType = payload.actionType === DRAG_ACTION_TYPES.move ? DRAG_ACTION_TYPES.move : DRAG_ACTION_TYPES.end
+      const shouldShowSegmentationProgress =
+        nextConfig.enabled && nextConfig.thresholdRegions.some((region) => region.enabled)
 
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
               ...item,
+              viewportLoadingProgress: MPR_VIEWPORT_KEYS.reduce<Partial<Record<MprViewportKey, ViewProgressInfo | null>>>(
+                (progress, viewportKey) => {
+                  progress[viewportKey] = shouldShowSegmentationProgress
+                    ? {
+                        viewId,
+                        phase: 'render',
+                        progressPercent: null,
+                        message: null
+                      }
+                    : null
+                  return progress
+                },
+                {
+                  ...(item.viewportLoadingProgress ?? {})
+                }
+              ),
               mprSegmentationConfig: nextConfig
             }
           : item

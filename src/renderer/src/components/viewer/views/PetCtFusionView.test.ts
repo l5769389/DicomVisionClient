@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PetCtFusionView from './PetCtFusionView.vue'
-import type { FusionPaneKey, FusionProjectionInfo, OrientationInfo, ViewerTabItem } from '../../../types/viewer'
+import type { FusionInfo, FusionPaneKey, FusionProjectionInfo, OrientationInfo, ViewerTabItem } from '../../../types/viewer'
 import {
   FUSION_CT_AXIAL_PANE_KEY,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
@@ -110,6 +110,23 @@ function createProjection(
   }
 }
 
+function createFusionInfo(revision: number): FusionInfo {
+  return {
+    paneRole: FUSION_OVERLAY_AXIAL_PANE_KEY,
+    ctSeriesId: 'ct',
+    petSeriesId: 'pet',
+    petPseudocolorPreset: 'hot',
+    petUnit: 'SUVbw',
+    alpha: 0.65,
+    revision,
+    registration: {
+      translateRowMm: 0,
+      translateColMm: 0,
+      rotationDegrees: 0
+    }
+  }
+}
+
 function mountFusionView(activeTab = createFusionTab()) {
   return mount(PetCtFusionView, {
     props: {
@@ -127,13 +144,35 @@ function mountFusionView(activeTab = createFusionTab()) {
       stubs: {
         ViewerCanvasStage: {
           name: 'ViewerCanvasStage',
-          props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc'],
+          props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc', 'imageLayers'],
           template:
-            '<div class="viewer-stage-stub" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" /></div>'
+            '<div class="viewer-stage-stub viewer-viewport" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-layer-count="imageLayers?.length ?? 0" :data-layer-transform="imageLayers?.[0]?.style?.transform ?? \'\'" :data-layer-transform-origin="imageLayers?.[0]?.style?.transformOrigin ?? \'\'"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" /></div>'
         }
       }
     }
   })
+}
+
+function mockOverlayGeometry(wrapper: ReturnType<typeof mountFusionView>, width = 200, height = 200): void {
+  const overlayPane = wrapper.find(`[data-fusion-pane-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+  const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+  const overlayImage = overlayStage.find('.viewer-image')
+  const rect = {
+    left: 0,
+    top: 0,
+    right: width,
+    bottom: height,
+    width,
+    height,
+    x: 0,
+    y: 0,
+    toJSON: () => ({})
+  } as DOMRect
+  vi.spyOn(overlayPane.element, 'getBoundingClientRect').mockReturnValue(rect)
+  vi.spyOn(overlayStage.element, 'getBoundingClientRect').mockReturnValue(rect)
+  vi.spyOn(overlayImage.element, 'getBoundingClientRect').mockReturnValue(rect)
+  Object.defineProperty(overlayImage.element, 'naturalWidth', { configurable: true, value: width })
+  Object.defineProperty(overlayImage.element, 'naturalHeight', { configurable: true, value: height })
 }
 
 function createPointerEvent(type: string, init: { pointerId: number; clientX: number; clientY: number; button?: number }): Event {
@@ -150,57 +189,6 @@ function createPointerEvent(type: string, init: { pointerId: number; clientX: nu
 function dispatchPointerEvent(target: Element, type: string, init: { pointerId: number; clientX: number; clientY: number; button?: number }): void {
   const event = createPointerEvent(type, init)
   target.dispatchEvent(event)
-}
-
-function mockPetPreviewColorization(
-  petOutputSrc = 'data:image/png;base64/colorized-pet-preview'
-): void {
-  const outputQueue = [petOutputSrc]
-  class MockImage {
-    onload: (() => void) | null = null
-    onerror: (() => void) | null = null
-    naturalWidth = 2
-    naturalHeight = 1
-    width = 2
-    height = 1
-
-    set src(_value: string) {
-      window.setTimeout(() => this.onload?.(), 0)
-    }
-  }
-
-  vi.stubGlobal('Image', MockImage)
-  const originalCreateElement = document.createElement.bind(document)
-  vi.spyOn(document, 'createElement').mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
-    if (tagName.toLowerCase() !== 'canvas') {
-      return originalCreateElement(tagName, options)
-    }
-    return {
-      width: 0,
-      height: 0,
-      getContext: () => ({
-        drawImage: vi.fn(),
-        getImageData: () => ({
-          data: new Uint8ClampedArray([
-            255, 255, 255, 255,
-            0, 0, 0, 255
-          ])
-        }),
-        putImageData: vi.fn()
-      }),
-      toDataURL: () => outputQueue.shift() ?? petOutputSrc
-    } as unknown as HTMLCanvasElement
-  }) as typeof document.createElement)
-}
-
-async function flushPetPreviewColorization(): Promise<void> {
-  await Promise.resolve()
-  await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
-  await nextTick()
-}
-
-function findManualRegistrationPreview(wrapper: ReturnType<typeof mountFusionView>, paneKey: FusionPaneKey) {
-  return wrapper.find(`[data-testid="fusion-registration-local-preview"][data-fusion-preview-pane-key="${paneKey}"]`)
 }
 
 describe('PetCtFusionView', () => {
@@ -223,6 +211,26 @@ describe('PetCtFusionView', () => {
     expect(wrapper.text()).not.toContain('PET Axial')
     expect(wrapper.text()).not.toContain('Fusion Axial')
     expect(wrapper.text()).not.toContain('PET Coronal MIP')
+
+    wrapper.unmount()
+  })
+
+  it('passes PET image layer to the overlay pane', () => {
+    const wrapper = mountFusionView(createFusionTab({
+      fusionLayerImages: {
+        [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+          pet: 'pet-layer',
+          revision: 3,
+          width: 512,
+          height: 512
+        }
+      }
+    }))
+
+    const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+    const petStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`)
+    expect(overlayStage.attributes('data-layer-count')).toBe('1')
+    expect(petStage.attributes('data-layer-count')).toBe('0')
 
     wrapper.unmount()
   })
@@ -367,6 +375,56 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
+  it('keeps manual registration marker positions fixed when PET projection changes', async () => {
+    const fusionProjections = {
+      [FUSION_CT_AXIAL_PANE_KEY]: createProjection(FUSION_CT_AXIAL_PANE_KEY),
+      [FUSION_PET_AXIAL_PANE_KEY]: createProjection(FUSION_PET_AXIAL_PANE_KEY),
+      [FUSION_OVERLAY_AXIAL_PANE_KEY]: createProjection(FUSION_OVERLAY_AXIAL_PANE_KEY),
+      [FUSION_PET_CORONAL_MIP_PANE_KEY]: createProjection(FUSION_PET_CORONAL_MIP_PANE_KEY)
+    }
+    const wrapper = mountFusionView(createFusionTab({
+      fusionManualRegistration: true,
+      fusionProjections
+    }))
+    await nextTick()
+
+    const panes = wrapper.findAll<HTMLElement>('.pet-ct-fusion-view__pane')
+    panes.forEach((pane) => {
+      vi.spyOn(pane.element, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 200,
+        height: 100,
+        right: 200,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      } as DOMRect)
+    })
+
+    const petPane = panes[FUSION_PANE_KEYS.indexOf(FUSION_PET_AXIAL_PANE_KEY)]!
+    const petMarker = petPane.find<HTMLButtonElement>('.pet-ct-fusion-view__marker')
+    await wrapper.setProps({
+      activeTab: createFusionTab({
+        fusionManualRegistration: true,
+        fusionProjections: {
+          ...fusionProjections,
+          [FUSION_PET_AXIAL_PANE_KEY]: createProjection(FUSION_PET_AXIAL_PANE_KEY, {
+            worldToNormalizedX: [1, 0, 0, 0.25],
+            worldToNormalizedY: [0, 1, 0, 0.2]
+          })
+        }
+      })
+    })
+    await nextTick()
+
+    expect(petMarker.attributes('style')).toContain('left: 100px')
+    expect(petMarker.attributes('style')).toContain('top: 50px')
+
+    wrapper.unmount()
+  })
+
   it('shows manual registration state and highlights the overlay viewport', () => {
     const wrapper = mountFusionView(createFusionTab({ fusionManualRegistration: true }))
 
@@ -404,10 +462,19 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
-  it('shows an immediate local PET preview while manual registration is dragged', async () => {
-    mockPetPreviewColorization()
-    const wrapper = mountFusionView(createFusionTab({ fusionManualRegistration: true }))
-    await flushPetPreviewColorization()
+  it('emits backend-driven translate registration drags without applying a local image transform', async () => {
+    const wrapper = mountFusionView(createFusionTab({
+      fusionInfo: createFusionInfo(1),
+      fusionManualRegistration: true,
+      fusionLayerImages: {
+        [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+          pet: 'pet-layer',
+          revision: 1,
+          width: 512,
+          height: 512
+        }
+      }
+    }))
     const stage = wrapper
       .findAllComponents({ name: 'ViewerCanvasStage' })
       .find((component) => component.props('viewportKey') === FUSION_OVERLAY_AXIAL_PANE_KEY)
@@ -417,101 +484,234 @@ describe('PetCtFusionView', () => {
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 31, clientX: 34, clientY: 38, button: 0 }))
     await nextTick()
 
-    const petAxialPreview = findManualRegistrationPreview(wrapper, FUSION_PET_AXIAL_PANE_KEY)
-    const petAxialLayer = petAxialPreview.find('.pet-ct-fusion-view__manual-preview-image--pet')
-    expect(petAxialPreview.exists()).toBe(true)
-    expect(petAxialPreview.find('.pet-ct-fusion-view__manual-preview-image--ct').exists()).toBe(false)
-    expect(petAxialLayer.attributes('src')).toBe('pet-image')
-    expect(petAxialLayer.attributes('style')).toContain('translate3d(24.00px, 18.00px, 0)')
-
-    const preview = findManualRegistrationPreview(wrapper, FUSION_OVERLAY_AXIAL_PANE_KEY)
-    const ctLayer = preview.find('.pet-ct-fusion-view__manual-preview-image--ct')
-    const petLayer = preview.find('.pet-ct-fusion-view__manual-preview-image--pet')
-    expect(preview.exists()).toBe(true)
-    expect(ctLayer.attributes('src')).toBe('ct-image')
-    expect(petLayer.attributes('src')).toBe('data:image/png;base64/colorized-pet-preview')
-    expect(petLayer.attributes('src')).not.toBe('pet-image')
-    expect(petLayer.attributes('style')).toContain('translate3d(24.00px, 18.00px, 0)')
+    expect(wrapper.find('[data-testid="fusion-registration-local-preview"]').exists()).toBe(false)
+    const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       {
         viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
         phase: 'move',
         subOpType: 'translate',
         deltaX: 24,
-        deltaY: 18
+        deltaY: 18,
+        anchorX: 10,
+        anchorY: 20,
+        currentX: 34,
+        currentY: 38,
+        pivotX: 0,
+        pivotY: 0
       }
     ])
 
     stage!.vm.$emit('pointerUp', createPointerEvent('pointerup', { pointerId: 31, clientX: 54, clientY: 45, button: 0 }))
     await nextTick()
-    expect(petLayer.attributes('style')).toContain('translate3d(24.00px, 18.00px, 0)')
+    expect(wrapper.find('[data-testid="fusion-registration-local-preview"]').exists()).toBe(false)
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       {
         viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
         phase: 'end',
         subOpType: 'translate',
-        deltaX: 24,
-        deltaY: 18
+        deltaX: 44,
+        deltaY: 25,
+        anchorX: 10,
+        anchorY: 20,
+        currentX: 54,
+        currentY: 45,
+        pivotX: 0,
+        pivotY: 0
+      }
+    ])
+
+    await wrapper.setProps({
+      activeTab: createFusionTab({
+        fusionInfo: createFusionInfo(2),
+        fusionManualRegistration: true,
+        fusionLayerImages: {
+          [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+            pet: 'pet-layer',
+            revision: 1,
+            width: 512,
+            height: 512
+          },
+          [FUSION_PET_AXIAL_PANE_KEY]: {
+            pet: 'pet-preview-layer',
+            revision: 2,
+            width: 512,
+            height: 512
+          }
+        }
+      })
+    })
+    await nextTick()
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+
+    await wrapper.setProps({
+      activeTab: createFusionTab({
+        fusionInfo: createFusionInfo(3),
+        fusionManualRegistration: true,
+        fusionLayerImages: {
+          [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+            pet: 'pet-layer-next',
+            revision: 2,
+            width: 512,
+            height: 512
+          }
+        }
+      })
+    })
+    await nextTick()
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+
+    wrapper.unmount()
+  })
+
+  it('sends backend registration deltas in rendered image canvas coordinates', async () => {
+    const wrapper = mountFusionView(createFusionTab({
+      fusionManualRegistration: true,
+      fusionLayerImages: {
+        [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+          pet: 'pet-layer',
+          revision: 1,
+          width: 1000,
+          height: 500
+        }
+      }
+    }))
+    const overlayPane = wrapper.find<HTMLElement>(`.pet-ct-fusion-view__pane[data-fusion-pane-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+    const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+    const overlayImage = overlayPane.find<HTMLImageElement>('.viewer-image')
+    const renderedRect = {
+      left: 0,
+      top: 0,
+      width: 500,
+      height: 250,
+      right: 500,
+      bottom: 250,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect
+    vi.spyOn(overlayPane.element, 'getBoundingClientRect').mockReturnValue(renderedRect)
+    vi.spyOn(overlayStage.element, 'getBoundingClientRect').mockReturnValue(renderedRect)
+    vi.spyOn(overlayImage.element, 'getBoundingClientRect').mockReturnValue(renderedRect)
+    Object.defineProperty(overlayImage.element, 'naturalWidth', { configurable: true, value: 1000 })
+    Object.defineProperty(overlayImage.element, 'naturalHeight', { configurable: true, value: 500 })
+
+    const stage = wrapper
+      .findAllComponents({ name: 'ViewerCanvasStage' })
+      .find((component) => component.props('viewportKey') === FUSION_OVERLAY_AXIAL_PANE_KEY)
+    expect(stage).toBeTruthy()
+
+    stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 41, clientX: 50, clientY: 60, button: 0 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
+    stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 41, clientX: 75, clientY: 90, button: 0 }))
+    await nextTick()
+
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
+      expect.objectContaining({
+        phase: 'move',
+        deltaX: 50,
+        deltaY: 60,
+        anchorX: 100,
+        anchorY: 120,
+        currentX: 150,
+        currentY: 180
+      })
+    ])
+
+    wrapper.unmount()
+  })
+
+  it('emits backend-driven rotate registration drags without applying a local image transform', async () => {
+    const wrapper = mountFusionView(createFusionTab({
+      fusionManualRegistration: true,
+      fusionLayerImages: {
+        [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+          pet: 'pet-layer',
+          revision: 1,
+          width: 512,
+          height: 512
+        }
+      }
+    }))
+    const stage = wrapper
+      .findAllComponents({ name: 'ViewerCanvasStage' })
+      .find((component) => component.props('viewportKey') === FUSION_OVERLAY_AXIAL_PANE_KEY)
+    expect(stage).toBeTruthy()
+    mockOverlayGeometry(wrapper)
+
+    stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 32, clientX: 150, clientY: 100, button: 2 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
+    stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 32, clientX: 100, clientY: 150, button: 2 }))
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="fusion-registration-local-preview"]').exists()).toBe(false)
+    const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
+      {
+        viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
+        phase: 'move',
+        subOpType: 'rotate',
+        deltaX: -50,
+        deltaY: 50,
+        anchorX: 150,
+        anchorY: 100,
+        currentX: 100,
+        currentY: 150,
+        pivotX: 100,
+        pivotY: 100,
+        rotationDeltaDegrees: 90
+      }
+    ])
+
+    stage!.vm.$emit('pointerUp', createPointerEvent('pointerup', { pointerId: 32, clientX: 100, clientY: 150, button: 2 }))
+    await nextTick()
+    expect(wrapper.find('[data-testid="fusion-registration-local-preview"]').exists()).toBe(false)
+    expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
+      {
+        viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
+        phase: 'end',
+        subOpType: 'rotate',
+        deltaX: -50,
+        deltaY: 50,
+        anchorX: 150,
+        anchorY: 100,
+        currentX: 100,
+        currentY: 150,
+        pivotX: 100,
+        pivotY: 100,
+        rotationDeltaDegrees: 90
       }
     ])
 
     wrapper.unmount()
   })
 
-  it('keeps the local PET preview stable when a backend overlay frame arrives mid-drag', async () => {
-    mockPetPreviewColorization()
-    const activeTab = createFusionTab({ fusionManualRegistration: true })
-    const wrapper = mountFusionView(activeTab)
-    await flushPetPreviewColorization()
-    const stage = wrapper
-      .findAllComponents({ name: 'ViewerCanvasStage' })
-      .find((component) => component.props('viewportKey') === FUSION_OVERLAY_AXIAL_PANE_KEY)
-    expect(stage).toBeTruthy()
-
-    stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 33, clientX: 10, clientY: 20, button: 0 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
-    stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 33, clientX: 24, clientY: 32, button: 0 }))
-    await nextTick()
-
-    await wrapper.setProps({
-      activeTab: {
-        ...activeTab,
-        fusionImages: {
-          ...activeTab.fusionImages,
-          [FUSION_OVERLAY_AXIAL_PANE_KEY]: 'late-backend-overlay-image'
+  it('accumulates manual registration rotation across the 180 degree wrap without reversing', async () => {
+    const wrapper = mountFusionView(createFusionTab({
+      fusionManualRegistration: true,
+      fusionLayerImages: {
+        [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
+          pet: 'pet-layer',
+          revision: 1,
+          width: 200,
+          height: 200
         }
       }
-    })
-    await flushPetPreviewColorization()
-
-    stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 33, clientX: 36, clientY: 44, button: 0 }))
-    await nextTick()
-
-    const preview = findManualRegistrationPreview(wrapper, FUSION_OVERLAY_AXIAL_PANE_KEY)
-    const petLayer = preview.find('.pet-ct-fusion-view__manual-preview-image--pet')
-    expect(preview.exists()).toBe(true)
-    expect(petLayer.attributes('src')).toBe('data:image/png;base64/colorized-pet-preview')
-    expect(petLayer.attributes('style')).toContain('translate3d(26.00px, 24.00px, 0)')
-
-    wrapper.unmount()
-  })
-
-  it('rotates the local PET preview during right-button manual registration drags', async () => {
-    mockPetPreviewColorization()
-    const wrapper = mountFusionView(createFusionTab({ fusionManualRegistration: true }))
-    await flushPetPreviewColorization()
+    }))
     const stage = wrapper
       .findAllComponents({ name: 'ViewerCanvasStage' })
       .find((component) => component.props('viewportKey') === FUSION_OVERLAY_AXIAL_PANE_KEY)
     expect(stage).toBeTruthy()
+    mockOverlayGeometry(wrapper)
 
-    stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 32, clientX: 10, clientY: 20, button: 2 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
-    stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 32, clientX: 30, clientY: 20, button: 2 }))
+    stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 33, clientX: 50, clientY: 102, button: 2 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
+    stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 33, clientX: 50, clientY: 98, button: 2 }))
     await nextTick()
 
-    const petLayer = wrapper
-      .find(`[data-testid="fusion-registration-local-preview"][data-fusion-preview-pane-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-      .find('.pet-ct-fusion-view__manual-preview-image--pet')
-    expect(petLayer.attributes('style')).toContain('rotate(7.000deg)')
+    const lastMove = wrapper.emitted('fusionRegistrationDrag')?.at(-1)?.[0] as { rotationDeltaDegrees?: number }
+    expect(lastMove.rotationDeltaDegrees).toBeCloseTo(4.58, 1)
 
     wrapper.unmount()
   })
@@ -538,14 +738,28 @@ describe('PetCtFusionView', () => {
         phase: 'end',
         subOpType: 'rotate',
         deltaX: 0,
-        deltaY: 0
+        deltaY: 0,
+        anchorX: 32,
+        anchorY: 40,
+        currentX: 33,
+        currentY: 40,
+        pivotX: 0,
+        pivotY: 0,
+        rotationDeltaDegrees: 0
       }],
       [{
         viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
         phase: 'end',
         subOpType: 'rotate',
         deltaX: 0,
-        deltaY: 0
+        deltaY: 0,
+        anchorX: 33,
+        anchorY: 40,
+        currentX: 33,
+        currentY: 41,
+        pivotX: 0,
+        pivotY: 0,
+        rotationDeltaDegrees: 0
       }]
     ])
     wrapper.unmount()

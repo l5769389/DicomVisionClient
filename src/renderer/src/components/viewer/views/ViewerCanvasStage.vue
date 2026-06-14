@@ -14,6 +14,7 @@ import type {
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
+  ViewerImageLayer,
   ViewerMtfItem
 } from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
@@ -45,6 +46,7 @@ const props = withDefaults(
     selectedMtfId?: string | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
+    imageLayers?: ViewerImageLayer[]
     imageSrc: string
     isActive?: boolean
     isLoading?: boolean
@@ -73,6 +75,7 @@ const props = withDefaults(
     measurements: () => [],
     cursorClass: '',
     draftMeasurementMode: null,
+    imageLayers: () => [],
     imageClass: '',
     isActive: false,
     isLoading: false,
@@ -400,6 +403,18 @@ watch(
         draggable="false"
         @dragstart.prevent
         @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
+      />
+      <img
+        v-for="layer in imageLayers"
+        :key="layer.key"
+        class="viewer-image viewer-image-layer pointer-events-none absolute inset-0 block h-full w-full select-none object-contain object-center"
+        :class="layer.class"
+        :src="layer.src"
+        :alt="layer.alt ?? ''"
+        :style="layer.style"
+        draggable="false"
+        aria-hidden="true"
+        @dragstart.prevent
       />
       <ViewportCrosshairOverlay
         :corner-info="cornerInfo"

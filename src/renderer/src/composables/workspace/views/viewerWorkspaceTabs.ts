@@ -4,6 +4,8 @@ import type {
   CompareStackPaneKey,
   FusionPaneKey,
   FusionInfo,
+  FusionCompositeInfo,
+  FusionLayerImages,
   FusionProjectionInfo,
   FourDPhaseItem,
   FolderSeriesItem,
@@ -194,6 +196,14 @@ export function createEmptyCompareImages(): Record<CompareStackPaneKey, string> 
 
 export function createEmptyFusionImages(): Record<FusionPaneKey, string> {
   return createFusionPaneRecord(() => '')
+}
+
+export function createEmptyFusionLayerImages(): Record<FusionPaneKey, FusionLayerImages | null> {
+  return createFusionPaneRecord(() => null)
+}
+
+export function createEmptyFusionComposites(): Record<FusionPaneKey, FusionCompositeInfo | null> {
+  return createFusionPaneRecord(() => null)
 }
 
 export function createEmptyCompareSliceLabels(): Record<CompareStackPaneKey, string> {
@@ -742,6 +752,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionSeriesIds: { ctSeriesId: '', petSeriesId: '' },
     fusionViewIds: createEmptyFusionViewIds(),
     fusionImages: createEmptyFusionImages(),
+    fusionLayerImages: createEmptyFusionLayerImages(),
+    fusionComposites: createEmptyFusionComposites(),
     fusionSliceLabels: createEmptyFusionSliceLabels(),
     fusionWindowLabels: createEmptyFusionWindowLabels(),
     fusionScaleBars: createEmptyFusionScaleBars(),
@@ -752,6 +764,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionProjections: createEmptyFusionProjections(),
     fusionInfo: null,
     fusionManualRegistration: false,
+    fusionRegistrationDragActive: false,
     petInfo: viewType === 'PET' ? createDefaultPetInfo(series.seriesId) : null,
     ...createCompareSyncDefaults(),
     ...createLayoutSyncDefaults(),

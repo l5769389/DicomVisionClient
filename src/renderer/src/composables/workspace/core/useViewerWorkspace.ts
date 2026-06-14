@@ -162,6 +162,12 @@ interface ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     subOpType: 'translate' | 'rotate'
     viewportKey: string
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
   }) => void
   handleFusionConfigChange: (payload: {
     manualRegistration?: boolean
@@ -2074,20 +2080,47 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return null
   }
 
+  function normalizeExtraImageBinaries(value: unknown): Record<string, ArrayBuffer | Uint8Array> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {}
+    }
+
+    const normalized: Record<string, ArrayBuffer | Uint8Array> = {}
+    Object.entries(value as Record<string, unknown>).forEach(([key, binaryValue]) => {
+      const binary = normalizeImageBinary(binaryValue)
+      if (binary) {
+        normalized[key] = binary
+      }
+    })
+    return normalized
+  }
+
   function normalizeImageUpdateArgs(
     args: unknown[]
-  ): { payload: Partial<ViewImageResponse>; imageBinary?: ArrayBuffer | Uint8Array } | null {
+  ): { payload: Partial<ViewImageResponse>; imageBinary?: ArrayBuffer | Uint8Array; extraImageBinaries: Record<string, ArrayBuffer | Uint8Array> } | null {
     if (!args.length) {
       return null
     }
 
     if (Array.isArray(args[0])) {
-      const [payload, imageBinary] = args[0] as [Partial<ViewImageResponse> | undefined, unknown]
-      return payload ? { payload, imageBinary: normalizeImageBinary(imageBinary) ?? undefined } : null
+      const [payload, imageBinary, extraImageBinaries] = args[0] as [Partial<ViewImageResponse> | undefined, unknown, unknown]
+      return payload
+        ? {
+            payload,
+            imageBinary: normalizeImageBinary(imageBinary) ?? undefined,
+            extraImageBinaries: normalizeExtraImageBinaries(extraImageBinaries)
+          }
+        : null
     }
 
-    const [payload, imageBinary] = args as [Partial<ViewImageResponse> | undefined, unknown]
-    return payload ? { payload, imageBinary: normalizeImageBinary(imageBinary) ?? undefined } : null
+    const [payload, imageBinary, extraImageBinaries] = args as [Partial<ViewImageResponse> | undefined, unknown, unknown]
+    return payload
+      ? {
+          payload,
+          imageBinary: normalizeImageBinary(imageBinary) ?? undefined,
+          extraImageBinaries: normalizeExtraImageBinaries(extraImageBinaries)
+        }
+      : null
   }
 
   function handleImageUpdate(...args: unknown[]): void {
@@ -2096,7 +2129,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const { payload, imageBinary } = normalized
+    const { payload, imageBinary, extraImageBinaries } = normalized
     const viewId = payload.viewId
     if (!viewId || !imageBinary) {
       return
@@ -2108,24 +2141,38 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     logInteractivePreviewReceiveInterval(tab, payload)
-    if (payload.imageFormat === 'jpeg' || payload.imageFormat === 'png') {
+    if (isInteractivePreviewPayload(payload)) {
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
       viewInteractionOperationScheduler.recordBackendPreview(
         viewId,
         typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
       )
     }
-    views.updateTabImage(tab.key, payload, imageBinary)
+    views.updateTabImage(tab.key, payload, imageBinary, extraImageBinaries)
   }
 
   const interactivePreviewTimingByView = new Map<string, number>()
 
+  function isInteractivePreviewPayload(payload: Partial<ViewImageResponse>): boolean {
+    const rawFastPreview = payload.fastPreview ?? ((payload as { fast_preview?: unknown }).fast_preview ?? null)
+    if (typeof rawFastPreview === 'boolean') {
+      return rawFastPreview
+    }
+    return payload.imageFormat === 'jpeg'
+  }
+
   function logInteractivePreviewReceiveInterval(tab: ViewerTabItem, payload: Partial<ViewImageResponse>): void {
-    if (!isViewerPerfDebugEnabled() || !payload.viewId || (payload.imageFormat !== 'jpeg' && payload.imageFormat !== 'png')) {
+    if (!isViewerPerfDebugEnabled() || !payload.viewId || !isInteractivePreviewPayload(payload)) {
       return
     }
 
-    const perfScope = isMprLikeViewType(tab.viewType) ? 'mpr' : isStackLikeViewType(tab.viewType) ? 'stack' : null
+    const perfScope = isMprLikeViewType(tab.viewType)
+      ? 'mpr'
+      : isStackLikeViewType(tab.viewType)
+        ? 'stack'
+        : tab.viewType === 'PETCTFusion'
+          ? 'fusion'
+          : null
     if (!perfScope) {
       return
     }
@@ -2141,6 +2188,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (deltaMs > PREVIEW_PERF_IDLE_GAP_MS) {
       console.debug(`[${perfScope} perf] image_update interval restarted`, {
         idleMs: Math.round(deltaMs * 10) / 10,
+        fastPreview: payload.fastPreview,
         format: payload.imageFormat,
         viewType: tab.viewType,
         viewId: payload.viewId
@@ -2150,6 +2198,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
     console.debug(`[${perfScope} perf] image_update interval`, {
       deltaMs: Math.round(deltaMs * 10) / 10,
+      fastPreview: payload.fastPreview,
       format: payload.imageFormat,
       mprRevision: typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null,
       viewType: tab.viewType,
@@ -2485,6 +2534,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     subOpType: 'translate' | 'rotate'
     viewportKey: string
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
+    rotationDeltaDegrees?: number
   }): void {
     const tab = activeTab.value
     if (!tab || tab.viewType !== 'PETCTFusion' || !tab.fusionManualRegistration) {
@@ -2498,10 +2554,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (!viewId) {
       return
     }
-    if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
-      return
+    if (payload.phase === DRAG_ACTION_TYPES.start || payload.phase === DRAG_ACTION_TYPES.end) {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionRegistrationDragActive: payload.phase === DRAG_ACTION_TYPES.start
+            }
+          : item
+      )
     }
-    if (payload.phase === DRAG_ACTION_TYPES.move) {
+    if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
       return
     }
     emitScheduledViewOperation({
@@ -2510,7 +2573,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       actionType: payload.phase,
       subOpType: payload.subOpType,
       x: payload.deltaX,
-      y: payload.deltaY
+      y: payload.deltaY,
+      anchorX: payload.anchorX,
+      anchorY: payload.anchorY,
+      currentX: payload.currentX,
+      currentY: payload.currentY,
+      pivotX: payload.pivotX,
+      pivotY: payload.pivotY,
+      rotationDeltaDegrees: payload.rotationDeltaDegrees
     })
   }
 

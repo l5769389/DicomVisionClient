@@ -11,10 +11,10 @@ import type {
   MeasurementDraft,
   MeasurementOverlay,
   Vec3,
+  ViewerImageLayer,
   ViewerTabItem
 } from '../../../types/viewer'
 import {
-  FUSION_CT_AXIAL_PANE_KEY,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PANE_KEYS,
   FUSION_PET_AXIAL_PANE_KEY,
@@ -45,6 +45,13 @@ const emit = defineEmits<{
     subOpType: 'translate' | 'rotate'
     deltaX: number
     deltaY: number
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
+    rotationDeltaDegrees?: number
   }]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   imageLoaded: [viewportKey: string]
@@ -72,16 +79,15 @@ interface ManualRegistrationDragState {
   pointerId: number
   startClientX: number
   startClientY: number
-  subOpType: 'translate' | 'rotate'
-}
-
-interface ManualRegistrationPreviewState {
-  deltaX: number
-  deltaY: number
-  originOverlaySrc: string
-  originRevision: number | null
-  phase: 'drag' | 'settling'
-  rotationDegrees: number
+  startCanvasX: number
+  startCanvasY: number
+  pivotCanvasX: number
+  pivotCanvasY: number
+  pivotClientX: number
+  pivotClientY: number
+  lastRotationAngleRad: number | null
+  rotationDeltaDegrees: number
+  rotationActive: boolean
   subOpType: 'translate' | 'rotate'
 }
 
@@ -89,33 +95,26 @@ interface FusionCalibrationDragState {
   pointerId: number
 }
 
+type FusionMarkerPosition = { x: number; y: number }
+type FusionMarkerPositionMap = Partial<Record<FusionPaneKey, FusionMarkerPosition>>
+
 const { locale } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
 const manualDragState = ref<ManualRegistrationDragState | null>(null)
-const manualPreviewState = ref<ManualRegistrationPreviewState | null>(null)
-const maskedFusionCtPreviewSrc = ref('')
-const maskedFusionCtPreviewReady = ref(false)
-const colorizedFusionPetPreviewSrc = ref('')
-const colorizedFusionPetPreviewReady = ref(false)
 const calibrationDragState = ref<FusionCalibrationDragState | null>(null)
 const calibrationMarkerPosition = ref({ x: 0.5, y: 0.5 })
 const calibrationMarkerWorld = ref<Vec3 | null>(null)
+const manualRegistrationMarkerPositions = ref<FusionMarkerPositionMap | null>(null)
 const markerLayoutRevision = ref(0)
 const paneElements = new Map<FusionPaneKey, HTMLElement>()
 let paneResizeObserver: ResizeObserver | null = null
 let markerLayoutRaf: number | null = null
 let lastManualRightClick: { at: number; clientX: number; clientY: number } | null = null
-let manualPreviewClearTimer: number | null = null
 
 const MANUAL_RIGHT_DOUBLE_CLICK_INTERVAL_MS = 420
 const MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX = 4
-const MANUAL_PREVIEW_CLEAR_DELAY_MS = 1800
-const MANUAL_ROTATION_DEGREES_PER_PIXEL = 0.35
-const PET_OVERLAY_COLOR_DELTA_THRESHOLD = 14
-const PET_OVERLAY_ALPHA_DELTA_RANGE = 42
-const PET_OVERLAY_MIN_LUMINANCE = 8
-let ctPreviewMaskRequestId = 0
-let petPreviewColorizeRequestId = 0
+const MANUAL_ROTATION_MIN_RADIUS_PX = 18
+const MANUAL_ROTATION_ACTIVATION_PX = 3
 
 const paneTitles = computed((): Record<FusionPaneKey, string> => ({
   'fusion-ct-ax': 'CT Axial',
@@ -140,23 +139,6 @@ const manualRegistrationHint = computed(() =>
     ? '配准模式 · 左拖平移 PET · 右拖旋转 PET · Esc 退出'
     : 'Registration mode · Left drag moves PET · Right drag rotates PET · Esc exits'
 )
-const manualRegistrationPreviewPetOpacity = computed(() => {
-  const alpha = props.activeTab.fusionInfo?.alpha
-  return Math.min(0.92, Math.max(0.18, typeof alpha === 'number' && Number.isFinite(alpha) ? alpha : 0.58))
-})
-function getManualRegistrationPreviewPetStyle(paneKey: FusionPaneKey): Record<string, string> {
-  const preview = manualPreviewState.value
-  if (!preview) {
-    return {}
-  }
-  const transform = preview.subOpType === 'rotate'
-    ? `rotate(${preview.rotationDegrees.toFixed(3)}deg)`
-    : `translate3d(${preview.deltaX.toFixed(2)}px, ${preview.deltaY.toFixed(2)}px, 0)`
-  return {
-    opacity: String(paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY ? manualRegistrationPreviewPetOpacity.value : 1),
-    transform
-  }
-}
 const loadingLabel = computed(() => (isZh.value ? '正在加载融合视图...' : 'Loading fusion view...'))
 const placeholderLabel = computed(() => (isZh.value ? 'PET/CT 融合预览' : 'PET/CT fusion preview'))
 const progressLabels = computed<Record<string, string>>(() => ({
@@ -169,6 +151,131 @@ const progressLabels = computed<Record<string, string>>(() => ({
   encode: isZh.value ? '生成图像' : 'Encoding image',
   complete: isZh.value ? '加载完成' : 'Loaded'
 }))
+interface ManualRegistrationPoint {
+  canvasX: number
+  canvasY: number
+  viewX: number
+  viewY: number
+}
+
+function getManualRegistrationPoint(event: PointerEvent): ManualRegistrationPoint {
+  const target = event.currentTarget instanceof HTMLElement
+    ? event.currentTarget
+    : paneElements.get(FUSION_OVERLAY_AXIAL_PANE_KEY)?.querySelector<HTMLElement>('.viewer-viewport')
+      ?? paneElements.get(FUSION_OVERLAY_AXIAL_PANE_KEY)
+      ?? null
+  const rect = target?.getBoundingClientRect()
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    return {
+      canvasX: event.clientX,
+      canvasY: event.clientY,
+      viewX: event.clientX,
+      viewY: event.clientY
+    }
+  }
+  const viewX = event.clientX - rect.left
+  const viewY = event.clientY - rect.top
+  const pane = paneElements.get(FUSION_OVERLAY_AXIAL_PANE_KEY)
+  const image = pane?.querySelector<HTMLImageElement>('.viewer-image') ?? null
+  const imageRect = image ? getRenderedImageRect(image) : null
+  const naturalWidth = image?.naturalWidth || props.activeTab.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]?.width || rect.width
+  const naturalHeight = image?.naturalHeight || props.activeTab.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]?.height || rect.height
+  if (!imageRect || imageRect.width <= 0 || imageRect.height <= 0 || naturalWidth <= 0 || naturalHeight <= 0) {
+    return {
+      canvasX: viewX,
+      canvasY: viewY,
+      viewX,
+      viewY
+    }
+  }
+  return {
+    canvasX: (event.clientX - imageRect.left) * naturalWidth / imageRect.width,
+    canvasY: (event.clientY - imageRect.top) * naturalHeight / imageRect.height,
+    viewX,
+    viewY
+  }
+}
+
+function getManualRegistrationViewportElement(): HTMLElement | null {
+  return paneElements.get(FUSION_OVERLAY_AXIAL_PANE_KEY)?.querySelector<HTMLElement>('.viewer-viewport') ?? null
+}
+
+function getManualRegistrationPivotPoint(): ManualRegistrationPoint {
+  const pane = paneElements.get(FUSION_OVERLAY_AXIAL_PANE_KEY)
+  const viewport = getManualRegistrationViewportElement()
+  if (!pane || !viewport) {
+    return { canvasX: 0, canvasY: 0, viewX: 0, viewY: 0 }
+  }
+  const viewportRect = viewport.getBoundingClientRect()
+  const image = pane.querySelector<HTMLImageElement>('.viewer-image')
+  const imageRect = getPaneImageRect(pane)
+  const markerPosition = getCalibrationMarkerPositionForPane(FUSION_OVERLAY_AXIAL_PANE_KEY)
+  if (!viewportRect.width || !viewportRect.height || !imageRect.width || !imageRect.height) {
+    const fallbackX = viewportRect.width / 2
+    const fallbackY = viewportRect.height / 2
+    return {
+      canvasX: fallbackX,
+      canvasY: fallbackY,
+      viewX: fallbackX,
+      viewY: fallbackY
+    }
+  }
+  const viewX = imageRect.left - viewportRect.left + markerPosition.x * imageRect.width
+  const viewY = imageRect.top - viewportRect.top + markerPosition.y * imageRect.height
+  const naturalWidth = image?.naturalWidth || props.activeTab.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]?.width || imageRect.width
+  const naturalHeight = image?.naturalHeight || props.activeTab.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]?.height || imageRect.height
+  return {
+    canvasX: markerPosition.x * naturalWidth,
+    canvasY: markerPosition.y * naturalHeight,
+    viewX,
+    viewY
+  }
+}
+
+function normalizeScreenAngleDeltaRad(deltaRad: number): number {
+  if (!Number.isFinite(deltaRad)) {
+    return 0
+  }
+  return Math.atan2(Math.sin(deltaRad), Math.cos(deltaRad))
+}
+
+function getManualRegistrationRotationAngle(event: PointerEvent, state: ManualRegistrationDragState): number | null {
+  const deltaX = event.clientX - state.pivotClientX
+  const deltaY = event.clientY - state.pivotClientY
+  if (Math.hypot(deltaX, deltaY) < MANUAL_ROTATION_MIN_RADIUS_PX) {
+    return null
+  }
+  return Math.atan2(deltaY, deltaX)
+}
+
+function updateManualRegistrationRotationDelta(event: PointerEvent, state: ManualRegistrationDragState): void {
+  if (state.subOpType !== 'rotate') {
+    return
+  }
+  const totalMove = Math.hypot(event.clientX - state.startClientX, event.clientY - state.startClientY)
+  const currentAngle = getManualRegistrationRotationAngle(event, state)
+  if (!state.rotationActive) {
+    if (totalMove < MANUAL_ROTATION_ACTIVATION_PX || currentAngle == null) {
+      return
+    }
+    state.rotationActive = true
+    if (state.lastRotationAngleRad == null) {
+      state.lastRotationAngleRad = currentAngle
+      return
+    }
+  }
+  if (currentAngle == null) {
+    return
+  }
+  const previousAngle = state.lastRotationAngleRad
+  state.lastRotationAngleRad = currentAngle
+  if (previousAngle == null) {
+    return
+  }
+  const deltaRad = normalizeScreenAngleDeltaRad(currentAngle - previousAngle)
+  state.rotationDeltaDegrees += deltaRad * 180 / Math.PI
+}
+
 function getPaneLoadingProgressPercent(paneKey: FusionPaneKey): number | null {
   const progressPercent = props.activeTab.fusionLoadingProgress?.[paneKey]?.progressPercent
   return typeof progressPercent === 'number' ? progressPercent : null
@@ -193,152 +300,31 @@ function emitManualRegistrationDrag(
   if (!state) {
     return
   }
-  emit('fusionRegistrationDrag', {
+  if (state.subOpType === 'rotate' && phase !== 'start') {
+    updateManualRegistrationRotationDelta(event, state)
+    if (phase === 'move' && !state.rotationActive) {
+      return
+    }
+  }
+  const currentPoint = getManualRegistrationPoint(event)
+  const deltaX = deltaOverride?.deltaX ?? currentPoint.canvasX - state.startCanvasX
+  const deltaY = deltaOverride?.deltaY ?? currentPoint.canvasY - state.startCanvasY
+  const payload = {
     viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
     phase,
     subOpType: state.subOpType,
-    deltaX: deltaOverride?.deltaX ?? event.clientX - state.startClientX,
-    deltaY: deltaOverride?.deltaY ?? event.clientY - state.startClientY
-  })
-}
-
-function clearManualRegistrationPreview(): void {
-  if (manualPreviewClearTimer != null && typeof window !== 'undefined') {
-    window.clearTimeout(manualPreviewClearTimer)
-  }
-  manualPreviewClearTimer = null
-  manualPreviewState.value = null
-}
-
-function scheduleManualRegistrationPreviewClear(): void {
-  if (typeof window === 'undefined') {
-    clearManualRegistrationPreview()
-    return
-  }
-  if (manualPreviewClearTimer != null) {
-    window.clearTimeout(manualPreviewClearTimer)
-  }
-  manualPreviewClearTimer = window.setTimeout(() => {
-    manualPreviewClearTimer = null
-    manualPreviewState.value = null
-  }, MANUAL_PREVIEW_CLEAR_DELAY_MS)
-}
-
-function updateManualRegistrationPreview(event: PointerEvent, phase: 'drag' | 'settling' = 'drag'): void {
-  const state = manualDragState.value
-  if (!state) {
-    return
-  }
-  if (manualPreviewClearTimer != null && typeof window !== 'undefined') {
-    window.clearTimeout(manualPreviewClearTimer)
-    manualPreviewClearTimer = null
-  }
-  const deltaX = event.clientX - state.startClientX
-  const deltaY = event.clientY - state.startClientY
-  manualPreviewState.value = {
     deltaX,
     deltaY,
-    originOverlaySrc: props.activeTab.fusionImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? '',
-    originRevision: props.activeTab.fusionInfo?.revision ?? null,
-    phase,
-    rotationDegrees: state.subOpType === 'rotate' ? deltaX * MANUAL_ROTATION_DEGREES_PER_PIXEL : 0,
-    subOpType: state.subOpType
+    anchorX: state.startCanvasX,
+    anchorY: state.startCanvasY,
+    currentX: currentPoint.canvasX,
+    currentY: currentPoint.canvasY,
+    pivotX: state.pivotCanvasX,
+    pivotY: state.pivotCanvasY
   }
-}
-
-function shouldShowManualRegistrationPreview(paneKey: FusionPaneKey): boolean {
-  if (!manualRegistrationEnabled.value || !manualPreviewState.value) {
-    return false
-  }
-  if (paneKey === FUSION_PET_AXIAL_PANE_KEY) {
-    return Boolean(props.activeTab.fusionImages?.[FUSION_PET_AXIAL_PANE_KEY])
-  }
-  return Boolean(
-    paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY &&
-    maskedFusionCtPreviewReady.value &&
-    maskedFusionCtPreviewSrc.value &&
-    colorizedFusionPetPreviewReady.value &&
-    colorizedFusionPetPreviewSrc.value
-  )
-}
-
-function smoothstep(edge0: number, edge1: number, value: number): number {
-  const range = Math.max(1e-6, edge1 - edge0)
-  const ratio = Math.min(1, Math.max(0, (value - edge0) / range))
-  return ratio * ratio * (3 - 2 * ratio)
-}
-
-function loadPreviewImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('Unable to load PET preview image'))
-    image.src = src
-  })
-}
-
-async function readPreviewImageData(src: string): Promise<{
-  canvas: HTMLCanvasElement
-  context: CanvasRenderingContext2D
-  data: Uint8ClampedArray
-  height: number
-  imageData: ImageData
-  width: number
-}> {
-  const image = await loadPreviewImage(src)
-  const width = image.naturalWidth || image.width
-  const height = image.naturalHeight || image.height
-  if (!width || !height) {
-    throw new Error('Preview image has no dimensions')
-  }
-
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) {
-    throw new Error('Unable to create preview canvas context')
-  }
-
-  context.drawImage(image, 0, 0, width, height)
-  const imageData = context.getImageData(0, 0, width, height)
-  return { canvas, context, data: imageData.data, height, imageData, width }
-}
-
-async function buildFusionCtRegistrationBasePreview(src: string): Promise<string> {
-  return src
-}
-
-async function buildFusionPetOverlayPreview(src: string): Promise<string> {
-  if (!src || typeof document === 'undefined' || typeof Image === 'undefined') {
-    return ''
-  }
-
-  const { canvas, context, data, imageData } = await readPreviewImageData(src)
-  for (let offset = 0; offset < data.length; offset += 4) {
-    const red = data[offset]
-    const green = data[offset + 1]
-    const blue = data[offset + 2]
-    const maxChannel = Math.max(red, green, blue)
-    const minChannel = Math.min(red, green, blue)
-    const colorDelta = maxChannel - minChannel
-    const luminance = data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114
-    const sourceAlpha = data[offset + 3] / 255
-    const alphaRatio = luminance <= PET_OVERLAY_MIN_LUMINANCE
-      ? 0
-      : smoothstep(
-        PET_OVERLAY_COLOR_DELTA_THRESHOLD,
-        PET_OVERLAY_COLOR_DELTA_THRESHOLD + PET_OVERLAY_ALPHA_DELTA_RANGE,
-        colorDelta
-      )
-    const alpha = 255 * sourceAlpha * alphaRatio
-    data[offset] = red
-    data[offset + 1] = green
-    data[offset + 2] = blue
-    data[offset + 3] = Math.round(alpha)
-  }
-  context.putImageData(imageData, 0, 0)
-  return canvas.toDataURL('image/png')
+  emit('fusionRegistrationDrag', state.subOpType === 'rotate'
+    ? { ...payload, rotationDeltaDegrees: state.rotationDeltaDegrees }
+    : payload)
 }
 
 function handlePointerDown(event: PointerEvent, viewportKey: string): void {
@@ -349,13 +335,32 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
     if (target instanceof HTMLElement) {
       target.setPointerCapture(event.pointerId)
     }
+    const startPoint = getManualRegistrationPoint(event)
+    const pivotPoint = getManualRegistrationPivotPoint()
+    const viewportRect = getManualRegistrationViewportElement()?.getBoundingClientRect()
+    const pivotClientX = viewportRect ? viewportRect.left + pivotPoint.viewX : event.clientX
+    const pivotClientY = viewportRect ? viewportRect.top + pivotPoint.viewY : event.clientY
+    const startRotationDeltaX = event.clientX - pivotClientX
+    const startRotationDeltaY = event.clientY - pivotClientY
+    const startRotationAngleRad =
+      Math.hypot(startRotationDeltaX, startRotationDeltaY) >= MANUAL_ROTATION_MIN_RADIUS_PX
+        ? Math.atan2(startRotationDeltaY, startRotationDeltaX)
+        : null
     manualDragState.value = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
+      startCanvasX: startPoint.canvasX,
+      startCanvasY: startPoint.canvasY,
+      pivotCanvasX: pivotPoint.canvasX,
+      pivotCanvasY: pivotPoint.canvasY,
+      pivotClientX,
+      pivotClientY,
+      lastRotationAngleRad: startRotationAngleRad,
+      rotationDeltaDegrees: 0,
+      rotationActive: false,
       subOpType: event.button === 2 ? 'rotate' : 'translate'
     }
-    updateManualRegistrationPreview(event)
     emitManualRegistrationDrag('start', event)
     return
   }
@@ -376,7 +381,6 @@ function exitManualRegistrationMode(): void {
   }
   manualDragState.value = null
   lastManualRightClick = null
-  clearManualRegistrationPreview()
   emit('fusionConfigChange', { manualRegistration: false })
 }
 
@@ -428,28 +432,30 @@ function consumeManualRegistrationRightDoubleClick(state: ManualRegistrationDrag
   return distanceX <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX && distanceY <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX
 }
 
-function getManualRegistrationPreviewDelta(state: ManualRegistrationDragState, event: PointerEvent): { deltaX: number; deltaY: number } {
-  const preview = manualPreviewState.value
-  if (preview) {
-    return {
-      deltaX: preview.deltaX,
-      deltaY: preview.deltaY
-    }
-  }
+function getManualRegistrationDelta(state: ManualRegistrationDragState, event: PointerEvent): { deltaX: number; deltaY: number } {
+  const currentPoint = getManualRegistrationPoint(event)
   return {
-    deltaX: event.clientX - state.startClientX,
-    deltaY: event.clientY - state.startClientY
+    deltaX: currentPoint.canvasX - state.startCanvasX,
+    deltaY: currentPoint.canvasY - state.startCanvasY
   }
 }
 
-function settleManualRegistrationPreview(): void {
-  const preview = manualPreviewState.value
-  if (preview) {
-    manualPreviewState.value = {
-      ...preview,
-      phase: 'settling'
-    }
+function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
+  if (paneKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
+    return []
   }
+  const petLayerSrc = props.activeTab.fusionLayerImages?.[paneKey]?.pet
+  if (!petLayerSrc) {
+    return []
+  }
+  return [
+    {
+      key: `pet-${props.activeTab.fusionLayerImages?.[paneKey]?.revision ?? 'current'}`,
+      src: petLayerSrc,
+      alt: 'PET overlay',
+      class: 'pet-ct-fusion-view__pet-layer'
+    }
+  ]
 }
 
 function clampNormalized(value: number): number {
@@ -550,7 +556,7 @@ function getCalibrationMarkerWorld(): Vec3 | null {
   return isFiniteVec3(projection?.referenceWorld) ? projection.referenceWorld : null
 }
 
-function getCalibrationMarkerPositionForPane(paneKey: FusionPaneKey): { x: number; y: number } {
+function resolveCalibrationMarkerPositionForPane(paneKey: FusionPaneKey): FusionMarkerPosition {
   const projection = getFusionProjection(paneKey)
   const world = getCalibrationMarkerWorld()
   if (!projection || !world) {
@@ -563,6 +569,25 @@ function getCalibrationMarkerPositionForPane(paneKey: FusionPaneKey): { x: numbe
     return calibrationMarkerPosition.value
   }
   return { x, y }
+}
+
+function captureManualRegistrationMarkerPositions(): void {
+  const nextPositions: FusionMarkerPositionMap = {}
+  FUSION_PANE_KEYS.forEach((paneKey) => {
+    nextPositions[paneKey] = resolveCalibrationMarkerPositionForPane(paneKey)
+  })
+  manualRegistrationMarkerPositions.value = nextPositions
+  scheduleMarkerLayoutUpdate()
+}
+
+function getCalibrationMarkerPositionForPane(paneKey: FusionPaneKey): FusionMarkerPosition {
+  const lockedPosition = manualRegistrationEnabled.value
+    ? manualRegistrationMarkerPositions.value?.[paneKey]
+    : null
+  if (lockedPosition) {
+    return lockedPosition
+  }
+  return resolveCalibrationMarkerPositionForPane(paneKey)
 }
 
 function getCalibrationMarkerStyle(paneKey: FusionPaneKey): Record<string, string> {
@@ -616,6 +641,9 @@ function updateCalibrationMarkerFromPointer(event: PointerEvent): void {
   if (projection) {
     calibrationMarkerWorld.value = normalizedToWorld(projection, normalizedPosition.x, normalizedPosition.y)
   }
+  if (manualRegistrationEnabled.value) {
+    captureManualRegistrationMarkerPositions()
+  }
 }
 
 function handleCalibrationPointerDown(event: PointerEvent): void {
@@ -666,7 +694,6 @@ function handlePaneImageLoaded(viewportKey: string): void {
 function handlePointerMove(event: PointerEvent): void {
   if (manualDragState.value) {
     event.preventDefault()
-    updateManualRegistrationPreview(event)
     emitManualRegistrationDrag('move', event)
     return
   }
@@ -682,14 +709,7 @@ function finishManualDrag(event: PointerEvent, phase: 'end' | 'move' = 'end'): b
   const shouldExitRegistration = phase === 'end' && consumeManualRegistrationRightDoubleClick(state, event)
   const finalDelta = isRightClickTap
     ? { deltaX: 0, deltaY: 0 }
-    : getManualRegistrationPreviewDelta(state, event)
-  if (!shouldExitRegistration) {
-    if (phase === 'end') {
-      settleManualRegistrationPreview()
-    } else {
-      updateManualRegistrationPreview(event, 'drag')
-    }
-  }
+    : getManualRegistrationDelta(state, event)
   emitManualRegistrationDrag(phase, event, finalDelta)
   const target = event.currentTarget
   if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
@@ -698,8 +718,6 @@ function finishManualDrag(event: PointerEvent, phase: 'end' | 'move' = 'end'): b
   manualDragState.value = null
   if (shouldExitRegistration) {
     exitManualRegistrationMode()
-  } else if (phase === 'end') {
-    scheduleManualRegistrationPreviewClear()
   }
   return true
 }
@@ -734,7 +752,6 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(markerLayoutRaf)
     markerLayoutRaf = null
   }
-  clearManualRegistrationPreview()
   paneResizeObserver?.disconnect()
   paneResizeObserver = null
   paneElements.clear()
@@ -756,89 +773,26 @@ watch(
   () => {
     calibrationMarkerWorld.value = null
     calibrationMarkerPosition.value = { x: 0.5, y: 0.5 }
-    clearManualRegistrationPreview()
+    manualRegistrationMarkerPositions.value = null
+    manualDragState.value = null
     scheduleMarkerLayoutUpdate()
   }
 )
 
-watch(manualRegistrationEnabled, (enabled) => {
-  if (!enabled) {
+watch(
+  manualRegistrationEnabled,
+  (enabled) => {
+    if (enabled) {
+      void nextTick(() => {
+        captureManualRegistrationMarkerPositions()
+      })
+      return
+    }
     manualDragState.value = null
     lastManualRightClick = null
-    clearManualRegistrationPreview()
-  }
-})
-
-watch(
-  () => props.activeTab.fusionImages?.[FUSION_CT_AXIAL_PANE_KEY] ?? '',
-  async (ctImageSrc) => {
-    if (manualPreviewState.value?.phase === 'drag') {
-      return
-    }
-    const requestId = ++ctPreviewMaskRequestId
-    maskedFusionCtPreviewSrc.value = ''
-    maskedFusionCtPreviewReady.value = false
-    if (!ctImageSrc) {
-      return
-    }
-    try {
-      const maskedSrc = await buildFusionCtRegistrationBasePreview(ctImageSrc)
-      if (requestId === ctPreviewMaskRequestId && maskedSrc) {
-        maskedFusionCtPreviewSrc.value = maskedSrc
-        maskedFusionCtPreviewReady.value = true
-      }
-    } catch {
-      if (requestId === ctPreviewMaskRequestId) {
-        maskedFusionCtPreviewSrc.value = ''
-        maskedFusionCtPreviewReady.value = false
-      }
-    }
+    manualRegistrationMarkerPositions.value = null
   },
   { immediate: true }
-)
-
-watch(
-  () => props.activeTab.fusionImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? '',
-  async (overlayImageSrc) => {
-    if (manualPreviewState.value?.phase === 'drag') {
-      return
-    }
-    const requestId = ++petPreviewColorizeRequestId
-    colorizedFusionPetPreviewSrc.value = ''
-    colorizedFusionPetPreviewReady.value = false
-    if (!overlayImageSrc) {
-      return
-    }
-    try {
-      const colorizedSrc = await buildFusionPetOverlayPreview(overlayImageSrc)
-      if (requestId === petPreviewColorizeRequestId) {
-        colorizedFusionPetPreviewSrc.value = colorizedSrc
-        colorizedFusionPetPreviewReady.value = true
-      }
-    } catch {
-      if (requestId === petPreviewColorizeRequestId) {
-        colorizedFusionPetPreviewSrc.value = ''
-        colorizedFusionPetPreviewReady.value = false
-      }
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  () => [props.activeTab.fusionInfo?.revision ?? null, props.activeTab.fusionImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? ''] as const,
-  ([revision, overlaySrc]) => {
-    const preview = manualPreviewState.value
-    if (!preview || preview.phase !== 'settling') {
-      return
-    }
-    if (
-      (preview.originRevision != null && revision != null && revision !== preview.originRevision) ||
-      (preview.originOverlaySrc && overlaySrc && overlaySrc !== preview.originOverlaySrc)
-    ) {
-      clearManualRegistrationPreview()
-    }
-  }
 )
 
 </script>
@@ -880,6 +834,7 @@ watch(
           :draft-annotation="getDraftAnnotation(pane.key)"
           :draft-measurement="getDraftMeasurement(pane.key)"
           :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
+          :image-layers="getFusionImageLayers(pane.key)"
           :image-src="pane.imageSrc"
           :is-active="activeViewportKey === pane.key"
           :is-loading="!pane.imageSrc"
@@ -911,27 +866,6 @@ watch(
           @wheel-viewport="emit('viewportWheel', $event)"
           @contextmenu.prevent
         />
-        <div
-          v-if="shouldShowManualRegistrationPreview(pane.key)"
-          class="pet-ct-fusion-view__manual-preview"
-          data-testid="fusion-registration-local-preview"
-          :data-fusion-preview-pane-key="pane.key"
-        >
-          <img
-            v-if="pane.key === FUSION_OVERLAY_AXIAL_PANE_KEY"
-            class="pet-ct-fusion-view__manual-preview-image pet-ct-fusion-view__manual-preview-image--ct"
-            :src="maskedFusionCtPreviewSrc"
-            alt=""
-            draggable="false"
-          />
-          <img
-            class="pet-ct-fusion-view__manual-preview-image pet-ct-fusion-view__manual-preview-image--pet"
-            :src="pane.key === FUSION_OVERLAY_AXIAL_PANE_KEY ? colorizedFusionPetPreviewSrc : pane.imageSrc"
-            :style="getManualRegistrationPreviewPetStyle(pane.key)"
-            alt=""
-            draggable="false"
-          />
-        </div>
         <button
           v-if="pane.imageSrc"
           type="button"
@@ -1022,37 +956,6 @@ watch(
   border: 0;
   border-radius: 4px;
   background: #000;
-}
-
-.pet-ct-fusion-view__manual-preview {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
-  border-radius: 4px;
-  background: #000;
-  pointer-events: none;
-}
-
-.pet-ct-fusion-view__manual-preview-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center;
-  user-select: none;
-}
-
-.pet-ct-fusion-view__manual-preview-image--ct {
-  filter: saturate(0.92);
-}
-
-.pet-ct-fusion-view__manual-preview-image--pet {
-  mix-blend-mode: normal;
-  transform-origin: 50% 50%;
-  will-change: transform;
-  filter: saturate(1.1) contrast(1.04);
 }
 
 .pet-ct-fusion-view__stage :deep(.viewer-orientation-label) {

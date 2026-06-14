@@ -28,9 +28,13 @@ const VIEW_OPERATION_ACK_TIMEOUT_MS = 8000
 
 // python-socketio may deliver the binary payload either as two arguments or as a
 // single tuple-like message depending on transport/adapter behavior.
+export type ImageUpdateExtraBinaries = Record<string, ArrayBuffer | Uint8Array | number[]>
+
 type ImageUpdateSocketArgs =
   | [payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array]
+  | [payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array, extraBinaries: ImageUpdateExtraBinaries]
   | [message: [Partial<ViewImageResponse>, ArrayBuffer | Uint8Array]]
+  | [message: [Partial<ViewImageResponse>, ArrayBuffer | Uint8Array, ImageUpdateExtraBinaries]]
 
 interface SocketAckPayload {
   ok?: boolean
@@ -54,6 +58,13 @@ export interface ViewOperationPayload {
   actionType?: ViewActionType
   x?: number
   y?: number
+  anchorX?: number
+  anchorY?: number
+  currentX?: number
+  currentY?: number
+  pivotX?: number
+  pivotY?: number
+  rotationDeltaDegrees?: number
   line?: 'horizontal' | 'vertical'
   points?: MeasurementDraftPoint[]
   viewportKey?: string

@@ -180,6 +180,39 @@ export interface FusionInfo {
   registration: FusionRegistrationInfo
 }
 
+export interface FusionCompositeLayerInfo {
+  key: string
+  role: 'ct' | 'pet' | string
+  imageFormat?: 'png' | 'jpeg' | string
+}
+
+export interface FusionCompositeInfo {
+  mode: 'ctPetLayers' | string
+  revision: number
+  alpha: number
+  registration: FusionRegistrationInfo
+  width: number
+  height: number
+  layers: FusionCompositeLayerInfo[]
+  primaryImageUnchanged?: boolean
+}
+
+export interface FusionLayerImages {
+  ct?: string
+  pet?: string
+  revision?: number | null
+  width?: number
+  height?: number
+}
+
+export interface ViewerImageLayer {
+  key: string
+  src: string
+  alt?: string
+  class?: string | string[] | Record<string, boolean>
+  style?: Record<string, string>
+}
+
 export interface PetInfo {
   seriesId: string
   petUnit?: string
@@ -591,6 +624,8 @@ export interface ViewColorInfo {
 
 export interface ViewImageResponse {
   imageFormat?: 'png' | 'jpeg'
+  fastPreview?: boolean
+  fastPreviewFullResolution?: boolean
   viewId: string
   slice_info?: {
     current: number
@@ -621,6 +656,7 @@ export interface ViewImageResponse {
   mprCrosshairMode?: MprCrosshairMode | null
   petInfo?: PetInfo | null
   fusionInfo?: FusionInfo | null
+  fusionComposite?: FusionCompositeInfo | null
   fusionProjection?: FusionProjectionInfo | null
 }
 export type ViewHoverPayload = BackendViewHoverRequest
@@ -671,6 +707,8 @@ export interface ViewerTabItem {
   fusionSeriesDescriptions?: { ct?: string | null; pet?: string | null }
   fusionViewIds?: Partial<Record<FusionPaneKey, string>>
   fusionImages?: Partial<Record<FusionPaneKey, string>>
+  fusionLayerImages?: Partial<Record<FusionPaneKey, FusionLayerImages | null>>
+  fusionComposites?: Partial<Record<FusionPaneKey, FusionCompositeInfo | null>>
   fusionSliceLabels?: Partial<Record<FusionPaneKey, string>>
   fusionWindowLabels?: Partial<Record<FusionPaneKey, string>>
   fusionScaleBars?: Partial<Record<FusionPaneKey, ScaleBarInfo | null>>
@@ -683,6 +721,7 @@ export interface ViewerTabItem {
   fusionInfo?: FusionInfo | null
   petInfo?: PetInfo | null
   fusionManualRegistration?: boolean
+  fusionRegistrationDragActive?: boolean
   compareSyncScroll?: boolean
   compareSyncWindow?: boolean
   compareSyncPseudocolor?: boolean

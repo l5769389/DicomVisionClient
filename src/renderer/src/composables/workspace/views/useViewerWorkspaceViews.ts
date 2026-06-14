@@ -27,8 +27,10 @@ import {
   createEmptyCompareViewIds,
   createEmptyCompareWindowLabels,
   createEmptyCornerInfo,
+  createEmptyFusionComposites,
   createEmptyFusionCornerInfos,
   createEmptyFusionImages,
+  createEmptyFusionLayerImages,
   createEmptyFusionLoadingProgress,
   createEmptyFusionOrientations,
   createEmptyFusionProjections,
@@ -153,7 +155,9 @@ import type {
   DicomTagItem,
   FolderSeriesItem,
   FusionInfo,
+  FusionCompositeInfo,
   FusionPaneKey,
+  FusionLayerImages,
   FourDPhaseCacheItem,
   FourDPhaseItem,
   FourDPhasesResponse,
@@ -390,6 +394,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     revokeObjectUrlIfNeeded(tab.imageSrc)
     Object.values(tab.compareImages ?? {}).forEach(revokeObjectUrlIfNeeded)
     Object.values(tab.fusionImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fusionLayerImages ?? {}).forEach((layerImages) => {
+      revokeObjectUrlIfNeeded(layerImages?.pet)
+    })
     Object.values(tab.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
     Object.values(tab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
       Object.values(phaseCache.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
@@ -1407,7 +1414,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  function updateTabImage(tabKey: string, payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array): void {
+  function updateTabImage(
+    tabKey: string,
+    payload: Partial<ViewImageResponse>,
+    imageBinary: ArrayBuffer | Uint8Array,
+    extraImageBinaries: Record<string, ArrayBuffer | Uint8Array> = {}
+  ): void {
     let mprCrosshairSettlingCompletionUpdate: IncomingMprViewportUpdate | null = null
     options.viewerTabs.value = options.viewerTabs.value.map((item) => {
       if (item.key !== tabKey) {
@@ -1613,34 +1625,71 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const hasFusionProjectionPayload = 'fusionProjection' in payloadRecord || 'fusion_projection' in payloadRecord
         const rawFusionProjection = payload.fusionProjection ?? ((payload as { fusion_projection?: unknown }).fusion_projection ?? null)
         const fusionProjection = normalizeFusionProjectionInfo(rawFusionProjection)
+        const rawFusionComposite = payload.fusionComposite ?? ((payload as { fusion_composite?: unknown }).fusion_composite ?? null)
+        const fusionComposite = normalizeFusionCompositeInfoPayload(rawFusionComposite, fusionInfo)
         const acceptedRevision = item.fusionInfo?.revision ?? null
-        const isStalePreview =
-          payload.imageFormat === 'jpeg' &&
-          acceptedRevision != null &&
-          fusionInfo.revision < acceptedRevision
-        if (isStalePreview) {
+        const isStaleFusionImage = acceptedRevision != null && fusionInfo.revision < acceptedRevision
+        if (isStaleFusionImage) {
           revokeObjectUrlIfNeeded(imageSrc)
           return item
         }
-
         const fusionSeriesId = resolveFusionPaneSeriesId(fusionViewportKey, item.fusionSeriesIds, item.seriesId)
         const fusionSeriesCornerInfo =
           options.seriesCornerInfoMap.value[fusionSeriesId] ??
           options.seriesCornerInfoMap.value[item.seriesId] ??
           createEmptyCornerInfo()
         const currentImage = item.fusionImages?.[fusionViewportKey]
+        const currentLayerImages = item.fusionLayerImages?.[fusionViewportKey] ?? null
+        const layeredFusionComposite =
+          fusionViewportKey === FUSION_OVERLAY_AXIAL_PANE_KEY && fusionComposite?.mode === 'ctPetLayers'
+            ? fusionComposite
+            : null
+        const primaryImageUnchanged = layeredFusionComposite?.primaryImageUnchanged === true
+        const shouldKeepCurrentPrimaryImage = primaryImageUnchanged && Boolean(currentImage)
+        const nextPrimaryImage = shouldKeepCurrentPrimaryImage ? currentImage! : imageSrc
+        const nextPetLayerSrc = layeredFusionComposite && extraImageBinaries.pet
+          ? imageUrlRegistry.create(extraImageBinaries.pet, 'image/png')
+          : null
+        const nextLayerImages: FusionLayerImages | null = layeredFusionComposite
+          ? {
+              ct: shouldKeepCurrentPrimaryImage
+                ? currentLayerImages?.ct ?? currentImage
+                : imageSrc,
+              pet: nextPetLayerSrc ?? currentLayerImages?.pet,
+              revision: layeredFusionComposite.revision,
+              width: layeredFusionComposite.width,
+              height: layeredFusionComposite.height
+            }
+          : null
         const mergedFusionCornerInfo = hasCornerInfoPayload
           ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
           : item.fusionCornerInfos?.[fusionViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
         const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
-        revokeObjectUrlIfNeeded(currentImage)
+        if (shouldKeepCurrentPrimaryImage) {
+          revokeObjectUrlIfNeeded(imageSrc)
+        } else {
+          revokeObjectUrlIfNeeded(currentImage)
+        }
+        if (nextPetLayerSrc) {
+          revokeObjectUrlIfNeeded(currentLayerImages?.pet)
+        } else if (!layeredFusionComposite) {
+          revokeObjectUrlIfNeeded(currentLayerImages?.pet)
+        }
 
         return {
           ...item,
           fusionInfo,
           fusionImages: {
             ...(item.fusionImages ?? createEmptyFusionImages()),
-            [fusionViewportKey]: imageSrc
+            [fusionViewportKey]: nextPrimaryImage
+          },
+          fusionLayerImages: {
+            ...(item.fusionLayerImages ?? createEmptyFusionLayerImages()),
+            [fusionViewportKey]: nextLayerImages
+          },
+          fusionComposites: {
+            ...(item.fusionComposites ?? createEmptyFusionComposites()),
+            [fusionViewportKey]: layeredFusionComposite
           },
           fusionLoadingProgress: {
             ...(item.fusionLoadingProgress ?? createEmptyFusionLoadingProgress()),
@@ -2348,6 +2397,73 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ),
         saved: typeof registrationRecord.saved === 'boolean' ? registrationRecord.saved : fallback.registration.saved
       }
+    }
+  }
+
+  function normalizeFusionCompositeInfoPayload(
+    value: unknown,
+    fallbackInfo: FusionInfo
+  ): FusionCompositeInfo | null {
+    if (typeof value !== 'object' || value == null) {
+      return null
+    }
+
+    const record = value as Record<string, unknown>
+    const revision = record.revision
+    const alpha = record.alpha
+    const width = record.width
+    const height = record.height
+    if (
+      typeof revision !== 'number' ||
+      !Number.isFinite(revision) ||
+      typeof alpha !== 'number' ||
+      !Number.isFinite(alpha) ||
+      typeof width !== 'number' ||
+      !Number.isFinite(width) ||
+      typeof height !== 'number' ||
+      !Number.isFinite(height)
+    ) {
+      return null
+    }
+
+    const normalizedInfo = normalizeFusionInfoPayload(
+      {
+        paneRole: fallbackInfo.paneRole,
+        ctSeriesId: fallbackInfo.ctSeriesId,
+        petSeriesId: fallbackInfo.petSeriesId,
+        petPseudocolorPreset: fallbackInfo.petPseudocolorPreset,
+        petUnit: fallbackInfo.petUnit,
+        petUnitLabel: fallbackInfo.petUnitLabel,
+        petWindowMin: fallbackInfo.petWindowMin,
+        petWindowMax: fallbackInfo.petWindowMax,
+        alpha,
+        revision,
+        registration: record.registration
+      },
+      fallbackInfo
+    )
+    const layers = Array.isArray(record.layers)
+      ? record.layers
+          .filter((layer): layer is Record<string, unknown> => typeof layer === 'object' && layer != null)
+          .map((layer) => ({
+            key: typeof layer.key === 'string' ? layer.key : '',
+            role: typeof layer.role === 'string' ? layer.role : '',
+            imageFormat: typeof (layer.imageFormat ?? layer.image_format) === 'string'
+              ? String(layer.imageFormat ?? layer.image_format)
+              : 'png'
+          }))
+          .filter((layer) => layer.key && layer.role)
+      : []
+
+    return {
+      mode: typeof record.mode === 'string' ? record.mode : 'ctPetLayers',
+      revision: normalizedInfo.revision,
+      alpha: normalizedInfo.alpha,
+      registration: normalizedInfo.registration,
+      width: Math.max(0, Math.round(width)),
+      height: Math.max(0, Math.round(height)),
+      layers,
+      primaryImageUnchanged: record.primaryImageUnchanged === true || record.primary_image_unchanged === true
     }
   }
 
@@ -3094,6 +3210,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         },
         fusionViewIds: createEmptyFusionViewIds(),
         fusionImages: createEmptyFusionImages(),
+        fusionLayerImages: createEmptyFusionLayerImages(),
+        fusionComposites: createEmptyFusionComposites(),
         fusionSliceLabels: createEmptyFusionSliceLabels(),
         fusionWindowLabels: createEmptyFusionWindowLabels(),
         fusionScaleBars: createEmptyFusionScaleBars(),
@@ -3104,7 +3222,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         fusionProjections: createEmptyFusionProjections(),
         fusionLoadingProgress: createEmptyFusionLoadingProgress(),
         fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
-        fusionManualRegistration: false
+        fusionManualRegistration: false,
+        fusionRegistrationDragActive: false
       }
       options.viewerTabs.value = [...options.viewerTabs.value, tab]
     }
@@ -3138,6 +3257,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               fusionViewIds: nextFusionViewIds,
               fusionImages: createEmptyFusionImages(),
+              fusionLayerImages: createEmptyFusionLayerImages(),
+              fusionComposites: createEmptyFusionComposites(),
               fusionSliceLabels: createEmptyFusionSliceLabels(),
               fusionWindowLabels: createEmptyFusionWindowLabels(),
               fusionScaleBars: createEmptyFusionScaleBars(),
@@ -3154,6 +3275,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               fusionLoadingProgress: createEmptyFusionLoadingProgress(),
               fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
               fusionManualRegistration: false,
+              fusionRegistrationDragActive: false,
               viewportMeasurements: {},
               viewportAnnotations: {}
             }

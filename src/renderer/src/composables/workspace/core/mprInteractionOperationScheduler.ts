@@ -43,8 +43,7 @@ const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
 const BACKEND_PREVIEW_EWMA_ALPHA = 0.25
 const DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS = 2
 const BACKEND_FEEDBACK_IDLE_GAP_MS = 5000
-const MIN_VIEW_MOVE_INTERVAL_MS = 30
-const MAX_VIEW_MOVE_INTERVAL_MS = 100
+const FASTEST_VIEW_MOVE_INTERVAL_MS = 16
 const FRONTEND_RENDER_MARGIN_MS = 4
 const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
@@ -63,9 +62,9 @@ function getOperationQueueKey(operationKey: string, payload: SchedulableViewOper
 
 function normalizeMoveInterval(value: number): number {
   if (!Number.isFinite(value)) {
-    return MIN_VIEW_MOVE_INTERVAL_MS
+    return FASTEST_VIEW_MOVE_INTERVAL_MS
   }
-  return Math.min(MAX_VIEW_MOVE_INTERVAL_MS, Math.max(MIN_VIEW_MOVE_INTERVAL_MS, value))
+  return Math.max(FASTEST_VIEW_MOVE_INTERVAL_MS, value)
 }
 
 function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
@@ -74,6 +73,10 @@ function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
 
 function shouldWaitForMatchingFeedback(payload: SchedulableViewOperation): boolean {
   return MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
+}
+
+function shouldFlushPendingBeforeEnd(payload: SchedulableViewOperation): boolean {
+  return payload.opType !== VIEW_OPERATION_TYPES.fusionRegistration
 }
 
 function logCoalescingStats(
@@ -111,7 +114,7 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
 
   function getMoveIntervalMs(operationKey?: string): number {
     const intervalMs = operationKey ? backendPreviewIntervalByKey.get(operationKey) ?? fallbackPreviewIntervalMs : fallbackPreviewIntervalMs
-    return intervalMs == null ? MIN_VIEW_MOVE_INTERVAL_MS : normalizeMoveInterval(intervalMs)
+    return intervalMs == null ? FASTEST_VIEW_MOVE_INTERVAL_MS : normalizeMoveInterval(intervalMs)
   }
 
   function getEmitter(key: string, operationKey: string): ThrottledOperationEmitter {
@@ -201,7 +204,11 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
     const queueKey = getOperationQueueKey(operationKey, payload)
     if (!queueKey || payload.actionType !== DRAG_ACTION_TYPES.move) {
       if (queueKey && payload.actionType === DRAG_ACTION_TYPES.end) {
-        flushKey(queueKey)
+        if (shouldFlushPendingBeforeEnd(payload)) {
+          flushKey(queueKey)
+        } else {
+          cancelKey(queueKey)
+        }
       } else if (queueKey && payload.actionType === DRAG_ACTION_TYPES.start) {
         cancelKey(queueKey)
       }

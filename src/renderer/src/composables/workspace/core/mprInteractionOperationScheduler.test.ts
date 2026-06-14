@@ -3,7 +3,7 @@ import { DRAG_ACTION_TYPES, VIEW_OPERATION_TYPES } from '@shared/viewerConstants
 import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
 
 describe('view interaction operation scheduler', () => {
-  it('caps interactive moves at 30ms before backend preview feedback', () => {
+  it('caps interactive moves at 16ms before backend preview feedback', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -38,9 +38,9 @@ describe('view interaction operation scheduler', () => {
       y: 0.2
     }])
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(30)
+    expect(timers[0].delay).toBe(16)
 
-    now = 30
+    now = 16
     timers[0].callback()
     expect(emit).toHaveBeenCalledTimes(2)
     expect(emit.mock.calls[1]).toEqual(['mpr-ax', {
@@ -137,7 +137,7 @@ describe('view interaction operation scheduler', () => {
     ])
   })
 
-  it('throttles fusion registration moves while keeping the latest drag delta', () => {
+  it('throttles fusion registration moves without waiting for backend feedback', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -170,7 +170,7 @@ describe('view interaction operation scheduler', () => {
     expect(emit).toHaveBeenCalledTimes(1)
     expect(timers).toHaveLength(1)
 
-    now = 30
+    now = 16
     timers[0].callback()
     expect(emit.mock.calls[1]).toEqual([
       'fusion-overlay',
@@ -181,6 +181,67 @@ describe('view interaction operation scheduler', () => {
         x: 12,
         y: 8
       }
+    ])
+  })
+
+  it('drops pending fusion registration moves before drag end because end carries the final delta', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.move,
+      subOpType: 'translate',
+      x: 2,
+      y: 1
+    })
+    now = 6
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.move,
+      subOpType: 'translate',
+      x: 12,
+      y: 8
+    })
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.end,
+      subOpType: 'translate',
+      x: 12,
+      y: 8
+    })
+
+    expect(emit.mock.calls).toEqual([
+      [
+        'fusion-overlay',
+        {
+          opType: VIEW_OPERATION_TYPES.fusionRegistration,
+          actionType: DRAG_ACTION_TYPES.move,
+          subOpType: 'translate',
+          x: 2,
+          y: 1
+        }
+      ],
+      [
+        'fusion-overlay',
+        {
+          opType: VIEW_OPERATION_TYPES.fusionRegistration,
+          actionType: DRAG_ACTION_TYPES.end,
+          subOpType: 'translate',
+          x: 12,
+          y: 8
+        }
+      ]
     ])
   })
 
@@ -265,7 +326,7 @@ describe('view interaction operation scheduler', () => {
 
     expect(emit).toHaveBeenCalledTimes(1)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(100)
+    expect(timers[0].delay).toBe(200)
   })
 
   it('throttles MPR MIP slider moves with backend preview feedback and flushes final value', () => {
@@ -416,7 +477,7 @@ describe('view interaction operation scheduler', () => {
     })
   })
 
-  it('caps the fastest matching backend preview cadence at 30ms', () => {
+  it('caps the fastest matching backend preview cadence at 16ms', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -449,10 +510,10 @@ describe('view interaction operation scheduler', () => {
     now = 5
     scheduler.recordBackendPreview('view-1', null)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(25)
+    expect(timers[0].delay).toBe(11)
   })
 
-  it('caps slow matching backend preview cadence at 100ms', () => {
+  it('does not cap slow matching backend preview cadence', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -484,7 +545,12 @@ describe('view interaction operation scheduler', () => {
 
     now = 900
     scheduler.recordBackendPreview('view-1', null)
-    expect(timers).toHaveLength(0)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(4)
+    expect(emit).toHaveBeenCalledTimes(1)
+
+    now = 904
+    timers[0].callback()
     expect(emit).toHaveBeenCalledTimes(2)
     expect(emit.mock.calls[1]).toEqual([
       'view-1',
@@ -530,6 +596,6 @@ describe('view interaction operation scheduler', () => {
     now = 24
     scheduler.recordBackendPreview('stack-view', null)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(6)
+    expect(timers[0].delay).toBe(4)
   })
 })

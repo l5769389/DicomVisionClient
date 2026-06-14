@@ -116,7 +116,20 @@ const emit = defineEmits<{
   triggerViewAction: [payload: ViewerToolbarActionPayload]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  fusionRegistrationDrag: [payload: { deltaX: number; deltaY: number; phase: 'start' | 'move' | 'end'; subOpType: 'translate' | 'rotate'; viewportKey: string }]
+  fusionRegistrationDrag: [payload: {
+    deltaX: number
+    deltaY: number
+    phase: 'start' | 'move' | 'end'
+    subOpType: 'translate' | 'rotate'
+    viewportKey: string
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
+    rotationDeltaDegrees?: number
+  }]
   fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]

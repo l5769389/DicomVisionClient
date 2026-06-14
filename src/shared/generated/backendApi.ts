@@ -171,6 +171,23 @@ export interface FusionInfo {
   registration: FusionRegistrationInfo
 }
 
+export interface FusionCompositeLayerInfo {
+  key: string
+  role: string
+  imageFormat?: string
+}
+
+export interface FusionCompositeInfo {
+  mode?: string
+  revision: number
+  alpha: number
+  registration: FusionRegistrationInfo
+  width: number
+  height: number
+  layers: FusionCompositeLayerInfo[]
+  primaryImageUnchanged?: boolean
+}
+
 export interface FusionProjectionInfo {
   paneRole: string
   referenceWorld: [number, number, number]
@@ -718,6 +735,8 @@ export interface ViewImageResponse {
   slice_info: SliceInfo
   window_info: WindowInfo
   imageFormat: 'png' | 'jpeg'
+  fastPreview?: boolean
+  fastPreviewFullResolution?: boolean
   viewId: string
   mpr_crosshair?: MprCrosshairInfo | null
   mprCursor?: MprCursorInfo | null
@@ -733,6 +752,7 @@ export interface ViewImageResponse {
   color?: ViewColorInfo | null
   petInfo?: PetInfo | null
   fusionInfo?: FusionInfo | null
+  fusionComposite?: FusionCompositeInfo | null
   fusionProjection?: FusionProjectionInfo | null
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
@@ -767,6 +787,13 @@ export interface ViewOperationRequest {
   actionType?: 'start' | 'move' | 'end' | 'delete' | null
   x?: number | null
   y?: number | null
+  anchorX?: number | null
+  anchorY?: number | null
+  currentX?: number | null
+  currentY?: number | null
+  pivotX?: number | null
+  pivotY?: number | null
+  rotationDeltaDegrees?: number | null
   line?: 'horizontal' | 'vertical' | null
   points?: MeasurementPointPayload[] | null
   zoom?: number | null

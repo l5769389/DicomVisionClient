@@ -28,7 +28,8 @@ const overlayStubs = {
   ViewportMeasurementOverlay: { template: '<div />' },
   ViewportOrientationOverlay: { template: '<div />' },
   ViewportQaWaterOverlay: { template: '<div />' },
-  ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' }
+  ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' },
+  ViewportVoiOverlay: { template: '<div />' }
 }
 
 function mountStage(imageSrc = 'blob:frame-1', props: Record<string, unknown> = {}) {

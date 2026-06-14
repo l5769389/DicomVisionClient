@@ -343,6 +343,48 @@ describe('view interaction operation scheduler', () => {
     })
   })
 
+  it('uses a slower minimum cadence for MPR segmentation slider moves', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.mprSegmentation,
+      actionType: DRAG_ACTION_TYPES.move,
+      mprSegmentationConfig: { enabled: true, clientRevision: 1 }
+    })
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.mprSegmentation,
+      actionType: DRAG_ACTION_TYPES.move,
+      mprSegmentationConfig: { enabled: true, clientRevision: 2 }
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(0)
+
+    now = 50
+    scheduler.recordBackendPreview('mpr-ax', 1)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(130)
+
+    now = 180
+    timers[0].callback()
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit.mock.calls[1][1]).toMatchObject({
+      actionType: DRAG_ACTION_TYPES.move,
+      mprSegmentationConfig: { clientRevision: 2 }
+    })
+  })
+
   it('waits for matching same-revision MPR feedback before sending the next pan move', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []

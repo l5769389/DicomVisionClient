@@ -108,6 +108,7 @@ describe('mprFrameGeometry', () => {
       normalWorld: [-0.867423225594017, 0.17061602137538454, 0.4674046650923646] as [number, number, number],
       pixelSpacingRowMm: 1,
       pixelSpacingColMm: 1,
+      pixelSpacingNormalMm: 1,
       outputShape: [5, 5] as [number, number],
       row: [0, -0.9393727128473789, 0.34289780745545134] as [number, number, number],
       col: [0.49757104789172696, 0.29743752219212377, 0.8148337086130757] as [number, number, number],

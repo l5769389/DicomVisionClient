@@ -35,7 +35,6 @@ import type { ViewerToolbarActionPayload } from '../operations/viewActionTypes'
 import {
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
-  createDefaultMprSegmentationVoiBox,
   normalizeMprSegmentationConfig,
   normalizeMprMipConfig,
   type CompareSyncSettingKey,
@@ -43,6 +42,7 @@ import {
   type FusionPaneKey,
   type MprCrosshairMode,
   type MprMipConfig,
+  type MprSegmentationConfigActionType,
   type MprSegmentationConfig,
   type ViewerLayoutTemplate,
   type ViewerTabItem,
@@ -1460,7 +1460,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.emitTriggerViewAction({ action: 'mprMipConfig', actionType, config })
   }
 
-  function updateActiveMprSegmentationConfig(config: MprSegmentationConfig, actionType?: 'move' | 'end'): void {
+  function updateActiveMprSegmentationConfig(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
     const activeTab = options.activeTab.value
     if (!activeTab || activeTab.viewType !== 'MPR') {
       return
@@ -1485,13 +1485,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (value === 'segmentation:threshold') {
       return normalizeMprSegmentationConfig({
         ...current,
-        enabled: true,
-        voiBox: current.voiBox ?? createDefaultMprSegmentationVoiBox()
+        enabled: true
       })
     }
     return normalizeMprSegmentationConfig({
       ...current,
-      voiBox: current.voiBox ?? createDefaultMprSegmentationVoiBox()
+      enabled: current.enabled
     })
   }
 

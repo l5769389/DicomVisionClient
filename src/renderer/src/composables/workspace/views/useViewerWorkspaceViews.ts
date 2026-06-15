@@ -1709,7 +1709,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? fusionComposite
             : null
         const primaryImageUnchanged = layeredFusionComposite?.primaryImageUnchanged === true
-        if (primaryImageUnchanged && item.fusionRegistrationDragActive !== true) {
+        if (primaryImageUnchanged && !currentImage) {
           revokeIncomingImageSrcIfNeeded()
           return item
         }

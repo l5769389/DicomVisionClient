@@ -1,7 +1,8 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MprSegmentationPanel from './MprSegmentationPanel.vue'
 import type { MprSegmentationConfig, MprThresholdRegion, MprVoiSphere } from '../../types/viewer'
+import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 
 function createRegion(patch: Partial<MprThresholdRegion> = {}): MprThresholdRegion {
   return {
@@ -60,6 +61,15 @@ function createVoiSphere(): MprVoiSphere {
   }
 }
 
+function createSecondVoiSphere(): MprVoiSphere {
+  return {
+    ...createVoiSphere(),
+    id: 'v2',
+    label: '2',
+    radiusMm: 18
+  }
+}
+
 function createMixedConfig(): MprSegmentationConfig {
   const region = createRegion()
   const sphere = createVoiSphere()
@@ -76,6 +86,10 @@ function createMixedConfig(): MprSegmentationConfig {
 }
 
 describe('MprSegmentationPanel', () => {
+  beforeEach(() => {
+    useUiPreferences().setLocale('zh-CN')
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -237,7 +251,171 @@ describe('MprSegmentationPanel', () => {
 
     const status = wrapper.find('[data-testid="mpr-segmentation-processing"]')
     expect(status.exists()).toBe(true)
-    expect(status.text()).toBe('Updating')
+    expect(status.text()).toBe('更新中')
+  })
+
+  it('renders localized labels and shows the depth unit', async () => {
+    const preferences = useUiPreferences()
+    const zhWrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(zhWrapper.text()).toContain('阈值分割与球形 VOI')
+    expect(zhWrapper.text()).toContain('深度')
+    expect(zhWrapper.text()).toContain('mm')
+
+    preferences.setLocale('en-US')
+    await zhWrapper.vm.$nextTick()
+
+    expect(zhWrapper.text()).toContain('Threshold regions and spherical VOI')
+    expect(zhWrapper.text()).toContain('Depth')
+  })
+
+  it('updates threshold and VOI display attributes without clearing stats or recomputing', async () => {
+    const regionStats = createRegion().stats
+    const sphereStats = {
+      huMean: 10,
+      huMin: 1,
+      huMax: 30,
+      huStdDev: 3,
+      volumeCm3: 2,
+      sampleCount: 9
+    }
+    const sphere = createVoiSphere()
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          thresholdRegions: [createRegion({ stats: regionStats })],
+          voiSpheres: [{ ...sphere, stats: sphereStats }],
+          voiSphere: { ...sphere, stats: sphereStats }
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const regionColor = wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-color-r1"]')
+    regionColor.element.value = '#00ff00'
+    await regionColor.trigger('input')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1',
+        thresholdRegions: [
+          expect.objectContaining({
+            color: '#00ff00',
+            stats: regionStats
+          })
+        ]
+      }),
+      'style'
+    ])
+
+    const regionLabel = wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-label-r1"]')
+    regionLabel.element.value = 'liver threshold'
+    await regionLabel.trigger('input')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1',
+        thresholdRegions: [
+          expect.objectContaining({
+            label: 'liver threshold',
+            stats: regionStats
+          })
+        ]
+      }),
+      'style'
+    ])
+
+    const voiColor = wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-color-v1"]')
+    voiColor.element.value = '#ffcc00'
+    await voiColor.trigger('input')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1',
+        voiSpheres: [
+          expect.objectContaining({
+            color: '#ffcc00',
+            stats: sphereStats
+          })
+        ]
+      }),
+      'style'
+    ])
+
+    const voiLabel = wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-label-v1"]')
+    voiLabel.element.value = 'target voi'
+    await voiLabel.trigger('input')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1',
+        voiSpheres: [
+          expect.objectContaining({
+            label: 'target voi',
+            stats: sphereStats
+          })
+        ]
+      }),
+      'style'
+    ])
+  })
+
+  it('updates a non-active VOI display attribute without changing the selected threshold', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          selectedRegionId: 'r1',
+          selectedVoi: false,
+          selectedVoiId: null
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const voiLabel = wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-label-v1"]')
+    voiLabel.element.value = 'background voi'
+    await voiLabel.trigger('input')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null,
+        voiSpheres: [
+          expect.objectContaining({
+            label: 'background voi'
+          })
+        ]
+      }),
+      'style'
+    ])
   })
 
   it('drags the panel by the header handle', async () => {
@@ -306,12 +484,71 @@ describe('MprSegmentationPanel', () => {
     expect(selectButton.exists()).toBe(true)
     await selectButton.trigger('click')
 
-    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:threshold'])
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:threshold', 'mpr-ax'])
     expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
       expect.objectContaining({
         selectedRegionId: 'r1',
         selectedVoi: false,
         selectedVoiId: null
+      }),
+      'select'
+    ])
+  })
+
+  it('keeps the current VOI active when deleting an unselected threshold region', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-threshold-delete-r1"]').trigger('click')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1',
+        thresholdRegions: []
+      }),
+      'end'
+    ])
+  })
+
+  it('selects the next VOI when deleting the active VOI', async () => {
+    const sphere = createVoiSphere()
+    const secondSphere = createSecondVoiSphere()
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          selectedVoi: true,
+          selectedVoiId: sphere.id,
+          voiSpheres: [sphere, secondSphere],
+          voiSphere: sphere
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-voi-delete-v1"]').trigger('click')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v2',
+        voiSpheres: [secondSphere],
+        voiSphere: secondSphere
       }),
       'end'
     ])
@@ -357,7 +594,38 @@ describe('MprSegmentationPanel', () => {
         selectedVoi: true,
         selectedVoiId: 'v1'
       }),
-      'end'
+      'select'
     ])
+  })
+
+  it('does not let a selection draft hide later VOI updates from props', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-threshold-select-r1"]').trigger('click')
+    expect(wrapper.emitted('configChange')?.at(-1)?.[1]).toBe('select')
+
+    const sphere = createVoiSphere()
+    const secondSphere = createSecondVoiSphere()
+    await wrapper.setProps({
+      config: {
+        ...createMixedConfig(),
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null,
+        voiSpheres: [sphere, secondSphere],
+        voiSphere: sphere
+      }
+    })
+
+    expect(wrapper.find('[data-testid="mpr-voi-select-v2"]').exists()).toBe(true)
   })
 })

@@ -19,7 +19,8 @@ import {
   DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU,
   DEFAULT_MPR_VOI_COLOR,
   createDefaultMprSegmentationConfig,
-  normalizeMprSegmentationConfig
+  normalizeMprSegmentationConfig,
+  resolveMprLegacyVoiSphere
 } from '../../../types/viewer'
 import {
   canvasNormalizedPointToSourceImage,
@@ -41,6 +42,8 @@ const props = withDefaults(
   defineProps<{
     activeOperation?: string
     config?: MprSegmentationConfig | null
+    defaultThresholdColor?: string
+    defaultVoiColor?: string
     editable?: boolean
     imageFrame: OverlayImageFrame
     isActive?: boolean
@@ -53,6 +56,8 @@ const props = withDefaults(
   {
     activeOperation: '',
     config: null,
+    defaultThresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    defaultVoiColor: DEFAULT_MPR_VOI_COLOR,
     editable: false,
     isActive: false,
     isOblique: false,
@@ -64,7 +69,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   configChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
-  modeChange: [mode: 'segmentation:threshold' | 'segmentation:voi']
+  modeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
 }>()
 
 type DragState =
@@ -223,6 +228,14 @@ const selectedRegionProjection = computed(() =>
   regionProjections.value.find((item) => item.region.id === normalizedConfig.value.selectedRegionId) ?? null
 )
 
+const backgroundRegionProjections = computed(() =>
+  regionProjections.value.filter((item) => item.region.id !== normalizedConfig.value.selectedRegionId)
+)
+
+const backgroundSphereProjections = computed(() =>
+  sphereProjections.value.filter((item) => !item.selected)
+)
+
 const highlighterConfigSignature = computed(() => {
   const config = normalizedConfig.value
   return [
@@ -233,7 +246,15 @@ const highlighterConfigSignature = computed(() => {
       region.thresholdMode,
       region.thresholdHu,
       region.thresholdPercentile,
-      region.color
+      region.color,
+      region.box.sourceViewport,
+      region.box.centerWorld.join(','),
+      region.box.rowWorld.join(','),
+      region.box.colWorld.join(','),
+      region.box.normalWorld.join(','),
+      region.box.widthMm,
+      region.box.heightMm,
+      region.box.depthMm
     ].join(':'))
   ].join('|')
 })
@@ -330,6 +351,18 @@ function rectSvgStyle(rect: { xMin: number; xMax: number; yMin: number; yMax: nu
     width: `${Math.max(0, rect.xMax - rect.xMin) * 100}%`,
     height: `${Math.max(0, rect.yMax - rect.yMin) * 100}%`
   }
+}
+
+function hexToRgba(color: string, alpha: number): string {
+  const match = /^#([0-9a-fA-F]{6})$/.exec(color)
+  if (!match) {
+    return color
+  }
+  const value = match[1]
+  const red = Number.parseInt(value.slice(0, 2), 16)
+  const green = Number.parseInt(value.slice(2, 4), 16)
+  const blue = Number.parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`
 }
 
 function normalizeOverlaySampleRevision(region: MprSegmentationOverlayRegion): number {
@@ -475,6 +508,7 @@ function drawHighlightCanvas(): void {
   }
 
   const regionsById = new Map(normalizedConfig.value.thresholdRegions.map((region) => [region.id, region]))
+  const projectionsByRegionId = new Map(regionProjections.value.map((item) => [item.region.id, item.projection]))
   const projectSourcePixel = createSourcePixelProjector(plane, frame, props.viewportTransform)
 
   for (const overlayRegion of overlay.regions) {
@@ -484,6 +518,11 @@ function drawHighlightCanvas(): void {
       continue
     }
     const thresholdHu = getPreviewThresholdHu(region, overlayRegion)
+    const currentProjection = projectionsByRegionId.get(region.id)
+    if (!currentProjection?.visible) {
+      continue
+    }
+    const { clippedRect } = currentProjection
     const seed = normalizeOverlaySampleRevision(overlayRegion)
     const sampleCount = Math.floor(points.length / 3)
     const sampleStep = Math.max(1, Math.ceil(sampleCount / HIGHLIGHT_MAX_DRAW_SAMPLES_PER_REGION))
@@ -501,6 +540,14 @@ function drawHighlightCanvas(): void {
       }
       const canvasPoint = projectSourcePixel(sourceX, sourceY)
       if (canvasPoint.x < 0 || canvasPoint.x > 1 || canvasPoint.y < 0 || canvasPoint.y > 1) {
+        continue
+      }
+      if (
+        canvasPoint.x < clippedRect.xMin ||
+        canvasPoint.x > clippedRect.xMax ||
+        canvasPoint.y < clippedRect.yMin ||
+        canvasPoint.y > clippedRect.yMax
+      ) {
         continue
       }
       const x = canvasPoint.x * frame.width
@@ -685,7 +732,8 @@ function removeThresholdRegion(regionId: string, actionType: 'move' | 'end' = 'e
 }
 
 function selectRegion(regionId: string, actionType: MprSegmentationConfigActionType = 'end'): void {
-  emit('modeChange', 'segmentation:threshold')
+  const region = normalizedConfig.value.thresholdRegions.find((candidate) => candidate.id === regionId)
+  emit('modeChange', 'segmentation:threshold', region?.box.sourceViewport ?? null)
   emitConfig(
     {
       ...normalizedConfig.value,
@@ -719,15 +767,19 @@ function removeVoiSphere(sphereId: string, actionType: 'move' | 'end' = 'end'): 
     return
   }
   const nextSpheres = current.voiSpheres.filter((candidate) => candidate.id !== sphereId)
-  const selectedVoiId = current.selectedVoiId === sphereId ? null : current.selectedVoiId
-  const selectedSphere = selectedVoiId ? nextSpheres.find((sphere) => sphere.id === selectedVoiId) ?? null : null
+  const isDeletingSelectedVoi = current.selectedVoiId === sphereId
+  const selectedSphere = resolveMprLegacyVoiSphere(
+    nextSpheres,
+    isDeletingSelectedVoi ? nextSpheres[0]?.id ?? null : current.selectedVoiId
+  )
   emitConfig(
     {
       ...current,
+      selectedRegionId: isDeletingSelectedVoi ? null : current.selectedRegionId,
       selectedVoi: selectedSphere !== null,
       selectedVoiId: selectedSphere?.id ?? null,
       voiSpheres: nextSpheres,
-      voiSphere: selectedSphere ?? nextSpheres[0] ?? null
+      voiSphere: selectedSphere
     },
     actionType
   )
@@ -746,7 +798,7 @@ function upsertVoiSphere(sphere: MprVoiSphere, actionType: 'move' | 'end', selec
       selectedVoi: selected,
       selectedVoiId: selected ? sphere.id : null,
       voiSpheres: nextSpheres,
-      voiSphere: selected ? sphere : nextSpheres[0] ?? null
+      voiSphere: resolveMprLegacyVoiSphere(nextSpheres, selected ? sphere.id : null)
     },
     actionType
   )
@@ -781,7 +833,7 @@ function beginCreate(event: PointerEvent): void {
       thresholdHu: selectedRegion.value?.thresholdHu ?? DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU,
       thresholdMode: selectedRegion.value?.thresholdMode ?? 'hu',
       thresholdPercentile: selectedRegion.value?.thresholdPercentile ?? 80,
-      color: selectedRegion.value?.color ?? DEFAULT_MPR_SEGMENTATION_COLOR,
+      color: selectedRegion.value?.color ?? props.defaultThresholdColor,
       depthMm: null
     })
     return
@@ -794,7 +846,7 @@ function beginCreate(event: PointerEvent): void {
       center: point,
       sphereId: identity.id,
       label: identity.label,
-      color: DEFAULT_MPR_VOI_COLOR
+      color: props.defaultVoiColor
     })
   }
 }
@@ -804,7 +856,7 @@ function beginMoveThreshold(event: PointerEvent, region: MprThresholdRegion): vo
   if (!point || !canEditThreshold.value || region.box.sourceViewport !== mprViewportKey.value) {
     return
   }
-  selectRegion(region.id, 'move')
+  selectRegion(region.id, 'select')
   beginDrag(event, {
     kind: 'move-threshold',
     pointerId: event.pointerId,
@@ -837,7 +889,7 @@ function beginMoveVoi(event: PointerEvent): void {
   if (sphere.id !== normalizedConfig.value.selectedVoiId) {
     event.preventDefault()
     event.stopPropagation()
-    selectVoi(sphere.id, 'end')
+    selectVoi(sphere.id, 'select')
     return
   }
   beginDrag(event, {
@@ -1021,14 +1073,14 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
   event.preventDefault()
   event.stopPropagation()
   if (item.region.id !== normalizedConfig.value.selectedRegionId) {
-    selectRegion(item.region.id, 'end')
+    selectRegion(item.region.id, 'select')
     return
   }
   if (item.editableGeometry) {
     beginMoveThreshold(event, item.region)
     return
   }
-  selectRegion(item.region.id, 'end')
+  selectRegion(item.region.id, 'select')
 }
 </script>
 
@@ -1061,14 +1113,14 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
       />
 
       <g
-        v-for="item in regionProjections"
+        v-for="item in backgroundRegionProjections"
         :key="item.region.id"
       >
         <rect
-          class="stroke-fuchsia-300"
-          :class="item.region.id === normalizedConfig.selectedRegionId ? 'fill-fuchsia-400/10' : 'fill-transparent'"
+          class="transition-colors"
           v-bind="rectSvgStyle(item.projection.clippedRect)"
           :data-region-id="item.region.id"
+          :fill="item.region.id === normalizedConfig.selectedRegionId ? hexToRgba(item.region.color, 0.12) : 'transparent'"
           :stroke="item.region.color"
           :stroke-width="item.region.id === normalizedConfig.selectedRegionId ? 2.25 : 1.5"
           :stroke-dasharray="item.projection.intersectsPlane ? undefined : '4 4'"
@@ -1078,13 +1130,48 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         />
       </g>
 
+      <ellipse
+        v-for="item in backgroundSphereProjections"
+        :key="item.sphere.id"
+        class="transition-colors"
+        :class="[
+          canCreateOrSelectVoi ? (item.selected ? 'cursor-move' : 'cursor-pointer') : ''
+        ]"
+        :data-voi-id="item.sphere.id"
+        :cx="`${item.projection.center.x * 100}%`"
+        :cy="`${item.projection.center.y * 100}%`"
+        :rx="`${item.projection.radiusX * 100}%`"
+        :ry="`${item.projection.radiusY * 100}%`"
+        :fill="item.selected ? hexToRgba(item.sphere.color, 0.12) : 'transparent'"
+        :stroke="item.sphere.color"
+        :stroke-width="item.selected ? 2.25 : (item.projection.intersectsPlane ? 1.75 : 1.5)"
+        :stroke-dasharray="item.projection.intersectsPlane ? undefined : '5 5'"
+        vector-effect="non-scaling-stroke"
+        :pointer-events="canCreateOrSelectVoi ? 'all' : 'none'"
+        @pointerdown="beginMoveVoi"
+      />
+
+      <rect
+        v-if="selectedRegionProjection"
+        class="transition-colors"
+        v-bind="rectSvgStyle(selectedRegionProjection.projection.clippedRect)"
+        :data-region-id="selectedRegionProjection.region.id"
+        :fill="hexToRgba(selectedRegionProjection.region.color, 0.12)"
+        :stroke="selectedRegionProjection.region.color"
+        stroke-width="2.25"
+        :stroke-dasharray="selectedRegionProjection.projection.intersectsPlane ? undefined : '4 4'"
+        vector-effect="non-scaling-stroke"
+        :pointer-events="canEditThreshold ? 'all' : 'none'"
+        @pointerdown="handleThresholdRegionPointerDown($event, selectedRegionProjection)"
+      />
       <circle
         v-for="point in selectedHandles"
         :key="point.handle"
-        class="fill-lime-300 stroke-slate-950"
+        class="stroke-slate-950"
         :class="canEditThreshold ? 'cursor-nwse-resize' : ''"
         :cx="`${point.x * 100}%`"
         :cy="`${point.y * 100}%`"
+        :fill="selectedRegionProjection?.region.color ?? '#bef264'"
         r="4.5"
         stroke-width="1.5"
         vector-effect="non-scaling-stroke"
@@ -1093,20 +1180,18 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
       />
 
       <ellipse
-        v-for="item in sphereProjections"
-        :key="item.sphere.id"
+        v-if="selectedSphereProjection"
         class="transition-colors"
-        :class="[
-          item.selected ? 'fill-cyan-300/10 stroke-cyan-200' : 'fill-transparent stroke-emerald-300/90',
-          canCreateOrSelectVoi ? (item.selected ? 'cursor-move' : 'cursor-pointer') : ''
-        ]"
-        :data-voi-id="item.sphere.id"
-        :cx="`${item.projection.center.x * 100}%`"
-        :cy="`${item.projection.center.y * 100}%`"
-        :rx="`${item.projection.radiusX * 100}%`"
-        :ry="`${item.projection.radiusY * 100}%`"
-        :stroke-width="item.selected ? 2.25 : (item.projection.intersectsPlane ? 1.75 : 1.5)"
-        :stroke-dasharray="item.projection.intersectsPlane ? undefined : '5 5'"
+        :class="canCreateOrSelectVoi ? 'cursor-move' : ''"
+        :data-voi-id="selectedSphereProjection.sphere.id"
+        :cx="`${selectedSphereProjection.projection.center.x * 100}%`"
+        :cy="`${selectedSphereProjection.projection.center.y * 100}%`"
+        :rx="`${selectedSphereProjection.projection.radiusX * 100}%`"
+        :ry="`${selectedSphereProjection.projection.radiusY * 100}%`"
+        :fill="hexToRgba(selectedSphereProjection.sphere.color, 0.12)"
+        :stroke="selectedSphereProjection.sphere.color"
+        stroke-width="2.25"
+        :stroke-dasharray="selectedSphereProjection.projection.intersectsPlane ? undefined : '5 5'"
         vector-effect="non-scaling-stroke"
         :pointer-events="canCreateOrSelectVoi ? 'all' : 'none'"
         @pointerdown="beginMoveVoi"
@@ -1114,10 +1199,11 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
       <circle
         v-for="point in sphereHandles"
         :key="`sphere-${point.handle}`"
-        class="fill-cyan-200 stroke-slate-950"
+        class="stroke-slate-950"
         :class="canEditSelectedVoi ? 'cursor-nwse-resize' : ''"
         :cx="`${point.x * 100}%`"
         :cy="`${point.y * 100}%`"
+        :fill="selectedSphereProjection?.sphere.color ?? '#a5f3fc'"
         r="4.5"
         stroke-width="1.5"
         vector-effect="non-scaling-stroke"

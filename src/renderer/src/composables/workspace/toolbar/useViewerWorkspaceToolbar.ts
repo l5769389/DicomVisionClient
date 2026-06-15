@@ -1512,6 +1512,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     updateActiveMprSegmentationConfig(nextConfig, 'end')
   }
 
+  function activateSegmentationSelectionMode(value: 'segmentation:threshold' | 'segmentation:voi'): void {
+    closeMenus()
+    options.stopViewportDrag()
+    setToolbarToolActive('segmentation')
+    isMprMipPanelOpen.value = false
+    isMprSegmentationPanelOpen.value = true
+    stackToolSelections.value = {
+      ...stackToolSelections.value,
+      segmentation: value
+    }
+    options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
+  }
+
   function activateModeTool(tool: StackTool): void {
     closeMenus()
     options.stopViewportDrag()
@@ -2223,6 +2236,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     menuIconSize,
     openMenuKey,
     pausePlayback,
+    activateSegmentationSelectionMode,
     selectToolOption,
     setMenuOpen,
     stackToolSelections,

@@ -221,6 +221,37 @@ describe('useUiPreferences', () => {
     })
   })
 
+  it('normalizes and persists MPR segmentation display colors', async () => {
+    const preferences = await loadPreferences({
+      mprSegmentationStylePreference: {
+        thresholdColor: 'not-a-color',
+        voiColor: '#ABCDEF'
+      }
+    })
+
+    expect(preferences.mprSegmentationStylePreference.value).toEqual({
+      thresholdColor: '#ff4df8',
+      voiColor: '#ABCDEF'
+    })
+
+    preferences.setMprSegmentationStylePreference({
+      thresholdColor: '#112233',
+      voiColor: 'bad'
+    })
+    await flushPreferences()
+
+    expect(preferences.mprSegmentationStylePreference.value).toEqual({
+      thresholdColor: '#112233',
+      voiColor: '#22d3ee'
+    })
+
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(saved.mprSegmentationStylePreference).toEqual({
+      thresholdColor: '#112233',
+      voiColor: '#22d3ee'
+    })
+  })
+
   it('migrates the previous default corner layout to include Im without changing custom layouts', async () => {
     const preferences = await loadPreferences({
       version: 14,

@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import {
   DRAG_ACTION_TYPES,
   STACK_DEFAULT_OPERATION,
@@ -91,7 +91,8 @@ import {
 import {
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
-  normalizeMprSegmentationConfig
+  normalizeMprSegmentationConfig,
+  recolorMprSegmentationConfig
 } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { useUiLocale } from '../../ui/useUiLocale'
@@ -324,7 +325,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     offsetX: 0,
     offsetY: 0
   }
-  const { hangingProtocolRules, selectedPseudocolorKey } = useUiPreferences()
+  const { hangingProtocolRules, mprSegmentationStylePreference, selectedPseudocolorKey } = useUiPreferences()
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -337,6 +338,25 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   )
   const activeTab = computed(() => viewerTabs.value.find((item) => item.key === activeTabKey.value) ?? null)
   const hasSelectedSeries = computed(() => Boolean(selectedSeriesId.value))
+
+  watch(
+    () => [mprSegmentationStylePreference.value.thresholdColor, mprSegmentationStylePreference.value.voiColor] as const,
+    ([thresholdColor, voiColor], [previousThresholdColor, previousVoiColor]) => {
+      if (thresholdColor === previousThresholdColor && voiColor === previousVoiColor) {
+        return
+      }
+      viewerTabs.value = viewerTabs.value.map((tab) => {
+        const config = tab.viewType === 'MPR' ? tab.mprSegmentationConfig : null
+        if (!config) {
+          return tab
+        }
+        return {
+          ...tab,
+          mprSegmentationConfig: recolorMprSegmentationConfig(config, thresholdColor, voiColor)
+        }
+      })
+    }
+  )
 
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
@@ -1131,7 +1151,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
       const previousConfig = tab.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
       const normalizedConfig = normalizeMprSegmentationConfig(payload.segmentationConfig, previousConfig)
-      if (payload.actionType === 'local') {
+      if (payload.actionType === 'local' || payload.actionType === 'select' || payload.actionType === 'style') {
         viewerTabs.value = viewerTabs.value.map((item) =>
           item.key === tab.key
             ? {

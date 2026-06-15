@@ -6,6 +6,7 @@ import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, MAX_HANGING_PROTOCOL_RULES, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type HangingProtocolRule, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
+import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR } from '../../types/viewer'
 import {
   MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION,
   SAMPLE_VIEWPORT_CORNER_INFO,
@@ -54,6 +55,7 @@ type SettingsSection =
   | 'displayMprLayout'
   | 'displayScaleBar'
   | 'displayMeasurement'
+  | 'displaySegmentation'
   | 'displayPseudocolor'
   | 'displayRoi'
   | 'pacs'
@@ -162,6 +164,7 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   displayMprLayout: ['mpr', '布局', '重建', '宫格', 'layout', 'grid', 'viewport'],
   displayScaleBar: ['比例尺', '标尺', 'scale', 'scalebar', 'ruler'],
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
+  displaySegmentation: ['分割', 'voi', '阈值', '默认颜色', 'segmentation', 'threshold', 'default color'],
   displayPseudocolor: ['伪彩', '色图', '色带', '默认伪彩', 'pseudocolor', 'colormap', 'color', 'palette', 'bw', 'rainbow', 'pet', 'cardiac'],
   displayRoi: ['roi', '统计', '均值', '面积', '最大值', '最小值', 'stats', 'mean', 'area', 'min', 'max']
 }
@@ -214,6 +217,15 @@ const measurementColorPresets: ColorPreset[] = [
   { value: '#a855f7', label: 'Violet' }
 ]
 
+const segmentationColorPresets: ColorPreset[] = [
+  { value: DEFAULT_MPR_SEGMENTATION_COLOR, label: 'Threshold' },
+  { value: DEFAULT_MPR_VOI_COLOR, label: 'VOI' },
+  { value: '#f8fafc', label: 'White' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#a855f7', label: 'Violet' }
+]
+
 function createDefaultRoiStatOptions(): RoiStatOption[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -256,6 +268,13 @@ function createDefaultMeasurementStylePreference() {
     lineWidth: 2.5,
     editingLineStyle: 'dash' as MeasurementLineStyle,
     completedLineStyle: 'solid' as MeasurementLineStyle
+  }
+}
+
+function createDefaultMprSegmentationStylePreference() {
+  return {
+    thresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    voiColor: DEFAULT_MPR_VOI_COLOR
   }
 }
 
@@ -350,6 +369,7 @@ const {
   getWindowPresetLabel,
   hangingProtocolRules,
   measurementStylePreference,
+  mprSegmentationStylePreference,
   mprDefaultLayoutKey,
   qaWaterMetrics,
   removeHangingProtocolRule,
@@ -365,6 +385,7 @@ const {
   setHangingProtocolRules,
   updateHangingProtocolRule,
   setMeasurementStylePreference,
+  setMprSegmentationStylePreference,
   setMprDefaultLayoutKey,
   setQaWaterMetrics,
   setScaleBarPreference,
@@ -430,6 +451,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'displayCornerInfo' as const, title: isZh.value ? '四角信息' : 'Corner Info', subtitle: isZh.value ? '视口角标内容' : 'Viewport corner tags', icon: 'tag' },
   { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
   { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '测量线样式' : 'Measurement style', icon: 'measure-line' },
+  { key: 'displaySegmentation' as const, title: isZh.value ? '分割样式' : 'Segmentation Style', subtitle: isZh.value ? '默认分割与 VOI 颜色' : 'Default segmentation and VOI colors', icon: 'segmentation-threshold' },
   { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
   { key: 'hangingProtocol' as const, title: isZh.value ? '挂片协议' : 'Hanging Protocol', subtitle: isZh.value ? '自动布局规则' : 'Layout rules', icon: 'layout' },
   { key: 'dicomTags' as const, title: isZh.value ? 'DICOM 标签' : 'DICOM Tags', subtitle: isZh.value ? '显示与修改保存' : 'Display and edit save', icon: 'tag' },
@@ -470,6 +492,7 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
         getSection('displayCornerInfo'),
         getSection('displayScaleBar'),
         getSection('displayMeasurement'),
+        getSection('displaySegmentation'),
         getSection('displayRoi'),
         getSection('hangingProtocol')
       ]
@@ -1663,6 +1686,10 @@ function resetDisplaySubSection(section: SettingsSection): void {
   }
   if (section === 'displayMeasurement') {
     setMeasurementStylePreference(createDefaultMeasurementStylePreference())
+    return
+  }
+  if (section === 'displaySegmentation') {
+    setMprSegmentationStylePreference(createDefaultMprSegmentationStylePreference())
   }
 }
 
@@ -1730,6 +1757,7 @@ function resetCurrentSection(): void {
     activeSection.value === 'displayScaleBar' ||
     activeSection.value === 'displayCornerInfo' ||
     activeSection.value === 'displayMeasurement' ||
+    activeSection.value === 'displaySegmentation' ||
     activeSection.value === 'displayPseudocolor' ||
     activeSection.value === 'displayRoi'
   ) {
@@ -2628,6 +2656,7 @@ onBeforeUnmount(() => {
                     activeSection === 'displayMprLayout' ||
                     activeSection === 'displayScaleBar' ||
                     activeSection === 'displayMeasurement' ||
+                    activeSection === 'displaySegmentation' ||
                     activeSection === 'displayPseudocolor' ||
                     activeSection === 'displayRoi'
                   "
@@ -3108,6 +3137,83 @@ onBeforeUnmount(() => {
                           <svg class="h-20 w-full" viewBox="0 0 280 72" aria-hidden="true">
                             <line x1="20" y1="22" x2="260" y2="22" :stroke="measurementStylePreference.editingColor" :stroke-width="measurementStylePreference.lineWidth" stroke-linecap="round" :stroke-dasharray="measurementStylePreference.editingLineStyle === 'dash' ? '12 8' : undefined" />
                             <line x1="20" y1="52" x2="260" y2="52" :stroke="measurementStylePreference.completedColor" :stroke-width="measurementStylePreference.lineWidth" stroke-linecap="round" :stroke-dasharray="measurementStylePreference.completedLineStyle === 'dash' ? '12 8' : undefined" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="activeSection === 'displaySegmentation'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="segmentation-threshold" :size="18" />
+                            <span class="text-sm font-semibold">{{ isZh ? '分割样式' : 'Segmentation Style' }}</span>
+                          </div>
+                          <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '设置阈值分割和 VOI 的默认显示颜色。修改后会同步覆盖当前已有条目的显示颜色。' : 'Set default display colors for threshold regions and VOI. Changes also recolor current items.' }}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.75fr)]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '阈值分割默认色' : 'Threshold Default' }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="mprSegmentationStylePreference.thresholdColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ mprSegmentationStylePreference.thresholdColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in segmentationColorPresets"
+                              :key="`seg-threshold-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="mprSegmentationStylePreference.thresholdColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="mprSegmentationStylePreference.thresholdColor = preset.value"
+                            >
+                              <span
+                                v-if="mprSegmentationStylePreference.thresholdColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? 'VOI 默认色' : 'VOI Default' }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="mprSegmentationStylePreference.voiColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ mprSegmentationStylePreference.voiColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in segmentationColorPresets"
+                              :key="`seg-voi-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="mprSegmentationStylePreference.voiColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="mprSegmentationStylePreference.voiColor = preset.value"
+                            >
+                              <span
+                                v-if="mprSegmentationStylePreference.voiColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '预览' : 'Preview' }}</div>
+                          <svg class="h-28 w-full" viewBox="0 0 280 112" aria-hidden="true">
+                            <rect x="42" y="28" width="146" height="42" rx="4" fill="transparent" :stroke="mprSegmentationStylePreference.thresholdColor" stroke-width="3" />
+                            <circle cx="178" cy="62" r="34" :fill="`${mprSegmentationStylePreference.voiColor}22`" :stroke="mprSegmentationStylePreference.voiColor" stroke-width="3" />
+                            <circle cx="72" cy="49" r="3" :fill="mprSegmentationStylePreference.thresholdColor" />
+                            <circle cx="104" cy="56" r="3" :fill="mprSegmentationStylePreference.thresholdColor" />
+                            <circle cx="137" cy="44" r="3" :fill="mprSegmentationStylePreference.thresholdColor" />
                           </svg>
                         </div>
                       </div>

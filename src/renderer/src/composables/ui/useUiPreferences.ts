@@ -6,6 +6,10 @@ import {
   isMprLayoutKey,
   type MprDefaultLayoutKey
 } from '../workspace/layout/mprLayoutOptions'
+import {
+  DEFAULT_MPR_SEGMENTATION_COLOR,
+  DEFAULT_MPR_VOI_COLOR
+} from '../../types/viewer'
 import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
 import {
   createDefaultViewportCornerInfoPreference,
@@ -75,6 +79,11 @@ export interface MeasurementStylePreference {
   lineWidth: number
   editingLineStyle: MeasurementLineStyle
   completedLineStyle: MeasurementLineStyle
+}
+
+export interface MprSegmentationStylePreference {
+  thresholdColor: string
+  voiColor: string
 }
 
 export interface ExportPreference {
@@ -176,6 +185,7 @@ interface UiPreferencesState {
   scaleBarPreference: ScaleBarPreference
   viewportCornerInfoPreference: ViewportCornerInfoPreference
   measurementStylePreference: MeasurementStylePreference
+  mprSegmentationStylePreference: MprSegmentationStylePreference
   dicomTagEditSavePreference: DicomTagEditSavePreference
   dicomDeidentifyPreference: DicomDeidentifyPreference
   hangingProtocolRules: HangingProtocolRule[]
@@ -186,7 +196,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 15
+const CURRENT_PREFERENCES_VERSION = 16
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
@@ -361,6 +371,13 @@ function createDefaultMeasurementStylePreference(): MeasurementStylePreference {
   }
 }
 
+function createDefaultMprSegmentationStylePreference(): MprSegmentationStylePreference {
+  return {
+    thresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    voiColor: DEFAULT_MPR_VOI_COLOR
+  }
+}
+
 function createDefaultExportPreference(): ExportPreference {
   return {
     locationMode: 'default',
@@ -456,6 +473,7 @@ function createDefaultState(): UiPreferencesState {
     scaleBarPreference: createDefaultScaleBarPreference(),
     viewportCornerInfoPreference: createDefaultViewportCornerInfoPreference(),
     measurementStylePreference: createDefaultMeasurementStylePreference(),
+    mprSegmentationStylePreference: createDefaultMprSegmentationStylePreference(),
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
     hangingProtocolRules: createDefaultHangingProtocolRules(),
@@ -746,6 +764,16 @@ function normalizeMeasurementStylePreference(value: unknown): MeasurementStylePr
   }
 }
 
+function normalizeMprSegmentationStylePreference(value: unknown): MprSegmentationStylePreference {
+  const defaults = createDefaultMprSegmentationStylePreference()
+  const record = value && typeof value === 'object' ? (value as Partial<MprSegmentationStylePreference>) : null
+
+  return {
+    thresholdColor: normalizeHexColor(record?.thresholdColor, defaults.thresholdColor),
+    voiColor: normalizeHexColor(record?.voiColor, defaults.voiColor)
+  }
+}
+
 function normalizeExportPreference(value: unknown): ExportPreference {
   const defaults = createDefaultExportPreference()
   const record = value && typeof value === 'object'
@@ -904,6 +932,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.scaleBarPreference = nextState.scaleBarPreference
   state.viewportCornerInfoPreference = nextState.viewportCornerInfoPreference
   state.measurementStylePreference = nextState.measurementStylePreference
+  state.mprSegmentationStylePreference = nextState.mprSegmentationStylePreference
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
   state.hangingProtocolRules = nextState.hangingProtocolRules
@@ -941,6 +970,10 @@ function serializeState(): UiPreferencesState {
       lineWidth: state.measurementStylePreference.lineWidth,
       editingLineStyle: state.measurementStylePreference.editingLineStyle,
       completedLineStyle: state.measurementStylePreference.completedLineStyle
+    },
+    mprSegmentationStylePreference: {
+      thresholdColor: state.mprSegmentationStylePreference.thresholdColor,
+      voiColor: state.mprSegmentationStylePreference.voiColor
     },
     dicomTagEditSavePreference: {
       locationMode: state.dicomTagEditSavePreference.locationMode,
@@ -1032,6 +1065,7 @@ async function hydrateState(): Promise<void> {
           normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference)
         ),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
+        mprSegmentationStylePreference: normalizeMprSegmentationStylePreference(parsed.mprSegmentationStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
         hangingProtocolRules: normalizeHangingProtocolRules(parsed.hangingProtocolRules),
@@ -1185,6 +1219,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setMprSegmentationStylePreference(nextValue: MprSegmentationStylePreference): void {
+    state.mprSegmentationStylePreference = normalizeMprSegmentationStylePreference(nextValue)
+    void persistState()
+  }
+
   function setDicomTagEditSavePreference(nextValue: DicomTagEditSavePreference): void {
     state.dicomTagEditSavePreference = normalizeDicomTagEditSavePreference(nextValue)
     void persistState()
@@ -1280,6 +1319,7 @@ export function useUiPreferences() {
     exportPreference: computed(() => state.exportPreference),
     hangingProtocolRules: computed(() => state.hangingProtocolRules),
     measurementStylePreference: computed(() => state.measurementStylePreference),
+    mprSegmentationStylePreference: computed(() => state.mprSegmentationStylePreference),
     mprDefaultLayoutKey,
     pacsPreference: computed(() => state.pacsPreference),
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
@@ -1296,6 +1336,7 @@ export function useUiPreferences() {
     setPacsPreference,
     setLocale,
     setMeasurementStylePreference,
+    setMprSegmentationStylePreference,
     setMprDefaultLayoutKey,
     setQaWaterMetrics,
     setScaleBarPreference,

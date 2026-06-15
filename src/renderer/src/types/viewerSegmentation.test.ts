@@ -3,6 +3,8 @@ import {
   isStaleMprSegmentationPreviewConfig,
   mergeMprSegmentationPreviewConfig,
   normalizeMprSegmentationConfig,
+  recolorMprSegmentationConfig,
+  resolveMprLegacyVoiSphere,
   type MprThresholdRegion
 } from './viewer'
 
@@ -40,6 +42,71 @@ function createRegion(depthMm = 1, sampleCount = 0): MprThresholdRegion {
 }
 
 describe('normalizeMprSegmentationConfig', () => {
+  it('resolves the legacy VOI sphere from selected id with first-item fallback', () => {
+    const spheres = [
+      {
+        id: 'v1',
+        label: '1',
+        enabled: true,
+        centerWorld: [0, 0, 0] as [number, number, number],
+        radiusMm: 12,
+        color: '#22d3ee',
+        stats: null
+      },
+      {
+        id: 'v2',
+        label: '2',
+        enabled: true,
+        centerWorld: [1, 2, 3] as [number, number, number],
+        radiusMm: 16,
+        color: '#22d3ee',
+        stats: null
+      }
+    ]
+
+    expect(resolveMprLegacyVoiSphere(spheres, 'v2')).toBe(spheres[1])
+    expect(resolveMprLegacyVoiSphere(spheres, 'missing')).toBe(spheres[0])
+    expect(resolveMprLegacyVoiSphere([], 'v1')).toBeNull()
+  })
+
+  it('honors explicit threshold selection when fallback has a selected VOI', () => {
+    const fallback = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 7,
+      selectedRegionId: null,
+      selectedVoi: true,
+      selectedVoiId: 'v1',
+      thresholdRegions: [createRegion()],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: '1',
+          enabled: true,
+          centerWorld: [0, 0, 0],
+          radiusMm: 12,
+          color: '#22d3ee',
+          stats: null
+        }
+      ]
+    })
+
+    expect(
+      normalizeMprSegmentationConfig(
+        {
+          ...fallback,
+          selectedRegionId: 'r1',
+          selectedVoi: false,
+          selectedVoiId: null
+        },
+        fallback
+      )
+    ).toEqual(expect.objectContaining({
+      selectedRegionId: 'r1',
+      selectedVoi: false,
+      selectedVoiId: null
+    }))
+  })
+
   it('normalizes threshold regions, selected region, stats, and VOI sphere', () => {
     expect(
       normalizeMprSegmentationConfig({
@@ -104,7 +171,7 @@ describe('normalizeMprSegmentationConfig', () => {
         {
           id: 'r1',
           enabled: true,
-          label: 'r1',
+          label: '',
           thresholdHu: 3071,
           thresholdMode: 'percentile',
           thresholdPercentile: 99.5,
@@ -165,6 +232,43 @@ describe('normalizeMprSegmentationConfig', () => {
         }
       }
     })
+  })
+
+  it('allows editable segmentation labels to be cleared', () => {
+    const normalized = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 1,
+      thresholdRegions: [
+        {
+          ...createRegion(),
+          label: ''
+        }
+      ],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: '',
+          enabled: true,
+          centerWorld: [0, 0, 0],
+          radiusMm: 12,
+          color: '#22d3ee',
+          stats: null
+        }
+      ],
+      voiSphere: {
+        id: 'v1',
+        label: '',
+        enabled: true,
+        centerWorld: [0, 0, 0],
+        radiusMm: 12,
+        color: '#22d3ee',
+        stats: null
+      }
+    })
+
+    expect(normalized.thresholdRegions[0]?.label).toBe('')
+    expect(normalized.voiSpheres[0]?.label).toBe('')
+    expect(normalized.voiSphere?.label).toBe('')
   })
 
   it('accepts legacy fields without regenerating legacy output fields', () => {
@@ -312,6 +416,247 @@ describe('normalizeMprSegmentationConfig', () => {
     expect(mergeMprSegmentationPreviewConfig(current, incoming).voiSpheres[0]).toEqual({
       ...current.voiSpheres[0],
       stats: incoming.voiSpheres[0]?.stats
+    })
+  })
+
+  it('merges backend stats after display-only recolor without reverting local colors', () => {
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 10,
+      selectedRegionId: null,
+      selectedVoi: true,
+      selectedVoiId: 'v1',
+      thresholdRegions: [
+        {
+          ...createRegion(),
+          color: '#112233'
+        }
+      ],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: '1',
+          enabled: true,
+          centerWorld: [1, 2, 3],
+          radiusMm: 12,
+          color: '#445566',
+          stats: null
+        }
+      ],
+      voiSphere: {
+        id: 'v1',
+        label: '1',
+        enabled: true,
+        centerWorld: [1, 2, 3],
+        radiusMm: 12,
+        color: '#445566',
+        stats: null
+      }
+    })
+    const incoming = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 10,
+      selectedRegionId: null,
+      selectedVoi: true,
+      selectedVoiId: 'v1',
+      thresholdRegions: [createRegion(1, 8)],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: '1',
+          enabled: true,
+          centerWorld: [1, 2, 3],
+          radiusMm: 12,
+          color: '#22d3ee',
+          stats: {
+            huMean: 20,
+            huMin: 10,
+            huMax: 30,
+            huStdDev: 2,
+            volumeCm3: 1.5,
+            sampleCount: 15
+          }
+        }
+      ],
+      voiSphere: {
+        id: 'v1',
+        label: '1',
+        enabled: true,
+        centerWorld: [1, 2, 3],
+        radiusMm: 12,
+        color: '#22d3ee',
+        stats: {
+          huMean: 20,
+          huMin: 10,
+          huMax: 30,
+          huStdDev: 2,
+          volumeCm3: 1.5,
+          sampleCount: 15
+        }
+      }
+    })
+
+    const merged = mergeMprSegmentationPreviewConfig(current, incoming)
+
+    expect(merged.thresholdRegions[0]).toEqual({
+      ...current.thresholdRegions[0],
+      stats: incoming.thresholdRegions[0]?.stats ?? null
+    })
+    expect(merged.voiSpheres[0]).toEqual({
+      ...current.voiSpheres[0],
+      stats: incoming.voiSpheres[0]?.stats ?? null
+    })
+    expect(merged.voiSphere).toEqual({
+      ...current.voiSphere,
+      stats: incoming.voiSphere?.stats ?? null
+    })
+  })
+
+  it('preserves local selection when backend preview returns an older selected item', () => {
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 11,
+      selectedRegionId: 'r1',
+      selectedVoi: false,
+      selectedVoiId: null,
+      thresholdRegions: [createRegion()],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: '1',
+          enabled: true,
+          centerWorld: [1, 2, 3],
+          radiusMm: 12,
+          color: '#22d3ee',
+          stats: null
+        }
+      ],
+      voiSphere: {
+        id: 'v1',
+        label: '1',
+        enabled: true,
+        centerWorld: [1, 2, 3],
+        radiusMm: 12,
+        color: '#22d3ee',
+        stats: null
+      }
+    })
+    const incoming = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 11,
+      selectedRegionId: null,
+      selectedVoi: true,
+      selectedVoiId: 'v1',
+      thresholdRegions: [createRegion(1, 8)],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: '1',
+          enabled: true,
+          centerWorld: [1, 2, 3],
+          radiusMm: 12,
+          color: '#22d3ee',
+          stats: {
+            huMean: 20,
+            huMin: 10,
+            huMax: 30,
+            huStdDev: 2,
+            volumeCm3: 1.5,
+            sampleCount: 15
+          }
+        }
+      ],
+      voiSphere: {
+        id: 'v1',
+        label: '1',
+        enabled: true,
+        centerWorld: [1, 2, 3],
+        radiusMm: 12,
+        color: '#22d3ee',
+        stats: {
+          huMean: 20,
+          huMin: 10,
+          huMax: 30,
+          huStdDev: 2,
+          volumeCm3: 1.5,
+          sampleCount: 15
+        }
+      }
+    })
+
+    const merged = mergeMprSegmentationPreviewConfig(current, incoming)
+
+    expect(merged).toEqual(expect.objectContaining({
+      selectedRegionId: 'r1',
+      selectedVoi: false,
+      selectedVoiId: null
+    }))
+    expect(merged.thresholdRegions[0]?.stats).toEqual(incoming.thresholdRegions[0]?.stats)
+    expect(merged.voiSpheres[0]?.stats).toEqual(incoming.voiSpheres[0]?.stats)
+  })
+
+  it('recolors threshold and VOI items without changing metrics or selection', () => {
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 12,
+      selectedRegionId: null,
+      selectedVoi: true,
+      selectedVoiId: 'v1',
+      thresholdRegions: [createRegion(8, 20)],
+      voiSpheres: [
+        {
+          id: 'v1',
+          label: 'target',
+          enabled: true,
+          centerWorld: [1, 2, 3],
+          radiusMm: 14,
+          color: '#22d3ee',
+          stats: {
+            huMean: 22,
+            huMin: 10,
+            huMax: 35,
+            huStdDev: 4,
+            volumeCm3: 1.8,
+            sampleCount: 18
+          }
+        }
+      ],
+      voiSphere: {
+        id: 'v1',
+        label: 'target',
+        enabled: true,
+        centerWorld: [1, 2, 3],
+        radiusMm: 14,
+        color: '#22d3ee',
+        stats: {
+          huMean: 22,
+          huMin: 10,
+          huMax: 35,
+          huStdDev: 4,
+          volumeCm3: 1.8,
+          sampleCount: 18
+        }
+      }
+    })
+
+    expect(recolorMprSegmentationConfig(current, '#112233', '#445566')).toEqual({
+      ...current,
+      thresholdRegions: [
+        {
+          ...current.thresholdRegions[0]!,
+          color: '#112233'
+        }
+      ],
+      voiSpheres: [
+        {
+          ...current.voiSpheres[0]!,
+          color: '#445566'
+        }
+      ],
+      voiSphere: {
+        ...current.voiSphere!,
+        color: '#445566'
+      }
     })
   })
 })

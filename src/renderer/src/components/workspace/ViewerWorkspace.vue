@@ -153,7 +153,16 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t, workspaceExportCopy } = useUiLocale()
-const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions, viewportCornerInfoPreference } = useUiPreferences()
+const {
+  exportPreference,
+  mprDefaultLayoutKey,
+  mprSegmentationStylePreference,
+  qaWaterMetrics,
+  roiStatOptions,
+  viewportCornerInfoPreference
+} = useUiPreferences()
+const mprSegmentationDefaultThresholdColor = computed(() => mprSegmentationStylePreference.value.thresholdColor)
+const mprSegmentationDefaultVoiColor = computed(() => mprSegmentationStylePreference.value.voiColor)
 const {
   getStarredSliceIndexes,
   getStarredSliceCount,
@@ -231,6 +240,7 @@ const {
   activeMprMipConfig,
   activeMprSegmentationConfig,
   activeVolumeRenderConfig,
+  activateSegmentationSelectionMode,
   applyTool,
   areToolbarActionsDisabled,
   closeMprSegmentationPanel,
@@ -280,13 +290,11 @@ function handleMprSegmentationConfigChange(config: MprSegmentationConfig, action
   updateActiveMprSegmentationConfig(config, actionType)
 }
 
-function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi'): void {
-  const segmentationTool = activeTools.value.find((tool) => tool.key === 'segmentation')
-  if (segmentationTool) {
-    selectToolOption(segmentationTool, mode)
-    return
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
+  if (viewportKey) {
+    setActiveViewport(viewportKey)
   }
-  emit('setActiveOperation', `stack:${mode}`)
+  activateSegmentationSelectionMode(mode)
 }
 
 const activeMprLayoutKey = computed(() => {
@@ -2183,6 +2191,8 @@ onBeforeUnmount(() => {
           :active-operation="props.activeOperation"
           :active-viewport-key="activeViewportKey"
           :layout-key="activeMprLayoutKey"
+          :mpr-segmentation-default-threshold-color="mprSegmentationDefaultThresholdColor"
+          :mpr-segmentation-default-voi-color="mprSegmentationDefaultVoiColor"
           :mpr-segmentation-config="activeTab.mprSegmentationConfig ?? null"
           :get-annotations="getViewportAnnotations"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"

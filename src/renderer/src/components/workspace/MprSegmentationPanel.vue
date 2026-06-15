@@ -5,11 +5,13 @@ defineOptions({
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
+import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import {
   MPR_SEGMENTATION_DEPTH_LIMITS,
   MPR_SEGMENTATION_HU_LIMITS,
   createDefaultMprSegmentationConfig,
   normalizeMprSegmentationConfig,
+  resolveMprLegacyVoiSphere,
   type MprSegmentationConfigActionType,
   type MprSegmentationConfig,
   type MprThresholdRegion,
@@ -24,7 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   configChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
-  modeChange: [mode: 'segmentation:threshold' | 'segmentation:voi']
+  modeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
 }>()
 
 type PanelActionType = MprSegmentationConfigActionType
@@ -44,11 +46,63 @@ const localDraftActive = ref(false)
 const panelRef = ref<HTMLElement | null>(null)
 const panelPosition = ref<PanelPosition | null>(null)
 const panelDragState = ref<{ pointerId: number; offsetX: number; offsetY: number } | null>(null)
+const { locale } = useUiPreferences()
 const displayedConfig = computed(() => draftConfig.value ?? normalizeMprSegmentationConfig(props.config))
 const regions = computed(() => displayedConfig.value.thresholdRegions)
 const voiSpheres = computed(() => displayedConfig.value.voiSpheres)
 const selectedRegion = computed(() =>
   regions.value.find((region) => region.id === displayedConfig.value.selectedRegionId) ?? null
+)
+const isZh = computed(() => locale.value === 'zh-CN')
+const panelCopy = computed(() => isZh.value
+  ? {
+      eyebrow: '分割',
+      title: '阈值分割与球形 VOI',
+      updating: '更新中',
+      preview: '预览',
+      close: '关闭',
+      emptyThreshold: '在阈值分割模式中绘制一个或多个矩形区域。每个区域使用 HU > 阈值。',
+      hideRegion: '隐藏分割',
+      showRegion: '显示分割',
+      deleteRegion: '删除分割',
+      color: '颜色',
+      description: '描述',
+      percent: '百分比',
+      depth: '深度',
+      voiTitle: 'VOI 球体',
+      voiEmpty: '在 VOI 模式中绘制圆形区域',
+      item: '项',
+      radius: '半径',
+      hideVoi: '隐藏 VOI',
+      showVoi: '显示 VOI',
+      deleteVoi: '删除 VOI',
+      clearRegions: '清除分割',
+      clearAll: '全部清除'
+    }
+  : {
+      eyebrow: 'Segmentation',
+      title: 'Threshold regions and spherical VOI',
+      updating: 'Updating',
+      preview: 'Preview',
+      close: 'Close',
+      emptyThreshold: 'Draw one or more rectangles in threshold mode. Each region uses HU > threshold.',
+      hideRegion: 'Hide region',
+      showRegion: 'Show region',
+      deleteRegion: 'Delete region',
+      color: 'Color',
+      description: 'Description',
+      percent: 'Percent',
+      depth: 'Depth',
+      voiTitle: 'VOI sphere',
+      voiEmpty: 'Draw a circle in VOI mode',
+      item: 'item',
+      radius: 'Radius',
+      hideVoi: 'Hide VOI',
+      showVoi: 'Show VOI',
+      deleteVoi: 'Delete VOI',
+      clearRegions: 'Clear regions',
+      clearAll: 'Clear all'
+    }
 )
 const panelRootStyle = computed<Record<string, string>>(() => {
   const position = panelPosition.value
@@ -88,6 +142,13 @@ function emitConfig(config: MprSegmentationConfig, actionType: PanelActionType =
     return
   }
 
+  if (actionType === 'select' || actionType === 'style') {
+    localDraftActive.value = false
+    draftConfig.value = normalized
+    emit('configChange', normalized, actionType)
+    return
+  }
+
   if (actionType === 'move') {
     localDraftActive.value = true
     draftConfig.value = normalized
@@ -113,19 +174,20 @@ function emitPatch(patch: Partial<MprSegmentationConfig>, actionType: PanelActio
   )
 }
 
+function hasStatsPatch(patch: Partial<MprThresholdRegion> | Partial<MprVoiSphere>): boolean {
+  return Object.prototype.hasOwnProperty.call(patch, 'stats')
+}
+
 function patchRegion(regionId: string, patch: Partial<MprThresholdRegion>, actionType: PanelActionType = 'end'): void {
   emitPatch(
     {
-      selectedRegionId: regionId,
-      selectedVoi: false,
-      selectedVoiId: null,
       thresholdRegions: regions.value.map((region) =>
         region.id === regionId
           ? {
               ...region,
               ...patch,
               box: patch.box ?? region.box,
-              stats: patch.stats ?? null
+              stats: hasStatsPatch(patch) ? patch.stats ?? null : region.stats
             }
           : region
       )
@@ -135,8 +197,9 @@ function patchRegion(regionId: string, patch: Partial<MprThresholdRegion>, actio
 }
 
 function selectRegion(regionId: string): void {
-  emit('modeChange', 'segmentation:threshold')
-  emitPatch({ selectedRegionId: regionId, selectedVoi: false, selectedVoiId: null }, 'end')
+  const region = regions.value.find((candidate) => candidate.id === regionId)
+  emit('modeChange', 'segmentation:threshold', region?.box.sourceViewport ?? null)
+  emitPatch({ selectedRegionId: regionId, selectedVoi: false, selectedVoiId: null }, 'select')
 }
 
 function toggleRegion(region: MprThresholdRegion): void {
@@ -145,11 +208,12 @@ function toggleRegion(region: MprThresholdRegion): void {
 
 function deleteRegion(regionId: string): void {
   const nextRegions = regions.value.filter((region) => region.id !== regionId)
+  const isDeletingSelectedRegion = displayedConfig.value.selectedRegionId === regionId
   emitPatch(
     {
-      selectedRegionId: nextRegions[0]?.id ?? null,
-      selectedVoi: false,
-      selectedVoiId: null,
+      selectedRegionId: isDeletingSelectedRegion ? nextRegions[0]?.id ?? null : displayedConfig.value.selectedRegionId,
+      selectedVoi: isDeletingSelectedRegion ? false : displayedConfig.value.selectedVoi,
+      selectedVoiId: isDeletingSelectedRegion ? null : displayedConfig.value.selectedVoiId,
       thresholdRegions: nextRegions
     },
     'end'
@@ -180,6 +244,14 @@ function updateDepth(region: MprThresholdRegion, value: string, actionType: 'mov
     },
     actionType
   )
+}
+
+function updateRegionColor(region: MprThresholdRegion, value: string): void {
+  patchRegion(region.id, { color: value }, 'style')
+}
+
+function updateRegionLabel(region: MprThresholdRegion, value: string): void {
+  patchRegion(region.id, { label: value }, 'style')
 }
 
 function clampPanelPosition(x: number, y: number): PanelPosition {
@@ -252,12 +324,17 @@ function clearThresholdRegions(): void {
 
 function clearVoi(sphereId: string): void {
   const nextSpheres = voiSpheres.value.filter((sphere) => sphere.id !== sphereId)
-  const selectedVoiId = displayedConfig.value.selectedVoiId === sphereId ? null : displayedConfig.value.selectedVoiId
+  const isDeletingSelectedVoi = displayedConfig.value.selectedVoiId === sphereId
+  const nextSelectedVoi = resolveMprLegacyVoiSphere(
+    nextSpheres,
+    isDeletingSelectedVoi ? nextSpheres[0]?.id ?? null : displayedConfig.value.selectedVoiId
+  )
   emitPatch({
-    selectedVoi: selectedVoiId !== null,
-    selectedVoiId,
+    selectedRegionId: isDeletingSelectedVoi ? null : displayedConfig.value.selectedRegionId,
+    selectedVoi: nextSelectedVoi !== null,
+    selectedVoiId: nextSelectedVoi?.id ?? null,
     voiSpheres: nextSpheres,
-    voiSphere: nextSpheres[0] ?? null
+    voiSphere: nextSelectedVoi
   }, 'end')
 }
 
@@ -269,19 +346,14 @@ function patchVoiSphere(sphereId: string, patch: Partial<MprVoiSphere>, actionTy
   const nextSphere = {
     ...sphere,
     ...patch,
-    stats: patch.stats ?? null
+    stats: hasStatsPatch(patch) ? patch.stats ?? null : sphere.stats
   }
-  const selectedVoiId = patch.enabled === false && displayedConfig.value.selectedVoiId === sphereId
-    ? null
-    : sphereId
   const nextSpheres = voiSpheres.value.map((candidate) => (candidate.id === sphereId ? nextSphere : candidate))
+  const legacyVoiSphere = resolveMprLegacyVoiSphere(nextSpheres, displayedConfig.value.selectedVoiId)
   emitPatch(
     {
-      selectedRegionId: null,
-      selectedVoi: selectedVoiId !== null,
-      selectedVoiId,
       voiSpheres: nextSpheres,
-      voiSphere: nextSphere
+      voiSphere: legacyVoiSphere
     },
     actionType
   )
@@ -292,7 +364,15 @@ function selectVoi(sphereId: string): void {
     return
   }
   emit('modeChange', 'segmentation:voi')
-  emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: sphereId }, 'end')
+  emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: sphereId }, 'select')
+}
+
+function updateVoiColor(sphere: MprVoiSphere, value: string): void {
+  patchVoiSphere(sphere.id, { color: value }, 'style')
+}
+
+function updateVoiLabel(sphere: MprVoiSphere, value: string): void {
+  patchVoiSphere(sphere.id, { label: value }, 'style')
 }
 
 function clearAll(): void {
@@ -355,16 +435,16 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           </span>
         </span>
         <div class="min-w-0">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">Segmentation</div>
+          <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ panelCopy.eyebrow }}</div>
           <div class="mt-0.5 flex min-w-0 items-center gap-2">
-            <span class="truncate text-[12px] font-medium text-[var(--theme-text-primary)]">Threshold regions and spherical VOI</span>
+            <span class="truncate text-[12px] font-medium text-[var(--theme-text-primary)]">{{ panelCopy.title }}</span>
             <span
               data-testid="mpr-segmentation-processing"
               class="inline-flex w-[4.75rem] shrink-0 items-center gap-1 rounded-full border border-sky-300/30 bg-sky-400/12 px-2 py-0.5 text-[10px] font-semibold text-sky-100 transition-opacity"
               :class="props.isProcessing ? 'opacity-100' : 'pointer-events-none opacity-0'"
             >
               <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-200"></span>
-              <span>Updating</span>
+              <span>{{ panelCopy.updating }}</span>
             </span>
           </div>
         </div>
@@ -386,12 +466,12 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               :class="displayedConfig.enabled ? 'left-[13px]' : 'left-0.5 opacity-70'"
             ></span>
           </span>
-          <span>Preview</span>
+          <span>{{ panelCopy.preview }}</span>
         </button>
         <button
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
-          title="Close"
+          :title="panelCopy.close"
           @click="emit('close')"
         >
           <AppIcon name="close" :size="15" />
@@ -404,49 +484,55 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         v-if="regions.length === 0"
         class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
       >
-        Draw one or more rectangles in threshold mode. Each region uses HU &gt; threshold.
+        {{ panelCopy.emptyThreshold }}
       </div>
 
       <div
         v-for="region in regions"
         :key="region.id"
-        class="rounded-lg border px-3 py-2 transition"
-        :class="region.id === displayedConfig.selectedRegionId ? 'border-sky-300/45 bg-sky-500/18' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]'"
+        class="rounded-md border px-2.5 py-2 transition"
+        :class="region.id === displayedConfig.selectedRegionId ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
+        :data-testid="`mpr-threshold-select-${region.id}`"
         @click="selectRegion(region.id)"
       >
         <div class="flex min-w-0 items-center gap-2">
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
-            :class="region.enabled ? 'border-sky-300/45 bg-sky-400/20 text-sky-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
+            :class="region.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
             type="button"
             :aria-pressed="region.enabled"
-            :title="region.enabled ? 'Hide region' : 'Show region'"
+            :title="region.enabled ? panelCopy.hideRegion : panelCopy.showRegion"
             @click.stop="toggleRegion(region)"
           >
             <AppIcon :name="region.enabled ? 'display' : 'display-off'" :size="15" />
           </button>
-          <button
-            class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
-            :class="region.id === displayedConfig.selectedRegionId ? 'border-sky-200/60 bg-sky-300/25 text-sky-50' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)] hover:border-sky-300/35 hover:text-sky-100'"
-            type="button"
-            :aria-pressed="region.id === displayedConfig.selectedRegionId"
-            title="Select region"
-            :data-testid="`mpr-threshold-select-${region.id}`"
-            @click.stop="selectRegion(region.id)"
+          <label
+            class="relative flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-black/20"
+            :title="panelCopy.color"
+            @click.stop
           >
-            <AppIcon
-              v-if="region.id === displayedConfig.selectedRegionId"
-              name="check"
-              :size="13"
+            <span class="h-3.5 w-3.5 rounded-full border border-white/35" :style="{ backgroundColor: region.color }"></span>
+            <input
+              class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              type="color"
+              :aria-label="panelCopy.color"
+              :value="region.color"
+              :data-testid="`mpr-threshold-color-${region.id}`"
+              @input.stop="updateRegionColor(region, ($event.target as HTMLInputElement).value)"
+              @change.stop="updateRegionColor(region, ($event.target as HTMLInputElement).value)"
             />
-            <span
-              v-else
-              class="h-2 w-2 rounded-full border border-current"
-            ></span>
-          </button>
-          <span class="text-[13px] font-semibold text-[var(--theme-text-primary)]">{{ region.label }}</span>
-          <span class="h-2.5 w-2.5 rounded-full" :style="{ backgroundColor: region.color }"></span>
-          <span class="min-w-0 flex-1 text-[12px] text-[var(--theme-text-secondary)]">
+          </label>
+          <input
+            class="h-7 min-w-0 flex-[0_1_7.5rem] rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
+            type="text"
+            :aria-label="panelCopy.description"
+            :placeholder="panelCopy.description"
+            :value="region.label"
+            :data-testid="`mpr-threshold-label-${region.id}`"
+            @click.stop
+            @input.stop="updateRegionLabel(region, ($event.target as HTMLInputElement).value)"
+          />
+          <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--theme-text-secondary)]">
             {{ region.thresholdMode === 'percentile' ? `${region.thresholdPercentile.toFixed(1)}% / HU~${formatEffectiveThreshold(region)}` : `HU>${region.thresholdHu}` }}
           </span>
           <div
@@ -473,7 +559,8 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--theme-text-secondary)] transition hover:bg-rose-500/12 hover:text-rose-100"
             type="button"
-            title="Delete region"
+            :title="panelCopy.deleteRegion"
+            :data-testid="`mpr-threshold-delete-${region.id}`"
             @click.stop="deleteRegion(region.id)"
           >
             <AppIcon name="trash" :size="15" />
@@ -492,7 +579,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             v-if="region.thresholdMode === 'percentile'"
             class="grid grid-cols-[4rem_1fr_4.5rem] items-center gap-2"
           >
-            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">Percent</span>
+            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.percent }}</span>
             <input
               class="w-full accent-[var(--theme-accent)]"
               type="range"
@@ -541,8 +628,8 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             />
           </div>
 
-          <div class="grid grid-cols-[4rem_1fr_4.5rem] items-center gap-2">
-            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">Depth</span>
+          <div class="grid grid-cols-[4rem_1fr_4.5rem_1.75rem] items-center gap-2">
+            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.depth }}</span>
             <input
               class="w-full accent-[var(--theme-accent)]"
               type="range"
@@ -563,6 +650,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               @input.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'move')"
               @change.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'end')"
             />
+            <span class="text-[11px] font-semibold text-[var(--theme-text-muted)]">mm</span>
           </div>
         </div>
       </div>
@@ -570,13 +658,13 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
       <div class="rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2">
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0 truncate text-[12px] text-[var(--theme-text-secondary)]">
-            <span class="font-semibold text-[var(--theme-text-primary)]">VOI sphere</span>
+            <span class="font-semibold text-[var(--theme-text-primary)]">{{ panelCopy.voiTitle }}</span>
             <span class="mx-1 text-[var(--theme-text-muted)]">/</span>
             <template v-if="voiSpheres.length > 0">
-              {{ voiSpheres.length }} item{{ voiSpheres.length === 1 ? '' : 's' }}
+              {{ voiSpheres.length }} {{ panelCopy.item }}{{ !isZh && voiSpheres.length === 1 ? '' : !isZh ? 's' : '' }}
             </template>
             <template v-else>
-              Draw a circle in VOI mode
+              {{ panelCopy.voiEmpty }}
             </template>
           </div>
         </div>
@@ -595,23 +683,48 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               :class="sphere.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
               type="button"
               :aria-pressed="sphere.enabled"
-              :title="sphere.enabled ? 'Hide VOI' : 'Show VOI'"
+              :title="sphere.enabled ? panelCopy.hideVoi : panelCopy.showVoi"
               @click.stop="patchVoiSphere(sphere.id, { enabled: !sphere.enabled }, 'end')"
             >
               <AppIcon :name="sphere.enabled ? 'display' : 'display-off'" :size="14" />
             </button>
-            <span class="text-[13px] font-semibold text-[var(--theme-text-primary)]">{{ sphere.label }}</span>
-            <span class="h-2.5 w-2.5 rounded-full bg-emerald-300"></span>
+            <label
+              class="relative flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-black/20"
+              :title="panelCopy.color"
+              @click.stop
+            >
+              <span class="h-3.5 w-3.5 rounded-full border border-white/35" :style="{ backgroundColor: sphere.color }"></span>
+              <input
+                class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                type="color"
+                :aria-label="panelCopy.color"
+                :value="sphere.color"
+                :data-testid="`mpr-voi-color-${sphere.id}`"
+                @input.stop="updateVoiColor(sphere, ($event.target as HTMLInputElement).value)"
+                @change.stop="updateVoiColor(sphere, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            <input
+              class="h-7 min-w-0 flex-[0_1_7.5rem] rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
+              type="text"
+              :aria-label="panelCopy.description"
+              :placeholder="panelCopy.description"
+              :value="sphere.label"
+              :data-testid="`mpr-voi-label-${sphere.id}`"
+              @click.stop
+              @input.stop="updateVoiLabel(sphere, ($event.target as HTMLInputElement).value)"
+            />
             <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--theme-text-secondary)]">
-              Radius {{ formatMetric(sphere.radiusMm) }} mm
+              {{ panelCopy.radius }} {{ formatMetric(sphere.radiusMm) }} mm
             </span>
             <button
-              class="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 text-[11px] font-semibold text-[var(--theme-text-secondary)] transition hover:border-rose-200/45 hover:bg-rose-500/12 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--theme-text-secondary)] transition hover:bg-rose-500/12 hover:text-rose-100"
               type="button"
+              :title="panelCopy.deleteVoi"
+              :data-testid="`mpr-voi-delete-${sphere.id}`"
               @click.stop="clearVoi(sphere.id)"
             >
               <AppIcon name="trash" :size="14" />
-              <span>Delete</span>
             </button>
           </div>
           <div class="mt-1.5 max-h-8 overflow-hidden text-[11px] leading-4 text-[var(--theme-text-secondary)]">
@@ -628,7 +741,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           @click="clearThresholdRegions"
         >
           <AppIcon name="segmentation-threshold" :size="14" />
-          <span>Clear regions</span>
+          <span>{{ panelCopy.clearRegions }}</span>
         </button>
         <button
           class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-rose-300/25 bg-rose-500/10 px-2.5 text-[11px] font-semibold text-rose-100 transition hover:border-rose-200/45 hover:bg-rose-500/15"
@@ -636,7 +749,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           @click="clearAll"
         >
           <AppIcon name="trash" :size="14" />
-          <span>Clear all</span>
+          <span>{{ panelCopy.clearAll }}</span>
         </button>
       </div>
     </div>

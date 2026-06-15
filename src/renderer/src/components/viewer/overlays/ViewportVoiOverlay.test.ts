@@ -250,7 +250,7 @@ describe('ViewportVoiOverlay', () => {
         selectedVoi: true,
         selectedVoiId: 'v1'
       }),
-      'end'
+      'select'
     ])
   })
 
@@ -275,6 +275,30 @@ describe('ViewportVoiOverlay', () => {
     expect(wrapper.findAll('circle')).toHaveLength(0)
   })
 
+  it('draws the selected threshold rectangle above VOI spheres', () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: {
+          ...createMixedConfig(),
+          selectedRegionId: 'r1',
+          selectedVoi: false,
+          selectedVoiId: null
+        },
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+
+    const selectedRect = wrapper.find('rect[data-region-id="r1"]').element
+    const voiEllipse = wrapper.find('ellipse[data-voi-id="v1"]').element
+
+    expect(voiEllipse.compareDocumentPosition(selectedRect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('renders multiple VOI projections but only exposes handles for the selected one', () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {
@@ -290,8 +314,8 @@ describe('ViewportVoiOverlay', () => {
 
     expect(wrapper.findAll('ellipse')).toHaveLength(2)
     expect(wrapper.findAll('circle')).toHaveLength(4)
-    expect(wrapper.find('ellipse[data-voi-id="v2"]').classes()).toContain('stroke-cyan-200')
-    expect(wrapper.find('ellipse[data-voi-id="v1"]').classes()).toContain('stroke-emerald-300/90')
+    expect(wrapper.find('ellipse[data-voi-id="v2"]').attributes('stroke')).toBe('#22d3ee')
+    expect(wrapper.find('ellipse[data-voi-id="v1"]').attributes('stroke')).toBe('#22d3ee')
   })
 
   it('finishes a newly drawn VOI without leaving it selected', async () => {
@@ -328,6 +352,66 @@ describe('ViewportVoiOverlay', () => {
     ])
   })
 
+  it('uses the provided default colors when creating threshold and VOI items', async () => {
+    const thresholdWrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        defaultThresholdColor: '#00ff00',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createEmptyConfig(),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    const thresholdOverlay = prepareOverlayElement(thresholdWrapper)
+    thresholdWrapper.find('svg rect').element.dispatchEvent(createPointerEvent('pointerdown', 20, 20))
+    thresholdOverlay.dispatchEvent(createPointerEvent('pointermove', 70, 70))
+    thresholdOverlay.dispatchEvent(createPointerEvent('pointerup', 70, 70))
+    await thresholdWrapper.vm.$nextTick()
+
+    expect(thresholdWrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [
+          expect.objectContaining({
+            color: '#00ff00'
+          })
+        ]
+      }),
+      'end'
+    ])
+
+    const voiWrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:voi',
+        defaultVoiColor: '#ffcc00',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createEmptyConfig(),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    const voiOverlay = prepareOverlayElement(voiWrapper)
+    voiWrapper.find('svg rect').element.dispatchEvent(createPointerEvent('pointerdown', 50, 50))
+    voiOverlay.dispatchEvent(createPointerEvent('pointermove', 62, 50))
+    voiOverlay.dispatchEvent(createPointerEvent('pointerup', 62, 50))
+    await voiWrapper.vm.$nextTick()
+
+    expect(voiWrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        voiSpheres: [
+          expect.objectContaining({
+            color: '#ffcc00'
+          })
+        ]
+      }),
+      'end'
+    ])
+  })
+
   it('removes a newly drawn VOI when it is below the minimum radius', async () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {
@@ -353,6 +437,44 @@ describe('ViewportVoiOverlay', () => {
         selectedVoi: false,
         selectedVoiId: null,
         voiSpheres: []
+      }),
+      'end'
+    ])
+  })
+
+  it('restores the next VOI selection when a too-small active VOI is removed', async () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:voi',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createVoiConfig(true),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    const overlay = prepareOverlayElement(wrapper)
+    const background = wrapper.find('svg rect').element
+
+    background.dispatchEvent(createPointerEvent('pointerdown', 50, 50))
+    overlay.dispatchEvent(createPointerEvent('pointermove', 52, 50))
+    overlay.dispatchEvent(createPointerEvent('pointerup', 52, 50))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1',
+        voiSpheres: [
+          expect.objectContaining({
+            id: 'v1'
+          })
+        ],
+        voiSphere: expect.objectContaining({
+          id: 'v1'
+        })
       }),
       'end'
     ])
@@ -406,14 +528,48 @@ describe('ViewportVoiOverlay', () => {
     thresholdRect.element.dispatchEvent(createPointerEvent('pointerdown', 50, 50))
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:threshold'])
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:threshold', 'mpr-cor'])
     expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
       expect.objectContaining({
         selectedRegionId: 'r1',
         selectedVoi: false,
         selectedVoiId: null
       }),
-      'end'
+      'select'
+    ])
+  })
+
+  it('does not trigger backend recalculation when activating a threshold rectangle for dragging', async () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: {
+          ...createMixedConfig(),
+          selectedRegionId: 'r1',
+          selectedVoi: false,
+          selectedVoiId: null
+        },
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    prepareOverlayElement(wrapper)
+
+    const thresholdRect = wrapper.find('rect[data-region-id="r1"]')
+    expect(thresholdRect.exists()).toBe(true)
+    thresholdRect.element.dispatchEvent(createPointerEvent('pointerdown', 50, 50))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('configChange')?.[0]).toEqual([
+      expect.objectContaining({
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null
+      }),
+      'select'
     ])
   })
 })

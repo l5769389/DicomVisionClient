@@ -388,7 +388,7 @@ export interface MprSegmentationOverlaySamples {
   sampledCount: number
 }
 
-export type MprSegmentationConfigActionType = 'local' | 'move' | 'end'
+export type MprSegmentationConfigActionType = 'local' | 'select' | 'style' | 'move' | 'end'
 
 export const MPR_SEGMENTATION_HU_LIMITS = {
   min: -1024,
@@ -537,7 +537,7 @@ export function normalizeMprThresholdRegion(value?: Partial<MprThresholdRegion> 
   return {
     id,
     enabled: value.enabled !== false,
-    label: typeof value.label === 'string' && value.label.trim() ? value.label.trim() : id,
+    label: typeof value.label === 'string' ? value.label.trim() : id,
     thresholdHu: Math.round(clampNumber(value.thresholdHu, MPR_SEGMENTATION_HU_LIMITS.min, MPR_SEGMENTATION_HU_LIMITS.max, DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU)),
     thresholdMode: normalizeMprThresholdMode(value.thresholdMode),
     thresholdPercentile: clampNumber(value.thresholdPercentile, 0, 100, 80),
@@ -560,7 +560,7 @@ export function normalizeMprVoiSphere(
     : typeof fallback?.id === 'string' && fallback.id.trim()
       ? fallback.id.trim()
       : `voi-${defaultIndex}`
-  const rawLabel = typeof value.label === 'string' && value.label.trim()
+  const rawLabel = typeof value.label === 'string'
     ? value.label.trim()
     : typeof fallback?.label === 'string' && fallback.label.trim()
       ? fallback.label.trim()
@@ -590,23 +590,33 @@ export function normalizeMprVoiSphereStats(value?: Partial<MprVoiSphereStats> | 
   }
 }
 
+export function resolveMprLegacyVoiSphere(
+  voiSpheres: MprVoiSphere[],
+  selectedVoiId?: string | null
+): MprVoiSphere | null {
+  return (selectedVoiId ? voiSpheres.find((sphere) => sphere.id === selectedVoiId) : null) ?? voiSpheres[0] ?? null
+}
+
 export function normalizeMprSegmentationConfig(
   value?: Partial<MprSegmentationOperationConfig | MprSegmentationConfig> | null,
   fallback: MprSegmentationConfig = createDefaultMprSegmentationConfig()
 ): MprSegmentationConfig {
+  const hasSelectionValue = value != null
+  const hasSelectedRegionId = hasSelectionValue && Object.prototype.hasOwnProperty.call(value, 'selectedRegionId')
+  const hasSelectedVoi = hasSelectionValue && Object.prototype.hasOwnProperty.call(value, 'selectedVoi')
+  const hasSelectedVoiId = hasSelectionValue && Object.prototype.hasOwnProperty.call(value, 'selectedVoiId')
   const regions = [
     ...((value?.thresholdRegions ?? fallback.thresholdRegions ?? []) as Array<Partial<MprThresholdRegion>>)
   ]
     .map((region) => normalizeMprThresholdRegion(region))
     .filter((region): region is MprThresholdRegion => region !== null)
-  const requestedSelectedId = typeof value?.selectedRegionId === 'string'
-    ? value.selectedRegionId
-    : typeof fallback.selectedRegionId === 'string'
-      ? fallback.selectedRegionId
-      : null
+  const rawSelectedRegionId = hasSelectedRegionId ? value?.selectedRegionId : fallback.selectedRegionId
+  const requestedSelectedId = typeof rawSelectedRegionId === 'string' ? rawSelectedRegionId : null
   const selectedRegionId = requestedSelectedId && regions.some((region) => region.id === requestedSelectedId)
     ? requestedSelectedId
-    : regions[0]?.id ?? null
+    : hasSelectedRegionId
+      ? null
+      : regions[0]?.id ?? null
   const rawVoiSpheres = Array.isArray(value?.voiSpheres)
     ? value.voiSpheres
     : value?.voiSphere
@@ -634,22 +644,26 @@ export function normalizeMprSegmentationConfig(
       return {
         ...normalized,
         id: nextId,
-        label: normalized.label || String(index + 1)
+        label: normalized.label
       }
     })
     .filter((sphere): sphere is MprVoiSphere => sphere !== null)
-  const requestedSelectedVoiId = typeof value?.selectedVoiId === 'string' && value.selectedVoiId.trim()
-    ? value.selectedVoiId.trim()
-    : typeof fallback.selectedVoiId === 'string' && fallback.selectedVoiId.trim()
+  const rawSelectedVoiId = hasSelectedVoiId ? value?.selectedVoiId : fallback.selectedVoiId
+  const requestedSelectedVoiId = typeof rawSelectedVoiId === 'string' && rawSelectedVoiId.trim()
+    ? rawSelectedVoiId.trim()
+    : !hasSelectedVoiId && typeof fallback.selectedVoiId === 'string' && fallback.selectedVoiId.trim()
       ? fallback.selectedVoiId.trim()
       : null
+  const wantsVoiSelection = hasSelectedVoi
+    ? value?.selectedVoi === true
+    : fallback.selectedVoi
   const selectedVoiId = requestedSelectedVoiId && voiSpheres.some((sphere) => sphere.id === requestedSelectedVoiId)
     ? requestedSelectedVoiId
-    : Boolean(value?.selectedVoi ?? fallback.selectedVoi)
+    : Boolean(wantsVoiSelection)
       ? voiSpheres[0]?.id ?? null
       : null
   const selectedVoi = selectedVoiId !== null
-  const legacyVoiSphere = (selectedVoiId ? voiSpheres.find((sphere) => sphere.id === selectedVoiId) : null) ?? voiSpheres[0] ?? null
+  const legacyVoiSphere = resolveMprLegacyVoiSphere(voiSpheres, selectedVoiId)
 
   return {
     enabled: Boolean(value?.enabled ?? fallback.enabled),
@@ -676,7 +690,6 @@ function isSameMprThresholdRegionGeometry(left: MprThresholdRegion, right: MprTh
     left.thresholdHu === right.thresholdHu &&
     left.thresholdMode === right.thresholdMode &&
     nearlyEqualSegmentationNumber(left.thresholdPercentile, right.thresholdPercentile) &&
-    left.color === right.color &&
     left.box.sourceViewport === right.box.sourceViewport &&
     nearlyEqualSegmentationVec3(left.box.centerWorld, right.box.centerWorld) &&
     nearlyEqualSegmentationVec3(left.box.rowWorld, right.box.rowWorld) &&
@@ -689,7 +702,6 @@ function isSameMprThresholdRegionGeometry(left: MprThresholdRegion, right: MprTh
 
 function isSameMprVoiSphereGeometry(left: MprVoiSphere, right: MprVoiSphere): boolean {
   return left.enabled === right.enabled &&
-    left.color === right.color &&
     nearlyEqualSegmentationVec3(left.centerWorld, right.centerWorld) &&
     nearlyEqualSegmentationNumber(left.radiusMm, right.radiusMm)
 }
@@ -703,6 +715,16 @@ export function mergeMprSegmentationPreviewConfig(
   }
   const incomingRegionsById = new Map(incomingConfig.thresholdRegions.map((region) => [region.id, region]))
   const incomingVoiSpheresById = new Map(incomingConfig.voiSpheres.map((sphere) => [sphere.id, sphere]))
+  const nextThresholdRegions = currentConfig.thresholdRegions.map((region) => {
+    const incomingRegion = incomingRegionsById.get(region.id)
+    if (!incomingRegion || !isSameMprThresholdRegionGeometry(region, incomingRegion)) {
+      return region
+    }
+    return {
+      ...region,
+      stats: incomingRegion.stats ?? null
+    }
+  })
   const nextVoiSpheres = currentConfig.voiSpheres.map((sphere) => {
     const incomingSphere = incomingVoiSpheresById.get(sphere.id)
     if (!incomingSphere || !isSameMprVoiSphereGeometry(sphere, incomingSphere)) {
@@ -713,31 +735,43 @@ export function mergeMprSegmentationPreviewConfig(
       stats: incomingSphere.stats ?? null
     }
   })
-  const nextSelectedVoiId = incomingConfig.selectedVoiId && nextVoiSpheres.some((sphere) => sphere.id === incomingConfig.selectedVoiId)
-    ? incomingConfig.selectedVoiId
-    : currentConfig.selectedVoiId && nextVoiSpheres.some((sphere) => sphere.id === currentConfig.selectedVoiId)
-      ? currentConfig.selectedVoiId
-      : null
-  const nextVoiSphere = (nextSelectedVoiId ? nextVoiSpheres.find((sphere) => sphere.id === nextSelectedVoiId) : null) ?? nextVoiSpheres[0] ?? null
+  const nextSelectedVoiId = currentConfig.selectedVoi && currentConfig.selectedVoiId && nextVoiSpheres.some((sphere) => sphere.id === currentConfig.selectedVoiId)
+    ? currentConfig.selectedVoiId
+    : null
+  const nextVoiSphere = resolveMprLegacyVoiSphere(nextVoiSpheres, nextSelectedVoiId)
+  const nextSelectedRegionId = nextSelectedVoiId === null && currentConfig.selectedRegionId && nextThresholdRegions.some((region) => region.id === currentConfig.selectedRegionId)
+    ? currentConfig.selectedRegionId
+    : null
   return {
     ...currentConfig,
     clientRevision: incomingConfig.clientRevision,
-    selectedRegionId: nextSelectedVoiId ? null : currentConfig.selectedRegionId,
+    selectedRegionId: nextSelectedRegionId,
     selectedVoi: nextSelectedVoiId !== null,
     selectedVoiId: nextSelectedVoiId,
     voiSpheres: nextVoiSpheres,
     voiSphere: nextVoiSphere,
-    thresholdRegions: currentConfig.thresholdRegions.map((region) => {
-      const incomingRegion = incomingRegionsById.get(region.id)
-      if (!incomingRegion || !isSameMprThresholdRegionGeometry(region, incomingRegion)) {
-        return region
-      }
-      return {
-        ...region,
-        stats: incomingRegion.stats ?? null
-      }
-    })
+    thresholdRegions: nextThresholdRegions
   }
+}
+
+export function recolorMprSegmentationConfig(
+  config: MprSegmentationConfig,
+  thresholdColor: string,
+  voiColor: string
+): MprSegmentationConfig {
+  const nextVoiSpheres = config.voiSpheres.map((sphere) => ({
+    ...sphere,
+    color: voiColor
+  }))
+  return normalizeMprSegmentationConfig({
+    ...config,
+    thresholdRegions: config.thresholdRegions.map((region) => ({
+      ...region,
+      color: thresholdColor
+    })),
+    voiSpheres: nextVoiSpheres,
+    voiSphere: resolveMprLegacyVoiSphere(nextVoiSpheres, config.selectedVoiId)
+  }, config)
 }
 
 export function isStaleMprSegmentationPreviewConfig(

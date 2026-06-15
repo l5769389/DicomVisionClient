@@ -20,6 +20,10 @@ import type {
   ViewTransformInfo,
   ViewerMtfItem
 } from '../../../types/viewer'
+import {
+  DEFAULT_MPR_SEGMENTATION_COLOR,
+  DEFAULT_MPR_VOI_COLOR
+} from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
 import ViewportAnnotationOverlay from '../overlays/ViewportAnnotationOverlay.vue'
 import ViewportCornerOverlay from '../overlays/ViewportCornerOverlay.vue'
@@ -59,6 +63,8 @@ const props = withDefaults(
     mprCrosshair?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
     mprPlane?: MprPlaneInfo | null
+    mprSegmentationDefaultThresholdColor?: string
+    mprSegmentationDefaultVoiColor?: string
     mprSegmentationConfig?: MprSegmentationConfig | null
     mprSegmentationOverlay?: MprSegmentationOverlay | null
     orientation: OrientationInfo
@@ -90,6 +96,8 @@ const props = withDefaults(
     mprCrosshair: null,
     mprFrame: null,
     mprPlane: null,
+    mprSegmentationDefaultThresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    mprSegmentationDefaultVoiColor: DEFAULT_MPR_VOI_COLOR,
     mprSegmentationConfig: null,
     mprSegmentationOverlay: null,
     qaWaterAnalysis: null,
@@ -126,7 +134,7 @@ const emit = defineEmits<{
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
-  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi']
+  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
@@ -247,8 +255,8 @@ function handleMprSegmentationConfigChange(config: MprSegmentationConfig, action
   emit('mprSegmentationConfigChange', config, actionType)
 }
 
-function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi'): void {
-  emit('mprSegmentationModeChange', mode)
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
+  emit('mprSegmentationModeChange', mode, viewportKey)
 }
 
 function getRenderedImageRect(image: HTMLImageElement): DOMRect {
@@ -454,6 +462,8 @@ watch(
         :is-active="isActive"
         :is-oblique="voiOblique"
         :mpr-plane="mprPlane"
+        :default-threshold-color="mprSegmentationDefaultThresholdColor"
+        :default-voi-color="mprSegmentationDefaultVoiColor"
         :segmentation-overlay="mprSegmentationOverlay"
         :viewport-transform="viewportTransform"
         :viewport-key="viewportKey"

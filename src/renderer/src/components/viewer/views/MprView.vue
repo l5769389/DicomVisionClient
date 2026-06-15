@@ -18,6 +18,10 @@ import type {
   ViewerMtfItem,
   ViewerTabItem
 } from '../../../types/viewer'
+import {
+  DEFAULT_MPR_SEGMENTATION_COLOR,
+  DEFAULT_MPR_VOI_COLOR
+} from '../../../types/viewer'
 import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
@@ -30,6 +34,8 @@ const props = withDefaults(
     activeViewportKey: string
     allowViewportMaximize?: boolean
     layoutKey?: MprLayoutKey | null
+    mprSegmentationDefaultThresholdColor?: string
+    mprSegmentationDefaultVoiColor?: string
     mprSegmentationConfig?: MprSegmentationConfig | null
     getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
     getCursorClass: (viewportKey: MprViewportKey) => string
@@ -46,6 +52,8 @@ const props = withDefaults(
   {
     allowViewportMaximize: true,
     layoutKey: DEFAULT_MPR_LAYOUT_KEY,
+    mprSegmentationDefaultThresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    mprSegmentationDefaultVoiColor: DEFAULT_MPR_VOI_COLOR,
     mprSegmentationConfig: null,
     selectedMtfId: null
   }
@@ -62,7 +70,7 @@ const emit = defineEmits<{
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
   mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
-  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi']
+  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -385,8 +393,8 @@ function handleMprSegmentationConfigChange(config: MprSegmentationConfig, action
   emit('mprSegmentationConfigChange', config, actionType)
 }
 
-function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi'): void {
-  emit('mprSegmentationModeChange', mode)
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
+  emit('mprSegmentationModeChange', mode, viewportKey)
 }
 
 function getViewportClass(viewportKey: MprDisplayViewportKey, className: string): string {
@@ -486,6 +494,8 @@ watch(
       :mpr-crosshair="getItemCrosshair(item)"
       :mpr-frame="getItemFrame(item)"
       :mpr-plane="getItemPlane(item)"
+      :mpr-segmentation-default-threshold-color="props.mprSegmentationDefaultThresholdColor"
+      :mpr-segmentation-default-voi-color="props.mprSegmentationDefaultVoiColor"
       :mpr-segmentation-config="props.mprSegmentationConfig"
       :mpr-segmentation-overlay="getItemSegmentationOverlay(item)"
       :voi-editable="isItemSegmentationEditable(item)"

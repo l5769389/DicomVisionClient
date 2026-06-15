@@ -1478,7 +1478,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       ) {
         return item
       }
-      const imageSrc = imageUrlRegistry.create(imageBinary, mimeType)
+      let incomingImageSrc: string | null = null
+      const getIncomingImageSrc = (): string => {
+        if (incomingImageSrc == null) {
+          incomingImageSrc = imageUrlRegistry.create(imageBinary, mimeType)
+        }
+        return incomingImageSrc
+      }
+      const revokeIncomingImageSrcIfNeeded = (): void => {
+        if (incomingImageSrc == null) {
+          return
+        }
+        revokeObjectUrlIfNeeded(incomingImageSrc)
+        incomingImageSrc = null
+      }
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
       const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
       const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
@@ -1537,7 +1550,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           payload.color?.pseudocolorPreset ?? layoutSlot.pseudocolorPreset ?? item.pseudocolorPreset
         )
         if (payload.color?.pseudocolorPreset && layoutPseudocolorPreset !== expectedLayoutPseudocolorPreset) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
 
@@ -1569,7 +1582,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
             return {
               ...slot,
-              imageSrc,
+              imageSrc: getIncomingImageSrc(),
               ownsImageSrc: true,
               sliceLabel,
               windowLabel,
@@ -1599,7 +1612,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           payload.color?.pseudocolorPreset ?? item.comparePseudocolorPresets?.[compareViewportKey] ?? item.pseudocolorPreset
         )
         if (payload.color?.pseudocolorPreset && comparePseudocolorPreset !== expectedComparePseudocolorPreset) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
         const currentImage = item.compareImages?.[compareViewportKey]
@@ -1609,7 +1622,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           compareImages: {
             ...(item.compareImages ?? createEmptyCompareImages()),
-            [compareViewportKey]: imageSrc
+            [compareViewportKey]: getIncomingImageSrc()
           },
           compareSliceLabels: {
             ...(item.compareSliceLabels ?? createEmptyCompareSliceLabels()),
@@ -1681,7 +1694,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const acceptedRevision = item.fusionInfo?.revision ?? null
         const isStaleFusionImage = acceptedRevision != null && fusionInfo.revision < acceptedRevision
         if (isStaleFusionImage) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
         const fusionSeriesId = resolveFusionPaneSeriesId(fusionViewportKey, item.fusionSeriesIds, item.seriesId)
@@ -1696,8 +1709,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? fusionComposite
             : null
         const primaryImageUnchanged = layeredFusionComposite?.primaryImageUnchanged === true
+        if (primaryImageUnchanged && item.fusionRegistrationDragActive !== true) {
+          revokeIncomingImageSrcIfNeeded()
+          return item
+        }
         const shouldKeepCurrentPrimaryImage = primaryImageUnchanged && Boolean(currentImage)
-        const nextPrimaryImage = shouldKeepCurrentPrimaryImage ? currentImage! : imageSrc
+        const nextPrimaryImage = shouldKeepCurrentPrimaryImage ? currentImage! : getIncomingImageSrc()
         const nextPetLayerSrc = layeredFusionComposite && extraImageBinaries.pet
           ? imageUrlRegistry.create(extraImageBinaries.pet, 'image/png')
           : null
@@ -1705,7 +1722,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ? {
               ct: shouldKeepCurrentPrimaryImage
                 ? currentLayerImages?.ct ?? currentImage
-                : imageSrc,
+                : getIncomingImageSrc(),
               pet: nextPetLayerSrc ?? currentLayerImages?.pet,
               revision: layeredFusionComposite.revision,
               width: layeredFusionComposite.width,
@@ -1717,7 +1734,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : item.fusionCornerInfos?.[fusionViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
         const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
         if (shouldKeepCurrentPrimaryImage) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
         } else {
           revokeObjectUrlIfNeeded(currentImage)
         }
@@ -1839,7 +1856,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             imageFormat: payload.imageFormat
           })
         ) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
         const shouldCompleteSettling = shouldCompleteMprCrosshairSettling({
@@ -1863,7 +1880,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           currentViewportImage != null &&
           currentSegmentationProgress?.phase === 'render'
         if (shouldPreserveImageForMprSegmentationUpdate) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
         } else if (currentViewportKey) {
           revokeObjectUrlIfNeeded(currentViewportImage)
         }
@@ -1881,7 +1898,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
           const nextViewportImages = {
             ...(phaseCacheSeed.viewportImages ?? createEmptyMprImages()),
-            [viewportKey]: imageSrc
+            [viewportKey]: getIncomingImageSrc()
           }
           const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
             incomingCrosshair: mprCrosshair,
@@ -1985,7 +2002,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? item.viewportImages ?? createEmptyMprImages()
             : {
                 ...(item.viewportImages ?? createEmptyMprImages()),
-                [viewportKey]: imageSrc
+                [viewportKey]: getIncomingImageSrc()
               },
           viewportSliceLabels: {
             ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
@@ -2056,7 +2073,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
 
       if (item.viewType === '4D') {
-        revokeObjectUrlIfNeeded(imageSrc)
+        revokeIncomingImageSrcIfNeeded()
         return item
       }
 
@@ -2076,7 +2093,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return {
         ...item,
         viewId: payload.viewId ?? item.viewId,
-        imageSrc,
+        imageSrc: getIncomingImageSrc(),
         sliceLabel,
         windowLabel,
         measurements: hasMeasurementsPayload ? (payload.measurements ?? []) as MeasurementOverlay[] : item.measurements ?? [],

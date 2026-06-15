@@ -89,10 +89,19 @@ interface ManualRegistrationDragState {
   rotationDeltaDegrees: number
   rotationActive: boolean
   subOpType: 'translate' | 'rotate'
+  lastMoveSnapshot: ManualRegistrationDragSnapshot | null
 }
 
 interface FusionCalibrationDragState {
   pointerId: number
+}
+
+interface ManualRegistrationDragSnapshot {
+  deltaX: number
+  deltaY: number
+  currentCanvasX: number
+  currentCanvasY: number
+  rotationDeltaDegrees: number
 }
 
 type FusionMarkerPosition = { x: number; y: number }
@@ -109,6 +118,8 @@ const markerLayoutRevision = ref(0)
 const paneElements = new Map<FusionPaneKey, HTMLElement>()
 let paneResizeObserver: ResizeObserver | null = null
 let markerLayoutRaf: number | null = null
+let manualRegistrationMoveRaf: number | null = null
+let pendingManualRegistrationMoveEvent: PointerEvent | null = null
 let lastManualRightClick: { at: number; clientX: number; clientY: number } | null = null
 
 const MANUAL_RIGHT_DOUBLE_CLICK_INTERVAL_MS = 420
@@ -294,37 +305,100 @@ function getPaneLoadingLabel(paneKey: FusionPaneKey): string {
 function emitManualRegistrationDrag(
   phase: 'start' | 'move' | 'end',
   event: PointerEvent,
-  deltaOverride?: { deltaX: number; deltaY: number }
+  snapshotOverride?: ManualRegistrationDragSnapshot
 ): void {
   const state = manualDragState.value
   if (!state) {
     return
   }
-  if (state.subOpType === 'rotate' && phase !== 'start') {
-    updateManualRegistrationRotationDelta(event, state)
-    if (phase === 'move' && !state.rotationActive) {
-      return
-    }
+  const snapshot = snapshotOverride ?? createManualRegistrationDragSnapshot(state, event)
+  if (phase === 'move') {
+    state.lastMoveSnapshot = snapshot
   }
-  const currentPoint = getManualRegistrationPoint(event)
-  const deltaX = deltaOverride?.deltaX ?? currentPoint.canvasX - state.startCanvasX
-  const deltaY = deltaOverride?.deltaY ?? currentPoint.canvasY - state.startCanvasY
   const payload = {
     viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
     phase,
     subOpType: state.subOpType,
-    deltaX,
-    deltaY,
+    deltaX: snapshot.deltaX,
+    deltaY: snapshot.deltaY,
     anchorX: state.startCanvasX,
     anchorY: state.startCanvasY,
-    currentX: currentPoint.canvasX,
-    currentY: currentPoint.canvasY,
+    currentX: snapshot.currentCanvasX,
+    currentY: snapshot.currentCanvasY,
     pivotX: state.pivotCanvasX,
     pivotY: state.pivotCanvasY
   }
   emit('fusionRegistrationDrag', state.subOpType === 'rotate'
-    ? { ...payload, rotationDeltaDegrees: state.rotationDeltaDegrees }
+    ? { ...payload, rotationDeltaDegrees: snapshot.rotationDeltaDegrees }
     : payload)
+}
+
+function createManualRegistrationDragSnapshot(
+  state: ManualRegistrationDragState,
+  event: PointerEvent,
+  deltaOverride?: { deltaX: number; deltaY: number }
+): ManualRegistrationDragSnapshot {
+  const currentPoint = getManualRegistrationPoint(event)
+  return {
+    deltaX: deltaOverride?.deltaX ?? currentPoint.canvasX - state.startCanvasX,
+    deltaY: deltaOverride?.deltaY ?? currentPoint.canvasY - state.startCanvasY,
+    currentCanvasX: currentPoint.canvasX,
+    currentCanvasY: currentPoint.canvasY,
+    rotationDeltaDegrees: state.rotationDeltaDegrees
+  }
+}
+
+function createManualRegistrationRightClickTapSnapshot(
+  state: ManualRegistrationDragState,
+  event: PointerEvent
+): ManualRegistrationDragSnapshot {
+  const currentPoint = getManualRegistrationPoint(event)
+  return {
+    deltaX: 0,
+    deltaY: 0,
+    currentCanvasX: currentPoint.canvasX,
+    currentCanvasY: currentPoint.canvasY,
+    rotationDeltaDegrees: 0
+  }
+}
+
+function cancelPendingManualRegistrationMove(): void {
+  pendingManualRegistrationMoveEvent = null
+  if (manualRegistrationMoveRaf == null || typeof window === 'undefined') {
+    manualRegistrationMoveRaf = null
+    return
+  }
+  window.cancelAnimationFrame(manualRegistrationMoveRaf)
+  manualRegistrationMoveRaf = null
+}
+
+function flushPendingManualRegistrationMove(): void {
+  manualRegistrationMoveRaf = null
+  const event = pendingManualRegistrationMoveEvent
+  pendingManualRegistrationMoveEvent = null
+  if (!event || !manualDragState.value) {
+    return
+  }
+  emitManualRegistrationDrag('move', event)
+}
+
+function flushPendingManualRegistrationMoveNow(): void {
+  if (manualRegistrationMoveRaf != null && typeof window !== 'undefined') {
+    window.cancelAnimationFrame(manualRegistrationMoveRaf)
+  }
+  flushPendingManualRegistrationMove()
+}
+
+function scheduleManualRegistrationMove(event: PointerEvent): void {
+  pendingManualRegistrationMoveEvent = event
+  if (manualRegistrationMoveRaf != null) {
+    return
+  }
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    flushPendingManualRegistrationMove()
+    return
+  }
+  manualRegistrationMoveRaf = window.requestAnimationFrame(flushPendingManualRegistrationMove)
 }
 
 function handlePointerDown(event: PointerEvent, viewportKey: string): void {
@@ -359,7 +433,8 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
       lastRotationAngleRad: startRotationAngleRad,
       rotationDeltaDegrees: 0,
       rotationActive: false,
-      subOpType: event.button === 2 ? 'rotate' : 'translate'
+      subOpType: event.button === 2 ? 'rotate' : 'translate',
+      lastMoveSnapshot: null
     }
     emitManualRegistrationDrag('start', event)
     return
@@ -379,6 +454,7 @@ function exitManualRegistrationMode(): void {
   if (!manualRegistrationEnabled.value) {
     return
   }
+  cancelPendingManualRegistrationMove()
   manualDragState.value = null
   lastManualRightClick = null
   emit('fusionConfigChange', { manualRegistration: false })
@@ -401,6 +477,9 @@ function getPointerEventTime(event: PointerEvent): number {
 
 function isManualRegistrationRightClickTap(state: ManualRegistrationDragState, event: PointerEvent): boolean {
   if (state.subOpType !== 'rotate') {
+    return false
+  }
+  if (state.rotationActive || state.lastMoveSnapshot) {
     return false
   }
   return (
@@ -432,14 +511,6 @@ function consumeManualRegistrationRightDoubleClick(state: ManualRegistrationDrag
   return distanceX <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX && distanceY <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX
 }
 
-function getManualRegistrationDelta(state: ManualRegistrationDragState, event: PointerEvent): { deltaX: number; deltaY: number } {
-  const currentPoint = getManualRegistrationPoint(event)
-  return {
-    deltaX: currentPoint.canvasX - state.startCanvasX,
-    deltaY: currentPoint.canvasY - state.startCanvasY
-  }
-}
-
 function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
   if (paneKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
     return []
@@ -450,7 +521,7 @@ function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
   }
   return [
     {
-      key: `pet-${props.activeTab.fusionLayerImages?.[paneKey]?.revision ?? 'current'}`,
+      key: 'pet-registration-layer',
       src: petLayerSrc,
       alt: 'PET overlay',
       class: 'pet-ct-fusion-view__pet-layer'
@@ -692,25 +763,39 @@ function handlePaneImageLoaded(viewportKey: string): void {
 }
 
 function handlePointerMove(event: PointerEvent): void {
-  if (manualDragState.value) {
+  const state = manualDragState.value
+  if (state) {
     event.preventDefault()
-    emitManualRegistrationDrag('move', event)
+    if (state.subOpType === 'rotate') {
+      updateManualRegistrationRotationDelta(event, state)
+      if (!state.rotationActive) {
+        return
+      }
+    }
+    scheduleManualRegistrationMove(event)
     return
   }
   emit('pointerMove', event)
 }
 
-function finishManualDrag(event: PointerEvent, phase: 'end' | 'move' = 'end'): boolean {
+function finishManualDrag(event: PointerEvent): boolean {
   const state = manualDragState.value
   if (!state || state.pointerId !== event.pointerId) {
     return false
   }
-  const isRightClickTap = phase === 'end' && isManualRegistrationRightClickTap(state, event)
-  const shouldExitRegistration = phase === 'end' && consumeManualRegistrationRightDoubleClick(state, event)
-  const finalDelta = isRightClickTap
-    ? { deltaX: 0, deltaY: 0 }
-    : getManualRegistrationDelta(state, event)
-  emitManualRegistrationDrag(phase, event, finalDelta)
+  if (pendingManualRegistrationMoveEvent) {
+    flushPendingManualRegistrationMoveNow()
+  }
+  if (state.subOpType === 'rotate' && !state.lastMoveSnapshot) {
+    updateManualRegistrationRotationDelta(event, state)
+  }
+  const isRightClickTap = isManualRegistrationRightClickTap(state, event)
+  const shouldExitRegistration = consumeManualRegistrationRightDoubleClick(state, event)
+  const finalSnapshot = isRightClickTap
+    ? createManualRegistrationRightClickTapSnapshot(state, event)
+    : state.lastMoveSnapshot ?? createManualRegistrationDragSnapshot(state, event)
+  cancelPendingManualRegistrationMove()
+  emitManualRegistrationDrag('end', event, finalSnapshot)
   const target = event.currentTarget
   if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
     target.releasePointerCapture(event.pointerId)
@@ -723,14 +808,14 @@ function finishManualDrag(event: PointerEvent, phase: 'end' | 'move' = 'end'): b
 }
 
 function handlePointerUp(event: PointerEvent): void {
-  if (finishManualDrag(event, 'end')) {
+  if (finishManualDrag(event)) {
     return
   }
   emit('pointerUp', event)
 }
 
 function handlePointerCancel(event: PointerEvent): void {
-  if (finishManualDrag(event, 'end')) {
+  if (finishManualDrag(event)) {
     return
   }
   emit('pointerCancel', event)
@@ -748,6 +833,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cancelPendingManualRegistrationMove()
   if (markerLayoutRaf != null) {
     window.cancelAnimationFrame(markerLayoutRaf)
     markerLayoutRaf = null
@@ -771,6 +857,7 @@ watch(
 watch(
   () => props.activeTab.key,
   () => {
+    cancelPendingManualRegistrationMove()
     calibrationMarkerWorld.value = null
     calibrationMarkerPosition.value = { x: 0.5, y: 0.5 }
     manualRegistrationMarkerPositions.value = null
@@ -788,6 +875,7 @@ watch(
       })
       return
     }
+    cancelPendingManualRegistrationMove()
     manualDragState.value = null
     lastManualRightClick = null
     manualRegistrationMarkerPositions.value = null

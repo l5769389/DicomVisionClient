@@ -122,6 +122,9 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
   const sentMoveAtByKey = new Map<string, number>()
 
   function getMoveIntervalMs(operationKey?: string, opType?: ViewOperationType | null): number {
+    if (opType === VIEW_OPERATION_TYPES.fusionRegistration) {
+      return FASTEST_VIEW_MOVE_INTERVAL_MS
+    }
     const intervalMs = operationKey ? backendPreviewIntervalByKey.get(operationKey) ?? fallbackPreviewIntervalMs : fallbackPreviewIntervalMs
     return intervalMs == null ? getMoveIntervalBounds(opType).min : normalizeMoveInterval(intervalMs, opType)
   }

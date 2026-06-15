@@ -184,6 +184,59 @@ describe('view interaction operation scheduler', () => {
     ])
   })
 
+  it('keeps fusion registration at 16ms even after slow preview feedback updates the fallback cadence', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.recordBackendPreview('some-preview-view', null)
+    now = 150
+    scheduler.recordBackendPreview('some-preview-view', null)
+
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.move,
+      subOpType: 'translate',
+      x: 10,
+      y: 0
+    })
+    now = 156
+    scheduler.emit('fusion-overlay', {
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: DRAG_ACTION_TYPES.move,
+      subOpType: 'translate',
+      x: 20,
+      y: 0
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(10)
+
+    now = 166
+    timers[0].callback()
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit.mock.calls[1]).toEqual([
+      'fusion-overlay',
+      {
+        opType: VIEW_OPERATION_TYPES.fusionRegistration,
+        actionType: DRAG_ACTION_TYPES.move,
+        subOpType: 'translate',
+        x: 20,
+        y: 0
+      }
+    ])
+  })
+
   it('drops pending fusion registration moves before drag end because end carries the final delta', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []

@@ -2174,6 +2174,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     logInteractivePreviewReceiveInterval(tab, payload)
+    logFusionRegistrationImageReceive(tab, payload, imageBinary, extraImageBinaries)
     if (isInteractivePreviewPayload(payload)) {
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
       viewInteractionOperationScheduler.recordBackendPreview(
@@ -2185,6 +2186,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   const interactivePreviewTimingByView = new Map<string, number>()
+  const fusionRegistrationDragTimingByView = new Map<string, {
+    phase: 'start' | 'move' | 'end'
+    sentAt: number
+    sequence: number
+    deltaX: number
+    deltaY: number
+    rotationDeltaDegrees: number | null
+  }>()
+  const fusionRegistrationImageReceiveTimingByView = new Map<string, number>()
+  let fusionRegistrationDragSequence = 0
 
   function isInteractivePreviewPayload(payload: Partial<ViewImageResponse>): boolean {
     const rawFastPreview = payload.fastPreview ?? ((payload as { fast_preview?: unknown }).fast_preview ?? null)
@@ -2199,12 +2210,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const perfScope = isMprLikeViewType(tab.viewType)
-      ? 'mpr'
-      : isStackLikeViewType(tab.viewType)
-        ? 'stack'
-        : tab.viewType === 'PETCTFusion'
-          ? 'fusion'
+    const perfScope = tab.viewType === 'PETCTFusion'
+      ? 'fusion'
+      : isMprLikeViewType(tab.viewType)
+        ? 'mpr'
+        : isStackLikeViewType(tab.viewType)
+          ? 'stack'
           : null
     if (!perfScope) {
       return
@@ -2236,6 +2247,87 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       mprRevision: typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null,
       viewType: tab.viewType,
       viewId: payload.viewId
+    })
+  }
+
+  function getBinaryByteLength(binary: ArrayBuffer | Uint8Array | undefined): number | null {
+    if (!binary) {
+      return null
+    }
+    return binary.byteLength
+  }
+
+  function getPayloadFusionComposite(payload: Partial<ViewImageResponse>) {
+    return payload.fusionComposite ?? ((payload as { fusion_composite?: ViewImageResponse['fusionComposite'] }).fusion_composite ?? null)
+  }
+
+  function getPayloadFusionInfo(payload: Partial<ViewImageResponse>) {
+    return payload.fusionInfo ?? ((payload as { fusion_info?: ViewImageResponse['fusionInfo'] }).fusion_info ?? null)
+  }
+
+  function shouldLogFusionRegistrationImageReceive(
+    tab: ViewerTabItem,
+    payload: Partial<ViewImageResponse>,
+    extraImageBinaries: Record<string, ArrayBuffer | Uint8Array>
+  ): boolean {
+    if (!isViewerPerfDebugEnabled() || tab.viewType !== 'PETCTFusion' || !payload.viewId) {
+      return false
+    }
+    const overlayViewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+    if (payload.viewId !== overlayViewId) {
+      return false
+    }
+    const fusionInfo = getPayloadFusionInfo(payload)
+    if (fusionInfo?.paneRole && resolveFusionPaneKey(fusionInfo.paneRole) !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
+      return false
+    }
+    const fusionComposite = getPayloadFusionComposite(payload)
+    if (!fusionComposite || fusionComposite.mode !== 'ctPetLayers' || !extraImageBinaries.pet) {
+      return false
+    }
+    if (fusionComposite.primaryImageUnchanged === true) {
+      return true
+    }
+
+    const latestDrag = fusionRegistrationDragTimingByView.get(payload.viewId)
+    return latestDrag != null && performance.now() - latestDrag.sentAt <= 10_000
+  }
+
+  function logFusionRegistrationImageReceive(
+    tab: ViewerTabItem,
+    payload: Partial<ViewImageResponse>,
+    imageBinary: ArrayBuffer | Uint8Array,
+    extraImageBinaries: Record<string, ArrayBuffer | Uint8Array>
+  ): void {
+    if (!shouldLogFusionRegistrationImageReceive(tab, payload, extraImageBinaries) || !payload.viewId) {
+      return
+    }
+
+    const now = performance.now()
+    const latestDrag = fusionRegistrationDragTimingByView.get(payload.viewId)
+    const previousReceiveAt = fusionRegistrationImageReceiveTimingByView.get(payload.viewId)
+    fusionRegistrationImageReceiveTimingByView.set(payload.viewId, now)
+    const fusionComposite = getPayloadFusionComposite(payload)
+    const fusionInfo = getPayloadFusionInfo(payload)
+    console.debug('[fusion registration perf] image_update received', {
+      receiveAt: new Date().toISOString(),
+      receiveAtMs: Math.round(now * 10) / 10,
+      sinceLastDragSentMs: latestDrag ? Math.round((now - latestDrag.sentAt) * 10) / 10 : null,
+      sincePreviousRegistrationImageMs: previousReceiveAt == null ? null : Math.round((now - previousReceiveAt) * 10) / 10,
+      dragPhase: latestDrag?.phase ?? null,
+      dragSequence: latestDrag?.sequence ?? null,
+      deltaX: latestDrag?.deltaX ?? null,
+      deltaY: latestDrag?.deltaY ?? null,
+      rotationDeltaDegrees: latestDrag?.rotationDeltaDegrees ?? null,
+      viewId: payload.viewId,
+      tabKey: tab.key,
+      fastPreview: payload.fastPreview ?? ((payload as { fast_preview?: unknown }).fast_preview ?? null),
+      imageFormat: payload.imageFormat,
+      primaryImageUnchanged: fusionComposite?.primaryImageUnchanged === true,
+      fusionRevision: fusionComposite?.revision ?? fusionInfo?.revision ?? null,
+      compositeSize: fusionComposite ? `${fusionComposite.width}x${fusionComposite.height}` : null,
+      primaryBytes: getBinaryByteLength(imageBinary),
+      petBytes: getBinaryByteLength(extraImageBinaries.pet)
     })
   }
 
@@ -2599,6 +2691,18 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
     if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
       return
+    }
+    if (isViewerPerfDebugEnabled()) {
+      fusionRegistrationDragTimingByView.set(viewId, {
+        phase: payload.phase,
+        sentAt: performance.now(),
+        sequence: ++fusionRegistrationDragSequence,
+        deltaX: payload.deltaX,
+        deltaY: payload.deltaY,
+        rotationDeltaDegrees: typeof payload.rotationDeltaDegrees === 'number' && Number.isFinite(payload.rotationDeltaDegrees)
+          ? payload.rotationDeltaDegrees
+          : null
+      })
     }
     emitScheduledViewOperation({
       viewId,

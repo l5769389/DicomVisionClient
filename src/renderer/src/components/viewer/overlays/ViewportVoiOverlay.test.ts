@@ -299,6 +299,42 @@ describe('ViewportVoiOverlay', () => {
     expect(voiEllipse.compareDocumentPosition(selectedRect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('renders a non-intersecting threshold rectangle as a dashed projection without handles', () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: {
+          ...createSegmentationConfig(),
+          thresholdRegions: [
+            {
+              ...createSegmentationConfig().thresholdRegions[0]!,
+              box: {
+                centerWorld: [0, 40, 0],
+                rowWorld: [0, 1, 0],
+                colWorld: [0, 0, 1],
+                normalWorld: [1, 0, 0],
+                widthMm: 50,
+                heightMm: 50,
+                depthMm: 20,
+                sourceViewport: 'mpr-ax'
+              }
+            }
+          ]
+        },
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+
+    const projectedRect = wrapper.find('rect[data-region-id="r1"]')
+    expect(projectedRect.exists()).toBe(true)
+    expect(projectedRect.attributes('stroke-dasharray')).toBe('4 4')
+    expect(wrapper.findAll('circle')).toHaveLength(0)
+  })
+
   it('renders multiple VOI projections but only exposes handles for the selected one', () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {

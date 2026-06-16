@@ -7,8 +7,20 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import {
+  MPR_SEGMENTATION_SIDECAR_EXTENSION,
+  buildMprSegmentationSidecar,
+  buildMprSegmentationSidecarFileName,
+  mergeMprSegmentationSidecarItems,
+  parseMprSegmentationSidecarText
+} from '../../composables/workspace/segmentation/mprSegmentationSidecar'
+import { dispatchWorkspaceStatusToast } from '../../composables/workspace/tasks/workspaceStatus'
+import { chooseCustomExportDirectory, saveBinaryFile, type SaveFilePreference } from '../../platform/exporting'
+import { viewerRuntime } from '../../platform/runtime'
+import {
   MPR_SEGMENTATION_DEPTH_LIMITS,
   MPR_SEGMENTATION_HU_LIMITS,
+  MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS,
+  MPR_SEGMENTATION_MAX_VOI_SPHERES,
   createDefaultMprSegmentationConfig,
   normalizeMprSegmentationConfig,
   resolveMprLegacyVoiSphere,
@@ -21,6 +33,8 @@ import {
 const props = defineProps<{
   config: MprSegmentationConfig
   isProcessing?: boolean
+  seriesId?: string | null
+  seriesLabel?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -41,12 +55,27 @@ interface PanelPosition {
   y: number
 }
 
+interface PendingExportConfirmation {
+  defaultFileNameStem: string
+  fileNameStem: string
+  directoryPath: string | null
+  selectedCount: number
+  selectedThresholdRegionIds: Set<string>
+  selectedVoiSphereIds: Set<string>
+}
+
 const draftConfig = ref<MprSegmentationConfig | null>(null)
 const localDraftActive = ref(false)
+const importInputRef = ref<HTMLInputElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const panelPosition = ref<PanelPosition | null>(null)
 const panelDragState = ref<{ pointerId: number; offsetX: number; offsetY: number } | null>(null)
-const { locale } = useUiPreferences()
+const pendingExportConfirmation = ref<PendingExportConfirmation | null>(null)
+const selectedExportRegionIds = ref<Set<string>>(new Set())
+const selectedExportVoiIds = ref<Set<string>>(new Set())
+const exportRegionSelectionInitialized = ref(false)
+const exportVoiSelectionInitialized = ref(false)
+const { exportPreference, locale } = useUiPreferences()
 const displayedConfig = computed(() => draftConfig.value ?? normalizeMprSegmentationConfig(props.config))
 const regions = computed(() => displayedConfig.value.thresholdRegions)
 const voiSpheres = computed(() => displayedConfig.value.voiSpheres)
@@ -60,11 +89,14 @@ const panelCopy = computed(() => isZh.value
       title: '阈值分割与球形 VOI',
       updating: '更新中',
       preview: '预览',
+      import: '导入',
+      export: '导出',
       close: '关闭',
       emptyThreshold: '在阈值分割模式中绘制一个或多个矩形区域。每个区域使用 HU > 阈值。',
       hideRegion: '隐藏分割',
       showRegion: '显示分割',
       deleteRegion: '删除分割',
+      includeInExport: '包含在导出中',
       color: '颜色',
       description: '描述',
       percent: '百分比',
@@ -77,18 +109,36 @@ const panelCopy = computed(() => isZh.value
       showVoi: '显示 VOI',
       deleteVoi: '删除 VOI',
       clearRegions: '清除分割',
-      clearAll: '全部清除'
+      clearAll: '全部清除',
+      exportNoSelection: '请选择至少一个分割或 VOI 项。',
+      exportConfirmTitle: '导出分割文件',
+      exportConfirmMessage: (count: number) => `确认导出 ${count} 个分割项？`,
+      exportPathLabel: '保存位置',
+      exportFileLabel: '文件名',
+      exportChoosePath: '选择',
+      exportSuffixLabel: '固定格式',
+      cancel: '取消',
+      confirmExport: '确认导出',
+      exportSuccess: '分割文件已导出',
+      exportFailure: '分割导出失败',
+      exportPathChooseFailure: '选择导出路径失败',
+      importSuccess: '已导入分割项',
+      importSkipped: (count: number) => `已达到数量上限，跳过 ${count} 个分割项。`,
+      importFailure: '分割导入失败'
     }
   : {
       eyebrow: 'Segmentation',
       title: 'Threshold regions and spherical VOI',
       updating: 'Updating',
       preview: 'Preview',
+      import: 'Import',
+      export: 'Export',
       close: 'Close',
       emptyThreshold: 'Draw one or more rectangles in threshold mode. Each region uses HU > threshold.',
       hideRegion: 'Hide region',
       showRegion: 'Show region',
       deleteRegion: 'Delete region',
+      includeInExport: 'Include in export',
       color: 'Color',
       description: 'Description',
       percent: 'Percent',
@@ -101,7 +151,22 @@ const panelCopy = computed(() => isZh.value
       showVoi: 'Show VOI',
       deleteVoi: 'Delete VOI',
       clearRegions: 'Clear regions',
-      clearAll: 'Clear all'
+      clearAll: 'Clear all',
+      exportNoSelection: 'Select at least one segmentation or VOI item.',
+      exportConfirmTitle: 'Export segmentation file',
+      exportConfirmMessage: (count: number) => `Export ${count} segmentation item${count === 1 ? '' : 's'}?`,
+      exportPathLabel: 'Save location',
+      exportFileLabel: 'File name',
+      exportChoosePath: 'Choose',
+      exportSuffixLabel: 'Fixed format',
+      cancel: 'Cancel',
+      confirmExport: 'Export',
+      exportSuccess: 'Segmentation file exported',
+      exportFailure: 'Failed to export segmentation',
+      exportPathChooseFailure: 'Failed to choose export location',
+      importSuccess: 'Imported segmentation items',
+      importSkipped: (count: number) => `Skipped ${count} item${count === 1 ? '' : 's'} because the limit was reached.`,
+      importFailure: 'Failed to import segmentation'
     }
 )
 const panelRootStyle = computed<Record<string, string>>(() => {
@@ -133,6 +198,41 @@ watch(
   { deep: true }
 )
 
+watch(
+  () => regions.value.map((region) => region.id),
+  (regionIds, previousRegionIds = []) => {
+    selectedExportRegionIds.value = syncSelectedExportIds(
+      selectedExportRegionIds.value,
+      regionIds,
+      previousRegionIds,
+      exportRegionSelectionInitialized.value
+    )
+    exportRegionSelectionInitialized.value = true
+  },
+  { immediate: true }
+)
+
+watch(
+  () => voiSpheres.value.map((sphere) => sphere.id),
+  (sphereIds, previousSphereIds = []) => {
+    selectedExportVoiIds.value = syncSelectedExportIds(
+      selectedExportVoiIds.value,
+      sphereIds,
+      previousSphereIds,
+      exportVoiSelectionInitialized.value
+    )
+    exportVoiSelectionInitialized.value = true
+  },
+  { immediate: true }
+)
+
+const selectedExportCount = computed(() =>
+  regions.value.filter((region) => selectedExportRegionIds.value.has(region.id)).length +
+  voiSpheres.value.filter((sphere) => selectedExportVoiIds.value.has(sphere.id)).length
+)
+const isExportConfirmOpen = computed(() => pendingExportConfirmation.value !== null)
+const isDesktopRuntime = computed(() => viewerRuntime.platform === 'desktop')
+
 function emitConfig(config: MprSegmentationConfig, actionType: PanelActionType = 'end'): void {
   const normalized = normalizeMprSegmentationConfig(config)
   if (actionType === 'local') {
@@ -157,6 +257,242 @@ function emitConfig(config: MprSegmentationConfig, actionType: PanelActionType =
     localDraftActive.value = false
     draftConfig.value = null
     emit('configChange', normalized, actionType)
+  }
+}
+
+function syncSelectedExportIds(current: Set<string>, ids: string[], previousIds: string[], initialized: boolean): Set<string> {
+  const availableIds = new Set(ids)
+  const previousIdSet = new Set(previousIds)
+  const next = new Set<string>()
+  for (const id of ids) {
+    if (current.has(id) || !initialized || !previousIdSet.has(id)) {
+      next.add(id)
+    }
+  }
+  for (const id of current) {
+    if (availableIds.has(id)) {
+      next.add(id)
+    }
+  }
+  return next
+}
+
+function isRegionSelectedForExport(regionId: string): boolean {
+  return selectedExportRegionIds.value.has(regionId)
+}
+
+function isVoiSelectedForExport(sphereId: string): boolean {
+  return selectedExportVoiIds.value.has(sphereId)
+}
+
+function toggleExportRegion(regionId: string, checked: boolean): void {
+  const next = new Set(selectedExportRegionIds.value)
+  if (checked) {
+    next.add(regionId)
+  } else {
+    next.delete(regionId)
+  }
+  selectedExportRegionIds.value = next
+}
+
+function toggleExportVoi(sphereId: string, checked: boolean): void {
+  const next = new Set(selectedExportVoiIds.value)
+  if (checked) {
+    next.add(sphereId)
+  } else {
+    next.delete(sphereId)
+  }
+  selectedExportVoiIds.value = next
+}
+
+function getMprSegmentationFileNameStem(fileName: string): string {
+  const suffix = `.${MPR_SEGMENTATION_SIDECAR_EXTENSION}`
+  return fileName.toLowerCase().endsWith(suffix)
+    ? fileName.slice(0, -suffix.length)
+    : fileName.replace(/\.json$/i, '')
+}
+
+function normalizeExportFileNameStem(fileNameStem: string, fallbackStem: string): string {
+  const sanitized = fileNameStem
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\.+$/g, '')
+    .trim()
+  return sanitized || fallbackStem
+}
+
+function buildExportFileName(fileNameStem: string, fallbackStem: string): string {
+  return `${normalizeExportFileNameStem(fileNameStem, fallbackStem)}.${MPR_SEGMENTATION_SIDECAR_EXTENSION}`
+}
+
+function getExportSavePreference(directoryPath?: string | null): SaveFilePreference {
+  if (viewerRuntime.platform === 'desktop') {
+    const directory = directoryPath?.trim()
+    return directory
+      ? {
+          ...exportPreference.value,
+          locationMode: 'custom',
+          desktopDirectory: directory
+        }
+      : {
+          ...exportPreference.value,
+          locationMode: 'default'
+        }
+  }
+  return {
+    ...exportPreference.value,
+    locationMode: 'default'
+  }
+}
+
+async function resolveExportConfirmLocation(): Promise<string | null> {
+  if (viewerRuntime.platform !== 'desktop') {
+    return null
+  }
+  if (exportPreference.value.locationMode === 'custom') {
+    return exportPreference.value.desktopDirectory?.trim() || null
+  }
+  try {
+    const defaultDirectory = await window.viewerApi?.getDefaultExportDirectory?.()
+    return typeof defaultDirectory === 'string' && defaultDirectory.trim() ? defaultDirectory.trim() : null
+  } catch {
+    return null
+  }
+}
+
+function getAppVersion(): string | null {
+  return typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : null
+}
+
+async function requestExportSelectedSegmentation(): Promise<void> {
+  if (selectedExportCount.value <= 0) {
+    dispatchWorkspaceStatusToast(panelCopy.value.exportNoSelection, 'warning')
+    return
+  }
+
+  const defaultFileNameStem = getMprSegmentationFileNameStem(buildMprSegmentationSidecarFileName())
+  pendingExportConfirmation.value = {
+    defaultFileNameStem,
+    fileNameStem: defaultFileNameStem,
+    directoryPath: await resolveExportConfirmLocation(),
+    selectedCount: selectedExportCount.value,
+    selectedThresholdRegionIds: new Set(selectedExportRegionIds.value),
+    selectedVoiSphereIds: new Set(selectedExportVoiIds.value)
+  }
+}
+
+function closeExportConfirmDialog(): void {
+  pendingExportConfirmation.value = null
+}
+
+function updatePendingExportFileNameStem(value: string): void {
+  if (!pendingExportConfirmation.value) {
+    return
+  }
+  pendingExportConfirmation.value.fileNameStem = value
+}
+
+function updatePendingExportDirectoryPath(value: string): void {
+  if (!pendingExportConfirmation.value) {
+    return
+  }
+  pendingExportConfirmation.value.directoryPath = value
+}
+
+async function choosePendingExportDirectory(): Promise<void> {
+  if (!pendingExportConfirmation.value) {
+    return
+  }
+  try {
+    const selectedDirectory = await chooseCustomExportDirectory()
+    if (selectedDirectory?.desktopDirectory) {
+      pendingExportConfirmation.value.directoryPath = selectedDirectory.desktopDirectory
+    }
+  } catch (error) {
+    console.error('Failed to choose segmentation export location.', error)
+    dispatchWorkspaceStatusToast(panelCopy.value.exportPathChooseFailure, 'error')
+  }
+}
+
+async function confirmPendingExport(): Promise<void> {
+  const exportRequest = pendingExportConfirmation.value
+  if (!exportRequest) {
+    return
+  }
+  pendingExportConfirmation.value = null
+
+  try {
+    const sidecar = buildMprSegmentationSidecar({
+      appVersion: getAppVersion(),
+      config: displayedConfig.value,
+      selectedThresholdRegionIds: exportRequest.selectedThresholdRegionIds,
+      selectedVoiSphereIds: exportRequest.selectedVoiSphereIds,
+      source: {
+        seriesId: props.seriesId ?? null,
+        seriesLabel: props.seriesLabel ?? null,
+        viewType: 'MPR'
+      }
+    })
+    const data = new TextEncoder().encode(JSON.stringify(sidecar, null, 2))
+    const result = await saveBinaryFile({
+      data,
+      fileName: buildExportFileName(exportRequest.fileNameStem, exportRequest.defaultFileNameStem),
+      mimeType: 'application/json',
+      preference: getExportSavePreference(exportRequest.directoryPath)
+    })
+    dispatchWorkspaceStatusToast(panelCopy.value.exportSuccess, 'success', {
+      canOpenLocation: result.mode === 'filesystem',
+      detail: result.locationDescription,
+      directoryPath: result.directoryPath ?? null,
+      filePath: result.filePath ?? null
+    })
+  } catch (error) {
+    const message = error instanceof Error && error.message.trim() ? error.message : panelCopy.value.exportFailure
+    dispatchWorkspaceStatusToast(message, 'error', { durationMs: 6000 })
+  }
+}
+
+function openImportFilePicker(): void {
+  importInputRef.value?.click()
+}
+
+async function handleImportFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file) {
+    return
+  }
+
+  try {
+    const importedItems = parseMprSegmentationSidecarText(await file.text())
+    const mergeResult = mergeMprSegmentationSidecarItems(displayedConfig.value, importedItems, {
+      maxThresholdRegions: MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS,
+      maxVoiSpheres: MPR_SEGMENTATION_MAX_VOI_SPHERES
+    })
+    const firstImportedRegionId = mergeResult.importedThresholdRegionIds[0] ?? null
+    const firstImportedVoiId = mergeResult.importedVoiSphereIds[0] ?? null
+    const importedCount = mergeResult.importedThresholdRegionIds.length + mergeResult.importedVoiSphereIds.length
+    const skippedCount = mergeResult.skippedThresholdRegionCount + mergeResult.skippedVoiSphereCount
+    if (importedCount <= 0) {
+      dispatchWorkspaceStatusToast(panelCopy.value.importSkipped(skippedCount), 'warning', { durationMs: 6000 })
+      return
+    }
+    const selectedImportedRegion = firstImportedRegionId
+      ? mergeResult.config.thresholdRegions.find((region) => region.id === firstImportedRegionId) ?? null
+      : null
+    if (selectedImportedRegion) {
+      emit('modeChange', 'segmentation:threshold', selectedImportedRegion.box.sourceViewport)
+    } else if (firstImportedVoiId) {
+      emit('modeChange', 'segmentation:voi')
+    }
+    emitConfig(mergeResult.config, 'end')
+    dispatchWorkspaceStatusToast(`${panelCopy.value.importSuccess}: ${importedCount}`, 'success')
+    if (skippedCount > 0) {
+      dispatchWorkspaceStatusToast(panelCopy.value.importSkipped(skippedCount), 'warning', { durationMs: 6000 })
+    }
+  } catch (error) {
+    const message = error instanceof Error && error.message.trim() ? error.message : panelCopy.value.importFailure
+    dispatchWorkspaceStatusToast(message, 'error', { durationMs: 6000 })
   }
 }
 
@@ -417,7 +753,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
   <div
     v-bind="$attrs"
     ref="panelRef"
-    class="theme-shell-panel fixed z-[60] w-[min(520px,calc(100vw-2.5rem))] overflow-y-auto rounded-xl border border-sky-100/25 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_98%,black_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_96%,black_4%))] px-3 pb-2.5 pt-0 shadow-[0_30px_80px_rgba(0,0,0,0.58),0_10px_24px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.04)] ring-1 ring-black/45 backdrop-blur-xl"
+    class="theme-shell-panel fixed z-[60] flex w-[min(520px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-xl border border-sky-100/25 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_98%,black_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_96%,black_4%))] px-3 pb-2.5 pt-0 shadow-[0_30px_80px_rgba(0,0,0,0.58),0_10px_24px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.04)] ring-1 ring-black/45 backdrop-blur-xl"
     :style="panelRootStyle"
   >
     <div class="-mx-3 mb-2.5 flex items-center justify-between gap-3 rounded-t-xl border-b border-white/10 bg-white/[0.055] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(0,0,0,0.22)]">
@@ -450,6 +786,14 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         </div>
       </div>
       <div class="flex shrink-0 items-center gap-2">
+        <input
+          ref="importInputRef"
+          class="hidden"
+          type="file"
+          accept=".dvsseg.json,.json,application/json"
+          data-testid="mpr-segmentation-import-input"
+          @change="handleImportFileChange"
+        />
         <button
           class="inline-flex h-8 items-center gap-2 px-0 text-[11px] font-semibold transition"
           :class="displayedConfig.enabled ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
@@ -471,6 +815,24 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         <button
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
+          :title="panelCopy.import"
+          data-testid="mpr-segmentation-import"
+          @click="openImportFilePicker"
+        >
+          <AppIcon name="import" :size="15" />
+        </button>
+        <button
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+          type="button"
+          :title="panelCopy.export"
+          data-testid="mpr-segmentation-export"
+          @click="requestExportSelectedSegmentation"
+        >
+          <AppIcon name="export" :size="15" />
+        </button>
+        <button
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+          type="button"
           :title="panelCopy.close"
           @click="emit('close')"
         >
@@ -479,7 +841,10 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
       </div>
     </div>
 
-    <div class="space-y-2">
+    <div
+      class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] max-h-[min(32rem,calc(100vh-14rem))]"
+      data-testid="mpr-segmentation-record-list"
+    >
       <div
         v-if="regions.length === 0"
         class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
@@ -496,6 +861,20 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         @click="selectRegion(region.id)"
       >
         <div class="flex min-w-0 items-center gap-2">
+          <label
+            class="inline-flex h-7 w-5 shrink-0 cursor-pointer items-center justify-center text-cyan-100/85"
+            :title="panelCopy.includeInExport"
+            @click.stop
+          >
+            <input
+              class="h-3.5 w-3.5 accent-[var(--theme-accent)]"
+              type="checkbox"
+              :aria-label="panelCopy.includeInExport"
+              :checked="isRegionSelectedForExport(region.id)"
+              :data-testid="`mpr-threshold-export-${region.id}`"
+              @change.stop="toggleExportRegion(region.id, ($event.target as HTMLInputElement).checked)"
+            />
+          </label>
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
             :class="region.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -678,6 +1057,20 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           @click="selectVoi(sphere.id)"
         >
           <div class="flex items-center gap-2">
+            <label
+              class="inline-flex h-7 w-5 shrink-0 cursor-pointer items-center justify-center text-cyan-100/85"
+              :title="panelCopy.includeInExport"
+              @click.stop
+            >
+              <input
+                class="h-3.5 w-3.5 accent-[var(--theme-accent)]"
+                type="checkbox"
+                :aria-label="panelCopy.includeInExport"
+                :checked="isVoiSelectedForExport(sphere.id)"
+                :data-testid="`mpr-voi-export-${sphere.id}`"
+                @change.stop="toggleExportVoi(sphere.id, ($event.target as HTMLInputElement).checked)"
+              />
+            </label>
             <button
               class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
               :class="sphere.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -733,25 +1126,127 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         </div>
       </div>
 
-      <div class="flex items-center gap-2 pt-1">
-        <button
-          class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 text-[11px] font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)] disabled:cursor-not-allowed disabled:opacity-45"
-          type="button"
-          :disabled="regions.length === 0"
-          @click="clearThresholdRegions"
-        >
-          <AppIcon name="segmentation-threshold" :size="14" />
-          <span>{{ panelCopy.clearRegions }}</span>
-        </button>
-        <button
-          class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-rose-300/25 bg-rose-500/10 px-2.5 text-[11px] font-semibold text-rose-100 transition hover:border-rose-200/45 hover:bg-rose-500/15"
-          type="button"
-          @click="clearAll"
-        >
-          <AppIcon name="trash" :size="14" />
-          <span>{{ panelCopy.clearAll }}</span>
-        </button>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-2 border-t border-[var(--theme-border-soft)] pt-2">
+      <button
+        class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 text-[11px] font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)] disabled:cursor-not-allowed disabled:opacity-45"
+        type="button"
+        :disabled="regions.length === 0"
+        @click="clearThresholdRegions"
+      >
+        <AppIcon name="segmentation-threshold" :size="14" />
+        <span>{{ panelCopy.clearRegions }}</span>
+      </button>
+      <button
+        class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-rose-300/25 bg-rose-500/10 px-2.5 text-[11px] font-semibold text-rose-100 transition hover:border-rose-200/45 hover:bg-rose-500/15"
+        type="button"
+        @click="clearAll"
+      >
+        <AppIcon name="trash" :size="14" />
+        <span>{{ panelCopy.clearAll }}</span>
+      </button>
+    </div>
+
+  <Teleport to="body">
+    <div
+      v-if="isExportConfirmOpen && pendingExportConfirmation"
+      class="fixed inset-0 z-[120] grid place-items-center bg-[var(--theme-overlay-backdrop)] p-4 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="panelCopy.exportConfirmTitle"
+      data-testid="mpr-segmentation-export-confirm-dialog"
+      @click.self="closeExportConfirmDialog"
+      @keydown.esc.prevent="closeExportConfirmDialog"
+    >
+      <div
+        class="w-[min(460px,100%)] overflow-hidden rounded-[20px] border border-[color:color-mix(in_srgb,var(--theme-accent)_30%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_96%,#050914)] shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
+      >
+        <div class="flex items-start gap-3 border-b border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_58%,transparent)] px-4 py-3.5">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[color:color-mix(in_srgb,var(--theme-accent)_36%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card))] text-[var(--theme-text-primary)]">
+            <AppIcon name="export" :size="18" />
+          </span>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ panelCopy.exportConfirmTitle }}</div>
+            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
+              {{ panelCopy.exportConfirmMessage(pendingExportConfirmation.selectedCount) }}
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-3 px-4 py-3.5">
+          <div
+            v-if="isDesktopRuntime"
+            class="rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-2.5"
+          >
+            <label class="text-[11px] font-semibold uppercase text-[var(--theme-text-muted)]" for="mpr-segmentation-export-directory">
+              {{ panelCopy.exportPathLabel }}
+            </label>
+            <div class="mt-2 flex min-w-0 gap-2">
+              <input
+                id="mpr-segmentation-export-directory"
+                class="min-w-0 flex-1 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-solid)] px-3 py-2 text-xs text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-[var(--theme-accent)]"
+                type="text"
+                :value="pendingExportConfirmation.directoryPath ?? ''"
+                data-testid="mpr-segmentation-export-directory-input"
+                @input="updatePendingExportDirectoryPath(($event.target as HTMLInputElement).value)"
+                @keydown.esc.prevent="closeExportConfirmDialog"
+              />
+              <button
+                type="button"
+                class="rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2 text-xs font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+                data-testid="mpr-segmentation-export-directory-choose"
+                @click="choosePendingExportDirectory"
+              >
+                {{ panelCopy.exportChoosePath }}
+              </button>
+            </div>
+          </div>
+          <div class="rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5">
+            <label class="text-[11px] font-semibold uppercase text-[var(--theme-text-muted)]" for="mpr-segmentation-export-file-name">
+              {{ panelCopy.exportFileLabel }}
+            </label>
+            <div class="mt-2 flex min-w-0 overflow-hidden rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-solid)] transition focus-within:border-[var(--theme-accent)]">
+              <input
+                id="mpr-segmentation-export-file-name"
+                class="min-w-0 flex-1 bg-transparent px-3 py-2 text-xs text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
+                type="text"
+                :value="pendingExportConfirmation.fileNameStem"
+                data-testid="mpr-segmentation-export-file-name-stem-input"
+                @input="updatePendingExportFileNameStem(($event.target as HTMLInputElement).value)"
+                @keydown.esc.prevent="closeExportConfirmDialog"
+              />
+              <span
+                class="flex shrink-0 items-center border-l border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,var(--theme-surface-card))] px-3 text-[11px] font-semibold text-[var(--theme-text-secondary)]"
+                data-testid="mpr-segmentation-export-file-name-suffix"
+                :title="panelCopy.exportSuffixLabel"
+              >
+                .{{ MPR_SEGMENTATION_SIDECAR_EXTENSION }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 border-t border-[var(--theme-border-soft)] px-4 py-3.5">
+          <button
+            type="button"
+            class="rounded-2xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-2.5 text-xs font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+            data-testid="mpr-segmentation-export-confirm-cancel"
+            @click="closeExportConfirmDialog"
+          >
+            {{ panelCopy.cancel }}
+          </button>
+          <button
+            type="button"
+            class="theme-button-primary rounded-2xl px-5 py-2.5 text-xs font-semibold"
+            data-testid="mpr-segmentation-export-confirm-submit"
+            @click="confirmPendingExport"
+          >
+            {{ panelCopy.confirmExport }}
+          </button>
+        </div>
       </div>
     </div>
+  </Teleport>
   </div>
 </template>

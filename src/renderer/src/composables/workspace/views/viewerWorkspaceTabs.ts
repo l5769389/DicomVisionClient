@@ -842,7 +842,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fourDPhaseViewIds: {},
     fourDPhaseCache: {},
     fourDIsPlaying: false,
-    fourDIsPreloading: false
+    fourDIsPreloading: false,
+    imageUpdateRevisions: {}
   }
 }
 

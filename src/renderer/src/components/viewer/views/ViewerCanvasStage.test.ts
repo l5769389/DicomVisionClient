@@ -19,17 +19,23 @@ const emptyOrientation: OrientationInfo = {
   volumeQuaternion: null
 }
 
+const imageFrameOverlayStub = {
+  props: ['imageFrame'],
+  template:
+    '<div class="image-frame-overlay-stub" :data-left="imageFrame.left" :data-top="imageFrame.top" :data-width="imageFrame.width" :data-height="imageFrame.height" :data-natural-width="imageFrame.naturalWidth ?? 0" :data-natural-height="imageFrame.naturalHeight ?? 0" />'
+}
+
 const overlayStubs = {
   VolumeOrientationCube: { template: '<div />' },
-  ViewportAnnotationOverlay: { template: '<div />' },
+  ViewportAnnotationOverlay: imageFrameOverlayStub,
   ViewportCornerOverlay: { template: '<div class="corner-overlay-stub" />' },
   ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
-  ViewportMtfOverlay: { template: '<div />' },
+  ViewportMtfOverlay: imageFrameOverlayStub,
   ViewportMeasurementOverlay: { template: '<div />' },
   ViewportOrientationOverlay: { template: '<div />' },
-  ViewportQaWaterOverlay: { template: '<div />' },
+  ViewportQaWaterOverlay: imageFrameOverlayStub,
   ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' },
-  ViewportVoiOverlay: { template: '<div />' }
+  ViewportVoiOverlay: imageFrameOverlayStub
 }
 
 function mountStage(imageSrc = 'blob:frame-1', props: Record<string, unknown> = {}) {
@@ -57,6 +63,33 @@ function createPointerMoveEvent(options: { buttons: number; clientX: number; cli
     clientY: { value: options.clientY }
   })
   return event
+}
+
+function readOverlayFrame(wrapper: ReturnType<typeof mount<typeof ViewerCanvasStage>>) {
+  const overlay = wrapper.find('.image-frame-overlay-stub')
+  return {
+    left: Number(overlay.attributes('data-left')),
+    top: Number(overlay.attributes('data-top')),
+    width: Number(overlay.attributes('data-width')),
+    height: Number(overlay.attributes('data-height')),
+    naturalWidth: Number(overlay.attributes('data-natural-width')),
+    naturalHeight: Number(overlay.attributes('data-natural-height'))
+  }
+}
+
+function installQueuedRaf(): { flush: () => void } {
+  const callbacks: FrameRequestCallback[] = []
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    callbacks.push(callback)
+    return callbacks.length
+  })
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined)
+  return {
+    flush: () => {
+      const pending = callbacks.splice(0)
+      pending.forEach((callback) => callback(0))
+    }
+  }
 }
 
 afterEach(() => {
@@ -115,6 +148,159 @@ describe('ViewerCanvasStage layout metrics', () => {
     resizeCallback([], {} as ResizeObserver)
 
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+  })
+
+  it('keeps the previous valid image frame while a replacement image is loading', async () => {
+    let naturalWidth = 100
+    let naturalHeight = 50
+    const raf = installQueuedRaf()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 200,
+          bottom: 100,
+          width: 200,
+          height: 100,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        }) as DOMRect
+    )
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockImplementation(() => naturalWidth)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockImplementation(() => naturalHeight)
+
+    const wrapper = mountStage('blob:frame-1')
+    await nextTick()
+    raf.flush()
+    await nextTick()
+    expect(readOverlayFrame(wrapper)).toMatchObject({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      naturalWidth: 100,
+      naturalHeight: 50
+    })
+
+    naturalWidth = 0
+    naturalHeight = 0
+    await wrapper.setProps({ imageSrc: 'blob:frame-2' })
+    await nextTick()
+    raf.flush()
+    await nextTick()
+
+    expect(readOverlayFrame(wrapper)).toMatchObject({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      naturalWidth: 100,
+      naturalHeight: 50
+    })
+
+    wrapper.unmount()
+  })
+
+  it('updates the stable image frame after the new image load completes', async () => {
+    let naturalWidth = 100
+    let naturalHeight = 50
+    const raf = installQueuedRaf()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 200,
+          bottom: 100,
+          width: 200,
+          height: 100,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        }) as DOMRect
+    )
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockImplementation(() => naturalWidth)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockImplementation(() => naturalHeight)
+
+    const wrapper = mountStage('blob:frame-1')
+    await nextTick()
+    raf.flush()
+    await nextTick()
+
+    naturalWidth = 0
+    naturalHeight = 0
+    await wrapper.setProps({ imageSrc: 'blob:frame-2' })
+    await nextTick()
+    raf.flush()
+    await nextTick()
+    expect(readOverlayFrame(wrapper)).toMatchObject({
+      width: 200,
+      height: 100,
+      naturalWidth: 100,
+      naturalHeight: 50
+    })
+
+    naturalWidth = 50
+    naturalHeight = 100
+    await wrapper.find('img.viewer-image').trigger('load')
+    await nextTick()
+    raf.flush()
+    await nextTick()
+
+    expect(readOverlayFrame(wrapper)).toMatchObject({
+      left: 75,
+      top: 0,
+      width: 50,
+      height: 100,
+      naturalWidth: 50,
+      naturalHeight: 100
+    })
+
+    wrapper.unmount()
+  })
+
+  it('clears the image frame only when the image source is removed', async () => {
+    const raf = installQueuedRaf()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 200,
+          bottom: 100,
+          width: 200,
+          height: 100,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        }) as DOMRect
+    )
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(100)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(50)
+
+    const wrapper = mountStage('blob:frame-1')
+    await nextTick()
+    raf.flush()
+    await nextTick()
+    expect(readOverlayFrame(wrapper).width).toBe(200)
+
+    await wrapper.setProps({ imageSrc: '' })
+    await nextTick()
+    raf.flush()
+    await nextTick()
+
+    expect(readOverlayFrame(wrapper)).toMatchObject({
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0,
+      naturalWidth: 0,
+      naturalHeight: 0
+    })
 
     wrapper.unmount()
   })

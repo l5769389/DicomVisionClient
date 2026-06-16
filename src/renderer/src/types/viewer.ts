@@ -400,6 +400,8 @@ export const MPR_SEGMENTATION_DEPTH_LIMITS = {
   max: 500
 } as const
 
+export const MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS = 10
+export const MPR_SEGMENTATION_MAX_VOI_SPHERES = 10
 export const DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU = 300
 export const DEFAULT_MPR_SEGMENTATION_COLOR = '#ff4df8'
 export const DEFAULT_MPR_VOI_COLOR = '#22d3ee'
@@ -1033,6 +1035,9 @@ export interface ViewImageResponse {
   imageFormat?: 'png' | 'jpeg'
   fastPreview?: boolean
   fastPreviewFullResolution?: boolean
+  metadataMode?: string
+  renderIntent?: 'pixel-only' | 'geometry-preview' | 'overlay-preview' | 'full'
+  renderRevision?: number | null
   viewId: string
   slice_info?: {
     current: number
@@ -1195,6 +1200,7 @@ export interface ViewerTabItem {
   fourDIsPlaying?: boolean
   fourDIsPreloading?: boolean
   loadingProgress?: ViewProgressInfo | null
+  imageUpdateRevisions?: Record<string, number>
 }
 
 export type StackViewerTabItem = ViewerTabItem & { viewType: 'Stack' }

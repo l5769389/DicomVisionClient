@@ -457,7 +457,7 @@ describe('view interaction operation scheduler', () => {
     })
   })
 
-  it('uses a slower minimum cadence for MPR segmentation slider moves', () => {
+  it('sends the latest MPR segmentation move on a trailing timer without waiting for backend feedback', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -483,14 +483,10 @@ describe('view interaction operation scheduler', () => {
     })
 
     expect(emit).toHaveBeenCalledTimes(1)
-    expect(timers).toHaveLength(0)
-
-    now = 50
-    scheduler.recordBackendPreview('mpr-ax', 1)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(130)
+    expect(timers[0].delay).toBe(80)
 
-    now = 180
+    now = 80
     timers[0].callback()
     expect(emit).toHaveBeenCalledTimes(2)
     expect(emit.mock.calls[1][1]).toMatchObject({

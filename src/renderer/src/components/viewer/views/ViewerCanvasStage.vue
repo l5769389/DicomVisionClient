@@ -54,6 +54,7 @@ const props = withDefaults(
     selectedMtfId?: string | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
+    imageStyle?: Record<string, string>
     imageLayers?: ViewerImageLayer[]
     imageSrc: string
     isActive?: boolean
@@ -74,6 +75,8 @@ const props = withDefaults(
     showCornerInfo?: boolean
     showScaleBar?: boolean
     softImage?: boolean
+    stageSurfaceClass?: string
+    lightSurface?: boolean
     viewportTransform?: ViewTransformInfo | null
     voiEditable?: boolean
     voiOblique?: boolean
@@ -89,6 +92,7 @@ const props = withDefaults(
     draftMeasurementMode: null,
     imageLayers: () => [],
     imageClass: '',
+    imageStyle: () => ({}),
     isActive: false,
     isLoading: false,
     loadingLabel: '',
@@ -106,6 +110,8 @@ const props = withDefaults(
     showCornerInfo: true,
     showScaleBar: true,
     softImage: false,
+    stageSurfaceClass: '',
+    lightSurface: false,
     viewportTransform: null,
     voiEditable: false,
     voiOblique: false,
@@ -165,6 +171,25 @@ const normalizedLoadingProgressPercent = computed(() => {
 })
 
 const resolvedLoadingLabel = computed(() => props.loadingLabel || viewerCopy.value.loadingView)
+
+const hasImageContent = computed(() =>
+  Boolean(props.imageSrc) || props.imageLayers.some((layer) => Boolean(layer.src))
+)
+
+const shouldShowImageOverlays = computed(() => hasImageContent.value)
+const shouldShowCornerInfo = computed(() => props.showCornerInfo && hasImageContent.value)
+const shouldShowScaleBar = computed(() => props.showScaleBar && hasImageContent.value)
+const isLightSurface = computed(() =>
+  props.lightSurface || props.stageSurfaceClass.split(/\s+/).includes('viewer-stage-surface--white')
+)
+const lightSurfaceStyle = computed(() =>
+  isLightSurface.value
+    ? {
+        background: '#fff',
+        backgroundImage: 'none'
+      }
+    : undefined
+)
 
 const measurementFrame = computed(() => ({
   left: 0,
@@ -399,9 +424,13 @@ watch(
     class="viewer-viewport relative h-full w-full overflow-hidden rounded-2xl border border-slate-600/20 bg-[linear-gradient(180deg,rgba(4,8,14,0.98),rgba(2,5,10,1)),radial-gradient(circle_at_top_right,rgba(35,130,210,0.08),transparent_28%)] text-slate-200"
     :class="[
       viewportClass,
+      stageSurfaceClass,
+      isLightSurface ? 'viewer-viewport--light-surface' : '',
       cursorClass,
       isActive ? 'viewer-viewport--active' : ''
     ]"
+    :style="lightSurfaceStyle"
+    :data-light-surface="isLightSurface ? 'true' : 'false'"
     :data-active-viewport="isActive ? 'true' : 'false'"
     :data-viewport-key="viewportKey"
     @click="emit('clickViewport', viewportKey)"
@@ -417,6 +446,8 @@ watch(
     <div
       ref="stageRef"
       class="relative grid h-full w-full place-items-center overflow-hidden bg-black"
+      :class="[stageSurfaceClass, isLightSurface ? 'viewer-stage-surface--light' : '']"
+      :style="lightSurfaceStyle"
       :data-active-render-surface="renderSurfaceActive ? 'true' : 'false'"
       :data-viewport-key="viewportKey"
     >
@@ -427,6 +458,7 @@ watch(
         :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
         :src="imageSrc"
         :alt="alt"
+        :style="imageStyle"
         draggable="false"
         @dragstart.prevent
         @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
@@ -444,6 +476,7 @@ watch(
         @dragstart.prevent
       />
       <ViewportCrosshairOverlay
+        v-if="shouldShowImageOverlays"
         :corner-info="cornerInfo"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
@@ -455,6 +488,7 @@ watch(
         :is-active="isActive"
       />
       <ViewportVoiOverlay
+        v-if="shouldShowImageOverlays"
         :active-operation="props.activeOperation"
         :config="mprSegmentationConfig"
         :editable="voiEditable"
@@ -471,12 +505,13 @@ watch(
         @mode-change="handleMprSegmentationModeChange"
       />
       <ViewportScaleBarOverlay
-        v-if="showScaleBar"
+        v-if="shouldShowScaleBar"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
         :scale-bar="scaleBar"
       />
       <ViewportMeasurementOverlay
+        v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('measurement')"
         :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
@@ -486,6 +521,7 @@ watch(
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"
       />
       <ViewportAnnotationOverlay
+        v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('annotation')"
         :annotations="annotations"
         :selected-annotation-id="draftAnnotation?.annotationId ?? null"
@@ -498,6 +534,7 @@ watch(
         @update-annotation-text="emit('updateAnnotationText', { viewportKey: props.viewportKey, ...$event })"
       />
       <ViewportMtfOverlay
+        v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('mtf')"
         :image-frame="imageFrame"
         :mtf-draft-mode="mtfDraftMode ?? null"
@@ -509,12 +546,13 @@ watch(
         @open-curve="emit('openMtfCurve')"
       />
       <ViewportQaWaterOverlay
+        v-if="shouldShowImageOverlays"
         :analysis="qaWaterAnalysis ?? null"
         :image-frame="imageFrame"
       />
-      <ViewportCornerOverlay v-if="showCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
-      <ViewportOrientationOverlay :orientation="orientation" />
-      <VolumeOrientationCube v-if="viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
+      <ViewportCornerOverlay v-if="shouldShowCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
+      <ViewportOrientationOverlay v-if="shouldShowImageOverlays" :orientation="orientation" />
+      <VolumeOrientationCube v-if="shouldShowImageOverlays && viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
       <div
         v-if="isLoading"
         class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"
@@ -544,6 +582,15 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.viewer-viewport--light-surface,
+.viewer-stage-surface--light,
+.viewer-stage-surface--white {
+  background: #fff !important;
+  background-image: none !important;
+}
+</style>
 
 <style scoped>
 .viewer-viewport,

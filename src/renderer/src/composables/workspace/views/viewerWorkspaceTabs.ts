@@ -794,6 +794,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionInfo: null,
     fusionManualRegistration: false,
     fusionRegistrationDragActive: false,
+    fusionRegistrationResetRevision: 0,
     petInfo: viewType === 'PET' ? createDefaultPetInfo(series.seriesId) : null,
     ...createCompareSyncDefaults(),
     ...createLayoutSyncDefaults(),

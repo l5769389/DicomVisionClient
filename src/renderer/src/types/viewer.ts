@@ -1130,6 +1130,7 @@ export interface ViewerTabItem {
   petInfo?: PetInfo | null
   fusionManualRegistration?: boolean
   fusionRegistrationDragActive?: boolean
+  fusionRegistrationResetRevision?: number
   compareSyncScroll?: boolean
   compareSyncWindow?: boolean
   compareSyncPseudocolor?: boolean

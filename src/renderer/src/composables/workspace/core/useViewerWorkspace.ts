@@ -2909,6 +2909,28 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action) {
+      if (payload.action === 'reset') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                fusionRegistrationDragActive: false,
+                fusionRegistrationResetRevision: (item.fusionRegistrationResetRevision ?? 0) + 1,
+                fusionInfo: item.fusionInfo
+                  ? {
+                      ...item.fusionInfo,
+                      registration: {
+                        ...item.fusionInfo.registration,
+                        translateRowMm: 0,
+                        translateColMm: 0,
+                        rotationDegrees: 0
+                      }
+                    }
+                  : item.fusionInfo
+              }
+            : item
+        )
+      }
       emitViewOperation({
         viewId,
         opType: VIEW_OPERATION_TYPES.fusionRegistration,

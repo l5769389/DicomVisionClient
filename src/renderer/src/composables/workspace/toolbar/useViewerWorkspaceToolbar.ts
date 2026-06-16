@@ -36,7 +36,7 @@ import {
   type ViewerTabItem,
   type VolumeRenderConfig
 } from '../../../types/viewer'
-import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
+import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
 const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate'])
@@ -997,6 +997,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     menuController.close()
   }
 
+  function closeMenusIfNeeded(behavior?: StackToolOptionSelectBehavior): void {
+    if (behavior?.keepMenuOpen) {
+      return
+    }
+    closeMenus()
+  }
+
   function setMenuOpen(toolKey: string | null): void {
     if (toolKey == null) {
       menuController.close()
@@ -1076,7 +1083,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     })
   }
 
-  function startPlayback(): void {
+  function startPlayback(behavior?: StackToolOptionSelectBehavior): void {
     if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
       return
     }
@@ -1084,12 +1091,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    closeMenus()
+    closeMenusIfNeeded(behavior)
     playbackController.start()
     startPlaybackTimer()
   }
 
-  function resumePlayback(): void {
+  function resumePlayback(behavior?: StackToolOptionSelectBehavior): void {
     if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
       stopPlayback()
       return
@@ -1099,13 +1106,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    closeMenus()
+    closeMenusIfNeeded(behavior)
     playbackController.resume()
     startPlaybackTimer()
   }
 
-  function pausePlayback(): void {
-    closeMenus()
+  function pausePlayback(behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
     if (isPlaying.value) {
       if (playbackTimer != null) {
         window.clearInterval(playbackTimer)
@@ -1115,12 +1122,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
     if (isPlaybackPaused.value) {
-      resumePlayback()
+      resumePlayback(behavior)
     }
   }
 
-  function endPlayback(): void {
-    closeMenus()
+  function endPlayback(behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
     stopPlayback()
   }
 
@@ -1194,7 +1201,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
   }
 
-  const toolApplyHandlers: Record<string, (tool: StackTool) => void> = {
+  const toolApplyHandlers: Record<string, (tool: StackTool, behavior?: StackToolOptionSelectBehavior) => void> = {
     compareSync: toggleToolMenu,
     display: toggleToolMenu,
     layout: toggleToolMenu,
@@ -1214,9 +1221,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     pseudocolor: (tool) => applySelectedViewAction(tool, 'pseudocolor'),
     measure: applySelectedModeTool,
     qa: applySelectedModeTool,
-    play: () => {
-      closeMenus()
-      startPlayback()
+    play: (_tool, behavior) => {
+      closeMenusIfNeeded(behavior)
+      startPlayback(behavior)
     },
     tag: () => {
       closeMenus()
@@ -1231,7 +1238,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
   }
 
-  function applyTool(tool: StackTool): void {
+  function applyTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
     if (areToolbarActionsDisabled.value && tool.key !== 'play') {
       return
     }
@@ -1241,10 +1248,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    toolApplyHandlers[tool.key]?.(tool)
+    toolApplyHandlers[tool.key]?.(tool, behavior)
   }
 
-  function selectToolOption(tool: StackTool, optionValue: string): void {
+  function selectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
     if (tool.key === 'display') {
       const overlay = parseDisplayOverlaySelectionValue(optionValue)
       const selectedOption = tool.options?.find((option) => option.value === optionValue)
@@ -1277,7 +1284,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         crosshair: toMprCrosshairModeSelectionValue(mode)
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       options.emitTriggerViewAction({ action: 'mprCrosshairMode', mode })
       return
     }
@@ -1293,7 +1300,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         mprLayout: optionValue
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       return
     }
 
@@ -1307,7 +1314,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         layout: optionValue
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       void options.emitOpenLayoutView(template)
       return
     }
@@ -1332,7 +1339,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         play: `playbackFps:${fps}`
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       restartPlaybackTimerIfActive()
       return
     }
@@ -1341,7 +1348,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       ...stackToolSelections.value,
       [tool.key]: optionValue
     }
-    closeMenus()
+    closeMenusIfNeeded(behavior)
 
     if (tool.key === 'rotate') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {

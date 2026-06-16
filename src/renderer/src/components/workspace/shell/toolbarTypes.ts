@@ -26,3 +26,7 @@ export interface StackTool {
   options?: StackToolOption[]
   showSelectedOptionIcon?: boolean
 }
+
+export interface StackToolOptionSelectBehavior {
+  keepMenuOpen?: boolean
+}

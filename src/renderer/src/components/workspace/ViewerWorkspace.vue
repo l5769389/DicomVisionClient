@@ -33,6 +33,7 @@ import MprMipConfigPanel from './MprMipConfigPanel.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
+import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
@@ -124,7 +125,7 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { t, workspaceExportCopy } = useUiLocale()
-const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions, viewportCornerInfoPreference } = useUiPreferences()
+const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions, viewerToolbarPlacement, viewportCornerInfoPreference } = useUiPreferences()
 const {
   getStarredSliceIndexes,
   getStarredSliceCount,
@@ -243,6 +244,15 @@ function closeVolumeConfigPanel(): void {
   isVolumeConfigPanelOpen.value = false
 }
 
+function closeMprMipPanel(): void {
+  isMprMipPanelOpen.value = false
+}
+
+function closeRightToolbarUtilityPanel(): void {
+  closeVolumeConfigPanel()
+  closeMprMipPanel()
+}
+
 const activeMprLayoutKey = computed(() => {
   const selectedLayout = parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout)
   if (activeTabRef.value?.viewType === '4D' && selectedLayout === 'mpr-3d') {
@@ -256,6 +266,23 @@ const isVolumeConfigPanelAvailable = computed(() => {
     return false
   }
   return activeTabRef.value.viewType === '3D' || (activeTabRef.value.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
+})
+
+const isRightToolbarLayout = computed(() => viewerToolbarPlacement.value === 'right')
+const shouldShowTopToolbar = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && !isRightToolbarLayout.value))
+const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && isRightToolbarLayout.value))
+const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | null>(() => {
+  const activeTab = activeTabRef.value
+  if (!shouldShowRightToolbarDock.value || !activeTab) {
+    return null
+  }
+  if (isVolumeConfigPanelAvailable.value && isVolumeConfigPanelOpen.value && activeVolumeRenderConfig.value) {
+    return 'volume'
+  }
+  if ((activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen.value && activeMprMipConfig.value) {
+    return 'mprMip'
+  }
+  return null
 })
 
 const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
@@ -1623,11 +1650,26 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorksp
     viewportHostRef
   })
 
+watch(
+  () => [viewerToolbarPlacement.value, props.activeTabKey] as const,
+  () => {
+    void nextTick().then(() => {
+      notifyWorkspaceReady()
+    })
+  }
+)
+
 function toggleTabStripCollapsed(): void {
   isTabStripCollapsed.value = !isTabStripCollapsed.value
   void nextTick().then(() => {
     notifyWorkspaceReady()
     updateTabScrollState()
+  })
+}
+
+function handleRightToolbarDockResize(): void {
+  void nextTick().then(() => {
+    notifyWorkspaceReady()
   })
 }
 
@@ -1730,7 +1772,7 @@ onBeforeUnmount(() => {
       />
 
       <ViewerToolbar
-        v-if="activeTab && activeTab.viewType !== 'Tag' && activeTab.viewType !== '4D'"
+        v-if="shouldShowTopToolbar && activeTab"
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="areToolbarActionsDisabled"
@@ -1761,11 +1803,15 @@ onBeforeUnmount(() => {
 
       <div
         v-else-if="activeTab"
-        ref="viewportHostRef"
-        class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2"
+        class="viewer-workspace-content flex min-h-0 flex-1 gap-2"
+        :class="{ 'viewer-workspace-content--right-toolbar': shouldShowRightToolbarDock }"
       >
         <div
-          v-if="isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
+          ref="viewportHostRef"
+          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden rounded-[20px] border p-2"
+        >
+        <div
+          v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
           class="absolute right-5 top-5 z-[20]"
         >
           <VolumeRenderConfigPanel
@@ -1776,7 +1822,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="(activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
+          v-if="!isRightToolbarLayout && (activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
           class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
         >
           <MprMipConfigPanel
@@ -1958,13 +2004,17 @@ onBeforeUnmount(() => {
           :is-tool-selected="isToolSelected"
           :is-tab-strip-collapsed="isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
+          :active-mpr-mip-config="activeMprMipConfig"
+          :is-mpr-mip-panel-open="isMprMipPanelOpen"
           :open-menu-key="openMenuKey"
           :show-tab-strip-toggle="shouldShowTabStripToggle"
           :stack-tool-selections="stackToolSelections"
           :mpr-layout-key="activeMprLayoutKey"
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
+          :toolbar-placement="viewerToolbarPlacement"
           @apply-tool="applyTool"
+          @close-mpr-mip-panel="closeMprMipPanel"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="handleCopySelectedMeasurement"
@@ -1987,9 +2037,11 @@ onBeforeUnmount(() => {
           @select-tool-option="selectToolOption"
           @set-menu-open="setMenuOpen"
           @toggle-tab-strip="toggleTabStripCollapsed"
+          @mpr-mip-config-change="updateActiveMprMipConfig"
           @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
           @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
           @playback-change="emit('fourDPlaybackChange', { tabKey: activeTab.key, isPlaying: $event })"
+          @dock-resize="handleRightToolbarDockResize"
         />
 
         <DicomTagView
@@ -2003,6 +2055,49 @@ onBeforeUnmount(() => {
           :mtf-item="selectedMtfItem"
           @close="handleCloseMtfCurve"
         />
+        </div>
+
+        <ViewerToolbarDock
+          v-if="shouldShowRightToolbarDock && activeTab"
+          :active-tab="activeTab"
+          :active-tools="activeTools"
+          :are-toolbar-actions-disabled="areToolbarActionsDisabled"
+          :is-playing="isPlaying"
+          :is-playback-paused="isPlaybackPaused"
+          :is-tool-selected="isToolSelected"
+          :menu-icon-size="menuIconSize"
+          :open-menu-key="openMenuKey"
+          :stack-tool-selections="stackToolSelections"
+          :toolbar-icon-size="toolbarIconSize"
+          :utility-panel-icon="rightToolbarUtilityPanelKind === 'volume' ? 'settings' : 'mip'"
+          :utility-panel-open="rightToolbarUtilityPanelKind != null"
+          :utility-panel-title="rightToolbarUtilityPanelKind === 'volume' ? '3D Params' : 'MIP Params'"
+          :utility-panel-tool-key="rightToolbarUtilityPanelKind === 'volume' ? 'volumeParams' : rightToolbarUtilityPanelKind === 'mprMip' ? 'mprMip' : null"
+          @apply-tool="applyTool"
+          @close-utility-panel="closeRightToolbarUtilityPanel"
+          @end-playback="endPlayback"
+          @pause-playback="pausePlayback"
+          @select-tool-option="selectToolOption"
+          @set-menu-open="setMenuOpen"
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <template #panel>
+            <VolumeRenderConfigPanel
+              v-if="rightToolbarUtilityPanelKind === 'volume' && activeVolumeRenderConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeVolumeRenderConfig"
+              embedded
+              @close="closeVolumeConfigPanel"
+              @config-change="emit('volumeConfigChange', $event)"
+            />
+            <MprMipConfigPanel
+              v-else-if="rightToolbarUtilityPanelKind === 'mprMip' && activeMprMipConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeMprMipConfig"
+              @config-change="updateActiveMprMipConfig"
+            />
+          </template>
+        </ViewerToolbarDock>
       </div>
 
       <div
@@ -2054,5 +2149,15 @@ onBeforeUnmount(() => {
 
 .viewer-workspace-empty.theme-drop-active {
   border-style: dashed;
+}
+
+.viewer-workspace-content--right-toolbar {
+  align-items: stretch;
+}
+
+.viewer-workspace-dock-panel {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 14px !important;
 }
 </style>

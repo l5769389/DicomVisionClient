@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import FourDView from './FourDView.vue'
-import type { FourDPhaseItem, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import { createDefaultMprMipConfig, type FourDPhaseItem, type MprViewportKey, type ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from '../../workspace/shell/toolbarTypes'
 
 vi.mock('../../workspace/shell/ViewerToolbar.vue', () => ({
@@ -31,6 +31,8 @@ vi.mock('../../../composables/ui/useUiLocale', async () => {
   return {
     useUiLocale: () => ({
       locale: ref('en-US'),
+      mprProjectionCopy: computed(() => uiMessages['en-US'].mprProjection),
+      toolbarCopy: computed(() => uiMessages['en-US'].toolbar),
       viewerCopy: computed(() => uiMessages['en-US'].viewer)
     })
   }
@@ -299,6 +301,40 @@ describe('FourDView', () => {
 
     await wrapper.findAll('.viewer-toolbar-tool')[1]!.trigger('click')
     expect(wrapper.emitted('applyTool')?.[0]?.[0]).toMatchObject({ key: 'pan' })
+    wrapper.unmount()
+  })
+
+  it('places 4D status controls below the right dock toolbar', async () => {
+    const wrapper = mount(FourDView, {
+      props: {
+        ...createFourDProps({
+          toolbarPlacement: 'right',
+          activeMprMipConfig: createDefaultMprMipConfig(),
+          isMprMipPanelOpen: true,
+          isToolSelected: (tool: StackTool) => tool.key === 'pan'
+        })
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-stub').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__status .four-d-phase-runtime').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__status .four-d-tab-strip-toggle-button').exists()).toBe(false)
+    const dockChildren = wrapper.find('.viewer-toolbar-dock__body').element.children
+    expect(dockChildren[0]?.classList.contains('viewer-toolbar-dock__tools-region')).toBe(true)
+    expect(dockChildren[1]?.classList.contains('viewer-toolbar-dock__status')).toBe(true)
+    expect(dockChildren[2]?.classList.contains('viewer-toolbar-dock__panel')).toBe(true)
+    expect(dockChildren[3]?.classList.contains('viewer-toolbar-dock__footer')).toBe(true)
+    const dockButtons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(dockButtons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(dockButtons[4]!.classes()).toContain('viewer-toolbar-dock__button--active')
+
+    await wrapper.findAll('.viewer-toolbar-dock__status .four-d-phase-button')[1]!.trigger('click')
+    expect(wrapper.emitted('phaseChange')).toEqual([[1]])
     wrapper.unmount()
   })
 

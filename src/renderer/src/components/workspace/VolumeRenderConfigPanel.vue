@@ -8,6 +8,7 @@ type PanelTabKey = 'tissue' | 'lighting'
 
 const props = defineProps<{
   config: VolumeRenderConfig
+  embedded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -84,8 +85,11 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 </script>
 
 <template>
-  <div class="theme-shell-panel w-[352px] max-w-[calc(100vw-2.5rem)] rounded-[20px] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_38px_rgba(0,0,0,0.34)] backdrop-blur">
-    <div class="mb-3 flex items-center justify-between gap-3">
+  <div
+    class="volume-config-panel theme-shell-panel w-[352px] max-w-[calc(100vw-2.5rem)] rounded-[20px] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_38px_rgba(0,0,0,0.34)] backdrop-blur"
+    :class="{ 'volume-config-panel--embedded': embedded }"
+  >
+    <div v-if="!embedded" class="mb-3 flex items-center justify-between gap-3">
       <div class="min-w-0">
         <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ volumeCopy.parameters }}</div>
         <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">{{ props.config.preset.toUpperCase() }}</div>
@@ -133,7 +137,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
       </button>
     </div>
 
-    <div v-if="activeTab === 'tissue'" class="max-h-[min(62vh,540px)] space-y-2 overflow-y-auto pr-1">
+    <div v-if="activeTab === 'tissue'" class="volume-config-panel__scroll space-y-2 overflow-y-auto pr-1">
       <div
         v-for="layer in props.config.layers"
         :key="layer.key"
@@ -225,7 +229,7 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
       </div>
     </div>
 
-    <div v-else class="max-h-[min(62vh,540px)] space-y-2 overflow-y-auto pr-1">
+    <div v-else class="volume-config-panel__scroll space-y-2 overflow-y-auto pr-1">
       <div
         class="rounded-[16px] border border-[var(--theme-border-strong)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,transparent),var(--theme-surface-card-soft))] px-3 py-2.5"
       >
@@ -342,6 +346,32 @@ function updateLighting(patch: Partial<VolumeLightingConfig>): void {
 </template>
 
 <style scoped>
+.volume-config-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.volume-config-panel--embedded {
+  width: 100% !important;
+  height: 100%;
+  max-width: 100% !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.volume-config-panel__scroll {
+  max-height: min(62vh, 540px);
+}
+
+.volume-config-panel--embedded .volume-config-panel__scroll {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+
 .volume-config-close-button {
   display: grid;
   width: 30px;

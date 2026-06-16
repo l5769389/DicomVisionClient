@@ -162,6 +162,9 @@ export interface WorkspaceExportCopy {
 }
 
 export interface ToolbarCopy {
+  dockCollapse: string
+  dockExpand: string
+  dockNoDetails: string
   hideTabs: string
   pausePlayback: string
   resumePlayback: string
@@ -526,6 +529,9 @@ export const uiMessages = {
       exportedTo: (location: string) => `已导出到 ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      dockCollapse: '收起右侧操作区',
+      dockExpand: '展开右侧操作区',
+      dockNoDetails: '该工具没有额外设置。',
       hideTabs: '收起标签栏',
       pausePlayback: '暂停播放',
       resumePlayback: '继续播放',
@@ -885,6 +891,9 @@ export const uiMessages = {
       exportedTo: (location: string) => `Exported to ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      dockCollapse: 'Collapse right toolbar',
+      dockExpand: 'Expand right toolbar',
+      dockNoDetails: 'No additional settings for this tool.',
       hideTabs: 'Hide tabs',
       pausePlayback: 'Pause playback',
       resumePlayback: 'Resume playback',

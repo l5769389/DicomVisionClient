@@ -58,7 +58,9 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
   const emitSetActiveOperation = vi.fn((value: string) => {
     activeOperation.value = value
   })
+  const emitOpenLayoutView = vi.fn()
   const emitTriggerViewAction = vi.fn()
+  const stopViewportDrag = vi.fn()
   let toolbar!: ReturnType<typeof useViewerWorkspaceToolbar>
 
   const wrapper = mount(
@@ -70,7 +72,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
           activeViewportKey,
           cleanupPointerInteractions: vi.fn(),
           emitCompareSyncChange: vi.fn(),
-          emitOpenLayoutView: vi.fn(),
+          emitOpenLayoutView,
           emitOpenSeriesView: vi.fn(),
           emitSetActiveOperation,
           emitTriggerViewAction,
@@ -79,7 +81,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
           setActiveViewport: vi.fn((viewportKey: string) => {
             activeViewportKey.value = viewportKey
           }),
-          stopViewportDrag: vi.fn()
+          stopViewportDrag
         })
         return () => h('div')
       }
@@ -90,8 +92,10 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     activeOperation,
     activeTab,
     activeViewportKey,
+    emitOpenLayoutView,
     emitSetActiveOperation,
     emitTriggerViewAction,
+    stopViewportDrag,
     toolbar,
     wrapper
   }
@@ -293,6 +297,69 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.activeTab.value = create3dTab()
     await nextTick()
     expect(getDisplayTool()).toBeUndefined()
+
+    harness.wrapper.unmount()
+  })
+
+  it('closes option menus by default after a single-select option is chosen', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const windowTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'window')!
+    const optionValue = windowTool.options![0]!.value
+
+    harness.toolbar.setMenuOpen('window')
+    expect(harness.toolbar.openMenuKey.value).toBe('window')
+    harness.toolbar.selectToolOption(windowTool, optionValue)
+
+    expect(harness.toolbar.openMenuKey.value).toBeNull()
+    harness.wrapper.unmount()
+  })
+
+  it('keeps right-dock option panels open when requested', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const getTool = (key: string) => harness.toolbar.activeTools.value.find((tool) => tool.key === key)!
+    const stackSelections = [
+      ['layout', getTool('layout').options![0]!.value],
+      ['window', getTool('window').options![0]!.value],
+      ['rotate', getTool('rotate').options![0]!.value],
+      ['play', getTool('play').options![0]!.value],
+      ['pseudocolor', getTool('pseudocolor').options![0]!.value],
+      ['measure', getTool('measure').options![0]!.value],
+      ['qa', getTool('qa').options![0]!.value]
+    ] as const
+
+    for (const [toolKey, optionValue] of stackSelections) {
+      const tool = getTool(toolKey)
+      harness.toolbar.setMenuOpen(toolKey)
+      harness.toolbar.selectToolOption(tool, optionValue, { keepMenuOpen: true })
+      expect(harness.toolbar.openMenuKey.value).toBe(toolKey)
+    }
+
+    harness.activeTab.value = {
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    }
+    await nextTick()
+
+    const mprLayoutTool = getTool('mprLayout')
+    harness.toolbar.setMenuOpen('mprLayout')
+    harness.toolbar.selectToolOption(mprLayoutTool, mprLayoutTool.options![0]!.value, { keepMenuOpen: true })
+    expect(harness.toolbar.openMenuKey.value).toBe('mprLayout')
 
     harness.wrapper.unmount()
   })

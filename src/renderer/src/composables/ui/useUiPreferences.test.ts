@@ -57,6 +57,7 @@ describe('useUiPreferences', () => {
       version: 11,
       locale: 'en-US',
       themeId: 'clinical-light',
+      viewerToolbarPlacement: 'right',
       selectedPseudocolorKey: 'rainbow',
       mprDefaultLayoutKey: 'quad',
       dicomTagDisplayMode: 'flat',
@@ -102,6 +103,7 @@ describe('useUiPreferences', () => {
     expect(preferences.themeId.value).toBe('clinical-light')
     expect(document.documentElement.dataset.theme).toBe('clinical-light')
     expect(document.documentElement.style.colorScheme).toBe('light')
+    expect(preferences.viewerToolbarPlacement.value).toBe('right')
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
     expect(preferences.mprDefaultLayoutKey.value).toBe('quad')
     expect(preferences.dicomTagDisplayMode.value).toBe('flat')
@@ -146,6 +148,7 @@ describe('useUiPreferences', () => {
   it('persists user changes after hydration', async () => {
     const preferences = await loadPreferences()
 
+    preferences.viewerToolbarPlacement.value = 'right'
     preferences.setMprDefaultLayoutKey('mpr-3d')
     preferences.dicomTagDisplayMode.value = 'flat'
     preferences.setHangingProtocolRules([
@@ -195,6 +198,7 @@ describe('useUiPreferences', () => {
     await flushPreferences()
 
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(saved.viewerToolbarPlacement).toBe('right')
     expect(saved.mprDefaultLayoutKey).toBe('mpr-3d')
     expect(saved.dicomTagDisplayMode).toBe('flat')
     expect(saved.hangingProtocolRules).toEqual([
@@ -219,6 +223,14 @@ describe('useUiPreferences', () => {
       enabled: true,
       activeProfileId: 'pacs-2'
     })
+  })
+
+  it('falls back to the top toolbar for unknown toolbar placement values', async () => {
+    const preferences = await loadPreferences({
+      viewerToolbarPlacement: 'floating'
+    })
+
+    expect(preferences.viewerToolbarPlacement.value).toBe('top')
   })
 
   it('creates PACS profiles with preset-specific DIMSE ports', async () => {

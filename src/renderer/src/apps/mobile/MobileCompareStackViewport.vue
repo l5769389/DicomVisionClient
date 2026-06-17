@@ -527,6 +527,7 @@ watch(
         :show-corner-info="compareTab?.showCornerInfo !== false"
         :show-scale-bar="compareTab?.showScaleBar !== false"
         :orientation="compareTab?.compareOrientations?.[pane.key] ?? compareTab?.orientation ?? emptyOrientationInfo"
+        :viewport-transform="compareTab?.compareTransformStates?.[pane.key] ?? compareTab?.transformState ?? null"
         @click-viewport="emitActiveViewportChange"
         @copy-annotation="emit('copyAnnotation', $event)"
         @delete-annotation="emit('deleteAnnotation', $event)"

@@ -194,6 +194,16 @@ interface ViewerWorkspaceState {
     labelLines?: string[]
   }) => void
   handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
+  handleAnnotationOperation: (payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: string
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: string
+  }) => void
   handleTagIndexChange: (payload: { tabKey: string; index: number }) => Promise<void>
   handleMtfClear: (payload?: { mtfId?: string | null }) => void
   handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
@@ -1609,6 +1619,54 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       actionType: payload.phase,
       viewportKey: payload.viewportKey,
       points: payload.points
+    }
+
+    if (isMprLikeViewType(tab.viewType)) {
+      emitMprViewOperation(payload.viewportKey, operationPayload)
+      return
+    }
+
+    const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
+    if (!viewId) {
+      return
+    }
+
+    emitViewOperation({
+      viewId,
+      ...operationPayload
+    })
+  }
+
+  function emitAnnotationOperation(payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: string
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: string
+  }): void {
+    const tab = activeTab.value
+    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
+      return
+    }
+
+    if (payload.actionType !== 'delete' && !payload.points?.length) {
+      return
+    }
+
+    const operationPayload: ViewOperationInput = {
+      opType: VIEW_OPERATION_TYPES.annotation,
+      annotationId: payload.annotationId,
+      subOpType: payload.toolType ?? 'arrow',
+      toolType: payload.toolType ?? 'arrow',
+      actionType: payload.actionType,
+      viewportKey: payload.viewportKey,
+      points: payload.points,
+      text: payload.text,
+      color: payload.color,
+      size: payload.size
     }
 
     if (isMprLikeViewType(tab.viewType)) {
@@ -3229,6 +3287,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     emitMeasurementOperation(payload)
   }
 
+  function handleAnnotationOperation(payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: string
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: string
+  }): void {
+    emitAnnotationOperation(payload)
+  }
+
   function clearActiveTabMtf(): void {
     updateActiveTabMtfState((item) => ({
       ...item,
@@ -3618,6 +3689,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleMeasurementCreate,
     handleMeasurementDelete,
     handleMeasurementDraft,
+    handleAnnotationOperation,
     handleTagIndexChange,
     handleMtfClear,
     handleMtfCommit,

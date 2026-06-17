@@ -1336,16 +1336,17 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     emitThrottledMeasurementDraft.flush()
+    const measurementId = draft.measurementId ?? generateMeasurementId()
     options.emitMeasurementCreate({
       viewportKey,
       toolType,
       points: draft.points,
-      measurementId: draft.measurementId,
+      measurementId,
       labelLines: draft.labelLines ?? []
     })
 
+    setSelectedMeasurementState(viewportKey, measurementId)
     if (draft.measurementId) {
-      setSelectedMeasurementState(viewportKey, draft.measurementId)
       return
     }
 

@@ -1,8 +1,36 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MprSegmentationPanel from './MprSegmentationPanel.vue'
 import type { MprSegmentationConfig, MprThresholdRegion, MprVoiSphere } from '../../types/viewer'
+import {
+  MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS,
+  MPR_SEGMENTATION_MAX_VOI_SPHERES
+} from '../../types/viewer'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
+import {
+  MPR_SEGMENTATION_SIDECAR_KIND,
+  buildMprSegmentationSidecar
+} from '../../composables/workspace/segmentation/mprSegmentationSidecar'
+
+const saveBinaryFileMock = vi.hoisted(() => vi.fn())
+const chooseCustomExportDirectoryMock = vi.hoisted(() => vi.fn())
+const dispatchWorkspaceStatusToastMock = vi.hoisted(() => vi.fn())
+const viewerRuntimeMock = vi.hoisted(() => ({
+  platform: 'web' as 'desktop' | 'web'
+}))
+
+vi.mock('../../platform/exporting', () => ({
+  chooseCustomExportDirectory: chooseCustomExportDirectoryMock,
+  saveBinaryFile: saveBinaryFileMock
+}))
+
+vi.mock('../../platform/runtime', () => ({
+  viewerRuntime: viewerRuntimeMock
+}))
+
+vi.mock('../../composables/workspace/tasks/workspaceStatus', () => ({
+  dispatchWorkspaceStatusToast: dispatchWorkspaceStatusToastMock
+}))
 
 function createRegion(patch: Partial<MprThresholdRegion> = {}): MprThresholdRegion {
   return {
@@ -87,12 +115,23 @@ function createMixedConfig(): MprSegmentationConfig {
 
 describe('MprSegmentationPanel', () => {
   beforeEach(() => {
+    saveBinaryFileMock.mockReset()
+    saveBinaryFileMock.mockResolvedValue({
+      directoryPath: 'C:/exports',
+      filePath: 'C:/exports/segmentation.dvsseg.json',
+      locationDescription: 'C:/exports/segmentation.dvsseg.json',
+      mode: 'filesystem'
+    })
+    chooseCustomExportDirectoryMock.mockReset()
+    dispatchWorkspaceStatusToastMock.mockReset()
+    viewerRuntimeMock.platform = 'web'
     useUiPreferences().setLocale('zh-CN')
   })
 
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+    document.body.innerHTML = ''
   })
 
   it('emits depth move updates immediately and preserves the draft through stale props', async () => {
@@ -627,5 +666,394 @@ describe('MprSegmentationPanel', () => {
     })
 
     expect(wrapper.find('[data-testid="mpr-voi-select-v2"]').exists()).toBe(true)
+  })
+
+  it('renders import/export controls and selects all segmentation items in the export dialog by default', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('[data-testid="mpr-segmentation-import"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-segmentation-export"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-threshold-export-r1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mpr-voi-export-v1"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-threshold-r1"]')?.checked).toBe(true)
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-voi-v1"]')?.checked).toBe(true)
+  })
+
+  it('uses a description placeholder for empty segmentation labels', () => {
+    const voi = { ...createVoiSphere(), label: '' }
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          thresholdRegions: [createRegion({ label: '' })],
+          voiSpheres: [voi],
+          voiSphere: voi
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-label-r1"]').element.placeholder).toBe('描述信息')
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-label-r1"]').element.value).toBe('')
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-label-v1"]').element.placeholder).toBe('描述信息')
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-label-v1"]').element.value).toBe('')
+  })
+
+  it('keeps segmentation records inside a scrolling list area', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const list = wrapper.find('[data-testid="mpr-segmentation-record-list"]')
+    expect(list.exists()).toBe(true)
+    expect(list.classes()).toContain('overflow-y-auto')
+    expect(list.attributes('class')).toContain('max-h-')
+  })
+
+  it('exports only selected items and omits stats from the sidecar', async () => {
+    const voi = {
+      ...createVoiSphere(),
+      stats: {
+        huMean: 10,
+        huMin: 5,
+        huMax: 20,
+        huStdDev: 3,
+        volumeCm3: 4.5,
+        sampleCount: 8
+      }
+    }
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          voiSpheres: [voi],
+          voiSphere: voi
+        },
+        seriesId: 'series-a',
+        seriesLabel: 'Chest CT'
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')
+    expect(dialog?.textContent).toContain('2 / 2')
+    expect(dialog?.textContent).not.toContain('将使用当前平台的默认下载或导出流程。')
+    expect(document.body.querySelector('[data-testid="mpr-export-dialog-threshold-metrics-r1"]')?.textContent).toContain('mean 120.00')
+    expect(document.body.querySelector('[data-testid="mpr-export-dialog-voi-metrics-v1"]')?.textContent).toContain('mean 10.00')
+    const thresholdLabel = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-threshold-label-r1"]')
+    thresholdLabel!.value = 'Export threshold'
+    thresholdLabel!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    const voiExport = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-voi-v1"]')
+    expect(voiExport?.checked).toBe(true)
+    voiExport!.checked = false
+    voiExport!.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(dialog?.textContent).toContain('1 / 2')
+    const fileNameInput = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-segmentation-export-file-name-stem-input"]')
+    expect(fileNameInput?.value).toMatch(/^dicomvision-mpr-segmentation-\d{8}-\d{6}$/)
+    expect(fileNameInput?.value).not.toContain('.dvsseg.json')
+    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-file-name-suffix"]')?.textContent).toContain('.dvsseg.json')
+    fileNameInput!.value = 'custom-segmentation'
+    fileNameInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(saveBinaryFileMock).not.toHaveBeenCalled()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-submit"]')?.click()
+    await flushPromises()
+
+    expect(saveBinaryFileMock).toHaveBeenCalledTimes(1)
+    const payload = saveBinaryFileMock.mock.calls[0]?.[0]
+    const sidecar = JSON.parse(new TextDecoder().decode(payload.data))
+    expect(payload.fileName).toBe('custom-segmentation.dvsseg.json')
+    expect(payload.mimeType).toBe('application/json')
+    expect(sidecar.kind).toBe(MPR_SEGMENTATION_SIDECAR_KIND)
+    expect(sidecar.source).toEqual({
+      seriesId: 'series-a',
+      seriesLabel: 'Chest CT',
+      viewType: 'MPR'
+    })
+    expect(sidecar.items.thresholdRegions.map((region: MprThresholdRegion) => region.id)).toEqual(['r1'])
+    expect(sidecar.items.thresholdRegions[0].label).toBe('Export threshold')
+    expect(sidecar.items.voiSpheres).toEqual([])
+    expect(sidecar.items.thresholdRegions[0]).not.toHaveProperty('stats')
+    expect(dispatchWorkspaceStatusToastMock).toHaveBeenCalledWith('分割文件已导出', 'success', expect.objectContaining({
+      filePath: 'C:/exports/segmentation.dvsseg.json'
+    }))
+  })
+
+  it('falls back to the generated stem when the export name is empty', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    const fileNameInput = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-segmentation-export-file-name-stem-input"]')
+    fileNameInput!.value = '   '
+    fileNameInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-submit"]')?.click()
+    await flushPromises()
+
+    expect(saveBinaryFileMock.mock.calls[0]?.[0].fileName).toMatch(/^dicomvision-mpr-segmentation-\d{8}-\d{6}\.dvsseg\.json$/)
+  })
+
+  it('disables export confirmation when no dialog items are selected', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    const thresholdExport = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-threshold-r1"]')
+    const voiExport = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-voi-v1"]')
+    thresholdExport!.checked = false
+    thresholdExport!.dispatchEvent(new Event('change', { bubbles: true }))
+    voiExport!.checked = false
+    voiExport!.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    const submit = document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-submit"]')
+    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')).not.toBeNull()
+    expect(submit?.disabled).toBe(true)
+    expect(saveBinaryFileMock).not.toHaveBeenCalled()
+  })
+
+  it('edits the desktop export path before confirming', async () => {
+    viewerRuntimeMock.platform = 'desktop'
+    chooseCustomExportDirectoryMock.mockResolvedValue({ desktopDirectory: 'E:/chosen' })
+    Object.defineProperty(window, 'viewerApi', {
+      configurable: true,
+      value: {
+        getDefaultExportDirectory: vi.fn().mockResolvedValue('D:/exports')
+      }
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')
+    expect(dialog?.textContent).toContain('保存位置')
+    expect(dialog?.textContent).toContain('文件名')
+    const directoryInput = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-segmentation-export-directory-input"]')
+    expect(directoryInput?.value).toBe('D:/exports')
+    directoryInput!.value = 'E:/manual'
+    directoryInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(directoryInput?.value).toBe('E:/manual')
+    document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-directory-choose"]')?.click()
+    await flushPromises()
+    expect(directoryInput?.value).toBe('E:/chosen')
+    expect(saveBinaryFileMock).not.toHaveBeenCalled()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-submit"]')?.click()
+    await flushPromises()
+
+    const payload = saveBinaryFileMock.mock.calls[0]?.[0]
+    expect(payload.preference).toEqual(expect.objectContaining({
+      desktopDirectory: 'E:/chosen',
+      locationMode: 'custom'
+    }))
+  })
+
+  it('does not export when the confirmation dialog is cancelled', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')?.textContent).toContain('2 / 2')
+    document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-cancel"]')?.click()
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')).toBeNull()
+    expect(saveBinaryFileMock).not.toHaveBeenCalled()
+  })
+
+  it('imports a valid sidecar by merging items and clearing imported stats', async () => {
+    const sidecar = buildMprSegmentationSidecar({
+      config: {
+        ...createMixedConfig(),
+        thresholdRegions: [createRegion({ id: 'r1', label: 'Imported threshold' })],
+        voiSpheres: [createVoiSphere()]
+      }
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+    const input = wrapper.find<HTMLInputElement>('[data-testid="mpr-segmentation-import-input"]')
+    const file = new File([JSON.stringify(sidecar)], 'segmentation.dvsseg.json', { type: 'application/json' })
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [file]
+    })
+
+    await input.trigger('change')
+
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:threshold', 'mpr-ax'])
+    const emitted = wrapper.emitted('configChange')?.at(-1)
+    expect(emitted?.[1]).toBe('end')
+    const config = emitted?.[0] as MprSegmentationConfig
+    expect(config.enabled).toBe(true)
+    expect(config.clientRevision).toBe(6)
+    expect(config.selectedRegionId).toBe('r1-2')
+    expect(config.thresholdRegions.map((region) => region.id)).toEqual(['r1', 'r1-2'])
+    expect(config.voiSpheres.map((sphere) => sphere.id)).toEqual(['v1', 'v1-2'])
+    expect(config.thresholdRegions[1]?.stats).toBeNull()
+    expect(config.voiSpheres[1]?.stats).toBeNull()
+    expect(dispatchWorkspaceStatusToastMock).toHaveBeenCalledWith('已导入分割项: 2', 'success')
+  })
+
+  it('limits imported sidecar items to the remaining threshold and VOI capacity', async () => {
+    const existingRegions = Array.from({ length: MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS - 1 }, (_, index) =>
+      createRegion({ id: `r${index + 1}`, label: `${index + 1}` })
+    )
+    const existingSpheres = Array.from({ length: MPR_SEGMENTATION_MAX_VOI_SPHERES }, (_, index) => ({
+      ...createVoiSphere(),
+      id: `v${index + 1}`,
+      label: `${index + 1}`
+    }))
+    const currentConfig: MprSegmentationConfig = {
+      enabled: true,
+      clientRevision: 9,
+      selectedRegionId: existingRegions[0]?.id ?? null,
+      selectedVoi: false,
+      selectedVoiId: null,
+      thresholdRegions: existingRegions,
+      voiSpheres: existingSpheres,
+      voiSphere: existingSpheres[0] ?? null
+    }
+    const sidecar = buildMprSegmentationSidecar({
+      config: {
+        ...createMixedConfig(),
+        thresholdRegions: [
+          createRegion({ id: 'imported-r1' }),
+          createRegion({ id: 'imported-r2' }),
+          createRegion({ id: 'imported-r3' })
+        ],
+        voiSpheres: [
+          { ...createVoiSphere(), id: 'imported-v1' },
+          { ...createVoiSphere(), id: 'imported-v2' }
+        ]
+      }
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: currentConfig
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+    const input = wrapper.find<HTMLInputElement>('[data-testid="mpr-segmentation-import-input"]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [new File([JSON.stringify(sidecar)], 'segmentation.dvsseg.json', { type: 'application/json' })]
+    })
+
+    await input.trigger('change')
+
+    const emitted = wrapper.emitted('configChange')?.at(-1)
+    const config = emitted?.[0] as MprSegmentationConfig
+    expect(config.thresholdRegions).toHaveLength(MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS)
+    expect(config.voiSpheres).toHaveLength(MPR_SEGMENTATION_MAX_VOI_SPHERES)
+    expect(config.thresholdRegions.at(-1)?.id).toBe('imported-r1')
+    expect(config.voiSpheres.some((sphere) => sphere.id.startsWith('imported-v'))).toBe(false)
+    expect(dispatchWorkspaceStatusToastMock).toHaveBeenCalledWith(expect.stringContaining('4'), 'warning', { durationMs: 6000 })
+  })
+
+  it('shows an error and does not update config for an invalid import file', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+    const input = wrapper.find<HTMLInputElement>('[data-testid="mpr-segmentation-import-input"]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [new File(['{'], 'broken.json', { type: 'application/json' })]
+    })
+
+    await input.trigger('change')
+
+    expect(wrapper.emitted('configChange')).toBeUndefined()
+    expect(dispatchWorkspaceStatusToastMock).toHaveBeenCalledWith('Segmentation file is not valid JSON.', 'error', { durationMs: 6000 })
   })
 })

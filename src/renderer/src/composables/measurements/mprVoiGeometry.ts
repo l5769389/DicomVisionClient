@@ -506,6 +506,22 @@ function buildRectHandlePoints(rect: NormalizedImageRect): ThresholdResizeHandle
   ]
 }
 
+function buildRectFromPoints(points: NormalizedImagePoint[]): NormalizedImageRect | null {
+  if (points.length < 2) {
+    return null
+  }
+  return {
+    xMin: Math.min(...points.map((point) => point.x)),
+    xMax: Math.max(...points.map((point) => point.x)),
+    yMin: Math.min(...points.map((point) => point.y)),
+    yMax: Math.max(...points.map((point) => point.y))
+  }
+}
+
+function rectOverlapsImage(rect: NormalizedImageRect): boolean {
+  return rect.xMax >= 0 && rect.xMin <= 1 && rect.yMax >= 0 && rect.yMin <= 1
+}
+
 export function projectThresholdRegionBoxToPlane(
   box: MprThresholdRegionBox,
   plane: MprPlaneInfo
@@ -517,8 +533,11 @@ export function projectThresholdRegionBoxToPlane(
     Math.abs(dotVec3(box.normalWorld, plane.normalWorld as Vec3)) * box.depthMm / 2
   const distanceToPlaneMm = dotVec3(delta, plane.normalWorld as Vec3)
   const intersectsPlane = Math.abs(distanceToPlaneMm) <= halfPlaneNormalExtentMm + 1e-6
-  const intersectionPoints = intersectsPlane ? getBoxPlaneIntersectionPoints(box, plane) : []
-  if (intersectionPoints.length < 2) {
+  const projectionPoints = intersectsPlane
+    ? getBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToNormalizedImage(plane, point))
+    : getBoxCorners(box).map((point) => worldPointToNormalizedImage(plane, point))
+  const rect = buildRectFromPoints(projectionPoints)
+  if (!rect) {
     const emptyRect = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
     return {
       rect: emptyRect,
@@ -528,21 +547,14 @@ export function projectThresholdRegionBoxToPlane(
       visible: false
     }
   }
-  const points = intersectionPoints.map((point) => worldPointToNormalizedImage(plane, point))
-  const rect = {
-    xMin: Math.min(...points.map((point) => point.x)),
-    xMax: Math.max(...points.map((point) => point.x)),
-    yMin: Math.min(...points.map((point) => point.y)),
-    yMax: Math.max(...points.map((point) => point.y))
-  }
   const clippedRect = clipRect(rect)
-  const overlapsImage = rect.xMax >= 0 && rect.xMin <= 1 && rect.yMax >= 0 && rect.yMin <= 1
+  const overlapsImage = rectOverlapsImage(rect)
   return {
     rect,
     clippedRect,
-    handles: buildRectHandlePoints(clippedRect),
+    handles: intersectsPlane ? buildRectHandlePoints(clippedRect) : [],
     intersectsPlane,
-    visible: intersectsPlane && overlapsImage
+    visible: overlapsImage
   }
 }
 
@@ -559,23 +571,28 @@ export function projectThresholdRegionBoxToCanvasPlane(
       handles: []
     }
   }
-  const intersectionPoints = getBoxPlaneIntersectionPoints(box, plane)
-  const points = intersectionPoints.map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
-  const rect = {
-    xMin: Math.min(...points.map((point) => point.x)),
-    xMax: Math.max(...points.map((point) => point.x)),
-    yMin: Math.min(...points.map((point) => point.y)),
-    yMax: Math.max(...points.map((point) => point.y))
+  const projectionPoints = baseProjection.intersectsPlane
+    ? getBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
+    : getBoxCorners(box).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
+  const rect = buildRectFromPoints(projectionPoints)
+  if (!rect) {
+    return {
+      ...baseProjection,
+      handles: [],
+      visible: false
+    }
   }
   return {
     rect,
     clippedRect: clipRect(rect),
-    handles: baseProjection.handles.map(({ handle, point }) => ({
-      handle,
-      point: sourceImagePointToCanvasNormalized(plane, point, frame, transform)
-    })),
+    handles: baseProjection.intersectsPlane
+      ? baseProjection.handles.map(({ handle, point }) => ({
+          handle,
+          point: sourceImagePointToCanvasNormalized(plane, point, frame, transform)
+        }))
+      : [],
     intersectsPlane: baseProjection.intersectsPlane,
-    visible: baseProjection.intersectsPlane && rect.xMax >= 0 && rect.xMin <= 1 && rect.yMax >= 0 && rect.yMin <= 1
+    visible: rectOverlapsImage(rect)
   }
 }
 

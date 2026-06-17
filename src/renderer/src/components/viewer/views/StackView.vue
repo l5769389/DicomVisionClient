@@ -204,6 +204,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       :scale-bar="props.activeTab.scaleBar ?? null"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-scale-bar="props.activeTab.showScaleBar !== false"
+      :viewport-transform="props.activeTab.transformState ?? null"
       :orientation="props.activeTab.orientation"
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"

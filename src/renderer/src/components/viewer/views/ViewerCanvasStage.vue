@@ -154,14 +154,66 @@ const stageSize = ref({
   width: 0,
   height: 0
 })
-const imageFrame = ref<OverlayImageFrame>({
-  left: 0,
-  top: 0,
-  width: 0,
-  height: 0,
-  naturalWidth: 0,
-  naturalHeight: 0
-})
+function createEmptyImageFrame(): OverlayImageFrame {
+  return {
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    naturalWidth: 0,
+    naturalHeight: 0
+  }
+}
+
+const imageFrame = ref<OverlayImageFrame>(createEmptyImageFrame())
+let lastValidImageFrame: OverlayImageFrame | null = null
+
+function isValidImageFrame(frame: OverlayImageFrame | null): frame is OverlayImageFrame {
+  return Boolean(
+    frame &&
+    frame.width > 0 &&
+    frame.height > 0 &&
+    (frame.naturalWidth ?? 0) > 0 &&
+    (frame.naturalHeight ?? 0) > 0
+  )
+}
+
+function getContainedImageRect(containerRect: DOMRect, naturalWidth: number, naturalHeight: number): DOMRect {
+  if (!naturalWidth || !naturalHeight || !containerRect.width || !containerRect.height) {
+    return containerRect
+  }
+
+  const elementAspectRatio = containerRect.width / containerRect.height
+  const imageAspectRatio = naturalWidth / naturalHeight
+  if (elementAspectRatio > imageAspectRatio) {
+    const renderedWidth = containerRect.height * imageAspectRatio
+    const offsetX = (containerRect.width - renderedWidth) / 2
+    return new DOMRect(containerRect.left + offsetX, containerRect.top, renderedWidth, containerRect.height)
+  }
+
+  const renderedHeight = containerRect.width / imageAspectRatio
+  const offsetY = (containerRect.height - renderedHeight) / 2
+  return new DOMRect(containerRect.left, containerRect.top + offsetY, containerRect.width, renderedHeight)
+}
+
+function buildImageFrame(stageRect: DOMRect, imageRect: DOMRect, naturalWidth: number, naturalHeight: number): OverlayImageFrame {
+  return {
+    left: toStablePixel(imageRect.left - stageRect.left),
+    top: toStablePixel(imageRect.top - stageRect.top),
+    width: toStablePixel(imageRect.width),
+    height: toStablePixel(imageRect.height),
+    naturalWidth,
+    naturalHeight
+  }
+}
+
+function getFallbackImageFrame(stageRect: DOMRect): OverlayImageFrame | null {
+  if (!isValidImageFrame(lastValidImageFrame) || !stageRect.width || !stageRect.height) {
+    return lastValidImageFrame
+  }
+  const imageRect = getContainedImageRect(stageRect, lastValidImageFrame.naturalWidth ?? 0, lastValidImageFrame.naturalHeight ?? 0)
+  return buildImageFrame(stageRect, imageRect, lastValidImageFrame.naturalWidth ?? 0, lastValidImageFrame.naturalHeight ?? 0)
+}
 
 const normalizedLoadingProgressPercent = computed(() => {
   if (typeof props.loadingProgressPercent !== 'number' || !Number.isFinite(props.loadingProgressPercent)) {
@@ -292,20 +344,9 @@ function getRenderedImageRect(image: HTMLImageElement): DOMRect {
     return rect
   }
 
-  const elementAspectRatio = rect.width / rect.height
-  const imageAspectRatio = naturalWidth / naturalHeight
-
   // The <img> uses object-contain, so the DOM box can include letterboxing.
   // Hover and image-space overlays need the actual rendered image rectangle.
-  if (elementAspectRatio > imageAspectRatio) {
-    const renderedWidth = rect.height * imageAspectRatio
-    const offsetX = (rect.width - renderedWidth) / 2
-    return new DOMRect(rect.left + offsetX, rect.top, renderedWidth, rect.height)
-  }
-
-  const renderedHeight = rect.width / imageAspectRatio
-  const offsetY = (rect.height - renderedHeight) / 2
-  return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
+  return getContainedImageRect(rect, naturalWidth, naturalHeight)
 }
 
 function updateStageMetricsNow(): void {
@@ -323,26 +364,22 @@ function updateStageMetricsNow(): void {
   }
 
   if (!image || !props.imageSrc) {
-    imageFrame.value = {
-      left: 0,
-      top: 0,
-      width: 0,
-      height: 0,
-      naturalWidth: 0,
-      naturalHeight: 0
+    lastValidImageFrame = null
+    imageFrame.value = createEmptyImageFrame()
+    return
+  }
+
+  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+    const imageRect = getRenderedImageRect(image)
+    const nextFrame = buildImageFrame(stageRect, imageRect, image.naturalWidth, image.naturalHeight)
+    imageFrame.value = nextFrame
+    if (isValidImageFrame(nextFrame)) {
+      lastValidImageFrame = nextFrame
     }
     return
   }
 
-  const imageRect = getRenderedImageRect(image)
-  imageFrame.value = {
-    left: toStablePixel(imageRect.left - stageRect.left),
-    top: toStablePixel(imageRect.top - stageRect.top),
-    width: toStablePixel(imageRect.width),
-    height: toStablePixel(imageRect.height),
-    naturalWidth: image.naturalWidth,
-    naturalHeight: image.naturalHeight
-  }
+  imageFrame.value = getFallbackImageFrame(stageRect) ?? createEmptyImageFrame()
 }
 
 function scheduleStageMetricsUpdate(): void {

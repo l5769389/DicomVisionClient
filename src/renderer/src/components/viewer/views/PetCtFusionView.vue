@@ -1204,6 +1204,7 @@ watch(
           :show-corner-info="shouldShowFusionPaneCornerInfo(pane)"
           :show-scale-bar="shouldShowFusionPaneScaleBar(pane)"
           :stage-surface-class="getFusionPaneStageSurfaceClass(pane.key)"
+          :viewport-transform="activeTab.fusionTransformStates?.[pane.key] ?? activeTab.transformState ?? null"
           :viewport-key="pane.key"
           @click-viewport="emit('viewportClick', $event)"
           @copy-annotation="emit('copyAnnotation', $event)"

@@ -7,10 +7,12 @@ import type {
   ViewerTabItem
 } from '../../../types/viewer'
 import {
-  findArrowAnnotationAtPoint,
+  findArrowAnnotationAtScreenPoint,
   isValidArrowAnnotation,
   translateAnnotationPoints,
-  updateEditedArrowPoints
+  updateEditedArrowPoints,
+  type AnnotationProjectionFrame,
+  type AnnotationScreenPoint
 } from '../../annotations/annotationGeometry'
 import { isMprLikeViewType } from '../views/viewerViewportTargets'
 
@@ -28,6 +30,7 @@ type AnnotationInteractionState =
       viewportKey: string
       annotationId: string
       startPoint: MeasurementDraftPoint
+      startScreenPoint: AnnotationScreenPoint
       originalPoints: MeasurementDraftPoint[]
     }
   | {
@@ -35,6 +38,7 @@ type AnnotationInteractionState =
       viewportKey: string
       annotationId: string
       startPoint: MeasurementDraftPoint
+      startScreenPoint: AnnotationScreenPoint
       originalPoints: MeasurementDraftPoint[]
     }
   | { kind: 'editing_handle'; viewportKey: string; annotationId: string; handleIndex: number }
@@ -95,7 +99,13 @@ function getRenderedImageRect(imageElement: HTMLImageElement): DOMRect {
   return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
 }
 
-function getNormalizedViewportPoint(event: PointerEvent): MeasurementDraftPoint | null {
+interface AnnotationPointerProjection {
+  sourcePoint: MeasurementDraftPoint
+  screenPoint: AnnotationScreenPoint
+  frame: AnnotationProjectionFrame
+}
+
+function getAnnotationPointerProjection(event: PointerEvent): AnnotationPointerProjection | null {
   const imageElement = resolveViewportImageElement(event)
   if (!imageElement) {
     return null
@@ -106,9 +116,26 @@ function getNormalizedViewportPoint(event: PointerEvent): MeasurementDraftPoint 
     return null
   }
 
+  const frame: AnnotationProjectionFrame = {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    naturalWidth: imageElement.naturalWidth || rect.width,
+    naturalHeight: imageElement.naturalHeight || rect.height
+  }
+  const screenPoint = {
+    x: event.clientX,
+    y: event.clientY
+  }
+
   return {
-    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+    sourcePoint: {
+      x: Math.max(0, Math.min(1, (screenPoint.x - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (screenPoint.y - rect.top) / rect.height))
+    },
+    screenPoint,
+    frame
   }
 }
 
@@ -148,12 +175,22 @@ export interface WorkspaceAnnotationsOptions {
   activeOperation: ComputedRef<string> | Ref<string>
   activeTab: ComputedRef<ViewerTabItem | null> | Ref<ViewerTabItem | null>
   activeViewportKey: ComputedRef<string> | Ref<string>
+  emitAnnotationOperation?: (payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: AnnotationDraft['toolType']
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: AnnotationSize
+  }) => void
   setActiveViewport: (viewportKey: string) => void
 }
 
 export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
-  const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
   const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
+  const pendingDeletedAnnotationIds = ref<Partial<Record<string, string[]>>>({})
   const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
   const annotationActivePointerId = ref<number | null>(null)
 
@@ -173,41 +210,17 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
   }
 
   function getAnnotations(viewportKey: string): AnnotationOverlay[] {
-    const tabKey = options.activeTab.value?.key
     const activeTab = options.activeTab.value
-    if (!tabKey || !activeTab) {
+    if (!activeTab) {
       return []
     }
 
-    const importedAnnotations =
-      activeTab.viewType === 'Stack'
+    const committedAnnotations =
+      activeTab.viewType === 'Stack' || activeTab.viewType === 'PET'
         ? (activeTab.annotations ?? [])
         : (activeTab.viewportAnnotations?.[viewportKey] ?? [])
-    const localAnnotations = annotationStore.value[tabKey]?.[viewportKey] ?? []
-    if (!localAnnotations.length) {
-      return importedAnnotations
-    }
-
-    const localAnnotationIds = new Set(localAnnotations.map((annotation) => annotation.annotationId))
-    return [
-      ...importedAnnotations.filter((annotation) => !localAnnotationIds.has(annotation.annotationId)),
-      ...localAnnotations
-    ]
-  }
-
-  function setViewportAnnotations(viewportKey: string, annotations: AnnotationOverlay[]): void {
-    const tabKey = options.activeTab.value?.key
-    if (!tabKey) {
-      return
-    }
-
-    annotationStore.value = {
-      ...annotationStore.value,
-      [tabKey]: {
-        ...(annotationStore.value[tabKey] ?? {}),
-        [viewportKey]: annotations
-      }
-    }
+    const pendingDeletedIds = new Set(pendingDeletedAnnotationIds.value[viewportKey] ?? [])
+    return committedAnnotations.filter((annotation) => !pendingDeletedIds.has(annotation.annotationId))
   }
 
   function clearDraftAnnotations(): void {
@@ -219,33 +232,43 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
   }
 
   function clearAllAnnotationsForActiveTab(): void {
-    const tabKey = options.activeTab.value?.key
-    if (!tabKey) {
-      return
-    }
-
-    annotationStore.value = {
-      ...annotationStore.value,
-      [tabKey]: {}
-    }
+    pendingDeletedAnnotationIds.value = {}
     clearDraftAnnotations()
     resetAnnotationInteraction()
   }
 
-  function upsertAnnotation(viewportKey: string, annotation: AnnotationOverlay): void {
-    const current = getAnnotations(viewportKey)
-    const index = current.findIndex((item) => item.annotationId === annotation.annotationId)
-    setViewportAnnotations(
+  function commitAnnotation(viewportKey: string, annotation: AnnotationOverlay | AnnotationDraft): void {
+    if (!annotation.annotationId || !isValidArrowAnnotation(annotation.points)) {
+      return
+    }
+    options.emitAnnotationOperation?.({
       viewportKey,
-      index === -1 ? [...current, annotation] : current.map((item, currentIndex) => (currentIndex === index ? annotation : item))
-    )
+      annotationId: annotation.annotationId,
+      actionType: 'end',
+      toolType: annotation.toolType,
+      points: annotation.points,
+      text: annotation.text,
+      color: annotation.color,
+      size: annotation.size
+    })
   }
 
-  function removeAnnotation(viewportKey: string, annotationId: string): void {
-    setViewportAnnotations(
+  function markAnnotationPendingDelete(viewportKey: string, annotationId: string): void {
+    const nextIds = new Set(pendingDeletedAnnotationIds.value[viewportKey] ?? [])
+    nextIds.add(annotationId)
+    pendingDeletedAnnotationIds.value = {
+      ...pendingDeletedAnnotationIds.value,
+      [viewportKey]: Array.from(nextIds)
+    }
+  }
+
+  function emitAnnotationDelete(viewportKey: string, annotationId: string): void {
+    markAnnotationPendingDelete(viewportKey, annotationId)
+    options.emitAnnotationOperation?.({
       viewportKey,
-      getAnnotations(viewportKey).filter((item) => item.annotationId !== annotationId)
-    )
+      annotationId,
+      actionType: 'delete'
+    })
   }
 
   function setDraftAnnotation(viewportKey: string, annotation: AnnotationDraft | null): void {
@@ -303,15 +326,25 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
     resetAnnotationInteraction()
   }
 
-  function updateSelectedAnnotation(viewportKey: string, annotationId: string, updater: (current: AnnotationOverlay) => AnnotationOverlay): void {
-    const current = findAnnotation(viewportKey, annotationId)
+  function updateSelectedAnnotation(
+    viewportKey: string,
+    annotationId: string,
+    updater: (current: AnnotationOverlay) => AnnotationOverlay,
+    updateOptions: { commit?: boolean } = {}
+  ): void {
+    const draft = getDraftAnnotation(viewportKey)
+    const current = draft?.annotationId === annotationId
+      ? ({ ...draft, annotationId } as AnnotationOverlay)
+      : findAnnotation(viewportKey, annotationId)
     if (!current) {
       return
     }
 
     const nextAnnotation = updater(current)
-    upsertAnnotation(viewportKey, nextAnnotation)
     selectAnnotation(viewportKey, nextAnnotation)
+    if (updateOptions.commit ?? true) {
+      commitAnnotation(viewportKey, nextAnnotation)
+    }
   }
 
   function handleAnnotationTextUpdate(payload: { viewportKey: string; annotationId: string; text: string }): void {
@@ -364,8 +397,8 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
       points: copiedPoints
     }
 
-    upsertAnnotation(resolvedViewportKey, copiedAnnotation)
     selectAnnotation(resolvedViewportKey, copiedAnnotation)
+    commitAnnotation(resolvedViewportKey, copiedAnnotation)
     resetAnnotationInteraction()
     return true
   }
@@ -377,14 +410,14 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
       return false
     }
 
-    removeAnnotation(resolvedViewportKey, draft.annotationId)
+    emitAnnotationDelete(resolvedViewportKey, draft.annotationId)
     setDraftAnnotation(resolvedViewportKey, null)
     resetAnnotationInteraction()
     return true
   }
 
   function handleAnnotationDelete(payload: { viewportKey: string; annotationId: string }): void {
-    removeAnnotation(payload.viewportKey, payload.annotationId)
+    emitAnnotationDelete(payload.viewportKey, payload.annotationId)
     const draft = getDraftAnnotation(payload.viewportKey)
     if (draft?.annotationId === payload.annotationId) {
       setDraftAnnotation(payload.viewportKey, null)
@@ -412,17 +445,16 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
     }
 
     const pointerTarget = resolvePointerContainer(event)
-    const point = getNormalizedViewportPoint(event)
-    const imageElement = resolveViewportImageElement(event)
-    if (!(pointerTarget instanceof HTMLElement) || !point || !imageElement) {
+    const projection = getAnnotationPointerProjection(event)
+    if (!(pointerTarget instanceof HTMLElement) || !projection) {
       return false
     }
 
     event.preventDefault()
     options.setActiveViewport(viewportKey)
-    const rect = getRenderedImageRect(imageElement)
+    const point = projection.sourcePoint
     const annotations = getAnnotations(viewportKey)
-    const hit = findArrowAnnotationAtPoint(annotations, point, rect)
+    const hit = findArrowAnnotationAtScreenPoint(annotations, projection.screenPoint, projection.frame)
 
     if (hit?.handleIndex != null) {
       selectAnnotation(viewportKey, hit.annotation)
@@ -444,6 +476,7 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
         viewportKey,
         annotationId: hit.annotation.annotationId,
         startPoint: point,
+        startScreenPoint: projection.screenPoint,
         originalPoints: hit.annotation.points
       }
       return true
@@ -471,10 +504,14 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
     }
 
     const interaction = annotationInteraction.value
-    const point = getNormalizedViewportPoint(event)
-    if (!point) {
+    if (interaction.kind === 'idle') {
+      return false
+    }
+    const projection = getAnnotationPointerProjection(event)
+    if (!projection) {
       return true
     }
+    const point = projection.sourcePoint
 
     if (interaction.kind === 'creating') {
       const draft = getDraftAnnotation(interaction.viewportKey)
@@ -490,14 +527,8 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
     }
 
     if (interaction.kind === 'move_pending') {
-      const imageElement = resolveViewportImageElement(event)
-      if (!imageElement) {
-        return true
-      }
-
-      const rect = getRenderedImageRect(imageElement)
-      const deltaX = (point.x - interaction.startPoint.x) * rect.width
-      const deltaY = (point.y - interaction.startPoint.y) * rect.height
+      const deltaX = projection.screenPoint.x - interaction.startScreenPoint.x
+      const deltaY = projection.screenPoint.y - interaction.startScreenPoint.y
       if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < ANNOTATION_DRAG_START_THRESHOLD) {
         return true
       }
@@ -518,18 +549,19 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
           points: translateAnnotationPoints(
             movingInteraction.originalPoints,
             point.x - movingInteraction.startPoint.x,
-            point.y - movingInteraction.startPoint.y
-          )
-        })
-      )
+          point.y - movingInteraction.startPoint.y
+        )
+      }),
+      { commit: false }
+    )
       return true
     }
 
     if (interaction.kind === 'editing_handle') {
-      updateSelectedAnnotation(interaction.viewportKey, interaction.annotationId, (current) => ({
-        ...current,
-        points: updateEditedArrowPoints(current.points, interaction.handleIndex, point)
-      }))
+    updateSelectedAnnotation(interaction.viewportKey, interaction.annotationId, (current) => ({
+      ...current,
+      points: updateEditedArrowPoints(current.points, interaction.handleIndex, point)
+    }), { commit: false })
       return true
     }
 
@@ -553,8 +585,8 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
           color: draft.color,
           size: draft.size
         }
-        upsertAnnotation(interaction.viewportKey, annotation)
         selectAnnotation(interaction.viewportKey, annotation)
+        commitAnnotation(interaction.viewportKey, annotation)
       } else {
         setDraftAnnotation(interaction.viewportKey, null)
       }
@@ -564,6 +596,10 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
     }
 
     if (interaction.kind === 'move_pending' || interaction.kind === 'moving' || interaction.kind === 'editing_handle') {
+      const draft = getDraftAnnotation(interaction.viewportKey)
+      if (draft?.annotationId) {
+        commitAnnotation(interaction.viewportKey, draft)
+      }
       stopAnnotationInteraction(event.currentTarget)
       return true
     }

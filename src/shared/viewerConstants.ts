@@ -21,7 +21,8 @@ export const VIEW_OPERATION_TYPES = {
   fusionRegistration: 'fusionRegistration',
   fusionConfig: 'fusionConfig',
   petConfig: 'petConfig',
-  measurement: 'measurement'
+  measurement: 'measurement',
+  annotation: 'annotation'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]
 

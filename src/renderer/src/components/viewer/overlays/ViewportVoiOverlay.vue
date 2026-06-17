@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { OverlayImageFrame } from './overlayGeometry'
+import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
+import { dispatchWorkspaceStatusToast } from '../../../composables/workspace/tasks/workspaceStatus'
 import type {
   MprPlaneInfo,
   MprSegmentationConfigActionType,
@@ -18,6 +20,8 @@ import {
   DEFAULT_MPR_SEGMENTATION_COLOR,
   DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU,
   DEFAULT_MPR_VOI_COLOR,
+  MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS,
+  MPR_SEGMENTATION_MAX_VOI_SPHERES,
   createDefaultMprSegmentationConfig,
   normalizeMprSegmentationConfig,
   resolveMprLegacyVoiSphere
@@ -121,8 +125,10 @@ type DragState =
 let regionSequence = 0
 let voiSequence = 0
 const overlayRef = ref<HTMLDivElement | null>(null)
-const highlightCanvasRef = ref<HTMLCanvasElement | null>(null)
+const stableHighlightCanvasRef = ref<HTMLCanvasElement | null>(null)
+const activeHighlightCanvasRef = ref<HTMLCanvasElement | null>(null)
 const dragState = ref<DragState | null>(null)
+const consumedPointerId = ref<number | null>(null)
 const draftConfig = ref<MprSegmentationConfig | null>(null)
 const sortedHuCache = new Map<string, number[]>()
 const HIGHLIGHT_MAX_DRAW_SAMPLES_PER_REGION = 45_000
@@ -130,7 +136,9 @@ const MIN_THRESHOLD_REGION_SOURCE_PX = 6
 const MIN_THRESHOLD_REGION_MM = 2
 const MIN_VOI_RADIUS_SOURCE_PX = 4
 const MIN_VOI_RADIUS_MM = 2
-let highlightRenderRaf: number | null = null
+let stableHighlightRenderRaf: number | null = null
+let activeHighlightRenderRaf: number | null = null
+const { locale } = useUiPreferences()
 
 const mprViewportKey = computed<MprViewportKey | null>(() => {
   const key = props.viewportKey
@@ -149,7 +157,8 @@ const selectedVoiSphere = computed(() =>
   normalizedConfig.value.voiSpheres.find((sphere) => sphere.id === normalizedConfig.value.selectedVoiId) ?? null
 )
 const canEditSelectedVoi = computed(() => canCreateOrSelectVoi.value && selectedVoiSphere.value !== null)
-const canInteract = computed(() => canEditThreshold.value || canCreateOrSelectVoi.value)
+const canInteract = computed(() => normalizedConfig.value.enabled && (canEditThreshold.value || canCreateOrSelectVoi.value))
+const isZh = computed(() => locale.value === 'zh-CN')
 
 const normalizedConfig = computed(() =>
   draftConfig.value ?? normalizeMprSegmentationConfig(props.config ?? createDefaultMprSegmentationConfig())
@@ -183,7 +192,7 @@ interface RegionProjectionItem {
 const regionProjections = computed<RegionProjectionItem[]>(() => {
   const plane = props.mprPlane
   const viewportKey = mprViewportKey.value
-  if (!plane || !viewportKey) {
+  if (!normalizedConfig.value.enabled || !plane || !viewportKey) {
     return []
   }
   return normalizedConfig.value.thresholdRegions
@@ -207,7 +216,7 @@ interface VoiProjectionItem {
 
 const sphereProjections = computed<VoiProjectionItem[]>(() => {
   const plane = props.mprPlane
-  if (!plane) {
+  if (!normalizedConfig.value.enabled || !plane) {
     return []
   }
   return normalizedConfig.value.voiSpheres
@@ -236,44 +245,88 @@ const backgroundSphereProjections = computed(() =>
   sphereProjections.value.filter((item) => !item.selected)
 )
 
-const highlighterConfigSignature = computed(() => {
+const activeThresholdRegionId = computed(() => {
+  const state = dragState.value
+  if (!state) {
+    return null
+  }
+  if (state.kind === 'create-threshold') {
+    return state.regionId
+  }
+  if (state.kind === 'move-threshold' || state.kind === 'resize-threshold') {
+    return state.region.id
+  }
+  return null
+})
+
+function thresholdRegionSignature(region: MprThresholdRegion): string {
+  return [
+    region.id,
+    region.enabled ? 1 : 0,
+    region.thresholdMode,
+    region.thresholdHu,
+    region.thresholdPercentile,
+    region.color,
+    region.box.sourceViewport,
+    region.box.centerWorld.join(','),
+    region.box.rowWorld.join(','),
+    region.box.colWorld.join(','),
+    region.box.normalWorld.join(','),
+    region.box.widthMm,
+    region.box.heightMm,
+    region.box.depthMm
+  ].join(':')
+}
+
+const stableHighlighterConfigSignature = computed(() => {
   const config = normalizedConfig.value
   return [
     config.enabled ? 1 : 0,
-    ...config.thresholdRegions.map((region) => [
-      region.id,
-      region.enabled ? 1 : 0,
-      region.thresholdMode,
-      region.thresholdHu,
-      region.thresholdPercentile,
-      region.color,
-      region.box.sourceViewport,
-      region.box.centerWorld.join(','),
-      region.box.rowWorld.join(','),
-      region.box.colWorld.join(','),
-      region.box.normalWorld.join(','),
-      region.box.widthMm,
-      region.box.heightMm,
-      region.box.depthMm
-    ].join(':'))
+    ...config.thresholdRegions.map(thresholdRegionSignature)
   ].join('|')
 })
 
-const highlighterOverlaySignature = computed(() =>
-  (props.segmentationOverlay?.regions ?? []).map((region) => {
+const activeHighlighterConfigSignature = computed(() => {
+  const activeRegionId = activeThresholdRegionId.value
+  const region = activeRegionId
+    ? normalizedConfig.value.thresholdRegions.find((candidate) => candidate.id === activeRegionId) ?? null
+    : null
+  return region ? thresholdRegionSignature(region) : ''
+})
+
+function samplePointsSignature(points: number[]): string {
+  let hash = 2166136261
+  for (let index = 0; index < points.length; index += 1) {
+    const scaled = Math.round(Number(points[index]) * 1000)
+    hash ^= Number.isFinite(scaled) ? scaled : 0
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return hash.toString(36)
+}
+
+function overlayRegionsSignature(regions: MprSegmentationOverlayRegion[]): string {
+  return regions.map((region) => {
     const points = region.samples?.points ?? []
-    const first = points.length > 0 ? points[0] : ''
-    const last = points.length > 0 ? points[points.length - 1] : ''
     return [
       region.regionId,
       region.visible ? 1 : 0,
       region.sampleRevision ?? 0,
       points.length,
-      first,
-      last
+      samplePointsSignature(points)
     ].join(':')
   }).join('|')
+}
+
+const stableHighlighterOverlaySignature = computed(() =>
+  overlayRegionsSignature(props.segmentationOverlay?.regions ?? [])
 )
+
+const activeHighlighterOverlaySignature = computed(() => {
+  const activeRegionId = activeThresholdRegionId.value
+  return activeRegionId
+    ? overlayRegionsSignature((props.segmentationOverlay?.regions ?? []).filter((region) => region.regionId === activeRegionId))
+    : ''
+})
 
 const highlighterFrameSignature = computed(() => [
   props.imageFrame.left,
@@ -473,19 +526,7 @@ function createSourcePixelProjector(
   }
 }
 
-function drawHighlightCanvas(): void {
-  const canvas = highlightCanvasRef.value
-  const plane = props.mprPlane
-  const overlay = props.segmentationOverlay
-  const frame = props.imageFrame
-  if (!canvas || !plane || !overlay || frame.width <= 1 || frame.height <= 1) {
-    if (canvas) {
-      const context = canvas.getContext('2d')
-      context?.clearRect(0, 0, canvas.width, canvas.height)
-    }
-    return
-  }
-
+function prepareHighlightCanvas(canvas: HTMLCanvasElement, frame: OverlayImageFrame): CanvasRenderingContext2D | null {
   const devicePixelRatio = typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1)
   const targetWidth = Math.max(1, Math.round(frame.width * devicePixelRatio))
   const targetHeight = Math.max(1, Math.round(frame.height * devicePixelRatio))
@@ -498,10 +539,34 @@ function drawHighlightCanvas(): void {
 
   const context = canvas.getContext('2d')
   if (!context) {
-    return
+    return null
   }
   context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
   context.clearRect(0, 0, frame.width, frame.height)
+  return context
+}
+
+function clearHighlightCanvas(canvas: HTMLCanvasElement | null): void {
+  if (!canvas) {
+    return
+  }
+  const context = canvas.getContext('2d')
+  context?.clearRect(0, 0, canvas.width, canvas.height)
+}
+
+function drawHighlightCanvasLayer(canvas: HTMLCanvasElement | null, includeRegion: (regionId: string) => boolean): void {
+  const plane = props.mprPlane
+  const overlay = props.segmentationOverlay
+  const frame = props.imageFrame
+  if (!canvas || !plane || frame.width <= 1 || frame.height <= 1) {
+    clearHighlightCanvas(canvas)
+    return
+  }
+
+  const context = prepareHighlightCanvas(canvas, frame)
+  if (!context) {
+    return
+  }
 
   if (!normalizedConfig.value.enabled) {
     return
@@ -511,7 +576,10 @@ function drawHighlightCanvas(): void {
   const projectionsByRegionId = new Map(regionProjections.value.map((item) => [item.region.id, item.projection]))
   const projectSourcePixel = createSourcePixelProjector(plane, frame, props.viewportTransform)
 
-  for (const overlayRegion of overlay.regions) {
+  for (const overlayRegion of overlay?.regions ?? []) {
+    if (!includeRegion(overlayRegion.regionId)) {
+      continue
+    }
     const region = regionsById.get(overlayRegion.regionId)
     const points = overlayRegion.samples?.points ?? []
     if (!region?.enabled || points.length < 3) {
@@ -519,7 +587,7 @@ function drawHighlightCanvas(): void {
     }
     const thresholdHu = getPreviewThresholdHu(region, overlayRegion)
     const currentProjection = projectionsByRegionId.get(region.id)
-    if (!currentProjection?.visible) {
+    if (!currentProjection?.visible || !currentProjection.intersectsPlane) {
       continue
     }
     const { clippedRect } = currentProjection
@@ -561,35 +629,85 @@ function drawHighlightCanvas(): void {
   context.globalAlpha = 1
 }
 
-function scheduleHighlightCanvasDraw(): void {
-  if (highlightRenderRaf != null || typeof window === 'undefined') {
+function drawStableHighlightCanvas(): void {
+  const activeRegionId = activeThresholdRegionId.value
+  drawHighlightCanvasLayer(stableHighlightCanvasRef.value, (regionId) => regionId !== activeRegionId)
+}
+
+function drawActiveHighlightCanvas(): void {
+  const activeRegionId = activeThresholdRegionId.value
+  if (!activeRegionId) {
+    clearHighlightCanvas(activeHighlightCanvasRef.value)
     return
   }
-  highlightRenderRaf = window.requestAnimationFrame(() => {
-    highlightRenderRaf = null
-    drawHighlightCanvas()
+  drawHighlightCanvasLayer(activeHighlightCanvasRef.value, (regionId) => regionId === activeRegionId)
+}
+
+function scheduleStableHighlightCanvasDraw(): void {
+  if (stableHighlightRenderRaf != null || typeof window === 'undefined') {
+    return
+  }
+  stableHighlightRenderRaf = window.requestAnimationFrame(() => {
+    stableHighlightRenderRaf = null
+    drawStableHighlightCanvas()
+  })
+}
+
+function scheduleActiveHighlightCanvasDraw(): void {
+  if (activeHighlightRenderRaf != null || typeof window === 'undefined') {
+    return
+  }
+  activeHighlightRenderRaf = window.requestAnimationFrame(() => {
+    activeHighlightRenderRaf = null
+    drawActiveHighlightCanvas()
   })
 }
 
 watch(
   [
-    highlighterConfigSignature,
-    highlighterOverlaySignature,
+    activeThresholdRegionId,
+    stableHighlighterConfigSignature,
+    stableHighlighterOverlaySignature,
+    highlighterFrameSignature,
+    highlighterPlaneSignature,
+    highlighterTransformSignature
+  ],
+  (_currentValues, previousValues) => {
+    const activeRegionId = activeThresholdRegionId.value
+    const previousActiveRegionId = Array.isArray(previousValues) ? previousValues[0] : null
+    if (activeRegionId && previousActiveRegionId === activeRegionId) {
+      return
+    }
+    void nextTick(scheduleStableHighlightCanvasDraw)
+  },
+  { immediate: true }
+)
+
+watch(
+  [
+    activeThresholdRegionId,
+    activeHighlighterConfigSignature,
+    activeHighlighterOverlaySignature,
     highlighterFrameSignature,
     highlighterPlaneSignature,
     highlighterTransformSignature
   ],
   () => {
-    void nextTick(scheduleHighlightCanvasDraw)
+    void nextTick(scheduleActiveHighlightCanvasDraw)
   },
   { immediate: true }
 )
 
 onBeforeUnmount(() => {
-  if (highlightRenderRaf != null && typeof window !== 'undefined') {
-    window.cancelAnimationFrame(highlightRenderRaf)
+  if (stableHighlightRenderRaf != null && typeof window !== 'undefined') {
+    window.cancelAnimationFrame(stableHighlightRenderRaf)
   }
-  highlightRenderRaf = null
+  if (activeHighlightRenderRaf != null && typeof window !== 'undefined') {
+    window.cancelAnimationFrame(activeHighlightRenderRaf)
+  }
+  stableHighlightRenderRaf = null
+  activeHighlightRenderRaf = null
+  consumedPointerId.value = null
 })
 
 function getPoint(event: PointerEvent): NormalizedImagePoint | null {
@@ -675,19 +793,17 @@ function clampThresholdRegionMinimumSize(region: MprThresholdRegion): MprThresho
 
 function nextRegionIdentity(): { id: string; label: string } {
   regionSequence += 1
-  const nextIndex = normalizedConfig.value.thresholdRegions.length + 1
   return {
     id: `threshold-${Date.now()}-${regionSequence}`,
-    label: String(nextIndex)
+    label: ''
   }
 }
 
 function nextVoiIdentity(): { id: string; label: string } {
   voiSequence += 1
-  const nextIndex = normalizedConfig.value.voiSpheres.length + 1
   return {
     id: `voi-${Date.now()}-${voiSequence}`,
-    label: String(nextIndex)
+    label: ''
   }
 }
 
@@ -695,6 +811,23 @@ function emitConfig(config: MprSegmentationConfig, actionType: MprSegmentationCo
   const normalized = normalizeMprSegmentationConfig(config)
   draftConfig.value = normalized
   emit('configChange', normalized, actionType)
+}
+
+function completeSegmentationEdit(actionType: MprSegmentationConfigActionType = 'select'): void {
+  const current = normalizedConfig.value
+  if (current.selectedRegionId == null && !current.selectedVoi && current.selectedVoiId == null) {
+    return
+  }
+  emitConfig(
+    {
+      ...current,
+      selectedRegionId: null,
+      selectedVoi: false,
+      selectedVoiId: null,
+      voiSphere: resolveMprLegacyVoiSphere(current.voiSpheres, null)
+    },
+    actionType
+  )
 }
 
 function upsertRegion(region: MprThresholdRegion, actionType: 'move' | 'end'): void {
@@ -807,22 +940,64 @@ function upsertVoiSphere(sphere: MprVoiSphere, actionType: 'move' | 'end', selec
 function beginDrag(event: PointerEvent, state: DragState): void {
   event.preventDefault()
   event.stopPropagation()
+  consumedPointerId.value = null
   dragState.value = state
   overlayRef.value?.setPointerCapture(event.pointerId)
 }
 
+function beginConsumedPointer(event: PointerEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+  consumedPointerId.value = event.pointerId
+  overlayRef.value?.setPointerCapture(event.pointerId)
+}
+
+function endConsumedPointer(event: PointerEvent): boolean {
+  if (consumedPointerId.value !== event.pointerId) {
+    return false
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  overlayRef.value?.releasePointerCapture(event.pointerId)
+  consumedPointerId.value = null
+  return true
+}
+
+function notifySegmentationLimitReached(kind: 'threshold' | 'voi'): void {
+  const message = kind === 'threshold'
+    ? (isZh.value
+        ? `最多支持 ${MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS} 个阈值分割。`
+        : `Up to ${MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS} threshold regions are supported.`)
+    : (isZh.value
+        ? `最多支持 ${MPR_SEGMENTATION_MAX_VOI_SPHERES} 个 VOI。`
+        : `Up to ${MPR_SEGMENTATION_MAX_VOI_SPHERES} VOI spheres are supported.`)
+  dispatchWorkspaceStatusToast(message, 'warning')
+}
+
 function beginCreate(event: PointerEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
   const point = getPoint(event)
   const plane = props.mprPlane
   const viewportKey = mprViewportKey.value
   if (!point || !plane || !viewportKey || !canInteract.value) {
+    beginConsumedPointer(event)
+    completeSegmentationEdit('select')
     return
   }
   const sourcePoint = getSourcePoint(point)
   if (!isSourcePointInsideImage(sourcePoint)) {
+    beginConsumedPointer(event)
+    completeSegmentationEdit('select')
     return
   }
   if (canEditThreshold.value) {
+    if (normalizedConfig.value.thresholdRegions.length >= MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS) {
+      notifySegmentationLimitReached('threshold')
+      beginConsumedPointer(event)
+      completeSegmentationEdit('select')
+      return
+    }
     const identity = nextRegionIdentity()
     beginDrag(event, {
       kind: 'create-threshold',
@@ -839,6 +1014,12 @@ function beginCreate(event: PointerEvent): void {
     return
   }
   if (canCreateOrSelectVoi.value) {
+    if (normalizedConfig.value.voiSpheres.length >= MPR_SEGMENTATION_MAX_VOI_SPHERES) {
+      notifySegmentationLimitReached('voi')
+      beginConsumedPointer(event)
+      completeSegmentationEdit('select')
+      return
+    }
     const identity = nextVoiIdentity()
     beginDrag(event, {
       kind: 'create-voi',
@@ -955,7 +1136,11 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
       }
     )
     if (actionType === 'end' && isThresholdRegionBelowMinimum(plane, rect, region)) {
-      removeThresholdRegion(state.regionId, 'end')
+      if (normalizedConfig.value.thresholdRegions.some((candidate) => candidate.id === state.regionId)) {
+        removeThresholdRegion(state.regionId, 'end')
+      } else {
+        completeSegmentationEdit('select')
+      }
       return
     }
     upsertRegion(region, actionType)
@@ -1010,7 +1195,11 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
       stats: null
     }
     if (actionType === 'end' && isVoiSphereBelowMinimum(plane, sourceCenter, sourcePoint, nextSphere)) {
-      removeVoiSphere(state.sphereId, 'end')
+      if (normalizedConfig.value.voiSpheres.some((candidate) => candidate.id === state.sphereId)) {
+        removeVoiSphere(state.sphereId, 'end')
+      } else {
+        completeSegmentationEdit('select')
+      }
       return
     }
     upsertVoiSphere(
@@ -1049,6 +1238,11 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
 }
 
 function handlePointerMove(event: PointerEvent): void {
+  if (consumedPointerId.value === event.pointerId) {
+    event.preventDefault()
+    event.stopPropagation()
+    return
+  }
   if (!dragState.value) {
     return
   }
@@ -1058,6 +1252,9 @@ function handlePointerMove(event: PointerEvent): void {
 }
 
 function endDrag(event: PointerEvent): void {
+  if (endConsumedPointer(event)) {
+    return
+  }
   const state = dragState.value
   if (!state || state.pointerId !== event.pointerId) {
     return
@@ -1097,9 +1294,14 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
     @pointercancel="endDrag"
   >
     <canvas
-      ref="highlightCanvasRef"
+      ref="stableHighlightCanvasRef"
       class="pointer-events-none absolute inset-0 h-full w-full"
       data-testid="viewport-segmentation-highlight"
+    ></canvas>
+    <canvas
+      ref="activeHighlightCanvasRef"
+      class="pointer-events-none absolute inset-0 h-full w-full"
+      data-testid="viewport-segmentation-active-highlight"
     ></canvas>
     <svg class="relative z-[1] h-full w-full overflow-visible">
       <rect

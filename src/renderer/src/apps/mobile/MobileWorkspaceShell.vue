@@ -23,7 +23,7 @@ import { createDefaultVolumeRenderConfig } from '../../composables/workspace/vol
 import { useWorkspaceAnnotations } from '../../composables/workspace/overlays/useWorkspaceAnnotations'
 import { useWorkspaceQaWaterAnalysis } from '../../composables/workspace/overlays/useWorkspaceQaWaterAnalysis'
 import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
-import { COMPARE_STACK_SOURCE_PANE_KEY } from '../../composables/workspace/views/viewerWorkspaceTabs'
+import { COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import { setApiBaseURL } from '../../services/api'
 import { postApi, postDicomUpload, type LoadFolderResponse } from '../../services/typedApi'
 import { viewerRuntime, type DicomLoadSelection, type DicomLoadSource } from '../../platform/runtime'
@@ -656,6 +656,7 @@ const {
   activeOperation: viewer.activeOperation,
   activeTab: viewer.activeTab,
   activeViewportKey: activeWorkspaceViewportKey,
+  emitAnnotationOperation: viewer.handleAnnotationOperation,
   setActiveViewport: viewer.setActiveViewportKey
 })
 
@@ -716,9 +717,6 @@ const {
 function handleToolbarViewAction(payload: Parameters<typeof viewer.triggerViewAction>[0]): void {
   if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
     clearAllAnnotationsForActiveTab()
-    if (payload.action === 'clearAnnotations') {
-      return
-    }
   }
   viewer.triggerViewAction(payload)
 }

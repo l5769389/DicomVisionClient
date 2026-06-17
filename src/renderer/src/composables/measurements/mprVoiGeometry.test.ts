@@ -302,7 +302,7 @@ describe('mprVoiGeometry', () => {
     })
   })
 
-  it('hides projected threshold boxes when the current plane does not intersect them', () => {
+  it('shows projected threshold boxes as non-intersecting ghost rectangles', () => {
     const region: MprThresholdRegion = {
       id: 'r1',
       enabled: true,
@@ -325,6 +325,47 @@ describe('mprVoiGeometry', () => {
     }
 
     const projection = projectThresholdRegionBoxToPlane(region.box, axialPlane)
+    expect(projection.visible).toBe(true)
+    expect(projection.intersectsPlane).toBe(false)
+    expect(projection.clippedRect).toEqual({
+      xMin: 0.4,
+      xMax: 0.6,
+      yMin: 0.4,
+      yMax: 0.6
+    })
+    expect(projection.handles).toEqual([])
+
+    const canvasProjection = projectThresholdRegionBoxToCanvasPlane(
+      region.box,
+      axialPlane,
+      { width: 50, height: 100, naturalWidth: 50, naturalHeight: 100 }
+    )
+    expect(canvasProjection.visible).toBe(true)
+    expect(canvasProjection.intersectsPlane).toBe(false)
+    expect(canvasProjection.clippedRect).toEqual({
+      xMin: 0.3,
+      xMax: 0.7,
+      yMin: 0.4,
+      yMax: 0.6
+    })
+    expect(canvasProjection.handles).toEqual([])
+  })
+
+  it('hides non-intersecting threshold box projections outside the image', () => {
+    const projection = projectThresholdRegionBoxToPlane(
+      {
+        centerWorld: [10, 0, 180],
+        rowWorld: [0, 1, 0],
+        colWorld: [0, 0, 1],
+        normalWorld: [1, 0, 0],
+        widthMm: 20,
+        heightMm: 20,
+        depthMm: 2,
+        sourceViewport: 'mpr-ax'
+      },
+      axialPlane
+    )
+
     expect(projection.visible).toBe(false)
     expect(projection.intersectsPlane).toBe(false)
   })

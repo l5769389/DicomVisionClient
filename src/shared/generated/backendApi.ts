@@ -157,6 +157,23 @@ export interface FourDPlaybackStopRequest {
   tabKey: string
 }
 
+export interface FusionCompositeInfo {
+  mode?: string
+  revision: number
+  alpha: number
+  registration: FusionRegistrationInfo
+  width: number
+  height: number
+  layers: FusionCompositeLayerInfo[]
+  primaryImageUnchanged?: boolean
+}
+
+export interface FusionCompositeLayerInfo {
+  key: string
+  role: string
+  imageFormat?: string
+}
+
 export interface FusionInfo {
   paneRole: string
   ctSeriesId: string
@@ -169,23 +186,6 @@ export interface FusionInfo {
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
-}
-
-export interface FusionCompositeLayerInfo {
-  key: string
-  role: string
-  imageFormat?: string
-}
-
-export interface FusionCompositeInfo {
-  mode?: string
-  revision: number
-  alpha: number
-  registration: FusionRegistrationInfo
-  width: number
-  height: number
-  layers: FusionCompositeLayerInfo[]
-  primaryImageUnchanged?: boolean
 }
 
 export interface FusionProjectionInfo {
@@ -821,8 +821,6 @@ export interface ViewImageResponse {
   slice_info: SliceInfo
   window_info: WindowInfo
   imageFormat: 'png' | 'jpeg'
-  fastPreview?: boolean
-  fastPreviewFullResolution?: boolean
   viewId: string
   mpr_crosshair?: MprCrosshairInfo | null
   mprCursor?: MprCursorInfo | null
@@ -867,8 +865,9 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'annotation' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
   measurementId?: string | null
+  annotationId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
   actionType?: 'start' | 'move' | 'end' | 'delete' | null
@@ -900,6 +899,10 @@ export interface ViewOperationRequest {
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
   mprCrosshairMode?: 'orthogonal' | 'double-oblique' | null
+  toolType?: string | null
+  text?: string | null
+  color?: string | null
+  size?: string | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null

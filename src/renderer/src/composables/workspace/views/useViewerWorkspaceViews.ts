@@ -2022,6 +2022,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         | undefined
       const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
       if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
+        const isMprPreview = renderIntent === 'geometry-preview' || renderIntent === 'overlay-preview'
         const activeFourDPhaseKey =
           item.viewType === '4D' ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)) : null
         const mprViewportUpdate: IncomingMprViewportUpdate = {

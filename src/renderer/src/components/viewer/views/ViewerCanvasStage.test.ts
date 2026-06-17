@@ -299,14 +299,7 @@ describe('ViewerCanvasStage layout metrics', () => {
     raf.flush()
     await nextTick()
 
-    expect(readOverlayFrame(wrapper)).toMatchObject({
-      left: 0,
-      top: 0,
-      width: 0,
-      height: 0,
-      naturalWidth: 0,
-      naturalHeight: 0
-    })
+    expect(wrapper.find('.image-frame-overlay-stub').exists()).toBe(false)
 
     wrapper.unmount()
   })

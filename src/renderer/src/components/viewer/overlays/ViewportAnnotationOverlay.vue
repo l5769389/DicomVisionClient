@@ -40,6 +40,8 @@ const props = withDefaults(
       top: number
       width: number
       height: number
+      naturalWidth?: number
+      naturalHeight?: number
     }
   }>(),
   {

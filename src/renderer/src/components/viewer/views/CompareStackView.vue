@@ -257,6 +257,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           :measurements="getMeasurements(pane.key)"
           :scale-bar="activeTab.compareScaleBars?.[pane.key] ?? null"
           :orientation="activeTab.compareOrientations?.[pane.key] ?? activeTab.orientation"
+          :viewport-transform="activeTab.compareTransformStates?.[pane.key] ?? activeTab.transformState ?? null"
           @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
           @copy-annotation="emit('copyAnnotation', $event)"
           @delete-annotation="emit('deleteAnnotation', $event)"

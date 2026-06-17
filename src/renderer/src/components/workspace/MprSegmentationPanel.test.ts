@@ -668,7 +668,7 @@ describe('MprSegmentationPanel', () => {
     expect(wrapper.find('[data-testid="mpr-voi-select-v2"]').exists()).toBe(true)
   })
 
-  it('renders import/export controls and selects all segmentation items for export by default', () => {
+  it('renders import/export controls and selects all segmentation items in the export dialog by default', async () => {
     const wrapper = mount(MprSegmentationPanel, {
       props: {
         config: createMixedConfig()
@@ -682,8 +682,38 @@ describe('MprSegmentationPanel', () => {
 
     expect(wrapper.find('[data-testid="mpr-segmentation-import"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mpr-segmentation-export"]').exists()).toBe(true)
-    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-export-r1"]').element.checked).toBe(true)
-    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-export-v1"]').element.checked).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-threshold-export-r1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mpr-voi-export-v1"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-threshold-r1"]')?.checked).toBe(true)
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-voi-v1"]')?.checked).toBe(true)
+  })
+
+  it('uses a description placeholder for empty segmentation labels', () => {
+    const voi = { ...createVoiSphere(), label: '' }
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          thresholdRegions: [createRegion({ label: '' })],
+          voiSpheres: [voi],
+          voiSphere: voi
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-label-r1"]').element.placeholder).toBe('描述信息')
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-label-r1"]').element.value).toBe('')
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-label-v1"]').element.placeholder).toBe('描述信息')
+    expect(wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-label-v1"]').element.value).toBe('')
   })
 
   it('keeps segmentation records inside a scrolling list area', () => {
@@ -705,9 +735,24 @@ describe('MprSegmentationPanel', () => {
   })
 
   it('exports only selected items and omits stats from the sidecar', async () => {
+    const voi = {
+      ...createVoiSphere(),
+      stats: {
+        huMean: 10,
+        huMin: 5,
+        huMax: 20,
+        huStdDev: 3,
+        volumeCm3: 4.5,
+        sampleCount: 8
+      }
+    }
     const wrapper = mount(MprSegmentationPanel, {
       props: {
-        config: createMixedConfig(),
+        config: {
+          ...createMixedConfig(),
+          voiSpheres: [voi],
+          voiSphere: voi
+        },
         seriesId: 'series-a',
         seriesLabel: 'Chest CT'
       },
@@ -718,14 +763,24 @@ describe('MprSegmentationPanel', () => {
       }
     })
 
-    const voiExport = wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-export-v1"]')
-    await voiExport.setValue(false)
     await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
     await flushPromises()
 
     const dialog = document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')
-    expect(dialog?.textContent).toContain('确认导出 1 个分割项？')
+    expect(dialog?.textContent).toContain('2 / 2')
     expect(dialog?.textContent).not.toContain('将使用当前平台的默认下载或导出流程。')
+    expect(document.body.querySelector('[data-testid="mpr-export-dialog-threshold-metrics-r1"]')?.textContent).toContain('mean 120.00')
+    expect(document.body.querySelector('[data-testid="mpr-export-dialog-voi-metrics-v1"]')?.textContent).toContain('mean 10.00')
+    const thresholdLabel = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-threshold-label-r1"]')
+    thresholdLabel!.value = 'Export threshold'
+    thresholdLabel!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    const voiExport = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-voi-v1"]')
+    expect(voiExport?.checked).toBe(true)
+    voiExport!.checked = false
+    voiExport!.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(dialog?.textContent).toContain('1 / 2')
     const fileNameInput = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-segmentation-export-file-name-stem-input"]')
     expect(fileNameInput?.value).toMatch(/^dicomvision-mpr-segmentation-\d{8}-\d{6}$/)
     expect(fileNameInput?.value).not.toContain('.dvsseg.json')
@@ -748,6 +803,7 @@ describe('MprSegmentationPanel', () => {
       viewType: 'MPR'
     })
     expect(sidecar.items.thresholdRegions.map((region: MprThresholdRegion) => region.id)).toEqual(['r1'])
+    expect(sidecar.items.thresholdRegions[0].label).toBe('Export threshold')
     expect(sidecar.items.voiSpheres).toEqual([])
     expect(sidecar.items.thresholdRegions[0]).not.toHaveProperty('stats')
     expect(dispatchWorkspaceStatusToastMock).toHaveBeenCalledWith('分割文件已导出', 'success', expect.objectContaining({
@@ -779,7 +835,7 @@ describe('MprSegmentationPanel', () => {
     expect(saveBinaryFileMock.mock.calls[0]?.[0].fileName).toMatch(/^dicomvision-mpr-segmentation-\d{8}-\d{6}\.dvsseg\.json$/)
   })
 
-  it('warns when exporting with no selected segmentation items', async () => {
+  it('disables export confirmation when no dialog items are selected', async () => {
     const wrapper = mount(MprSegmentationPanel, {
       props: {
         config: createMixedConfig()
@@ -791,14 +847,21 @@ describe('MprSegmentationPanel', () => {
       }
     })
 
-    await wrapper.find<HTMLInputElement>('[data-testid="mpr-threshold-export-r1"]').setValue(false)
-    await wrapper.find<HTMLInputElement>('[data-testid="mpr-voi-export-v1"]').setValue(false)
     await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
     await flushPromises()
 
-    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')).toBeNull()
+    const thresholdExport = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-threshold-r1"]')
+    const voiExport = document.body.querySelector<HTMLInputElement>('[data-testid="mpr-export-dialog-voi-v1"]')
+    thresholdExport!.checked = false
+    thresholdExport!.dispatchEvent(new Event('change', { bubbles: true }))
+    voiExport!.checked = false
+    voiExport!.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    const submit = document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-submit"]')
+    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')).not.toBeNull()
+    expect(submit?.disabled).toBe(true)
     expect(saveBinaryFileMock).not.toHaveBeenCalled()
-    expect(dispatchWorkspaceStatusToastMock).toHaveBeenCalledWith('请选择至少一个分割或 VOI 项。', 'warning')
   })
 
   it('edits the desktop export path before confirming', async () => {
@@ -862,7 +925,7 @@ describe('MprSegmentationPanel', () => {
     await wrapper.find('[data-testid="mpr-segmentation-export"]').trigger('click')
     await flushPromises()
 
-    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')?.textContent).toContain('确认导出 2 个分割项？')
+    expect(document.body.querySelector('[data-testid="mpr-segmentation-export-confirm-dialog"]')?.textContent).toContain('2 / 2')
     document.body.querySelector<HTMLButtonElement>('[data-testid="mpr-segmentation-export-confirm-cancel"]')?.click()
     await flushPromises()
 

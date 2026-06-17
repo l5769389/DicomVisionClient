@@ -248,6 +248,7 @@ type ImageUpdateRenderIntent = NonNullable<ViewImageResponse['renderIntent']>
 
 interface ImageUpdateLayerPolicy {
   geometry: boolean
+  pixelCornerTags: boolean
   projectedOverlay: boolean
   semanticOverlay: boolean
 }
@@ -255,24 +256,60 @@ interface ImageUpdateLayerPolicy {
 const IMAGE_UPDATE_LAYER_POLICIES: Record<ImageUpdateRenderIntent, ImageUpdateLayerPolicy> = {
   'pixel-only': {
     geometry: false,
+    pixelCornerTags: true,
     projectedOverlay: false,
     semanticOverlay: false
   },
   'geometry-preview': {
     geometry: true,
+    pixelCornerTags: true,
     projectedOverlay: true,
     semanticOverlay: false
   },
   'overlay-preview': {
     geometry: true,
+    pixelCornerTags: true,
     projectedOverlay: true,
     semanticOverlay: true
   },
   full: {
     geometry: true,
+    pixelCornerTags: true,
     projectedOverlay: true,
     semanticOverlay: true
   }
+}
+
+function mergePixelCornerTags(
+  current: CornerInfo | null | undefined,
+  nextWindowLabel: string | null,
+  fallback: CornerInfo
+): CornerInfo {
+  const base = current ?? fallback
+  if (!nextWindowLabel) {
+    return base
+  }
+  return {
+    ...base,
+    tags: {
+      ...(base.tags ?? {}),
+      windowLevel: [nextWindowLabel]
+    }
+  }
+}
+
+function formatWindowInfoValue(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '-'
+  }
+  return String(Math.round(Number(value)))
+}
+
+function formatWindowInfoLabel(ww: number | null | undefined, wl: number | null | undefined): string | null {
+  if (ww == null && wl == null) {
+    return null
+  }
+  return `WW ${formatWindowInfoValue(ww)}  WL ${formatWindowInfoValue(wl)}`
 }
 
 function getImageUpdateMetadataMode(payload: Partial<ViewImageResponse>): string {
@@ -1569,6 +1606,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const renderIntent = normalizeImageUpdateRenderIntent(payload)
       const layerPolicy = IMAGE_UPDATE_LAYER_POLICIES[renderIntent]
       const allowGeometryUpdate = layerPolicy.geometry
+      const allowPixelCornerTagsUpdate = layerPolicy.pixelCornerTags
       const allowMeasurementOverlayUpdate = layerPolicy.projectedOverlay
       const allowSegmentationOverlayUpdate = layerPolicy.semanticOverlay
       const renderRevision = getImageUpdateRenderRevision(payload)
@@ -1618,7 +1656,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         incomingImageSrc = null
       }
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
-      const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
+      const windowLabel = formatWindowInfoLabel(ww, wl) ?? item.windowLabel
+      const pixelWindowLabel = allowPixelCornerTagsUpdate && (ww != null || wl != null) ? windowLabel : null
       const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
       const metadataSeriesId =
         item.viewType === '4D' && fourDViewportMatch
@@ -1725,7 +1764,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
               cornerInfo: hasCornerInfoPayload
                 ? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
-                : slot.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo)),
+                : mergePixelCornerTags(
+                    slot.cornerInfo,
+                    pixelWindowLabel,
+                    options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
+                  ),
               orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
               transformState: hasTransformPayload ? transformState : slot.transformState ?? transformState,
               pseudocolorPreset: layoutPseudocolorPreset
@@ -1778,7 +1821,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.compareCornerInfos ?? createEmptyCompareCornerInfos()),
             [compareViewportKey]: hasCornerInfoPayload
               ? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
-              : item.compareCornerInfos?.[compareViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+              : mergePixelCornerTags(
+                  item.compareCornerInfos?.[compareViewportKey],
+                  pixelWindowLabel,
+                  options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+                )
           },
           compareOrientations: {
             ...(item.compareOrientations ?? createEmptyCompareOrientations()),
@@ -1867,7 +1914,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : null
         const mergedFusionCornerInfo = hasCornerInfoPayload
           ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
-          : item.fusionCornerInfos?.[fusionViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+          : mergePixelCornerTags(
+              item.fusionCornerInfos?.[fusionViewportKey],
+              pixelWindowLabel,
+              options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+            )
         const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
         if (shouldKeepCurrentPrimaryImage) {
           revokeIncomingImageSrcIfNeeded()
@@ -2079,7 +2130,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportCornerInfos: {
                 ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
                 [viewportKey]: !hasCornerInfoPayload
-                  ? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                  ? mergePixelCornerTags(
+                      phaseCacheSeed.viewportCornerInfos?.[viewportKey],
+                      pixelWindowLabel,
+                      options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                    )
                   : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
               },
               viewportOrientations: {
@@ -2183,7 +2238,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
             [viewportKey]: !hasCornerInfoPayload
-              ? item.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+              ? mergePixelCornerTags(
+                  item.viewportCornerInfos?.[viewportKey],
+                  pixelWindowLabel,
+                  options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                )
               : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
           },
           viewportOrientations: {
@@ -2246,7 +2305,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         scaleBar: hasScaleBarPayload ? scaleBar : item.scaleBar ?? null,
         cornerInfo: hasCornerInfoPayload
           ? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
-          : item.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
+          : mergePixelCornerTags(
+              item.cornerInfo,
+              pixelWindowLabel,
+              options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+            ),
         orientation: hasOrientationPayload ? orientationInfo : item.orientation ?? orientationInfo,
         transformState: hasTransformPayload ? transformState : item.transformState ?? transformState,
         pseudocolorPreset: singlePseudocolorPreset,
@@ -2305,7 +2368,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         : item.viewportSliceLabels?.[viewportKey] ?? item.sliceLabel
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
-      const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
+      const windowLabel = formatWindowInfoLabel(ww, wl) ?? item.windowLabel
+      const pixelWindowLabel = ww != null || wl != null ? windowLabel : null
       const metadataSeriesId =
         item.viewType === '4D' && fourDViewportMatch
           ? resolveFourDPhaseSeriesId(item, fourDViewportMatch.phaseKey)
@@ -2384,7 +2448,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             },
             viewportCornerInfos: {
               ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-              [viewportKey]: stateCornerInfo ?? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? createEmptyCornerInfo()
+              [viewportKey]: stateCornerInfo ?? mergePixelCornerTags(
+                phaseCacheSeed.viewportCornerInfos?.[viewportKey],
+                pixelWindowLabel,
+                createEmptyCornerInfo()
+              )
             },
             viewportScaleBars: {
               ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
@@ -2449,7 +2517,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         },
         viewportCornerInfos: {
           ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-          [viewportKey]: stateCornerInfo ?? item.viewportCornerInfos?.[viewportKey] ?? createEmptyCornerInfo()
+          [viewportKey]: stateCornerInfo ?? mergePixelCornerTags(
+            item.viewportCornerInfos?.[viewportKey],
+            pixelWindowLabel,
+            createEmptyCornerInfo()
+          )
         },
         viewportScaleBars: {
           ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),

@@ -607,6 +607,7 @@ watch(
         :show-corner-info="!isReferenceViewport(viewport.key) && mprTab?.showCornerInfo !== false"
         :show-scale-bar="!isReferenceViewport(viewport.key) && mprTab?.showScaleBar !== false"
         :orientation="mprTab?.viewportOrientations?.[viewport.key] ?? mprTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
+        :viewport-transform="mprTab?.viewportTransformStates?.[viewport.key] ?? mprTab?.transformState ?? null"
         :placeholder="`${viewport.label} preview`"
         @click-viewport="handleViewportClick"
         @copy-annotation="emit('copyAnnotation', $event)"

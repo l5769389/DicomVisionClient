@@ -59,7 +59,6 @@ interface PendingExportConfirmation {
   defaultFileNameStem: string
   fileNameStem: string
   directoryPath: string | null
-  selectedCount: number
   selectedThresholdRegionIds: Set<string>
   selectedVoiSphereIds: Set<string>
 }
@@ -71,10 +70,6 @@ const panelRef = ref<HTMLElement | null>(null)
 const panelPosition = ref<PanelPosition | null>(null)
 const panelDragState = ref<{ pointerId: number; offsetX: number; offsetY: number } | null>(null)
 const pendingExportConfirmation = ref<PendingExportConfirmation | null>(null)
-const selectedExportRegionIds = ref<Set<string>>(new Set())
-const selectedExportVoiIds = ref<Set<string>>(new Set())
-const exportRegionSelectionInitialized = ref(false)
-const exportVoiSelectionInitialized = ref(false)
 const { exportPreference, locale } = useUiPreferences()
 const displayedConfig = computed(() => draftConfig.value ?? normalizeMprSegmentationConfig(props.config))
 const regions = computed(() => displayedConfig.value.thresholdRegions)
@@ -83,6 +78,7 @@ const selectedRegion = computed(() =>
   regions.value.find((region) => region.id === displayedConfig.value.selectedRegionId) ?? null
 )
 const isZh = computed(() => locale.value === 'zh-CN')
+const descriptionPlaceholder = computed(() => isZh.value ? '描述信息' : 'Description')
 const panelCopy = computed(() => isZh.value
   ? {
       eyebrow: '分割',
@@ -198,38 +194,15 @@ watch(
   { deep: true }
 )
 
-watch(
-  () => regions.value.map((region) => region.id),
-  (regionIds, previousRegionIds = []) => {
-    selectedExportRegionIds.value = syncSelectedExportIds(
-      selectedExportRegionIds.value,
-      regionIds,
-      previousRegionIds,
-      exportRegionSelectionInitialized.value
-    )
-    exportRegionSelectionInitialized.value = true
-  },
-  { immediate: true }
-)
-
-watch(
-  () => voiSpheres.value.map((sphere) => sphere.id),
-  (sphereIds, previousSphereIds = []) => {
-    selectedExportVoiIds.value = syncSelectedExportIds(
-      selectedExportVoiIds.value,
-      sphereIds,
-      previousSphereIds,
-      exportVoiSelectionInitialized.value
-    )
-    exportVoiSelectionInitialized.value = true
-  },
-  { immediate: true }
-)
-
-const selectedExportCount = computed(() =>
-  regions.value.filter((region) => selectedExportRegionIds.value.has(region.id)).length +
-  voiSpheres.value.filter((sphere) => selectedExportVoiIds.value.has(sphere.id)).length
-)
+const exportableItemCount = computed(() => regions.value.length + voiSpheres.value.length)
+const pendingExportSelectedCount = computed(() => {
+  const request = pendingExportConfirmation.value
+  if (!request) {
+    return 0
+  }
+  return regions.value.filter((region) => request.selectedThresholdRegionIds.has(region.id)).length +
+    voiSpheres.value.filter((sphere) => request.selectedVoiSphereIds.has(sphere.id)).length
+})
 const isExportConfirmOpen = computed(() => pendingExportConfirmation.value !== null)
 const isDesktopRuntime = computed(() => viewerRuntime.platform === 'desktop')
 
@@ -258,51 +231,6 @@ function emitConfig(config: MprSegmentationConfig, actionType: PanelActionType =
     draftConfig.value = null
     emit('configChange', normalized, actionType)
   }
-}
-
-function syncSelectedExportIds(current: Set<string>, ids: string[], previousIds: string[], initialized: boolean): Set<string> {
-  const availableIds = new Set(ids)
-  const previousIdSet = new Set(previousIds)
-  const next = new Set<string>()
-  for (const id of ids) {
-    if (current.has(id) || !initialized || !previousIdSet.has(id)) {
-      next.add(id)
-    }
-  }
-  for (const id of current) {
-    if (availableIds.has(id)) {
-      next.add(id)
-    }
-  }
-  return next
-}
-
-function isRegionSelectedForExport(regionId: string): boolean {
-  return selectedExportRegionIds.value.has(regionId)
-}
-
-function isVoiSelectedForExport(sphereId: string): boolean {
-  return selectedExportVoiIds.value.has(sphereId)
-}
-
-function toggleExportRegion(regionId: string, checked: boolean): void {
-  const next = new Set(selectedExportRegionIds.value)
-  if (checked) {
-    next.add(regionId)
-  } else {
-    next.delete(regionId)
-  }
-  selectedExportRegionIds.value = next
-}
-
-function toggleExportVoi(sphereId: string, checked: boolean): void {
-  const next = new Set(selectedExportVoiIds.value)
-  if (checked) {
-    next.add(sphereId)
-  } else {
-    next.delete(sphereId)
-  }
-  selectedExportVoiIds.value = next
 }
 
 function getMprSegmentationFileNameStem(fileName: string): string {
@@ -364,7 +292,7 @@ function getAppVersion(): string | null {
 }
 
 async function requestExportSelectedSegmentation(): Promise<void> {
-  if (selectedExportCount.value <= 0) {
+  if (exportableItemCount.value <= 0) {
     dispatchWorkspaceStatusToast(panelCopy.value.exportNoSelection, 'warning')
     return
   }
@@ -374,9 +302,8 @@ async function requestExportSelectedSegmentation(): Promise<void> {
     defaultFileNameStem,
     fileNameStem: defaultFileNameStem,
     directoryPath: await resolveExportConfirmLocation(),
-    selectedCount: selectedExportCount.value,
-    selectedThresholdRegionIds: new Set(selectedExportRegionIds.value),
-    selectedVoiSphereIds: new Set(selectedExportVoiIds.value)
+    selectedThresholdRegionIds: new Set(regions.value.map((region) => region.id)),
+    selectedVoiSphereIds: new Set(voiSpheres.value.map((sphere) => sphere.id))
   }
 }
 
@@ -398,6 +325,48 @@ function updatePendingExportDirectoryPath(value: string): void {
   pendingExportConfirmation.value.directoryPath = value
 }
 
+function isPendingExportRegionSelected(regionId: string): boolean {
+  return pendingExportConfirmation.value?.selectedThresholdRegionIds.has(regionId) ?? false
+}
+
+function isPendingExportVoiSelected(sphereId: string): boolean {
+  return pendingExportConfirmation.value?.selectedVoiSphereIds.has(sphereId) ?? false
+}
+
+function updatePendingExportRegionSelection(regionId: string, checked: boolean): void {
+  const request = pendingExportConfirmation.value
+  if (!request) {
+    return
+  }
+  const next = new Set(request.selectedThresholdRegionIds)
+  if (checked) {
+    next.add(regionId)
+  } else {
+    next.delete(regionId)
+  }
+  pendingExportConfirmation.value = {
+    ...request,
+    selectedThresholdRegionIds: next
+  }
+}
+
+function updatePendingExportVoiSelection(sphereId: string, checked: boolean): void {
+  const request = pendingExportConfirmation.value
+  if (!request) {
+    return
+  }
+  const next = new Set(request.selectedVoiSphereIds)
+  if (checked) {
+    next.add(sphereId)
+  } else {
+    next.delete(sphereId)
+  }
+  pendingExportConfirmation.value = {
+    ...request,
+    selectedVoiSphereIds: next
+  }
+}
+
 async function choosePendingExportDirectory(): Promise<void> {
   if (!pendingExportConfirmation.value) {
     return
@@ -416,6 +385,10 @@ async function choosePendingExportDirectory(): Promise<void> {
 async function confirmPendingExport(): Promise<void> {
   const exportRequest = pendingExportConfirmation.value
   if (!exportRequest) {
+    return
+  }
+  if (pendingExportSelectedCount.value <= 0) {
+    dispatchWorkspaceStatusToast(panelCopy.value.exportNoSelection, 'warning')
     return
   }
   pendingExportConfirmation.value = null
@@ -845,6 +818,14 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
       class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] max-h-[min(32rem,calc(100vh-14rem))]"
       data-testid="mpr-segmentation-record-list"
     >
+      <div class="flex items-center justify-between gap-3 px-0.5 pt-0.5">
+        <div class="min-w-0 truncate text-[12px] text-[var(--theme-text-secondary)]">
+          <span class="font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '阈值分割' : 'Threshold regions' }}</span>
+          <span class="mx-1 text-[var(--theme-text-muted)]">/</span>
+          <span>{{ regions.length }} {{ panelCopy.item }}{{ !isZh && regions.length === 1 ? '' : !isZh ? 's' : '' }}</span>
+        </div>
+      </div>
+
       <div
         v-if="regions.length === 0"
         class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
@@ -861,20 +842,6 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         @click="selectRegion(region.id)"
       >
         <div class="flex min-w-0 items-center gap-2">
-          <label
-            class="inline-flex h-7 w-5 shrink-0 cursor-pointer items-center justify-center text-cyan-100/85"
-            :title="panelCopy.includeInExport"
-            @click.stop
-          >
-            <input
-              class="h-3.5 w-3.5 accent-[var(--theme-accent)]"
-              type="checkbox"
-              :aria-label="panelCopy.includeInExport"
-              :checked="isRegionSelectedForExport(region.id)"
-              :data-testid="`mpr-threshold-export-${region.id}`"
-              @change.stop="toggleExportRegion(region.id, ($event.target as HTMLInputElement).checked)"
-            />
-          </label>
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
             :class="region.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -905,7 +872,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             class="h-7 min-w-0 flex-[0_1_7.5rem] rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
             type="text"
             :aria-label="panelCopy.description"
-            :placeholder="panelCopy.description"
+            :placeholder="descriptionPlaceholder"
             :value="region.label"
             :data-testid="`mpr-threshold-label-${region.id}`"
             @click.stop
@@ -1034,43 +1001,30 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         </div>
       </div>
 
-      <div class="rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2">
-        <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0 truncate text-[12px] text-[var(--theme-text-secondary)]">
-            <span class="font-semibold text-[var(--theme-text-primary)]">{{ panelCopy.voiTitle }}</span>
-            <span class="mx-1 text-[var(--theme-text-muted)]">/</span>
-            <template v-if="voiSpheres.length > 0">
-              {{ voiSpheres.length }} {{ panelCopy.item }}{{ !isZh && voiSpheres.length === 1 ? '' : !isZh ? 's' : '' }}
-            </template>
-            <template v-else>
-              {{ panelCopy.voiEmpty }}
-            </template>
-          </div>
+      <div class="flex items-center justify-between gap-3 px-0.5 pt-1.5">
+        <div class="min-w-0 truncate text-[12px] text-[var(--theme-text-secondary)]">
+          <span class="font-semibold text-[var(--theme-text-primary)]">VOI</span>
+          <span class="mx-1 text-[var(--theme-text-muted)]">/</span>
+          <span>{{ voiSpheres.length }} {{ panelCopy.item }}{{ !isZh && voiSpheres.length === 1 ? '' : !isZh ? 's' : '' }}</span>
         </div>
+      </div>
 
-        <div
-          v-for="sphere in voiSpheres"
-          :key="sphere.id"
-          class="mt-2 rounded-md border px-2.5 py-2 transition"
-          :class="displayedConfig.selectedVoiId === sphere.id ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
-          :data-testid="`mpr-voi-select-${sphere.id}`"
-          @click="selectVoi(sphere.id)"
-        >
-          <div class="flex items-center gap-2">
-            <label
-              class="inline-flex h-7 w-5 shrink-0 cursor-pointer items-center justify-center text-cyan-100/85"
-              :title="panelCopy.includeInExport"
-              @click.stop
-            >
-              <input
-                class="h-3.5 w-3.5 accent-[var(--theme-accent)]"
-                type="checkbox"
-                :aria-label="panelCopy.includeInExport"
-                :checked="isVoiSelectedForExport(sphere.id)"
-                :data-testid="`mpr-voi-export-${sphere.id}`"
-                @change.stop="toggleExportVoi(sphere.id, ($event.target as HTMLInputElement).checked)"
-              />
-            </label>
+      <div
+        v-if="voiSpheres.length === 0"
+        class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
+      >
+        {{ panelCopy.voiEmpty }}
+      </div>
+
+      <div
+        v-for="sphere in voiSpheres"
+        :key="sphere.id"
+        class="rounded-md border px-2.5 py-2 transition"
+        :class="displayedConfig.selectedVoiId === sphere.id ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
+        :data-testid="`mpr-voi-select-${sphere.id}`"
+        @click="selectVoi(sphere.id)"
+      >
+          <div class="flex min-w-0 items-center gap-2">
             <button
               class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
               :class="sphere.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -1079,7 +1033,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               :title="sphere.enabled ? panelCopy.hideVoi : panelCopy.showVoi"
               @click.stop="patchVoiSphere(sphere.id, { enabled: !sphere.enabled }, 'end')"
             >
-              <AppIcon :name="sphere.enabled ? 'display' : 'display-off'" :size="14" />
+              <AppIcon :name="sphere.enabled ? 'display' : 'display-off'" :size="15" />
             </button>
             <label
               class="relative flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-black/20"
@@ -1101,7 +1055,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               class="h-7 min-w-0 flex-[0_1_7.5rem] rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
               type="text"
               :aria-label="panelCopy.description"
-              :placeholder="panelCopy.description"
+              :placeholder="descriptionPlaceholder"
               :value="sphere.label"
               :data-testid="`mpr-voi-label-${sphere.id}`"
               @click.stop
@@ -1117,14 +1071,13 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               :data-testid="`mpr-voi-delete-${sphere.id}`"
               @click.stop="clearVoi(sphere.id)"
             >
-              <AppIcon name="trash" :size="14" />
+              <AppIcon name="trash" :size="15" />
             </button>
           </div>
           <div class="mt-1.5 max-h-8 overflow-hidden text-[11px] leading-4 text-[var(--theme-text-secondary)]">
             {{ formatVoiStatsSummary(sphere) }}
           </div>
         </div>
-      </div>
 
     </div>
 
@@ -1160,7 +1113,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
       @keydown.esc.prevent="closeExportConfirmDialog"
     >
       <div
-        class="w-[min(460px,100%)] overflow-hidden rounded-[20px] border border-[color:color-mix(in_srgb,var(--theme-accent)_30%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_96%,#050914)] shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
+        class="w-[min(520px,100%)] overflow-hidden rounded-[20px] border border-[color:color-mix(in_srgb,var(--theme-accent)_30%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_96%,#050914)] shadow-[0_28px_72px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.06)]"
       >
         <div class="flex items-start gap-3 border-b border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_58%,transparent)] px-4 py-3.5">
           <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[color:color-mix(in_srgb,var(--theme-accent)_36%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card))] text-[var(--theme-text-primary)]">
@@ -1169,12 +1122,108 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           <div class="min-w-0">
             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ panelCopy.exportConfirmTitle }}</div>
             <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">
-              {{ panelCopy.exportConfirmMessage(pendingExportConfirmation.selectedCount) }}
+              {{ panelCopy.exportConfirmMessage(pendingExportSelectedCount) }}
             </div>
           </div>
         </div>
 
         <div class="space-y-3 px-4 py-3.5">
+          <div
+            class="rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5"
+            data-testid="mpr-segmentation-export-selection"
+          >
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <span class="text-[11px] font-semibold uppercase text-[var(--theme-text-muted)]">
+                {{ isZh ? '导出项目' : 'Items to export' }}
+              </span>
+              <span class="text-[11px] font-semibold text-[var(--theme-text-secondary)]">
+                {{ pendingExportSelectedCount }} / {{ exportableItemCount }}
+              </span>
+            </div>
+
+            <div class="max-h-48 space-y-3 overflow-y-auto pr-1 [scrollbar-width:thin]">
+              <div v-if="regions.length > 0" class="space-y-1.5">
+                <div class="text-[11px] font-semibold text-[var(--theme-text-secondary)]">
+                  {{ isZh ? '阈值分割' : 'Threshold regions' }}
+                </div>
+                <div
+                  v-for="region in regions"
+                  :key="`export-region-${region.id}`"
+                  class="rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-solid)] px-2.5 py-2 transition hover:border-[var(--theme-border-strong)]"
+                >
+                  <div class="flex min-w-0 items-center gap-2">
+                    <input
+                      class="h-3.5 w-3.5 shrink-0 accent-[var(--theme-accent)]"
+                      type="checkbox"
+                      :checked="isPendingExportRegionSelected(region.id)"
+                      :data-testid="`mpr-export-dialog-threshold-${region.id}`"
+                      @change="updatePendingExportRegionSelection(region.id, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <span class="h-3 w-3 shrink-0 rounded-full border border-white/35" :style="{ backgroundColor: region.color }"></span>
+                    <input
+                      class="h-7 min-w-0 flex-1 rounded-md border border-white/10 bg-black/14 px-2 text-xs font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
+                      type="text"
+                      :aria-label="panelCopy.description"
+                      :placeholder="descriptionPlaceholder"
+                      :value="region.label"
+                      :data-testid="`mpr-export-dialog-threshold-label-${region.id}`"
+                      @input.stop="updateRegionLabel(region, ($event.target as HTMLInputElement).value)"
+                    />
+                    <span class="shrink-0 text-[11px] text-[var(--theme-text-secondary)]">
+                      {{ region.thresholdMode === 'percentile' ? `${region.thresholdPercentile.toFixed(1)}% / HU~${formatEffectiveThreshold(region)}` : `HU>${region.thresholdHu}` }}
+                    </span>
+                  </div>
+                  <div
+                    class="mt-1.5 truncate pl-[3.25rem] text-[11px] leading-4 text-[var(--theme-text-secondary)]"
+                    :data-testid="`mpr-export-dialog-threshold-metrics-${region.id}`"
+                  >
+                    {{ formatStatsSummary(region) }}
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="voiSpheres.length > 0" class="space-y-1.5">
+                <div class="text-[11px] font-semibold text-[var(--theme-text-secondary)]">
+                  VOI
+                </div>
+                <div
+                  v-for="sphere in voiSpheres"
+                  :key="`export-voi-${sphere.id}`"
+                  class="rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-solid)] px-2.5 py-2 transition hover:border-[var(--theme-border-strong)]"
+                >
+                  <div class="flex min-w-0 items-center gap-2">
+                    <input
+                      class="h-3.5 w-3.5 shrink-0 accent-[var(--theme-accent)]"
+                      type="checkbox"
+                      :checked="isPendingExportVoiSelected(sphere.id)"
+                      :data-testid="`mpr-export-dialog-voi-${sphere.id}`"
+                      @change="updatePendingExportVoiSelection(sphere.id, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <span class="h-3 w-3 shrink-0 rounded-full border border-white/35" :style="{ backgroundColor: sphere.color }"></span>
+                    <input
+                      class="h-7 min-w-0 flex-1 rounded-md border border-white/10 bg-black/14 px-2 text-xs font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
+                      type="text"
+                      :aria-label="panelCopy.description"
+                      :placeholder="descriptionPlaceholder"
+                      :value="sphere.label"
+                      :data-testid="`mpr-export-dialog-voi-label-${sphere.id}`"
+                      @input.stop="updateVoiLabel(sphere, ($event.target as HTMLInputElement).value)"
+                    />
+                    <span class="shrink-0 text-[11px] text-[var(--theme-text-secondary)]">
+                      {{ panelCopy.radius }} {{ formatMetric(sphere.radiusMm) }} mm
+                    </span>
+                  </div>
+                  <div
+                    class="mt-1.5 truncate pl-[3.25rem] text-[11px] leading-4 text-[var(--theme-text-secondary)]"
+                    :data-testid="`mpr-export-dialog-voi-metrics-${sphere.id}`"
+                  >
+                    {{ formatVoiStatsSummary(sphere) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div
             v-if="isDesktopRuntime"
             class="rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-3 py-2.5"
@@ -1238,8 +1287,9 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           </button>
           <button
             type="button"
-            class="theme-button-primary rounded-2xl px-5 py-2.5 text-xs font-semibold"
+            class="theme-button-primary rounded-2xl px-5 py-2.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45"
             data-testid="mpr-segmentation-export-confirm-submit"
+            :disabled="pendingExportSelectedCount <= 0"
             @click="confirmPendingExport"
           >
             {{ panelCopy.confirmExport }}

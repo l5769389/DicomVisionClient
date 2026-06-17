@@ -539,7 +539,7 @@ export function normalizeMprThresholdRegion(value?: Partial<MprThresholdRegion> 
   return {
     id,
     enabled: value.enabled !== false,
-    label: typeof value.label === 'string' ? value.label.trim() : id,
+    label: typeof value.label === 'string' ? value.label.trim() : '',
     thresholdHu: Math.round(clampNumber(value.thresholdHu, MPR_SEGMENTATION_HU_LIMITS.min, MPR_SEGMENTATION_HU_LIMITS.max, DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU)),
     thresholdMode: normalizeMprThresholdMode(value.thresholdMode),
     thresholdPercentile: clampNumber(value.thresholdPercentile, 0, 100, 80),
@@ -566,7 +566,7 @@ export function normalizeMprVoiSphere(
     ? value.label.trim()
     : typeof fallback?.label === 'string' && fallback.label.trim()
       ? fallback.label.trim()
-      : String(defaultIndex)
+      : ''
   return {
     id: rawId,
     label: rawLabel,

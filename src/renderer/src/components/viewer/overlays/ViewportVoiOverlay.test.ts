@@ -203,6 +203,28 @@ describe('ViewportVoiOverlay', () => {
     dispatchWorkspaceStatusToastMock.mockReset()
   })
 
+  it('hides all threshold and VOI overlays when segmentation preview is disabled', () => {
+    const config = {
+      ...createMixedConfig(),
+      enabled: false
+    }
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config,
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+
+    expect(wrapper.find('[data-testid="viewport-segmentation-overlay"]').exists()).toBe(false)
+    expect(wrapper.find('rect[data-region-id="r1"]').exists()).toBe(false)
+    expect(wrapper.find('ellipse[data-voi-id="v1"]').exists()).toBe(false)
+  })
+
   it('draws non-source threshold rects from the physical box intersection instead of backend mask bbox', () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {
@@ -669,7 +691,8 @@ describe('ViewportVoiOverlay', () => {
       expect.objectContaining({
         thresholdRegions: [
           expect.objectContaining({
-            color: '#00ff00'
+            color: '#00ff00',
+            label: ''
           })
         ]
       }),
@@ -698,7 +721,8 @@ describe('ViewportVoiOverlay', () => {
       expect.objectContaining({
         voiSpheres: [
           expect.objectContaining({
-            color: '#ffcc00'
+            color: '#ffcc00',
+            label: ''
           })
         ]
       }),

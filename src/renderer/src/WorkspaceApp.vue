@@ -442,6 +442,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @measurement-draft="viewer.handleMeasurementDraft"
           @measurement-create="viewer.handleMeasurementCreate"
           @measurement-delete="viewer.handleMeasurementDelete"
+          @annotation-operation="viewer.handleAnnotationOperation"
           @tag-index-change="viewer.handleTagIndexChange"
           @mtf-clear="viewer.handleMtfClear"
           @mtf-commit="viewer.handleMtfCommit"

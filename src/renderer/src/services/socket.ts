@@ -54,6 +54,7 @@ export interface ViewOperationPayload {
   viewId: string
   opType: ViewOperationType
   measurementId?: string
+  annotationId?: string
   subOpType?: string
   actionType?: ViewActionType
   x?: number
@@ -68,6 +69,10 @@ export interface ViewOperationPayload {
   line?: 'horizontal' | 'vertical'
   points?: MeasurementDraftPoint[]
   viewportKey?: string
+  toolType?: string
+  text?: string
+  color?: string
+  size?: string
   zoom?: number
   delta?: number
   rotationDegrees?: number

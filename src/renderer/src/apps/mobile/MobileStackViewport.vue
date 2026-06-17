@@ -536,6 +536,7 @@ watch(
       :scale-bar="stackTab?.scaleBar ?? null"
       :show-corner-info="stackTab?.showCornerInfo !== false"
       :show-scale-bar="stackTab?.showScaleBar !== false"
+      :viewport-transform="stackTab?.transformState ?? null"
       :orientation="stackTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
       @copy-annotation="emit('copyAnnotation', $event)"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"

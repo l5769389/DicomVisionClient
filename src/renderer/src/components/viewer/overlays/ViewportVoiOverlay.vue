@@ -157,7 +157,7 @@ const selectedVoiSphere = computed(() =>
   normalizedConfig.value.voiSpheres.find((sphere) => sphere.id === normalizedConfig.value.selectedVoiId) ?? null
 )
 const canEditSelectedVoi = computed(() => canCreateOrSelectVoi.value && selectedVoiSphere.value !== null)
-const canInteract = computed(() => canEditThreshold.value || canCreateOrSelectVoi.value)
+const canInteract = computed(() => normalizedConfig.value.enabled && (canEditThreshold.value || canCreateOrSelectVoi.value))
 const isZh = computed(() => locale.value === 'zh-CN')
 
 const normalizedConfig = computed(() =>
@@ -192,7 +192,7 @@ interface RegionProjectionItem {
 const regionProjections = computed<RegionProjectionItem[]>(() => {
   const plane = props.mprPlane
   const viewportKey = mprViewportKey.value
-  if (!plane || !viewportKey) {
+  if (!normalizedConfig.value.enabled || !plane || !viewportKey) {
     return []
   }
   return normalizedConfig.value.thresholdRegions
@@ -216,7 +216,7 @@ interface VoiProjectionItem {
 
 const sphereProjections = computed<VoiProjectionItem[]>(() => {
   const plane = props.mprPlane
-  if (!plane) {
+  if (!normalizedConfig.value.enabled || !plane) {
     return []
   }
   return normalizedConfig.value.voiSpheres
@@ -793,19 +793,17 @@ function clampThresholdRegionMinimumSize(region: MprThresholdRegion): MprThresho
 
 function nextRegionIdentity(): { id: string; label: string } {
   regionSequence += 1
-  const nextIndex = normalizedConfig.value.thresholdRegions.length + 1
   return {
     id: `threshold-${Date.now()}-${regionSequence}`,
-    label: String(nextIndex)
+    label: ''
   }
 }
 
 function nextVoiIdentity(): { id: string; label: string } {
   voiSequence += 1
-  const nextIndex = normalizedConfig.value.voiSpheres.length + 1
   return {
     id: `voi-${Date.now()}-${voiSequence}`,
-    label: String(nextIndex)
+    label: ''
   }
 }
 

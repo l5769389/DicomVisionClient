@@ -935,6 +935,7 @@ watch(
           :scale-bar="activeTab.fusionScaleBars?.[pane.key] ?? null"
           :show-corner-info="activeTab.showCornerInfo !== false"
           :show-scale-bar="activeTab.showScaleBar !== false"
+          :viewport-transform="activeTab.fusionTransformStates?.[pane.key] ?? activeTab.transformState ?? null"
           :viewport-key="pane.key"
           @click-viewport="emit('viewportClick', $event)"
           @copy-annotation="emit('copyAnnotation', $event)"

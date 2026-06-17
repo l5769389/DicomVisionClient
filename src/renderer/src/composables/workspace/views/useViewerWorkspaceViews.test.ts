@@ -396,6 +396,30 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     expect(tab.transformState).toBe(previousTransform)
   })
 
+  it('rounds window labels and corner tags from decimal image updates', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:stack-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createStackHarness()
+
+    views.updateTabImage(
+      'stack-tab',
+      {
+        viewId: 'stack-view',
+        imageFormat: 'png',
+        renderIntent: 'pixel-only',
+        window_info: { ww: 888.6, wl: 43.4 }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.windowLabel).toBe('WW 889  WL 43')
+    expect(tab.cornerInfo.tags?.windowLevel).toEqual(['WW 889  WL 43'])
+  })
+
   it('treats stack pixel-only updates as image/window changes without overlay or transform changes', () => {
     let urlIndex = 0
     vi.stubGlobal('URL', {
@@ -431,6 +455,7 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     expect(tab.measurements).toBe(previousMeasurements)
     expect(tab.annotations).toBe(previousAnnotations)
     expect(tab.transformState).toBe(previousTransform)
+    expect(tab.cornerInfo.tags?.windowLevel).toEqual(['WW 888  WL 44'])
   })
 
   it('lets geometry-preview update stack transform and projected overlay positions', () => {
@@ -683,6 +708,7 @@ describe('useViewerWorkspaceViews MPR segmentation preview updates', () => {
     expect(tab.viewportMeasurements?.['mpr-ax']).toBe(previousMeasurements)
     expect(tab.viewportTransformStates?.['mpr-ax']).toBe(previousTransform)
     expect(tab.viewportCrosshairs?.['mpr-ax']).toEqual(previousCrosshair)
+    expect(tab.viewportCornerInfos?.['mpr-ax']?.tags?.windowLevel).toEqual(['WW 1500  WL 300'])
     expect(tab.viewportSegmentationOverlays?.['mpr-ax']).toEqual(existingOverlay)
   })
 

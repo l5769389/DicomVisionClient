@@ -25,9 +25,15 @@ const imageFrameOverlayStub = {
     '<div class="image-frame-overlay-stub" :data-left="imageFrame.left" :data-top="imageFrame.top" :data-width="imageFrame.width" :data-height="imageFrame.height" :data-natural-width="imageFrame.naturalWidth ?? 0" :data-natural-height="imageFrame.naturalHeight ?? 0" />'
 }
 
+const annotationOverlayStub = {
+  props: ['imageFrame'],
+  template:
+    '<div class="annotation-overlay-stub" :data-left="imageFrame.left" :data-top="imageFrame.top" :data-width="imageFrame.width" :data-height="imageFrame.height" />'
+}
+
 const overlayStubs = {
   VolumeOrientationCube: { template: '<div />' },
-  ViewportAnnotationOverlay: imageFrameOverlayStub,
+  ViewportAnnotationOverlay: annotationOverlayStub,
   ViewportCornerOverlay: { template: '<div class="corner-overlay-stub" />' },
   ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
   ViewportMtfOverlay: imageFrameOverlayStub,
@@ -386,6 +392,25 @@ describe('ViewerCanvasStage layout metrics', () => {
     expect(wrapper.find('.corner-overlay-stub').exists()).toBe(false)
     expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(false)
     expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not pass viewport transforms to annotation overlays', async () => {
+    const wrapper = mountStage('blob:frame-1', {
+      viewportTransform: {
+        rotationDegrees: 90,
+        horFlip: false,
+        verFlip: false,
+        zoom: 2,
+        offsetX: 12,
+        offsetY: -8
+      }
+    })
+    await nextTick()
+
+    const annotationOverlay = wrapper.find('.annotation-overlay-stub')
+    expect(annotationOverlay.attributes('data-zoom')).toBeUndefined()
+    expect(annotationOverlay.attributes('data-rotation')).toBeUndefined()
     wrapper.unmount()
   })
 })

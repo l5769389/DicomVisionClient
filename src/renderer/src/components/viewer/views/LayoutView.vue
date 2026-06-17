@@ -364,6 +364,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
               :measurements="getMeasurements(slot.id)"
               :scale-bar="slot.scaleBar ?? null"
               :orientation="slot.orientation ?? activeTab.orientation"
+              :viewport-transform="slot.transformState ?? null"
               @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
               @copy-annotation="emit('copyAnnotation', $event)"
               @delete-annotation="emit('deleteAnnotation', $event)"

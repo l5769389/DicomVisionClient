@@ -25,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const { locale, toolbarCopy: copy } = useUiLocale()
-const UNSELECTED_ACTION_MENU_TOOL_KEYS = new Set(['rotate', 'qa', 'export', 'reset'])
+const UNSELECTED_ACTION_MENU_TOOL_KEYS = new Set(['rotate', 'export', 'reset'])
 const customWindowWidth = ref('')
 const customWindowLevel = ref('')
 const isZh = computed(() => locale.value === 'zh-CN')
@@ -41,6 +41,48 @@ const measureActionCopy = computed(() => ({
   clearMeasurements: isZh.value ? '清除测量' : 'Clear Measurements',
   clearMeasurementsDesc: isZh.value ? '移除当前目标视图中的测量结果。' : 'Remove measurements from the current target view.'
 }))
+const rotateActionCopy = computed(() => ({
+  resetRotation: isZh.value ? '重置旋转' : 'Reset Rotation',
+  resetRotationDesc: isZh.value ? '恢复当前视图旋转和镜像状态。' : 'Restore rotation and mirror state for the current view.'
+}))
+
+const isFusionRegistrationActive = computed(() =>
+  props.activeTab.viewType === 'PETCTFusion' && props.activeTab.fusionManualRegistration === true
+)
+const fusionRegistrationCopy = computed(() => ({
+  statusLabel: isZh.value ? '状态' : 'Status',
+  active: isZh.value ? '手动配准中' : 'Manual registration active',
+  inactive: isZh.value ? '未开启' : 'Not active',
+  enable: isZh.value ? '开启手动配准' : 'Start Manual Registration',
+  disable: isZh.value ? '关闭手动配准' : 'Stop Manual Registration',
+  actions: isZh.value ? '配准动作' : 'Registration Actions',
+  guide: isZh.value ? '使用说明' : 'Guide',
+  leftDrag: isZh.value ? '左键拖动：平移 PET 图像。' : 'Left drag: move the PET image.',
+  rightDrag: isZh.value ? '右键拖动：旋转 PET 图像。' : 'Right drag: rotate the PET image.',
+  esc: isZh.value ? 'Esc：退出手动配准模式。' : 'Esc: exit manual registration mode.',
+  hint: isZh.value ? '开启后在融合图像上拖动完成配准。' : 'Enable registration, then drag on the fusion image.'
+}))
+const fusionRegistrationActionCopy = computed<Record<string, { label: string; description: string }>>(() => ({
+  'fusionRegistration:reset': {
+    label: isZh.value ? '重置配准' : 'Reset Registration',
+    description: isZh.value ? '恢复 PET 与 CT 的默认对齐。' : 'Restore the default PET to CT alignment.'
+  },
+  'fusionRegistration:load': {
+    label: isZh.value ? '加载配准' : 'Load Registration',
+    description: isZh.value ? '导入已有的 DicomVision 配准文件。' : 'Import a saved DicomVision registration file.'
+  },
+  'fusionRegistration:save': {
+    label: isZh.value ? '保存配准' : 'Save Registration',
+    description: isZh.value ? '打开现有保存流程，确认导出模式和位置。' : 'Open the existing save flow to confirm mode and location.'
+  },
+  'fusionRegistration:exit': {
+    label: isZh.value ? '退出配准模式' : 'Exit Registration',
+    description: isZh.value ? '停止手动配准并保留当前结果。' : 'Stop manual registration and keep the current result.'
+  }
+}))
+const fusionRegistrationActions = computed(() =>
+  (props.tool.options ?? []).filter((option) => option.value !== 'fusionRegistration:toggle')
+)
 
 function getActiveLayoutRows(activeTab: ViewerTabItem): number {
   if (activeTab.viewType === 'Layout') {
@@ -121,11 +163,83 @@ function applyCustomWindow(): void {
   }
   emit('select', `${width}|${level}`)
 }
+
+function getFusionRegistrationActionCopy(option: StackToolOption): { label: string; description: string } {
+  return fusionRegistrationActionCopy.value[option.value] ?? {
+    label: option.label,
+    description: option.description ?? ''
+  }
+}
+
+function isRotateResetOption(option: StackToolOption): boolean {
+  return props.tool.key === 'rotate' && option.value === 'rotate:reset'
+}
 </script>
 
 <template>
   <div class="viewer-toolbar-dock-panel-content" :class="`viewer-toolbar-dock-panel-content--${tool.key}`">
-    <template v-if="tool.key === 'play'">
+    <template v-if="tool.key === 'fusionRegistration'">
+      <div class="viewer-toolbar-dock-panel-content__registration">
+        <section class="viewer-toolbar-dock-panel-content__registration-status">
+          <div>
+            <div class="viewer-toolbar-dock-panel-content__section-label">{{ fusionRegistrationCopy.statusLabel }}</div>
+            <div class="viewer-toolbar-dock-panel-content__registration-state">
+              {{ isFusionRegistrationActive ? fusionRegistrationCopy.active : fusionRegistrationCopy.inactive }}
+            </div>
+            <p class="viewer-toolbar-dock-panel-content__registration-description">
+              {{ fusionRegistrationCopy.hint }}
+            </p>
+          </div>
+          <span
+            class="viewer-toolbar-dock-panel-content__registration-dot"
+            :class="{ 'viewer-toolbar-dock-panel-content__registration-dot--active': isFusionRegistrationActive }"
+            aria-hidden="true"
+          ></span>
+        </section>
+
+        <button
+          type="button"
+          class="viewer-toolbar-dock-panel-content__primary-action"
+          data-testid="fusion-registration-dock-toggle"
+          @click="emit('select', 'fusionRegistration:toggle')"
+        >
+          <AppIcon name="crosshair" :size="18" />
+          <span>{{ isFusionRegistrationActive ? fusionRegistrationCopy.disable : fusionRegistrationCopy.enable }}</span>
+        </button>
+
+        <div v-if="isFusionRegistrationActive" class="viewer-toolbar-dock-panel-content__registration-actions">
+          <div class="viewer-toolbar-dock-panel-content__section-label">{{ fusionRegistrationCopy.actions }}</div>
+          <button
+            v-for="option in fusionRegistrationActions"
+            :key="option.value"
+            type="button"
+            class="viewer-toolbar-dock-panel-content__option"
+            :data-testid="`fusion-registration-dock-action-${option.value.replace('fusionRegistration:', '')}`"
+            @click="emit('select', option.value)"
+          >
+            <span class="viewer-toolbar-dock-panel-content__option-rail" aria-hidden="true"></span>
+            <span class="viewer-toolbar-dock-panel-content__option-icon">
+              <AppIcon :name="option.icon" :size="menuIconSize + 2" />
+            </span>
+            <span class="viewer-toolbar-dock-panel-content__option-copy">
+              <span class="viewer-toolbar-dock-panel-content__option-label">{{ getFusionRegistrationActionCopy(option).label }}</span>
+              <span class="viewer-toolbar-dock-panel-content__option-description">{{ getFusionRegistrationActionCopy(option).description }}</span>
+            </span>
+          </button>
+        </div>
+
+        <section class="viewer-toolbar-dock-panel-content__registration-guide">
+          <div class="viewer-toolbar-dock-panel-content__section-label">{{ fusionRegistrationCopy.guide }}</div>
+          <ul>
+            <li>{{ fusionRegistrationCopy.leftDrag }}</li>
+            <li>{{ fusionRegistrationCopy.rightDrag }}</li>
+            <li>{{ fusionRegistrationCopy.esc }}</li>
+          </ul>
+        </section>
+      </div>
+    </template>
+
+    <template v-else-if="tool.key === 'play'">
       <div class="viewer-toolbar-dock-panel-content__playback">
         <button
           type="button"
@@ -272,6 +386,23 @@ function applyCustomWindow(): void {
             {{ option.group }}
           </div>
           <button
+            v-if="isRotateResetOption(option)"
+            type="button"
+            class="viewer-toolbar-dock-panel-content__danger-action"
+            data-testid="viewer-toolbar-dock-rotate-reset"
+            :disabled="option.disabled"
+            @click="emit('select', option.value)"
+          >
+            <span class="viewer-toolbar-dock-panel-content__danger-action-icon">
+              <AppIcon name="reset" :size="16" />
+            </span>
+            <span class="viewer-toolbar-dock-panel-content__danger-action-copy">
+              <span class="viewer-toolbar-dock-panel-content__danger-action-label">{{ rotateActionCopy.resetRotation }}</span>
+              <span class="viewer-toolbar-dock-panel-content__danger-action-description">{{ rotateActionCopy.resetRotationDesc }}</span>
+            </span>
+          </button>
+          <button
+            v-else
             type="button"
             class="viewer-toolbar-dock-panel-content__option"
             :class="{
@@ -309,13 +440,13 @@ function applyCustomWindow(): void {
             >
               <AppIcon v-if="option.checked" name="check" :size="14" />
             </span>
-            <span v-else-if="option.badge" class="viewer-toolbar-dock-panel-content__badge">{{ option.badge }}</span>
             <AppIcon
               v-else-if="isOptionActive(option)"
               name="check"
               class="viewer-toolbar-dock-panel-content__selected-icon"
               :size="15"
             />
+            <span v-else-if="option.badge" class="viewer-toolbar-dock-panel-content__badge">{{ option.badge }}</span>
           </button>
         </template>
       </div>
@@ -334,6 +465,70 @@ function applyCustomWindow(): void {
   display: grid;
   align-content: start;
   gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__registration {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+}
+
+.viewer-toolbar-dock-panel-content__registration-status,
+.viewer-toolbar-dock-panel-content__registration-guide {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 48%, transparent);
+  padding: 12px;
+}
+
+.viewer-toolbar-dock-panel-content__registration-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viewer-toolbar-dock-panel-content__registration-state {
+  margin-top: 5px;
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-dock-panel-content__registration-description {
+  margin: 4px 0 0;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.viewer-toolbar-dock-panel-content__registration-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--theme-text-muted);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--theme-text-muted) 10%, transparent);
+}
+
+.viewer-toolbar-dock-panel-content__registration-dot--active {
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--theme-accent) 16%, transparent);
+}
+
+.viewer-toolbar-dock-panel-content__registration-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__registration-guide ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--theme-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.6;
 }
 
 .viewer-toolbar-dock-panel-content__custom-window {
@@ -494,6 +689,71 @@ function applyCustomWindow(): void {
 }
 
 .viewer-toolbar-dock-panel-content__measure-reset-description {
+  margin-top: 2px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
+  padding: 10px 12px;
+  color: var(--theme-text-primary);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action:hover,
+.viewer-toolbar-dock-panel-content__danger-action:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
+  color: var(--theme-status-danger-text);
+}
+
+.viewer-toolbar-dock-panel-content__danger-action-copy {
+  min-width: 0;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action-label,
+.viewer-toolbar-dock-panel-content__danger-action-description {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action-label {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-dock-panel-content__danger-action-description {
   margin-top: 2px;
   color: var(--theme-text-muted);
   font-size: 11px;

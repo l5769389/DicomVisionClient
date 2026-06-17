@@ -32,6 +32,7 @@ import {
 
 const props = defineProps<{
   config: MprSegmentationConfig
+  embedded?: boolean
   isProcessing?: boolean
   seriesId?: string | null
   seriesLabel?: string | null
@@ -63,8 +64,11 @@ interface PendingExportConfirmation {
   selectedVoiSphereIds: Set<string>
 }
 
+type SegmentationMode = 'segmentation:threshold' | 'segmentation:voi'
+
 const draftConfig = ref<MprSegmentationConfig | null>(null)
 const localDraftActive = ref(false)
+const embeddedMode = ref<SegmentationMode>('segmentation:threshold')
 const importInputRef = ref<HTMLInputElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const panelPosition = ref<PanelPosition | null>(null)
@@ -166,6 +170,9 @@ const panelCopy = computed(() => isZh.value
     }
 )
 const panelRootStyle = computed<Record<string, string>>(() => {
+  if (props.embedded) {
+    return {} as Record<string, string>
+  }
   const position = panelPosition.value
   if (position) {
     return {
@@ -192,6 +199,20 @@ watch(
     draftConfig.value = null
   },
   { deep: true }
+)
+
+watch(
+  () => [displayedConfig.value.selectedVoi, displayedConfig.value.selectedVoiId, displayedConfig.value.selectedRegionId] as const,
+  ([selectedVoi, selectedVoiId, selectedRegionId]) => {
+    if (selectedVoi || selectedVoiId) {
+      embeddedMode.value = 'segmentation:voi'
+      return
+    }
+    if (selectedRegionId) {
+      embeddedMode.value = 'segmentation:threshold'
+    }
+  },
+  { immediate: true }
 )
 
 const exportableItemCount = computed(() => regions.value.length + voiSpheres.value.length)
@@ -507,6 +528,7 @@ function patchRegion(regionId: string, patch: Partial<MprThresholdRegion>, actio
 
 function selectRegion(regionId: string): void {
   const region = regions.value.find((candidate) => candidate.id === regionId)
+  embeddedMode.value = 'segmentation:threshold'
   emit('modeChange', 'segmentation:threshold', region?.box.sourceViewport ?? null)
   emitPatch({ selectedRegionId: regionId, selectedVoi: false, selectedVoiId: null }, 'select')
 }
@@ -588,6 +610,9 @@ function stopPanelDrag(): void {
 }
 
 function beginPanelDrag(event: PointerEvent): void {
+  if (props.embedded) {
+    return
+  }
   if (event.button !== 0) {
     return
   }
@@ -672,8 +697,37 @@ function selectVoi(sphereId: string): void {
   if (!voiSpheres.value.some((sphere) => sphere.id === sphereId)) {
     return
   }
+  embeddedMode.value = 'segmentation:voi'
   emit('modeChange', 'segmentation:voi')
   emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: sphereId }, 'select')
+}
+
+function selectSegmentationMode(mode: SegmentationMode): void {
+  embeddedMode.value = mode
+  if (mode === 'segmentation:voi') {
+    const selectedVoi = displayedConfig.value.selectedVoiId
+      ? voiSpheres.value.find((sphere) => sphere.id === displayedConfig.value.selectedVoiId) ?? null
+      : null
+    const targetVoi = selectedVoi ?? voiSpheres.value[0] ?? null
+    if (targetVoi) {
+      selectVoi(targetVoi.id)
+      return
+    }
+    emit('modeChange', 'segmentation:voi')
+    emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: null }, 'select')
+    return
+  }
+
+  const selectedThreshold = displayedConfig.value.selectedRegionId
+    ? regions.value.find((region) => region.id === displayedConfig.value.selectedRegionId) ?? null
+    : null
+  const targetRegion = selectedThreshold ?? regions.value[0] ?? null
+  if (targetRegion) {
+    selectRegion(targetRegion.id)
+    return
+  }
+  emit('modeChange', 'segmentation:threshold', null)
+  emitPatch({ selectedRegionId: null, selectedVoi: false, selectedVoiId: null }, 'select')
 }
 
 function updateVoiColor(sphere: MprVoiSphere, value: string): void {
@@ -705,6 +759,19 @@ function formatStatsSummary(region: MprThresholdRegion): string {
   ].join(' / ')
 }
 
+function getThresholdMetricRows(region: MprThresholdRegion): Array<{ key: string; label: string; value: string }> {
+  const stats = region.stats
+  return [
+    { key: 'mean', label: 'mean', value: formatMetric(stats?.huMean) },
+    { key: 'min', label: 'min', value: formatMetric(stats?.huMin) },
+    { key: 'max', label: 'max', value: formatMetric(stats?.huMax) },
+    { key: 'sd', label: 'sd', value: formatMetric(stats?.huStdDev) },
+    { key: 'vol', label: 'vol', value: `${formatMetric(stats?.volumeCm3)} cm3` },
+    { key: 'n', label: 'n', value: stats ? String(stats.sampleCount) : '--' },
+    { key: 'eff', label: 'eff', value: formatMetric(stats?.effectiveThresholdHu) }
+  ]
+}
+
 function formatVoiStatsSummary(sphere: MprVoiSphere): string {
   const stats = sphere.stats
   return [
@@ -717,6 +784,18 @@ function formatVoiStatsSummary(sphere: MprVoiSphere): string {
   ].join(' / ')
 }
 
+function getVoiMetricRows(sphere: MprVoiSphere): Array<{ key: string; label: string; value: string }> {
+  const stats = sphere.stats
+  return [
+    { key: 'mean', label: 'mean', value: formatMetric(stats?.huMean) },
+    { key: 'min', label: 'min', value: formatMetric(stats?.huMin) },
+    { key: 'max', label: 'max', value: formatMetric(stats?.huMax) },
+    { key: 'sd', label: 'sd', value: formatMetric(stats?.huStdDev) },
+    { key: 'vol', label: 'vol', value: `${formatMetric(stats?.volumeCm3)} cm3` },
+    { key: 'n', label: 'n', value: stats ? String(stats.sampleCount) : '--' }
+  ]
+}
+
 function formatEffectiveThreshold(region: MprThresholdRegion): string {
   return formatMetric(region.stats?.effectiveThresholdHu ?? region.thresholdHu)
 }
@@ -726,13 +805,15 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
   <div
     v-bind="$attrs"
     ref="panelRef"
-    class="theme-shell-panel fixed z-[60] flex w-[min(520px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-xl border border-sky-100/25 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_98%,black_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_96%,black_4%))] px-3 pb-2.5 pt-0 shadow-[0_30px_80px_rgba(0,0,0,0.58),0_10px_24px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.04)] ring-1 ring-black/45 backdrop-blur-xl"
+    class="theme-shell-panel mpr-segmentation-panel flex flex-col overflow-hidden rounded-xl border border-sky-100/25 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_98%,black_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_96%,black_4%))] px-3 pb-2.5 pt-0 backdrop-blur-xl"
+    :class="props.embedded ? 'mpr-segmentation-panel--embedded relative h-full min-h-0 w-full shadow-none ring-0' : 'mpr-segmentation-panel--floating fixed z-[60] w-[min(520px,calc(100vw-2.5rem))] shadow-[0_30px_80px_rgba(0,0,0,0.58),0_10px_24px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.04)] ring-1 ring-black/45'"
     :style="panelRootStyle"
   >
     <div class="-mx-3 mb-2.5 flex items-center justify-between gap-3 rounded-t-xl border-b border-white/10 bg-white/[0.055] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(0,0,0,0.22)]">
       <div
-        class="flex min-w-0 flex-1 cursor-move select-none items-center gap-2"
-        data-testid="mpr-segmentation-panel-drag-handle"
+        class="flex min-w-0 flex-1 select-none items-center gap-2"
+        :class="props.embedded ? '' : 'cursor-move'"
+        :data-testid="props.embedded ? undefined : 'mpr-segmentation-panel-drag-handle'"
         @pointerdown="beginPanelDrag"
       >
         <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/10 bg-black/18 text-[var(--theme-text-muted)] shadow-inner">
@@ -746,7 +827,12 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         <div class="min-w-0">
           <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ panelCopy.eyebrow }}</div>
           <div class="mt-0.5 flex min-w-0 items-center gap-2">
-            <span class="truncate text-[12px] font-medium text-[var(--theme-text-primary)]">{{ panelCopy.title }}</span>
+            <span
+              class="text-[12px] font-medium leading-4 text-[var(--theme-text-primary)]"
+              :class="props.embedded ? 'whitespace-normal break-words' : 'truncate'"
+            >
+              {{ panelCopy.title }}
+            </span>
             <span
               data-testid="mpr-segmentation-processing"
               class="inline-flex w-[4.75rem] shrink-0 items-center gap-1 rounded-full border border-sky-300/30 bg-sky-400/12 px-2 py-0.5 text-[10px] font-semibold text-sky-100 transition-opacity"
@@ -804,9 +890,11 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           <AppIcon name="export" :size="15" />
         </button>
         <button
+          v-if="!props.embedded"
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
           :title="panelCopy.close"
+          data-testid="mpr-segmentation-close"
           @click="emit('close')"
         >
           <AppIcon name="close" :size="15" />
@@ -815,10 +903,43 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
     </div>
 
     <div
-      class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] max-h-[min(32rem,calc(100vh-14rem))]"
+      v-if="props.embedded"
+      class="mb-2 grid grid-cols-2 gap-1 rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] p-1"
+      data-testid="mpr-segmentation-mode-tabs"
+    >
+      <button
+        type="button"
+        class="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-semibold transition"
+        :class="embeddedMode === 'segmentation:threshold' ? 'bg-[var(--theme-accent)] text-white shadow-sm' : 'text-[var(--theme-text-secondary)] hover:bg-[var(--theme-hover-surface)] hover:text-[var(--theme-text-primary)]'"
+        data-testid="mpr-segmentation-mode-threshold"
+        @click="selectSegmentationMode('segmentation:threshold')"
+      >
+        <AppIcon name="segmentation-threshold" :size="14" />
+        <span>{{ isZh ? '阈值分割' : 'Threshold' }}</span>
+        <span class="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{{ regions.length }}</span>
+      </button>
+      <button
+        type="button"
+        class="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-semibold transition"
+        :class="embeddedMode === 'segmentation:voi' ? 'bg-[var(--theme-accent)] text-white shadow-sm' : 'text-[var(--theme-text-secondary)] hover:bg-[var(--theme-hover-surface)] hover:text-[var(--theme-text-primary)]'"
+        data-testid="mpr-segmentation-mode-voi"
+        @click="selectSegmentationMode('segmentation:voi')"
+      >
+        <AppIcon name="segmentation-voi" :size="14" />
+        <span>VOI</span>
+        <span class="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{{ voiSpheres.length }}</span>
+      </button>
+    </div>
+
+    <div
+      class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]"
+      :class="props.embedded ? 'max-h-none' : 'max-h-[min(32rem,calc(100vh-14rem))]'"
       data-testid="mpr-segmentation-record-list"
     >
-      <div class="flex items-center justify-between gap-3 px-0.5 pt-0.5">
+      <div
+        v-if="!props.embedded || embeddedMode === 'segmentation:threshold'"
+        class="flex items-center justify-between gap-3 px-0.5 pt-0.5"
+      >
         <div class="min-w-0 truncate text-[12px] text-[var(--theme-text-secondary)]">
           <span class="font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '阈值分割' : 'Threshold regions' }}</span>
           <span class="mx-1 text-[var(--theme-text-muted)]">/</span>
@@ -827,7 +948,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
       </div>
 
       <div
-        v-if="regions.length === 0"
+        v-if="(!props.embedded || embeddedMode === 'segmentation:threshold') && regions.length === 0"
         class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
       >
         {{ panelCopy.emptyThreshold }}
@@ -835,13 +956,14 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
 
       <div
         v-for="region in regions"
+        v-if="!props.embedded || embeddedMode === 'segmentation:threshold'"
         :key="region.id"
         class="rounded-md border px-2.5 py-2 transition"
         :class="region.id === displayedConfig.selectedRegionId ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
         :data-testid="`mpr-threshold-select-${region.id}`"
         @click="selectRegion(region.id)"
       >
-        <div class="flex min-w-0 items-center gap-2">
+        <div class="grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2">
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
             :class="region.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -869,7 +991,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             />
           </label>
           <input
-            class="h-7 min-w-0 flex-[0_1_7.5rem] rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
+            class="h-7 min-w-0 rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
             type="text"
             :aria-label="panelCopy.description"
             :placeholder="descriptionPlaceholder"
@@ -878,9 +1000,6 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             @click.stop
             @input.stop="updateRegionLabel(region, ($event.target as HTMLInputElement).value)"
           />
-          <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--theme-text-secondary)]">
-            {{ region.thresholdMode === 'percentile' ? `${region.thresholdPercentile.toFixed(1)}% / HU~${formatEffectiveThreshold(region)}` : `HU>${region.thresholdHu}` }}
-          </span>
           <div
             v-if="selectedRegion?.id === region.id"
             class="inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5"
@@ -913,8 +1032,25 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           </button>
         </div>
 
-        <div class="mt-1.5 max-h-8 overflow-hidden text-[11px] leading-4 text-[var(--theme-text-secondary)]">
-          {{ formatStatsSummary(region) }}
+        <div
+          class="mt-2 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-2 text-[11px] leading-4 text-[var(--theme-text-secondary)]"
+          :data-testid="`mpr-threshold-summary-${region.id}`"
+        >
+          {{ region.thresholdMode === 'percentile' ? `${region.thresholdPercentile.toFixed(1)}% / HU ~ ${formatEffectiveThreshold(region)}` : `HU > ${region.thresholdHu}` }}
+        </div>
+
+        <div
+          class="mt-2 grid min-h-[4.5rem] grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3"
+          :data-testid="`mpr-threshold-metrics-${region.id}`"
+        >
+          <div
+            v-for="metric in getThresholdMetricRows(region)"
+            :key="metric.key"
+            class="min-w-0 rounded-lg border border-white/8 bg-black/10 px-2 py-1.5"
+          >
+            <div class="text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
+            <div class="mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
+          </div>
         </div>
 
         <div
@@ -1001,7 +1137,10 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         </div>
       </div>
 
-      <div class="flex items-center justify-between gap-3 px-0.5 pt-1.5">
+      <div
+        v-if="!props.embedded || embeddedMode === 'segmentation:voi'"
+        class="flex items-center justify-between gap-3 px-0.5 pt-1.5"
+      >
         <div class="min-w-0 truncate text-[12px] text-[var(--theme-text-secondary)]">
           <span class="font-semibold text-[var(--theme-text-primary)]">VOI</span>
           <span class="mx-1 text-[var(--theme-text-muted)]">/</span>
@@ -1010,7 +1149,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
       </div>
 
       <div
-        v-if="voiSpheres.length === 0"
+        v-if="(!props.embedded || embeddedMode === 'segmentation:voi') && voiSpheres.length === 0"
         class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
       >
         {{ panelCopy.voiEmpty }}
@@ -1018,6 +1157,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
 
       <div
         v-for="sphere in voiSpheres"
+        v-if="!props.embedded || embeddedMode === 'segmentation:voi'"
         :key="sphere.id"
         class="rounded-md border px-2.5 py-2 transition"
         :class="displayedConfig.selectedVoiId === sphere.id ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
@@ -1074,8 +1214,18 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               <AppIcon name="trash" :size="15" />
             </button>
           </div>
-          <div class="mt-1.5 max-h-8 overflow-hidden text-[11px] leading-4 text-[var(--theme-text-secondary)]">
-            {{ formatVoiStatsSummary(sphere) }}
+          <div
+            class="mt-2 grid min-h-[4.5rem] grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3"
+            :data-testid="`mpr-voi-metrics-${sphere.id}`"
+          >
+            <div
+              v-for="metric in getVoiMetricRows(sphere)"
+              :key="metric.key"
+              class="min-w-0 rounded-lg border border-white/8 bg-black/10 px-2 py-1.5"
+            >
+              <div class="text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
+              <div class="mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
+            </div>
           </div>
         </div>
 

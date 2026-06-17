@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
-import type { StackTool, StackToolOptionSelectBehavior } from './toolbarTypes'
+import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import ViewerToolbarDockPanelContent from './ViewerToolbarDockPanelContent.vue'
 
@@ -43,21 +43,57 @@ const { locale, toolbarCopy: copy } = useUiLocale()
 const isDockCollapsed = ref(false)
 const lastActivatedToolKey = ref<string | null>(null)
 const lastDetaillessToolKey = ref<string | null>(null)
-const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams'])
+const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'segmentation'])
 const actionDetailToolKeys = new Set(['annotate'])
-const unselectedActionMenuToolKeys = new Set(['rotate', 'qa', 'export', 'reset'])
-const autoApplyOptionToolKeys = new Set(['measure'])
+const unselectedActionMenuToolKeys = new Set(['rotate', 'export', 'reset'])
+const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
+const modeOptionPanelToolKeys = new Set(['window', 'measure', 'qa'])
 
-const currentMenuTool = computed(() => props.activeTools.find((tool) => tool.key === props.openMenuKey && tool.options?.length))
-const isPanelActive = computed(() => Boolean(props.resultPanelOpen || props.utilityPanelOpen || currentMenuTool.value))
+function getDockToolOptions(tool: StackTool): StackToolOption[] {
+  return tool.options ?? tool.dockOptions ?? []
+}
+
+function hasDockToolOptions(tool: StackTool): boolean {
+  return getDockToolOptions(tool).length > 0
+}
+
+function getDockPanelTool(tool: StackTool): StackTool {
+  return tool.options?.length ? tool : { ...tool, options: getDockToolOptions(tool) }
+}
+
+const currentMenuTool = computed(() => {
+  const tool = props.activeTools.find((item) => item.key === props.openMenuKey && hasDockToolOptions(item))
+  return tool ? getDockPanelTool(tool) : undefined
+})
 const lastActivatedTool = computed(() => props.activeTools.find((tool) => tool.key === lastActivatedToolKey.value) ?? null)
 const lastDetaillessTool = computed(() => props.activeTools.find((tool) => tool.key === lastDetaillessToolKey.value) ?? null)
 const selectedOperationTool = computed(() => props.activeTools.find((tool) => props.isToolSelected(tool)) ?? null)
+const activePanelTool = computed(() => {
+  if (currentMenuTool.value) {
+    return currentMenuTool.value
+  }
+  const fallbackTool = [lastActivatedTool.value, selectedOperationTool.value].find((tool) => tool && hasDockToolOptions(tool))
+  return fallbackTool ? getDockPanelTool(fallbackTool) : undefined
+})
+const shouldEmbedResultInActiveTool = computed(() => {
+  const panelToolKey = activePanelTool.value?.key
+  return props.resultPanelOpen === true && Boolean(panelToolKey) && panelToolKey === props.resultPanelToolKey
+})
+const shouldShowUtilityPanel = computed(() =>
+  props.utilityPanelOpen === true && (!activePanelTool.value || activePanelTool.value.key === props.utilityPanelToolKey)
+)
+const shouldShowStandaloneResultPanel = computed(() =>
+  props.resultPanelOpen === true &&
+  !shouldEmbedResultInActiveTool.value &&
+  !shouldShowUtilityPanel.value &&
+  !activePanelTool.value
+)
+const isPanelActive = computed(() => Boolean(shouldShowStandaloneResultPanel.value || shouldShowUtilityPanel.value || activePanelTool.value))
 const activeDockToolKey = computed(
   () =>
-    (props.resultPanelOpen ? props.resultPanelToolKey : null) ??
-    (props.utilityPanelOpen ? props.utilityPanelToolKey : null) ??
-    currentMenuTool.value?.key ??
+    (shouldShowUtilityPanel.value ? props.utilityPanelToolKey : null) ??
+    activePanelTool.value?.key ??
+    (shouldShowStandaloneResultPanel.value ? props.resultPanelToolKey : null) ??
     lastActivatedTool.value?.key ??
     selectedOperationTool.value?.key ??
     props.openMenuKey ??
@@ -65,7 +101,7 @@ const activeDockToolKey = computed(
 )
 const activeDisplayTool = computed(
   () =>
-    currentMenuTool.value ??
+    activePanelTool.value ??
     lastDetaillessTool.value ??
     selectedOperationTool.value ??
     props.activeTools.find((tool) => tool.key === props.openMenuKey) ??
@@ -95,15 +131,15 @@ function isDockToolActive(tool: StackTool): boolean {
 }
 
 function canShowSelectedOptionOnDockButton(tool: StackTool): boolean {
-  return Boolean(tool.options?.length) && tool.showSelectedOptionIcon !== false && !unselectedActionMenuToolKeys.has(tool.key)
+  return hasDockToolOptions(tool) && tool.showSelectedOptionIcon !== false && !unselectedActionMenuToolKeys.has(tool.key)
 }
 
 function shouldExpandDockForTool(tool: StackTool): boolean {
-  return Boolean(tool.options?.length) || utilityDetailToolKeys.has(tool.key) || actionDetailToolKeys.has(tool.key)
+  return hasDockToolOptions(tool) || utilityDetailToolKeys.has(tool.key) || actionDetailToolKeys.has(tool.key)
 }
 
 function getSelectedToolOptionValue(tool: StackTool): string | null {
-  return props.stackToolSelections[tool.key] ?? tool.options?.find((option) => !option.disabled)?.value ?? null
+  return props.stackToolSelections[tool.key] ?? getDockToolOptions(tool).find((option) => !option.disabled)?.value ?? null
 }
 
 function clearActiveAnnotations(): void {
@@ -122,23 +158,50 @@ function expandDockForDetailTool(): void {
   emit('dockResize')
 }
 
+function shouldCloseResultForTool(tool: StackTool): boolean {
+  return !(tool.key === 'qa' && props.resultPanelIcon === 'water-phantom')
+}
+
 function handleToolClick(tool: StackTool): void {
   if (isToolDisabled(tool)) {
     return
   }
-  emit('closeResultPanel')
+  if (shouldCloseResultForTool(tool)) {
+    emit('closeResultPanel')
+  }
   lastActivatedToolKey.value = tool.key
-  if (tool.options?.length) {
+  if (hasDockToolOptions(tool)) {
     expandDockForDetailTool()
-    emit('closeUtilityPanel')
+    const isCurrentUtilityTool = props.utilityPanelOpen && props.utilityPanelToolKey === tool.key
+    if (!isCurrentUtilityTool) {
+      emit('closeUtilityPanel')
+    }
     if (props.openMenuKey !== tool.key) {
       emit('setMenuOpen', tool.key)
     }
+
+    if (tool.key === 'segmentation') {
+      if (!isCurrentUtilityTool) {
+        const optionValue = getSelectedToolOptionValue(tool) ?? 'segmentation:threshold'
+        emit('selectToolOption', tool, optionValue, { keepMenuOpen: true })
+      }
+      return
+    }
+
+    if (tool.key === 'window') {
+      emit('applyTool', tool, { keepMenuOpen: true })
+      return
+    }
+
     if (autoApplyOptionToolKeys.has(tool.key)) {
       const optionValue = getSelectedToolOptionValue(tool)
       if (optionValue) {
         emit('selectToolOption', tool, optionValue, { keepMenuOpen: true })
+        return
       }
+    }
+    if (modeOptionPanelToolKeys.has(tool.key)) {
+      emit('applyTool', tool, { keepMenuOpen: true })
     }
     return
   }
@@ -179,7 +242,7 @@ watch(
             :key="tool.key"
             class="viewer-toolbar-dock__tool-group"
             :class="{
-              'viewer-toolbar-dock__tool-group--compound': Boolean(tool.options?.length),
+              'viewer-toolbar-dock__tool-group--compound': hasDockToolOptions(tool),
               'viewer-toolbar-dock__tool-group--active': isDockToolActive(tool)
             }"
           >
@@ -188,12 +251,12 @@ watch(
               class="viewer-toolbar-dock__button"
               :class="{
                 'viewer-toolbar-dock__button--active': isDockToolActive(tool),
-                'viewer-toolbar-dock__button--options': Boolean(tool.options?.length),
+                'viewer-toolbar-dock__button--options': hasDockToolOptions(tool),
                 'viewer-toolbar-dock__button--accent': tool.key === 'play' && (isPlaying || isPlaybackPaused)
               }"
               :disabled="isToolDisabled(tool)"
-              :aria-expanded="tool.options?.length ? openMenuKey === tool.key : undefined"
-              :title="tool.options?.length ? copy.toolOptions(tool.label) : tool.label"
+              :aria-expanded="hasDockToolOptions(tool) ? activePanelTool?.key === tool.key : undefined"
+              :title="hasDockToolOptions(tool) ? copy.toolOptions(tool.label) : tool.label"
               @click.stop="handleToolClick(tool)"
             >
               <PseudocolorBand
@@ -222,7 +285,7 @@ watch(
       >
         <Transition name="viewer-toolbar-dock-panel" mode="out-in">
           <div
-            v-if="resultPanelOpen"
+            v-if="shouldShowStandaloneResultPanel"
             :key="`result:${resultPanelToolKey ?? resultPanelTitle ?? 'panel'}`"
             class="viewer-toolbar-dock__panel-content-shell"
           >
@@ -238,7 +301,7 @@ watch(
             </div>
           </div>
           <div
-            v-else-if="utilityPanelOpen"
+            v-else-if="shouldShowUtilityPanel"
             :key="`utility:${utilityPanelToolKey ?? utilityPanelTitle ?? 'panel'}`"
             class="viewer-toolbar-dock__panel-content-shell"
           >
@@ -254,29 +317,38 @@ watch(
             </div>
           </div>
           <div
-            v-else-if="currentMenuTool"
-            :key="`menu:${currentMenuTool.key}`"
+            v-else-if="activePanelTool"
+            :key="`menu:${activePanelTool.key}`"
             class="viewer-toolbar-dock__panel-content-shell"
           >
             <div class="viewer-toolbar-dock__panel-header">
               <div class="viewer-toolbar-dock__panel-title">
-                <AppIcon :name="currentMenuTool.icon" :size="16" />
-                <span>{{ currentMenuTool.label }}</span>
+                <AppIcon :name="activePanelTool.icon" :size="16" />
+                <span>{{ activePanelTool.label }}</span>
               </div>
             </div>
 
-            <ViewerToolbarDockPanelContent
-              :active-tab="activeTab"
-              :is-playing="isPlaying"
-              :is-playback-paused="isPlaybackPaused"
-              :menu-icon-size="menuIconSize"
-              :stack-tool-selections="stackToolSelections"
-              :tool="currentMenuTool"
-              @apply-tool="(tool, behavior) => emit('applyTool', tool, behavior)"
-              @end-playback="(behavior) => emit('endPlayback', behavior)"
-              @pause-playback="(behavior) => emit('pausePlayback', behavior)"
-              @select="emit('selectToolOption', currentMenuTool, $event, { keepMenuOpen: true })"
-            />
+            <div class="viewer-toolbar-dock__tool-panel-body">
+              <ViewerToolbarDockPanelContent
+                :active-tab="activeTab"
+                :is-playing="isPlaying"
+                :is-playback-paused="isPlaybackPaused"
+                :menu-icon-size="menuIconSize"
+                :stack-tool-selections="stackToolSelections"
+                :tool="activePanelTool"
+                @apply-tool="(tool, behavior) => emit('applyTool', tool, behavior)"
+                @end-playback="(behavior) => emit('endPlayback', behavior)"
+                @pause-playback="(behavior) => emit('pausePlayback', behavior)"
+                @select="emit('selectToolOption', activePanelTool, $event, { keepMenuOpen: true })"
+              />
+              <div
+                v-if="shouldEmbedResultInActiveTool"
+                class="viewer-toolbar-dock__embedded-result-panel"
+                :key="`embedded-result:${resultPanelTitle ?? 'panel'}`"
+              >
+                <slot name="result" />
+              </div>
+            </div>
           </div>
           <div
             v-else
@@ -462,6 +534,20 @@ watch(
   background: var(--theme-hover-surface);
 }
 
+.viewer-toolbar-dock__button:focus,
+.viewer-toolbar-dock__collapse-button:focus {
+  outline: none;
+}
+
+.viewer-toolbar-dock__button:focus-visible,
+.viewer-toolbar-dock__collapse-button:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 22%, transparent);
+}
+
 .viewer-toolbar-dock__button--active,
 .viewer-toolbar-dock__tool-group--active,
 .viewer-toolbar-dock__button[aria-expanded="true"] {
@@ -566,6 +652,27 @@ watch(
   min-height: 0;
   flex-direction: column;
   overflow: auto;
+}
+
+.viewer-toolbar-dock__tool-panel-body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.viewer-toolbar-dock__embedded-result-panel {
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
+  padding-top: 10px;
 }
 
 .viewer-toolbar-dock__status {

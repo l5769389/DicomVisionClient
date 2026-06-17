@@ -317,6 +317,123 @@ describe('MprSegmentationPanel', () => {
     expect(zhWrapper.text()).toContain('Depth')
   })
 
+  it('renders as an embedded dock panel without floating drag or close affordances', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig(),
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.classes()).toContain('mpr-segmentation-panel--embedded')
+    expect(wrapper.classes()).not.toContain('mpr-segmentation-panel--floating')
+    expect(wrapper.classes()).not.toContain('fixed')
+    expect(wrapper.attributes('style') ?? '').not.toContain('left:')
+    expect(wrapper.attributes('style') ?? '').not.toContain('top:')
+    expect(wrapper.find('[data-testid="mpr-segmentation-panel-drag-handle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mpr-segmentation-close"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mpr-segmentation-import"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-segmentation-export"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-segmentation-record-list"]').classes()).toContain('max-h-none')
+  })
+
+  it('renders embedded threshold and VOI mode tabs and switches the visible mode', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig(),
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('[data-testid="mpr-segmentation-mode-tabs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-segmentation-mode-threshold"]').text()).toContain('阈值分割')
+    expect(wrapper.find('[data-testid="mpr-segmentation-mode-voi"]').text()).toContain('VOI')
+    expect(wrapper.find('[data-testid="mpr-threshold-select-r1"]').isVisible()).toBe(true)
+
+    await wrapper.find('[data-testid="mpr-segmentation-mode-voi"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:voi'])
+    expect(wrapper.find('[data-testid="mpr-threshold-select-r1"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('在 VOI 模式中绘制圆形区域')
+  })
+
+  it('keeps embedded threshold metrics structurally stable while stats are loading and ready', async () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig(createRegion({ stats: null })),
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const loadingMetrics = wrapper.find('[data-testid="mpr-threshold-metrics-r1"]')
+    expect(loadingMetrics.exists()).toBe(true)
+    expect(loadingMetrics.findAll('.rounded-lg')).toHaveLength(7)
+    expect(loadingMetrics.text()).toContain('--')
+    expect(wrapper.find('[data-testid="mpr-threshold-summary-r1"]').text()).toContain('HU > 300')
+    expect(wrapper.find('[data-testid="mpr-threshold-summary-r1"]').classes().join(' ')).not.toContain('truncate')
+
+    await wrapper.setProps({
+      config: createConfig()
+    })
+
+    const readyMetrics = wrapper.find('[data-testid="mpr-threshold-metrics-r1"]')
+    expect(readyMetrics.findAll('.rounded-lg')).toHaveLength(7)
+    expect(readyMetrics.text()).toContain('120.00')
+    expect(readyMetrics.text()).toContain('1.20 cm3')
+  })
+
+  it('shows embedded VOI metrics in the VOI tab without rendering threshold controls', () => {
+    const sphere = {
+      ...createVoiSphere(),
+      stats: {
+        huMean: 10,
+        huMin: 1,
+        huMax: 30,
+        huStdDev: 3,
+        volumeCm3: 2,
+        sampleCount: 9
+      }
+    }
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          thresholdRegions: [createRegion()],
+          voiSpheres: [sphere],
+          voiSphere: sphere
+        },
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('[data-testid="mpr-segmentation-mode-voi"]').classes()).toContain('bg-[var(--theme-accent)]')
+    expect(wrapper.find('[data-testid="mpr-threshold-select-r1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mpr-voi-select-v1"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-voi-metrics-v1"]').findAll('.rounded-lg')).toHaveLength(6)
+    expect(wrapper.findAll('input[type="range"]')).toHaveLength(0)
+  })
+
   it('updates threshold and VOI display attributes without clearing stats or recomputing', async () => {
     const regionStats = createRegion().stats
     const sphereStats = {

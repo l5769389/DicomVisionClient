@@ -1321,6 +1321,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           ...currentTransform,
           verFlip: !currentTransform.verFlip
         }
+      } else if (payload.value === 'rotate:reset') {
+        nextTransform = {
+          ...currentTransform,
+          rotationDegrees: 0,
+          horFlip: false,
+          verFlip: false
+        }
       } else {
         return
       }

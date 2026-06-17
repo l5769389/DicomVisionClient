@@ -25,6 +25,7 @@ export interface StackTool {
   menuKind?: 'options' | 'layout' | 'mprLayout'
   inlineKind?: 'fusionPetDisplay' | 'fusionRegistration'
   options?: StackToolOption[]
+  dockOptions?: StackToolOption[]
   showSelectedOptionIcon?: boolean
 }
 

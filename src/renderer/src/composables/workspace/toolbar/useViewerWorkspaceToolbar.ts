@@ -131,6 +131,7 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'rotate:cw90': { label: '顺时针 90°' },
   'rotate:mirror-h': { label: '水平镜像' },
   'rotate:mirror-v': { label: '垂直镜像' },
+  'rotate:reset': { label: '重置旋转' },
   'volumePreset:bone': { label: '骨骼' },
   'volumePreset:cardiac': { label: '心脏' },
   'volumePreset:muscle': { label: '肌肉' },
@@ -209,7 +210,14 @@ const fusionRegistrationTool: StackTool = {
   label: 'Registration',
   icon: 'crosshair',
   kind: 'action',
-  inlineKind: 'fusionRegistration'
+  inlineKind: 'fusionRegistration',
+  dockOptions: [
+    { value: 'fusionRegistration:toggle', label: 'Manual Registration', icon: 'crosshair' },
+    { value: 'fusionRegistration:reset', label: 'Reset Registration', icon: 'reset' },
+    { value: 'fusionRegistration:load', label: 'Load Registration', icon: 'folder-import' },
+    { value: 'fusionRegistration:save', label: 'Save Registration', icon: 'save' },
+    { value: 'fusionRegistration:exit', label: 'Exit Registration', icon: 'close' }
+  ]
 }
 
 const layoutTool: StackTool = {
@@ -311,6 +319,14 @@ const playTool: StackTool = {
   }))
 }
 
+const rotateOptions: StackToolOption[] = [
+  { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
+  { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
+  { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
+  { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' },
+  { value: 'rotate:reset', label: 'Reset Rotation', icon: 'reset' }
+]
+
 const stackTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
@@ -321,12 +337,7 @@ const stackTools: StackTool[] = [
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
-    options: [
-      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
-      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
-      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
-      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
-    ]
+    options: rotateOptions
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   playTool,
@@ -387,7 +398,8 @@ function localizeToolbarTool(tool: StackTool, isZh: boolean): StackTool {
   return {
     ...tool,
     label: tool.key === 'crosshair' && tool.options ? tool.label : (ZH_TOOL_LABELS[tool.key] ?? tool.label),
-    options: tool.options?.map((option) => localizeToolbarOption(option, isZh))
+    options: tool.options?.map((option) => localizeToolbarOption(option, isZh)),
+    dockOptions: tool.dockOptions?.map((option) => localizeToolbarOption(option, isZh))
   }
 }
 
@@ -563,12 +575,7 @@ const fusionTools: StackTool[] = [
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
-    options: [
-      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
-      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
-      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
-      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
-    ]
+    options: rotateOptions
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
@@ -601,12 +608,7 @@ const petTools: StackTool[] = [
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
-    options: [
-      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
-      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
-      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
-      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
-    ]
+    options: rotateOptions
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   pseudocolorTool,
@@ -1509,6 +1511,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     closeMenus()
     options.stopViewportDrag()
     setToolbarToolActive('segmentation')
+    isVolumeConfigPanelOpen.value = false
     isMprMipPanelOpen.value = false
     isMprSegmentationPanelOpen.value = true
     stackToolSelections.value = {
@@ -1523,6 +1526,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     closeMenus()
     options.stopViewportDrag()
     setToolbarToolActive('segmentation')
+    isVolumeConfigPanelOpen.value = false
     isMprMipPanelOpen.value = false
     isMprSegmentationPanelOpen.value = true
     stackToolSelections.value = {
@@ -1532,8 +1536,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
   }
 
-  function activateModeTool(tool: StackTool): void {
-    closeMenus()
+  function activateModeTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
     options.stopViewportDrag()
     setToolbarToolActive(tool.key)
     if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
@@ -1582,14 +1586,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     })
   }
 
-  function applySelectedModeTool(tool: StackTool): void {
-    closeMenus()
-    if (!getSelectedOption(tool.key)) {
+  function applySelectedModeTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
+    const selectedOption = getSelectedOption(tool.key)
+    if (!selectedOption) {
       return
     }
-    if (activeToolbarToolKey.value !== tool.key) {
-      setToolbarToolActive(tool.key)
-      activateSelectedOption(tool.key)
+    options.stopViewportDrag()
+    setToolbarToolActive(tool.key)
+    const nextOperation = `${STACK_OPERATION_PREFIX}${selectedOption.value}`
+    if (options.activeOperation.value !== nextOperation) {
+      options.emitSetActiveOperation(nextOperation)
     }
   }
 
@@ -1601,10 +1608,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     reset: () => applyResetTool(),
     volumeParams: () => {
       closeMenus()
-      isVolumeConfigPanelOpen.value = !isVolumeConfigPanelOpen.value
+      const nextOpen = !isVolumeConfigPanelOpen.value
+      isMprMipPanelOpen.value = false
+      isMprSegmentationPanelOpen.value = false
+      isVolumeConfigPanelOpen.value = nextOpen
     },
     mprMip: () => {
       closeMenus()
+      isVolumeConfigPanelOpen.value = false
       isMprSegmentationPanelOpen.value = false
       isMprMipPanelOpen.value = !isMprMipPanelOpen.value
     },
@@ -1614,7 +1625,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         return
       }
       if (isMprSegmentationPanelOpen.value) {
-        isMprSegmentationPanelOpen.value = false
+        activateSegmentationSelectionMode(selectedOption)
         return
       }
       activateSegmentationOption(selectedOption)
@@ -1679,7 +1690,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
-      activateModeTool(tool)
+      activateModeTool(tool, behavior)
       return
     }
 
@@ -1731,6 +1742,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         return
       }
 
+      if (layoutKey === activeMprLayoutKey.value) {
+        closeMenusIfNeeded(behavior)
+        return
+      }
+
       stackToolSelections.value = {
         ...stackToolSelections.value,
         mprLayout: optionValue
@@ -1750,6 +1766,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (tool.key === 'layout') {
       const template = parseViewerLayoutOptionValue(optionValue)
       if (!template) {
+        return
+      }
+
+      const activeTab = options.activeTab.value
+      if (
+        activeTab?.viewType === 'Layout' &&
+        activeTab.layoutTemplate?.rows === template.rows &&
+        activeTab.layoutTemplate?.columns === template.columns
+      ) {
+        closeMenusIfNeeded(behavior)
         return
       }
 
@@ -1916,6 +1942,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       const selectedPreset = windowPresets.value.find((preset) => formatWindowPresetValue(preset.ww, preset.wl) === optionValue)
       if (selectedPreset) {
         selectedWindowPresetId.value = selectedPreset.id
+      }
+      options.stopViewportDrag()
+      setToolbarToolActive('window')
+      if (options.activeOperation.value !== `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`) {
+        options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
       }
       options.emitTriggerViewAction({ action: 'windowPreset', value: optionValue })
       return

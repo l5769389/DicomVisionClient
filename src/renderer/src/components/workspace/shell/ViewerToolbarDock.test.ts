@@ -75,7 +75,7 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__collapse-button').attributes('title')).toBe('收起右侧操作区')
   })
 
-  it('renders option tools as single buttons and opens panels without applying the tool', async () => {
+  it('renders option tools as single buttons and applies mode tools while opening panels', async () => {
     const wrapper = mountDock()
 
     expect(wrapper.findAll('.viewer-toolbar-dock__button')).toHaveLength(2)
@@ -84,7 +84,7 @@ describe('ViewerToolbarDock', () => {
 
     await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
     expect(wrapper.emitted('setMenuOpen')).toEqual([['window']])
-    expect(wrapper.emitted('applyTool')).toBeUndefined()
+    expect(wrapper.emitted('applyTool')?.[0]).toEqual([tools[1], { keepMenuOpen: true }])
 
     await wrapper.setProps({ openMenuKey: 'window' })
 
@@ -136,6 +136,22 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
     expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
     expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MPR Layout')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
+  })
+
+  it('shows the selected option tool panel on initial render without requiring a click', () => {
+    const wrapper = mountDock({
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'window'),
+      stackToolSelections: { window: '400|40' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Window')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(true)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
   it('emits selected option values from the dock panel content and keeps the panel open', async () => {
@@ -189,6 +205,81 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('applyTool')).toBeUndefined()
   })
 
+  it('applies the selected QA mode when opening the right dock QA panel', async () => {
+    const qaTool: StackTool = {
+      key: 'qa',
+      label: 'QA',
+      icon: 'qa',
+      kind: 'mode',
+      options: [
+        { value: 'qa:mtf', label: 'MTF', icon: 'mtf' },
+        { value: 'qa:water-phantom', label: 'Water Phantom QA', icon: 'water-phantom' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [tools[0]!, qaTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'zoom'),
+      stackToolSelections: { qa: 'qa:water-phantom' }
+    })
+
+    await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toEqual([['qa']])
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([qaTool, 'qa:water-phantom', { keepMenuOpen: true }])
+    expect(wrapper.emitted('applyTool')).toBeUndefined()
+  })
+
+  it('opens segmentation and selects threshold by default from the right dock button', async () => {
+    const segmentationTool: StackTool = {
+      key: 'segmentation',
+      label: 'Segmentation',
+      icon: 'segmentation',
+      kind: 'action',
+      options: [
+        { value: 'segmentation:threshold', label: 'Threshold', icon: 'segmentation-threshold' },
+        { value: 'segmentation:voi', label: 'VOI', icon: 'segmentation-voi' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [tools[0]!, segmentationTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'pan')
+    })
+
+    await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toEqual([['segmentation']])
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([
+      segmentationTool,
+      'segmentation:threshold',
+      { keepMenuOpen: true }
+    ])
+    expect(wrapper.emitted('applyTool')).toBeUndefined()
+  })
+
+  it('keeps an already open segmentation utility panel stable when clicked again', async () => {
+    const segmentationTool: StackTool = {
+      key: 'segmentation',
+      label: 'Segmentation',
+      icon: 'segmentation',
+      kind: 'action',
+      options: [{ value: 'segmentation:threshold', label: 'Threshold', icon: 'segmentation-threshold' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [segmentationTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'segmentation',
+      utilityPanelOpen: true,
+      utilityPanelTitle: 'Segmentation',
+      utilityPanelToolKey: 'segmentation'
+    })
+
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+
+    expect(wrapper.emitted('closeUtilityPanel')).toBeUndefined()
+    expect(wrapper.emitted('selectToolOption')).toBeUndefined()
+    expect(wrapper.emitted('applyTool')).toBeUndefined()
+  })
+
   it('keeps an already open layout panel stable when the layout button is clicked again', async () => {
     const layoutTool: StackTool = {
       key: 'layout',
@@ -220,13 +311,6 @@ describe('ViewerToolbarDock', () => {
         options: [{ value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' }]
       },
       {
-        key: 'qa',
-        label: 'QA',
-        icon: 'qa',
-        kind: 'mode',
-        options: [{ value: 'qa:mtf', label: 'MTF', icon: 'mtf' }]
-      },
-      {
         key: 'export',
         label: 'Export',
         icon: 'export',
@@ -255,6 +339,55 @@ describe('ViewerToolbarDock', () => {
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
       wrapper.unmount()
     }
+  })
+
+  it('shows the selected QA option while keeping the QA button icon semantic', () => {
+    const qaTool: StackTool = {
+      key: 'qa',
+      label: 'QA',
+      icon: 'qa',
+      kind: 'mode',
+      showSelectedOptionIcon: false,
+      options: [
+        { value: 'qa:mtf', label: 'MTF', icon: 'mtf', badge: 'MTF' },
+        { value: 'qa:water-phantom', label: 'Water Phantom QA', icon: 'water-phantom' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [qaTool],
+      isToolSelected: vi.fn(() => true),
+      openMenuKey: 'qa',
+      stackToolSelections: { qa: 'qa:mtf' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').text()).toContain('MTF')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__button svg').exists()).toBe(true)
+  })
+
+  it('shows reset rotation in the rotate panel without preselecting it', () => {
+    const rotateTool: StackTool = {
+      key: 'rotate',
+      label: 'Rotate',
+      icon: 'rotate',
+      kind: 'action',
+      options: [
+        { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
+        { value: 'rotate:reset', label: 'Reset Rotation', icon: 'reset' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [rotateTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'rotate',
+      stackToolSelections: { rotate: 'rotate:reset' }
+    })
+
+    expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').text()).toContain('Reset Rotation')
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').classes()).toContain('viewer-toolbar-dock-panel-content__danger-action')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
   })
 
   it('emits applyTool for tools without options', async () => {
@@ -341,7 +474,7 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-label').text()).toBe('Reset')
   })
 
-  it('does not show an option tool as an empty active panel before its panel opens', async () => {
+  it('shows a clicked option tool panel immediately while parent menu state catches up', async () => {
     const resetTool: StackTool = {
       key: 'reset',
       label: 'Reset',
@@ -357,11 +490,52 @@ describe('ViewerToolbarDock', () => {
     await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
 
     expect(wrapper.emitted('setMenuOpen')).toEqual([['reset']])
-    expect(wrapper.find('.viewer-toolbar-dock__active-tool-label').text()).toBe('Pan')
+    expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Reset')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
 
     await wrapper.setProps({ openMenuKey: 'reset' })
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Reset')
+  })
+
+  it('applies page directly without opening a secondary menu', async () => {
+    const pageTool: StackTool = { key: 'page', label: 'Page', icon: 'page', kind: 'action' }
+    const wrapper = mountDock({
+      activeTools: [tools[0]!, pageTool],
+      isToolSelected: vi.fn(() => false)
+    })
+
+    await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toEqual([[null]])
+    expect(wrapper.emitted('applyTool')?.[0]).toEqual([pageTool])
+  })
+
+  it('keeps the measure panel visible after measurement interactions clear the menu key', () => {
+    const measureTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      kind: 'mode',
+      options: [
+        { value: 'measure:line', label: 'Line', icon: 'measure-line' },
+        { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [tools[0]!, measureTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'measure'),
+      openMenuKey: null,
+      stackToolSelections: { measure: 'measure:line' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Measure')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(true)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
   it('uses the utility panel tool as the single active button while a utility panel is open', () => {
@@ -383,30 +557,141 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__panel-close').exists()).toBe(false)
   })
 
-  it('shows result content above utility and option panels and highlights the result tool', () => {
-    const qaTool: StackTool = { key: 'qa', label: 'QA', icon: 'qa', kind: 'mode' }
+  it('uses the segmentation utility panel as the single active button', () => {
+    const segmentationTool: StackTool = {
+      key: 'segmentation',
+      label: 'Segmentation',
+      icon: 'segmentation',
+      kind: 'action',
+      options: [
+        { value: 'segmentation:threshold', label: 'Threshold', icon: 'segmentation-threshold' },
+        { value: 'segmentation:voi', label: 'VOI', icon: 'segmentation-voi' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [tools[0]!, segmentationTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'pan'),
+      openMenuKey: 'segmentation',
+      utilityPanelOpen: true,
+      utilityPanelTitle: 'Segmentation',
+      utilityPanelToolKey: 'segmentation'
+    })
+
+    const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(buttons[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Segmentation')
+    expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(false)
+  })
+
+  it('opens the PET/CT registration dock panel from dock-only options', async () => {
+    const registrationTool: StackTool = {
+      key: 'fusionRegistration',
+      label: 'Registration',
+      icon: 'crosshair',
+      kind: 'action',
+      inlineKind: 'fusionRegistration',
+      dockOptions: [
+        { value: 'fusionRegistration:toggle', label: 'Manual Registration', icon: 'crosshair' },
+        { value: 'fusionRegistration:reset', label: 'Reset Registration', icon: 'reset' },
+        { value: 'fusionRegistration:load', label: 'Load Registration', icon: 'folder-import' },
+        { value: 'fusionRegistration:save', label: 'Save Registration', icon: 'save' },
+        { value: 'fusionRegistration:exit', label: 'Exit Registration', icon: 'close' }
+      ]
+    }
+    const fusionTab = {
+      ...activeTab,
+      key: 'fusion::ct::pet',
+      title: 'CT + PET',
+      viewType: 'PETCTFusion',
+      fusionManualRegistration: true
+    } as ViewerTabItem
+    const wrapper = mountDock({
+      activeTab: fusionTab,
+      activeTools: [registrationTool],
+      isToolSelected: vi.fn(() => false)
+    })
+
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toEqual([['fusionRegistration']])
+    expect(wrapper.emitted('applyTool')).toBeUndefined()
+
+    await wrapper.setProps({ openMenuKey: 'fusionRegistration' })
+
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Registration')
+    expect(wrapper.find('[data-testid="fusion-registration-dock-toggle"]').exists()).toBe(true)
+    expect(wrapper.find('.toolbar-menu-option').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="fusion-registration-dock-action-save"]').trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'fusionRegistration' }),
+      'fusionRegistration:save',
+      { keepMenuOpen: true }
+    ])
+  })
+
+  it('embeds QA result content below QA options and keeps the selected QA option visible', () => {
+    const qaTool: StackTool = {
+      key: 'qa',
+      label: 'QA',
+      icon: 'qa',
+      kind: 'mode',
+      showSelectedOptionIcon: false,
+      options: [
+        { value: 'qa:mtf', label: 'MTF', icon: 'mtf', badge: 'MTF' },
+        { value: 'qa:water-phantom', label: 'Water Phantom QA', icon: 'water-phantom' }
+      ]
+    }
     const wrapper = mountDock({
       activeTools: [qaTool, tools[1]!, tools[0]!],
       isToolSelected: vi.fn((tool: StackTool) => tool.key === 'pan'),
-      openMenuKey: 'window',
+      openMenuKey: 'qa',
       resultPanelIcon: 'water-phantom',
       resultPanelOpen: true,
       resultPanelTitle: 'Water Phantom QA',
       resultPanelToolKey: 'qa',
+      stackToolSelections: { qa: 'qa:water-phantom' },
       utilityPanelOpen: true,
       utilityPanelTitle: 'MIP Params',
       utilityPanelToolKey: 'pan'
     })
 
     const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
-    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Water Phantom QA')
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('QA')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').text()).toContain('Water Phantom QA')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__embedded-result-panel').exists()).toBe(true)
     expect(wrapper.find('[data-testid="result-panel"]').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__result-panel').exists()).toBe(false)
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(false)
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(false)
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
     expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
     expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
     expect(buttons[2]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+  })
+
+  it('does not let a non-current result panel override the current tool panel', () => {
+    const qaTool: StackTool = { key: 'qa', label: 'QA', icon: 'qa', kind: 'mode' }
+    const wrapper = mountDock({
+      activeTools: [qaTool, tools[1]!, tools[0]!],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'pan'),
+      openMenuKey: 'window',
+      resultPanelIcon: 'mtf',
+      resultPanelOpen: true,
+      resultPanelTitle: 'MTF Curve',
+      resultPanelToolKey: 'qa'
+    })
+
+    const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Window')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="result-panel"]').exists()).toBe(false)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
   it('emits closeResultPanel when a dock tool is clicked', async () => {
@@ -421,6 +706,30 @@ describe('ViewerToolbarDock', () => {
 
     expect(wrapper.emitted('closeResultPanel')).toEqual([[]])
     expect(wrapper.emitted('applyTool')?.[0]).toEqual([tools[0]])
+  })
+
+  it('keeps a water QA result open when the QA tool is clicked again', async () => {
+    const qaTool: StackTool = {
+      key: 'qa',
+      label: 'QA',
+      icon: 'qa',
+      kind: 'mode',
+      options: [{ value: 'qa:water-phantom', label: 'Water Phantom QA', icon: 'water-phantom' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [qaTool],
+      isToolSelected: vi.fn(() => true),
+      resultPanelIcon: 'water-phantom',
+      resultPanelOpen: true,
+      resultPanelTitle: 'Water Phantom QA',
+      resultPanelToolKey: 'qa',
+      stackToolSelections: { qa: 'qa:water-phantom' }
+    })
+
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+
+    expect(wrapper.emitted('closeResultPanel')).toBeUndefined()
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([qaTool, 'qa:water-phantom', { keepMenuOpen: true }])
   })
 
   it('switches from a utility panel to an option panel when an option tool is clicked', async () => {

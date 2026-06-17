@@ -620,9 +620,74 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     harness.toolbar.setMenuOpen('window')
     expect(harness.toolbar.openMenuKey.value).toBe('window')
+    harness.activeOperation.value = 'stack:zoom'
     harness.toolbar.selectToolOption(windowTool, optionValue)
 
     expect(harness.toolbar.openMenuKey.value).toBeNull()
+    expect(harness.activeOperation.value).toBe('stack:window')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: optionValue })
+    harness.wrapper.unmount()
+  })
+
+  it('keeps the window panel open while applying window mode from the right dock', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const windowTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'window')!
+    harness.activeOperation.value = 'stack:zoom'
+    harness.toolbar.setMenuOpen('window')
+    harness.emitSetActiveOperation.mockClear()
+    harness.toolbar.applyTool(windowTool, { keepMenuOpen: true })
+
+    expect(harness.activeOperation.value).toBe('stack:window')
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:window')
+    expect(harness.toolbar.openMenuKey.value).toBe('window')
+    harness.wrapper.unmount()
+  })
+
+  it('reapplies a selected mode tool when the active operation is stale', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const measureTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
+    harness.toolbar.selectToolOption(measureTool, 'measure:line')
+    harness.activeOperation.value = 'stack:zoom'
+    harness.toolbar.setMenuOpen('measure')
+    harness.emitSetActiveOperation.mockClear()
+    harness.toolbar.applyTool(measureTool, { keepMenuOpen: true })
+
+    expect(harness.activeOperation.value).toBe('stack:measure:line')
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:measure:line')
+    expect(harness.toolbar.openMenuKey.value).toBe('measure')
+    harness.wrapper.unmount()
+  })
+
+  it('switches from window adjustment to page scroll when page is applied', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const pageTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'page')!
+    harness.activeOperation.value = 'stack:window'
+    harness.emitSetActiveOperation.mockClear()
+    harness.toolbar.applyTool(pageTool)
+
+    expect(harness.activeOperation.value).toBe('stack:scroll')
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:scroll')
     harness.wrapper.unmount()
   })
 
@@ -667,6 +732,146 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.toolbar.openMenuKey.value).toBe('mprLayout')
 
     harness.wrapper.unmount()
+  })
+
+  it('does not reopen the current Layout template when selecting the same layout', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'layout::2x2',
+      title: '2 x 2 Layout',
+      viewType: 'Layout',
+      layoutTemplate: {
+        key: 'preset:2x2',
+        label: '2 x 2',
+        rows: 2,
+        columns: 2,
+        slots: [],
+        source: 'preset'
+      }
+    })
+    await nextTick()
+
+    const layoutTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'layout')!
+    const currentLayoutOption = layoutTool.options!.find((option) => option.layoutRows === 2 && option.layoutColumns === 2)!
+    const previousSelections = harness.toolbar.stackToolSelections.value
+
+    harness.toolbar.setMenuOpen('layout')
+    harness.toolbar.selectToolOption(layoutTool, currentLayoutOption.value, { keepMenuOpen: true })
+
+    expect(harness.emitOpenLayoutView).not.toHaveBeenCalled()
+    expect(harness.toolbar.openMenuKey.value).toBe('layout')
+    expect(harness.toolbar.stackToolSelections.value).toBe(previousSelections)
+    harness.wrapper.unmount()
+  })
+
+  it('does not rewrite MPR layout state when selecting the active MPR layout', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    })
+    await nextTick()
+
+    const mprLayoutTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'mprLayout')!
+    const currentValue = harness.toolbar.stackToolSelections.value.mprLayout!
+    const previousSelections = harness.toolbar.stackToolSelections.value
+
+    harness.toolbar.setMenuOpen('mprLayout')
+    harness.toolbar.selectToolOption(mprLayoutTool, currentValue, { keepMenuOpen: true })
+
+    expect(harness.toolbar.openMenuKey.value).toBe('mprLayout')
+    expect(harness.toolbar.stackToolSelections.value).toBe(previousSelections)
+    harness.wrapper.unmount()
+  })
+
+  it('keeps segmentation, MIP, and 3D utility panels mutually exclusive', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    })
+    await nextTick()
+
+    const getTool = (key: string) => harness.toolbar.activeTools.value.find((tool) => tool.key === key)!
+    const segmentationTool = getTool('segmentation')
+    const mprMipTool = getTool('mprMip')
+
+    harness.toolbar.selectToolOption(segmentationTool, 'segmentation:threshold', { keepMenuOpen: true })
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(true)
+    expect(harness.toolbar.isMprMipPanelOpen.value).toBe(false)
+    expect(harness.toolbar.isVolumeConfigPanelOpen.value).toBe(false)
+
+    harness.toolbar.applyTool(mprMipTool)
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(false)
+    expect(harness.toolbar.isMprMipPanelOpen.value).toBe(true)
+    expect(harness.toolbar.isVolumeConfigPanelOpen.value).toBe(false)
+
+    const mprLayoutTool = getTool('mprLayout')
+    const mpr3dOption = mprLayoutTool.options!.find((option) => option.mprLayoutKey === 'mpr-3d')!
+    harness.toolbar.selectToolOption(mprLayoutTool, mpr3dOption.value, { keepMenuOpen: true })
+    await nextTick()
+
+    harness.toolbar.selectToolOption(segmentationTool, 'segmentation:voi', { keepMenuOpen: true })
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(true)
+    expect(harness.toolbar.isMprMipPanelOpen.value).toBe(false)
+
+    harness.toolbar.applyTool(getTool('volumeParams'))
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(false)
+    expect(harness.toolbar.isMprMipPanelOpen.value).toBe(false)
+    expect(harness.toolbar.isVolumeConfigPanelOpen.value).toBe(true)
+    harness.wrapper.unmount()
+  })
+
+  it('opens segmentation with the default threshold operation from the main tool', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    })
+    await nextTick()
+
+    const segmentationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'segmentation')!
+    harness.emitSetActiveOperation.mockClear()
+    harness.toolbar.applyTool(segmentationTool)
+
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(true)
+    expect(harness.toolbar.stackToolSelections.value.segmentation).toBe('segmentation:threshold')
+    expect(harness.activeOperation.value).toBe('stack:segmentation:threshold')
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:segmentation:threshold')
+
+    harness.emitSetActiveOperation.mockClear()
+    harness.toolbar.applyTool(segmentationTool)
+    expect(harness.toolbar.isMprSegmentationPanelOpen.value).toBe(true)
+    expect(harness.activeOperation.value).toBe('stack:segmentation:threshold')
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:segmentation:threshold')
+    harness.wrapper.unmount()
+  })
+
+  it('emits rotate reset without closing a right-dock rotate panel', async () => {
+    vi.useFakeTimers()
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const rotateTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'rotate')!
+    expect(rotateTool.options?.some((option) => option.value === 'rotate:reset')).toBe(true)
+
+    harness.toolbar.setMenuOpen('rotate')
+    harness.toolbar.selectToolOption(rotateTool, 'rotate:reset', { keepMenuOpen: true })
+
+    expect(harness.toolbar.openMenuKey.value).toBe('rotate')
+    vi.advanceTimersByTime(270)
+    await nextTick()
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'rotate', value: 'rotate:reset' })
+    harness.wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('clears measurements from the right-dock measure panel without changing active operation', async () => {

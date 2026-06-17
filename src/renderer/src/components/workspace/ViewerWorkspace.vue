@@ -332,6 +332,7 @@ function closeMprMipPanel(): void {
 function closeRightToolbarUtilityPanel(): void {
   closeVolumeConfigPanel()
   closeMprMipPanel()
+  closeMprSegmentationPanel()
 }
 
 function handleToolbarApplyTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
@@ -375,7 +376,7 @@ const isVolumeConfigPanelAvailable = computed(() => {
 const isRightToolbarLayout = computed(() => viewerToolbarPlacement.value === 'right')
 const shouldShowTopToolbar = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && !isRightToolbarLayout.value))
 const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && isRightToolbarLayout.value))
-const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | null>(() => {
+const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | 'segmentation' | null>(() => {
   const activeTab = activeTabRef.value
   if (!shouldShowRightToolbarDock.value || !activeTab) {
     return null
@@ -385,6 +386,39 @@ const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | null>(() => 
   }
   if ((activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen.value && activeMprMipConfig.value) {
     return 'mprMip'
+  }
+  if (activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen.value && activeMprSegmentationConfig.value) {
+    return 'segmentation'
+  }
+  return null
+})
+const rightToolbarUtilityPanelIcon = computed(() => {
+  if (rightToolbarUtilityPanelKind.value === 'volume') {
+    return 'settings'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'segmentation') {
+    return 'segmentation'
+  }
+  return 'mip'
+})
+const rightToolbarUtilityPanelTitle = computed(() => {
+  if (rightToolbarUtilityPanelKind.value === 'volume') {
+    return '3D Params'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'segmentation') {
+    return locale.value === 'zh-CN' ? '阈值分割' : 'Segmentation'
+  }
+  return 'MIP Params'
+})
+const rightToolbarUtilityPanelToolKey = computed(() => {
+  if (rightToolbarUtilityPanelKind.value === 'volume') {
+    return 'volumeParams'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'mprMip') {
+    return 'mprMip'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'segmentation') {
+    return 'segmentation'
   }
   return null
 })
@@ -2281,7 +2315,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen && activeMprSegmentationConfig"
+          v-if="!isRightToolbarLayout && activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen && activeMprSegmentationConfig"
           class="contents"
         >
           <MprSegmentationPanel
@@ -2602,10 +2636,10 @@ onBeforeUnmount(() => {
           :result-panel-tool-key="resultPanelToolKey"
           :stack-tool-selections="stackToolSelections"
           :toolbar-icon-size="toolbarIconSize"
-          :utility-panel-icon="rightToolbarUtilityPanelKind === 'volume' ? 'settings' : 'mip'"
+          :utility-panel-icon="rightToolbarUtilityPanelIcon"
           :utility-panel-open="rightToolbarUtilityPanelKind != null"
-          :utility-panel-title="rightToolbarUtilityPanelKind === 'volume' ? '3D Params' : 'MIP Params'"
-          :utility-panel-tool-key="rightToolbarUtilityPanelKind === 'volume' ? 'volumeParams' : rightToolbarUtilityPanelKind === 'mprMip' ? 'mprMip' : null"
+          :utility-panel-title="rightToolbarUtilityPanelTitle"
+          :utility-panel-tool-key="rightToolbarUtilityPanelToolKey"
           @apply-tool="handleToolbarApplyTool"
           @close-result-panel="closeResultPanel"
           @close-utility-panel="closeRightToolbarUtilityPanel"
@@ -2641,6 +2675,17 @@ onBeforeUnmount(() => {
               class="viewer-workspace-dock-panel"
               :config="activeMprMipConfig"
               @config-change="updateActiveMprMipConfig"
+            />
+            <MprSegmentationPanel
+              v-else-if="rightToolbarUtilityPanelKind === 'segmentation' && activeMprSegmentationConfig && activeTab.viewType === 'MPR'"
+              class="viewer-workspace-dock-panel"
+              :config="activeMprSegmentationConfig"
+              :is-processing="isMprSegmentationProcessing"
+              :series-id="activeTab.seriesId"
+              :series-label="activeTab.seriesTitle"
+              embedded
+              @config-change="handleMprSegmentationConfigChange"
+              @mode-change="handleMprSegmentationModeChange"
             />
           </template>
         </ViewerToolbarDock>
@@ -2729,6 +2774,8 @@ onBeforeUnmount(() => {
 .viewer-workspace-dock-panel {
   width: 100%;
   max-width: 100%;
+  height: 100%;
+  min-height: 0;
   border-radius: 14px !important;
 }
 </style>

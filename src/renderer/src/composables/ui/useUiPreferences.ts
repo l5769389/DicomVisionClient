@@ -188,9 +188,9 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 15
+const CURRENT_PREFERENCES_VERSION = 16
 const DEFAULT_THEME_ID = 'industrial-utility'
-const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'top'
+const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
@@ -518,7 +518,7 @@ function normalizeThemeId(value: unknown): string {
 }
 
 function normalizeViewerToolbarPlacement(value: unknown): ViewerToolbarPlacement {
-  return value === 'right' ? 'right' : DEFAULT_VIEWER_TOOLBAR_PLACEMENT
+  return value === 'top' || value === 'right' ? value : DEFAULT_VIEWER_TOOLBAR_PLACEMENT
 }
 
 function normalizePseudocolorKey(value: unknown): string {

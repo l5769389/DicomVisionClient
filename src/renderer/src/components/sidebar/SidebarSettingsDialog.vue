@@ -1668,7 +1668,7 @@ function resetDisplaySubSection(section: SettingsSection): void {
     return
   }
   if (section === 'displayToolbarLayout') {
-    viewerToolbarPlacement.value = 'top'
+    viewerToolbarPlacement.value = 'right'
     return
   }
   if (section === 'displayScaleBar') {

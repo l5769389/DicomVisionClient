@@ -338,6 +338,34 @@ describe('FourDView', () => {
     wrapper.unmount()
   })
 
+  it('renders result content in the right dock below the 4D status controls', () => {
+    const qaTool: StackTool = { key: 'qa', label: 'QA', icon: 'qa', kind: 'mode' }
+    const props = createFourDProps({
+      toolbarPlacement: 'right',
+      activeTools: [qaTool, ...createFourDProps().activeTools],
+      resultPanelIcon: 'mtf',
+      resultPanelOpen: true,
+      resultPanelTitle: 'MTF Curve',
+      resultPanelToolKey: 'qa'
+    })
+    const wrapper = mount(FourDView, {
+      props,
+      slots: {
+        result: '<div data-testid="four-d-result">MTF result</div>'
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock__status .four-d-phase-runtime').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MTF Curve')
+    expect(wrapper.find('[data-testid="four-d-result"]').text()).toBe('MTF result')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    wrapper.unmount()
+  })
+
   it('renders compact frame selectors with not-loaded and loaded phase states', () => {
     const wrapper = mount(FourDView, {
       props: {

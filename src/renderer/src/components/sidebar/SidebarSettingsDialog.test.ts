@@ -115,20 +115,22 @@ describe('SidebarSettingsDialog toolbar layout settings', () => {
     wrapper.unmount()
   })
 
-  it('resets toolbar layout back to top', async () => {
+  it('resets toolbar layout back to right dock', async () => {
     const preferences = useUiPreferences()
-    preferences.viewerToolbarPlacement.value = 'right'
+    preferences.viewerToolbarPlacement.value = 'top'
     const wrapper = mountSettingsDialog()
 
     await openToolbarLayoutSection(wrapper)
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').classes()).toContain('settings-toolbar-layout-choice--active')
+    preferences.viewerToolbarPlacement.value = 'top'
+    await nextTick()
+    expect(wrapper.find('[data-testid="settings-toolbar-layout-top"]').classes()).toContain('settings-toolbar-layout-choice--active')
 
     const resetButton = wrapper.findAll('button').find((button) => button.text().trim() === '恢复默认')
     expect(resetButton).toBeTruthy()
     await resetButton!.trigger('click')
 
-    expect(preferences.viewerToolbarPlacement.value).toBe('top')
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-top"]').classes()).toContain('settings-toolbar-layout-choice--active')
+    expect(preferences.viewerToolbarPlacement.value).toBe('right')
+    expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').classes()).toContain('settings-toolbar-layout-choice--active')
 
     wrapper.unmount()
   })

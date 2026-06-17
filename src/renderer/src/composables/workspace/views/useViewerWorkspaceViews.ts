@@ -1574,7 +1574,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportMeasurements: {
                 ...(phaseCacheSeed.viewportMeasurements ?? {}),
-                [viewportKey]: isMprPreview && !payload.measurements?.length
+                [viewportKey]: !hasMeasurementsPayload || (isMprPreview && !payload.measurements?.length)
                   ? phaseCacheSeed.viewportMeasurements?.[viewportKey] ?? []
                   : (payload.measurements ?? []) as MeasurementOverlay[]
               },
@@ -1660,7 +1660,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
-            [viewportKey]: isMprPreview && !payload.measurements?.length
+            [viewportKey]: !hasMeasurementsPayload || (isMprPreview && !payload.measurements?.length)
               ? item.viewportMeasurements?.[viewportKey] ?? []
               : (payload.measurements ?? []) as MeasurementOverlay[]
           },

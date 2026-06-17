@@ -1344,6 +1344,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
+    if (tool.key === 'measure' && optionValue === 'reset:measurements') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      options.emitTriggerViewAction({ action: 'clearMeasurements' })
+      return
+    }
+
+    if (tool.key === 'annotate' && optionValue === 'reset:annotations') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      options.emitTriggerViewAction({ action: 'clearAnnotations' })
+      return
+    }
+
     stackToolSelections.value = {
       ...stackToolSelections.value,
       [tool.key]: optionValue

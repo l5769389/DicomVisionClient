@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
@@ -23,7 +24,23 @@ const emit = defineEmits<{
   select: [optionValue: string]
 }>()
 
-const { toolbarCopy: copy } = useUiLocale()
+const { locale, toolbarCopy: copy } = useUiLocale()
+const UNSELECTED_ACTION_MENU_TOOL_KEYS = new Set(['rotate', 'qa', 'export', 'reset'])
+const customWindowWidth = ref('')
+const customWindowLevel = ref('')
+const isZh = computed(() => locale.value === 'zh-CN')
+const customWindowCopy = computed(() => ({
+  title: isZh.value ? '临时窗值' : 'Custom Window',
+  description: isZh.value ? '输入 WW / WL 后立即应用到当前目标视图。' : 'Enter WW / WL and apply it to the current target view.',
+  width: isZh.value ? '窗宽 WW' : 'WW',
+  level: isZh.value ? '窗位 WL' : 'WL',
+  apply: isZh.value ? '应用窗值' : 'Apply Window',
+  invalid: isZh.value ? '请输入有效数字，窗宽需大于 0。' : 'Enter valid numbers. WW must be greater than 0.'
+}))
+const measureActionCopy = computed(() => ({
+  clearMeasurements: isZh.value ? '清除测量' : 'Clear Measurements',
+  clearMeasurementsDesc: isZh.value ? '移除当前目标视图中的测量结果。' : 'Remove measurements from the current target view.'
+}))
 
 function getActiveLayoutRows(activeTab: ViewerTabItem): number {
   if (activeTab.viewType === 'Layout') {
@@ -40,12 +57,69 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
 }
 
 function isOptionActive(option: StackToolOption): boolean {
+  if (UNSELECTED_ACTION_MENU_TOOL_KEYS.has(props.tool.key)) {
+    return false
+  }
   return props.stackToolSelections[props.tool.key] === option.value || option.checked === true
 }
 
 function getSelectedPlaybackFps(value: string | undefined): string {
   const match = String(value ?? '').match(/^playbackFps:(\d+)$/)
   return match?.[1] ?? '5'
+}
+
+function parsePlaybackFpsOption(value: string | null | undefined): number | null {
+  const match = String(value ?? '').match(/^playbackFps:(\d+)$/)
+  const fps = match ? Number(match[1]) : Number.NaN
+  return Number.isFinite(fps) ? fps : null
+}
+
+const playbackFpsOptions = computed(() =>
+  (props.tool.options ?? [])
+    .map((option) => ({
+      ...option,
+      fps: parsePlaybackFpsOption(option.value)
+    }))
+    .filter((option): option is StackToolOption & { fps: number } => option.fps !== null)
+)
+const playbackFpsIndex = computed(() => {
+  const selectedValue = props.stackToolSelections.play
+  const selectedIndex = playbackFpsOptions.value.findIndex((option) => option.value === selectedValue)
+  return selectedIndex >= 0 ? selectedIndex : Math.max(0, playbackFpsOptions.value.findIndex((option) => option.fps === 5))
+})
+const playbackFpsSliderMax = computed(() => Math.max(0, playbackFpsOptions.value.length - 1))
+
+function selectPlaybackFpsIndex(index: number): void {
+  const option = playbackFpsOptions.value[Math.max(0, Math.min(playbackFpsSliderMax.value, Math.round(index)))]
+  if (option) {
+    emit('select', option.value)
+  }
+}
+
+function handlePlaybackFpsSliderInput(event: Event): void {
+  const value = Number((event.target as HTMLInputElement | null)?.value ?? playbackFpsIndex.value)
+  selectPlaybackFpsIndex(value)
+}
+
+function parseCustomWindowValue(value: string | number | null | undefined): number | null {
+  const parsed = Number.parseFloat(String(value ?? '').trim())
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const customWindowWidthValue = computed(() => parseCustomWindowValue(customWindowWidth.value))
+const customWindowLevelValue = computed(() => parseCustomWindowValue(customWindowLevel.value))
+const canApplyCustomWindow = computed(() => {
+  const width = customWindowWidthValue.value
+  return width !== null && width > 0 && customWindowLevelValue.value !== null
+})
+
+function applyCustomWindow(): void {
+  const width = customWindowWidthValue.value
+  const level = customWindowLevelValue.value
+  if (width === null || level === null || width <= 0) {
+    return
+  }
+  emit('select', `${width}|${level}`)
 }
 </script>
 
@@ -74,17 +148,28 @@ function getSelectedPlaybackFps(value: string | undefined): string {
         </button>
       </div>
       <div class="viewer-toolbar-dock-panel-content__section-label">FPS</div>
-      <div class="viewer-toolbar-dock-panel-content__fps-grid">
-        <button
-          v-for="option in tool.options ?? []"
-          :key="option.value"
-          type="button"
-          class="viewer-toolbar-dock-panel-content__chip"
-          :class="{ 'viewer-toolbar-dock-panel-content__chip--active': stackToolSelections[tool.key] === option.value }"
-          @click="emit('select', option.value)"
-        >
-          {{ option.label.replace(/^FPS\s*/i, '') }}
-        </button>
+      <div class="viewer-toolbar-dock-panel-content__fps-slider">
+        <input
+          type="range"
+          min="0"
+          :max="playbackFpsSliderMax"
+          step="1"
+          :value="playbackFpsIndex"
+          :aria-valuetext="`FPS ${getSelectedPlaybackFps(stackToolSelections.play)}`"
+          @input="handlePlaybackFpsSliderInput"
+        />
+        <div class="viewer-toolbar-dock-panel-content__fps-ticks">
+          <button
+            v-for="(option, optionIndex) in playbackFpsOptions"
+            :key="option.value"
+            type="button"
+            class="viewer-toolbar-dock-panel-content__fps-tick"
+            :class="{ 'viewer-toolbar-dock-panel-content__fps-tick--active': optionIndex === playbackFpsIndex }"
+            @click="selectPlaybackFpsIndex(optionIndex)"
+          >
+            {{ option.fps }}
+          </button>
+        </div>
       </div>
       <div class="viewer-toolbar-dock-panel-content__current">FPS {{ getSelectedPlaybackFps(stackToolSelections.play) }}</div>
     </template>
@@ -112,6 +197,70 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
     <template v-else>
       <div class="viewer-toolbar-dock-panel-content__options">
+        <form
+          v-if="tool.key === 'window'"
+          class="viewer-toolbar-dock-panel-content__custom-window"
+          @submit.prevent="applyCustomWindow"
+        >
+          <div class="viewer-toolbar-dock-panel-content__custom-window-header">
+            <div>
+              <div class="viewer-toolbar-dock-panel-content__custom-window-title">{{ customWindowCopy.title }}</div>
+              <p class="viewer-toolbar-dock-panel-content__custom-window-description">{{ customWindowCopy.description }}</p>
+            </div>
+          </div>
+          <div class="viewer-toolbar-dock-panel-content__custom-window-grid">
+            <label class="viewer-toolbar-dock-panel-content__custom-window-field">
+              <span>{{ customWindowCopy.width }}</span>
+              <input
+                v-model="customWindowWidth"
+                type="number"
+                inputmode="decimal"
+                step="any"
+                min="0.000001"
+                placeholder="400"
+              />
+            </label>
+            <label class="viewer-toolbar-dock-panel-content__custom-window-field">
+              <span>{{ customWindowCopy.level }}</span>
+              <input
+                v-model="customWindowLevel"
+                type="number"
+                inputmode="decimal"
+                step="any"
+                placeholder="40"
+              />
+            </label>
+          </div>
+          <button
+            type="submit"
+            class="viewer-toolbar-dock-panel-content__custom-window-apply"
+            :disabled="!canApplyCustomWindow"
+          >
+            <AppIcon name="check" :size="14" />
+            <span>{{ customWindowCopy.apply }}</span>
+          </button>
+          <p
+            v-if="customWindowWidth || customWindowLevel"
+            class="viewer-toolbar-dock-panel-content__custom-window-validation"
+            :class="{ 'viewer-toolbar-dock-panel-content__custom-window-validation--ready': canApplyCustomWindow }"
+          >
+            {{ canApplyCustomWindow ? `WW ${customWindowWidthValue} / WL ${customWindowLevelValue}` : customWindowCopy.invalid }}
+          </p>
+        </form>
+        <button
+          v-if="tool.key === 'measure'"
+          type="button"
+          class="viewer-toolbar-dock-panel-content__measure-reset"
+          @click="emit('select', 'reset:measurements')"
+        >
+          <span class="viewer-toolbar-dock-panel-content__measure-reset-icon">
+            <AppIcon name="reset" :size="16" />
+          </span>
+          <span class="viewer-toolbar-dock-panel-content__measure-reset-copy">
+            <span class="viewer-toolbar-dock-panel-content__measure-reset-label">{{ measureActionCopy.clearMeasurements }}</span>
+            <span class="viewer-toolbar-dock-panel-content__measure-reset-description">{{ measureActionCopy.clearMeasurementsDesc }}</span>
+          </span>
+        </button>
         <template
           v-for="(option, optionIndex) in tool.options ?? []"
           :key="option.value"
@@ -185,6 +334,169 @@ function getSelectedPlaybackFps(value: string | undefined): string {
   display: grid;
   align-content: start;
   gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 56%, transparent);
+  padding: 12px;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-title {
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-description {
+  margin: 3px 0 0;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-field span {
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 90%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 78%, transparent);
+  padding: 9px 10px;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-field input:focus {
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card));
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-apply {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 46%, var(--theme-border-strong));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 850;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    opacity 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-apply:not(:disabled):hover,
+.viewer-toolbar-dock-panel-content__custom-window-apply:not(:disabled):focus-visible {
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-validation {
+  margin: -2px 0 0;
+  color: var(--theme-status-danger-text);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-validation--ready {
+  color: var(--theme-text-muted);
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
+  padding: 10px 12px;
+  color: var(--theme-text-primary);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset:hover,
+.viewer-toolbar-dock-panel-content__measure-reset:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
+  color: var(--theme-status-danger-text);
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset-copy {
+  min-width: 0;
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset-label,
+.viewer-toolbar-dock-panel-content__measure-reset-description {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset-label {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-dock-panel-content__measure-reset-description {
+  margin-top: 2px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
 }
 
 .viewer-toolbar-dock-panel-content__group-label,
@@ -404,6 +716,56 @@ function getSelectedPlaybackFps(value: string | undefined): string {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__fps-slider {
+  display: grid;
+  gap: 10px;
+  margin-top: 9px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 54%, transparent);
+  padding: 12px;
+}
+
+.viewer-toolbar-dock-panel-content__fps-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--theme-accent);
+}
+
+.viewer-toolbar-dock-panel-content__fps-ticks {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.viewer-toolbar-dock-panel-content__fps-tick {
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-card) 78%, transparent);
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__fps-tick:hover,
+.viewer-toolbar-dock-panel-content__fps-tick:focus-visible {
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
+  color: var(--theme-text-primary);
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__fps-tick--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 44%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
 }
 
 .viewer-toolbar-dock-panel-content__chip {

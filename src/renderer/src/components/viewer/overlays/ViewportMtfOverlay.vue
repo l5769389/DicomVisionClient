@@ -74,11 +74,9 @@ const props = withDefaults(
 const emit = defineEmits<{
   clear: []
   copy: []
-  openCurve: []
 }>()
 
-const { locale } = useUiLocale()
-const isZh = computed(() => locale.value === 'zh-CN')
+const { overlayCopy } = useUiLocale()
 
 function buildRenderedMtfItem(
   key: string,
@@ -117,11 +115,9 @@ function canShowMetricCardForItem(item: RenderedMtfItem | null): boolean {
   if (!item) {
     return false
   }
-
   if (item.mode !== 'draft') {
     return true
   }
-
   return item.rect.width >= MIN_POPUP_RECT_SIZE_PX && item.rect.height >= MIN_POPUP_RECT_SIZE_PX
 }
 
@@ -141,23 +137,19 @@ function buildMetricRows(metrics: ViewerMtfItem['metrics'] | null | undefined): 
 }
 
 function getStatusLabel(item: RenderedMtfItem | null): string {
-  if (!item) {
-    return isZh.value ? '绘制 ROI' : 'Draw ROI'
-  }
-
-  if (item.mode === 'draft' && !item.mtfId) {
-    return isZh.value ? '绘制 ROI' : 'Draw ROI'
+  if (!item || (item.mode === 'draft' && !item.mtfId)) {
+    return overlayCopy.value.mtfDrawRoi
   }
 
   switch (item.status) {
     case 'calculating':
-      return isZh.value ? '计算中' : 'Calculating'
+      return overlayCopy.value.mtfCalculating
     case 'error':
-      return isZh.value ? '分析失败' : 'Analysis failed'
+      return overlayCopy.value.mtfFailed
     case 'ready':
-      return item.mode === 'selected' ? (isZh.value ? '已选中 ROI' : 'Selected ROI') : ''
+      return item.mode === 'selected' ? overlayCopy.value.mtfSelectedRoi : ''
     default:
-      return item.mode === 'selected' ? (isZh.value ? '已选中 ROI' : 'Selected ROI') : 'MTF ROI'
+      return item.mode === 'selected' ? overlayCopy.value.mtfSelectedRoi : overlayCopy.value.mtfRoi
   }
 }
 
@@ -332,7 +324,7 @@ function getShapeFill(item: RenderedMtfItem): string {
     >
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-pink-200/72">{{ isZh ? 'MTF 指标' : 'MTF Metric' }}</div>
+          <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-pink-200/72">{{ overlayCopy.mtfMetric }}</div>
           <div v-if="card.statusLabel" class="mt-1 text-sm font-semibold text-white">{{ card.statusLabel }}</div>
         </div>
         <div
@@ -342,18 +334,9 @@ function getShapeFill(item: RenderedMtfItem): string {
         >
           <button
             type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-pink-300/16 bg-pink-300/10 text-pink-50 transition hover:bg-pink-300/18 disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="card.status !== 'ready'"
-            :aria-label="isZh ? '查看 MTF 曲线' : 'Open MTF curve'"
-            @click="emit('openCurve')"
-          >
-            <AppIcon name="mtf" :size="16" />
-          </button>
-          <button
-            type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45"
             :disabled="!card.mtfId"
-            :aria-label="isZh ? '复制 MTF ROI' : 'Copy MTF ROI'"
+            :aria-label="overlayCopy.copyMtfRoi"
             @click="emit('copy')"
           >
             <AppIcon name="copy" :size="16" />
@@ -362,7 +345,7 @@ function getShapeFill(item: RenderedMtfItem): string {
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/16 bg-red-400/10 text-red-100 transition hover:bg-red-400/18 disabled:cursor-not-allowed disabled:opacity-45"
             :disabled="!card.mtfId"
-            :aria-label="isZh ? '删除 MTF ROI' : 'Delete MTF ROI'"
+            :aria-label="overlayCopy.deleteMtfRoi"
             @click="emit('clear')"
           >
             <AppIcon name="trash" :size="16" />
@@ -378,15 +361,15 @@ function getShapeFill(item: RenderedMtfItem): string {
       </div>
 
       <div v-else-if="card.status === 'error'" class="mt-3 text-[12px] leading-5 text-red-100/90">
-        {{ card.errorMessage || (isZh ? '当前 ROI 的 MTF 分析未完成。' : 'MTF analysis is not complete for the current ROI.') }}
+        {{ card.errorMessage || overlayCopy.mtfIncomplete }}
       </div>
 
       <div v-else-if="card.status === 'calculating'" class="mt-3 text-[12px] leading-5 text-slate-300">
-        {{ isZh ? '正在提交当前 ROI，并等待返回 MTF 指标。' : 'Submitting the current ROI and waiting for MTF metrics.' }}
+        {{ overlayCopy.mtfSubmitting }}
       </div>
 
       <div v-else class="mt-3 text-[12px] leading-5 text-slate-300">
-        {{ isZh ? '拖拽一个矩形 ROI 开始分析。当前视口可以保留多个 MTF ROI。' : 'Drag a rectangular ROI to start analysis. The current viewport can keep multiple MTF ROIs.' }}
+        {{ overlayCopy.mtfDrawGuide }}
       </div>
     </div>
   </div>

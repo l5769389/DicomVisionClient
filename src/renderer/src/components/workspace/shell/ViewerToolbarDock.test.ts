@@ -41,6 +41,7 @@ function mountDock(overrides: Partial<InstanceType<typeof ViewerToolbarDock>['$p
     },
     slots: {
       panel: '<div data-testid="utility-panel">Utility panel</div>',
+      result: '<div data-testid="result-panel">Result panel</div>',
       status: '<div data-testid="dock-status">4D status</div>'
     }
   })
@@ -149,6 +150,113 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([tools[1], '400|40', { keepMenuOpen: true }])
   })
 
+  it('applies a temporary custom window value from the right dock window panel', async () => {
+    const wrapper = mountDock({
+      openMenuKey: 'window'
+    })
+
+    const fields = wrapper.findAll('.viewer-toolbar-dock-panel-content__custom-window-field input')
+    expect(fields).toHaveLength(2)
+
+    await fields[0]!.setValue('1500')
+    await fields[1]!.setValue('-600')
+    await wrapper.find('.viewer-toolbar-dock-panel-content__custom-window').trigger('submit')
+
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([tools[1], '1500|-600', { keepMenuOpen: true }])
+  })
+
+  it('applies the selected measurement mode when opening the right dock measure panel', async () => {
+    const measureTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      kind: 'mode',
+      options: [
+        { value: 'measure:line', label: 'Line', icon: 'measure-line' },
+        { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [tools[0]!, measureTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'zoom'),
+      stackToolSelections: { measure: 'measure:line' }
+    })
+
+    await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toEqual([['measure']])
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([measureTool, 'measure:line', { keepMenuOpen: true }])
+    expect(wrapper.emitted('applyTool')).toBeUndefined()
+  })
+
+  it('keeps an already open layout panel stable when the layout button is clicked again', async () => {
+    const layoutTool: StackTool = {
+      key: 'layout',
+      label: 'Layout',
+      icon: 'layout',
+      kind: 'action',
+      menuKind: 'layout',
+      options: [{ value: 'layout:1x1', label: '1x1', icon: 'layout', layoutRows: 1, layoutColumns: 1 }]
+    }
+    const wrapper = mountDock({
+      activeTools: [layoutTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'layout'
+    })
+
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toBeUndefined()
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Layout')
+  })
+
+  it('does not preselect action-style secondary menu options in the right dock', () => {
+    const actionTools: StackTool[] = [
+      {
+        key: 'rotate',
+        label: 'Rotate',
+        icon: 'rotate',
+        kind: 'action',
+        options: [{ value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' }]
+      },
+      {
+        key: 'qa',
+        label: 'QA',
+        icon: 'qa',
+        kind: 'mode',
+        options: [{ value: 'qa:mtf', label: 'MTF', icon: 'mtf' }]
+      },
+      {
+        key: 'export',
+        label: 'Export',
+        icon: 'export',
+        kind: 'action',
+        options: [{ value: 'png', label: 'PNG', icon: 'export' }]
+      },
+      {
+        key: 'reset',
+        label: 'Reset',
+        icon: 'reset',
+        kind: 'action',
+        options: [{ value: 'reset:view', label: 'Reset View', icon: 'reset' }]
+      }
+    ]
+
+    for (const tool of actionTools) {
+      const wrapper = mountDock({
+        activeTools: [tool],
+        isToolSelected: vi.fn(() => false),
+        openMenuKey: tool.key,
+        stackToolSelections: { [tool.key]: tool.options![0]!.value }
+      })
+
+      expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(1)
+      expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
+      expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
+      wrapper.unmount()
+    }
+  })
+
   it('emits applyTool for tools without options', async () => {
     const wrapper = mountDock()
 
@@ -157,6 +265,67 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('applyTool')?.[0]).toEqual([tools[0]])
     expect(wrapper.emitted('setMenuOpen')).toEqual([[null]])
     expect(wrapper.emitted('closeUtilityPanel')).toEqual([[]])
+  })
+
+  it('renders measure reset as a dock-only action', async () => {
+    const measureTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      kind: 'mode',
+      options: [{ value: 'measure:line', label: 'Line', icon: 'measure-line' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [measureTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'measure',
+      stackToolSelections: { measure: 'measure:line' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').exists()).toBe(true)
+    await wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').trigger('click')
+
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([measureTool, 'reset:measurements', { keepMenuOpen: true }])
+  })
+
+  it('renders annotation clear as a right dock detail action', async () => {
+    const annotateTool: StackTool = { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' }
+    const wrapper = mountDock({
+      activeTools: [annotateTool],
+      isToolSelected: vi.fn(() => true)
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock__active-tool-action').exists()).toBe(true)
+    await wrapper.find('.viewer-toolbar-dock__active-tool-action').trigger('click')
+
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([annotateTool, 'reset:annotations', { keepMenuOpen: true }])
+  })
+
+  it('uses a discrete slider for playback FPS in the right dock panel', async () => {
+    const playTool: StackTool = {
+      key: 'play',
+      label: 'Play',
+      icon: 'play',
+      kind: 'action',
+      options: [1, 2, 5, 10, 15, 30].map((fps) => ({
+        value: `playbackFps:${fps}`,
+        label: `FPS ${fps}`,
+        icon: 'play'
+      }))
+    }
+    const wrapper = mountDock({
+      activeTools: [playTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'play',
+      stackToolSelections: { play: 'playbackFps:5' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__fps-grid').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__fps-slider input[type="range"]').exists()).toBe(true)
+
+    await wrapper.find('.viewer-toolbar-dock-panel-content__fps-slider input[type="range"]').setValue('4')
+
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([playTool, 'playbackFps:15', { keepMenuOpen: true }])
   })
 
   it('shows the last clicked tool name when the tool has no detail panel', async () => {
@@ -212,6 +381,46 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MIP Params')
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__panel-close').exists()).toBe(false)
+  })
+
+  it('shows result content above utility and option panels and highlights the result tool', () => {
+    const qaTool: StackTool = { key: 'qa', label: 'QA', icon: 'qa', kind: 'mode' }
+    const wrapper = mountDock({
+      activeTools: [qaTool, tools[1]!, tools[0]!],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'pan'),
+      openMenuKey: 'window',
+      resultPanelIcon: 'water-phantom',
+      resultPanelOpen: true,
+      resultPanelTitle: 'Water Phantom QA',
+      resultPanelToolKey: 'qa',
+      utilityPanelOpen: true,
+      utilityPanelTitle: 'MIP Params',
+      utilityPanelToolKey: 'pan'
+    })
+
+    const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Water Phantom QA')
+    expect(wrapper.find('[data-testid="result-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(false)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[2]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+  })
+
+  it('emits closeResultPanel when a dock tool is clicked', async () => {
+    const wrapper = mountDock({
+      resultPanelIcon: 'mtf',
+      resultPanelOpen: true,
+      resultPanelTitle: 'MTF Curve',
+      resultPanelToolKey: 'window'
+    })
+
+    await wrapper.findAll('.viewer-toolbar-dock__button')[0]!.trigger('click')
+
+    expect(wrapper.emitted('closeResultPanel')).toEqual([[]])
+    expect(wrapper.emitted('applyTool')?.[0]).toEqual([tools[0]])
   })
 
   it('switches from a utility panel to an option panel when an option tool is clicked', async () => {

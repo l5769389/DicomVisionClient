@@ -32,9 +32,12 @@ import {
   validateDicomTagEditValue
 } from '../../../composables/dicom/dicomTagVrEdit'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   activeTab: ViewerTabItem
-}>()
+  viewerPlatform?: 'desktop' | 'web'
+}>(), {
+  viewerPlatform: 'desktop'
+})
 
 const emit = defineEmits<{
   indexChange: [payload: { tabKey: string; index: number }]
@@ -133,6 +136,7 @@ const tagTreeSummaryText = computed(() =>
     ? `${visibleTreeTagRows.value.length} / ${tagTreeItemCount.value} ${tagCountLabel.value}`
     : `${tagTreeItemCount.value} ${tagCountLabel.value}`
 )
+const shouldShowTagFilePath = computed(() => props.viewerPlatform !== 'web' && Boolean(props.activeTab.tagFilePath))
 
 const virtualTagStartIndex = computed(() =>
   Math.max(0, Math.floor(tagListScrollTop.value / TAG_ROW_HEIGHT) - TAG_OVERSCAN_ROWS)
@@ -873,7 +877,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
           <span class="tag-view-meta rounded-full border px-2.5 py-1">{{ copy.instance }} {{ currentDisplayIndex }} / {{ totalDisplayCount }}</span>
           <span v-if="activeTab.tagSopInstanceUid" class="tag-view-meta max-w-full truncate rounded-full border px-2.5 py-1">SOP {{ activeTab.tagSopInstanceUid }}</span>
           <span
-            v-if="activeTab.tagFilePath"
+            v-if="shouldShowTagFilePath"
             class="tag-view-meta tag-view-meta--path min-w-0 max-w-full truncate rounded-full border px-2.5 py-1 font-mono text-[11px]"
           >
             {{ activeTab.tagFilePath }}

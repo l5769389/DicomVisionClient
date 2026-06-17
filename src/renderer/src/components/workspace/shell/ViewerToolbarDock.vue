@@ -16,6 +16,10 @@ const props = defineProps<{
   isToolSelected: (tool: StackTool) => boolean
   menuIconSize: number
   openMenuKey: string | null
+  resultPanelIcon?: string
+  resultPanelOpen?: boolean
+  resultPanelTitle?: string
+  resultPanelToolKey?: string | null
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
   utilityPanelIcon?: string
@@ -29,26 +33,31 @@ const emit = defineEmits<{
   endPlayback: [behavior?: StackToolOptionSelectBehavior]
   pausePlayback: [behavior?: StackToolOptionSelectBehavior]
   closeUtilityPanel: []
+  closeResultPanel: []
   dockResize: []
   selectToolOption: [tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior]
   setMenuOpen: [toolKey: string | null]
 }>()
 
-const { toolbarCopy: copy } = useUiLocale()
+const { locale, toolbarCopy: copy } = useUiLocale()
 const isDockCollapsed = ref(false)
 const lastActivatedToolKey = ref<string | null>(null)
 const lastDetaillessToolKey = ref<string | null>(null)
 const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams'])
+const actionDetailToolKeys = new Set(['annotate'])
+const unselectedActionMenuToolKeys = new Set(['rotate', 'qa', 'export', 'reset'])
+const autoApplyOptionToolKeys = new Set(['measure'])
 
 const currentMenuTool = computed(() => props.activeTools.find((tool) => tool.key === props.openMenuKey && tool.options?.length))
-const isPanelActive = computed(() => Boolean(currentMenuTool.value || props.utilityPanelOpen))
+const isPanelActive = computed(() => Boolean(props.resultPanelOpen || props.utilityPanelOpen || currentMenuTool.value))
 const lastActivatedTool = computed(() => props.activeTools.find((tool) => tool.key === lastActivatedToolKey.value) ?? null)
 const lastDetaillessTool = computed(() => props.activeTools.find((tool) => tool.key === lastDetaillessToolKey.value) ?? null)
 const selectedOperationTool = computed(() => props.activeTools.find((tool) => props.isToolSelected(tool)) ?? null)
 const activeDockToolKey = computed(
   () =>
-    currentMenuTool.value?.key ??
+    (props.resultPanelOpen ? props.resultPanelToolKey : null) ??
     (props.utilityPanelOpen ? props.utilityPanelToolKey : null) ??
+    currentMenuTool.value?.key ??
     lastActivatedTool.value?.key ??
     selectedOperationTool.value?.key ??
     props.openMenuKey ??
@@ -67,6 +76,11 @@ const activePanelLabel = computed(() => activeDisplayTool.value?.label ?? props.
 const activePanelDescription = computed(() => copy.value.dockNoDetails)
 const dockCollapseTitle = computed(() => copy.value.dockCollapse)
 const dockExpandTitle = computed(() => copy.value.dockExpand)
+const isZh = computed(() => locale.value === 'zh-CN')
+const annotationActionCopy = computed(() => ({
+  clearAnnotations: isZh.value ? '清除标注' : 'Clear Annotations',
+  clearAnnotationsDesc: isZh.value ? '移除当前目标视图中的标注结果。' : 'Remove annotations from the current target view.'
+}))
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
   return viewType === 'Stack' || viewType === 'Layout'
@@ -80,8 +94,24 @@ function isDockToolActive(tool: StackTool): boolean {
   return activeDockToolKey.value === tool.key
 }
 
+function canShowSelectedOptionOnDockButton(tool: StackTool): boolean {
+  return Boolean(tool.options?.length) && tool.showSelectedOptionIcon !== false && !unselectedActionMenuToolKeys.has(tool.key)
+}
+
 function shouldExpandDockForTool(tool: StackTool): boolean {
-  return Boolean(tool.options?.length) || utilityDetailToolKeys.has(tool.key)
+  return Boolean(tool.options?.length) || utilityDetailToolKeys.has(tool.key) || actionDetailToolKeys.has(tool.key)
+}
+
+function getSelectedToolOptionValue(tool: StackTool): string | null {
+  return props.stackToolSelections[tool.key] ?? tool.options?.find((option) => !option.disabled)?.value ?? null
+}
+
+function clearActiveAnnotations(): void {
+  const tool = activeDisplayTool.value
+  if (!tool || tool.key !== 'annotate') {
+    return
+  }
+  emit('selectToolOption', tool, 'reset:annotations', { keepMenuOpen: true })
 }
 
 function expandDockForDetailTool(): void {
@@ -96,11 +126,20 @@ function handleToolClick(tool: StackTool): void {
   if (isToolDisabled(tool)) {
     return
   }
+  emit('closeResultPanel')
   lastActivatedToolKey.value = tool.key
   if (tool.options?.length) {
     expandDockForDetailTool()
     emit('closeUtilityPanel')
-    emit('setMenuOpen', tool.key)
+    if (props.openMenuKey !== tool.key) {
+      emit('setMenuOpen', tool.key)
+    }
+    if (autoApplyOptionToolKeys.has(tool.key)) {
+      const optionValue = getSelectedToolOptionValue(tool)
+      if (optionValue) {
+        emit('selectToolOption', tool, optionValue, { keepMenuOpen: true })
+      }
+    }
     return
   }
   lastDetaillessToolKey.value = tool.key
@@ -160,11 +199,11 @@ watch(
               <PseudocolorBand
                 v-if="tool.key === 'pseudocolor'"
                 compact
-                :preset="tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.swatchKey ?? tool.swatchKey ?? 'bw'"
+                :preset="canShowSelectedOptionOnDockButton(tool) ? (tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.swatchKey ?? tool.swatchKey ?? 'bw') : (tool.swatchKey ?? 'bw')"
               />
               <AppIcon
                 v-else
-                :name="tool.options && tool.showSelectedOptionIcon !== false ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
+                :name="canShowSelectedOptionOnDockButton(tool) ? (tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
                 :size="toolbarIconSize"
               />
             </button>
@@ -183,7 +222,39 @@ watch(
       >
         <Transition name="viewer-toolbar-dock-panel" mode="out-in">
           <div
-            v-if="currentMenuTool"
+            v-if="resultPanelOpen"
+            :key="`result:${resultPanelToolKey ?? resultPanelTitle ?? 'panel'}`"
+            class="viewer-toolbar-dock__panel-content-shell"
+          >
+            <div class="viewer-toolbar-dock__panel-header">
+              <div class="viewer-toolbar-dock__panel-title">
+                <AppIcon :name="resultPanelIcon ?? 'info'" :size="16" />
+                <span>{{ resultPanelTitle }}</span>
+              </div>
+            </div>
+
+            <div class="viewer-toolbar-dock__result-panel">
+              <slot name="result" />
+            </div>
+          </div>
+          <div
+            v-else-if="utilityPanelOpen"
+            :key="`utility:${utilityPanelToolKey ?? utilityPanelTitle ?? 'panel'}`"
+            class="viewer-toolbar-dock__panel-content-shell"
+          >
+            <div class="viewer-toolbar-dock__panel-header">
+              <div class="viewer-toolbar-dock__panel-title">
+                <AppIcon :name="utilityPanelIcon ?? 'settings'" :size="16" />
+                <span>{{ utilityPanelTitle }}</span>
+              </div>
+            </div>
+
+            <div class="viewer-toolbar-dock__utility-panel">
+              <slot name="panel" />
+            </div>
+          </div>
+          <div
+            v-else-if="currentMenuTool"
             :key="`menu:${currentMenuTool.key}`"
             class="viewer-toolbar-dock__panel-content-shell"
           >
@@ -208,22 +279,6 @@ watch(
             />
           </div>
           <div
-            v-else-if="utilityPanelOpen"
-            :key="`utility:${utilityPanelToolKey ?? utilityPanelTitle ?? 'panel'}`"
-            class="viewer-toolbar-dock__panel-content-shell"
-          >
-            <div class="viewer-toolbar-dock__panel-header">
-              <div class="viewer-toolbar-dock__panel-title">
-                <AppIcon :name="utilityPanelIcon ?? 'settings'" :size="16" />
-                <span>{{ utilityPanelTitle }}</span>
-              </div>
-            </div>
-
-            <div class="viewer-toolbar-dock__utility-panel">
-              <slot name="panel" />
-            </div>
-          </div>
-          <div
             v-else
             :key="`empty:${activeDisplayTool?.key ?? activeTab.key}`"
             class="viewer-toolbar-dock__panel-content-shell viewer-toolbar-dock__panel-content-shell--empty"
@@ -246,6 +301,20 @@ watch(
                 <div class="viewer-toolbar-dock__active-tool-description">{{ activePanelDescription }}</div>
               </div>
             </div>
+            <button
+              v-if="activeDisplayTool?.key === 'annotate'"
+              type="button"
+              class="viewer-toolbar-dock__active-tool-action viewer-toolbar-dock__active-tool-action--danger"
+              @click="clearActiveAnnotations"
+            >
+              <span class="viewer-toolbar-dock__active-tool-action-icon">
+                <AppIcon name="reset" :size="16" />
+              </span>
+              <span class="viewer-toolbar-dock__active-tool-action-copy">
+                <span class="viewer-toolbar-dock__active-tool-action-label">{{ annotationActionCopy.clearAnnotations }}</span>
+                <span class="viewer-toolbar-dock__active-tool-action-description">{{ annotationActionCopy.clearAnnotationsDesc }}</span>
+              </span>
+            </button>
           </div>
         </Transition>
       </div>
@@ -491,7 +560,8 @@ watch(
   white-space: nowrap;
 }
 
-.viewer-toolbar-dock__utility-panel {
+.viewer-toolbar-dock__utility-panel,
+.viewer-toolbar-dock__result-panel {
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -551,6 +621,76 @@ watch(
   font-size: 11px;
   font-weight: 650;
   line-height: 1.35;
+}
+
+.viewer-toolbar-dock__active-tool-action {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 58%, transparent);
+  padding: 10px 12px;
+  color: var(--theme-text-primary);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.viewer-toolbar-dock__active-tool-action:hover,
+.viewer-toolbar-dock__active-tool-action:focus-visible {
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
+  outline: none;
+}
+
+.viewer-toolbar-dock__active-tool-action--danger {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
+}
+
+.viewer-toolbar-dock__active-tool-action--danger:hover,
+.viewer-toolbar-dock__active-tool-action--danger:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
+}
+
+.viewer-toolbar-dock__active-tool-action-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
+  color: var(--theme-status-danger-text);
+}
+
+.viewer-toolbar-dock__active-tool-action-copy {
+  min-width: 0;
+}
+
+.viewer-toolbar-dock__active-tool-action-label,
+.viewer-toolbar-dock__active-tool-action-description {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-toolbar-dock__active-tool-action-label {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-dock__active-tool-action-description {
+  margin-top: 2px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
 }
 
 .viewer-toolbar-dock__footer {

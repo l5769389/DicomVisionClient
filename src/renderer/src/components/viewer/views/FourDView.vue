@@ -53,6 +53,10 @@ const props = defineProps<{
   toolbarPlacement?: 'top' | 'right'
   activeMprMipConfig?: MprMipConfig | null
   isMprMipPanelOpen?: boolean
+  resultPanelIcon?: string
+  resultPanelOpen?: boolean
+  resultPanelTitle?: string
+  resultPanelToolKey?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -69,6 +73,7 @@ const emit = defineEmits<{
   fpsChange: [fps: number]
   playbackChange: [isPlaying: boolean]
   closeMprMipPanel: []
+  closeResultPanel: []
   dockResize: []
   mprMipConfigChange: [config: MprMipConfig, actionType?: 'move' | 'end']
   selectMtf: [payload: { mtfId: string | null }]
@@ -466,6 +471,10 @@ watch(
         :is-tool-selected="isToolSelected"
         :menu-icon-size="menuIconSize"
         :open-menu-key="openMenuKey"
+        :result-panel-icon="resultPanelIcon"
+        :result-panel-open="Boolean(resultPanelOpen)"
+        :result-panel-title="resultPanelTitle"
+        :result-panel-tool-key="resultPanelToolKey ?? null"
         :stack-tool-selections="stackToolSelections"
         :toolbar-icon-size="toolbarIconSize"
         utility-panel-icon="mip"
@@ -473,6 +482,7 @@ watch(
         utility-panel-title="MIP Params"
         utility-panel-tool-key="mprMip"
         @apply-tool="(tool, behavior) => emitWhenIdle(() => emit('applyTool', tool, behavior))"
+        @close-result-panel="emit('closeResultPanel')"
         @close-utility-panel="emit('closeMprMipPanel')"
         @end-playback="() => undefined"
         @pause-playback="() => undefined"
@@ -480,6 +490,9 @@ watch(
         @set-menu-open="emit('setMenuOpen', $event)"
         @dock-resize="emit('dockResize')"
       >
+        <template #result>
+          <slot name="result" />
+        </template>
         <template #panel>
           <MprMipConfigPanel
             v-if="isMprMipPanelOpen && activeMprMipConfig"

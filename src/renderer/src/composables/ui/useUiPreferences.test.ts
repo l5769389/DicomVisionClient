@@ -225,12 +225,15 @@ describe('useUiPreferences', () => {
     })
   })
 
-  it('falls back to the top toolbar for unknown toolbar placement values', async () => {
+  it('defaults to the right toolbar and falls back to it for unknown placement values', async () => {
+    const defaultPreferences = await loadPreferences()
+    expect(defaultPreferences.viewerToolbarPlacement.value).toBe('right')
+
     const preferences = await loadPreferences({
       viewerToolbarPlacement: 'floating'
     })
 
-    expect(preferences.viewerToolbarPlacement.value).toBe('top')
+    expect(preferences.viewerToolbarPlacement.value).toBe('right')
   })
 
   it('creates PACS profiles with preset-specific DIMSE ports', async () => {

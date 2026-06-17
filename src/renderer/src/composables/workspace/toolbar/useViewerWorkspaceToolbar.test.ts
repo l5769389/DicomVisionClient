@@ -363,4 +363,40 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     harness.wrapper.unmount()
   })
+
+  it('clears measurements from the right-dock measure panel without changing active operation', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const measureTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
+    harness.toolbar.setMenuOpen('measure')
+    harness.toolbar.selectToolOption(measureTool, 'reset:measurements', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'clearMeasurements' })
+    expect(harness.activeOperation.value).toBe('stack:window')
+    expect(harness.toolbar.openMenuKey.value).toBe('measure')
+    harness.wrapper.unmount()
+  })
+
+  it('clears annotations from the right-dock annotation panel without changing active operation', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const annotateTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'annotate')!
+    harness.toolbar.selectToolOption(annotateTool, 'reset:annotations', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'clearAnnotations' })
+    expect(harness.activeOperation.value).toBe('stack:window')
+    harness.wrapper.unmount()
+  })
 })

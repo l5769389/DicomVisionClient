@@ -12,7 +12,7 @@ import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
   emitFourDPlaybackStop,
-  emitViewOperation,
+  emitViewOperation as emitSocketViewOperation,
   type ViewOperationInput,
   type ViewOperationPayload
 } from '../../../services/socket'
@@ -1885,6 +1885,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewInteractionOperationScheduler = createMprInteractionOperationScheduler<ViewOperationPayload>({
     emit: (_operationKey, payload) => emitViewOperation(payload)
   })
+  const pendingPseudocolorOverlayPreservationViewIds = new Set<string>()
+
+  function emitViewOperation(payload: ViewOperationPayload): void {
+    if (payload.opType === VIEW_OPERATION_TYPES.pseudocolor && payload.viewId) {
+      pendingPseudocolorOverlayPreservationViewIds.add(payload.viewId)
+    }
+    emitSocketViewOperation(payload)
+  }
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
     if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
@@ -1939,7 +1947,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
       )
     }
-    views.updateTabImage(tab.key, payload, imageBinary)
+    const shouldPreserveFrontendOverlays =
+      pendingPseudocolorOverlayPreservationViewIds.has(viewId) && payload.color?.pseudocolorPreset != null
+    if (shouldPreserveFrontendOverlays) {
+      pendingPseudocolorOverlayPreservationViewIds.delete(viewId)
+    }
+    views.updateTabImage(
+      tab.key,
+      shouldPreserveFrontendOverlays
+        ? {
+            ...payload,
+            annotations: undefined,
+            measurements: undefined
+          }
+        : payload,
+      imageBinary
+    )
   }
 
   const interactivePreviewTimingByView = new Map<string, number>()

@@ -250,6 +250,8 @@ export interface OverlayCopy {
   readingGuide: string
   closeMtfCurve: string
   close: string
+  resultDockCollapse: string
+  resultDockExpand: string
   noCurveData: string
   curveMarkersIncomplete: string
   measuredFromCurrentRoi: string
@@ -616,6 +618,8 @@ export const uiMessages = {
       readingGuide: '阅读提示',
       closeMtfCurve: '关闭 MTF 曲线',
       close: '关闭',
+      resultDockCollapse: '收起结果区',
+      resultDockExpand: '展开结果区',
       noCurveData: '暂无曲线数据',
       curveMarkersIncomplete: '曲线标记不完整',
       measuredFromCurrentRoi: '基于当前 ROI 测量',
@@ -978,6 +982,8 @@ export const uiMessages = {
       readingGuide: 'Reading Guide',
       closeMtfCurve: 'Close MTF curve',
       close: 'Close',
+      resultDockCollapse: 'Collapse result panel',
+      resultDockExpand: 'Expand result panel',
       noCurveData: 'No curve data',
       curveMarkersIncomplete: 'Curve markers are incomplete',
       measuredFromCurrentRoi: 'Measured from the current ROI',

@@ -65,6 +65,13 @@ type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const isWebPlatform = computed(() => viewer.viewerPlatform === 'web')
+const shouldShowIcpFooter = computed(
+  () =>
+    isWebPlatform.value &&
+    !viewer.hasSelectedSeries.value &&
+    viewer.seriesList.value.length === 0 &&
+    viewer.viewerTabs.value.length === 0
+)
 const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
@@ -375,6 +382,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
     <VMain
       class="relative h-full overflow-hidden bg-transparent text-[var(--theme-text-primary)]"
       :data-platform="viewer.viewerPlatform"
+      :data-icp-footer-visible="shouldShowIcpFooter ? 'true' : 'false'"
       @dragenter="handleDicomFileDragEnter"
       @dragover="handleDicomFileDragOver"
       @dragleave="handleDicomFileDragLeave"
@@ -393,7 +401,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
         </button>
       </div>
       <div
-        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent py-4 pr-4 pl-2"
+        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent pt-2 pr-4 pb-4 pl-2"
         :data-sidebar-collapsed="viewer.isSidebarCollapsed.value ? 'true' : 'false'"
       >
         <SidebarPanel
@@ -426,6 +434,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
           :selected-series-id="viewer.selectedSeriesId.value"
+          :viewer-platform="viewer.viewerPlatform"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
@@ -465,7 +474,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @workspace-ready="viewer.setViewerStage"
         />
       </div>
-      <footer v-if="isWebPlatform" class="app-icp-footer">
+      <footer v-if="shouldShowIcpFooter" class="app-icp-footer">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">皖ICP备2026017376号</a>
       </footer>
       <div v-if="isDicomFileDropActive" class="dicom-file-drop-overlay" aria-live="polite">
@@ -530,7 +539,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   grid-template-columns: 72px minmax(0, 1fr);
 }
 
-.v-main[data-platform="web"] .app-main-layout {
+.v-main[data-platform="web"][data-icp-footer-visible="true"] .app-main-layout {
   height: calc(100vh - 28px);
   max-height: calc(100vh - 28px);
   padding-bottom: 8px;

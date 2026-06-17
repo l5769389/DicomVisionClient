@@ -53,6 +53,7 @@ type SettingsSection =
   | 'displayCrosshair'
   | 'displayCornerInfo'
   | 'displayMprLayout'
+  | 'displayToolbarLayout'
   | 'displayScaleBar'
   | 'displayMeasurement'
   | 'displaySegmentation'
@@ -162,6 +163,7 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   displayCrosshair: ['十字线', 'mpr', 'crosshair', 'axis', '定位线'],
   displayCornerInfo: ['四角信息', '角标', '患者信息', 'corner', 'corner info', 'overlay', 'patient', 'tag'],
   displayMprLayout: ['mpr', '布局', '重建', '宫格', 'layout', 'grid', 'viewport'],
+  displayToolbarLayout: ['操作区', '工具栏', '按钮布局', '右侧', '顶部', 'toolbar', 'tool', 'operation', 'right', 'top', 'layout'],
   displayScaleBar: ['比例尺', '标尺', 'scale', 'scalebar', 'ruler'],
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
   displaySegmentation: ['分割', 'voi', '阈值', '默认颜色', 'segmentation', 'threshold', 'default color'],
@@ -378,6 +380,7 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
+  viewerToolbarPlacement,
   viewportCornerInfoPreference,
   setCrosshairConfigs,
   setDicomDeidentifyPreference,
@@ -440,12 +443,23 @@ let cornerInfoAutoScrollVelocity = 0
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = settingsCopy
 const { resetExportSection } = useExportSettings(copy)
+const toolbarLayoutCopy = computed(() => ({
+  description: isZh.value
+    ? '选择视图操作按钮显示在视图顶部，或移动到右侧并在同一区域显示工具子菜单和参数面板。'
+    : 'Place viewer controls above the viewport, or move them to the right with tool menus and parameter panels in the same area.',
+  navSubtitle: isZh.value ? '顶部或右侧操作按钮' : 'Top or right-side controls',
+  navTitle: isZh.value ? '操作区布局' : 'Toolbar Layout',
+  rightLabel: isZh.value ? '右侧操作区' : 'Right Dock',
+  title: isZh.value ? '视图操作区布局' : 'Viewer Toolbar Layout',
+  topLabel: isZh.value ? '顶部工具栏' : 'Top Toolbar'
+}))
 const sections = computed<SettingsNavItem[]>(() => [
   { key: 'language' as const, title: isZh.value ? '语言与主题' : 'Language & Theme', subtitle: isZh.value ? '界面偏好' : 'UI preferences', icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
   { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb / DIMSE 配置' : 'DICOMweb / DIMSE profiles', icon: 'pacs' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
+  { key: 'displayToolbarLayout' as const, title: toolbarLayoutCopy.value.navTitle, subtitle: toolbarLayoutCopy.value.navSubtitle, icon: 'settings' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
   { key: 'displayCrosshair' as const, title: copy.value.crosshairTitle, subtitle: isZh.value ? 'MPR 十字线' : 'MPR crosshair', icon: 'crosshair' },
   { key: 'displayCornerInfo' as const, title: isZh.value ? '四角信息' : 'Corner Info', subtitle: isZh.value ? '视口角标内容' : 'Viewport corner tags', icon: 'tag' },
@@ -487,6 +501,7 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
       items: [
         getSection('displayPseudocolor'),
         getSection('displayMprLayout'),
+        getSection('displayToolbarLayout'),
         getSection('windowPresets'),
         getSection('displayCrosshair'),
         getSection('displayCornerInfo'),
@@ -1675,6 +1690,10 @@ function resetDisplaySubSection(section: SettingsSection): void {
     setMprDefaultLayoutKey(DEFAULT_MPR_LAYOUT_KEY)
     return
   }
+  if (section === 'displayToolbarLayout') {
+    viewerToolbarPlacement.value = 'right'
+    return
+  }
   if (section === 'displayScaleBar') {
     setScaleBarPreference(createDefaultScaleBarPreference())
     return
@@ -1754,6 +1773,7 @@ function resetCurrentSection(): void {
   if (
     activeSection.value === 'displayCrosshair' ||
     activeSection.value === 'displayMprLayout' ||
+    activeSection.value === 'displayToolbarLayout' ||
     activeSection.value === 'displayScaleBar' ||
     activeSection.value === 'displayCornerInfo' ||
     activeSection.value === 'displayMeasurement' ||
@@ -1955,7 +1975,7 @@ onBeforeUnmount(() => {
                       @click="activeSection = section.key"
                     >
                       <span class="settings-nav-subitem__dot h-2 w-2 shrink-0 rounded-full"></span>
-                      <span class="block min-w-0 truncate text-xs font-semibold text-[var(--theme-text-primary)]">{{ section.title }}</span>
+                      <span class="block min-w-0 truncate text-[13px] font-semibold leading-5 text-[var(--theme-text-primary)]">{{ section.title }}</span>
                     </button>
                   </div>
                 </div>
@@ -2654,6 +2674,7 @@ onBeforeUnmount(() => {
                     activeSection === 'displayCrosshair' ||
                     activeSection === 'displayCornerInfo' ||
                     activeSection === 'displayMprLayout' ||
+                    activeSection === 'displayToolbarLayout' ||
                     activeSection === 'displayScaleBar' ||
                     activeSection === 'displayMeasurement' ||
                     activeSection === 'displaySegmentation' ||
@@ -2925,6 +2946,78 @@ onBeforeUnmount(() => {
                           </div>
                           <div>{{ isZh ? '三列、右侧主视图、三行、2 x 2，以及 MPR + 3D 组合布局。' : '3 columns, primary-right, 3 rows, 2 x 2, and the combined MPR + 3D layout.' }}</div>
                         </div>
+                      </div>
+                    </div>
+
+                    <div v-if="activeSection === 'displayToolbarLayout'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="settings" :size="18" />
+                            <span class="text-sm font-semibold">{{ toolbarLayoutCopy.title }}</span>
+                          </div>
+                          <div class="mt-2 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ toolbarLayoutCopy.description }}
+                          </div>
+                        </div>
+                        <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
+                          {{ viewerToolbarPlacement === 'right' ? toolbarLayoutCopy.rightLabel : toolbarLayoutCopy.topLabel }}
+                        </div>
+                      </div>
+
+                      <div class="grid gap-4 xl:grid-cols-2">
+                        <button
+                          type="button"
+                          class="settings-toolbar-layout-choice"
+                          :class="{ 'settings-toolbar-layout-choice--active': viewerToolbarPlacement === 'top' }"
+                          data-testid="settings-toolbar-layout-top"
+                          @click="viewerToolbarPlacement = 'top'"
+                        >
+                          <span class="settings-toolbar-layout-choice__header">
+                            <span class="settings-toolbar-layout-choice__title">{{ toolbarLayoutCopy.topLabel }}</span>
+                            <span class="settings-toolbar-layout-choice__check">
+                              <AppIcon v-if="viewerToolbarPlacement === 'top'" name="check" :size="13" />
+                            </span>
+                          </span>
+                          <span class="settings-toolbar-layout-skeleton settings-toolbar-layout-skeleton--top" aria-hidden="true">
+                            <span class="settings-toolbar-layout-skeleton__topbar">
+                              <span v-for="item in 8" :key="`top-tool-${item}`"></span>
+                            </span>
+                            <span class="settings-toolbar-layout-skeleton__viewport">
+                              <span class="settings-toolbar-layout-skeleton__viewport-line settings-toolbar-layout-skeleton__viewport-line--wide"></span>
+                              <span class="settings-toolbar-layout-skeleton__viewport-line"></span>
+                            </span>
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="settings-toolbar-layout-choice"
+                          :class="{ 'settings-toolbar-layout-choice--active': viewerToolbarPlacement === 'right' }"
+                          data-testid="settings-toolbar-layout-right"
+                          @click="viewerToolbarPlacement = 'right'"
+                        >
+                          <span class="settings-toolbar-layout-choice__header">
+                            <span class="settings-toolbar-layout-choice__title">{{ toolbarLayoutCopy.rightLabel }}</span>
+                            <span class="settings-toolbar-layout-choice__check">
+                              <AppIcon v-if="viewerToolbarPlacement === 'right'" name="check" :size="13" />
+                            </span>
+                          </span>
+                          <span class="settings-toolbar-layout-skeleton settings-toolbar-layout-skeleton--right" aria-hidden="true">
+                            <span class="settings-toolbar-layout-skeleton__viewport">
+                              <span class="settings-toolbar-layout-skeleton__viewport-line settings-toolbar-layout-skeleton__viewport-line--wide"></span>
+                              <span class="settings-toolbar-layout-skeleton__viewport-line"></span>
+                            </span>
+                            <span class="settings-toolbar-layout-skeleton__dock">
+                              <span class="settings-toolbar-layout-skeleton__button-group">
+                                <span v-for="item in 6" :key="`right-tool-${item}`"></span>
+                              </span>
+                              <span class="settings-toolbar-layout-skeleton__panel">
+                                <span v-for="item in 4" :key="`right-panel-${item}`"></span>
+                              </span>
+                            </span>
+                          </span>
+                        </button>
                       </div>
                     </div>
 
@@ -3519,6 +3612,191 @@ onBeforeUnmount(() => {
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 84%, transparent);
+}
+
+.settings-toolbar-layout-choice {
+  display: grid;
+  gap: 14px;
+  min-height: 230px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--theme-surface-card) 76%, transparent);
+  padding: 16px;
+  color: var(--theme-text-primary);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.settings-toolbar-layout-choice:hover {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 82%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+}
+
+.settings-toolbar-layout-choice:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 34%, transparent);
+}
+
+.settings-toolbar-layout-choice--active,
+.settings-toolbar-layout-choice--active:hover,
+.settings-toolbar-layout-choice--active:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card)),
+      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel-solid))
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.settings-toolbar-layout-choice__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-toolbar-layout-choice__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-toolbar-layout-choice__check {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 82%, transparent);
+  color: var(--theme-accent-contrast);
+}
+
+.settings-toolbar-layout-choice--active .settings-toolbar-layout-choice__check {
+  border-color: color-mix(in srgb, var(--theme-accent) 84%, white 8%);
+  background: var(--theme-accent);
+}
+
+.settings-toolbar-layout-skeleton {
+  display: grid;
+  min-height: 162px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 84%, transparent);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 28% 18%, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 34%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, var(--theme-surface-card) 12%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 92%, var(--theme-surface-card-soft) 8%)
+    );
+  padding: 10px;
+}
+
+.settings-toolbar-layout-skeleton--top {
+  grid-template-rows: 34px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.settings-toolbar-layout-skeleton--right {
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 10px;
+}
+
+.settings-toolbar-layout-skeleton__topbar,
+.settings-toolbar-layout-skeleton__button-group,
+.settings-toolbar-layout-skeleton__panel,
+.settings-toolbar-layout-skeleton__viewport {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+}
+
+.settings-toolbar-layout-skeleton__topbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+}
+
+.settings-toolbar-layout-skeleton__topbar span,
+.settings-toolbar-layout-skeleton__button-group span {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-surface-card-soft));
+}
+
+.settings-toolbar-layout-skeleton__viewport {
+  display: grid;
+  align-content: end;
+  gap: 8px;
+  padding: 14px;
+}
+
+.settings-toolbar-layout-skeleton__viewport-line {
+  display: block;
+  width: 46%;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
+}
+
+.settings-toolbar-layout-skeleton__viewport-line--wide {
+  width: 68%;
+}
+
+.settings-toolbar-layout-skeleton__dock {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 64px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.settings-toolbar-layout-skeleton__button-group {
+  display: flex;
+  align-content: flex-start;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px;
+}
+
+.settings-toolbar-layout-skeleton__button-group span {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+}
+
+.settings-toolbar-layout-skeleton__panel {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 7px;
+}
+
+.settings-toolbar-layout-skeleton__panel span {
+  display: block;
+  height: 12px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--theme-text-primary) 13%, transparent);
+}
+
+.settings-toolbar-layout-skeleton__panel span:nth-child(2n) {
+  width: 72%;
 }
 
 .crosshair-preview-surface,

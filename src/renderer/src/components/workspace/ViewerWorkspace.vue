@@ -42,10 +42,14 @@ import MprSegmentationPanel from './MprSegmentationPanel.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
+import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
+import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
+import MtfCurvePanelContent from './results/MtfCurvePanelContent.vue'
+import QaWaterResultPanelContent from './results/QaWaterResultPanelContent.vue'
+import ViewerResultDock from './results/ViewerResultDock.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
-import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { applyViewportCornerInfoPreference } from '../../composables/ui/viewportCornerInfo'
@@ -91,6 +95,7 @@ const props = defineProps<{
   isViewLoading: boolean
   message: string
   selectedSeriesId: string
+  viewerPlatform: 'desktop' | 'web'
   viewerTabs: ViewerTabItem[]
 }>()
 
@@ -162,6 +167,7 @@ const emit = defineEmits<{
 }>()
 
 const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
+const workspaceContentRef = useTemplateRef<HTMLElement>('workspaceContentRef')
 const exportNameInputRef = ref<HTMLInputElement | null>(null)
 const activeTabRef = computed(() => props.activeTab)
 const activeTabKeyRef = computed(() => props.activeTabKey)
@@ -169,13 +175,14 @@ const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
-const { t, workspaceExportCopy } = useUiLocale()
+const { locale, t, overlayCopy, workspaceExportCopy } = useUiLocale()
 const {
   exportPreference,
   mprDefaultLayoutKey,
   mprSegmentationStylePreference,
   qaWaterMetrics,
   roiStatOptions,
+  viewerToolbarPlacement,
   viewportCornerInfoPreference
 } = useUiPreferences()
 const mprSegmentationDefaultThresholdColor = computed(() => mprSegmentationStylePreference.value.thresholdColor)
@@ -192,7 +199,9 @@ const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
 const ANNOTATION_DRAG_START_THRESHOLD = 3
 const ANNOTATION_POINT_CLOSE_EPSILON = 0.0005
 const EXPORT_LABEL_LINE_HEIGHT_PX = 18
+const TOP_RESULT_DOCK_MIN_CONTENT_WIDTH = 1280
 const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
+type WorkspaceResultPanel = 'mtfCurve' | 'qaWater'
 
 type AnnotationInteractionState =
   | { kind: 'idle' }
@@ -316,6 +325,38 @@ function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segme
   activateSegmentationSelectionMode(mode)
 }
 
+function closeMprMipPanel(): void {
+  isMprMipPanelOpen.value = false
+}
+
+function closeRightToolbarUtilityPanel(): void {
+  closeVolumeConfigPanel()
+  closeMprMipPanel()
+}
+
+function handleToolbarApplyTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
+  closeResultPanel()
+  applyTool(tool, behavior)
+  if (tool.key === 'qa' && isWaterPhantomQaOperation(stackToolSelections.value.qa ?? '')) {
+    requestQaWaterResultPanel()
+  }
+}
+
+function handleToolbarSelectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+  closeResultPanel()
+  selectToolOption(tool, optionValue, behavior)
+  if (tool.key === 'qa' && isWaterPhantomQaOperation(optionValue)) {
+    requestQaWaterResultPanel()
+  }
+}
+
+function handleToolbarSetMenuOpen(toolKey: string | null): void {
+  if (toolKey) {
+    closeResultPanel()
+  }
+  setMenuOpen(toolKey)
+}
+
 const activeMprLayoutKey = computed(() => {
   const selectedLayout = parseMprLayoutSelectionValue(stackToolSelections.value.mprLayout)
   if (activeTabRef.value?.viewType === '4D' && selectedLayout === 'mpr-3d') {
@@ -331,6 +372,24 @@ const isVolumeConfigPanelAvailable = computed(() => {
   return activeTabRef.value.viewType === '3D' || (activeTabRef.value.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
 })
 
+const isRightToolbarLayout = computed(() => viewerToolbarPlacement.value === 'right')
+const shouldShowTopToolbar = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && !isRightToolbarLayout.value))
+const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && isRightToolbarLayout.value))
+const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | null>(() => {
+  const activeTab = activeTabRef.value
+  if (!shouldShowRightToolbarDock.value || !activeTab) {
+    return null
+  }
+  if (isVolumeConfigPanelAvailable.value && isVolumeConfigPanelOpen.value && activeVolumeRenderConfig.value) {
+    return 'volume'
+  }
+  if ((activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen.value && activeMprMipConfig.value) {
+    return 'mprMip'
+  }
+  return null
+})
+
+const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
 const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
 const pendingDeletedAnnotationIds = ref<Partial<Record<string, string[]>>>({})
 const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
@@ -338,6 +397,7 @@ const annotationActivePointerId = ref<number | null>(null)
 const qaWaterAnalysis = ref<QaWaterAnalysis | null>(null)
 const qaWaterAnalysisCache = ref<Record<string, QaWaterAnalysis>>({})
 let qaWaterAnalysisRequestId = 0
+const activeResultPanel = ref<WorkspaceResultPanel | null>(null)
 const {
   cancelExportNameDialog,
   cleanupExportUi,
@@ -411,6 +471,17 @@ function rememberQaWaterAnalysis(key: string, analysis: QaWaterAnalysis): void {
   }
 }
 
+function requestQaWaterResultPanel(): void {
+  const key = qaWaterAnalysisKey.value
+  if (!key) {
+    return
+  }
+  activeResultPanel.value = 'qaWater'
+  if (!qaWaterAnalysis.value) {
+    void refreshQaWaterAnalysis(key)
+  }
+}
+
 async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<void> {
   const requestId = qaWaterAnalysisRequestId + 1
   qaWaterAnalysisRequestId = requestId
@@ -420,6 +491,7 @@ async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<v
     return
   }
 
+  activeResultPanel.value = 'qaWater'
   qaWaterAnalysis.value = {
     viewId: tab.viewId,
     viewportKey: 'single',
@@ -440,7 +512,7 @@ async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<v
       viewportKey: 'single',
       rois: [],
       status: 'error',
-      message: 'Water phantom QA analysis failed.'
+      message: overlayCopy.value.qaWaterFailed
     }
     rememberQaWaterAnalysis(key, analysis)
     if (requestId === qaWaterAnalysisRequestId && key === qaWaterAnalysisKey.value) {
@@ -1695,7 +1767,6 @@ function handleViewportPointerLeaveWithAnnotations(viewportKey: string): void {
   handleViewportPointerLeave(viewportKey)
 }
 
-const isMtfCurveDialogOpen = ref(false)
 const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
 const canAcceptQuickPreviewDrop = computed(() => !props.isViewLoading && !props.activeTab)
 const MPR_SEGMENTATION_PROGRESS_VIEWPORTS = ['mpr-ax', 'mpr-cor', 'mpr-sag'] as const
@@ -1705,6 +1776,7 @@ const isMprSegmentationProcessing = computed(() => {
 })
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const isTabStripCollapsed = ref(false)
+const workspaceContentWidth = ref(0)
 const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
 const shouldShowTabStrip = computed(() => hasViewerTabs.value && (!isTabStripCollapsed.value || shouldForceShowTabStrip.value))
 const shouldShowTabStripToggle = computed(() => hasViewerTabs.value && Boolean(props.activeTab) && props.activeTab?.viewType !== 'Tag')
@@ -1717,15 +1789,49 @@ const selectedMtfItem = computed(() => {
 
   return state.items.find((item) => item.mtfId === state.selectedMtfId) ?? null
 })
+const activeResultPanelKind = computed<WorkspaceResultPanel | null>(() => {
+  if (activeResultPanel.value === 'mtfCurve') {
+    return selectedMtfItem.value?.status === 'ready' ? 'mtfCurve' : null
+  }
+  if (activeResultPanel.value === 'qaWater') {
+    return isWaterPhantomQaOperation(props.activeOperation) ? 'qaWater' : null
+  }
+  return null
+})
+const topResultDockCanReserve = computed(() => workspaceContentWidth.value >= TOP_RESULT_DOCK_MIN_CONTENT_WIDTH)
+const qaResultPanelTitle = computed(() => (locale.value === 'zh-CN' ? 'QA 报告' : 'QA Report'))
+const resultPanelTitle = computed(() =>
+  activeResultPanelKind.value === 'mtfCurve'
+    ? overlayCopy.value.mtfCurveTitle
+    : qaResultPanelTitle.value
+)
+const resultPanelIcon = computed(() => (activeResultPanelKind.value === 'mtfCurve' ? 'mtf' : 'water-phantom'))
+const resultPanelToolKey = computed(() => {
+  if (activeResultPanelKind.value === 'mtfCurve') {
+    return activeTools.value.some((tool) => tool.key === 'mtf') ? 'mtf' : 'qa'
+  }
+  if (activeResultPanelKind.value === 'qaWater') {
+    return 'qa'
+  }
+  return null
+})
+const shouldShowTopResultDock = computed(() =>
+  Boolean(
+    activeTabRef.value &&
+    activeTabRef.value.viewType !== 'Tag' &&
+    !isRightToolbarLayout.value &&
+    (activeResultPanelKind.value || topResultDockCanReserve.value)
+  )
+)
 
 function handleOpenMtfCurve(): void {
   if (selectedMtfItem.value?.status === 'ready') {
-    isMtfCurveDialogOpen.value = true
+    activeResultPanel.value = 'mtfCurve'
   }
 }
 
-function handleCloseMtfCurve(): void {
-  isMtfCurveDialogOpen.value = false
+function closeResultPanel(): void {
+  activeResultPanel.value = null
 }
 
 const {
@@ -1867,6 +1973,10 @@ function handleDeleteSelectedMeasurementHotkey(): boolean {
 
 function handleSelectMtf(payload: { mtfId: string | null }): void {
   emit('mtfSelect', payload)
+  const item = payload.mtfId ? activeMtfState.value?.items.find((candidate) => candidate.mtfId === payload.mtfId) : null
+  if (item?.status === 'ready') {
+    activeResultPanel.value = 'mtfCurve'
+  }
 }
 
 function runSelectedMtfAction(action: (mtfId: string) => void): boolean {
@@ -1881,7 +1991,9 @@ function runSelectedMtfAction(action: (mtfId: string) => void): boolean {
 
 function handleDeleteSelectedMtf(): void {
   void runSelectedMtfAction((mtfId) => {
-    isMtfCurveDialogOpen.value = false
+    if (activeResultPanel.value === 'mtfCurve') {
+      closeResultPanel()
+    }
     emit('mtfDelete', { mtfId })
   })
 }
@@ -1890,7 +2002,18 @@ watch(
   () => activeMtfState.value,
   (value) => {
     if (!value?.items.length || !selectedMtfItem.value) {
-      isMtfCurveDialogOpen.value = false
+      if (activeResultPanel.value === 'mtfCurve') {
+        closeResultPanel()
+      }
+    }
+  }
+)
+
+watch(
+  () => [selectedMtfItem.value?.mtfId ?? null, selectedMtfItem.value?.status ?? null] as const,
+  ([mtfId, status]) => {
+    if (mtfId && status === 'ready') {
+      activeResultPanel.value = 'mtfCurve'
     }
   }
 )
@@ -1911,12 +2034,16 @@ watch(
     if (!value) {
       qaWaterAnalysisRequestId += 1
       qaWaterAnalysis.value = null
+      if (activeResultPanel.value === 'qaWater') {
+        closeResultPanel()
+      }
       return
     }
     const cachedAnalysis = qaWaterAnalysisCache.value[value]
     if (cachedAnalysis) {
       qaWaterAnalysisRequestId += 1
       qaWaterAnalysis.value = cachedAnalysis
+      activeResultPanel.value = 'qaWater'
       return
     }
     void refreshQaWaterAnalysis(value)
@@ -1927,6 +2054,7 @@ watch(
 watch(
   () => props.activeTabKey,
   () => {
+    closeResultPanel()
     clearDraftAnnotations()
     annotationInteraction.value = { kind: 'idle' }
   }
@@ -1946,11 +2074,47 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorksp
     viewportHostRef
   })
 
+function updateWorkspaceContentWidth(): void {
+  workspaceContentWidth.value = workspaceContentRef.value?.clientWidth ?? 0
+}
+
+watch(
+  () => workspaceContentRef.value,
+  (element, _previousElement, onCleanup) => {
+    updateWorkspaceContentWidth()
+    if (!element || typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateWorkspaceContentWidth()
+    })
+    resizeObserver.observe(element)
+    onCleanup(() => resizeObserver.disconnect())
+  },
+  { flush: 'post', immediate: true }
+)
+
+watch(
+  () => [viewerToolbarPlacement.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
+  () => {
+    void nextTick().then(() => {
+      notifyWorkspaceReady()
+    })
+  }
+)
+
 function toggleTabStripCollapsed(): void {
   isTabStripCollapsed.value = !isTabStripCollapsed.value
   void nextTick().then(() => {
     notifyWorkspaceReady()
     updateTabScrollState()
+  })
+}
+
+function handleRightToolbarDockResize(): void {
+  void nextTick().then(() => {
+    notifyWorkspaceReady()
   })
 }
 
@@ -1992,7 +2156,9 @@ useWorkspaceHotkeys({
   deleteSelectedAnnotation,
   deleteSelectedMeasurement: handleDeleteSelectedMeasurementHotkey,
   deleteSelectedMtf: () => runSelectedMtfAction((mtfId) => {
-    isMtfCurveDialogOpen.value = false
+    if (activeResultPanel.value === 'mtfCurve') {
+      closeResultPanel()
+    }
     emit('mtfDelete', { mtfId })
   }),
   exportCurrentView: (format) => {
@@ -2053,7 +2219,7 @@ onBeforeUnmount(() => {
       />
 
       <ViewerToolbar
-        v-if="activeTab && activeTab.viewType !== 'Tag' && activeTab.viewType !== '4D'"
+        v-if="shouldShowTopToolbar && activeTab"
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="areToolbarActionsDisabled"
@@ -2067,11 +2233,11 @@ onBeforeUnmount(() => {
         :stack-tool-selections="stackToolSelections"
         :toggle-icon-size="toggleIconSize"
         :toolbar-icon-size="toolbarIconSize"
-        @apply-tool="applyTool"
+        @apply-tool="handleToolbarApplyTool"
         @end-playback="endPlayback"
         @pause-playback="pausePlayback"
-        @select-tool-option="selectToolOption"
-        @set-menu-open="setMenuOpen"
+        @select-tool-option="handleToolbarSelectToolOption"
+        @set-menu-open="handleToolbarSetMenuOpen"
         @toggle-tab-strip="toggleTabStripCollapsed"
       />
 
@@ -2084,11 +2250,16 @@ onBeforeUnmount(() => {
 
       <div
         v-else-if="activeTab"
-        ref="viewportHostRef"
-        class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2"
+        ref="workspaceContentRef"
+        class="viewer-workspace-content flex min-h-0 flex-1 gap-2"
+        :class="{ 'viewer-workspace-content--right-toolbar': shouldShowRightToolbarDock }"
       >
         <div
-          v-if="isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
+          ref="viewportHostRef"
+          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden rounded-[20px] border p-2"
+        >
+        <div
+          v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
           class="absolute right-5 top-5 z-[20]"
         >
           <VolumeRenderConfigPanel
@@ -2099,7 +2270,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="(activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
+          v-if="!isRightToolbarLayout && (activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
           class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
         >
           <MprMipConfigPanel
@@ -2332,13 +2503,22 @@ onBeforeUnmount(() => {
           :is-tool-selected="isToolSelected"
           :is-tab-strip-collapsed="isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
+          :active-mpr-mip-config="activeMprMipConfig"
+          :is-mpr-mip-panel-open="isMprMipPanelOpen"
           :open-menu-key="openMenuKey"
           :show-tab-strip-toggle="shouldShowTabStripToggle"
           :stack-tool-selections="stackToolSelections"
           :mpr-layout-key="activeMprLayoutKey"
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
-          @apply-tool="applyTool"
+          :toolbar-placement="viewerToolbarPlacement"
+          :result-panel-icon="resultPanelIcon"
+          :result-panel-open="activeResultPanelKind === 'mtfCurve'"
+          :result-panel-title="resultPanelTitle"
+          :result-panel-tool-key="resultPanelToolKey"
+          @apply-tool="handleToolbarApplyTool"
+          @close-mpr-mip-panel="closeMprMipPanel"
+          @close-result-panel="closeResultPanel"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="handleCopySelectedMeasurement"
@@ -2358,25 +2538,112 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
-          @select-tool-option="selectToolOption"
-          @set-menu-open="setMenuOpen"
+          @select-tool-option="handleToolbarSelectToolOption"
+          @set-menu-open="handleToolbarSetMenuOpen"
           @toggle-tab-strip="toggleTabStripCollapsed"
+          @mpr-mip-config-change="updateActiveMprMipConfig"
           @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
           @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
           @playback-change="emit('fourDPlaybackChange', { tabKey: activeTab.key, isPlaying: $event })"
-        />
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <template #result>
+            <MtfCurvePanelContent
+              v-if="activeResultPanelKind === 'mtfCurve'"
+              :mtf-item="selectedMtfItem"
+              @copy="handleCopySelectedMtf"
+              @delete="handleDeleteSelectedMtf"
+            />
+          </template>
+        </FourDView>
 
         <DicomTagView
           v-else
           :active-tab="activeTab"
+          :viewer-platform="viewerPlatform"
           @index-change="emit('tagIndexChange', $event)"
         />
 
-        <MtfCurveDialog
-          :is-open="isMtfCurveDialogOpen"
-          :mtf-item="selectedMtfItem"
-          @close="handleCloseMtfCurve"
-        />
+        </div>
+
+        <ViewerResultDock
+          v-if="shouldShowTopResultDock"
+          :has-content="Boolean(activeResultPanelKind)"
+          :icon="resultPanelIcon"
+          :title="resultPanelTitle"
+          @close="closeResultPanel"
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <MtfCurvePanelContent
+            v-if="activeResultPanelKind === 'mtfCurve'"
+            :mtf-item="selectedMtfItem"
+            @copy="handleCopySelectedMtf"
+            @delete="handleDeleteSelectedMtf"
+          />
+          <QaWaterResultPanelContent
+            v-else-if="activeResultPanelKind === 'qaWater'"
+            :analysis="qaWaterAnalysis"
+          />
+        </ViewerResultDock>
+
+        <ViewerToolbarDock
+          v-if="shouldShowRightToolbarDock && activeTab"
+          :active-tab="activeTab"
+          :active-tools="activeTools"
+          :are-toolbar-actions-disabled="areToolbarActionsDisabled"
+          :is-playing="isPlaying"
+          :is-playback-paused="isPlaybackPaused"
+          :is-tool-selected="isToolSelected"
+          :menu-icon-size="menuIconSize"
+          :open-menu-key="openMenuKey"
+          :result-panel-icon="resultPanelIcon"
+          :result-panel-open="Boolean(activeResultPanelKind)"
+          :result-panel-title="resultPanelTitle"
+          :result-panel-tool-key="resultPanelToolKey"
+          :stack-tool-selections="stackToolSelections"
+          :toolbar-icon-size="toolbarIconSize"
+          :utility-panel-icon="rightToolbarUtilityPanelKind === 'volume' ? 'settings' : 'mip'"
+          :utility-panel-open="rightToolbarUtilityPanelKind != null"
+          :utility-panel-title="rightToolbarUtilityPanelKind === 'volume' ? '3D Params' : 'MIP Params'"
+          :utility-panel-tool-key="rightToolbarUtilityPanelKind === 'volume' ? 'volumeParams' : rightToolbarUtilityPanelKind === 'mprMip' ? 'mprMip' : null"
+          @apply-tool="handleToolbarApplyTool"
+          @close-result-panel="closeResultPanel"
+          @close-utility-panel="closeRightToolbarUtilityPanel"
+          @end-playback="endPlayback"
+          @pause-playback="pausePlayback"
+          @select-tool-option="handleToolbarSelectToolOption"
+          @set-menu-open="handleToolbarSetMenuOpen"
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <template #result>
+            <MtfCurvePanelContent
+              v-if="activeResultPanelKind === 'mtfCurve'"
+              :mtf-item="selectedMtfItem"
+              @copy="handleCopySelectedMtf"
+              @delete="handleDeleteSelectedMtf"
+            />
+            <QaWaterResultPanelContent
+              v-else-if="activeResultPanelKind === 'qaWater'"
+              :analysis="qaWaterAnalysis"
+            />
+          </template>
+          <template #panel>
+            <VolumeRenderConfigPanel
+              v-if="rightToolbarUtilityPanelKind === 'volume' && activeVolumeRenderConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeVolumeRenderConfig"
+              embedded
+              @close="closeVolumeConfigPanel"
+              @config-change="emit('volumeConfigChange', $event)"
+            />
+            <MprMipConfigPanel
+              v-else-if="rightToolbarUtilityPanelKind === 'mprMip' && activeMprMipConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeMprMipConfig"
+              @config-change="updateActiveMprMipConfig"
+            />
+          </template>
+        </ViewerToolbarDock>
       </div>
 
       <div
@@ -2453,5 +2720,15 @@ onBeforeUnmount(() => {
 
 .viewer-workspace-empty.theme-drop-active {
   border-style: dashed;
+}
+
+.viewer-workspace-content--right-toolbar {
+  align-items: stretch;
+}
+
+.viewer-workspace-dock-panel {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 14px !important;
 }
 </style>

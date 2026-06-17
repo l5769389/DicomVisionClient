@@ -162,6 +162,9 @@ export interface WorkspaceExportCopy {
 }
 
 export interface ToolbarCopy {
+  dockCollapse: string
+  dockExpand: string
+  dockNoDetails: string
   hideTabs: string
   pausePlayback: string
   resumePlayback: string
@@ -247,6 +250,8 @@ export interface OverlayCopy {
   readingGuide: string
   closeMtfCurve: string
   close: string
+  resultDockCollapse: string
+  resultDockExpand: string
   noCurveData: string
   curveMarkersIncomplete: string
   measuredFromCurrentRoi: string
@@ -526,6 +531,9 @@ export const uiMessages = {
       exportedTo: (location: string) => `已导出到 ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      dockCollapse: '收起右侧操作区',
+      dockExpand: '展开右侧操作区',
+      dockNoDetails: '该工具没有额外设置。',
       hideTabs: '收起标签栏',
       pausePlayback: '暂停播放',
       resumePlayback: '继续播放',
@@ -610,6 +618,8 @@ export const uiMessages = {
       readingGuide: '阅读提示',
       closeMtfCurve: '关闭 MTF 曲线',
       close: '关闭',
+      resultDockCollapse: '收起结果区',
+      resultDockExpand: '展开结果区',
       noCurveData: '暂无曲线数据',
       curveMarkersIncomplete: '曲线标记不完整',
       measuredFromCurrentRoi: '基于当前 ROI 测量',
@@ -885,6 +895,9 @@ export const uiMessages = {
       exportedTo: (location: string) => `Exported to ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      dockCollapse: 'Collapse right toolbar',
+      dockExpand: 'Expand right toolbar',
+      dockNoDetails: 'No additional settings for this tool.',
       hideTabs: 'Hide tabs',
       pausePlayback: 'Pause playback',
       resumePlayback: 'Resume playback',
@@ -969,6 +982,8 @@ export const uiMessages = {
       readingGuide: 'Reading Guide',
       closeMtfCurve: 'Close MTF curve',
       close: 'Close',
+      resultDockCollapse: 'Collapse result panel',
+      resultDockExpand: 'Expand result panel',
       noCurveData: 'No curve data',
       curveMarkersIncomplete: 'Curve markers are incomplete',
       measuredFromCurrentRoi: 'Measured from the current ROI',

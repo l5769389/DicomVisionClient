@@ -49,7 +49,7 @@ function createMprTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
 const globalStubs = {
   ViewerCanvasStage: {
     name: 'ViewerCanvasStage',
-    props: ['viewportKey', 'viewportClass', 'isActive'],
+    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel'],
     emits: ['clickViewport', 'doubleClickViewport', 'wheelViewport'],
     template: `
       <button
@@ -58,6 +58,8 @@ const globalStubs = {
         :data-viewport-key="viewportKey"
         :data-viewport-class="viewportClass"
         :data-active="isActive ? 'true' : 'false'"
+        :data-loading="isLoading ? 'true' : 'false'"
+        :data-loading-label="loadingLabel"
         @click="$emit('clickViewport', viewportKey)"
         @dblclick="$emit('doubleClickViewport', viewportKey)"
         @wheel="$emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
@@ -266,6 +268,36 @@ describe('MprView', () => {
     })
 
     expect(wrapper.findAll('.viewer-stage-stub')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('does not cover an already rendered MPR image with viewport progress', () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeTab: createMprTab({
+          viewportViewIds: {
+            'mpr-ax': 'ax-view',
+            'mpr-cor': 'cor-view',
+            'mpr-sag': 'sag-view'
+          },
+          viewportLoadingProgress: {
+            'mpr-ax': {
+              viewId: 'ax-view',
+              phase: 'render',
+              message: 'Updating segmentation...',
+              progressPercent: null
+            }
+          }
+        })
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    const axialStage = wrapper.find('[data-viewport-key="mpr-ax"]')
+    expect(axialStage.attributes('data-loading')).toBe('false')
+    expect(wrapper.find('[data-viewport-key="mpr-cor"]').attributes('data-loading')).toBe('false')
     wrapper.unmount()
   })
 })

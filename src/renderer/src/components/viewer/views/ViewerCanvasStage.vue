@@ -10,10 +10,19 @@ import type {
   MprCrosshairInfo,
   MprFrameInfo,
   MprPlaneInfo,
+  MprSegmentationConfigActionType,
+  MprSegmentationConfig,
+  MprSegmentationOverlay,
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
+  ViewerImageLayer,
+  ViewTransformInfo,
   ViewerMtfItem
+} from '../../../types/viewer'
+import {
+  DEFAULT_MPR_SEGMENTATION_COLOR,
+  DEFAULT_MPR_VOI_COLOR
 } from '../../../types/viewer'
 import VolumeOrientationCube from '../volume/VolumeOrientationCube.vue'
 import ViewportAnnotationOverlay from '../overlays/ViewportAnnotationOverlay.vue'
@@ -24,6 +33,8 @@ import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.v
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
+import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
+import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = withDefaults(
@@ -43,6 +54,8 @@ const props = withDefaults(
     selectedMtfId?: string | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
+    imageStyle?: Record<string, string>
+    imageLayers?: ViewerImageLayer[]
     imageSrc: string
     isActive?: boolean
     isLoading?: boolean
@@ -51,6 +64,10 @@ const props = withDefaults(
     mprCrosshair?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
     mprPlane?: MprPlaneInfo | null
+    mprSegmentationDefaultThresholdColor?: string
+    mprSegmentationDefaultVoiColor?: string
+    mprSegmentationConfig?: MprSegmentationConfig | null
+    mprSegmentationOverlay?: MprSegmentationOverlay | null
     orientation: OrientationInfo
     placeholder: string
     renderSurfaceActive?: boolean
@@ -58,6 +75,11 @@ const props = withDefaults(
     showCornerInfo?: boolean
     showScaleBar?: boolean
     softImage?: boolean
+    stageSurfaceClass?: string
+    lightSurface?: boolean
+    viewportTransform?: ViewTransformInfo | null
+    voiEditable?: boolean
+    voiOblique?: boolean
     viewportClass?: string
     viewportKey: string
   }>(),
@@ -68,7 +90,9 @@ const props = withDefaults(
     measurements: () => [],
     cursorClass: '',
     draftMeasurementMode: null,
+    imageLayers: () => [],
     imageClass: '',
+    imageStyle: () => ({}),
     isActive: false,
     isLoading: false,
     loadingLabel: '',
@@ -76,12 +100,21 @@ const props = withDefaults(
     mprCrosshair: null,
     mprFrame: null,
     mprPlane: null,
+    mprSegmentationDefaultThresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    mprSegmentationDefaultVoiColor: DEFAULT_MPR_VOI_COLOR,
+    mprSegmentationConfig: null,
+    mprSegmentationOverlay: null,
     qaWaterAnalysis: null,
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
     showScaleBar: true,
     softImage: false,
+    stageSurfaceClass: '',
+    lightSurface: false,
+    viewportTransform: null,
+    voiEditable: false,
+    voiOblique: false,
     viewportClass: ''
   }
 )
@@ -106,6 +139,8 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
+  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
@@ -119,11 +154,13 @@ const stageSize = ref({
   width: 0,
   height: 0
 })
-const imageFrame = ref({
+const imageFrame = ref<OverlayImageFrame>({
   left: 0,
   top: 0,
   width: 0,
-  height: 0
+  height: 0,
+  naturalWidth: 0,
+  naturalHeight: 0
 })
 
 const normalizedLoadingProgressPercent = computed(() => {
@@ -134,6 +171,25 @@ const normalizedLoadingProgressPercent = computed(() => {
 })
 
 const resolvedLoadingLabel = computed(() => props.loadingLabel || viewerCopy.value.loadingView)
+
+const hasImageContent = computed(() =>
+  Boolean(props.imageSrc) || props.imageLayers.some((layer) => Boolean(layer.src))
+)
+
+const shouldShowImageOverlays = computed(() => hasImageContent.value)
+const shouldShowCornerInfo = computed(() => props.showCornerInfo && hasImageContent.value)
+const shouldShowScaleBar = computed(() => props.showScaleBar && hasImageContent.value)
+const isLightSurface = computed(() =>
+  props.lightSurface || props.stageSurfaceClass.split(/\s+/).includes('viewer-stage-surface--white')
+)
+const lightSurfaceStyle = computed(() =>
+  isLightSurface.value
+    ? {
+        background: '#fff',
+        backgroundImage: 'none'
+      }
+    : undefined
+)
 
 const measurementFrame = computed(() => ({
   left: 0,
@@ -220,6 +276,14 @@ function handlePointerLeave(): void {
   emit('pointerLeave', props.viewportKey)
 }
 
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
+  emit('mprSegmentationConfigChange', config, actionType)
+}
+
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
+  emit('mprSegmentationModeChange', mode, viewportKey)
+}
+
 function getRenderedImageRect(image: HTMLImageElement): DOMRect {
   const rect = image.getBoundingClientRect()
   const naturalWidth = image.naturalWidth
@@ -263,7 +327,9 @@ function updateStageMetricsNow(): void {
       left: 0,
       top: 0,
       width: 0,
-      height: 0
+      height: 0,
+      naturalWidth: 0,
+      naturalHeight: 0
     }
     return
   }
@@ -273,7 +339,9 @@ function updateStageMetricsNow(): void {
     left: toStablePixel(imageRect.left - stageRect.left),
     top: toStablePixel(imageRect.top - stageRect.top),
     width: toStablePixel(imageRect.width),
-    height: toStablePixel(imageRect.height)
+    height: toStablePixel(imageRect.height),
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight
   }
 }
 
@@ -356,9 +424,13 @@ watch(
     class="viewer-viewport relative h-full w-full overflow-hidden rounded-2xl border border-slate-600/20 bg-[linear-gradient(180deg,rgba(4,8,14,0.98),rgba(2,5,10,1)),radial-gradient(circle_at_top_right,rgba(35,130,210,0.08),transparent_28%)] text-slate-200"
     :class="[
       viewportClass,
+      stageSurfaceClass,
+      isLightSurface ? 'viewer-viewport--light-surface' : '',
       cursorClass,
       isActive ? 'viewer-viewport--active' : ''
     ]"
+    :style="lightSurfaceStyle"
+    :data-light-surface="isLightSurface ? 'true' : 'false'"
     :data-active-viewport="isActive ? 'true' : 'false'"
     :data-viewport-key="viewportKey"
     @click="emit('clickViewport', viewportKey)"
@@ -374,6 +446,8 @@ watch(
     <div
       ref="stageRef"
       class="relative grid h-full w-full place-items-center overflow-hidden bg-black"
+      :class="[stageSurfaceClass, isLightSurface ? 'viewer-stage-surface--light' : '']"
+      :style="lightSurfaceStyle"
       :data-active-render-surface="renderSurfaceActive ? 'true' : 'false'"
       :data-viewport-key="viewportKey"
     >
@@ -384,11 +458,25 @@ watch(
         :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
         :src="imageSrc"
         :alt="alt"
+        :style="imageStyle"
         draggable="false"
         @dragstart.prevent
         @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
       />
+      <img
+        v-for="layer in imageLayers"
+        :key="layer.key"
+        class="viewer-image viewer-image-layer pointer-events-none absolute inset-0 block h-full w-full select-none object-contain object-center"
+        :class="layer.class"
+        :src="layer.src"
+        :alt="layer.alt ?? ''"
+        :style="layer.style"
+        draggable="false"
+        aria-hidden="true"
+        @dragstart.prevent
+      />
       <ViewportCrosshairOverlay
+        v-if="shouldShowImageOverlays"
         :corner-info="cornerInfo"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
@@ -399,13 +487,31 @@ watch(
         :viewport-key="viewportKey"
         :is-active="isActive"
       />
+      <ViewportVoiOverlay
+        v-if="shouldShowImageOverlays"
+        :active-operation="props.activeOperation"
+        :config="mprSegmentationConfig"
+        :editable="voiEditable"
+        :image-frame="imageFrame"
+        :is-active="isActive"
+        :is-oblique="voiOblique"
+        :mpr-plane="mprPlane"
+        :default-threshold-color="mprSegmentationDefaultThresholdColor"
+        :default-voi-color="mprSegmentationDefaultVoiColor"
+        :segmentation-overlay="mprSegmentationOverlay"
+        :viewport-transform="viewportTransform"
+        :viewport-key="viewportKey"
+        @config-change="handleMprSegmentationConfigChange"
+        @mode-change="handleMprSegmentationModeChange"
+      />
       <ViewportScaleBarOverlay
-        v-if="showScaleBar"
+        v-if="shouldShowScaleBar"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
         :scale-bar="scaleBar"
       />
       <ViewportMeasurementOverlay
+        v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('measurement')"
         :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
@@ -415,6 +521,7 @@ watch(
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"
       />
       <ViewportAnnotationOverlay
+        v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('annotation')"
         :annotations="annotations"
         :selected-annotation-id="draftAnnotation?.annotationId ?? null"
@@ -427,6 +534,7 @@ watch(
         @update-annotation-text="emit('updateAnnotationText', { viewportKey: props.viewportKey, ...$event })"
       />
       <ViewportMtfOverlay
+        v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('mtf')"
         :image-frame="imageFrame"
         :mtf-draft-mode="mtfDraftMode ?? null"
@@ -438,12 +546,13 @@ watch(
         @open-curve="emit('openMtfCurve')"
       />
       <ViewportQaWaterOverlay
+        v-if="shouldShowImageOverlays"
         :analysis="qaWaterAnalysis ?? null"
         :image-frame="imageFrame"
       />
-      <ViewportCornerOverlay v-if="showCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
-      <ViewportOrientationOverlay :orientation="orientation" />
-      <VolumeOrientationCube v-if="viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
+      <ViewportCornerOverlay v-if="shouldShowCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
+      <ViewportOrientationOverlay v-if="shouldShowImageOverlays" :orientation="orientation" />
+      <VolumeOrientationCube v-if="shouldShowImageOverlays && viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
       <div
         v-if="isLoading"
         class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"
@@ -473,6 +582,15 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.viewer-viewport--light-surface,
+.viewer-stage-surface--light,
+.viewer-stage-surface--white {
+  background: #fff !important;
+  background-image: none !important;
+}
+</style>
 
 <style scoped>
 .viewer-viewport,

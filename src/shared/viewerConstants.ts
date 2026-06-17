@@ -14,9 +14,13 @@ export const VIEW_OPERATION_TYPES = {
   render3dMode: 'render3dMode',
   surfaceConfig: 'surfaceConfig',
   mprMipConfig: 'mprMipConfig',
+  mprSegmentation: 'mprSegmentation',
   mprOblique: 'mprOblique',
   mprCrosshairMode: 'mprCrosshairMode',
   mprStateSync: 'mprStateSync',
+  fusionRegistration: 'fusionRegistration',
+  fusionConfig: 'fusionConfig',
+  petConfig: 'petConfig',
   measurement: 'measurement'
 } as const
 export type ViewOperationType = (typeof VIEW_OPERATION_TYPES)[keyof typeof VIEW_OPERATION_TYPES]

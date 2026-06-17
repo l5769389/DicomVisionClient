@@ -101,6 +101,38 @@ export type PacsDimseSeriesDownloadJob =
   ApiOperations['CreateDimseSeriesDownloadJobApiV1PacsDimseDownloadSeriesJobsPost']['response'] &
   DicomTagModifyJob
 export type PacsSeriesDownloadJob = PacsWadoSeriesDownloadJob | PacsDimseSeriesDownloadJob
+export type FusionRegistrationExportMode = 'newDicom' | 'br'
+
+export interface FusionRegistrationExportRequest {
+  viewId: string
+  mode: FusionRegistrationExportMode
+  seriesDescription?: string | null
+  outputDirectory: string
+}
+
+export interface FusionRegistrationArtifactExportRequest {
+  viewId: string
+  mode: FusionRegistrationExportMode
+  seriesDescription?: string | null
+}
+
+export interface FusionRegistrationExportResponse {
+  mode: FusionRegistrationExportMode
+  directoryPath: string
+  filePath?: string | null
+  fileCount: number
+  seriesDescription: string
+  petUnit: string
+  petUnitLabel: string
+}
+
+export interface FusionRegistrationExportArtifact {
+  artifactKind: 'br' | 'zip'
+  data: Uint8Array
+  fileCount: number
+  fileName: string
+  mediaType: string
+}
 
 function toApiBaseRelativePath(path: string): string {
   return path.replace(API_V1_PREFIX_PATTERN, '')
@@ -120,6 +152,47 @@ export async function postApi<K extends SupportedOperationKey>(
 ): Promise<OperationResponse<K>> {
   const response = await api.post<OperationResponse<K>>(toApiBaseRelativePath(operationPaths[operation]), data, config)
   return response.data
+}
+
+export async function postFusionRegistrationExport(
+  data: FusionRegistrationExportRequest,
+  config?: AxiosRequestConfig
+): Promise<FusionRegistrationExportResponse> {
+  const response = await api.post<FusionRegistrationExportResponse>(
+    toApiBaseRelativePath('/api/v1/view/fusion/registration/export'),
+    data,
+    {
+      timeout: 0,
+      ...config
+    }
+  )
+  return response.data
+}
+
+export async function postFusionRegistrationExportArtifact(
+  data: FusionRegistrationArtifactExportRequest,
+  config?: AxiosRequestConfig
+): Promise<FusionRegistrationExportArtifact> {
+  const response = await api.post<ArrayBuffer>(
+    toApiBaseRelativePath('/api/v1/view/fusion/registration/export/artifact'),
+    data,
+    {
+      timeout: 0,
+      ...config,
+      responseType: 'arraybuffer'
+    }
+  )
+  const contentDisposition = getResponseHeader(response.headers, 'content-disposition')
+  const mediaType = getResponseHeader(response.headers, 'content-type') || 'application/octet-stream'
+  const artifactKindHeader = getResponseHeader(response.headers, 'x-dicomvision-artifact-kind')
+  const fileCount = Number.parseInt(getResponseHeader(response.headers, 'x-dicomvision-file-count'), 10)
+  return {
+    artifactKind: artifactKindHeader === 'zip' ? 'zip' : 'br',
+    data: new Uint8Array(response.data),
+    fileCount: Number.isFinite(fileCount) ? fileCount : 1,
+    fileName: getFileNameFromContentDisposition(contentDisposition) || (artifactKindHeader === 'zip' ? 'fusion-registration.zip' : 'fusion-registration.br'),
+    mediaType
+  }
 }
 
 function getResponseHeader(headers: unknown, key: string): string {

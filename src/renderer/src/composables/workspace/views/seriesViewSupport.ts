@@ -72,8 +72,20 @@ export function isTagPreferredSeries(series: FolderSeriesItem | null | undefined
   return String(series?.preferredViewType ?? '').trim().toLowerCase() === 'tag'
 }
 
+export function isPetSeries(series: FolderSeriesItem | null | undefined): boolean {
+  const modality = String(series?.modality ?? '').trim().toUpperCase()
+  return modality === 'PT' || modality === 'PET'
+}
+
 export function resolveInitialSeriesViewType(series: FolderSeriesItem | null | undefined): ViewType {
-  return isTagPreferredSeries(series) || series?.isImageSeries === false ? 'Tag' : 'Stack'
+  if (isTagPreferredSeries(series) || series?.isImageSeries === false) {
+    return 'Tag'
+  }
+  return series && hasRenderablePixelGrid(series) && isPetSeries(series) ? 'PET' : 'Stack'
+}
+
+export function resolvePrimaryTwoDimensionalViewType(series: FolderSeriesItem | null | undefined): 'Stack' | 'PET' {
+  return series && hasRenderablePixelGrid(series) && !isTagPreferredSeries(series) && isPetSeries(series) ? 'PET' : 'Stack'
 }
 
 export function isSeriesVolumeViewSupported(series: FolderSeriesItem | null | undefined): boolean {
@@ -99,8 +111,15 @@ export function isSeriesViewSupported(series: FolderSeriesItem | null | undefine
   if (viewType === '3D' || viewType === 'MPR') {
     return isSeriesVolumeViewSupported(series)
   }
+  if (viewType === 'PET') {
+    return Boolean(series && hasRenderablePixelGrid(series) && !isTagPreferredSeries(series) && isPetSeries(series))
+  }
   if (viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout') {
     return Boolean(series && hasRenderablePixelGrid(series) && !isTagPreferredSeries(series))
   }
   return false
+}
+
+export function isPrimaryTwoDimensionalViewSupported(series: FolderSeriesItem | null | undefined): boolean {
+  return isSeriesViewSupported(series, resolvePrimaryTwoDimensionalViewType(series))
 }

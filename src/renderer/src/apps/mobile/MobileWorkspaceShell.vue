@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import AppIcon from '../../components/AppIcon.vue'
+import MtfCurveDialog from '../../components/viewer/overlays/MtfCurveDialog.vue'
+import VolumeRenderConfigPanel from '../../components/workspace/VolumeRenderConfigPanel.vue'
+import WorkspaceExportNameDialog from '../../components/workspace/export/WorkspaceExportNameDialog.vue'
+import WorkspaceExportNotice from '../../components/workspace/export/WorkspaceExportNotice.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS, getPseudocolorGradient } from '../../constants/pseudocolor'
+import { filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import {
   MAX_CUSTOM_WINDOW_PRESETS,
@@ -10,15 +15,20 @@ import {
   type WindowTemplatePreset
 } from '../../composables/ui/useUiPreferences'
 import { useViewerWorkspace } from '../../composables/workspace/core/useViewerWorkspace'
+import { useWorkspaceViewExport } from '../../composables/workspace/export/useWorkspaceViewExport'
+import type { ViewerExportFormat } from '../../composables/workspace/export/viewExport'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../../composables/workspace/sync/viewSyncConfig'
+import { createDefaultVolumeRenderConfig } from '../../composables/workspace/volume/volumeRenderConfig'
+import { useWorkspaceAnnotations } from '../../composables/workspace/overlays/useWorkspaceAnnotations'
+import { useWorkspaceQaWaterAnalysis } from '../../composables/workspace/overlays/useWorkspaceQaWaterAnalysis'
 import { isSeriesViewSupported } from '../../composables/workspace/views/seriesViewSupport'
 import { COMPARE_STACK_SOURCE_PANE_KEY } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import { setApiBaseURL } from '../../services/api'
-import { postApi } from '../../services/typedApi'
-import { viewerRuntime } from '../../platform/runtime'
+import { postApi, postDicomUpload, type LoadFolderResponse } from '../../services/typedApi'
+import { viewerRuntime, type DicomLoadSelection, type DicomLoadSource } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
-import type { CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, MeasurementToolType, MprViewportKey, ViewerTabItem, ViewType } from '../../types/viewer'
+import type { AnnotationSize, CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, MeasurementOverlay, MeasurementToolType, MprViewportKey, ViewerMtfItem, ViewerTabItem, ViewType } from '../../types/viewer'
 import MobileCompareStackViewport from './MobileCompareStackViewport.vue'
 import MobileMprViewport from './MobileMprViewport.vue'
 import MobileSettingsOverlay from './MobileSettingsOverlay.vue'
@@ -32,8 +42,10 @@ import {
   useMobileViewerPreferences
 } from './useMobileViewerPreferences'
 
-type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'tag' | 'compare'
-type MobileSheetKind = 'series' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'tag' | null
+const PacsBrowserDialog = defineAsyncComponent(() => import('../../components/sidebar/PacsBrowserDialog.vue'))
+
+type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'annotate' | 'qa' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'volumeParams' | 'export' | 'tag' | 'compare'
+type MobileSheetKind = 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'mpr' | 'measure' | 'qa' | 'export' | 'volumeParams' | 'reset' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
 type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
@@ -65,6 +77,14 @@ interface MobileSliceSliderState {
   pendingDeltaY: number
   total: number
   viewportKey: string
+}
+
+interface MobileFavoriteSliceItem {
+  displaySlice: number
+  series: FolderSeriesItem | null
+  seriesId: string
+  sliceIndex: number
+  total: number | null
 }
 
 const DEFAULT_MOBILE_DEV_SAMPLE_DICOM_PATH = 'D:/test/sample'
@@ -100,6 +120,26 @@ const VOLUME_PRESET_OPTIONS = [
   { value: 'volumePreset:cardiac', icon: 'volume-preset-cardiac', label: 'Cardiac' },
   { value: 'volumePreset:muscle', icon: 'volume-preset-muscle', label: 'Muscle' },
   { value: 'volumePreset:mip', icon: 'volume-preset-mip', label: 'MIP' }
+]
+
+const MOBILE_EXPORT_OPTIONS: Array<{ value: ViewerExportFormat; icon: string; zh: string; en: string; detailZh: string; detailEn: string }> = [
+  { value: 'png', icon: 'export', zh: 'PNG', en: 'PNG', detailZh: '导出当前视图截图', detailEn: 'Export current view snapshot' },
+  { value: 'dicom', icon: 'export', zh: 'DICOM', en: 'DICOM', detailZh: '导出当前 DICOM 图像', detailEn: 'Export current DICOM image' },
+  { value: 'dicom-sr', icon: 'export', zh: 'DICOM SR', en: 'DICOM SR', detailZh: '导出结构化测量报告', detailEn: 'Export structured measurement report' },
+  { value: 'dicom-gsps', icon: 'export', zh: 'DICOM GSPS', en: 'DICOM GSPS', detailZh: '导出标注和测量叠加', detailEn: 'Export annotation and measurement overlay' }
+]
+
+const MOBILE_QA_TOOLS = [
+  { value: 'qa:mtf', icon: 'mtf', zh: 'MTF', en: 'MTF', detailZh: '绘制 ROI 后生成空间分辨率曲线', detailEn: 'Draw an ROI to generate a spatial resolution curve' },
+  { value: 'qa:water-phantom', icon: 'qa', zh: '水模 QA', en: 'Water QA', detailZh: '自动识别水模并显示质控指标', detailEn: 'Analyze the water phantom and show QA metrics' }
+]
+
+const MOBILE_RESET_OPTIONS = [
+  { value: 'reset:view', icon: 'reset', zh: '重置视图', en: 'Reset View' },
+  { value: 'reset:measurements', icon: 'measure', zh: '清除测量', en: 'Clear Measurements' },
+  { value: 'reset:mtf', icon: 'mtf', zh: '清除 MTF', en: 'Clear MTF' },
+  { value: 'reset:annotations', icon: 'annotate', zh: '清除标注', en: 'Clear Annotations' },
+  { value: 'reset:all', icon: 'trash', zh: '全部重置', en: 'Reset All' }
 ]
 
 const MOBILE_MEASUREMENT_TOOLS: MobileMeasurementTool[] = [
@@ -154,11 +194,15 @@ const MOBILE_MEASUREMENT_TOOLS: MobileMeasurementTool[] = [
 ]
 
 const viewer = useViewerWorkspace()
-const { locale } = useUiLocale()
+const { locale, workspaceExportCopy } = useUiLocale()
+const mobileShellRef = useTemplateRef<HTMLElement>('mobileShellRef')
+const exportNameInputRef = ref<HTMLInputElement | null>(null)
 const {
   addCustomWindowPreset,
   getWindowPresetLabel,
   removeCustomWindowPresets,
+  qaWaterMetrics,
+  roiStatOptions,
   selectedPseudocolorKey,
   selectedWindowPresetId,
   systemWindowPresets,
@@ -173,9 +217,11 @@ const {
   mprShowReferenceThumbnails,
   orientationLock,
   stackDefaultTool,
-  stackPlaybackFps
+  stackPlaybackFps,
+  volumeDefaultTool
 } = useMobileViewerPreferences()
 const {
+  starredBySeries,
   isSliceStarred,
   toggleSliceStar
 } = useKeySliceStars()
@@ -191,8 +237,11 @@ const selectedCustomPresetIds = ref<string[]>([])
 const activeCompareViewportKey = ref<CompareStackPaneKey>(COMPARE_STACK_SOURCE_PANE_KEY)
 const activeMprViewportKey = ref<MprViewportKey>(mprDefaultViewport.value)
 const isLoadingDemo = ref(false)
+const isLoadingLocal = ref(false)
+const isPacsBrowserOpen = ref(false)
 const isSettingsOpen = ref(false)
 const isPlayingStack = ref(false)
+const isPlayingMpr = ref(false)
 const fourDPlaybackStarting = ref(false)
 const compareSourceSeriesId = ref<string | null>(null)
 const playbackFps = ref<MobileStackPlaybackFps>(stackPlaybackFps.value)
@@ -217,6 +266,16 @@ const activeImageTab = computed(() => activeStackTab.value ?? activeCompareTab.v
 const selectedSeries = computed(() => viewer.seriesList.value.find((series) => series.seriesId === viewer.selectedSeriesId.value) ?? null)
 const mobileSeriesList = computed(() => viewer.seriesList.value.filter((series) => series.isImageSeries !== false))
 const canLoadDemo = computed(() => supportsViewerDataSource(mobileViewerCapabilityProfile, 'server-sample'))
+const canLoadLocal = computed(() => (
+  viewerRuntime.canChooseFolder &&
+  (
+    supportsViewerDataSource(mobileViewerCapabilityProfile, 'web-upload') ||
+    supportsViewerDataSource(mobileViewerCapabilityProfile, 'desktop-picker')
+  )
+))
+const canOpenPacs = computed(() => (
+  supportsViewerDataSource(mobileViewerCapabilityProfile, 'pacs')
+))
 const canOpenStack = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'Stack'))
 const canOpenCompare = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'CompareStack'))
 const canOpenMpr = computed(() => supportsViewerViewType(mobileViewerCapabilityProfile, 'MPR'))
@@ -255,6 +314,7 @@ const activeSliceLabelSource = computed(() => {
 const activeSliceViewportKey = computed(() =>
   activeCompareTab.value ? activeCompareViewportKey.value : activeMprLikeTab.value ? activeMprViewportKey.value : 'single'
 )
+const activeWorkspaceViewportKey = computed(() => (activeVolumeTab.value ? 'volume' : activeSliceViewportKey.value))
 const activeSlice = computed(() => parseSliceLabel(activeSliceLabelSource.value))
 const displayedSlice = computed(() => {
   const slice = activeSlice.value
@@ -279,10 +339,14 @@ const activeSliceLabel = computed(() => {
 })
 const sliceSliderValue = computed(() => displayedSlice.value?.current ?? 1)
 const activeStackSlice = computed(() => (activeStackTab.value ? parseSliceLabel(activeStackTab.value.sliceLabel) : null))
+const activeMprSlice = computed(() => (
+  activeMprTab.value ? parseSliceLabel(activeMprTab.value.viewportSliceLabels?.[activeMprViewportKey.value] ?? '') : null
+))
 const isCurrentStackSliceStarred = computed(() =>
   Boolean(activeStackTab.value && activeStackSlice.value && isSliceStarred(activeStackTab.value.seriesId, activeStackSlice.value.index))
 )
 const canPlayStack = computed(() => Boolean(activeStackSlice.value && activeStackSlice.value.total > 1 && activeStackTab.value))
+const canPlayMpr = computed(() => Boolean(activeMprSlice.value && activeMprSlice.value.total > 1 && activeMprTab.value))
 const showSlicePanel = computed(() => Boolean(activeStackTab.value || activeCompareTab.value || activeMprLikeTab.value))
 const fourDPhaseCount = computed(() => Math.max(1, activeFourDTab.value?.fourDPhaseItems?.length ?? activeFourDTab.value?.fourDPhaseCount ?? 1))
 const fourDPhaseIndex = computed(() =>
@@ -293,19 +357,34 @@ const fourDPhaseLabel = computed(() => `${fourDPhaseSliderValue.value} / ${fourD
 const canPlayFourD = computed(() => Boolean(activeFourDTab.value && fourDPhaseCount.value > 1))
 const isPlayingFourD = computed(() => Boolean(activeFourDTab.value?.fourDIsPlaying))
 const activePlaybackFps = computed(() => (activeFourDTab.value ? activeFourDTab.value.fourDPlaybackFps ?? 2 : playbackFps.value))
-const canPlayActive = computed(() => (activeFourDTab.value ? canPlayFourD.value : canPlayStack.value))
+const activePlaybackFpsIndex = computed(() => {
+  const index = MOBILE_STACK_PLAYBACK_FPS_OPTIONS.indexOf(activePlaybackFps.value as MobileStackPlaybackFps)
+  return index >= 0 ? index : 0
+})
+const activePlaybackFpsLabel = computed(() => `${activePlaybackFps.value} FPS`)
+const canPlayActive = computed(() => {
+  if (activeFourDTab.value) {
+    return canPlayFourD.value
+  }
+  if (activeMprTab.value) {
+    return canPlayMpr.value
+  }
+  return canPlayStack.value
+})
+const showSlicePlayButton = computed(() => Boolean(activeStackTab.value || activeMprTab.value || activeFourDTab.value))
+const isPlayingActiveSlicePlayback = computed(() => (activeMprTab.value ? isPlayingMpr.value : isPlayingStack.value))
 const activePlayLabel = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
     return isZh.value ? '加载' : 'Loading'
   }
-  const isPlaying = activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value
+  const isPlaying = activeFourDTab.value ? isPlayingFourD.value : isPlayingActiveSlicePlayback.value
   return isPlaying ? (isZh.value ? '暂停' : 'Pause') : (isZh.value ? '播放' : 'Play')
 })
 const activePlayIcon = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
     return 'connecting'
   }
-  return (activeFourDTab.value ? isPlayingFourD.value : isPlayingStack.value) ? 'pause' : 'play'
+  return (activeFourDTab.value ? isPlayingFourD.value : isPlayingActiveSlicePlayback.value) ? 'pause' : 'play'
 })
 const scrollDragThreshold = computed(() => GESTURE_SCROLL_THRESHOLDS[gestureSensitivity.value] ?? GESTURE_SCROLL_THRESHOLDS.normal)
 const filteredTagItems = computed(() => {
@@ -320,14 +399,43 @@ const mobileShellClasses = computed(() => ({
   'mobile-shell--orientation-landscape': orientationLock.value === 'landscape',
   'mobile-shell--orientation-portrait': orientationLock.value === 'portrait'
 }))
+const favoriteSliceItems = computed<MobileFavoriteSliceItem[]>(() => {
+  const seriesById = new Map(viewer.seriesList.value.map((series) => [series.seriesId, series]))
+  return Object.entries(starredBySeries.value)
+    .flatMap(([seriesId, sliceIndexes]) => {
+      const series = seriesById.get(seriesId) ?? null
+      const total = typeof series?.instanceCount === 'number' && series.instanceCount > 0 ? series.instanceCount : null
+      return sliceIndexes.map((sliceIndex) => ({
+        displaySlice: sliceIndex + 1,
+        series,
+        seriesId,
+        sliceIndex,
+        total
+      }))
+    })
+    .sort((left, right) => {
+      const leftSeriesIndex = viewer.seriesList.value.findIndex((series) => series.seriesId === left.seriesId)
+      const rightSeriesIndex = viewer.seriesList.value.findIndex((series) => series.seriesId === right.seriesId)
+      const normalizedLeftSeriesIndex = leftSeriesIndex >= 0 ? leftSeriesIndex : Number.MAX_SAFE_INTEGER
+      const normalizedRightSeriesIndex = rightSeriesIndex >= 0 ? rightSeriesIndex : Number.MAX_SAFE_INTEGER
+      if (normalizedLeftSeriesIndex !== normalizedRightSeriesIndex) {
+        return normalizedLeftSeriesIndex - normalizedRightSeriesIndex
+      }
+      if (left.seriesId !== right.seriesId) {
+        return left.seriesId.localeCompare(right.seriesId)
+      }
+      return left.sliceIndex - right.sliceIndex
+    })
+})
+const favoriteSliceCount = computed(() => favoriteSliceItems.value.length)
 
 const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
   if (activeVolumeTab.value) {
     return [
       { key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' },
       { key: 'pan', icon: 'pan', label: isZh.value ? '平移' : 'Pan' },
-      { key: 'zoom', icon: 'zoom', label: isZh.value ? '缩放' : 'Zoom' },
-      { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' }
+      { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' },
+      { key: 'reset', icon: 'reset', label: isZh.value ? '重置' : 'Reset' }
     ]
   }
 
@@ -338,23 +446,35 @@ const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
   return [
     { key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' },
     { key: 'pan', icon: 'pan', label: isZh.value ? '平移' : 'Pan' },
-    { key: 'zoom', icon: 'zoom', label: isZh.value ? '缩放' : 'Zoom' },
     scrollTool,
-    { key: 'play', icon: activePlayIcon.value, label: activePlayLabel.value }
+    { key: 'measure', icon: 'measure', label: isZh.value ? '测量' : 'Measure' },
+    { key: 'annotate', icon: 'annotate', label: isZh.value ? '标注' : 'Annotate' }
   ]
 })
 
-const secondaryMobileTools = computed<MobileToolbarItem[]>(() => [
-  { key: 'measure', icon: 'measure', label: isZh.value ? '测量' : 'Measure' },
-  { key: 'reset', icon: 'reset', label: isZh.value ? '重置' : 'Reset' },
-  { key: 'color', icon: activeVolumeTab.value ? 'render-volume' : 'pseudocolor', label: isZh.value ? '伪彩' : 'Color' },
-  { key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' },
-  { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
-])
+const secondaryMobileTools = computed<MobileToolbarItem[]>(() => {
+  if (activeVolumeTab.value) {
+    return [
+      { key: 'color', icon: 'render-volume', label: '3D' },
+      { key: 'volumeParams', icon: 'settings', label: isZh.value ? '参数' : 'Params' },
+      { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
+      { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
+    ]
+  }
+
+  return [
+    { key: 'color', icon: 'pseudocolor', label: isZh.value ? '伪彩' : 'Color' },
+    { key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' },
+    { key: 'reset', icon: 'reset', label: isZh.value ? '重置' : 'Reset' },
+    { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
+    { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
+  ]
+})
 
 const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; label: string }>>(() => {
   const tabs: Array<{ key: MobileSheetTabKey; icon: string; label: string }> = [
-    { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' }
+    { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' },
+    { key: 'favorites', icon: 'star', label: isZh.value ? '收藏' : 'Favorites' }
   ]
 
   if (!activeImageTab.value) {
@@ -367,6 +487,7 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
       { key: 'display', icon: 'display', label: isZh.value ? '显示' : 'Display' },
       { key: 'color', icon: 'pseudocolor', label: isZh.value ? '伪彩' : 'Color' },
       { key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' },
+      { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
     return tabs
@@ -376,7 +497,9 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
     tabs.push(
       { key: 'display', icon: 'display', label: isZh.value ? '显示' : 'Display' },
       { key: 'color', icon: 'render-volume', label: '3D' },
-      { key: 'transform', icon: 'reset', label: isZh.value ? '重置' : 'Reset' },
+      { key: 'volumeParams', icon: 'settings', label: isZh.value ? '参数' : 'Params' },
+      { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
+      { key: 'reset', icon: 'reset', label: isZh.value ? '重置' : 'Reset' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
     return tabs
@@ -392,6 +515,8 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
     tabs.push(
       { key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' },
       { key: 'playback', icon: 'play', label: isZh.value ? '播放' : 'Playback' },
+      { key: 'qa', icon: 'qa', label: 'QA' },
+      { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
   }
@@ -400,11 +525,14 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
     tabs.push(
       { key: 'playback', icon: 'play', label: isZh.value ? '播放' : 'Playback' },
       { key: 'mpr', icon: 'crosshair', label: '4D MPR' },
+      { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
   } else if (activeMprTab.value) {
     tabs.push(
+      { key: 'playback', icon: 'play', label: isZh.value ? '播放' : 'Playback' },
       { key: 'mpr', icon: 'crosshair', label: 'MPR' },
+      { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
       { key: 'tag', icon: 'tag', label: 'Tag' }
     )
   }
@@ -416,13 +544,18 @@ const sheetTitle = computed(() => {
   const titleMap: Record<MobileSheetTabKey, string> = {
     color: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Pseudocolor'),
     display: isZh.value ? '显示' : 'Display',
+    favorites: isZh.value ? '收藏 DICOM' : 'Favorite DICOM',
+    export: isZh.value ? '导出' : 'Export',
     mpr: 'MPR',
     measure: isZh.value ? '测量' : 'Measure',
+    qa: 'QA',
     playback: isZh.value ? '播放' : 'Playback',
     compare: activeCompareTab.value ? (isZh.value ? '对比同步' : 'Compare Sync') : (isZh.value ? '选择对比序列' : 'Compare Target'),
+    reset: isZh.value ? '重置' : 'Reset',
     series: isZh.value ? '序列' : 'Series',
     tag: 'DICOM Tag',
     transform: activeVolumeTab.value ? (isZh.value ? '3D 参数' : '3D Tools') : (isZh.value ? '变换' : 'Transform'),
+    volumeParams: isZh.value ? '3D 参数' : '3D Parameters',
     window: isZh.value ? '窗模板' : 'Window Presets'
   }
   return activeSheetKind.value ? titleMap[activeSheetKind.value] : ''
@@ -474,6 +607,121 @@ const connectionIcon = computed(() => getConnectionIcon(currentConnectionState.v
 const connectionToneClass = computed(() => `mobile-shell__connection mobile-shell__connection--${getConnectionTone(currentConnectionState.value)}`)
 const activeVolumeRenderModeValue = computed(() => `render3dMode:${activeVolumeTab.value?.render3dMode ?? 'volume'}`)
 const activeVolumePresetValue = computed(() => activeVolumeTab.value?.volumePreset ?? 'volumePreset:bone')
+const activeVolumeRenderConfig = computed(() => (
+  activeVolumeTab.value?.volumeRenderConfig ?? createDefaultVolumeRenderConfig(activeVolumeTab.value?.volumePreset ?? 'bone')
+))
+const mobileExportOptions = computed(() =>
+  MOBILE_EXPORT_OPTIONS.filter((option) =>
+    !(option.value === 'dicom-sr' || option.value === 'dicom-gsps') ||
+    (activeImageTab.value?.viewType !== '3D' && activeImageTab.value?.viewType !== 'MPR')
+  )
+)
+const mobileResetOptions = computed(() =>
+  MOBILE_RESET_OPTIONS.filter((option) => {
+    if (activeVolumeTab.value) {
+      return option.value === 'reset:view' || option.value === 'reset:all'
+    }
+    if (!activeStackTab.value && !activeMprLikeTab.value) {
+      return option.value !== 'reset:mtf'
+    }
+    return true
+  })
+)
+const qaMtfItems = computed<ViewerMtfItem[]>(() => viewer.activeTab.value?.mtfState?.items ?? [])
+const selectedMtfId = computed(() => viewer.activeTab.value?.mtfState?.selectedMtfId ?? null)
+const selectedMtfItem = computed(() => {
+  const id = selectedMtfId.value
+  return id ? qaMtfItems.value.find((item) => item.mtfId === id) ?? null : null
+})
+const isMtfCurveDialogOpen = ref(false)
+
+const {
+  clearAllAnnotationsForActiveTab,
+  copySelectedAnnotation,
+  deleteSelectedAnnotation,
+  getAnnotations,
+  getDraftAnnotation,
+  handleAnnotationColorUpdate,
+  handleAnnotationCopy,
+  handleAnnotationDelete,
+  handleAnnotationPointerCancel,
+  handleAnnotationPointerDown,
+  handleAnnotationPointerLeave,
+  handleAnnotationPointerMove,
+  handleAnnotationPointerUp,
+  handleAnnotationSizeUpdate,
+  handleAnnotationTextUpdate,
+  isAnnotationOperationEnabled
+} = useWorkspaceAnnotations({
+  activeOperation: viewer.activeOperation,
+  activeTab: viewer.activeTab,
+  activeViewportKey: activeWorkspaceViewportKey,
+  setActiveViewport: viewer.setActiveViewportKey
+})
+
+const { qaWaterAnalysis } = useWorkspaceQaWaterAnalysis({
+  activeOperation: viewer.activeOperation,
+  activeTab: viewer.activeTab,
+  qaWaterMetrics
+})
+
+function getCommittedMeasurements(viewportKey: string): MeasurementOverlay[] {
+  const tab = viewer.activeTab.value
+  if (!tab) {
+    return []
+  }
+  if (tab.viewType === 'CompareStack' || tab.viewType === 'MPR' || tab.viewType === '4D') {
+    return tab.viewportMeasurements?.[viewportKey] ?? []
+  }
+  return tab.measurements ?? []
+}
+
+function getExportMeasurements(viewportKey: string): MeasurementOverlay[] {
+  return getCommittedMeasurements(viewportKey).map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
+}
+
+function getCornerInfoForExport(tab: ViewerTabItem, viewportKey: string) {
+  if (tab.viewType === 'CompareStack') {
+    return tab.compareCornerInfos?.[viewportKey as CompareStackPaneKey] ?? tab.cornerInfo
+  }
+  if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+    return tab.viewportCornerInfos?.[viewportKey as MprViewportKey] ?? tab.cornerInfo
+  }
+  return tab.cornerInfo
+}
+
+const {
+  cancelExportNameDialog,
+  cleanupExportUi,
+  confirmExportNameDialog,
+  exportNameDialogFormat,
+  exportNameError,
+  exportNameExtension,
+  exportNameInput,
+  exportNotice,
+  handleExportCurrentView,
+  handleOpenExportLocation,
+  isExportNameDialogOpen
+} = useWorkspaceViewExport({
+  activeTab: viewer.activeTab,
+  activeViewportKey: activeWorkspaceViewportKey,
+  exportNameInputRef,
+  getAnnotations,
+  getCornerInfoForExport,
+  getExportMeasurements,
+  viewportHostRef: mobileShellRef,
+  workspaceExportCopy
+})
+
+function handleToolbarViewAction(payload: Parameters<typeof viewer.triggerViewAction>[0]): void {
+  if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
+    clearAllAnnotationsForActiveTab()
+    if (payload.action === 'clearAnnotations') {
+      return
+    }
+  }
+  viewer.triggerViewAction(payload)
+}
 
 function getConnectionTone(state: ConnectionState): 'connected' | 'connecting' | 'disconnected' {
   if (state === 'connected') {
@@ -499,6 +747,12 @@ function getConnectionIcon(state: ConnectionState): string {
 function normalizeToolOperation(tool: MobileToolKey): string {
   if (tool === 'measure') {
     return 'measure:line'
+  }
+  if (tool === 'annotate') {
+    return `${STACK_OPERATION_PREFIX}annotate:arrow`
+  }
+  if (tool === 'qa') {
+    return `${STACK_OPERATION_PREFIX}qa:mtf`
   }
   const operation = tool === 'scroll' ? VIEW_OPERATION_TYPES.scroll : tool
   return `${STACK_OPERATION_PREFIX}${operation}`
@@ -535,7 +789,7 @@ function applyDefaultToolForView(viewType: ViewType): void {
     return
   }
   if (viewType === '3D') {
-    setActiveMobileTool('rotate3d', { closeSheet: false })
+    setActiveMobileTool(volumeDefaultTool.value, { closeSheet: false })
   }
 }
 
@@ -606,7 +860,7 @@ async function openSeriesView(seriesId: string, viewType: ViewType): Promise<voi
     return
   }
 
-  stopStackPlayback()
+  stopSlicePlayback()
   viewer.selectSeries(seriesId)
   if (viewType === 'MPR' || viewType === '4D') {
     activeMprViewportKey.value = mprDefaultViewport.value
@@ -659,7 +913,7 @@ async function openSeriesCompareTo(targetSeriesId: string): Promise<void> {
     return
   }
 
-  stopStackPlayback()
+  stopSlicePlayback()
   activeCompareViewportKey.value = COMPARE_STACK_SOURCE_PANE_KEY
   await viewer.openSeriesCompare(sourceSeriesId, targetSeriesId)
   viewer.setActiveViewportKey(COMPARE_STACK_SOURCE_PANE_KEY)
@@ -713,6 +967,38 @@ async function loadMobileDemoResponse() {
   return postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined)
 }
 
+function normalizeMobileLoadSelection(selection: DicomLoadSelection): DicomLoadSource[] {
+  return Array.isArray(selection) ? selection : [selection]
+}
+
+async function openFirstMobileLoadedSeries(loadedSeries: FolderSeriesItem[]): Promise<void> {
+  const firstStackSeries = loadedSeries.find((series) => series.isImageSeries !== false) ?? loadedSeries[0] ?? null
+  if (firstStackSeries) {
+    await openSeriesStack(firstStackSeries.seriesId)
+  }
+}
+
+async function applyMobileLoadResponse(response: LoadFolderResponse): Promise<void> {
+  const loadedSeries = await viewer.applyLoadedDicomSeries(response, {
+    openFirstSeriesView: false,
+    selectLoadedSeries: true
+  })
+  await openFirstMobileLoadedSeries(loadedSeries)
+}
+
+async function loadMobileLocalSource(source: DicomLoadSource): Promise<LoadFolderResponse | null> {
+  if (source.kind === 'files') {
+    return postDicomUpload(source.files)
+  }
+  if (source.kind === 'path') {
+    return postApi('LoadFolderApiV1DicomLoadFolderPost', { folderPath: source.path })
+  }
+  if (source.kind === 'server-sample') {
+    return loadMobileDemoResponse()
+  }
+  return null
+}
+
 async function loadDemoSeries(): Promise<void> {
   if (!canLoadDemo.value || isLoadingDemo.value) {
     return
@@ -723,19 +1009,48 @@ async function loadDemoSeries(): Promise<void> {
     const backendStatus = await viewerRuntime.getBackendStatus()
     setApiBaseURL(`${backendStatus.origin}/api/v1`)
     const response = await loadMobileDemoResponse()
-    const loadedSeries = await viewer.applyLoadedDicomSeries(response, {
-      openFirstSeriesView: false,
-      selectLoadedSeries: true
-    })
-    const firstStackSeries = loadedSeries.find((series) => series.isImageSeries !== false) ?? loadedSeries[0] ?? null
-    if (firstStackSeries) {
-      await openSeriesStack(firstStackSeries.seriesId)
-    }
+    await applyMobileLoadResponse(response)
   } catch (error) {
     console.error(error)
     viewer.showStatusToast(isZh.value ? '示例影像加载失败，请检查后端服务。' : 'Failed to load demo images. Check the backend service.', 'error')
   } finally {
     isLoadingDemo.value = false
+  }
+}
+
+async function loadLocalFolder(): Promise<void> {
+  if (!canLoadLocal.value || isLoadingLocal.value) {
+    return
+  }
+
+  isLoadingLocal.value = true
+  try {
+    const backendStatus = await viewerRuntime.getBackendStatus()
+    setApiBaseURL(`${backendStatus.origin}/api/v1`)
+    const selection = await viewerRuntime.chooseFolder('folder')
+    if (!selection) {
+      return
+    }
+    for (const source of normalizeMobileLoadSelection(selection)) {
+      const response = await loadMobileLocalSource(source)
+      if (response) {
+        await applyMobileLoadResponse(response)
+      }
+    }
+  } catch (error) {
+    console.error(error)
+    viewer.showStatusToast(isZh.value ? '本地文件夹加载失败，请确认文件格式和后端服务。' : 'Failed to load the local folder. Check the files and backend service.', 'error')
+  } finally {
+    isLoadingLocal.value = false
+  }
+}
+
+async function handlePacsSeriesLoaded(response: LoadFolderResponse): Promise<void> {
+  try {
+    await applyMobileLoadResponse(response)
+  } catch (error) {
+    console.error(error)
+    viewer.showStatusToast(isZh.value ? 'PACS 序列打开失败。' : 'Failed to open PACS series.', 'error')
   }
 }
 
@@ -795,7 +1110,7 @@ function closeActiveView(): void {
     openSheet('series')
     return
   }
-  stopStackPlayback()
+  stopSlicePlayback()
   viewer.closeTab(tabKey)
   void nextTick(() => {
     openSheet('series')
@@ -985,28 +1300,92 @@ function toggleDisplayOverlay(key: DisplayOverlayKey): void {
 
 function applyPseudocolor(value: string): void {
   selectedPseudocolorKey.value = value.replace(/^pseudocolor:/, '')
-  viewer.triggerViewAction({ action: 'pseudocolor', value })
+  handleToolbarViewAction({ action: 'pseudocolor', value })
   dismissSheet()
 }
 
 function applyVolumeRenderMode(value: string): void {
-  viewer.triggerViewAction({ action: 'render3dMode', value })
+  handleToolbarViewAction({ action: 'render3dMode', value })
   dismissSheet()
 }
 
 function applyVolumePreset(value: string): void {
-  viewer.triggerViewAction({ action: 'volumePreset', value })
+  handleToolbarViewAction({ action: 'volumePreset', value })
   dismissSheet()
 }
 
 function applyTransform(value: string): void {
-  viewer.triggerViewAction({ action: 'rotate', value })
+  handleToolbarViewAction({ action: 'rotate', value })
   dismissSheet()
 }
 
 function handleResetView(): void {
-  viewer.triggerViewAction({ action: 'reset' })
+  handleToolbarViewAction({ action: 'reset' })
   dismissSheet()
+}
+
+function applyResetOption(value: string): void {
+  if (value === 'reset:annotations') {
+    handleToolbarViewAction({ action: 'clearAnnotations' })
+  } else if (value === 'reset:mtf') {
+    viewer.handleMtfClear()
+  } else if (value === 'reset:all') {
+    handleToolbarViewAction({ action: 'resetAll' })
+  } else if (value === 'reset:measurements') {
+    handleToolbarViewAction({ action: 'clearMeasurements' })
+  } else {
+    handleToolbarViewAction({ action: 'reset' })
+  }
+  dismissSheet()
+}
+
+function applyQaTool(value: string): void {
+  viewer.setActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
+  dismissSheet()
+}
+
+function exportActiveView(format: ViewerExportFormat): void {
+  void handleExportCurrentView(format, activeWorkspaceViewportKey.value)
+  dismissSheet()
+}
+
+function getViewportMtfItems(viewportKey: string): ViewerMtfItem[] {
+  const draft = viewer.activeTab.value?.mtfState?.items ?? []
+  return draft.filter((item) => item.viewportKey === viewportKey)
+}
+
+function handleSelectMtf(payload: { mtfId: string | null }): void {
+  viewer.handleMtfSelect(payload)
+}
+
+function handleOpenMtfCurve(): void {
+  if (selectedMtfItem.value?.status === 'ready') {
+    isMtfCurveDialogOpen.value = true
+  }
+}
+
+function handleCloseMtfCurve(): void {
+  isMtfCurveDialogOpen.value = false
+}
+
+function handleCopySelectedMtf(): void {
+  if (selectedMtfId.value) {
+    void viewer.handleMtfCopy({ mtfId: selectedMtfId.value })
+  }
+}
+
+function handleDeleteSelectedMtf(): void {
+  if (selectedMtfId.value) {
+    viewer.handleMtfClear({ mtfId: selectedMtfId.value })
+  }
+}
+
+function handleCopySelectedAnnotation(): void {
+  copySelectedAnnotation(activeWorkspaceViewportKey.value)
+}
+
+function handleDeleteSelectedAnnotation(): void {
+  deleteSelectedAnnotation(activeWorkspaceViewportKey.value)
 }
 
 function selectMprViewport(viewportKey: MprViewportKey): void {
@@ -1050,9 +1429,51 @@ function toggleStackStarForCurrentSlice(): void {
   toggleSliceStar(tab.seriesId, slice.index)
 }
 
+function getFavoriteSliceTitle(item: MobileFavoriteSliceItem): string {
+  return item.series?.seriesDescription || item.series?.seriesId || item.seriesId
+}
+
+function getFavoriteSliceMeta(item: MobileFavoriteSliceItem): string {
+  const parts = [
+    item.series?.modality,
+    item.total ? `${isZh.value ? '第' : 'Slice'} ${item.displaySlice} / ${item.total}` : `${isZh.value ? '第' : 'Slice'} ${item.displaySlice}`
+  ].filter(Boolean)
+  return parts.join(' / ')
+}
+
+function canOpenFavoriteSlice(item: MobileFavoriteSliceItem): boolean {
+  return isSeriesActionSupported(item.series, 'Stack')
+}
+
+async function openFavoriteSlice(item: MobileFavoriteSliceItem): Promise<void> {
+  if (!canOpenFavoriteSlice(item)) {
+    return
+  }
+
+  await openSeriesStack(item.seriesId)
+  await nextTick()
+  const openedSlice = activeStackTab.value?.seriesId === item.seriesId ? parseSliceLabel(activeStackTab.value.sliceLabel) : null
+  const currentIndex = openedSlice?.index ?? 0
+  const deltaY = item.sliceIndex - currentIndex
+  if (deltaY) {
+    viewer.handleViewportWheel({ viewportKey: 'single', deltaY })
+  }
+}
+
+function removeFavoriteSlice(item: MobileFavoriteSliceItem): void {
+  if (isSliceStarred(item.seriesId, item.sliceIndex)) {
+    toggleSliceStar(item.seriesId, item.sliceIndex)
+  }
+}
+
 function getCurrentStackSliceInfo(): { current: number; total: number } | null {
   const slice = activeStackSlice.value
   return slice && slice.total > 1 ? { current: slice.current, total: slice.total } : null
+}
+
+function getCurrentMprSliceInfo(): { current: number; total: number; viewportKey: MprViewportKey } | null {
+  const slice = activeMprSlice.value
+  return slice && slice.total > 1 ? { current: slice.current, total: slice.total, viewportKey: activeMprViewportKey.value } : null
 }
 
 function tickStackPlayback(): void {
@@ -1069,17 +1490,51 @@ function startStackPlayback(): void {
   if (!canPlayStack.value) {
     return
   }
-  stopStackPlayback()
+  stopSlicePlayback()
   isPlayingStack.value = true
   playbackTimer = window.setInterval(tickStackPlayback, Math.max(34, Math.round(1000 / playbackFps.value)))
 }
 
-function stopStackPlayback(): void {
+function clearSlicePlaybackTimer(): void {
   if (playbackTimer != null) {
     window.clearInterval(playbackTimer)
     playbackTimer = null
   }
+}
+
+function stopStackPlayback(): void {
+  clearSlicePlaybackTimer()
   isPlayingStack.value = false
+}
+
+function tickMprPlayback(): void {
+  const sliceInfo = getCurrentMprSliceInfo()
+  if (!sliceInfo || sliceInfo.current >= sliceInfo.total) {
+    stopMprPlayback()
+    return
+  }
+
+  viewer.handleViewportWheel({ viewportKey: sliceInfo.viewportKey, deltaY: 1 })
+}
+
+function startMprPlayback(): void {
+  if (!canPlayMpr.value) {
+    return
+  }
+  stopSlicePlayback()
+  isPlayingMpr.value = true
+  playbackTimer = window.setInterval(tickMprPlayback, Math.max(34, Math.round(1000 / playbackFps.value)))
+}
+
+function stopMprPlayback(): void {
+  clearSlicePlaybackTimer()
+  isPlayingMpr.value = false
+}
+
+function stopSlicePlayback(): void {
+  clearSlicePlaybackTimer()
+  isPlayingStack.value = false
+  isPlayingMpr.value = false
 }
 
 function clearFourDPlaybackStarting(): void {
@@ -1107,6 +1562,14 @@ function toggleStackPlayback(): void {
   startStackPlayback()
 }
 
+function toggleMprPlayback(): void {
+  if (isPlayingMpr.value) {
+    stopMprPlayback()
+    return
+  }
+  startMprPlayback()
+}
+
 function toggleFourDPlayback(): void {
   const tab = activeFourDTab.value
   if (!tab || !canPlayFourD.value || fourDPlaybackStarting.value) {
@@ -1128,6 +1591,10 @@ function toggleActivePlayback(): void {
     toggleFourDPlayback()
     return
   }
+  if (activeMprTab.value) {
+    toggleMprPlayback()
+    return
+  }
   toggleStackPlayback()
 }
 
@@ -1142,7 +1609,20 @@ function setPlaybackFps(value: MobileStackPlaybackFps): void {
   playbackFps.value = value
   if (isPlayingStack.value) {
     startStackPlayback()
+    return
   }
+  if (isPlayingMpr.value) {
+    startMprPlayback()
+  }
+}
+
+function handlePlaybackFpsSliderInput(event: Event): void {
+  const rawIndex = Number((event.target as HTMLInputElement | null)?.value)
+  const clampedIndex = Math.max(
+    0,
+    Math.min(MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1, Number.isFinite(rawIndex) ? Math.trunc(rawIndex) : activePlaybackFpsIndex.value)
+  )
+  setPlaybackFps(MOBILE_STACK_PLAYBACK_FPS_OPTIONS[clampedIndex])
 }
 
 function handleFourDPhaseSliderInput(event: Event): void {
@@ -1213,6 +1693,13 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
     return (activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'measure') ||
       viewer.activeOperation.value.startsWith('measure:')
   }
+  if (tool.key === 'annotate') {
+    return viewer.activeOperation.value.startsWith(`${STACK_OPERATION_PREFIX}annotate`)
+  }
+  if (tool.key === 'qa') {
+    return (activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'qa') ||
+      viewer.activeOperation.value.includes('qa:')
+  }
   if (tool.key === 'reset') {
     return false
   }
@@ -1222,8 +1709,14 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
   if (tool.key === 'transform') {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'transform'
   }
+  if (tool.key === 'export') {
+    return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'export'
+  }
+  if (tool.key === 'volumeParams') {
+    return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'volumeParams'
+  }
   if (tool.key === 'play') {
-    return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingStack.value
+    return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingActiveSlicePlayback.value
   }
   return activeTool.value === tool.key
 }
@@ -1235,11 +1728,23 @@ function isToolbarItemDisabled(tool: MobileToolbarItem): boolean {
   if (tool.key === 'measure') {
     return !activeImageTab.value || Boolean(activeVolumeTab.value)
   }
+  if (tool.key === 'annotate') {
+    return !activeImageTab.value || Boolean(activeVolumeTab.value)
+  }
+  if (tool.key === 'qa') {
+    return !activeStackTab.value
+  }
   if (tool.key === 'color') {
     return !activeImageTab.value
   }
   if (tool.key === 'transform') {
     return !activeImageTab.value || Boolean(activeVolumeTab.value)
+  }
+  if (tool.key === 'volumeParams') {
+    return !activeVolumeTab.value
+  }
+  if (tool.key === 'export') {
+    return !activeImageTab.value
   }
   return !activeImageTab.value
 }
@@ -1253,6 +1758,10 @@ function handleToolbarItem(tool: MobileToolbarItem): void {
     openFocusedSheet('measure')
     return
   }
+  if (tool.key === 'qa') {
+    openFocusedSheet('qa')
+    return
+  }
   if (tool.key === 'reset') {
     handleResetView()
     return
@@ -1263,6 +1772,14 @@ function handleToolbarItem(tool: MobileToolbarItem): void {
   }
   if (tool.key === 'transform') {
     openFocusedSheet('transform')
+    return
+  }
+  if (tool.key === 'volumeParams') {
+    openFocusedSheet('volumeParams')
+    return
+  }
+  if (tool.key === 'export') {
+    openFocusedSheet('export')
     return
   }
   if (tool.key === 'tag') {
@@ -1331,7 +1848,7 @@ watch(
   () => viewer.activeTab.value?.viewType,
   (viewType) => {
     closeSheet()
-    stopStackPlayback()
+    stopSlicePlayback()
     if (viewType === 'MPR' || viewType === '4D') {
       viewer.setActiveViewportKey(activeMprViewportKey.value)
       applyMobileViewDefaults(viewType)
@@ -1368,11 +1885,21 @@ watch(
 watch(
   () => viewer.activeTabKey.value,
   () => {
-    stopStackPlayback()
+    stopSlicePlayback()
     clearFourDPlaybackStarting()
     flushSliceSliderDelta()
     sliceSliderState.value = null
     tagSearchQuery.value = ''
+    isMtfCurveDialogOpen.value = false
+  }
+)
+
+watch(
+  selectedMtfItem,
+  (item) => {
+    if (!item) {
+      isMtfCurveDialogOpen.value = false
+    }
   }
 )
 
@@ -1410,11 +1937,24 @@ watch(
 )
 
 watch(
+  volumeDefaultTool,
+  () => {
+    if (activeVolumeTab.value) {
+      applyDefaultToolForView('3D')
+    }
+  }
+)
+
+watch(
   stackPlaybackFps,
   (value) => {
     playbackFps.value = value
     if (isPlayingStack.value) {
       startStackPlayback()
+      return
+    }
+    if (isPlayingMpr.value) {
+      startMprPlayback()
     }
   }
 )
@@ -1444,15 +1984,16 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  stopStackPlayback()
+  stopSlicePlayback()
   clearFourDPlaybackStarting()
   flushSliceSliderDelta()
+  cleanupExportUi()
   void applyOrientationLock('unlocked')
 })
 </script>
 
 <template>
-  <div class="mobile-shell" :class="mobileShellClasses">
+  <div ref="mobileShellRef" class="mobile-shell" :class="mobileShellClasses">
     <header class="mobile-shell__header">
       <button type="button" class="mobile-shell__title-group" data-testid="mobile-title-series-button" @click="openSheet('series')">
         <div class="mobile-shell__eyebrow">{{ isZh ? 'DicomVision 移动端' : 'DicomVision Mobile' }}</div>
@@ -1494,11 +2035,32 @@ onBeforeUnmount(() => {
         v-if="activeStackTab"
         :active-operation="viewer.activeOperation.value"
         :active-tab="viewer.activeTab.value"
+        :annotation-pointer-cancel="handleAnnotationPointerCancel"
+        :annotation-pointer-down="handleAnnotationPointerDown"
+        :annotation-pointer-leave="handleAnnotationPointerLeave"
+        :annotation-pointer-move="handleAnnotationPointerMove"
+        :annotation-pointer-up="handleAnnotationPointerUp"
+        :annotations="getAnnotations('single')"
+        :draft-annotation="getDraftAnnotation('single')"
         :is-view-loading="viewer.isViewLoading.value"
+        :mtf-items="getViewportMtfItems('single')"
+        :qa-water-analysis="qaWaterAnalysis"
         :scroll-threshold="scrollDragThreshold"
+        :selected-mtf-id="selectedMtfId"
         @active-viewport-change="viewer.setActiveViewportKey"
+        @copy-annotation="handleAnnotationCopy"
+        @copy-selected-mtf="handleCopySelectedMtf"
+        @delete-annotation="handleAnnotationDelete"
+        @clear-mtf="handleDeleteSelectedMtf"
         @hover-viewport-change="viewer.handleHoverViewportChange"
         @measurement-create="viewer.handleMeasurementCreate"
+        @measurement-delete="viewer.handleMeasurementDelete"
+        @mtf-commit="viewer.handleMtfCommit"
+        @open-mtf-curve="handleOpenMtfCurve"
+        @select-mtf="handleSelectMtf"
+        @update-annotation-color="handleAnnotationColorUpdate"
+        @update-annotation-size="handleAnnotationSizeUpdate"
+        @update-annotation-text="handleAnnotationTextUpdate"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
         @workspace-ready="viewer.setViewerStage"
@@ -1509,11 +2071,23 @@ onBeforeUnmount(() => {
         :active-compare-viewport-key="activeCompareViewportKey"
         :active-operation="viewer.activeOperation.value"
         :active-tab="viewer.activeTab.value"
+        :annotation-pointer-cancel="handleAnnotationPointerCancel"
+        :annotation-pointer-down="handleAnnotationPointerDown"
+        :annotation-pointer-leave="handleAnnotationPointerLeave"
+        :annotation-pointer-move="handleAnnotationPointerMove"
+        :annotation-pointer-up="handleAnnotationPointerUp"
+        :get-annotations="getAnnotations"
+        :get-draft-annotation="getDraftAnnotation"
         :is-view-loading="viewer.isViewLoading.value"
         :scroll-threshold="scrollDragThreshold"
         @active-viewport-change="handleCompareActiveViewportChange"
+        @copy-annotation="handleAnnotationCopy"
+        @delete-annotation="handleAnnotationDelete"
         @hover-viewport-change="viewer.handleHoverViewportChange"
         @measurement-create="viewer.handleMeasurementCreate"
+        @update-annotation-color="handleAnnotationColorUpdate"
+        @update-annotation-size="handleAnnotationSizeUpdate"
+        @update-annotation-text="handleAnnotationTextUpdate"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
         @workspace-ready="viewer.setViewerStage"
@@ -1533,13 +2107,32 @@ onBeforeUnmount(() => {
         :active-mpr-viewport-key="activeMprViewportKey"
         :active-operation="viewer.activeOperation.value"
         :active-tab="viewer.activeTab.value"
+        :annotation-pointer-cancel="handleAnnotationPointerCancel"
+        :annotation-pointer-down="handleAnnotationPointerDown"
+        :annotation-pointer-leave="handleAnnotationPointerLeave"
+        :annotation-pointer-move="handleAnnotationPointerMove"
+        :annotation-pointer-up="handleAnnotationPointerUp"
+        :get-annotations="getAnnotations"
+        :get-draft-annotation="getDraftAnnotation"
+        :get-mtf-items="getViewportMtfItems"
         :is-view-loading="viewer.isViewLoading.value"
         :scroll-threshold="scrollDragThreshold"
+        :selected-mtf-id="selectedMtfId"
         :show-reference-thumbnails="mprShowReferenceThumbnails"
         @active-viewport-change="handleMprActiveViewportChange"
+        @copy-annotation="handleAnnotationCopy"
+        @copy-selected-mtf="handleCopySelectedMtf"
+        @delete-annotation="handleAnnotationDelete"
+        @clear-mtf="handleDeleteSelectedMtf"
         @hover-viewport-change="viewer.handleHoverViewportChange"
         @measurement-create="viewer.handleMeasurementCreate"
+        @mtf-commit="viewer.handleMtfCommit"
         @mpr-crosshair="viewer.handleMprCrosshair"
+        @open-mtf-curve="handleOpenMtfCurve"
+        @select-mtf="handleSelectMtf"
+        @update-annotation-color="handleAnnotationColorUpdate"
+        @update-annotation-size="handleAnnotationSizeUpdate"
+        @update-annotation-text="handleAnnotationTextUpdate"
         @viewport-drag="viewer.handleViewportDrag"
         @viewport-wheel="viewer.handleViewportWheel"
         @workspace-ready="viewer.setViewerStage"
@@ -1595,16 +2188,39 @@ onBeforeUnmount(() => {
           <div class="mobile-shell__empty-mark" :class="connectionToneClass">
             <AppIcon :name="connectionIcon" :size="28" />
           </div>
-          <div class="mobile-shell__empty-title">{{ isZh ? '加载示例影像' : 'Load Demo Images' }}</div>
-          <button
-            type="button"
-            class="mobile-shell__primary-action"
-            :disabled="!canLoadDemo || isLoadingDemo"
-            @click="loadDemoSeries"
-          >
-            <AppIcon :name="isLoadingDemo ? 'connecting' : 'play'" :size="18" />
-            <span>{{ isLoadingDemo ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? '加载示例影像' : 'Load Demo') }}</span>
-          </button>
+          <div class="mobile-shell__empty-title">{{ isZh ? '加载影像' : 'Load Images' }}</div>
+          <div class="mobile-shell__source-actions">
+            <button
+              type="button"
+              class="mobile-shell__source-action mobile-shell__source-action--primary"
+              data-testid="mobile-load-demo"
+              :disabled="!canLoadDemo || isLoadingDemo"
+              @click="loadDemoSeries"
+            >
+              <AppIcon :name="isLoadingDemo ? 'connecting' : 'play'" :size="18" />
+              <span>{{ isLoadingDemo ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? 'Demo 影像' : 'Demo') }}</span>
+            </button>
+            <button
+              type="button"
+              class="mobile-shell__source-action"
+              data-testid="mobile-load-local"
+              :disabled="!canLoadLocal || isLoadingLocal"
+              @click="loadLocalFolder"
+            >
+              <AppIcon :name="isLoadingLocal ? 'connecting' : 'folder-upload'" :size="18" />
+              <span>{{ isLoadingLocal ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? '本地文件夹' : 'Local Folder') }}</span>
+            </button>
+            <button
+              type="button"
+              class="mobile-shell__source-action"
+              data-testid="mobile-open-pacs"
+              :disabled="!canOpenPacs"
+              @click="isPacsBrowserOpen = true"
+            >
+              <AppIcon name="pacs" :size="18" />
+              <span>PACS</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1672,23 +2288,37 @@ onBeforeUnmount(() => {
         @pointerdown="beginSliceSliderInteraction"
         @pointerup="finishSliceSliderInteraction"
       />
-      <button
-        v-if="activeStackTab"
-        type="button"
-        class="mobile-shell__slice-star"
-        :class="{ 'mobile-shell__slice-star--active': isCurrentStackSliceStarred }"
-        data-testid="mobile-toggle-star"
-        :aria-label="isCurrentStackSliceStarred ? (isZh ? '取消收藏当前切片' : 'Unstar current slice') : (isZh ? '收藏当前切片' : 'Star current slice')"
-        :aria-pressed="isCurrentStackSliceStarred"
-        :disabled="!activeStackSlice"
-        @click="toggleStackStarForCurrentSlice"
-      >
-        <AppIcon :name="isCurrentStackSliceStarred ? 'star' : 'star-outline'" :size="20" />
-      </button>
+      <span v-if="showSlicePlayButton || activeStackTab" class="mobile-shell__slice-actions">
+        <button
+          v-if="activeStackTab"
+          type="button"
+          class="mobile-shell__slice-icon-button mobile-shell__slice-star"
+          :class="{ 'mobile-shell__slice-star--active': isCurrentStackSliceStarred }"
+          data-testid="mobile-toggle-star"
+          :aria-label="isCurrentStackSliceStarred ? (isZh ? '取消收藏当前切片' : 'Unstar current slice') : (isZh ? '收藏当前切片' : 'Star current slice')"
+          :aria-pressed="isCurrentStackSliceStarred"
+          :disabled="!activeStackSlice"
+          @click="toggleStackStarForCurrentSlice"
+        >
+          <AppIcon :name="isCurrentStackSliceStarred ? 'star' : 'star-outline'" :size="20" />
+        </button>
+        <button
+          v-if="showSlicePlayButton"
+          type="button"
+          class="mobile-shell__slice-icon-button mobile-shell__slice-play"
+          :class="{ 'mobile-shell__slice-play--active': activeFourDTab ? (isPlayingFourD || fourDPlaybackStarting) : isPlayingActiveSlicePlayback }"
+          data-testid="mobile-slice-play"
+          :aria-label="activePlayLabel"
+          :disabled="!canPlayActive || fourDPlaybackStarting"
+          @click="toggleActivePlayback"
+        >
+          <AppIcon :name="activePlayIcon" :size="20" />
+        </button>
+      </span>
     </section>
 
     <nav v-if="activeImageTab" class="mobile-shell__toolbar" aria-label="Mobile viewer tools">
-      <div class="mobile-shell__toolbar-row">
+      <div class="mobile-shell__toolbar-row" :style="{ gridTemplateColumns: `repeat(${primaryMobileTools.length}, minmax(0, 1fr))` }">
         <button
           v-for="tool in primaryMobileTools"
           :key="`primary-${tool.key}`"
@@ -1703,7 +2333,7 @@ onBeforeUnmount(() => {
           <span>{{ tool.label }}</span>
         </button>
       </div>
-      <div class="mobile-shell__toolbar-row">
+      <div class="mobile-shell__toolbar-row" :style="{ gridTemplateColumns: `repeat(${secondaryMobileTools.length}, minmax(0, 1fr))` }">
         <button
           v-for="tool in secondaryMobileTools"
           :key="`secondary-${tool.key}`"
@@ -1764,61 +2394,102 @@ onBeforeUnmount(() => {
               </span>
               <span v-if="isSeriesSelected(series.seriesId)" class="mobile-shell__series-actions" @click.stop>
                 <button
+                  v-if="isSeriesActionSupported(series, 'Stack')"
                   type="button"
                   class="mobile-shell__series-view-button"
                   :class="{ 'mobile-shell__series-view-button--active': isSeriesViewActive(series.seriesId, 'Stack') }"
                   data-testid="mobile-open-stack"
                   :data-active="isSeriesViewActive(series.seriesId, 'Stack')"
-                  :disabled="!isSeriesActionSupported(series, 'Stack')"
                   @click="openSeriesStack(series.seriesId)"
                 >
                   Stack
                 </button>
                 <button
+                  v-if="canStartCompareFromSeries(series)"
                   type="button"
                   class="mobile-shell__series-view-button"
                   :class="{ 'mobile-shell__series-view-button--active': isSeriesCompareActive(series.seriesId) }"
                   data-testid="mobile-open-compare"
                   :data-active="isSeriesCompareActive(series.seriesId)"
-                  :disabled="!canStartCompareFromSeries(series)"
                   @click="openComparePicker(series.seriesId)"
                 >
                   Compare
                 </button>
                 <button
+                  v-if="isSeriesActionSupported(series, 'MPR')"
                   type="button"
                   class="mobile-shell__series-view-button"
                   :class="{ 'mobile-shell__series-view-button--active': isSeriesViewActive(series.seriesId, 'MPR') }"
                   data-testid="mobile-open-mpr"
                   :data-active="isSeriesViewActive(series.seriesId, 'MPR')"
-                  :disabled="!isSeriesActionSupported(series, 'MPR')"
                   @click="openSeriesMpr(series.seriesId)"
                 >
                   MPR
                 </button>
                 <button
+                  v-if="isSeriesActionSupported(series, '3D')"
                   type="button"
                   class="mobile-shell__series-view-button"
                   :class="{ 'mobile-shell__series-view-button--active': isSeriesViewActive(series.seriesId, '3D') }"
                   data-testid="mobile-open-3d"
                   :data-active="isSeriesViewActive(series.seriesId, '3D')"
-                  :disabled="!isSeriesActionSupported(series, '3D')"
                   @click="openSeriesVolume(series.seriesId)"
                 >
                   3D
                 </button>
                 <button
+                  v-if="isSeriesActionSupported(series, '4D')"
                   type="button"
                   class="mobile-shell__series-view-button"
                   :class="{ 'mobile-shell__series-view-button--active': isSeriesViewActive(series.seriesId, '4D') }"
                   data-testid="mobile-open-4d"
                   :data-active="isSeriesViewActive(series.seriesId, '4D')"
-                  :disabled="!isSeriesActionSupported(series, '4D')"
                   @click="openSeriesFourD(series.seriesId)"
                 >
                   4D
                 </button>
               </span>
+            </div>
+          </div>
+
+          <div v-else-if="activeSheetKind === 'favorites'" class="mobile-shell__favorite-panel">
+            <div class="mobile-shell__favorite-summary" data-testid="mobile-favorites-summary">
+              <span>{{ isZh ? '已收藏' : 'Saved' }}</span>
+              <strong>{{ favoriteSliceCount }}</strong>
+            </div>
+            <div v-if="!favoriteSliceItems.length" class="mobile-shell__empty-inline" data-testid="mobile-favorites-empty">
+              {{ isZh ? '还没有收藏的 DICOM 切片' : 'No favorite DICOM slices yet' }}
+            </div>
+            <div v-else class="mobile-shell__action-list">
+              <div
+                v-for="item in favoriteSliceItems"
+                :key="`${item.seriesId}-${item.sliceIndex}`"
+                class="mobile-shell__favorite-row"
+                data-testid="mobile-favorite-slice"
+              >
+                <button
+                  type="button"
+                  class="mobile-shell__favorite-open"
+                  :disabled="!canOpenFavoriteSlice(item)"
+                  data-testid="mobile-open-favorite-slice"
+                  @click="openFavoriteSlice(item)"
+                >
+                  <AppIcon name="star" :size="18" />
+                  <span>
+                    <strong>{{ getFavoriteSliceTitle(item) }}</strong>
+                    <small>{{ getFavoriteSliceMeta(item) }}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="mobile-shell__favorite-remove"
+                  :aria-label="isZh ? '取消收藏' : 'Remove favorite'"
+                  data-testid="mobile-remove-favorite-slice"
+                  @click="removeFavoriteSlice(item)"
+                >
+                  <AppIcon name="trash" :size="16" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2029,20 +2700,29 @@ onBeforeUnmount(() => {
 
           <div v-else-if="activeSheetKind === 'playback'" class="mobile-shell__action-list">
             <button type="button" class="mobile-shell__action-row" data-testid="mobile-playback-toggle" :disabled="!canPlayActive" @click="toggleActivePlayback">
-              <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingStack ? 'pause' : 'play')" :size="18" />
-              <span><strong>{{ isPlayingStack ? (isZh ? '暂停播放' : 'Pause') : (isZh ? '开始播放' : 'Play') }}</strong></span>
+              <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingActiveSlicePlayback ? 'pause' : 'play')" :size="18" />
+              <span><strong>{{ isPlayingActiveSlicePlayback || isPlayingFourD ? (isZh ? '暂停播放' : 'Pause') : (isZh ? '开始播放' : 'Play') }}</strong></span>
             </button>
-            <div class="mobile-shell__fps-grid">
-              <button
-                v-for="fps in MOBILE_STACK_PLAYBACK_FPS_OPTIONS"
-                :key="fps"
-                type="button"
-                :class="{ active: activePlaybackFps === fps }"
-                data-testid="mobile-playback-fps"
-                @click="setPlaybackFps(fps)"
-              >
-                {{ fps }} FPS
-              </button>
+            <div class="mobile-shell__fps-control" data-testid="mobile-playback-fps-control">
+              <div class="mobile-shell__fps-copy">
+                <span>{{ isZh ? '播放速度' : 'Speed' }}</span>
+                <strong>{{ activePlaybackFpsLabel }}</strong>
+              </div>
+              <input
+                class="mobile-shell__fps-range"
+                data-testid="mobile-playback-fps-slider"
+                type="range"
+                min="0"
+                :max="MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1"
+                step="1"
+                :value="activePlaybackFpsIndex"
+                :disabled="!canPlayActive"
+                @change="handlePlaybackFpsSliderInput"
+                @input="handlePlaybackFpsSliderInput"
+              />
+              <div class="mobile-shell__fps-ticks" aria-hidden="true">
+                <span v-for="fps in MOBILE_STACK_PLAYBACK_FPS_OPTIONS" :key="fps">{{ fps }}</span>
+              </div>
             </div>
           </div>
 
@@ -2131,6 +2811,64 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
+          <div v-else-if="activeSheetKind === 'qa'" class="mobile-shell__action-list">
+            <button
+              v-for="tool in MOBILE_QA_TOOLS"
+              :key="tool.value"
+              type="button"
+              class="mobile-shell__action-row"
+              :class="{ 'mobile-shell__action-row--active': viewer.activeOperation.value === `${STACK_OPERATION_PREFIX}${tool.value}` }"
+              data-testid="mobile-qa-tool"
+              :disabled="!activeStackTab"
+              @click="applyQaTool(tool.value)"
+            >
+              <AppIcon :name="tool.icon" :size="18" />
+              <span>
+                <strong>{{ isZh ? tool.zh : tool.en }}</strong>
+                <small>{{ isZh ? tool.detailZh : tool.detailEn }}</small>
+              </span>
+            </button>
+          </div>
+
+          <div v-else-if="activeSheetKind === 'export'" class="mobile-shell__action-list">
+            <button
+              v-for="option in mobileExportOptions"
+              :key="option.value"
+              type="button"
+              class="mobile-shell__action-row"
+              data-testid="mobile-export-format"
+              @click="exportActiveView(option.value)"
+            >
+              <AppIcon :name="option.icon" :size="18" />
+              <span>
+                <strong>{{ isZh ? option.zh : option.en }}</strong>
+                <small>{{ isZh ? option.detailZh : option.detailEn }}</small>
+              </span>
+            </button>
+          </div>
+
+          <div v-else-if="activeSheetKind === 'volumeParams'" class="mobile-shell__volume-params" data-testid="mobile-volume-params">
+            <VolumeRenderConfigPanel
+              :config="activeVolumeRenderConfig"
+              @close="closeSheet"
+              @config-change="viewer.handleVolumeConfigChange"
+            />
+          </div>
+
+          <div v-else-if="activeSheetKind === 'reset'" class="mobile-shell__action-list">
+            <button
+              v-for="option in mobileResetOptions"
+              :key="option.value"
+              type="button"
+              class="mobile-shell__action-row"
+              data-testid="mobile-reset-option"
+              @click="applyResetOption(option.value)"
+            >
+              <AppIcon :name="option.icon" :size="18" />
+              <span><strong>{{ isZh ? option.zh : option.en }}</strong></span>
+            </button>
+          </div>
+
           <div v-else-if="activeSheetKind === 'tag'" class="mobile-shell__action-list">
             <button type="button" class="mobile-shell__action-row" data-testid="mobile-open-tag" :disabled="!canOpenTag || !activeSeriesId" @click="openActiveSeriesTag">
               <AppIcon name="tag" :size="18" />
@@ -2157,7 +2895,39 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <MtfCurveDialog
+      :is-open="isMtfCurveDialogOpen"
+      :mtf-item="selectedMtfItem"
+      @close="handleCloseMtfCurve"
+    />
+
+    <WorkspaceExportNameDialog
+      v-if="isExportNameDialogOpen"
+      v-model="exportNameInput"
+      v-model:input-ref="exportNameInputRef"
+      :copy="workspaceExportCopy"
+      :error="exportNameError"
+      :extension="exportNameExtension"
+      :format="exportNameDialogFormat"
+      @cancel="cancelExportNameDialog"
+      @confirm="confirmExportNameDialog"
+    />
+
+    <WorkspaceExportNotice
+      v-if="exportNotice"
+      :copy="workspaceExportCopy"
+      :notice="exportNotice"
+      @close="exportNotice = null"
+      @open-location="handleOpenExportLocation"
+    />
+
     <MobileSettingsOverlay :is-open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <PacsBrowserDialog
+      :is-open="isPacsBrowserOpen"
+      :loaded-series-list="viewer.seriesList.value"
+      @close="isPacsBrowserOpen = false"
+      @series-loaded="handlePacsSeriesLoaded"
+    />
   </div>
 </template>
 
@@ -2167,7 +2937,7 @@ onBeforeUnmount(() => {
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   height: 100dvh;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(10, 16, 24, 0.96), rgba(3, 7, 12, 0.99));
+  background: var(--theme-app-background);
   color: var(--theme-text-primary);
   touch-action: none;
 }
@@ -2188,7 +2958,7 @@ onBeforeUnmount(() => {
   min-height: 62px;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
-  background: rgba(7, 12, 19, 0.84);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2244,6 +3014,7 @@ onBeforeUnmount(() => {
 .mobile-shell__icon-button:disabled,
 .mobile-shell__tool:disabled,
 .mobile-shell__primary-action:disabled,
+.mobile-shell__source-action:disabled,
 .mobile-shell__action-row:disabled {
   opacity: 0.48;
 }
@@ -2288,7 +3059,7 @@ onBeforeUnmount(() => {
   width: min(100%, 320px);
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
   border-radius: 8px;
-  background: rgba(9, 16, 26, 0.92);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 94%, transparent);
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.34);
   padding: 20px;
   text-align: center;
@@ -2322,7 +3093,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   border: 1px solid color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, black);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
   color: var(--theme-text-primary);
   padding: 8px 12px;
@@ -2346,15 +3117,55 @@ onBeforeUnmount(() => {
   font-weight: 900;
 }
 
+.mobile-shell__source-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.mobile-shell__source-action {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+  padding: 6px 12px 6px 8px;
+  text-align: left;
+  font-weight: 900;
+}
+
+.mobile-shell__source-action > .app-icon,
+.mobile-shell__source-action > :first-child {
+  justify-self: center;
+}
+
+.mobile-shell__source-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-shell__source-action--primary {
+  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+}
+
 .mobile-shell__slice-panel {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
   padding-right: calc(12px + env(safe-area-inset-right, 0px));
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
-  background: rgba(7, 12, 19, 0.86);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2402,7 +3213,6 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__plane-tabs button,
-.mobile-shell__fps-grid button,
 .mobile-shell__plane-grid button {
   min-height: 34px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
@@ -2414,7 +3224,6 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__plane-tabs button.active,
-.mobile-shell__fps-grid button.active,
 .mobile-shell__plane-grid button.active {
   border-color: color-mix(in srgb, var(--theme-accent) 64%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
@@ -2444,7 +3253,14 @@ onBeforeUnmount(() => {
   touch-action: pan-x;
 }
 
-.mobile-shell__slice-star {
+.mobile-shell__slice-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+}
+
+.mobile-shell__slice-icon-button {
   display: grid;
   place-items: center;
   width: 40px;
@@ -2461,7 +3277,13 @@ onBeforeUnmount(() => {
   color: var(--theme-accent-warm);
 }
 
-.mobile-shell__slice-star:disabled {
+.mobile-shell__slice-play--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 64%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
+  color: var(--theme-accent);
+}
+
+.mobile-shell__slice-icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -2471,7 +3293,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 10px);
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
-  background: rgba(7, 12, 19, 0.9);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2549,7 +3371,7 @@ onBeforeUnmount(() => {
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 80%, transparent);
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, black);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, transparent);
   box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.45);
   padding-right: env(safe-area-inset-right, 0px);
   isolation: isolate;
@@ -2807,6 +3629,18 @@ onBeforeUnmount(() => {
   opacity: 0.45;
 }
 
+.mobile-shell__volume-params {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 10px;
+}
+
+.mobile-shell__volume-params :deep(.theme-shell-panel) {
+  width: 100%;
+  max-width: min(100%, 420px);
+  border-radius: 8px;
+}
+
 .mobile-shell__series-row {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
@@ -2912,6 +3746,86 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.mobile-shell__favorite-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-shell__favorite-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  color: var(--theme-text-secondary);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.mobile-shell__favorite-summary strong {
+  color: var(--theme-accent-warm);
+  font-size: 18px;
+}
+
+.mobile-shell__favorite-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 7px;
+  align-items: stretch;
+}
+
+.mobile-shell__favorite-open,
+.mobile-shell__favorite-remove {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.mobile-shell__favorite-open {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 56px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.mobile-shell__favorite-open > .app-icon,
+.mobile-shell__favorite-open > :first-child {
+  justify-self: center;
+  color: var(--theme-accent-warm);
+}
+
+.mobile-shell__favorite-open strong,
+.mobile-shell__favorite-open small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-shell__favorite-open small {
+  margin-top: 3px;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+}
+
+.mobile-shell__favorite-open:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mobile-shell__favorite-remove {
+  display: grid;
+  place-items: center;
+  color: var(--theme-text-muted);
+}
+
 .mobile-shell__empty-inline {
   text-align: center;
   font-size: 13px;
@@ -2985,7 +3899,7 @@ onBeforeUnmount(() => {
   height: 24px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 88%, black);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent);
 }
 
 .mobile-shell__switch span {
@@ -3007,11 +3921,50 @@ onBeforeUnmount(() => {
   background: var(--theme-accent);
 }
 
-.mobile-shell__fps-grid,
 .mobile-shell__plane-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
+}
+
+.mobile-shell__fps-control {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 78%, transparent);
+  padding: 10px 11px 9px;
+}
+
+.mobile-shell__fps-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mobile-shell__fps-copy strong {
+  color: var(--theme-text-primary);
+  font-size: 14px;
+}
+
+.mobile-shell__fps-range {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--theme-accent);
+  touch-action: pan-x;
+}
+
+.mobile-shell__fps-ticks {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .mobile-shell__plane-grid button {
@@ -3030,7 +3983,7 @@ onBeforeUnmount(() => {
   grid-template-rows: auto auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  background: #05080d;
+  background: var(--theme-surface-panel-solid);
 }
 
 .mobile-shell__tag-header {
@@ -3160,7 +4113,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   border: 1px solid color-mix(in srgb, var(--theme-border-strong) 82%, transparent);
   border-radius: 8px;
-  background: rgba(8, 14, 22, 0.94);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 94%, transparent);
   color: var(--theme-text-primary);
   padding: 10px 12px;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
@@ -3196,7 +4149,7 @@ onBeforeUnmount(() => {
   }
 
   .mobile-shell__slice-panel--mpr {
-    grid-template-columns: minmax(138px, 160px) auto minmax(160px, 1fr);
+    grid-template-columns: minmax(138px, 160px) auto minmax(160px, 1fr) auto;
   }
 
   .mobile-shell__plane-tabs {

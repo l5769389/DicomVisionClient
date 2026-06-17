@@ -26,9 +26,10 @@ const overlayStubs = {
   ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
   ViewportMtfOverlay: { template: '<div />' },
   ViewportMeasurementOverlay: { template: '<div />' },
-  ViewportOrientationOverlay: { template: '<div />' },
+  ViewportOrientationOverlay: { template: '<div class="orientation-overlay-stub" />' },
   ViewportQaWaterOverlay: { template: '<div />' },
-  ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' }
+  ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' },
+  ViewportVoiOverlay: { template: '<div />' }
 }
 
 function mountStage(imageSrc = 'blob:frame-1', props: Record<string, unknown> = {}) {
@@ -186,6 +187,45 @@ describe('ViewerCanvasStage layout metrics', () => {
     expect(wrapper.find('.viewer-image').exists()).toBe(true)
     expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.corner-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('hides image overlays while loading without image content', () => {
+    const wrapper = mountStage('', {
+      isLoading: true,
+      orientation: {
+        top: 'A',
+        right: 'L',
+        bottom: 'P',
+        left: 'R',
+        volumeQuaternion: null
+      }
+    })
+
+    expect(wrapper.find('.viewer-image').exists()).toBe(false)
+    expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(false)
+    expect(wrapper.find('.corner-overlay-stub').exists()).toBe(false)
+    expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(false)
+    expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('treats image layers as image content for overlays', () => {
+    const wrapper = mountStage('', {
+      imageLayers: [
+        {
+          key: 'pet-layer',
+          src: 'blob:pet-layer',
+          alt: 'PET layer'
+        }
+      ]
+    })
+
+    expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.corner-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -199,6 +239,7 @@ describe('ViewerCanvasStage layout metrics', () => {
     expect(wrapper.find('.corner-overlay-stub').exists()).toBe(false)
     expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(false)
     expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
 })

@@ -5,7 +5,7 @@ import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerCons
 import MobileStackViewport from './MobileStackViewport.vue'
 import type { ViewerTabItem } from '../../types/viewer'
 
-function createStackTab(): ViewerTabItem {
+function createStackTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
   return {
     activeTool: 'pan',
     cornerInfo: { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] },
@@ -23,23 +23,28 @@ function createStackTab(): ViewerTabItem {
     transformState: { rotationDegrees: 0, horFlip: false, verFlip: false, zoom: 1, offsetX: 0, offsetY: 0 },
     viewId: 'view-1',
     viewType: 'Stack',
-    windowLabel: 'WW 400 WL 40'
+    windowLabel: 'WW 400 WL 40',
+    ...overrides
   } as ViewerTabItem
 }
 
-function mountStackViewport(activeOperation = `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.pan}`) {
+function mountStackViewport(
+  activeOperation = `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.pan}`,
+  activeTab = createStackTab()
+) {
   return mount(MobileStackViewport, {
     props: {
       activeOperation,
-      activeTab: createStackTab(),
+      activeTab,
       isViewLoading: false
     },
     global: {
       stubs: {
         ViewerCanvasStage: {
-          emits: ['pointerDown', 'pointerMove', 'pointerUp', 'pointerCancel'],
+          props: ['draftMeasurement', 'draftMeasurementMode'],
+          emits: ['pointerDown', 'pointerMove', 'pointerUp', 'pointerCancel', 'pointerLeave'],
           template:
-            '<div data-testid="stack-stage" @pointerdown="$emit(\'pointerDown\', $event)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)"></div>'
+            '<div class="viewer-viewport" data-testid="stack-stage" data-viewport-key="single" :data-draft-mode="draftMeasurementMode || \'\'" :data-draft-id="draftMeasurement?.measurementId || \'\'" @pointerdown="$emit(\'pointerDown\', $event)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)" @pointerleave="$emit(\'pointerLeave\', \'single\')"><img class="viewer-image" src="blob:image" /></div>'
         }
       }
     }
@@ -52,6 +57,11 @@ async function dispatchPointerEvent(
   init: { button?: number; clientX: number; clientY: number; isPrimary?: boolean; pointerId: number; timeStamp?: number }
 ): Promise<void> {
   const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.assign(element, {
+    setPointerCapture: vi.fn(),
+    releasePointerCapture: vi.fn(),
+    hasPointerCapture: vi.fn(() => true)
+  })
   Object.defineProperties(event, {
     button: { value: init.button ?? 0 },
     clientX: { value: init.clientX },
@@ -67,7 +77,9 @@ async function dispatchPointerEvent(
 }
 
 function stubViewportRect(wrapper: ReturnType<typeof mountStackViewport>): void {
-  vi.spyOn(wrapper.element, 'getBoundingClientRect').mockReturnValue({
+  const stage = wrapper.get('[data-testid="stack-stage"]')
+  const image = wrapper.get('.viewer-image')
+  const rect = {
     bottom: 100,
     height: 100,
     left: 0,
@@ -77,7 +89,9 @@ function stubViewportRect(wrapper: ReturnType<typeof mountStackViewport>): void 
     x: 0,
     y: 0,
     toJSON: () => ({})
-  } as DOMRect)
+  } as DOMRect
+  vi.spyOn(stage.element, 'getBoundingClientRect').mockReturnValue(rect)
+  vi.spyOn(image.element, 'getBoundingClientRect').mockReturnValue(rect)
 }
 
 describe('MobileStackViewport', () => {
@@ -154,6 +168,33 @@ describe('MobileStackViewport', () => {
       ]
     })
     expect(payload.measurementId).toEqual(expect.any(String))
+  })
+
+  it('selects committed measurements on tap so they can be edited', async () => {
+    const wrapper = mountStackViewport(
+      'measure:line',
+      createStackTab({
+        measurements: [
+          {
+            measurementId: 'measure-line-1',
+            toolType: 'line',
+            points: [
+              { x: 0.1, y: 0.2 },
+              { x: 0.6, y: 0.2 }
+            ],
+            labelLines: ['42.0 mm']
+          }
+        ]
+      })
+    )
+    stubViewportRect(wrapper)
+    const stage = wrapper.get('[data-testid="stack-stage"]')
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 35, clientY: 20, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 35, clientY: 20, pointerId: 1 })
+
+    expect(stage.attributes('data-draft-mode')).toBe('selected')
+    expect(stage.attributes('data-draft-id')).toBe('measure-line-1')
   })
 
   it('creates angle measurements from two mobile segments', async () => {

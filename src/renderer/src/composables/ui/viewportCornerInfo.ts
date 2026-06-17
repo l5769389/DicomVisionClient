@@ -104,9 +104,9 @@ export const VIEWPORT_CORNER_INFO_CATALOG: ViewportCornerInfoCatalogItem[] = [
   },
   {
     key: 'imageIndex',
-    labels: { 'zh-CN': '图像序号', 'en-US': 'Image index' },
+    labels: { 'zh-CN': 'Im 信息', 'en-US': 'Image number (Im)' },
     dicomKeywords: ['InstanceNumber'],
-    keywords: ['image', 'instance', 'im', '图像', '张数']
+    keywords: ['image', 'instance', 'im', 'image number', '图像', '张数']
   },
   {
     key: 'patientName',
@@ -325,10 +325,10 @@ const DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE: ViewportCornerInfoPreference = {
   topLeft: [
     'manufacturerModel',
     'stationName',
-    'institutionName',
     'examDescription',
     'seriesNumber',
-    'viewportLocation'
+    'viewportLocation',
+    'imageIndex'
   ],
   topRight: ['patientName', 'patientSummary'],
   bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],

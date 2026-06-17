@@ -9,6 +9,7 @@ import { useViewerWorkspace } from './composables/workspace/core/useViewerWorksp
 import { openExportLocation } from './platform/exporting'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
+import { resolvePrimaryTwoDimensionalViewType } from './composables/workspace/views/seriesViewSupport'
 import { normalizeInlineSvg } from './utils/svg'
 
 const SidebarBootFallback = defineComponent({
@@ -245,7 +246,8 @@ onBeforeUnmount(() => {
 })
 
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
-  void viewer.openSeriesView(seriesId, 'Stack')
+  const series = viewer.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+  void viewer.openSeriesView(seriesId, resolvePrimaryTwoDimensionalViewType(series))
 }
 
 const handleQuickPreviewSelectedSeries = (): void => {
@@ -253,7 +255,8 @@ const handleQuickPreviewSelectedSeries = (): void => {
     return
   }
 
-  void viewer.openSeriesView(viewer.selectedSeriesId.value, 'Stack')
+  const series = viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value) ?? null
+  void viewer.openSeriesView(viewer.selectedSeriesId.value, resolvePrimaryTwoDimensionalViewType(series))
 }
 
 const handleLayoutSlotDicomDrop = (payload: { tabKey: string; slotId: string; drop: DicomDropInput }): void => {
@@ -407,6 +410,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @choose-folder="viewer.chooseFolder"
           @open-key-slice="viewer.openKeySlice"
           @open-view="viewer.openView"
+          @open-pet-ct-fusion="viewer.openPetCtFusion"
           @open-series-view="viewer.openSeriesView"
           @pacs-series-loaded="viewer.applyLoadedDicomSeries($event, { selectLoadedSeries: true, openFirstSeriesView: true })"
           @remove-series="viewer.removeSeries"
@@ -450,6 +454,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @four-d-phase-change="viewer.handleFourDPhaseChange"
           @four-d-fps-change="viewer.handleFourDFpsChange"
           @four-d-playback-change="viewer.handleFourDPlaybackChange"
+          @fusion-config-change="viewer.handleFusionConfigChange"
+          @fusion-registration-drag="viewer.handleFusionRegistrationDrag"
           @compare-sync-change="viewer.handleCompareSyncChange"
           @volume-config-change="viewer.handleVolumeConfigChange"
           @viewport-drag="viewer.handleViewportDrag"

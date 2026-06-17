@@ -391,7 +391,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'CompareStack' || viewType === 'Layout'
   }
 
   function isCrosshairOperationEnabled(): boolean {
@@ -1570,6 +1570,15 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (toolType === 'angle') {
+      const vertexPoint = existingDraft.points[1]
+      if (vertexPoint && isValidMeasurement('line', [anchorPoint, vertexPoint])) {
+        commitMeasurementDraftFromClick(viewportKey, toolType, {
+          ...createMeasurementDraft(toolType, [anchorPoint, vertexPoint, point]),
+          labelLines: existingDraft.labelLines
+        })
+        return true
+      }
+
       if (existingDraft.points.length < 3) {
         const nextDraft = {
           ...createMeasurementDraft(toolType, [anchorPoint, point, point]),
@@ -1580,7 +1589,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         return true
       }
 
-      const vertexPoint = existingDraft.points[1]
       if (!vertexPoint) {
         return false
       }
@@ -2157,8 +2165,37 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
   }
 
+  function handleUncapturedMeasurementCreationPointerUp(event: PointerEvent): boolean {
+    const interactionState = measurementInteraction.value
+    if (interactionState.kind !== 'creating') {
+      return false
+    }
+
+    const toolType = getMeasurementToolType()
+    const draft = getDraftMeasurement(interactionState.viewportKey)
+    if (!toolType || !draft || isPointSequenceMeasurement(toolType)) {
+      return false
+    }
+
+    if (toolType === 'line' && !isValidMeasurement(toolType, draft.points)) {
+      return false
+    }
+
+    if (toolType === 'angle' && draft.points.length === 2 && !isValidMeasurement('line', draft.points)) {
+      return false
+    }
+
+    event.preventDefault()
+    commitOrClearMeasurementDraft(interactionState.viewportKey, toolType, draft)
+    stopViewportDrag(event.currentTarget)
+    return true
+  }
+
   function handleViewportPointerUp(event: PointerEvent): void {
     if (activePointerId.value !== event.pointerId) {
+      if (handleUncapturedMeasurementCreationPointerUp(event)) {
+        return
+      }
       return
     }
 

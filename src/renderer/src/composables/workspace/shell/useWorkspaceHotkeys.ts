@@ -105,7 +105,7 @@ export function useWorkspaceHotkeys(options: WorkspaceHotkeyOptions) {
       return
     }
 
-    if (tab.viewType !== 'Stack' && tab.viewType !== 'CompareStack' && tab.viewType !== 'Layout' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
+    if (tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'CompareStack' && tab.viewType !== 'Layout' && tab.viewType !== 'MPR' && tab.viewType !== '4D') {
       return
     }
 

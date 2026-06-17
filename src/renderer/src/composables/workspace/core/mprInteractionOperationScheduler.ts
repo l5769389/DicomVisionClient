@@ -34,19 +34,23 @@ interface MprInteractionOperationSchedulerOptions<TPayload extends SchedulableVi
 const INTERACTIVE_MOVE_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
   VIEW_OPERATION_TYPES.crosshair,
+  VIEW_OPERATION_TYPES.fusionRegistration,
   VIEW_OPERATION_TYPES.mprMipConfig,
+  VIEW_OPERATION_TYPES.mprSegmentation,
   VIEW_OPERATION_TYPES.mprOblique
 ])
 
 const BACKEND_PREVIEW_EWMA_ALPHA = 0.25
 const DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS = 2
 const BACKEND_FEEDBACK_IDLE_GAP_MS = 5000
-const MIN_VIEW_MOVE_INTERVAL_MS = 30
-const MAX_VIEW_MOVE_INTERVAL_MS = 100
+const FASTEST_VIEW_MOVE_INTERVAL_MS = 16
+const MIN_MPR_SEGMENTATION_MOVE_INTERVAL_MS = 180
+const MAX_MPR_SEGMENTATION_MOVE_INTERVAL_MS = 320
 const FRONTEND_RENDER_MARGIN_MS = 4
 const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS,
-  VIEW_OPERATION_TYPES.mprMipConfig
+  VIEW_OPERATION_TYPES.mprMipConfig,
+  VIEW_OPERATION_TYPES.mprSegmentation
 ])
 
 function getOperationQueueKey(operationKey: string, payload: SchedulableViewOperation): string | null {
@@ -58,11 +62,18 @@ function getOperationQueueKey(operationKey: string, payload: SchedulableViewOper
   return `${operationKey}:${payload.opType}:${lineKey}`
 }
 
-function normalizeMoveInterval(value: number): number {
+function getMoveIntervalBounds(opType?: ViewOperationType | null): { min: number; max: number } {
+  return opType === VIEW_OPERATION_TYPES.mprSegmentation
+    ? { min: MIN_MPR_SEGMENTATION_MOVE_INTERVAL_MS, max: MAX_MPR_SEGMENTATION_MOVE_INTERVAL_MS }
+    : { min: FASTEST_VIEW_MOVE_INTERVAL_MS, max: Number.POSITIVE_INFINITY }
+}
+
+function normalizeMoveInterval(value: number, opType?: ViewOperationType | null): number {
+  const bounds = getMoveIntervalBounds(opType)
   if (!Number.isFinite(value)) {
-    return MIN_VIEW_MOVE_INTERVAL_MS
+    return bounds.min
   }
-  return Math.min(MAX_VIEW_MOVE_INTERVAL_MS, Math.max(MIN_VIEW_MOVE_INTERVAL_MS, value))
+  return Math.min(bounds.max, Math.max(bounds.min, value))
 }
 
 function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
@@ -71,6 +82,10 @@ function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
 
 function shouldWaitForMatchingFeedback(payload: SchedulableViewOperation): boolean {
   return MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
+}
+
+function shouldFlushPendingBeforeEnd(payload: SchedulableViewOperation): boolean {
+  return payload.opType !== VIEW_OPERATION_TYPES.fusionRegistration
 }
 
 function logCoalescingStats(
@@ -106,9 +121,12 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
   const lastBackendPreviewByKey = new Map<string, BackendPreviewSample>()
   const sentMoveAtByKey = new Map<string, number>()
 
-  function getMoveIntervalMs(operationKey?: string): number {
+  function getMoveIntervalMs(operationKey?: string, opType?: ViewOperationType | null): number {
+    if (opType === VIEW_OPERATION_TYPES.fusionRegistration) {
+      return FASTEST_VIEW_MOVE_INTERVAL_MS
+    }
     const intervalMs = operationKey ? backendPreviewIntervalByKey.get(operationKey) ?? fallbackPreviewIntervalMs : fallbackPreviewIntervalMs
-    return intervalMs == null ? MIN_VIEW_MOVE_INTERVAL_MS : normalizeMoveInterval(intervalMs)
+    return intervalMs == null ? getMoveIntervalBounds(opType).min : normalizeMoveInterval(intervalMs, opType)
   }
 
   function getEmitter(key: string, operationKey: string): ThrottledOperationEmitter {
@@ -152,7 +170,7 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
       sentMoveAtByKey.set(operation.operationKey, sentAt)
     }
     options.emit(operation.operationKey, operation.payload as TPayload)
-    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey), operation)
+    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey, operation.payload.opType), operation)
   }
 
   function schedulePending(emitter: ThrottledOperationEmitter): void {
@@ -163,7 +181,7 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
       return
     }
 
-    const intervalMs = getMoveIntervalMs(emitter.operationKey)
+    const intervalMs = getMoveIntervalMs(emitter.operationKey, emitter.pending.payload.opType)
     const elapsedMs = emitter.lastSentAt == null ? intervalMs : getNow() - emitter.lastSentAt
     if (elapsedMs >= intervalMs) {
       emitScheduled(emitter)
@@ -198,7 +216,11 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
     const queueKey = getOperationQueueKey(operationKey, payload)
     if (!queueKey || payload.actionType !== DRAG_ACTION_TYPES.move) {
       if (queueKey && payload.actionType === DRAG_ACTION_TYPES.end) {
-        flushKey(queueKey)
+        if (shouldFlushPendingBeforeEnd(payload)) {
+          flushKey(queueKey)
+        } else {
+          cancelKey(queueKey)
+        }
       } else if (queueKey && payload.actionType === DRAG_ACTION_TYPES.start) {
         cancelKey(queueKey)
       }

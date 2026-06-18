@@ -137,6 +137,7 @@ const calibrationMarkerWorld = ref<Vec3 | null>(null)
 const manualRegistrationMarkerPositions = ref<FusionMarkerPositionMap | null>(null)
 const manualRegistrationVisualPose = ref<ManualRegistrationPreviewPose | null>(null)
 const manualRegistrationLockedImages = ref<ManualRegistrationLockedImages | null>(null)
+const expandedFusionPaneKey = ref<FusionPaneKey | null>(null)
 const markerLayoutRevision = ref(0)
 const paneElements = new Map<FusionPaneKey, HTMLElement>()
 let paneResizeObserver: ResizeObserver | null = null
@@ -1073,6 +1074,14 @@ function handlePointerCancel(event: PointerEvent): void {
   emit('pointerCancel', event)
 }
 
+function handlePaneDoubleClick(paneKey: FusionPaneKey): void {
+  expandedFusionPaneKey.value = expandedFusionPaneKey.value === paneKey ? null : paneKey
+  emit('viewportClick', paneKey)
+  void nextTick(() => {
+    scheduleMarkerLayoutUpdate()
+  })
+}
+
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
     paneResizeObserver = new ResizeObserver(() => {
@@ -1114,6 +1123,7 @@ watch(
     calibrationMarkerPosition.value = { x: 0.5, y: 0.5 }
     manualRegistrationMarkerPositions.value = null
     manualDragState.value = null
+    expandedFusionPaneKey.value = null
     resetManualRegistrationPreview()
     scheduleMarkerLayoutUpdate()
   }
@@ -1161,7 +1171,10 @@ watch(
     >
       {{ manualRegistrationHint }}
     </div>
-    <div class="pet-ct-fusion-view__grid grid h-full min-h-0 grid-cols-2 grid-rows-2 gap-[3px]">
+    <div
+      class="pet-ct-fusion-view__grid grid h-full min-h-0 grid-cols-2 grid-rows-2 gap-[3px]"
+      :class="{ 'pet-ct-fusion-view__grid--expanded': expandedFusionPaneKey != null }"
+    >
       <section
         v-for="pane in panes"
         :key="pane.key"
@@ -1171,7 +1184,9 @@ watch(
         :class="{
           'pet-ct-fusion-view__pane--active': activeViewportKey === pane.key,
           'pet-ct-fusion-view__pane--manual-registration-target': manualRegistrationEnabled && pane.key === FUSION_OVERLAY_AXIAL_PANE_KEY,
-          'pet-ct-fusion-view__pane--pet-standalone': isFusionPetStandalonePane(pane.key)
+          'pet-ct-fusion-view__pane--pet-standalone': isFusionPetStandalonePane(pane.key),
+          'pet-ct-fusion-view__pane--expanded': expandedFusionPaneKey === pane.key,
+          'pet-ct-fusion-view__pane--hidden-by-expanded': expandedFusionPaneKey != null && expandedFusionPaneKey !== pane.key
         }"
         :style="getFusionPaneSurfaceStyle(pane.key)"
       >
@@ -1211,6 +1226,7 @@ watch(
           @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
           @delete-annotation="emit('deleteAnnotation', $event)"
           @delete-selected-measurement="emit('deleteSelectedMeasurement', $event)"
+          @double-click-viewport="handlePaneDoubleClick(pane.key)"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @image-loaded="handlePaneImageLoaded"
           @pointer-cancel="handlePointerCancel"
@@ -1249,6 +1265,20 @@ watch(
 <style scoped>
 .pet-ct-fusion-view__pane {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.86);
+}
+
+.pet-ct-fusion-view__grid--expanded {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+.pet-ct-fusion-view__pane--expanded {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+.pet-ct-fusion-view__pane--hidden-by-expanded {
+  display: none;
 }
 
 .pet-ct-fusion-view__pane--pet-standalone {
@@ -1364,6 +1394,17 @@ watch(
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.92),
     0 0 5px rgba(0, 0, 0, 0.62);
+}
+
+.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-corner-block) {
+  color: #b23131;
+  font-weight: 750;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.96),
+    0 -1px 0 rgba(255, 255, 255, 0.82),
+    1px 0 0 rgba(255, 255, 255, 0.82),
+    -1px 0 0 rgba(255, 255, 255, 0.82),
+    0 1px 4px rgba(15, 23, 42, 0.32);
 }
 
 .pet-ct-fusion-view__marker {

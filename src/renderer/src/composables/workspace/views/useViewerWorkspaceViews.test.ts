@@ -16,10 +16,12 @@ import {
   createEmptyFusionTransformStates,
   createEmptyFusionViewIds,
   createEmptyFusionWindowLabels,
+  createDefaultPetInfo,
   createEmptyMprSegmentationOverlays,
   createEmptyMprTransformStates,
   createEmptyOrientationInfo,
-  FUSION_OVERLAY_AXIAL_PANE_KEY
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PET_AXIAL_PANE_KEY
 } from './viewerWorkspaceTabs'
 
 function createFusionInfo(revision: number): FusionInfo {
@@ -230,6 +232,29 @@ function createStackTab(): ViewerTabItem {
   } as ViewerTabItem
 }
 
+function createPetTab(pseudocolorPreset = 'bwinverse'): ViewerTabItem {
+  const cornerInfo = createEmptyCornerInfo()
+  return {
+    key: 'pet-tab',
+    seriesId: 'pet-series',
+    seriesTitle: 'PET',
+    title: 'PET',
+    viewType: 'PET',
+    viewId: 'pet-view',
+    imageSrc: 'blob:pet',
+    sliceLabel: '',
+    windowLabel: '',
+    cornerInfo,
+    orientation: createEmptyOrientationInfo(),
+    transformState: createDefaultTransformInfo(),
+    pseudocolorPreset,
+    petInfo: {
+      ...createDefaultPetInfo('pet-series'),
+      pseudocolorPreset
+    }
+  } as ViewerTabItem
+}
+
 function createHarness() {
   const viewerTabs = ref<ViewerTabItem[]>([createFusionTab()])
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
@@ -301,6 +326,33 @@ function createStackHarness() {
     selectedSeriesId: ref('ct-series'),
     seriesCornerInfoMap: ref({
       'ct-series': emptyCornerInfo
+    }),
+    seriesList: ref([]),
+    stripHoverCornerInfo: (cornerInfo) => cornerInfo,
+    viewportElements: ref({}),
+    viewerStage: ref(null),
+    viewerTabs,
+    withHoverCornerInfo: (cornerInfo) => cornerInfo
+  })
+  return { viewerTabs, views }
+}
+
+function createPetHarness(pseudocolorPreset = 'bwinverse') {
+  const viewerTabs = ref<ViewerTabItem[]>([createPetTab(pseudocolorPreset)])
+  const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
+  const views = useViewerWorkspaceViews({
+    activeMprCrosshairDragLock: ref(null),
+    activeTabKey: ref('pet-tab'),
+    activeViewportKey: ref('single'),
+    clearPendingVolumeConfig: vi.fn(),
+    completeActiveMprCrosshairDragLock: vi.fn(),
+    ensureSeriesCornerInfo: vi.fn(async () => emptyCornerInfo),
+    isViewLoading: ref(false),
+    message: ref(''),
+    selectedSeries: computed(() => null),
+    selectedSeriesId: ref('pet-series'),
+    seriesCornerInfoMap: ref({
+      'pet-series': emptyCornerInfo
     }),
     seriesList: ref([]),
     stripHoverCornerInfo: (cornerInfo) => cornerInfo,
@@ -394,6 +446,38 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     expect(tab.measurements).toBe(previousMeasurements)
     expect(tab.annotations).toBe(previousAnnotations)
     expect(tab.transformState).toBe(previousTransform)
+  })
+
+  it('records the first stack image window info without overwriting it later', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:stack-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createStackHarness()
+
+    views.updateTabImage(
+      'stack-tab',
+      {
+        viewId: 'stack-view',
+        imageFormat: 'png',
+        window_info: { ww: 900, wl: 120 }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+    views.updateTabImage(
+      'stack-tab',
+      {
+        viewId: 'stack-view',
+        imageFormat: 'png',
+        window_info: { ww: 1200, wl: 300 }
+      },
+      new Uint8Array([4, 5, 6])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.windowLabel).toBe('WW 1200  WL 300')
+    expect(tab.initialWindowInfo).toEqual({ ww: 900, wl: 120 })
   })
 
   it('rounds window labels and corner tags from decimal image updates', () => {
@@ -542,6 +626,124 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     const tab = viewerTabs.value[0]
     expect(tab.windowLabel).toBe('WW 900  WL 90')
     expect(tab.imageUpdateRevisions?.['stack-view']).toBe(5)
+  })
+})
+
+describe('useViewerWorkspaceViews PET standalone pseudocolor updates', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses the fusion PET-only preset even when standalone PET payloads return another pseudocolor', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:pet-bwinverse'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createPetHarness('rainbow')
+
+    views.updateTabImage(
+      'pet-tab',
+      {
+        viewId: 'pet-view',
+        imageFormat: 'png',
+        color: { pseudocolorPreset: 'rainbow' },
+        petInfo: {
+          ...createDefaultPetInfo('pet-series'),
+          pseudocolorPreset: 'rainbow'
+        }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.pseudocolorPreset).toBe('bwinverse')
+    expect(tab.petInfo?.pseudocolorPreset).toBe('bwinverse')
+  })
+
+  it('keeps PET-only range lines while filtering CT window lines from standalone PET corner info', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:pet-bwinverse'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createPetHarness('bwinverse')
+
+    views.updateTabImage(
+      'pet-tab',
+      {
+        viewId: 'pet-view',
+        imageFormat: 'png',
+        cornerInfo: {
+          topLeft: ['PET SERIES'],
+          topRight: [],
+          bottomLeft: ['SUV:0.00--4.49g/ml', '3.3mm', '2006.04.27 12:35:27'],
+          bottomRight: ['WW 400  WL 40', 'Zoom:3x'],
+          tags: {
+            windowLevel: ['SUV:0.00--4.49g/ml'],
+            sliceThickness: ['3.3mm']
+          }
+        }
+      },
+      new Uint8Array([4, 5, 6])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.cornerInfo.bottomLeft).toEqual(['SUV:0.00--4.49g/ml', '3.3mm', '2006.04.27 12:35:27'])
+    expect(tab.cornerInfo.bottomRight).toEqual(['Zoom:3x'])
+    expect(tab.cornerInfo.tags?.windowLevel).toEqual(['SUV:0.00--4.49g/ml'])
+    expect(tab.cornerInfo.tags?.sliceThickness).toEqual(['3.3mm'])
+  })
+})
+
+describe('useViewerWorkspaceViews PET-only corner info', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps PET range lines for fusion PET-only panes while removing CT window lines', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:fusion-pet-only'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createHarness()
+    viewerTabs.value = viewerTabs.value.map((tab) => ({
+      ...tab,
+      fusionViewIds: {
+        ...(tab.fusionViewIds ?? createEmptyFusionViewIds()),
+        [FUSION_PET_AXIAL_PANE_KEY]: 'fusion-pet-view'
+      }
+    }))
+
+    views.updateTabImage(
+      'fusion-tab',
+      {
+        viewId: 'fusion-pet-view',
+        imageFormat: 'png',
+        fusionInfo: {
+          ...createFusionInfo(2),
+          paneRole: FUSION_PET_AXIAL_PANE_KEY,
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          petWindowMin: 0,
+          petWindowMax: 4.49
+        },
+        cornerInfo: {
+          topLeft: ['PET SERIES'],
+          topRight: [],
+          bottomLeft: ['W: 4 L: 2', '3.3mm'],
+          bottomRight: ['WW 4 WL 2', 'Zoom:1x'],
+          tags: {
+            windowLevel: ['W: 4 L: 2'],
+            sliceThickness: ['3.3mm']
+          }
+        }
+      },
+      new Uint8Array([7, 8, 9])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.fusionCornerInfos?.[FUSION_PET_AXIAL_PANE_KEY]?.bottomLeft).toEqual(['SUV:0.00--4.49g/ml', '3.3mm'])
+    expect(tab.fusionCornerInfos?.[FUSION_PET_AXIAL_PANE_KEY]?.bottomRight).toEqual(['Zoom:1x'])
+    expect(tab.fusionCornerInfos?.[FUSION_PET_AXIAL_PANE_KEY]?.tags?.windowLevel).toEqual(['SUV:0.00--4.49g/ml'])
   })
 })
 

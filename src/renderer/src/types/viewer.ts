@@ -837,10 +837,12 @@ export interface FourDPhaseCacheItem {
   viewportOrientations?: Partial<Record<MprViewportKey, OrientationInfo>>
   viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
+  viewportInitialWindowInfos?: Partial<Record<MprViewportKey, WindowLevelInfo>>
   mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
   mprRevision?: number | null
   windowLabel?: string
+  initialWindowInfo?: WindowLevelInfo | null
 }
 
 export interface FourDPhasesResponse {
@@ -1027,6 +1029,11 @@ export interface ViewTransformInfo {
   offsetY?: number | null
 }
 
+export interface WindowLevelInfo {
+  ww: number
+  wl: number
+}
+
 export interface ViewColorInfo {
   pseudocolorPreset: string
 }
@@ -1105,12 +1112,14 @@ export interface ViewerTabItem {
   imageSrc: string
   sliceLabel: string
   windowLabel: string
+  initialWindowInfo?: WindowLevelInfo | null
   compareSeriesIds?: Record<CompareStackPaneKey, string>
   compareSeriesTitles?: Record<CompareStackPaneKey, string>
   compareViewIds?: Partial<Record<CompareStackPaneKey, string>>
   compareImages?: Partial<Record<CompareStackPaneKey, string>>
   compareSliceLabels?: Partial<Record<CompareStackPaneKey, string>>
   compareWindowLabels?: Partial<Record<CompareStackPaneKey, string>>
+  compareInitialWindowInfos?: Partial<Record<CompareStackPaneKey, WindowLevelInfo>>
   compareScaleBars?: Partial<Record<CompareStackPaneKey, ScaleBarInfo | null>>
   compareCornerInfos?: Partial<Record<CompareStackPaneKey, CornerInfo>>
   compareOrientations?: Partial<Record<CompareStackPaneKey, OrientationInfo>>
@@ -1124,6 +1133,7 @@ export interface ViewerTabItem {
   fusionComposites?: Partial<Record<FusionPaneKey, FusionCompositeInfo | null>>
   fusionSliceLabels?: Partial<Record<FusionPaneKey, string>>
   fusionWindowLabels?: Partial<Record<FusionPaneKey, string>>
+  fusionInitialWindowInfos?: Partial<Record<FusionPaneKey, WindowLevelInfo>>
   fusionScaleBars?: Partial<Record<FusionPaneKey, ScaleBarInfo | null>>
   fusionCornerInfos?: Partial<Record<FusionPaneKey, CornerInfo>>
   fusionOrientations?: Partial<Record<FusionPaneKey, OrientationInfo>>
@@ -1173,6 +1183,7 @@ export interface ViewerTabItem {
   viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
   pseudocolorPreset: string
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
+  viewportInitialWindowInfos?: Partial<Record<MprViewportKey, WindowLevelInfo>>
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
   viewportSegmentationOverlays?: Partial<Record<MprViewportKey, MprSegmentationOverlay | null>>
@@ -1263,6 +1274,7 @@ export interface ViewerLayoutSlot {
   ownsImageSrc?: boolean
   sliceLabel?: string | null
   windowLabel?: string | null
+  initialWindowInfo?: WindowLevelInfo | null
   cornerInfo?: CornerInfo | null
   orientation?: OrientationInfo | null
   scaleBar?: ScaleBarInfo | null

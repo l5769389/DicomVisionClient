@@ -3,10 +3,10 @@ import { computed } from 'vue'
 import type { ViewerMtfItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
-const CHART_LEFT = 6
-const CHART_RIGHT = 99
-const CHART_TOP = 12
-const CHART_BOTTOM = 88
+const CHART_LEFT = 4
+const CHART_RIGHT = 98
+const CHART_TOP = 7
+const CHART_BOTTOM = 90
 const CHART_WIDTH = CHART_RIGHT - CHART_LEFT
 const CHART_HEIGHT = CHART_BOTTOM - CHART_TOP
 
@@ -27,16 +27,6 @@ const xAxisUnit = computed(() => metrics.value?.unit || 'lp/mm')
 const xAxisLabel = computed(() => `${isZh.value ? '空间频率' : 'Spatial Frequency'} (${xAxisUnit.value})`)
 const xMax = computed(() => Math.max(...curve.value.map((point) => point.frequency), 1))
 const canUseSelectedMtf = computed(() => Boolean(props.mtfItem?.mtfId))
-
-const panelStatus = computed(() => {
-  if (!curve.value.length) {
-    return overlayCopy.value.noCurveData
-  }
-  if (markerItems.value.length < 2) {
-    return overlayCopy.value.curveMarkersIncomplete
-  }
-  return overlayCopy.value.measuredFromCurrentRoi
-})
 
 function normalizeX(frequency: number): number {
   return CHART_LEFT + (frequency / xMax.value) * CHART_WIDTH
@@ -159,97 +149,97 @@ const guideRows = computed(() => [
 
 <template>
   <div class="mtf-curve-panel-content">
-    <div class="mtf-curve-panel-content__status">{{ panelStatus }}</div>
-
-    <section class="mtf-curve-panel-content__card">
-      <div class="mtf-curve-panel-content__section-header">
-        <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.curvePlot }}</div>
-        <div class="mtf-curve-panel-content__legend">
-          <div
-            v-for="marker in markerItems"
-            :key="`${marker.key}-legend`"
-            class="mtf-curve-panel-content__legend-item"
-            :style="{ backgroundColor: marker.softColor }"
-          >
-            <span class="mtf-curve-panel-content__legend-dot" :style="{ backgroundColor: marker.color }" />
-            <span>{{ marker.label }}</span>
+    <div class="mtf-curve-panel-content__scroll">
+      <section class="mtf-curve-panel-content__card">
+        <div class="mtf-curve-panel-content__section-header">
+          <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.curvePlot }}</div>
+          <div class="mtf-curve-panel-content__legend">
+            <div
+              v-for="marker in markerItems"
+              :key="`${marker.key}-legend`"
+              class="mtf-curve-panel-content__legend-item"
+              :style="{ backgroundColor: marker.softColor }"
+            >
+              <span class="mtf-curve-panel-content__legend-dot" :style="{ backgroundColor: marker.color }" />
+              <span>{{ marker.label }}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="mtf-curve-panel-content__chart">
-        <svg viewBox="0 0 100 100" class="mtf-curve-panel-content__svg">
-          <defs>
-            <linearGradient id="mtf-result-area-fill" x1="0%" x2="0%" y1="0%" y2="100%">
-              <stop offset="0%" stop-color="var(--theme-accent)" stop-opacity="0.22" />
-              <stop offset="100%" stop-color="var(--theme-accent)" stop-opacity="0" />
-            </linearGradient>
-          </defs>
+        <div class="mtf-curve-panel-content__chart">
+          <svg viewBox="0 0 100 100" class="mtf-curve-panel-content__svg">
+            <defs>
+              <linearGradient id="mtf-result-area-fill" x1="0%" x2="0%" y1="0%" y2="100%">
+                <stop offset="0%" stop-color="var(--theme-accent)" stop-opacity="0.22" />
+                <stop offset="100%" stop-color="var(--theme-accent)" stop-opacity="0" />
+              </linearGradient>
+            </defs>
 
-          <line :x1="CHART_LEFT" :y1="CHART_BOTTOM" :x2="CHART_RIGHT" :y2="CHART_BOTTOM" class="mtf-curve-panel-content__axis" />
-          <line :x1="CHART_LEFT" :y1="CHART_BOTTOM" :x2="CHART_LEFT" :y2="CHART_TOP" class="mtf-curve-panel-content__axis" />
-          <line :x1="CHART_LEFT" y1="50" :x2="CHART_RIGHT" y2="50" class="mtf-curve-panel-content__grid-line" />
-          <line :x1="CHART_LEFT" :y1="CHART_TOP" :x2="CHART_RIGHT" :y2="CHART_TOP" class="mtf-curve-panel-content__grid-line" />
-          <line x1="53.5" :y1="CHART_TOP" x2="53.5" :y2="CHART_BOTTOM" class="mtf-curve-panel-content__grid-line" />
+            <line :x1="CHART_LEFT" :y1="CHART_BOTTOM" :x2="CHART_RIGHT" :y2="CHART_BOTTOM" class="mtf-curve-panel-content__axis" />
+            <line :x1="CHART_LEFT" :y1="CHART_BOTTOM" :x2="CHART_LEFT" :y2="CHART_TOP" class="mtf-curve-panel-content__axis" />
+            <line :x1="CHART_LEFT" y1="50" :x2="CHART_RIGHT" y2="50" class="mtf-curve-panel-content__grid-line" />
+            <line :x1="CHART_LEFT" :y1="CHART_TOP" :x2="CHART_RIGHT" :y2="CHART_TOP" class="mtf-curve-panel-content__grid-line" />
+            <line x1="54" :y1="CHART_TOP" x2="54" :y2="CHART_BOTTOM" class="mtf-curve-panel-content__grid-line" />
 
-          <text x="2.2" :y="CHART_BOTTOM + 3.8" class="mtf-curve-panel-content__tick">0</text>
-          <text x="0.6" y="51.5" class="mtf-curve-panel-content__tick">0.5</text>
-          <text x="1.1" :y="CHART_TOP + 2.6" class="mtf-curve-panel-content__tick">1.0</text>
-          <text :x="CHART_LEFT" y="96.8" class="mtf-curve-panel-content__tick">0</text>
-          <text :x="CHART_RIGHT" y="96.8" text-anchor="end" class="mtf-curve-panel-content__tick">{{ xMax.toFixed(3) }}</text>
-          <text x="1.2" y="8" class="mtf-curve-panel-content__axis-label">MTF</text>
-          <text x="68" y="99" class="mtf-curve-panel-content__axis-label">{{ xAxisLabel }}</text>
+            <text x="0.8" :y="CHART_BOTTOM + 3.8" class="mtf-curve-panel-content__tick">0</text>
+            <text x="0.4" y="51.8" class="mtf-curve-panel-content__tick">0.5</text>
+            <text x="0.4" :y="CHART_TOP + 2.8" class="mtf-curve-panel-content__tick">1.0</text>
+            <text :x="CHART_LEFT" y="96.8" class="mtf-curve-panel-content__tick">0</text>
+            <text :x="CHART_RIGHT" y="96.8" text-anchor="end" class="mtf-curve-panel-content__tick">{{ xMax.toFixed(3) }}</text>
+            <text x="0.8" y="5.2" class="mtf-curve-panel-content__axis-label">MTF</text>
+            <text x="60" y="99" class="mtf-curve-panel-content__axis-label">{{ xAxisLabel }}</text>
 
-          <path
-            v-if="chartPath"
-            :d="`${chartPath} L ${CHART_RIGHT} ${CHART_BOTTOM} L ${CHART_LEFT} ${CHART_BOTTOM} Z`"
-            fill="url(#mtf-result-area-fill)"
-            stroke="none"
-          />
-          <path
-            v-if="chartPath"
-            :d="chartPath"
-            fill="none"
-            class="mtf-curve-panel-content__curve"
-          />
+            <path
+              v-if="chartPath"
+              :d="`${chartPath} L ${CHART_RIGHT} ${CHART_BOTTOM} L ${CHART_LEFT} ${CHART_BOTTOM} Z`"
+              fill="url(#mtf-result-area-fill)"
+              stroke="none"
+            />
+            <path
+              v-if="chartPath"
+              :d="chartPath"
+              fill="none"
+              class="mtf-curve-panel-content__curve"
+            />
 
-          <g v-for="marker in markerItems" :key="marker.key">
-            <line :x1="marker.x" :y1="CHART_BOTTOM" :x2="marker.x" :y2="marker.y" class="mtf-curve-panel-content__marker-line" :style="{ stroke: marker.color }" />
-            <line :x1="CHART_LEFT" :y1="marker.y" :x2="marker.x" :y2="marker.y" class="mtf-curve-panel-content__marker-line" :style="{ stroke: marker.color }" />
-            <circle :cx="marker.x" :cy="marker.y" r="1.65" :style="{ fill: marker.color }" />
-          </g>
-        </svg>
-      </div>
-    </section>
-
-    <section class="mtf-curve-panel-content__card">
-      <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.keyMetrics }}</div>
-      <div class="mtf-curve-panel-content__metrics">
-        <div
-          v-for="row in summaryRows"
-          :key="row.label"
-          class="mtf-curve-panel-content__metric"
-        >
-          <span>{{ row.label }}</span>
-          <strong>{{ row.value }}</strong>
+            <g v-for="marker in markerItems" :key="marker.key">
+              <line :x1="marker.x" :y1="CHART_BOTTOM" :x2="marker.x" :y2="marker.y" class="mtf-curve-panel-content__marker-line" :style="{ stroke: marker.color }" />
+              <line :x1="CHART_LEFT" :y1="marker.y" :x2="marker.x" :y2="marker.y" class="mtf-curve-panel-content__marker-line" :style="{ stroke: marker.color }" />
+              <circle :cx="marker.x" :cy="marker.y" r="2.15" :style="{ fill: marker.color }" />
+            </g>
+          </svg>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="mtf-curve-panel-content__guide">
-      <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.readingGuide }}</div>
-      <p>{{ overlayCopy.mtfGuideIntro }}</p>
-      <div class="mtf-curve-panel-content__guide-rows">
-        <div
-          v-for="row in guideRows"
-          :key="row.key"
-          class="mtf-curve-panel-content__guide-row"
-        >
-          <span>{{ row.label }}</span>
-          <p>{{ row.text }}</p>
+      <section class="mtf-curve-panel-content__card">
+        <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.keyMetrics }}</div>
+        <div class="mtf-curve-panel-content__metrics">
+          <div
+            v-for="row in summaryRows"
+            :key="row.label"
+            class="mtf-curve-panel-content__metric"
+          >
+            <span>{{ row.label }}</span>
+            <strong>{{ row.value }}</strong>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+
+      <section class="mtf-curve-panel-content__guide">
+        <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.readingGuide }}</div>
+        <p>{{ overlayCopy.mtfGuideIntro }}</p>
+        <div class="mtf-curve-panel-content__guide-rows">
+          <div
+            v-for="row in guideRows"
+            :key="row.key"
+            class="mtf-curve-panel-content__guide-row"
+          >
+            <span>{{ row.label }}</span>
+            <p>{{ row.text }}</p>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <div class="mtf-curve-panel-content__actions">
       <button
@@ -277,15 +267,19 @@ const guideRows = computed(() => [
   display: flex;
   min-height: 100%;
   flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
   color: var(--theme-text-primary);
 }
 
-.mtf-curve-panel-content__status {
-  color: var(--theme-text-secondary);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.45;
+.mtf-curve-panel-content__scroll {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
 }
 
 .mtf-curve-panel-content__card,
@@ -346,13 +340,14 @@ const guideRows = computed(() => [
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 58%),
     color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, transparent);
-  padding: 2px;
+  padding: 0;
 }
 
 .mtf-curve-panel-content__svg {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9.4;
+  min-height: 226px;
+  aspect-ratio: 1.2 / 1;
 }
 
 .mtf-curve-panel-content__axis {
@@ -369,7 +364,8 @@ const guideRows = computed(() => [
 .mtf-curve-panel-content__tick,
 .mtf-curve-panel-content__axis-label {
   fill: color-mix(in srgb, var(--theme-text-secondary) 84%, transparent);
-  font-size: 3px;
+  font-size: 4.1px;
+  font-weight: 700;
 }
 
 .mtf-curve-panel-content__axis-label {
@@ -378,13 +374,13 @@ const guideRows = computed(() => [
 
 .mtf-curve-panel-content__curve {
   stroke: var(--theme-accent);
-  stroke-width: 1.7;
+  stroke-width: 2.15;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .mtf-curve-panel-content__marker-line {
-  stroke-width: 0.7;
+  stroke-width: 0.9;
   stroke-dasharray: 2 2;
 }
 
@@ -462,7 +458,8 @@ const guideRows = computed(() => [
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-top: auto;
+  flex: 0 0 auto;
+  margin-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
   padding-top: 10px;
 }

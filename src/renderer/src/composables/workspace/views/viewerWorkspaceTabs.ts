@@ -21,7 +21,8 @@ import type {
   ViewProgressInfo,
   ViewerLayoutTemplate,
   ViewerTabItem,
-  ViewType
+  ViewType,
+  WindowLevelInfo
 } from '../../../types/viewer'
 import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig } from '../../../types/viewer'
 import {
@@ -29,6 +30,7 @@ import {
   DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET
 } from '../../../constants/pseudocolor'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
@@ -231,6 +233,18 @@ export function createEmptyFusionWindowLabels(): Record<FusionPaneKey, string> {
   return createFusionPaneRecord(() => '')
 }
 
+export function createEmptyMprInitialWindowInfos(): Partial<Record<MprViewportKey, WindowLevelInfo>> {
+  return {}
+}
+
+export function createEmptyCompareInitialWindowInfos(): Partial<Record<CompareStackPaneKey, WindowLevelInfo>> {
+  return {}
+}
+
+export function createEmptyFusionInitialWindowInfos(): Partial<Record<FusionPaneKey, WindowLevelInfo>> {
+  return {}
+}
+
 export function createEmptyCompareScaleBars(): Record<CompareStackPaneKey, null> {
   return createComparePaneRecord(() => null)
 }
@@ -315,7 +329,7 @@ export function createDefaultPetInfo(seriesId = ''): PetInfo {
     petUnitLabel: 'g/ml (SUVbw)',
     petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
     petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
-    pseudocolorPreset: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+    pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
   }
 }
 
@@ -763,6 +777,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     imageSrc: '',
     sliceLabel: '',
     windowLabel: '',
+    initialWindowInfo: null,
     compareSeriesIds: createComparePaneRecord((paneKey) =>
       paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? series.seriesId : ''
     ),
@@ -773,6 +788,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     compareImages: createEmptyCompareImages(),
     compareSliceLabels: createEmptyCompareSliceLabels(),
     compareWindowLabels: createEmptyCompareWindowLabels(),
+    compareInitialWindowInfos: createEmptyCompareInitialWindowInfos(),
     compareScaleBars: createEmptyCompareScaleBars(),
     compareCornerInfos: createEmptyCompareCornerInfos(),
     compareOrientations: createEmptyCompareOrientations(),
@@ -785,6 +801,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionComposites: createEmptyFusionComposites(),
     fusionSliceLabels: createEmptyFusionSliceLabels(),
     fusionWindowLabels: createEmptyFusionWindowLabels(),
+    fusionInitialWindowInfos: createEmptyFusionInitialWindowInfos(),
     fusionScaleBars: createEmptyFusionScaleBars(),
     fusionCornerInfos: createEmptyFusionCornerInfos(),
     fusionOrientations: createEmptyFusionOrientations(),
@@ -816,8 +833,9 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     transformState: createDefaultTransformInfo(),
     viewportTransformStates: createEmptyMprTransformStates(),
     scaleBar: null,
-    pseudocolorPreset: viewType === 'PET' ? DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET : DEFAULT_PSEUDOCOLOR_PRESET,
+    pseudocolorPreset: viewType === 'PET' ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET : DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
+    viewportInitialWindowInfos: createEmptyMprInitialWindowInfos(),
     mprMipConfig: createDefaultMprMipConfig(),
     mprSegmentationConfig: createDefaultMprSegmentationConfig(),
     viewportSegmentationOverlays: createEmptyMprSegmentationOverlays(),

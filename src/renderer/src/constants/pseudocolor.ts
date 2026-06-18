@@ -1,8 +1,11 @@
 export const DEFAULT_PSEUDOCOLOR_PRESET = 'bw'
 export const DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET = 'petct-rainbow'
 export const DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET = 'bwinverse'
+export const DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET = DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
 export const DEFAULT_FUSION_PET_WINDOW_MIN = 0
 export const DEFAULT_FUSION_PET_WINDOW_MAX = 4.49
+export const DEFAULT_PET_RANGE_UPPER_LIMIT = 30
+export const MAX_PET_RANGE_UPPER_LIMIT = 999
 
 export const PSEUDOCOLOR_PRESET_OPTIONS = [
   {
@@ -98,4 +101,11 @@ export function getFusionPetPseudocolorGradient(value: string | null | undefined
     FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === key)?.gradient ??
     FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS[0].gradient
   )
+}
+
+export function normalizePetRangeUpperLimit(value: string | number | null | undefined): number {
+  const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim())
+  return Number.isFinite(parsed) && parsed >= 1 && parsed <= MAX_PET_RANGE_UPPER_LIMIT
+    ? parsed
+    : DEFAULT_PET_RANGE_UPPER_LIMIT
 }

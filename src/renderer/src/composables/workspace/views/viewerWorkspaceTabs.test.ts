@@ -4,6 +4,7 @@ import {
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PET_AXIAL_PANE_KEY,
   FUSION_PET_CORONAL_MIP_PANE_KEY,
+  createDefaultPetInfo,
   createEmptyFusionPseudocolorPresets,
   resolveFusionPaneSeriesId
 } from './viewerWorkspaceTabs'
@@ -33,5 +34,9 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
     expect(presets[FUSION_PET_AXIAL_PANE_KEY]).toBe('bwinverse')
     expect(presets[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('petct-rainbow')
     expect(presets[FUSION_PET_CORONAL_MIP_PANE_KEY]).toBe('bwinverse')
+  })
+
+  it('uses the fusion PET-only pseudocolor by default for standalone PET tabs', () => {
+    expect(createDefaultPetInfo('pet-series').pseudocolorPreset).toBe('bwinverse')
   })
 })

@@ -2674,6 +2674,7 @@ onBeforeUnmount(() => {
               v-else-if="rightToolbarUtilityPanelKind === 'mprMip' && activeMprMipConfig"
               class="viewer-workspace-dock-panel"
               :config="activeMprMipConfig"
+              embedded
               @config-change="updateActiveMprMipConfig"
             />
             <MprSegmentationPanel

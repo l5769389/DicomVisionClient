@@ -133,6 +133,7 @@ describe('FusionPetDisplayTool', () => {
       }
     })
 
+    expect(wrapper.find('.fusion-pet-display-tool__range-track').attributes('style')).toContain('#ffffff')
     const unitOption = wrapper
       .findAll<HTMLButtonElement>('.fusion-pet-display-tool__unit-option')
       .find((button) => button.text().includes('kBq/ml'))
@@ -215,6 +216,31 @@ describe('FusionPetDisplayTool', () => {
 
     expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.value).toBe('4.49')
     expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
+
+    wrapper.unmount()
+  })
+
+  it('falls back to the default range maximum for invalid typed PET limits', async () => {
+    const wrapper = mount(FusionPetDisplayTool, {
+      props: {
+        activeTab: createFusionTab(8)
+      }
+    })
+
+    const maxInput = wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input')
+    await maxInput.setValue('1000')
+    await maxInput.trigger('change')
+    await nextTick()
+    expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
+    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.max).toBe('30')
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['fusionPetWindow:0:8'])
+
+    const updatedMaxInput = wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input')
+    await updatedMaxInput.setValue('abc')
+    await updatedMaxInput.trigger('change')
+    await nextTick()
+    expect(wrapper.find<HTMLInputElement>('.fusion-pet-display-tool__range-max-input').element.value).toBe('30')
+    expect(wrapper.find<HTMLInputElement>('input[type="range"]').element.max).toBe('30')
 
     wrapper.unmount()
   })

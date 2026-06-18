@@ -6,12 +6,15 @@ import {
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
-  getFusionPetPseudocolorGradient
+  DEFAULT_PET_RANGE_UPPER_LIMIT,
+  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  getFusionPetPseudocolorGradient,
+  getPseudocolorGradient,
+  normalizePetRangeUpperLimit
 } from '../../../constants/pseudocolor'
 import type { ViewerTabItem } from '../../../types/viewer'
 
 const PET_RANGE_EMIT_INTERVAL_MS = 80
-const DEFAULT_PET_RANGE_MAX = 30
 const PET_RANGE_MAX_DEBOUNCE_MS = 360
 const PET_RANGE_OPTIMISTIC_TTL_MS = 1600
 const petRangeMaxOptions = [5, 10, 20, 30, 40]
@@ -59,7 +62,7 @@ const backendWindowMax = computed(() => {
   return Number.isFinite(value) ? Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value) : DEFAULT_FUSION_PET_WINDOW_MAX
 })
 const draftWindowMax = ref(backendWindowMax.value)
-const rangeUpperLimit = ref(Math.max(DEFAULT_PET_RANGE_MAX, Math.ceil(backendWindowMax.value)))
+const rangeUpperLimit = ref(Math.max(DEFAULT_PET_RANGE_UPPER_LIMIT, Math.ceil(backendWindowMax.value)))
 const draftRangeUpperLimit = ref(rangeUpperLimit.value)
 const rangeUpperLimitSearch = ref(formatRangeUpperLimit(rangeUpperLimit.value))
 const isDragging = ref(false)
@@ -70,7 +73,11 @@ let pendingRangeMaxTimer: ReturnType<typeof window.setTimeout> | null = null
 let pendingOptimisticWindowMax: number | null = null
 let pendingOptimisticUntil = 0
 
-const rangeGradient = computed(() => getFusionPetPseudocolorGradient(DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET))
+const rangeGradient = computed(() =>
+  props.activeTab.viewType === 'PET'
+    ? getPseudocolorGradient(DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET)
+    : getFusionPetPseudocolorGradient(DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET)
+)
 const displayWindowMax = computed(() => Number(draftWindowMax.value).toFixed(draftWindowMax.value < 10 ? 2 : 0))
 const rangeUpperLimitModel = computed(() => formatRangeUpperLimit(draftRangeUpperLimit.value))
 const selectedUnitLabel = computed(() => fusionPetUnitOptions.find((option) => option.value === selectedUnit.value)?.label ?? selectedUnit.value)
@@ -115,7 +122,7 @@ function clearPendingRangeMaxTimer(): void {
 }
 
 function formatRangeUpperLimit(value: number): string {
-  const finiteValue = Number.isFinite(value) ? value : DEFAULT_PET_RANGE_MAX
+  const finiteValue = Number.isFinite(value) ? value : DEFAULT_PET_RANGE_UPPER_LIMIT
   return Number.isInteger(finiteValue) ? String(finiteValue) : String(Number(finiteValue.toFixed(1)))
 }
 
@@ -166,10 +173,7 @@ function updateDraftWindowMax(rawValue: string, flush = false): void {
 }
 
 function updateRangeUpperLimit(rawValue: string): void {
-  const nextValue = Number(rawValue)
-  if (!Number.isFinite(nextValue)) {
-    return
-  }
+  const nextValue = normalizePetRangeUpperLimit(rawValue)
   draftRangeUpperLimit.value = Math.max(1, nextValue)
   rangeUpperLimitSearch.value = rawValue
   clearPendingRangeMaxTimer()
@@ -179,9 +183,9 @@ function updateRangeUpperLimit(rawValue: string): void {
   }, PET_RANGE_MAX_DEBOUNCE_MS)
 }
 
-function applyRangeUpperLimit(rawValue: number): void {
+function applyRangeUpperLimit(rawValue: string | number): void {
   const previousUpperLimit = Math.max(1, rangeUpperLimit.value)
-  const nextUpperLimit = Math.max(1, rawValue)
+  const nextUpperLimit = normalizePetRangeUpperLimit(rawValue)
   const ratio = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, Math.min(1, draftWindowMax.value / previousUpperLimit))
   rangeUpperLimit.value = nextUpperLimit
   draftRangeUpperLimit.value = nextUpperLimit
@@ -191,12 +195,8 @@ function applyRangeUpperLimit(rawValue: number): void {
 }
 
 function handleRangeUpperLimitCommit(rawValue: string): void {
-  const nextValue = Number(rawValue)
-  if (!Number.isFinite(nextValue)) {
-    return
-  }
   clearPendingRangeMaxTimer()
-  applyRangeUpperLimit(nextValue)
+  applyRangeUpperLimit(rawValue)
 }
 
 function handleRangeUpperLimitSearch(rawValue: string | null): void {

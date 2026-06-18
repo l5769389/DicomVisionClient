@@ -393,6 +393,13 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(petDisplayTool.inlineKind).toBe('fusionPetDisplay')
 
     harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetPseudocolor:petct-hot')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionPseudocolor',
+      value: 'fusionPseudocolor:petct-hot'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
     harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetUnit:SUVbw')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'fusionPetUnit',
@@ -404,6 +411,12 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'fusionPetWindow',
       value: 'fusionPetWindow:0:12.5'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetDisplay:reset')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'fusionPetDisplayReset'
     })
 
     harness.emitTriggerViewAction.mockClear()
@@ -459,7 +472,8 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(toolKeys).not.toContain('play')
     expect(toolKeys).not.toContain('qa')
     expect(toolKeys).not.toContain('fusionRegistration')
-    expect(toolKeys).toContain('pseudocolor')
+    expect(toolKeys).not.toContain('window')
+    expect(toolKeys).not.toContain('pseudocolor')
     expect(toolKeys).toContain('fusionPetDisplay')
 
     const petDisplayTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionPetDisplay')!
@@ -474,6 +488,12 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'petWindow',
       value: 'petWindow:0:12.5'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(petDisplayTool, 'petDisplay:reset')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'petDisplayReset'
     })
 
     harness.wrapper.unmount()
@@ -647,6 +667,82 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.activeOperation.value).toBe('stack:window')
     expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:window')
     expect(harness.toolbar.openMenuKey.value).toBe('window')
+    harness.wrapper.unmount()
+  })
+
+  it('maps right-dock pan and zoom reset actions to transform reset', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const panTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'pan')!
+    harness.activeOperation.value = 'stack:pan'
+    harness.toolbar.selectToolOption(panTool, 'transform:reset', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'transformReset' })
+    expect(harness.activeOperation.value).toBe('stack:pan')
+    harness.wrapper.unmount()
+  })
+
+  it('resets window to the last explicitly applied window value for the active target', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack',
+      initialWindowInfo: { ww: 350, wl: 30 }
+    })
+    await nextTick()
+
+    const windowTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'window')!
+    harness.toolbar.selectToolOption(windowTool, '1500|-600', { keepMenuOpen: true })
+    harness.emitTriggerViewAction.mockClear()
+
+    harness.toolbar.selectToolOption(windowTool, 'window:reset', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '1500|-600' })
+    expect(harness.toolbar.stackToolSelections.value.window).toBe('1500|-600')
+    harness.wrapper.unmount()
+  })
+
+  it('resets window to the first image window when no explicit value was applied', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack',
+      initialWindowInfo: { ww: 350, wl: 30 }
+    })
+    await nextTick()
+
+    const windowTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'window')!
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(windowTool, 'window:reset', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '350|30' })
+    expect(harness.toolbar.stackToolSelections.value.window).toBe('350|30')
+    harness.wrapper.unmount()
+  })
+
+  it('leaves window reset as a no-op when no explicit or image window exists', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack',
+      initialWindowInfo: null
+    })
+    await nextTick()
+
+    const windowTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'window')!
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(windowTool, 'window:reset', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).not.toHaveBeenCalled()
     harness.wrapper.unmount()
   })
 

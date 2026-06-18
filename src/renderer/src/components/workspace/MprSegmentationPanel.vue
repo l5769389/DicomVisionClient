@@ -825,13 +825,13 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           </span>
         </span>
         <div class="min-w-0">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ panelCopy.eyebrow }}</div>
+          <div v-if="!props.embedded" class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ panelCopy.eyebrow }}</div>
           <div class="mt-0.5 flex min-w-0 items-center gap-2">
             <span
-              class="text-[12px] font-medium leading-4 text-[var(--theme-text-primary)]"
-              :class="props.embedded ? 'whitespace-normal break-words' : 'truncate'"
+              class="leading-4 text-[var(--theme-text-primary)]"
+              :class="props.embedded ? 'text-[13px] font-semibold' : 'truncate text-[12px] font-medium'"
             >
-              {{ panelCopy.title }}
+              {{ props.embedded ? panelCopy.eyebrow : panelCopy.title }}
             </span>
             <span
               data-testid="mpr-segmentation-processing"

@@ -84,6 +84,7 @@ import {
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET,
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
@@ -348,6 +349,24 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   )
   const activeTab = computed(() => viewerTabs.value.find((item) => item.key === activeTabKey.value) ?? null)
   const hasSelectedSeries = computed(() => Boolean(selectedSeriesId.value))
+
+  function shouldMigrateStandalonePetPseudocolor(tab: ViewerTabItem | null): boolean {
+    if (!tab || tab.viewType !== 'PET') {
+      return false
+    }
+    const preset = normalizePseudocolorPresetKey(tab.petInfo?.pseudocolorPreset ?? tab.pseudocolorPreset)
+    return preset !== DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+  }
+
+  watch(
+    activeTab,
+    (tab) => {
+      if (shouldMigrateStandalonePetPseudocolor(tab)) {
+        handlePetConfigChange({ pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET })
+      }
+    },
+    { immediate: true }
+  )
 
   watch(
     () => [mprSegmentationStylePreference.value.thresholdColor, mprSegmentationStylePreference.value.voiColor] as const,
@@ -916,6 +935,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'transformReset' && !isStackLikeViewType(tab.viewType) && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
     if ((payload.action === 'volumePreset' || payload.action === 'render3dMode') && !hasVolumeView(tab)) {
       return
     }
@@ -1023,6 +1046,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'fusionPetDisplayReset') {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ pseudocolorPreset: 'petct-rainbow' })
+      handleFusionConfigChange({ petUnit: 'SUVbw' })
+      handleFusionConfigChange({
+        petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+        petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+      })
+      return
+    }
+
     if (payload.action === 'petUnit' && payload.value) {
       if (tab.viewType !== 'PET') {
         return
@@ -1040,6 +1076,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (Number.isFinite(petWindowMax)) {
         handlePetConfigChange({ petWindowMin: 0, petWindowMax })
       }
+      return
+    }
+
+    if (payload.action === 'petDisplayReset') {
+      if (tab.viewType !== 'PET') {
+        return
+      }
+      handlePetConfigChange({
+        pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+        petUnit: 'SUVbw',
+        petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+        petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+      })
       return
     }
 
@@ -1096,6 +1145,33 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         opType: VIEW_OPERATION_TYPES.reset,
         subOpType: 'measurements'
       })
+      return
+    }
+
+    if (payload.action === 'transformReset') {
+      const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
+      if (!targets.length) {
+        return
+      }
+
+      viewInteractionOperationScheduler.cancel()
+      clearActiveMprCrosshairDragLock()
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key ? applyTransformToTabTargets(item, targets, DEFAULT_VIEW_TRANSFORM) : item
+      )
+
+      targets.forEach((target) => {
+        emitViewOperation({
+          viewId: target.viewId,
+          opType: VIEW_OPERATION_TYPES.transform2d,
+          rotationDegrees: DEFAULT_VIEW_TRANSFORM.rotationDegrees,
+          hor_flip: DEFAULT_VIEW_TRANSFORM.horFlip,
+          ver_flip: DEFAULT_VIEW_TRANSFORM.verFlip
+        })
+      })
+      if (tab.viewType === '4D') {
+        views.invalidateFourDMprState(tab.key)
+      }
       return
     }
 
@@ -2831,6 +2907,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function handlePetConfigChange(payload: {
+    pseudocolorPreset?: string
     petUnit?: string
     petWindowMin?: number
     petWindowMax?: number
@@ -2845,6 +2922,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     const petUnit = payload.petUnit
+    const pseudocolorPreset = payload.pseudocolorPreset
+      ? normalizePseudocolorPresetKey(payload.pseudocolorPreset)
+      : null
     const petWindowMin = Number.isFinite(payload.petWindowMin)
       ? Number(payload.petWindowMin)
       : (tab.petInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
@@ -2859,11 +2939,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             petInfo: {
               seriesId: item.seriesId,
               ...(item.petInfo ?? {}),
+              ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
               ...(petUnit ? { petUnit } : {}),
               ...(payload.petWindowMin != null || payload.petWindowMax != null
                 ? { petWindowMin, petWindowMax }
                 : {})
-            }
+            },
+            ...(pseudocolorPreset ? { pseudocolorPreset } : {})
           }
         : item
     )
@@ -2871,6 +2953,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     emitViewOperation({
       viewId,
       opType: VIEW_OPERATION_TYPES.petConfig,
+      ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
       ...(petUnit ? { petUnit } : {}),
       ...(payload.petWindowMin != null || payload.petWindowMax != null
         ? {

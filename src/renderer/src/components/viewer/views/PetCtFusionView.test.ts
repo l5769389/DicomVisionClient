@@ -145,8 +145,9 @@ function mountFusionView(activeTab = createFusionTab()) {
         ViewerCanvasStage: {
           name: 'ViewerCanvasStage',
           props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc', 'imageStyle', 'imageLayers', 'isLoading', 'lightSurface', 'showCornerInfo', 'showScaleBar', 'stageSurfaceClass'],
+          emits: ['doubleClickViewport'],
           template:
-            '<div class="viewer-stage-stub viewer-viewport" :class="{ \'viewer-viewport--light-surface\': lightSurface }" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-image-src="imageSrc" :data-image-transform="imageStyle?.transform ?? \'\'" :data-image-transform-origin="imageStyle?.transformOrigin ?? \'\'" :data-is-loading="isLoading ? \'true\' : \'false\'" :data-layer-count="imageLayers?.length ?? 0" :data-layer-key="imageLayers?.[0]?.key ?? \'\'" :data-layer-src="imageLayers?.[0]?.src ?? \'\'" :data-layer-transform="imageLayers?.[0]?.style?.transform ?? \'\'" :data-layer-transform-origin="imageLayers?.[0]?.style?.transformOrigin ?? \'\'" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" :style="imageStyle" /></div>'
+            '<div class="viewer-stage-stub viewer-viewport" :class="{ \'viewer-viewport--light-surface\': lightSurface }" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-image-src="imageSrc" :data-image-transform="imageStyle?.transform ?? \'\'" :data-image-transform-origin="imageStyle?.transformOrigin ?? \'\'" :data-is-loading="isLoading ? \'true\' : \'false\'" :data-layer-count="imageLayers?.length ?? 0" :data-layer-key="imageLayers?.[0]?.key ?? \'\'" :data-layer-src="imageLayers?.[0]?.src ?? \'\'" :data-layer-transform="imageLayers?.[0]?.style?.transform ?? \'\'" :data-layer-transform-origin="imageLayers?.[0]?.style?.transformOrigin ?? \'\'" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" :style="imageStyle" /></div>'
         }
       }
     }
@@ -253,6 +254,40 @@ describe('PetCtFusionView', () => {
     expect(wrapper.find(`[data-fusion-pane-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`).classes()).not.toContain('pet-ct-fusion-view__pane--pet-standalone')
     expect(wrapper.find(`[data-fusion-pane-key="${FUSION_CT_AXIAL_PANE_KEY}"]`).classes()).not.toContain('pet-ct-fusion-view__pane--pet-standalone')
 
+    wrapper.unmount()
+  })
+
+  it('toggles a single fusion pane on double click and resets after tab changes', async () => {
+    const wrapper = mountFusionView()
+    const getPane = (paneKey: FusionPaneKey) => wrapper.find(`[data-fusion-pane-key="${paneKey}"]`)
+
+    expect(wrapper.find('.pet-ct-fusion-view__grid').classes()).not.toContain('pet-ct-fusion-view__grid--expanded')
+    expect(wrapper.findAll('.pet-ct-fusion-view__pane--hidden-by-expanded')).toHaveLength(0)
+
+    await wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).trigger('dblclick')
+
+    expect(wrapper.find('.pet-ct-fusion-view__grid').classes()).toContain('pet-ct-fusion-view__grid--expanded')
+    expect(getPane(FUSION_PET_AXIAL_PANE_KEY).classes()).toContain('pet-ct-fusion-view__pane--expanded')
+    expect(getPane(FUSION_OVERLAY_AXIAL_PANE_KEY).classes()).toContain('pet-ct-fusion-view__pane--hidden-by-expanded')
+    expect(wrapper.emitted('viewportClick')?.at(-1)).toEqual([FUSION_PET_AXIAL_PANE_KEY])
+
+    await wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).trigger('dblclick')
+
+    expect(wrapper.find('.pet-ct-fusion-view__grid').classes()).not.toContain('pet-ct-fusion-view__grid--expanded')
+    expect(wrapper.findAll('.pet-ct-fusion-view__pane--hidden-by-expanded')).toHaveLength(0)
+
+    await wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_CT_AXIAL_PANE_KEY}"]`).trigger('dblclick')
+    expect(getPane(FUSION_CT_AXIAL_PANE_KEY).classes()).toContain('pet-ct-fusion-view__pane--expanded')
+
+    await wrapper.setProps({
+      activeTab: createFusionTab({
+        key: 'fusion:ct:pet:next'
+      })
+    })
+    await nextTick()
+
+    expect(wrapper.find('.pet-ct-fusion-view__grid').classes()).not.toContain('pet-ct-fusion-view__grid--expanded')
+    expect(wrapper.findAll('.pet-ct-fusion-view__pane--hidden-by-expanded')).toHaveLength(0)
     wrapper.unmount()
   })
 

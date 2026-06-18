@@ -90,6 +90,37 @@ describe('MprMipConfigPanel', () => {
     ])
   })
 
+  it('uses a full embedded layout without the compact collapse control', async () => {
+    const wrapper = mount(MprMipConfigPanel, {
+      props: {
+        config: createEnabledMipConfig(42),
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.classes()).toContain('mpr-mip-config-panel--embedded')
+    expect(wrapper.findAll('[data-testid="mpr-mip-reset"]')).toHaveLength(1)
+    expect(wrapper.findAll('button').some((button) => /Collapse|Expand/.test(button.attributes('title') ?? ''))).toBe(false)
+
+    await wrapper.find('[data-testid="mpr-mip-reset"]').trigger('click')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        viewports: {
+          'mpr-ax': { thickness: 10 },
+          'mpr-cor': { thickness: 10 },
+          'mpr-sag': { thickness: 10 }
+        }
+      }),
+      'end'
+    ])
+  })
+
   it('exposes the enable switch before reset and algorithm radio choices above the sliders', async () => {
     const wrapper = mount(MprMipConfigPanel, {
       props: {

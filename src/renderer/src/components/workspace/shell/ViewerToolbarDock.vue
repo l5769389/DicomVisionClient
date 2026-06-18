@@ -47,7 +47,7 @@ const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'segmentation']
 const actionDetailToolKeys = new Set(['annotate'])
 const unselectedActionMenuToolKeys = new Set(['rotate', 'export', 'reset'])
 const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
-const modeOptionPanelToolKeys = new Set(['window', 'measure', 'qa'])
+const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'measure', 'qa'])
 
 function getDockToolOptions(tool: StackTool): StackToolOption[] {
   return tool.options ?? tool.dockOptions ?? []
@@ -354,6 +354,7 @@ watch(
             v-else
             :key="`empty:${activeDisplayTool?.key ?? activeTab.key}`"
             class="viewer-toolbar-dock__panel-content-shell viewer-toolbar-dock__panel-content-shell--empty"
+            :class="{ 'viewer-toolbar-dock__panel-content-shell--empty-with-action': activeDisplayTool?.key === 'annotate' }"
           >
             <div class="viewer-toolbar-dock__active-tool-panel">
               <div class="viewer-toolbar-dock__active-tool-icon">
@@ -602,6 +603,11 @@ watch(
   align-content: start;
 }
 
+.viewer-toolbar-dock__panel-content-shell--empty-with-action {
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .viewer-toolbar-dock-panel-enter-active,
 .viewer-toolbar-dock-panel-leave-active {
   transition:
@@ -668,11 +674,24 @@ watch(
   overflow: visible;
 }
 
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--with-actions {
+  flex: 1 1 auto;
+}
+
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--fusionPetDisplay {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
 .viewer-toolbar-dock__embedded-result-panel {
   min-width: 0;
   min-height: 0;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
-  padding-top: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 62%, transparent), color-mix(in srgb, var(--theme-surface-panel-solid) 72%, transparent));
+  padding: 10px;
 }
 
 .viewer-toolbar-dock__status {
@@ -732,6 +751,7 @@ watch(
 
 .viewer-toolbar-dock__active-tool-action {
   display: grid;
+  align-self: end;
   min-width: 0;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;

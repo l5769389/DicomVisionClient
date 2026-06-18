@@ -94,7 +94,8 @@ async function createStackLayoutSeedSlot(
       viewportKey: 'single',
       viewId: tab.viewId,
       sliceLabel: tab.sliceLabel,
-      windowLabel: tab.windowLabel
+      windowLabel: tab.windowLabel,
+      initialWindowInfo: tab.initialWindowInfo ?? null
     }),
     tab.imageSrc,
     cloneImageSrc
@@ -117,7 +118,8 @@ async function createMprLayoutSeedSlots(
           viewportKey,
           viewId: tab.viewportViewIds?.[viewportKey] ?? null,
           sliceLabel: tab.viewportSliceLabels?.[viewportKey] ?? '',
-          windowLabel: tab.windowLabel
+          windowLabel: tab.windowLabel,
+          initialWindowInfo: tab.viewportInitialWindowInfos?.[viewportKey] ?? null
         }),
         tab.viewportImages?.[viewportKey],
         cloneImageSrc
@@ -142,7 +144,8 @@ async function createCompareLayoutSeedSlots(
           viewportKey: paneKey,
           viewId: tab.compareViewIds?.[paneKey] ?? null,
           sliceLabel: tab.compareSliceLabels?.[paneKey] ?? '',
-          windowLabel: tab.compareWindowLabels?.[paneKey] ?? ''
+          windowLabel: tab.compareWindowLabels?.[paneKey] ?? '',
+          initialWindowInfo: tab.compareInitialWindowInfos?.[paneKey] ?? null
         }),
         tab.compareImages?.[paneKey],
         cloneImageSrc

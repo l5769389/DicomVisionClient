@@ -10,6 +10,7 @@ import { useUiLocale } from '../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   config: MprMipConfig
+  embedded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -137,7 +138,7 @@ function resetViewportThicknesses(): void {
   <div
     v-bind="$attrs"
     class="theme-shell-panel max-w-[calc(100vw-2.5rem)] overflow-y-auto rounded-[22px] border-[color:color-mix(in_srgb,var(--theme-border-strong)_85%,white_8%)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_96%,black_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.03),0_24px_54px_rgba(0,0,0,0.42),0_8px_20px_rgba(0,0,0,0.24)] backdrop-blur-xl transition-[width]"
-    :class="isCollapsed ? 'w-[300px]' : 'w-[368px]'"
+    :class="props.embedded ? 'mpr-mip-config-panel--embedded flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-transparent px-0 py-0 shadow-none' : isCollapsed ? 'w-[300px]' : 'w-[368px]'"
   >
     <div class="mb-3 flex items-start justify-between gap-3">
       <div>
@@ -167,9 +168,10 @@ function resetViewportThicknesses(): void {
               :class="displayedConfig.enabled ? 'left-[13px]' : 'left-0.5 opacity-70'"
             ></span>
           </span>
-          <span v-if="!isCollapsed">MIP</span>
+          <span v-if="!isCollapsed && !props.embedded">MIP</span>
         </button>
         <button
+          v-if="!props.embedded"
           data-testid="mpr-mip-reset"
           class="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 text-[11px] font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
@@ -180,6 +182,7 @@ function resetViewportThicknesses(): void {
           <span v-if="!isCollapsed">{{ resetLabel }}</span>
         </button>
         <button
+          v-if="!props.embedded"
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
           type="button"
           :title="isCollapsed ? copy.expand : copy.collapse"
@@ -217,7 +220,10 @@ function resetViewportThicknesses(): void {
       </label>
     </div>
 
-    <div class="space-y-2">
+    <div
+      class="space-y-2"
+      :class="props.embedded ? 'min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]' : ''"
+    >
       <div
         v-for="viewport in viewportOptions"
         :key="viewport.key"
@@ -227,7 +233,7 @@ function resetViewportThicknesses(): void {
           displayedConfig.enabled ? 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-50 grayscale'
         ]"
       >
-        <div v-if="isCollapsed" class="flex items-center gap-2">
+        <div v-if="isCollapsed && !props.embedded" class="flex items-center gap-2">
           <div class="w-8 shrink-0 text-[12px] font-medium text-[var(--theme-text-primary)]">
             {{ viewport.label }}
           </div>
@@ -304,6 +310,27 @@ function resetViewportThicknesses(): void {
           </div>
         </template>
       </div>
+    </div>
+
+    <div
+      v-if="props.embedded"
+      class="mt-auto border-t border-[var(--theme-border-soft)] pt-2"
+    >
+      <button
+        data-testid="mpr-mip-reset"
+        class="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[14px] border border-[color:color-mix(in_srgb,var(--theme-status-danger)_30%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-status-danger)_8%,var(--theme-surface-card))] px-3 py-2.5 text-left text-[var(--theme-text-primary)] transition hover:border-[color:color-mix(in_srgb,var(--theme-status-danger)_48%,var(--theme-border-strong))] hover:bg-[color:color-mix(in_srgb,var(--theme-status-danger)_13%,var(--theme-surface-card))]"
+        type="button"
+        :title="resetLabel"
+        @click="resetViewportThicknesses"
+      >
+        <span class="grid h-9 w-9 place-items-center rounded-[12px] border border-[color:color-mix(in_srgb,var(--theme-status-danger)_32%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-status-danger)_10%,transparent)] text-[var(--theme-status-danger-text)]">
+          <AppIcon name="reset" :size="16" />
+        </span>
+        <span class="min-w-0">
+          <span class="block truncate text-[13px] font-[850]">{{ resetLabel }}</span>
+          <span class="mt-0.5 block truncate text-[11px] text-[var(--theme-text-muted)]">{{ isZh ? '恢复 MIP 厚度默认值' : 'Restore default MIP thickness values.' }}</span>
+        </span>
+      </button>
     </div>
   </div>
 </template>

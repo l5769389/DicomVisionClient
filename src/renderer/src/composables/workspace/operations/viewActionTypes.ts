@@ -5,6 +5,7 @@ export type ViewerDisplayOverlayKey = 'cornerInfo' | 'scaleBar'
 
 export type ViewerToolbarAction =
   | 'reset'
+  | 'transformReset'
   | 'clearMeasurements'
   | 'clearMtf'
   | 'clearAnnotations'
@@ -24,8 +25,10 @@ export type ViewerToolbarAction =
   | 'fusionPseudocolor'
   | 'fusionPetUnit'
   | 'fusionPetWindow'
+  | 'fusionPetDisplayReset'
   | 'petUnit'
   | 'petWindow'
+  | 'petDisplayReset'
   | 'displayOverlay'
 
 export interface ViewerToolbarActionPayload {

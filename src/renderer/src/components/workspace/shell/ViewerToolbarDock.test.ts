@@ -181,6 +181,47 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([tools[1], '1500|-600', { keepMenuOpen: true }])
   })
 
+  it('renders the window reset action at the bottom of the right dock panel', async () => {
+    const wrapper = mountDock({
+      openMenuKey: 'window',
+      stackToolSelections: { window: '400|40' }
+    })
+
+    const actionZone = wrapper.find('.viewer-toolbar-dock-panel-content__action-zone')
+    expect(actionZone.exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__options-scroll--window').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="viewer-toolbar-dock-window-window-reset"]').trigger('click')
+
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([tools[1], 'window:reset', { keepMenuOpen: true }])
+  })
+
+  it('applies pan mode while showing a bottom transform reset action', async () => {
+    const panTool: StackTool = {
+      key: 'pan',
+      label: 'Pan',
+      icon: 'pan',
+      kind: 'mode',
+      dockOptions: [{ value: 'transform:reset', label: 'Reset Transform', icon: 'reset' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [panTool],
+      isToolSelected: vi.fn(() => false)
+    })
+
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+
+    expect(wrapper.emitted('setMenuOpen')).toEqual([['pan']])
+    expect(wrapper.emitted('applyTool')?.[0]).toEqual([panTool, { keepMenuOpen: true }])
+
+    await wrapper.find('[data-testid="viewer-toolbar-dock-pan-transform-reset"]').trigger('click')
+
+    const selectEvent = wrapper.emitted('selectToolOption')?.[0]
+    expect(selectEvent?.[0]).toMatchObject({ key: 'pan', options: [{ value: 'transform:reset' }] })
+    expect(selectEvent?.[1]).toBe('transform:reset')
+    expect(selectEvent?.[2]).toEqual({ keepMenuOpen: true })
+  })
+
   it('applies the selected measurement mode when opening the right dock measure panel', async () => {
     const measureTool: StackTool = {
       key: 'measure',
@@ -334,7 +375,11 @@ describe('ViewerToolbarDock', () => {
         stackToolSelections: { [tool.key]: tool.options![0]!.value }
       })
 
-      expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(1)
+      expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(tool.key === 'reset' ? 0 : 1)
+      if (tool.key === 'reset') {
+        expect(wrapper.find('.viewer-toolbar-dock-panel-content__action-zone').exists()).toBe(true)
+        expect(wrapper.find('.viewer-toolbar-dock-panel-content__danger-action').exists()).toBe(true)
+      }
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
       wrapper.unmount()
@@ -362,6 +407,8 @@ describe('ViewerToolbarDock', () => {
 
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').text()).toContain('MTF')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__group-label').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__badge').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__button svg').exists()).toBe(true)
   })
 
@@ -422,16 +469,134 @@ describe('ViewerToolbarDock', () => {
   })
 
   it('renders annotation clear as a right dock detail action', async () => {
-    const annotateTool: StackTool = { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' }
+    const annotateTool: StackTool = {
+      key: 'annotate',
+      label: 'Annotate',
+      icon: 'annotate',
+      kind: 'mode',
+      dockOptions: [
+        {
+          value: 'reset:annotations',
+          label: 'Clear Annotations',
+          icon: 'reset',
+          description: 'Remove annotations from the current target view.'
+        }
+      ]
+    }
     const wrapper = mountDock({
       activeTools: [annotateTool],
       isToolSelected: vi.fn(() => true)
     })
 
-    expect(wrapper.find('.viewer-toolbar-dock__active-tool-action').exists()).toBe(true)
-    await wrapper.find('.viewer-toolbar-dock__active-tool-action').trigger('click')
+    expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Annotate')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__action-zone').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option').exists()).toBe(false)
 
-    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([annotateTool, 'reset:annotations', { keepMenuOpen: true }])
+    await wrapper.find('[data-testid="viewer-toolbar-dock-annotate-reset-annotations"]').trigger('click')
+
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([
+      expect.objectContaining({
+        key: 'annotate',
+        options: [
+          {
+            value: 'reset:annotations',
+            label: 'Clear Annotations',
+            icon: 'reset',
+            description: 'Remove annotations from the current target view.'
+          }
+        ]
+      }),
+      'reset:annotations',
+      { keepMenuOpen: true }
+    ])
+  })
+
+  it('shows PET display controls instead of CT window templates for standalone PET tabs', async () => {
+    const petDisplayTool: StackTool = {
+      key: 'fusionPetDisplay',
+      label: 'PET',
+      icon: 'pseudocolor',
+      kind: 'action',
+      inlineKind: 'fusionPetDisplay',
+      dockOptions: [
+        {
+          value: 'petDisplay:reset',
+          label: 'Reset PET Display',
+          icon: 'reset',
+          description: 'Restore PET display range and unit.'
+        }
+      ]
+    }
+    const petTab = {
+      ...activeTab,
+      key: 'pet::PET',
+      title: 'PET FDG SUV / PET',
+      viewType: 'PET',
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 8,
+        pseudocolorPreset: 'bwinverse'
+      }
+    } as ViewerTabItem
+    const wrapper = mountDock({
+      activeTab: petTab,
+      activeTools: [petDisplayTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'fusionPetDisplay'
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content--fusionPetDisplay').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__custom-window').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__options-scroll--window').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Pseudocolor')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__pet-pseudocolor-option').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Intensity Range')
+    expect(wrapper.text()).toContain('Unit')
+
+    await wrapper.find('.viewer-toolbar-dock-panel-content__pet-range-track input').setValue('12.5')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'fusionPetDisplay' }),
+      'petWindow:0:12.5',
+      { keepMenuOpen: true }
+    ])
+
+    const rangeMaxInput = wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input')
+    await rangeMaxInput.setValue('40')
+    await rangeMaxInput.trigger('change')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input').element.value).toBe('40')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input').element.max).toBe('40')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'fusionPetDisplay' }),
+      'petWindow:0:12.5',
+      { keepMenuOpen: true }
+    ])
+
+    const updatedRangeMaxInput = wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input')
+    await updatedRangeMaxInput.setValue('1000')
+    await updatedRangeMaxInput.trigger('change')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input').element.value).toBe('30')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input').element.max).toBe('30')
+
+    const unitButtons = wrapper.findAll('.viewer-toolbar-dock-panel-content__chip')
+    const kbqButton = unitButtons.find((button) => button.text().includes('kBq/ml'))
+    expect(kbqButton).toBeDefined()
+    await kbqButton!.trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'fusionPetDisplay' }),
+      'petUnit:kBqml',
+      { keepMenuOpen: true }
+    ])
+
+    await wrapper.find('[data-testid="viewer-toolbar-dock-pet-display-reset"]').trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'fusionPetDisplay' }),
+      'petDisplay:reset',
+      { keepMenuOpen: true }
+    ])
   })
 
   it('uses a discrete slider for playback FPS in the right dock panel', async () => {

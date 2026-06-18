@@ -65,6 +65,7 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   fusionManualRegistration: '配准',
   fusionRegistration: '配准',
   fusionPseudocolor: 'PET 伪彩',
+  fusionPetDisplay: 'PET 显示',
   fusionRegistrationReset: '重置配准',
   fusionRegistrationSave: '保存配准',
   fusionRegistrationLoad: '加载配准',
@@ -127,6 +128,10 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'reset:measurements': { label: '清除测量', description: '移除当前视图中的所有测量。' },
   'reset:mtf': { label: '清除 MTF', description: '移除当前视图中的所有 MTF ROI。' },
   'reset:view': { label: '重置视图', description: '重置当前视图参数和显示状态。' },
+  'transform:reset': { label: '重置变换', description: '恢复当前视图的平移、缩放、旋转和镜像状态。' },
+  'window:reset': { label: '重置窗值', description: '恢复当前选择的窗值，或回到影像内置窗值。' },
+  'petDisplay:reset': { label: '重置 PET 显示', description: '恢复 PET 强度范围和单位。' },
+  'fusionPetDisplay:reset': { label: '重置 PET 显示', description: '恢复 PET 伪彩、单位和强度范围。' },
   'rotate:ccw90': { label: '逆时针 90°' },
   'rotate:cw90': { label: '顺时针 90°' },
   'rotate:mirror-h': { label: '水平镜像' },
@@ -202,7 +207,16 @@ const fusionPetDisplayTool: StackTool = {
   label: 'PET',
   icon: 'pseudocolor',
   kind: 'action',
-  inlineKind: 'fusionPetDisplay'
+  inlineKind: 'fusionPetDisplay',
+  showSelectedOptionIcon: false,
+  dockOptions: [
+    {
+      value: 'petDisplay:reset',
+      label: 'Reset PET Display',
+      icon: 'reset',
+      description: 'Restore PET display range and unit.'
+    }
+  ]
 }
 
 const fusionRegistrationTool: StackTool = {
@@ -327,10 +341,36 @@ const rotateOptions: StackToolOption[] = [
   { value: 'rotate:reset', label: 'Reset Rotation', icon: 'reset' }
 ]
 
+const transformResetDockOptions: StackToolOption[] = [
+  {
+    value: 'transform:reset',
+    label: 'Reset Transform',
+    icon: 'reset',
+    description: 'Restore pan, zoom, rotation, and mirror state for the current view.'
+  }
+]
+
+const annotationClearDockOptions: StackToolOption[] = [
+  {
+    value: 'reset:annotations',
+    label: 'Clear Annotations',
+    icon: 'reset',
+    description: 'Remove annotations from the current target view.'
+  }
+]
+
+const annotateTool: StackTool = {
+  key: 'annotate',
+  label: 'Annotate',
+  icon: 'annotate',
+  kind: 'mode',
+  dockOptions: annotationClearDockOptions
+}
+
 const stackTools: StackTool[] = [
   layoutTool,
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   {
     key: 'rotate',
@@ -342,7 +382,7 @@ const stackTools: StackTool[] = [
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   playTool,
   pseudocolorTool,
-  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
+  annotateTool,
   measureTool,
   qaTool,
   exportTool,
@@ -567,8 +607,8 @@ const layoutStackTools: StackTool[] = stackTools
   .map(withoutMtfResetOption)
 
 const fusionTools: StackTool[] = [
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   {
     key: 'rotate',
@@ -578,7 +618,7 @@ const fusionTools: StackTool[] = [
     options: rotateOptions
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
-  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
+  annotateTool,
   measureTool,
   exportTool,
   tagTool,
@@ -600,9 +640,9 @@ const fusionTools: StackTool[] = [
 ]
 
 const petTools: StackTool[] = [
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
-  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  fusionPetDisplayTool,
   {
     key: 'rotate',
     label: 'Rotate',
@@ -611,8 +651,7 @@ const petTools: StackTool[] = [
     options: rotateOptions
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
-  pseudocolorTool,
-  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
+  annotateTool,
   measureTool,
   exportTool,
   tagTool,
@@ -628,14 +667,13 @@ const petTools: StackTool[] = [
       { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current view.' },
       { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
     ]
-  }),
-  fusionPetDisplayTool
+  })
 ]
 
 const genericTools: StackTool[] = [
   layoutTool,
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   measureTool,
   pseudocolorTool,
@@ -695,8 +733,8 @@ const segmentationTool: StackTool = {
 const volumeTools: StackTool[] = [
   layoutTool,
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   render3dModeTool,
   volumeParamsTool,
@@ -721,8 +759,8 @@ const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode', showSelectedOptionIcon: false },
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   measureTool,
   pseudocolorTool,
@@ -808,6 +846,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
+  const explicitWindowSelectionByTargetKey = new Map<string, string>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
 
   const toolbarIconSize = 18
@@ -819,6 +858,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function formatWindowPresetValue(ww: number, wl: number): string {
     return `${ww}|${wl}`
+  }
+
+  function parseWindowPresetValue(value: string | null | undefined): { ww: number; wl: number } | null {
+    const [wwRaw, wlRaw] = String(value ?? '').split('|')
+    const ww = Number.parseFloat(wwRaw)
+    const wl = Number.parseFloat(wlRaw)
+    return Number.isFinite(ww) && ww > 0 && Number.isFinite(wl) ? { ww, wl } : null
   }
 
   function clampStackPlaybackFps(value: number | null | undefined): number {
@@ -1160,6 +1206,66 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   function getActiveLayoutSlot(tab: ViewerTabItem): NonNullable<ViewerTabItem['layoutSlots']>[number] | null {
     const slots = tab.layoutSlots ?? []
     return slots.find((slot) => slot.id === options.activeViewportKey.value && slot.viewId) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
+  }
+
+  function resolveActiveComparePaneKey(tab: ViewerTabItem): CompareStackPaneKey {
+    const viewportKey = options.activeViewportKey.value
+    if (viewportKey === COMPARE_STACK_TARGET_PANE_KEY && tab.compareViewIds?.[COMPARE_STACK_TARGET_PANE_KEY]) {
+      return COMPARE_STACK_TARGET_PANE_KEY
+    }
+    return COMPARE_STACK_SOURCE_PANE_KEY
+  }
+
+  function resolveActiveFusionPaneKey(tab: ViewerTabItem): FusionPaneKey {
+    const viewportKey = options.activeViewportKey.value
+    return isFusionPaneKey(viewportKey) && tab.fusionViewIds?.[viewportKey]
+      ? viewportKey
+      : FUSION_OVERLAY_AXIAL_PANE_KEY
+  }
+
+  function resolveActiveMprViewportKey(tab: ViewerTabItem): 'mpr-ax' | 'mpr-cor' | 'mpr-sag' {
+    const viewportKey = options.activeViewportKey.value
+    if ((viewportKey === 'mpr-ax' || viewportKey === 'mpr-cor' || viewportKey === 'mpr-sag') && tab.viewportViewIds?.[viewportKey]) {
+      return viewportKey
+    }
+    return 'mpr-ax'
+  }
+
+  function getWindowSelectionTargetKey(tab: ViewerTabItem): string {
+    if (tab.viewType === 'Layout') {
+      return `${tab.key}:${getActiveLayoutSlot(tab)?.id ?? 'layout'}`
+    }
+    if (tab.viewType === 'CompareStack') {
+      return `${tab.key}:${resolveActiveComparePaneKey(tab)}`
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      return `${tab.key}:${resolveActiveFusionPaneKey(tab)}`
+    }
+    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+      return `${tab.key}:${resolveActiveMprViewportKey(tab)}`
+    }
+    return `${tab.key}:single`
+  }
+
+  function getInitialWindowSelectionValue(tab: ViewerTabItem): string | null {
+    if (tab.viewType === 'Layout') {
+      const info = getActiveLayoutSlot(tab)?.initialWindowInfo
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    if (tab.viewType === 'CompareStack') {
+      const info = tab.compareInitialWindowInfos?.[resolveActiveComparePaneKey(tab)]
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      const info = tab.fusionInitialWindowInfos?.[resolveActiveFusionPaneKey(tab)]
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+      const info = tab.viewportInitialWindowInfos?.[resolveActiveMprViewportKey(tab)] ?? tab.initialWindowInfo
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    const info = tab.initialWindowInfo
+    return info ? formatWindowPresetValue(info.ww, info.wl) : null
   }
 
   function getActiveSeriesIdForTab(tab: ViewerTabItem | null | undefined): string {
@@ -1698,6 +1804,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+    if (optionValue === 'transform:reset') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      options.emitTriggerViewAction({ action: 'transformReset' })
+      return
+    }
+
     if (tool.key === 'display') {
       const overlay = parseDisplayOverlaySelectionValue(optionValue)
       const selectedOption = tool.options?.find((option) => option.value === optionValue)
@@ -1904,6 +2018,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         options.emitTriggerViewAction({ action: 'petWindow', value: optionValue })
         return
       }
+      if (optionValue === 'petDisplay:reset') {
+        options.emitTriggerViewAction({ action: 'petDisplayReset' })
+        return
+      }
+      if (optionValue === 'fusionPetDisplay:reset') {
+        options.emitTriggerViewAction({ action: 'fusionPetDisplayReset' })
+        return
+      }
     }
 
     if (tool.key === 'fusionRegistration') {
@@ -1939,6 +2061,35 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     if (tool.key === 'window') {
+      if (optionValue === 'window:reset') {
+        const activeTab = options.activeTab.value
+        if (!activeTab) {
+          return
+        }
+        options.stopViewportDrag()
+        setToolbarToolActive('window')
+        if (options.activeOperation.value !== `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`) {
+          options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
+        }
+        const targetKey = getWindowSelectionTargetKey(activeTab)
+        const resetValue = explicitWindowSelectionByTargetKey.get(targetKey) ?? getInitialWindowSelectionValue(activeTab)
+        if (!resetValue || !parseWindowPresetValue(resetValue)) {
+          closeMenusIfNeeded(behavior)
+          return
+        }
+        stackToolSelections.value = {
+          ...stackToolSelections.value,
+          window: resetValue
+        }
+        closeMenusIfNeeded(behavior)
+        options.emitTriggerViewAction({ action: 'windowPreset', value: resetValue })
+        return
+      }
+
+      const parsedWindowValue = parseWindowPresetValue(optionValue)
+      if (!parsedWindowValue) {
+        return
+      }
       const selectedPreset = windowPresets.value.find((preset) => formatWindowPresetValue(preset.ww, preset.wl) === optionValue)
       if (selectedPreset) {
         selectedWindowPresetId.value = selectedPreset.id
@@ -1948,7 +2099,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       if (options.activeOperation.value !== `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`) {
         options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
       }
-      options.emitTriggerViewAction({ action: 'windowPreset', value: optionValue })
+      const activeTab = options.activeTab.value
+      if (activeTab) {
+        explicitWindowSelectionByTargetKey.set(getWindowSelectionTargetKey(activeTab), formatWindowPresetValue(parsedWindowValue.ww, parsedWindowValue.wl))
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        window: formatWindowPresetValue(parsedWindowValue.ww, parsedWindowValue.wl)
+      }
+      closeMenusIfNeeded(behavior)
+      options.emitTriggerViewAction({ action: 'windowPreset', value: formatWindowPresetValue(parsedWindowValue.ww, parsedWindowValue.wl) })
       return
     }
 

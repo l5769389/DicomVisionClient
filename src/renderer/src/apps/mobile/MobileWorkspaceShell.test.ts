@@ -112,6 +112,10 @@ vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
       addCustomWindowPreset: vi.fn(() => 'soft'),
       getWindowPresetLabel: (preset: { labels: Record<string, string> }) => preset.labels['zh-CN'],
       locale: ref('zh-CN'),
+      mprSegmentationStylePreference: ref({
+        thresholdColor: '#ff4df8',
+        voiColor: '#22d3ee'
+      }),
       pacsPreference: ref({
         activeProfileId: 'pacs-1',
         enabled: true,
@@ -331,6 +335,68 @@ function createFourDTab(seriesId = 'series-1', overrides: Partial<ViewerTabItem>
   })
 }
 
+function createPetTab(seriesId = 'pet-series', overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
+  return createStackTab(seriesId, {
+    key: 'pet-tab',
+    seriesTitle: 'PET Demo',
+    title: 'PET Demo',
+    viewId: 'pet-view',
+    viewType: 'PET',
+    ...overrides
+  })
+}
+
+function createFusionTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
+  return createStackTab('ct-series', {
+    fusionCornerInfos: {
+      'fusion-ct-ax': { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] },
+      'fusion-pet-ax': { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] },
+      'fusion-overlay-ax': { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] },
+      'fusion-pet-cor-mip': { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [] }
+    },
+    fusionImages: {
+      'fusion-ct-ax': 'blob:ct',
+      'fusion-pet-ax': 'blob:pet',
+      'fusion-overlay-ax': 'blob:fusion',
+      'fusion-pet-cor-mip': 'blob:mip'
+    },
+    fusionManualRegistration: false,
+    fusionPseudocolorPresets: {
+      'fusion-ct-ax': 'petct-rainbow',
+      'fusion-pet-ax': 'petct-rainbow',
+      'fusion-overlay-ax': 'petct-rainbow',
+      'fusion-pet-cor-mip': 'petct-rainbow'
+    },
+    fusionScaleBars: {
+      'fusion-ct-ax': null,
+      'fusion-pet-ax': null,
+      'fusion-overlay-ax': null,
+      'fusion-pet-cor-mip': null
+    },
+    fusionSeriesIds: {
+      ctSeriesId: 'ct-series',
+      petSeriesId: 'pet-series'
+    },
+    fusionSliceLabels: {
+      'fusion-ct-ax': '1 / 10',
+      'fusion-pet-ax': '2 / 20',
+      'fusion-overlay-ax': '1 / 10',
+      'fusion-pet-cor-mip': '1 / 1'
+    },
+    fusionViewIds: {
+      'fusion-ct-ax': 'fusion-ct',
+      'fusion-pet-ax': 'fusion-pet',
+      'fusion-overlay-ax': 'fusion-overlay',
+      'fusion-pet-cor-mip': 'fusion-mip'
+    },
+    key: 'fusion-tab',
+    title: 'PET/CT Fusion',
+    viewId: '',
+    viewType: 'PETCTFusion',
+    ...overrides
+  })
+}
+
 function createTagTab(seriesId = 'series-1', overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
   return createStackTab(seriesId, {
     imageSrc: '',
@@ -359,6 +425,7 @@ function createMockViewer() {
     applyLoadedDicomSeries: vi.fn(),
     closeTab: vi.fn(),
     handleCompareSyncChange: vi.fn(),
+    handleFusionRegistrationDrag: vi.fn(),
     handleHoverViewportChange: vi.fn(),
     handleFourDFpsChange: vi.fn(),
     handleFourDPhaseChange: vi.fn(),
@@ -377,6 +444,7 @@ function createMockViewer() {
     isLoadingFolder: ref(false),
     isViewLoading: ref(false),
     openSeriesCompare: vi.fn(),
+    openPetCtFusion: vi.fn(),
     openSeriesView: vi.fn(),
     selectSeries: vi.fn((seriesId: string) => {
       selectedSeriesId.value = seriesId
@@ -428,8 +496,17 @@ function mountShell() {
           template: '<div data-testid="mobile-compare-stub"><button data-testid="stub-compare-b" @click="$emit(\'activeViewportChange\', \'compare-b\')">B</button></div>'
         },
         MobileMprViewport: {
-          emits: ['activeViewportChange'],
-          template: '<div class="mobile-mpr-stub"><button data-testid="stub-mpr-cor" @click="$emit(\'activeViewportChange\', \'mpr-cor\')">COR</button></div>'
+          emits: ['activeViewportChange', 'mprSegmentationConfigChange', 'mprSegmentationModeChange'],
+          template: '<div class="mobile-mpr-stub"><button data-testid="stub-mpr-cor" @click="$emit(\'activeViewportChange\', \'mpr-cor\')">COR</button><button data-testid="stub-mpr-seg-mode" @click="$emit(\'mprSegmentationModeChange\', \'segmentation:threshold\', \'mpr-ax\')">Seg</button></div>'
+        },
+        MobilePetCtFusionViewport: {
+          emits: ['activeViewportChange', 'fusionRegistrationDrag'],
+          template: '<div data-testid="mobile-fusion-stub"><button data-testid="stub-fusion-pet" @click="$emit(\'activeViewportChange\', \'fusion-pet-ax\')">PET</button><button data-testid="stub-fusion-drag" @click="$emit(\'fusionRegistrationDrag\', { viewportKey: \'fusion-overlay-ax\', phase: \'move\', subOpType: \'translate\', deltaX: 3, deltaY: 4 })">Drag</button></div>'
+        },
+        MprSegmentationPanel: {
+          props: ['config'],
+          emits: ['close', 'configChange', 'modeChange'],
+          template: '<div data-testid="mobile-segmentation-panel"><button data-testid="mobile-segmentation-config-change" @click="$emit(\'configChange\', config, \'local\')">Config</button><button data-testid="mobile-segmentation-mode-change" @click="$emit(\'modeChange\', \'segmentation:voi\', \'mpr-cor\')">Mode</button></div>'
         },
         MobileSettingsOverlay: {
           props: ['isOpen'],
@@ -493,6 +570,22 @@ describe('MobileWorkspaceShell', () => {
       { openFirstSeriesView: false, selectLoadedSeries: true }
     )
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+  })
+
+  it('opens the first loaded PET series as Stack on mobile', async () => {
+    vi.stubEnv('VITE_MOBILE_SAMPLE_MODE', 'server-sample')
+    const series = createSeries({ modality: 'PT', seriesId: 'pet-series', seriesDescription: 'PET Demo' })
+    postApiMock.mockResolvedValue({ seriesList: [series] })
+    mockViewer.applyLoadedDicomSeries.mockImplementation(async () => {
+      mockViewer.seriesList.value = [series]
+      return [series]
+    })
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-load-demo"]').trigger('click')
+    await flushPromises()
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('pet-series', 'Stack', { useHangingProtocol: false })
   })
 
   it('loads the configured local dev sample path directly in local-path mode', async () => {
@@ -565,8 +658,60 @@ describe('MobileWorkspaceShell', () => {
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-tool-window"]').trigger('click')
 
-    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(true)
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
+  })
+
+  it('exposes zoom as a direct toolbar operation across mobile image views', async () => {
+    const cases: Array<{ tab: ViewerTabItem; series: FolderSeriesItem[] }> = [
+      { tab: createStackTab(), series: [createSeries()] },
+      { tab: createPetTab(), series: [createSeries({ modality: 'PT', seriesId: 'pet-series' })] },
+      { tab: createMprTab(), series: [createSeries()] },
+      { tab: createFourDTab(), series: [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })] },
+      { tab: createFusionTab(), series: [createSeries({ seriesId: 'ct-series', modality: 'CT' }), createSeries({ seriesId: 'pet-series', modality: 'PT' })] },
+      { tab: createVolumeTab(), series: [createSeries()] }
+    ]
+
+    for (const item of cases) {
+      mockViewer.seriesList.value = item.series
+      mockViewer.selectedSeriesId.value = item.tab.seriesId
+      mockViewer.__setActiveTab(item.tab)
+      mockViewer.setActiveOperation.mockClear()
+
+      const wrapper = mountShell()
+      await wrapper.get('[data-testid="mobile-tool-zoom"]').trigger('click')
+
+      expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.zoom}`)
+      wrapper.unmount()
+    }
+  })
+
+  it('opens PET from the selected PET series action', async () => {
+    mockViewer.seriesList.value = [createSeries({ modality: 'PT', seriesId: 'pet-series', seriesDescription: 'PET Demo' })]
+    mockViewer.selectedSeriesId.value = 'pet-series'
+    mockViewer.__setActiveTab(createPetTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-open-pet"]').trigger('click')
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('pet-series', 'PET', { useHangingProtocol: false })
+  })
+
+  it('auto-opens PET/CT fusion when a selected series has one compatible pair', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'ct-series', modality: 'CT', studyInstanceUid: 'study-1' }),
+      createSeries({ seriesId: 'pet-series', modality: 'PT', studyInstanceUid: 'study-1' })
+    ]
+    mockViewer.selectedSeriesId.value = 'ct-series'
+    mockViewer.__setActiveTab(createStackTab('ct-series'))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-open-petct-fusion"]').trigger('click')
+
+    expect(mockViewer.openPetCtFusion).toHaveBeenCalledWith('ct-series', 'pet-series')
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('fusion-overlay-ax')
   })
 
   it('uses the slice slider to emit relative Stack scroll deltas', async () => {
@@ -580,7 +725,7 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('input')
     await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 4 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 4, exact: true })
   })
 
   it('keeps slice slider deltas based on local draft values and flushes continuous input once', async () => {
@@ -604,7 +749,7 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('pointerup')
 
     expect(mockViewer.handleViewportWheel).toHaveBeenCalledTimes(1)
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 4 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 4, exact: true })
     expect((slider.element as HTMLInputElement).value).toBe('8')
   })
 
@@ -651,13 +796,26 @@ describe('MobileWorkspaceShell', () => {
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-tool-measure"]').trigger('click')
 
+    expect(mockViewer.setActiveOperation.mock.calls.map(([operation]) => operation)).toContain('measure:line')
+    expect(wrapper.get('[data-testid="mobile-tool-measure-line"]').classes()).toContain('mobile-shell__inline-tool--active')
+    expect(wrapper.findAll('.mobile-shell__inline-tool--active')).toHaveLength(1)
+    expect(wrapper.findAll('.mobile-shell__tool--active')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="mobile-tool-measure"]').classes()).toContain('mobile-shell__tool--active')
+
     for (const toolType of ['line', 'rect', 'ellipse', 'angle', 'curve', 'freeform']) {
-      expect(wrapper.find(`[data-testid="mobile-measure-${toolType}"]`).exists()).toBe(true)
+      expect(wrapper.find(`[data-testid="mobile-tool-measure-${toolType}"]`).exists()).toBe(true)
     }
 
-    await wrapper.get('[data-testid="mobile-measure-rect"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-measure-rect"]').trigger('click')
 
     expect(mockViewer.setActiveOperation.mock.calls.map(([operation]) => operation)).toContain('measure:rect')
+    expect(wrapper.findAll('.mobile-shell__inline-tool--active')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="mobile-tool-measure-rect"]').classes()).toContain('mobile-shell__inline-tool--active')
+
+    await wrapper.get('[data-testid="mobile-tool-pan"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.pan}`)
+    expect(wrapper.get('[data-testid="mobile-tool-pan"]').classes()).toContain('mobile-shell__tool--active')
   })
 
   it('adds mobile Stack annotation/export entries and keeps QA in More', async () => {
@@ -667,7 +825,7 @@ describe('MobileWorkspaceShell', () => {
 
     const wrapper = mountShell()
 
-    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-tool-annotate"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-tool-qa"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-export"]').exists()).toBe(true)
@@ -789,7 +947,7 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('input')
     await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'compare-b', deltaY: 3 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'compare-b', deltaY: 3, exact: true })
   })
 
   it('toggles Compare sync settings from a focused Compare sheet opened via More', async () => {
@@ -851,22 +1009,170 @@ describe('MobileWorkspaceShell', () => {
 
     expect(wrapper.find('[data-testid="mobile-volume-stub"]').exists()).toBe(true)
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`)
-    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-tool-measure"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-transform"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-volumeParams"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-tool-export"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
-    await wrapper.findAll('[data-testid="mobile-volume-render-mode"]')[0].trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-volume-render-render3dMode-volume"]').trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'render3dMode', value: 'render3dMode:volume' })
 
-    await wrapper.get('[data-testid="mobile-tool-volumeParams"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-volume-render-details"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-volume-config-panel"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="mobile-tool-export"]').trigger('click')
     expect(wrapper.findAll('[data-testid="mobile-export-format"]')).toHaveLength(2)
+  })
+
+  it('renders mobile PET/CT fusion and forwards registration actions', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'ct-series', modality: 'CT' }),
+      createSeries({ seriesId: 'pet-series', modality: 'PT' })
+    ]
+    mockViewer.selectedSeriesId.value = 'ct-series'
+    mockViewer.__setActiveTab(createFusionTab())
+
+    const wrapper = mountShell()
+
+    expect(wrapper.find('[data-testid="mobile-fusion-stub"]').exists()).toBe(true)
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('fusion-overlay-ax')
+
+    const toolbarTestIds = wrapper
+      .findAll('.mobile-shell__toolbar-row button')
+      .map((button) => button.attributes('data-testid'))
+    expect(toolbarTestIds.indexOf('mobile-tool-reset')).toBeGreaterThan(toolbarTestIds.indexOf('mobile-more-button'))
+
+    await wrapper.get('[data-testid="stub-fusion-pet"]').trigger('click')
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('fusion-pet-ax')
+
+    await wrapper.get('[data-testid="stub-fusion-drag"]').trigger('click')
+    expect(mockViewer.handleFusionRegistrationDrag).toHaveBeenCalledWith({
+      viewportKey: 'fusion-overlay-ax',
+      phase: 'move',
+      subOpType: 'translate',
+      deltaX: 3,
+      deltaY: 4
+    })
+
+    expect(wrapper.find('[data-testid="mobile-tool-reset"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-tool-reset"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'reset' })
+    mockViewer.triggerViewAction.mockClear()
+
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="mobile-tool-fusion"]').trigger('click')
+    expect(wrapper.find('.mobile-shell__sheet').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-inline-tool-back"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-fusionRegistrationToggle"]').exists()).toBe(true)
+    expect(wrapper.get("[data-testid='mobile-tool-fusionRegistrationToggle']").text()).toContain("crosshair")
+    expect(wrapper.find('[data-testid="mobile-tool-fusionRegistrationTranslate"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mobile-tool-fusionRegistrationTranslate"]').classes()).toContain('mobile-shell__inline-tool')
+    expect(wrapper.get('[data-testid="mobile-tool-fusionRegistrationTranslate"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="mobile-tool-fusionRegistrationRotate"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-fusionRegistrationReset"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-fusionRegistrationSave"]').exists()).toBe(true)
+    expect(wrapper.findAll('.mobile-shell__inline-tool--active')).toHaveLength(0)
+    expect(wrapper.findAll('.mobile-shell__tool--active')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="mobile-tool-fusion"]').classes()).toContain('mobile-shell__tool--active')
+    expect(mockViewer.triggerViewAction).not.toHaveBeenCalledWith({ action: 'fusionManualRegistration', enabled: true })
+
+    await wrapper.get('[data-testid="mobile-tool-fusionRegistrationToggle"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'fusionManualRegistration', enabled: true })
+
+    mockViewer.__setActiveTab(createFusionTab({ fusionManualRegistration: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="mobile-tool-fusionRegistrationToggle"]').classes()).toContain('mobile-shell__inline-tool--warm')
+    expect(wrapper.get('[data-testid="mobile-tool-fusionRegistrationTranslate"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="mobile-tool-fusionRegistrationTranslate"]').classes()).toContain('mobile-shell__inline-tool--active')
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-fusionRegistrationRotate"]').trigger('click')
+    expect(mockViewer.triggerViewAction).not.toHaveBeenCalled()
+    expect(wrapper.findAll('.mobile-shell__inline-tool--active')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="mobile-tool-fusionRegistrationRotate"]').classes()).toContain('mobile-shell__inline-tool--active')
+    await wrapper.get('[data-testid="mobile-tool-fusionRegistrationReset"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationReset' })
+    await wrapper.get('[data-testid="mobile-tool-fusionRegistrationSave"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'fusionRegistrationSave' })
+    expect(wrapper.find('[data-testid="mobile-tool-color"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="mobile-inline-tool-back"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-more-button"]').exists()).toBe(true)
+  })
+
+  it('keeps PET/CT registration submenu open when selecting window', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'ct-series', modality: 'CT' }),
+      createSeries({ seriesId: 'pet-series', modality: 'PT' })
+    ]
+    mockViewer.selectedSeriesId.value = 'ct-series'
+    mockViewer.__setActiveTab(createFusionTab({ fusionManualRegistration: true }))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-tool-fusion"]').trigger('click')
+    mockViewer.triggerViewAction.mockClear()
+
+    await wrapper.get('[data-testid="mobile-tool-window"]').trigger('click')
+
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(true)
+    expect(mockViewer.triggerViewAction).not.toHaveBeenCalledWith({ action: 'fusionManualRegistration', enabled: false })
+    expect(wrapper.findAll('.mobile-shell__tool--active')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="mobile-tool-window"]').classes()).toContain('mobile-shell__tool--active')
+    expect(wrapper.get('[data-testid="mobile-tool-fusion"]').classes()).not.toContain('mobile-shell__tool--active')
+  })
+
+  it('exits enabled PET/CT registration when selecting ordinary primary tools', async () => {
+    for (const tool of [
+      { key: 'pan', operation: VIEW_OPERATION_TYPES.pan },
+      { key: 'zoom', operation: VIEW_OPERATION_TYPES.zoom },
+      { key: 'scroll', operation: VIEW_OPERATION_TYPES.scroll }
+    ]) {
+      mockViewer.seriesList.value = [
+        createSeries({ seriesId: 'ct-series', modality: 'CT' }),
+        createSeries({ seriesId: 'pet-series', modality: 'PT' })
+      ]
+      mockViewer.selectedSeriesId.value = 'ct-series'
+      mockViewer.__setActiveTab(createFusionTab({ fusionManualRegistration: true }))
+      mockViewer.triggerViewAction.mockClear()
+      mockViewer.setActiveOperation.mockClear()
+
+      const wrapper = mountShell()
+      await wrapper.get('[data-testid="mobile-tool-fusion"]').trigger('click')
+      mockViewer.triggerViewAction.mockClear()
+
+      await wrapper.get(`[data-testid="mobile-tool-${tool.key}"]`).trigger('click')
+
+      expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'fusionManualRegistration', enabled: false })
+      expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${tool.operation}`)
+      expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+      expect(wrapper.get(`[data-testid="mobile-tool-${tool.key}"]`).classes()).toContain('mobile-shell__tool--active')
+      wrapper.unmount()
+    }
+  })
+
+  it('closes PET/CT registration submenu without sending disable when registration is not enabled', async () => {
+    mockViewer.seriesList.value = [
+      createSeries({ seriesId: 'ct-series', modality: 'CT' }),
+      createSeries({ seriesId: 'pet-series', modality: 'PT' })
+    ]
+    mockViewer.selectedSeriesId.value = 'ct-series'
+    mockViewer.__setActiveTab(createFusionTab({ fusionManualRegistration: false }))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-tool-fusion"]').trigger('click')
+    mockViewer.triggerViewAction.mockClear()
+
+    await wrapper.get('[data-testid="mobile-tool-zoom"]').trigger('click')
+
+    expect(mockViewer.triggerViewAction).not.toHaveBeenCalledWith({ action: 'fusionManualRegistration', enabled: false })
+    expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.zoom}`)
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="mobile-tool-zoom"]').classes()).toContain('mobile-shell__tool--active')
   })
 
   it('uses 4D MPR controls for phase, playback, and active plane scrolling', async () => {
@@ -890,7 +1196,7 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('input')
     await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3, exact: true })
   })
 
   it('uses the active MPR plane for plane switches and slice slider deltas', async () => {
@@ -908,7 +1214,7 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('input')
     await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3, exact: true })
   })
 
   it('syncs the active MPR plane when the MPR viewport emits a thumbnail switch', async () => {
@@ -926,7 +1232,34 @@ describe('MobileWorkspaceShell', () => {
     await slider.trigger('input')
     await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3, exact: true })
+  })
+
+  it('opens mobile MPR segmentation controls and forwards config updates', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createMprTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-tool-segmentation"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-tool-segmentation-voi"]').trigger('click')
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith('segmentation:voi')
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-ax')
+
+    await wrapper.get('[data-testid="mobile-tool-segmentation-details"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-segmentation-panel"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="mobile-segmentation-config-change"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'local'
+    }))
+
+    await wrapper.get('[data-testid="mobile-segmentation-mode-change"]').trigger('click')
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith('segmentation:voi')
+    expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-cor')
   })
 
   it('applies mobile color, transform, and reset actions through focused toolbar entries', async () => {
@@ -937,17 +1270,21 @@ describe('MobileWorkspaceShell', () => {
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-sheet-tab-window"]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-testid="mobile-pseudocolor"]').length).toBeGreaterThan(0)
-    await wrapper.findAll('[data-testid="mobile-pseudocolor"]')[0].trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-tool-pseudocolor-blackbody"]').trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'pseudocolor', value: 'pseudocolor:blackbody' })
 
+    await wrapper.get('[data-testid="mobile-inline-tool-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-tool-transform"]').trigger('click')
-    await wrapper.findAll('[data-testid="mobile-transform"]')[0].trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-transform-rotate-cw90"]').trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'rotate', value: 'rotate:cw90' })
 
-    await wrapper.get('[data-testid="mobile-tool-reset"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-inline-tool-back"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-reset"]').trigger('click')
+    await wrapper.findAll('[data-testid="mobile-reset-option"]')[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'reset' })
   })
@@ -1042,7 +1379,7 @@ describe('MobileWorkspaceShell', () => {
     await flushPromises()
 
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 4 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'single', deltaY: 4, exact: true })
 
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-sheet-tab-favorites"]').trigger('click')

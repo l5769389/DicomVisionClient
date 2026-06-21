@@ -154,7 +154,7 @@ const emit = defineEmits<{
     rotationDeltaDegrees?: number
   }]
   fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
-  viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean }]
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []

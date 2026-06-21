@@ -60,6 +60,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
   })
   const emitOpenLayoutView = vi.fn()
   const emitTriggerViewAction = vi.fn()
+  const emitViewportWheel = vi.fn()
   const exportCurrentView = vi.fn()
   const stopViewportDrag = vi.fn()
   let toolbar!: ReturnType<typeof useViewerWorkspaceToolbar>
@@ -77,7 +78,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
           emitOpenSeriesView: vi.fn(),
           emitSetActiveOperation,
           emitTriggerViewAction,
-          emitViewportWheel: vi.fn(),
+          emitViewportWheel,
           exportCurrentView,
           setActiveViewport: vi.fn((viewportKey: string) => {
             activeViewportKey.value = viewportKey
@@ -96,6 +97,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     emitOpenLayoutView,
     emitSetActiveOperation,
     emitTriggerViewAction,
+    emitViewportWheel,
     exportCurrentView,
     stopViewportDrag,
     toolbar,
@@ -104,6 +106,27 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
 }
 
 describe('useViewerWorkspaceToolbar surface mode', () => {
+  it('normalizes mouse wheel scroll to one slice while preserving exact scroll requests', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: 120 })
+    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 1 })
+
+    harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: -240 })
+    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: -1 })
+
+    harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: 5, exact: true })
+    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 5 })
+
+    harness.wrapper.unmount()
+  })
+
   it('hides DICOM SR and GSPS export options for 3D and MPR views', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),

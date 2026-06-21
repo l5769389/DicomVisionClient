@@ -40,7 +40,7 @@ const overlayStubs = {
   ViewportMeasurementOverlay: { template: '<div />' },
   ViewportOrientationOverlay: { template: '<div class="orientation-overlay-stub" />' },
   ViewportQaWaterOverlay: imageFrameOverlayStub,
-  ViewportScaleBarOverlay: { template: '<div class="scale-bar-overlay-stub" />' },
+  ViewportScaleBarOverlay: { props: ['colorOverride'], template: '<div class="scale-bar-overlay-stub" :data-color-override="colorOverride ?? \'\'" />' },
   ViewportVoiOverlay: imageFrameOverlayStub
 }
 
@@ -397,6 +397,18 @@ describe('ViewerCanvasStage layout metrics', () => {
     wrapper.unmount()
   })
 
+  it('uses a spinner-only loading state in compact mode', () => {
+    const wrapper = mountStage('', {
+      compactLoading: true,
+      isLoading: true,
+      loadingLabel: 'Loading image...'
+    })
+
+    expect(wrapper.find('.viewer-loading-spinner').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Loading image')
+    wrapper.unmount()
+  })
+
   it('treats image layers as image content for overlays', () => {
     const wrapper = mountStage('', {
       imageLayers: [
@@ -425,6 +437,16 @@ describe('ViewerCanvasStage layout metrics', () => {
     expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(false)
     expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('uses a dark scale bar override on light PET surfaces', () => {
+    const wrapper = mountStage('blob:pet-frame', {
+      lightSurface: true
+    })
+
+    expect(wrapper.get('.viewer-viewport').classes()).toContain('viewer-viewport--light-overlay')
+    expect(wrapper.get('.scale-bar-overlay-stub').attributes('data-color-override')).toBe('#132033')
     wrapper.unmount()
   })
 

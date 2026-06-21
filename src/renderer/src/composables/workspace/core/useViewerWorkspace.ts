@@ -139,6 +139,16 @@ import type {
   WorkspaceReadyPayload
 } from '../../../types/viewer'
 
+export function normalizeViewportWheelScrollDelta(deltaY: number, exact = false): number {
+  if (!Number.isFinite(deltaY)) {
+    return 0
+  }
+  if (exact) {
+    return Math.trunc(deltaY)
+  }
+  return deltaY > 0 ? 1 : deltaY < 0 ? -1 : 0
+}
+
 interface ViewerWorkspaceState {
   activeOperation: Ref<string>
   activeTab: ComputedRef<ViewerTabItem | null>
@@ -150,7 +160,7 @@ interface ViewerWorkspaceState {
   closeOtherTabs: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
   hasSelectedSeries: ComputedRef<boolean>
-  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number }) => void
+  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number; exact?: boolean }) => void
   handleViewportDrag: (payload: {
     deltaX: number
     deltaY: number
@@ -170,6 +180,7 @@ interface ViewerWorkspaceState {
     currentY?: number
     pivotX?: number
     pivotY?: number
+    rotationDeltaDegrees?: number
   }) => void
   handleFusionConfigChange: (payload: {
     manualRegistration?: boolean
@@ -2663,7 +2674,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await backendConnectionPromise
   }
 
-  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number }): void {
+  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number; exact?: boolean }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -2676,7 +2687,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const normalizedDelta = Number.isFinite(deltaY) ? Math.trunc(deltaY) : 0
+    const normalizedDelta = normalizeViewportWheelScrollDelta(deltaY, typeof payload !== 'number' && payload.exact === true)
     const scroll = normalizedDelta > 0 ? normalizedDelta : normalizedDelta < 0 ? normalizedDelta : 0
     if (!scroll) {
       return
@@ -3468,7 +3479,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const currentIndex = slice?.index ?? 0
     const delta = clampedTargetIndex - currentIndex
     if (delta !== 0) {
-      handleViewportWheel({ viewportKey: 'single', deltaY: delta })
+      handleViewportWheel({ viewportKey: 'single', deltaY: delta, exact: true })
     }
   }
 

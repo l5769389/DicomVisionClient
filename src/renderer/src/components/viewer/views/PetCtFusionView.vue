@@ -1397,14 +1397,18 @@ watch(
 }
 
 .pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-corner-block) {
-  color: #b23131;
+  color: #182334;
   font-weight: 750;
   text-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.96),
-    0 -1px 0 rgba(255, 255, 255, 0.82),
-    1px 0 0 rgba(255, 255, 255, 0.82),
-    -1px 0 0 rgba(255, 255, 255, 0.82),
-    0 1px 4px rgba(15, 23, 42, 0.32);
+    0 1px 1px rgba(255, 255, 255, 0.86),
+    0 0 3px rgba(15, 23, 42, 0.22);
+}
+
+.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-orientation-label) {
+  color: #b91c1c;
+  text-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.86),
+    0 0 3px rgba(15, 23, 42, 0.28);
 }
 
 .pet-ct-fusion-view__marker {

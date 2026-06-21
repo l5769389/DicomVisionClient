@@ -73,7 +73,7 @@ const emit = defineEmits<{
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: AnnotationSize }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
@@ -111,8 +111,10 @@ const dragMoveQueue = createMobileViewportDragMoveQueue<'single'>((move: MobileV
   })
 })
 
-const stackTab = computed(() => (props.activeTab?.viewType === 'Stack' ? props.activeTab : null))
-const viewportPlaceholder = computed(() => (stackTab.value ? '移动端单视口预览' : '选择序列后打开 Stack 视图'))
+const stackTab = computed(() => (
+  props.activeTab?.viewType === 'Stack' || props.activeTab?.viewType === 'PET' ? props.activeTab : null
+))
+const viewportPlaceholder = computed(() => (stackTab.value ? '移动端单视口预览' : '选择序列后打开 Stack/PET 视图'))
 
 function createMeasurementId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -359,7 +361,8 @@ function handleScrollDrag(deltaY: number): void {
   scrollAccumulator -= sliceDelta * props.scrollThreshold
   emit('viewportWheel', {
     viewportKey: 'single',
-    deltaY: sliceDelta
+    deltaY: sliceDelta,
+    exact: true
   })
 }
 
@@ -514,9 +517,12 @@ watch(
       viewport-class="mobile-stack-viewport__stage"
       image-class="mobile-stack-viewport__image"
       :is-active="true"
+      compact-loading
       :render-surface-active="Boolean(stackTab)"
       :image-src="stackTab?.imageSrc ?? ''"
       :is-loading="Boolean(stackTab?.viewId) && (!stackTab?.imageSrc || isViewLoading)"
+      :light-surface="stackTab?.viewType === 'PET'"
+      :stage-surface-class="stackTab?.viewType === 'PET' ? 'viewer-stage-surface--white viewer-stage-surface--pet-standalone' : ''"
       loading-label="正在加载影像..."
       :alt="stackTab?.viewType ?? 'Stack'"
       :active-operation="activeOperation"

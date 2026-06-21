@@ -57,6 +57,7 @@ const props = withDefaults(
     imageStyle?: Record<string, string>
     imageLayers?: ViewerImageLayer[]
     imageSrc: string
+    compactLoading?: boolean
     isActive?: boolean
     isLoading?: boolean
     loadingLabel?: string
@@ -93,6 +94,7 @@ const props = withDefaults(
     imageLayers: () => [],
     imageClass: '',
     imageStyle: () => ({}),
+    compactLoading: false,
     isActive: false,
     isLoading: false,
     loadingLabel: '',
@@ -120,6 +122,7 @@ const props = withDefaults(
 )
 
 type OverlayFocusState = 'focus' | 'context' | 'neutral'
+const LIGHT_SURFACE_SCALE_BAR_COLOR = '#132033'
 
 const emit = defineEmits<{
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
@@ -234,6 +237,7 @@ const shouldShowScaleBar = computed(() => props.showScaleBar && hasImageContent.
 const isLightSurface = computed(() =>
   props.lightSurface || props.stageSurfaceClass.split(/\s+/).includes('viewer-stage-surface--white')
 )
+const scaleBarColorOverride = computed(() => (isLightSurface.value ? LIGHT_SURFACE_SCALE_BAR_COLOR : null))
 const lightSurfaceStyle = computed(() =>
   isLightSurface.value
     ? {
@@ -463,6 +467,7 @@ watch(
       viewportClass,
       stageSurfaceClass,
       isLightSurface ? 'viewer-viewport--light-surface' : '',
+      isLightSurface ? 'viewer-viewport--light-overlay' : '',
       cursorClass,
       isActive ? 'viewer-viewport--active' : ''
     ]"
@@ -546,6 +551,7 @@ watch(
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
         :scale-bar="scaleBar"
+        :color-override="scaleBarColorOverride"
       />
       <ViewportMeasurementOverlay
         v-if="shouldShowImageOverlays"
@@ -594,7 +600,13 @@ watch(
         v-if="isLoading"
         class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"
       >
-        <div class="w-[min(18rem,calc(100%-2rem))] rounded-2xl border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
+        <div
+          v-if="compactLoading"
+          class="viewer-loading-spinner"
+          role="status"
+          :aria-label="resolvedLoadingLabel"
+        ></div>
+        <div v-else class="w-[min(18rem,calc(100%-2rem))] rounded-2xl border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
           <div class="flex items-center gap-3">
             <span class="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
             <span class="min-w-0 flex-1 truncate">{{ resolvedLoadingLabel }}</span>
@@ -642,5 +654,21 @@ watch(
 .viewer-image {
   -webkit-touch-callout: none;
   -webkit-user-drag: none;
+}
+
+.viewer-loading-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(226, 244, 255, 0.22);
+  border-top-color: color-mix(in srgb, var(--theme-accent, #7dd3fc) 82%, #ffffff);
+  border-radius: 999px;
+  box-shadow: 0 0 0 8px rgba(2, 8, 16, 0.24);
+  animation: viewer-loading-spin 780ms linear infinite;
+}
+
+@keyframes viewer-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

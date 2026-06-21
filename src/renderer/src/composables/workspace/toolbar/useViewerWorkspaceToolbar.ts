@@ -797,7 +797,7 @@ interface ViewerWorkspaceToolbarOptions {
   emitTriggerViewAction: (payload: ViewerToolbarActionPayload) => void
   emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   emitOpenLayoutView: (template: ViewerLayoutTemplate) => void | Promise<void>
-  emitViewportWheel: (payload: { viewportKey: string; deltaY: number }) => void
+  emitViewportWheel: (payload: { viewportKey: string; deltaY: number; exact?: boolean }) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
   exportCurrentView: (format: ViewerExportFormat, viewportKey?: string) => void
   activeViewportKey: Ref<string>

@@ -73,7 +73,7 @@ const emit = defineEmits<{
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: AnnotationSize }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
@@ -352,7 +352,8 @@ function handleScrollDrag(deltaY: number, viewportKey: CompareStackPaneKey): voi
   scrollAccumulator -= sliceDelta * props.scrollThreshold
   emit('viewportWheel', {
     viewportKey,
-    deltaY: sliceDelta
+    deltaY: sliceDelta,
+    exact: true
   })
 }
 
@@ -509,6 +510,7 @@ watch(
         viewport-class="mobile-compare-viewport__stage"
         image-class="mobile-compare-viewport__image"
         :is-active="activeViewport === pane.key"
+        compact-loading
         :render-surface-active="true"
         :image-src="pane.imageSrc"
         :is-loading="Boolean(compareTab?.compareViewIds?.[pane.key]) && (!pane.imageSrc || isViewLoading)"

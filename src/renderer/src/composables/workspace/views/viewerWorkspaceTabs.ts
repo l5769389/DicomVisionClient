@@ -760,8 +760,21 @@ export function getSeriesDisplayName(series: FolderSeriesItem | null, fallbackSe
   return series.seriesDescription || series.seriesInstanceUid || series.seriesId
 }
 
+export function getViewTypeDisplayLabel(viewType: ViewType, locale: 'zh-CN' | 'en-US' = 'en-US'): string {
+  if (viewType === 'Stack' || viewType === 'PET') {
+    return '2D'
+  }
+  if (viewType === 'CompareStack') {
+    return locale === 'zh-CN' ? '2D 对比' : '2D Compare'
+  }
+  if (viewType === 'PETCTFusion') {
+    return 'PET/CT'
+  }
+  return viewType
+}
+
 export function buildTabTitle(series: FolderSeriesItem | null, viewType: ViewType, fallbackSeriesId: string): string {
-  return `${getSeriesDisplayName(series, fallbackSeriesId)} · ${viewType}`
+  return `${getSeriesDisplayName(series, fallbackSeriesId)} · ${getViewTypeDisplayLabel(viewType)}`
 }
 
 export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerTabItem {
@@ -771,7 +784,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     key: createTabKey(series.seriesId, viewType),
     seriesId: series.seriesId,
     seriesTitle,
-    title: `${seriesTitle} · ${viewType}`,
+    title: `${seriesTitle} · ${getViewTypeDisplayLabel(viewType)}`,
     viewType,
     viewId: '',
     imageSrc: '',

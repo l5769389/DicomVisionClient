@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES, type ViewOperationType } from '@shared/viewerConstants'
 import AppIcon from '../../components/AppIcon.vue'
 import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
+import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
+import { useUiLocale } from '../../composables/ui/useUiLocale'
 import {
   FUSION_CT_AXIAL_PANE_KEY,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
@@ -13,6 +15,7 @@ import {
 import type {
   AnnotationDraft,
   AnnotationOverlay,
+  AnnotationSize,
   CornerInfo,
   DraftMeasurementMode,
   FusionPaneKey,
@@ -86,6 +89,11 @@ const props = withDefaults(defineProps<{
   activeOperation: string
   activeTab: ViewerTabItem | null
   activeViewportKey: string
+  annotationPointerCancel?: (event: PointerEvent) => boolean
+  annotationPointerDown?: (event: PointerEvent, viewportKey: string) => boolean
+  annotationPointerLeave?: (viewportKey: string) => void
+  annotationPointerMove?: (event: PointerEvent) => boolean
+  annotationPointerUp?: (event: PointerEvent) => boolean
   getAnnotations?: (viewportKey: string) => AnnotationOverlay[]
   getDraftAnnotation?: (viewportKey: string) => AnnotationDraft | null
   getDraftMeasurement?: (viewportKey: string) => MeasurementDraft | null
@@ -125,16 +133,19 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
-  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: AnnotationSize }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
+const { locale } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 const viewportHostRef = ref<HTMLElement | null>(null)
 const paneElements = new Map<FusionPaneKey, HTMLElement>()
 const activePointers = new Map<number, PointerPoint>()
+const workspacePointerIds = new Set<number>()
 const registrationDrag = ref<RegistrationDragState | null>(null)
 
 let activeDragOperation: ViewOperationType | null = null
@@ -158,6 +169,61 @@ const hiddenOrientation: OrientationInfo = {
   left: null,
   volumeQuaternion: null
 }
+
+const activeTabRef = computed(() => props.activeTab)
+const activeOperationRef = computed(() => props.activeOperation)
+
+function createMeasurementId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `mobile-measure-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function emitActiveViewportChange(viewportKey: string): void {
+  if (FUSION_PANE_KEYS.includes(viewportKey as FusionPaneKey)) {
+    emit('activeViewportChange', viewportKey as FusionPaneKey)
+  }
+}
+
+function emitMeasurementCreate(payload: {
+  viewportKey: string
+  toolType: MeasurementToolType
+  points: MeasurementDraftPoint[]
+  measurementId?: string
+  labelLines?: string[]
+}): void {
+  emit('measurementCreate', {
+    ...payload,
+    measurementId: payload.measurementId?.trim() || createMeasurementId()
+  })
+}
+
+const {
+  cleanupPointerInteractions,
+  draftMeasurements,
+  getDraftMeasurementMode: getPointerDraftMeasurementMode,
+  handleViewportPointerCancel,
+  handleViewportPointerDown,
+  handleViewportPointerLeave,
+  handleViewportPointerMove,
+  handleViewportPointerUp,
+  viewportCursorClasses
+} = useViewerWorkspacePointer({
+  activeOperation: activeOperationRef,
+  activeTab: activeTabRef,
+  emitActiveViewportChange,
+  emitOperationChange: () => {},
+  emitMeasurementDraft: () => {},
+  emitMeasurementCreate,
+  emitMeasurementDelete: () => {},
+  emitMtfCommit: () => {},
+  emitMtfDelete: () => {},
+  emitMtfSelect: () => {},
+  emitMprCrosshair: () => {},
+  emitViewportDrag: (payload) => emit('viewportDrag', payload),
+  getCommittedMeasurements: (viewportKey) => props.getMeasurements(viewportKey),
+  getMtfItems: () => []
+})
 
 const panes = computed<FusionPaneView[]>(() => [
   { key: FUSION_CT_AXIAL_PANE_KEY, title: 'CT Axial' },
@@ -324,6 +390,18 @@ function isScrollOperation(): boolean {
   return normalizeOperation(props.activeOperation) === VIEW_OPERATION_TYPES.scroll
 }
 
+function isMeasureOperation(): boolean {
+  return normalizeOperation(props.activeOperation).startsWith('measure:')
+}
+
+function getDraftMeasurement(viewportKey: string): MeasurementDraft | null {
+  return draftMeasurements.value[viewportKey] ?? props.getDraftMeasurement(viewportKey)
+}
+
+function getDraftMeasurementMode(viewportKey: string): DraftMeasurementMode | null {
+  return getPointerDraftMeasurementMode(viewportKey) ?? props.getDraftMeasurementMode(viewportKey)
+}
+
 function getPoint(event: PointerEvent): PointerPoint {
   return {
     x: event.clientX,
@@ -437,6 +515,13 @@ function shouldUseLightSurface(paneKey: FusionPaneKey): boolean {
   return isPetStandalonePane(paneKey) && isPrimaryPane(paneKey)
 }
 
+function getPaneCursorClass(paneKey: FusionPaneKey): string {
+  if (manualRegistrationEnabled.value && paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY) {
+    return 'cursor-move'
+  }
+  return viewportCursorClasses.value[paneKey] ?? ''
+}
+
 function shouldShowActiveStyle(paneKey: FusionPaneKey): boolean {
   return !isPrimaryPane(paneKey) && activePaneKey.value === paneKey
 }
@@ -447,6 +532,26 @@ function getReferenceIndex(paneKey: FusionPaneKey): number {
 
 function getPaneSliceLabel(paneKey: FusionPaneKey): string {
   return fusionTab.value?.fusionSliceLabels?.[paneKey] ?? ''
+}
+
+function getReferenceSliceLabel(paneKey: FusionPaneKey): string {
+  const label = getPaneSliceLabel(paneKey).trim()
+  return label || '--'
+}
+
+function getPaneLoadingLabel(pane: FusionPaneView): string {
+  if (!isPrimaryPane(pane.key)) {
+    return isZh.value ? '加载中...' : 'Loading...'
+  }
+  return isZh.value ? `正在加载 ${pane.title}...` : `Loading ${pane.title}...`
+}
+
+function getReferenceSwitchLabel(pane: FusionPaneView): string {
+  return isZh.value ? `切换到 ${pane.title}` : `Switch to ${pane.title}`
+}
+
+function isCompactReferenceTitle(title: string): boolean {
+  return title.length > 10
 }
 
 function getCornerInfo(paneKey: FusionPaneKey): CornerInfo {
@@ -648,9 +753,17 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
   }
   const paneKey = viewportKey as FusionPaneKey
   event.preventDefault()
-  emit('activeViewportChange', paneKey)
+  emitActiveViewportChange(paneKey)
+  if (props.annotationPointerDown?.(event, paneKey)) {
+    return
+  }
   if (event.currentTarget instanceof HTMLElement) {
     event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+  if (isMeasureOperation() && event.isPrimary && event.button === 0) {
+    workspacePointerIds.add(event.pointerId)
+    handleViewportPointerDown(event, paneKey)
+    return
   }
   activePointers.set(event.pointerId, getPoint(event))
   if (paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY && beginRegistrationDrag(event)) {
@@ -660,6 +773,13 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
 }
 
 function handlePointerMove(event: PointerEvent): void {
+  if (props.annotationPointerMove?.(event)) {
+    return
+  }
+  if (workspacePointerIds.has(event.pointerId)) {
+    handleViewportPointerMove(event)
+    return
+  }
   const previousPoint = activePointers.get(event.pointerId)
   if (previousPoint) {
     activePointers.set(event.pointerId, getPoint(event))
@@ -690,6 +810,13 @@ function handlePointerMove(event: PointerEvent): void {
 
 function handlePointerUp(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerUp?.(event)) {
+    return
+  }
+  if (workspacePointerIds.delete(event.pointerId)) {
+    handleViewportPointerUp(event)
+    return
+  }
   activePointers.delete(event.pointerId)
   if (endRegistrationDrag(event)) {
     return
@@ -699,11 +826,23 @@ function handlePointerUp(event: PointerEvent): void {
 
 function handlePointerCancel(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerCancel?.(event)) {
+    return
+  }
+  if (workspacePointerIds.delete(event.pointerId)) {
+    handleViewportPointerCancel(event)
+    return
+  }
   activePointers.delete(event.pointerId)
   if (endRegistrationDrag(event)) {
     return
   }
   endDrag()
+}
+
+function handlePointerLeave(viewportKey: string): void {
+  props.annotationPointerLeave?.(viewportKey)
+  handleViewportPointerLeave(viewportKey)
 }
 
 function handleReferenceSwitch(event: Event, paneKey: FusionPaneKey): void {
@@ -718,6 +857,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   activePointers.clear()
+  workspacePointerIds.clear()
   paneElements.clear()
   registrationDrag.value = null
   if (referenceToggleClickResetTimer !== null) {
@@ -725,6 +865,7 @@ onBeforeUnmount(() => {
   }
   cancelPendingDragMoves()
   endDrag()
+  cleanupPointerInteractions()
 })
 
 watch(
@@ -769,7 +910,7 @@ watch(
         :alt="pane.title"
         :annotations="getAnnotations(pane.key)"
         :corner-info="isPrimaryPane(pane.key) ? getCornerInfo(pane.key) : emptyCornerInfo"
-        :cursor-class="manualRegistrationEnabled && pane.key === FUSION_OVERLAY_AXIAL_PANE_KEY ? 'cursor-move' : ''"
+        :cursor-class="getPaneCursorClass(pane.key)"
         :draft-annotation="getDraftAnnotation(pane.key)"
         :draft-measurement="getDraftMeasurement(pane.key)"
         :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
@@ -779,7 +920,7 @@ watch(
         compact-loading
         :is-loading="isPaneLoading(pane.key)"
         :light-surface="shouldUseLightSurface(pane.key)"
-        :loading-label="isPrimaryPane(pane.key) ? `Loading ${pane.title}...` : 'Loading...'"
+        :loading-label="getPaneLoadingLabel(pane)"
         :measurements="getMeasurements(pane.key)"
         :orientation="getOrientation(pane.key)"
         :placeholder="pane.title"
@@ -798,6 +939,7 @@ watch(
         @pointer-move="handlePointerMove"
         @pointer-up="handlePointerUp"
         @pointer-cancel="handlePointerCancel"
+        @pointer-leave="handlePointerLeave"
         @update-annotation-color="emit('updateAnnotationColor', $event)"
         @update-annotation-size="emit('updateAnnotationSize', $event)"
         @update-annotation-text="emit('updateAnnotationText', $event)"
@@ -808,7 +950,7 @@ watch(
         v-if="!isPrimaryPane(pane.key) && referenceThumbnailsVisible"
         type="button"
         class="mobile-petct-fusion-viewport__reference-switch"
-        :aria-label="`Switch to ${pane.title}`"
+        :aria-label="getReferenceSwitchLabel(pane)"
         :data-viewport-key="pane.key"
         data-testid="mobile-petct-fusion-reference-switch"
         @click="handleReferenceSwitch($event, pane.key)"
@@ -816,9 +958,16 @@ watch(
         @pointerdown="handleReferenceSwitch($event, pane.key)"
         @touchstart="handleReferenceSwitch($event, pane.key)"
       >
+        <span class="mobile-petct-fusion-viewport__reference-slice" aria-hidden="true">
+          {{ getReferenceSliceLabel(pane.key) }}
+        </span>
         <span class="mobile-petct-fusion-viewport__reference-label" aria-hidden="true">
-          <strong>{{ pane.title }}</strong>
-          <span>{{ getPaneSliceLabel(pane.key) || '--' }}</span>
+          <strong
+            class="mobile-petct-fusion-viewport__reference-title"
+            :class="{ 'mobile-petct-fusion-viewport__reference-title--compact': isCompactReferenceTitle(pane.title) }"
+          >
+            {{ pane.title }}
+          </strong>
         </span>
       </button>
     </div>
@@ -1089,10 +1238,9 @@ watch(
   left: 6px;
   right: 6px;
   bottom: 6px;
-  display: flex;
+  display: block;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
   pointer-events: none;
   color: #f7fbff;
   font-size: 10px;
@@ -1100,23 +1248,34 @@ watch(
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.96);
 }
 
-.mobile-petct-fusion-viewport__reference-label strong,
-.mobile-petct-fusion-viewport__reference-label span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mobile-petct-fusion-viewport__reference-label strong {
-  min-width: 0;
+.mobile-petct-fusion-viewport__reference-title {
+  display: block;
   font-size: 11px;
   font-weight: 900;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
-.mobile-petct-fusion-viewport__reference-label span {
-  flex: 0 0 auto;
+.mobile-petct-fusion-viewport__reference-title--compact {
+  font-size: 9px;
+}
+
+.mobile-petct-fusion-viewport__reference-slice {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 7;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
   color: rgba(247, 251, 255, 0.84);
-  font-weight: 800;
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.96);
+  white-space: nowrap;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
@@ -1139,12 +1298,22 @@ watch(
     left: 5px;
     right: 5px;
     bottom: 5px;
-    gap: 4px;
     font-size: 9px;
   }
 
-  .mobile-petct-fusion-viewport__reference-label strong {
+  .mobile-petct-fusion-viewport__reference-title {
     font-size: 10px;
+  }
+
+  .mobile-petct-fusion-viewport__reference-title--compact {
+    font-size: 8px;
+  }
+
+  .mobile-petct-fusion-viewport__reference-slice {
+    top: 5px;
+    left: 5px;
+    max-width: calc(100% - 10px);
+    font-size: 8px;
   }
 }
 </style>

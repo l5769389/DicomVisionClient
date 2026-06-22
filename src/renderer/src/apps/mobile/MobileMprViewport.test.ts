@@ -143,6 +143,10 @@ describe('MobileMprViewport', () => {
     expect(wrapper.findAll('[data-testid="mobile-mpr-reference"]')).toHaveLength(2)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-corner-info="false"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-scale-bar="false"]').exists()).toBe(true)
+    const sagReference = wrapper.get('[data-testid="mobile-mpr-reference-switch"][data-viewport-key="mpr-sag"]')
+    expect(sagReference.get('.mobile-mpr-viewport__reference-slice').text()).toBe('6 / 10')
+    expect(sagReference.get('.mobile-mpr-viewport__reference-title').text()).toBe('SAG')
+    expect(sagReference.text()).not.toContain('Im')
   })
 
   it('uses the same mobile MPR surface for 4D tabs', async () => {

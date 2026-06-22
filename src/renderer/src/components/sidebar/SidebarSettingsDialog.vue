@@ -348,7 +348,7 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
     {
       title: copyValue.workspaceGroup,
       items: [
-        { id: 'quick-preview', action: 'Quick Preview', description: 'Open the current series in Stack view.', combo: 'Enter' },
+        { id: 'quick-preview', action: 'Quick Preview', description: 'Open the current series in 2D view.', combo: 'Enter' },
         { id: 'screenshot-png', action: 'Save Screenshot as PNG', description: 'Save the current viewport screenshot as PNG.', combo: 'F9' },
         { id: 'screenshot-dicom', action: 'Save Screenshot as DICOM', description: 'Save the current viewport screenshot as DICOM.', combo: 'F10' },
         { id: 'close-tab', action: 'Close Tab', description: 'Close the active tab.', combo: 'Ctrl + W' },
@@ -3332,7 +3332,11 @@ onBeforeUnmount(() => {
                             :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
                             @click="selectedPseudocolorKey = option.key"
                           >
-                            <span class="block h-8 rounded-[12px] border shadow-inner" :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'" :style="{ background: option.gradient }"></span>
+                            <span
+                              class="settings-pseudocolor-band block h-8 rounded-[12px] border shadow-inner"
+                              :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'"
+                              :style="{ '--settings-pseudocolor-gradient': option.gradient }"
+                            ></span>
                             <span class="mt-3 flex items-center justify-between gap-3">
                               <span class="truncate text-sm font-semibold" :class="selectedPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
                               <span
@@ -4376,5 +4380,21 @@ onBeforeUnmount(() => {
   height: 1px;
   margin: 4px 6px;
   background: var(--theme-border-soft);
+}
+
+.settings-pseudocolor-band {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  isolation: isolate;
+}
+
+.settings-pseudocolor-band::before {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--settings-pseudocolor-gradient);
+  content: "";
+  transform: translateZ(0);
 }
 </style>

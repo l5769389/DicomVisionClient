@@ -356,6 +356,10 @@ function getSliceLabel(viewportKey: MprViewportKey): string {
   return mprTab.value?.viewportSliceLabels?.[viewportKey] ?? ''
 }
 
+function getReferenceSliceLabel(viewportKey: MprViewportKey): string {
+  return getSliceLabel(viewportKey).trim() || '--'
+}
+
 function getDraftMeasurement(viewportKey: MprViewportKey): MeasurementDraft | null {
   return draftMeasurements.value[viewportKey] ?? null
 }
@@ -819,9 +823,11 @@ watch(
         @pointerdown="handleReferenceSwitch($event, viewport.key)"
         @touchstart="handleReferenceSwitch($event, viewport.key)"
       >
+        <span class="mobile-mpr-viewport__reference-slice" aria-hidden="true">
+          {{ getReferenceSliceLabel(viewport.key) }}
+        </span>
         <span class="mobile-mpr-viewport__reference-label" aria-hidden="true">
-          <strong>{{ viewport.label }}</strong>
-          <span>{{ getSliceLabel(viewport.key) || '--' }}</span>
+          <strong class="mobile-mpr-viewport__reference-title">{{ viewport.label }}</strong>
         </span>
       </button>
     </div>
@@ -996,10 +1002,7 @@ watch(
   left: 6px;
   right: 6px;
   bottom: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  display: block;
   pointer-events: none;
   color: #f7fbff;
   font-size: 10px;
@@ -1007,23 +1010,29 @@ watch(
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
 }
 
-.mobile-mpr-viewport__reference-label strong,
-.mobile-mpr-viewport__reference-label span {
+.mobile-mpr-viewport__reference-title {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mobile-mpr-viewport__reference-label strong {
-  flex: 0 0 auto;
   font-size: 11px;
   font-weight: 900;
 }
 
-.mobile-mpr-viewport__reference-label span {
-  min-width: 0;
-  color: rgba(247, 251, 255, 0.82);
+.mobile-mpr-viewport__reference-slice {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  color: #f7fbff;
+  font-size: 11px;
   font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

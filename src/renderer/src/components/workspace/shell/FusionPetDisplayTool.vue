@@ -410,14 +410,28 @@ onBeforeUnmount(() => {
   position: relative;
   width: 190px;
   height: 24px;
+  overflow: hidden;
   border-radius: 7px;
-  background: var(--fusion-pet-gradient);
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  isolation: isolate;
+}
+
+.fusion-pet-display-tool__range-track::before {
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--fusion-pet-gradient);
+  content: "";
+  pointer-events: none;
+  transform: translateZ(0);
 }
 
 .fusion-pet-display-tool__slider {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   margin: 0;

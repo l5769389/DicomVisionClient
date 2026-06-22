@@ -482,7 +482,10 @@ watch(
                 :class="{ 'viewer-toolbar-dock-panel-content__pet-pseudocolor-option--active': option.key === selectedPetPseudocolor }"
                 @click="selectPetPseudocolor(option.value)"
               >
-                <span class="viewer-toolbar-dock-panel-content__pet-pseudocolor-band" :style="{ background: option.gradient }"></span>
+                <span
+                  class="viewer-toolbar-dock-panel-content__pet-pseudocolor-band"
+                  :style="{ '--pet-pseudocolor-gradient': option.gradient }"
+                ></span>
                 <span>{{ option.label }}</span>
                 <AppIcon v-if="option.key === selectedPetPseudocolor" name="check" :size="14" />
               </button>
@@ -972,26 +975,52 @@ watch(
 }
 
 .viewer-toolbar-dock-panel-content__pet-pseudocolor-band {
+  position: relative;
   display: block;
   width: 58px;
   height: 18px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
   border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  isolation: isolate;
+}
+
+.viewer-toolbar-dock-panel-content__pet-pseudocolor-band::before {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--pet-pseudocolor-gradient);
+  content: "";
+  transform: translateZ(0);
 }
 
 .viewer-toolbar-dock-panel-content__pet-range-track {
   position: relative;
   height: 28px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
   border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  isolation: isolate;
+}
+
+.viewer-toolbar-dock-panel-content__pet-range-track::before {
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
   background: var(--pet-range-gradient);
-  overflow: hidden;
+  content: "";
+  pointer-events: none;
+  transform: translateZ(0);
 }
 
 .viewer-toolbar-dock-panel-content__pet-range-track input {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   margin: 0;

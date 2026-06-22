@@ -65,6 +65,7 @@ import {
   FUSION_PET_AXIAL_PANE_KEY,
   FUSION_PET_CORONAL_MIP_PANE_KEY,
   getSeriesDisplayName,
+  getViewTypeDisplayLabel,
   isCompareStackPaneKey,
   isFusionPaneKey,
   isMprViewportKey,
@@ -3853,7 +3854,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const tab = {
         ...createTab(sourceSeries, 'CompareStack'),
         key: tabKey,
-        title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
+        title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · ${getViewTypeDisplayLabel('CompareStack')}`,
         compareSeriesIds: createComparePaneRecord((paneKey) =>
           paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? sourceSeriesId : targetSeriesId
         ),
@@ -3886,7 +3887,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
-              title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
+              title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · ${getViewTypeDisplayLabel('CompareStack')}`,
               seriesId: sourceSeriesId,
               seriesTitle: getSeriesDisplayName(sourceSeries, sourceSeriesId),
               pseudocolorPreset: initialPseudocolorPreset,
@@ -3930,7 +3931,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
       options.message.value = ''
     } catch (error) {
-      options.message.value = viewMessage('Stack 对比视图打开失败。', 'Failed to open the Stack compare view.')
+      options.message.value = viewMessage('2D 对比视图打开失败。', 'Failed to open the 2D compare view.')
       console.error(error)
     } finally {
       options.isViewLoading.value = false

@@ -6,7 +6,7 @@ import type { ViewerTabItem } from '../../types/viewer'
 
 vi.mock('../../components/viewer/views/ViewerCanvasStage.vue', () => ({
   default: {
-    props: ['viewportKey', 'imageSrc', 'imageLayers', 'isActive', 'lightSurface', 'loadingLabel', 'stageSurfaceClass'],
+    props: ['viewportKey', 'cursorClass', 'imageSrc', 'imageLayers', 'isActive', 'lightSurface', 'loadingLabel', 'stageSurfaceClass'],
     emits: [
       'clickViewport',
       'copyAnnotation',
@@ -17,12 +17,13 @@ vi.mock('../../components/viewer/views/ViewerCanvasStage.vue', () => ({
       'pointerMove',
       'pointerUp',
       'pointerCancel',
+      'pointerLeave',
       'updateAnnotationColor',
       'updateAnnotationSize',
       'updateAnnotationText',
       'wheelViewport'
     ],
-    template: '<div class="viewer-stage-stub" :data-viewport-key="viewportKey" :data-active="String(isActive)" :data-light-surface="String(lightSurface)" :data-loading-label="loadingLabel" :data-stage-surface-class="stageSurfaceClass ?? \'\'"><img class="viewer-image" /></div>'
+    template: '<div class="viewer-stage-stub viewer-viewport" :data-viewport-key="viewportKey" :data-active="String(isActive)" :data-cursor-class="cursorClass ?? \'\'" :data-light-surface="String(lightSurface)" :data-loading-label="loadingLabel" :data-stage-surface-class="stageSurfaceClass ?? \'\'" @pointerdown="$emit(\'pointerDown\', $event, viewportKey)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)" @pointerleave="$emit(\'pointerLeave\', viewportKey)"><img class="viewer-image" /></div>'
   }
 }))
 
@@ -174,10 +175,29 @@ describe('MobilePetCtFusionViewport', () => {
       }
     })
 
-    expect(wrapper.get('[data-testid="mobile-petct-fusion-primary"] .viewer-stage-stub').attributes('data-loading-label')).toBe('Loading Fusion Axial...')
+    expect(wrapper.get('[data-testid="mobile-petct-fusion-primary"] .viewer-stage-stub').attributes('data-loading-label')).toBe('正在加载 Fusion Axial...')
     for (const stage of wrapper.findAll('[data-testid="mobile-petct-fusion-reference"] .viewer-stage-stub')) {
-      expect(stage.attributes('data-loading-label')).toBe('Loading...')
+      expect(stage.attributes('data-loading-label')).toBe('加载中...')
     }
+  })
+
+  it('places reference slice info at the top-left and keeps long pane names visible', () => {
+    const wrapper = mount(MobilePetCtFusionViewport, {
+      props: {
+        activeOperation: 'stack:pan',
+        activeTab: createFusionTab(),
+        activeViewportKey: 'fusion-overlay-ax',
+        isViewLoading: false
+      }
+    })
+
+    const mipReference = wrapper
+      .findAll('[data-testid="mobile-petct-fusion-reference"]')
+      .find((pane) => pane.attributes('data-fusion-pane-key') === 'fusion-pet-cor-mip')
+
+    expect(mipReference?.get('.mobile-petct-fusion-viewport__reference-slice').text()).toBe('1 / 1')
+    expect(mipReference?.get('.mobile-petct-fusion-viewport__reference-title').text()).toBe('PET Coronal MIP')
+    expect(mipReference?.get('.mobile-petct-fusion-viewport__reference-title').classes()).toContain('mobile-petct-fusion-viewport__reference-title--compact')
   })
 
   it('collapses and restores the reference thumbnail rail', async () => {
@@ -231,5 +251,57 @@ describe('MobilePetCtFusionViewport', () => {
 
     expect(wrapper.findAll('.mobile-petct-fusion-viewport__pane--hidden')).toHaveLength(0)
     expect(toggle.attributes('style') ?? '').not.toContain('left:')
+  })
+
+  it('gives annotation pointer handlers priority over fusion drag', async () => {
+    const annotationPointerDown = vi.fn(() => true)
+    const wrapper = mount(MobilePetCtFusionViewport, {
+      props: {
+        activeOperation: 'stack:annotate:arrow',
+        activeTab: createFusionTab(),
+        activeViewportKey: 'fusion-overlay-ax',
+        annotationPointerDown,
+        isViewLoading: false
+      }
+    })
+
+    const stage = wrapper.get('[data-testid="mobile-petct-fusion-primary"] .viewer-stage-stub')
+    await dispatchPointerEvent(stage.element, 'pointerdown', { button: 0, clientX: 24, clientY: 32, isPrimary: true, pointerId: 18 })
+
+    expect(annotationPointerDown).toHaveBeenCalledWith(expect.any(Event), 'fusion-overlay-ax')
+    expect(wrapper.emitted('viewportDrag')).toBeUndefined()
+    expect(wrapper.emitted('fusionRegistrationDrag')).toBeUndefined()
+  })
+
+  it('routes mobile PET/CT fusion measurement pointers through measurement creation', async () => {
+    const wrapper = mount(MobilePetCtFusionViewport, {
+      props: {
+        activeOperation: 'measure:line',
+        activeTab: createFusionTab(),
+        activeViewportKey: 'fusion-overlay-ax',
+        isViewLoading: false
+      }
+    })
+
+    const stage = wrapper.get('[data-testid="mobile-petct-fusion-primary"] .viewer-stage-stub')
+    const image = stage.get('img')
+    stubElementRect(stage.element, { left: 0, top: 0, width: 200, height: 160 })
+    stubElementRect(image.element, { left: 0, top: 0, width: 200, height: 160 })
+    Object.assign(stage.element, {
+      hasPointerCapture: () => true,
+      releasePointerCapture: vi.fn(),
+      setPointerCapture: vi.fn()
+    })
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { button: 0, clientX: 20, clientY: 24, isPrimary: true, pointerId: 22 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { button: 0, clientX: 20, clientY: 24, isPrimary: true, pointerId: 22 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { button: 0, clientX: 140, clientY: 96, isPrimary: true, pointerId: 23 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { button: 0, clientX: 140, clientY: 96, isPrimary: true, pointerId: 23 })
+
+    expect(wrapper.emitted('viewportDrag')).toBeUndefined()
+    expect(wrapper.emitted('measurementCreate')?.[0]?.[0]).toMatchObject({
+      viewportKey: 'fusion-overlay-ax',
+      toolType: 'line'
+    })
   })
 })

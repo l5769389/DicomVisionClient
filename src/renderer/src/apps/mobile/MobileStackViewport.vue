@@ -114,7 +114,7 @@ const dragMoveQueue = createMobileViewportDragMoveQueue<'single'>((move: MobileV
 const stackTab = computed(() => (
   props.activeTab?.viewType === 'Stack' || props.activeTab?.viewType === 'PET' ? props.activeTab : null
 ))
-const viewportPlaceholder = computed(() => (stackTab.value ? '移动端单视口预览' : '选择序列后打开 Stack/PET 视图'))
+const viewportPlaceholder = computed(() => (stackTab.value ? '移动端单视口预览' : '选择序列后打开 2D 视图'))
 
 function createMeasurementId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -524,7 +524,7 @@ watch(
       :light-surface="stackTab?.viewType === 'PET'"
       :stage-surface-class="stackTab?.viewType === 'PET' ? 'viewer-stage-surface--white viewer-stage-surface--pet-standalone' : ''"
       loading-label="正在加载影像..."
-      :alt="stackTab?.viewType ?? 'Stack'"
+      alt="2D"
       :active-operation="activeOperation"
       :placeholder="viewportPlaceholder"
       :cursor-class="viewportCursorClasses.single ?? ''"

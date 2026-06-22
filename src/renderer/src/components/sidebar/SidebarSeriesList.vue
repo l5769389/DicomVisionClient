@@ -359,7 +359,7 @@ const contextMenuActions = computed<SeriesContextMenuActionItem[]>(() => [
   {
     key: 'compare' as const,
     title: isZh.value ? '对比' : 'Compare',
-    subtitle: isZh.value ? '选择另一个序列打开栈对比' : 'Choose another series for Stack compare',
+    subtitle: isZh.value ? '选择另一个序列打开 2D 对比' : 'Choose another series for 2D compare',
     badge: 'CMP',
     disabled: props.seriesList.length < 2
   },
@@ -1122,7 +1122,7 @@ function handleSeriesDragEnd(): void {
         <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
           <div class="min-w-0">
             <div class="text-lg font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '选择对比序列' : 'Choose Compare Series' }}</div>
-            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? 'A 为当前基准序列，选择一个 B 目标序列后会打开左右并排的栈对比标签页。' : 'A is the current source series. Choose a B target series to open a side-by-side Stack compare tab.' }}</div>
+            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? 'A 为当前基准序列，选择一个 B 目标序列后会打开左右并排的 2D 对比标签页。' : 'A is the current source series. Choose a B target series to open a side-by-side 2D compare tab.' }}</div>
           </div>
           <VBtn class="h-10! w-10! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isCompareDialogOpen = false">
             <AppIcon name="close" :size="18" />

@@ -298,6 +298,9 @@ describe('MobileSettingsOverlay', () => {
     const wrapper = mountSettings()
 
     expect(wrapper.findAll('[data-testid^="mobile-settings-nav-"]')).toHaveLength(9)
+    expect(wrapper.find('.mobile-settings__eyebrow').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Mobile')
+    expect(wrapper.text()).not.toContain('移动端')
 
     await wrapper.get('[data-testid="mobile-settings-nav-interface"]').trigger('click')
     expect(wrapper.findAll('.mobile-settings__theme-card')).toHaveLength(3)
@@ -313,6 +316,7 @@ describe('MobileSettingsOverlay', () => {
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-reading"]').trigger('click')
+    expect(wrapper.text()).toContain('2D 默认工具')
     await wrapper.findAll('[data-testid="mobile-settings-stack-tool"]')[1].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-mpr-tool"]')[3].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-volume-tool"]')[2].trigger('click')
@@ -353,6 +357,7 @@ describe('MobileSettingsOverlay', () => {
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-playback"]').trigger('click')
+    expect(wrapper.text()).toContain('2D / MPR 播放 FPS')
     await wrapper.get('[data-testid="mobile-settings-playback-fps"]').setValue('4')
     await wrapper.get('[data-testid="mobile-settings-gesture-sensitivity"]').setValue('2')
     await wrapper.findAll('[data-testid="mobile-settings-orientation-lock"]')[2].trigger('click')

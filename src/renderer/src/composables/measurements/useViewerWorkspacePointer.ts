@@ -391,7 +391,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'PET' || viewType === 'CompareStack' || viewType === 'Layout'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion'
   }
 
   function isCrosshairOperationEnabled(): boolean {

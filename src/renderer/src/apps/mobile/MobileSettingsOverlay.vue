@@ -373,7 +373,7 @@ function handleGestureSensitivityInput(event: Event): void {
 
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="mobile-settings" role="dialog" aria-modal="true" aria-label="Mobile settings">
+    <div v-if="isOpen" class="mobile-settings" role="dialog" aria-modal="true" :aria-label="activePanelTitle">
       <header class="mobile-settings__header">
         <button
           v-if="activePanel"
@@ -386,7 +386,6 @@ function handleGestureSensitivityInput(event: Event): void {
         </button>
         <span v-else class="mobile-settings__header-spacer" aria-hidden="true"></span>
         <div class="mobile-settings__header-title">
-          <div v-if="!activePanel" class="mobile-settings__eyebrow">{{ isZh ? '移动端' : 'Mobile' }}</div>
           <div class="mobile-settings__title">{{ activePanelTitle }}</div>
         </div>
         <button type="button" class="mobile-settings__icon-button" data-testid="mobile-settings-close" @click="closeOverlay">
@@ -409,7 +408,7 @@ function handleGestureSensitivityInput(event: Event): void {
               <AppIcon name="page" :size="20" />
               <span>
                 <strong>{{ isZh ? '阅片默认' : 'Reading Defaults' }}</strong>
-                <small>Stack {{ selectedStackToolLabel }} · MPR {{ selectedMprToolLabel }} · 3D {{ selectedVolumeToolLabel }}</small>
+                <small>2D {{ selectedStackToolLabel }} · MPR {{ selectedMprToolLabel }} · 3D {{ selectedVolumeToolLabel }}</small>
               </span>
               <AppIcon name="chevron-right" :size="18" />
             </button>
@@ -522,7 +521,7 @@ function handleGestureSensitivityInput(event: Event): void {
         </section>
 
         <section v-else-if="activePanel === 'reading'" class="mobile-settings__section">
-          <div class="mobile-settings__subhead">{{ isZh ? 'Stack 默认工具' : 'Stack Default Tool' }}</div>
+          <div class="mobile-settings__subhead">{{ isZh ? '2D 默认工具' : '2D Default Tool' }}</div>
           <div class="mobile-settings__option-grid">
             <button
               v-for="tool in stackToolOptions"
@@ -599,7 +598,10 @@ function handleGestureSensitivityInput(event: Event): void {
               data-testid="mobile-settings-pseudocolor"
               @click="selectedPseudocolorKey = preset.key"
             >
-              <span class="mobile-settings__swatch" :style="{ background: getPseudocolorGradient(preset.key) }"></span>
+              <span
+                class="mobile-settings__swatch mobile-settings__swatch--pseudocolor"
+                :style="{ '--mobile-settings-pseudocolor-gradient': getPseudocolorGradient(preset.key) }"
+              ></span>
               <span>{{ preset.label }}</span>
             </button>
           </div>
@@ -865,7 +867,7 @@ function handleGestureSensitivityInput(event: Event): void {
             <AppIcon name="tag" :size="18" />
             <span>
               <strong>{{ isZh ? 'DICOM Tag 浏览' : 'DICOM Tag Browser' }}</strong>
-              <small>{{ isZh ? '移动端简洁浏览布局' : 'Compact mobile browsing layout' }}</small>
+              <small>{{ isZh ? '简洁浏览布局' : 'Compact browsing layout' }}</small>
             </span>
           </div>
 
@@ -944,7 +946,7 @@ function handleGestureSensitivityInput(event: Event): void {
         <section v-else-if="activePanel === 'playback'" class="mobile-settings__section">
           <div class="mobile-settings__control-block">
             <div class="mobile-settings__range-head">
-              <span class="mobile-settings__subhead">{{ isZh ? 'Stack / MPR 播放 FPS' : 'Stack / MPR Playback FPS' }}</span>
+              <span class="mobile-settings__subhead">{{ isZh ? '2D / MPR 播放 FPS' : '2D / MPR Playback FPS' }}</span>
               <strong>{{ stackPlaybackFps }} FPS</strong>
             </div>
             <input
@@ -1014,11 +1016,11 @@ function handleGestureSensitivityInput(event: Event): void {
 
 .mobile-settings__header {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   align-items: center;
-  gap: 8px;
-  min-height: 62px;
-  padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
+  gap: 6px;
+  min-height: 56px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
   background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   backdrop-filter: blur(18px);
@@ -1031,20 +1033,15 @@ function handleGestureSensitivityInput(event: Event): void {
 
 .mobile-settings__header-spacer {
   display: block;
-  width: 42px;
-  height: 42px;
-}
-
-.mobile-settings__eyebrow {
-  color: var(--theme-text-muted);
-  font-size: 11px;
-  font-weight: 800;
+  width: 40px;
+  height: 40px;
 }
 
 .mobile-settings__title {
   overflow: hidden;
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 900;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1053,8 +1050,8 @@ function handleGestureSensitivityInput(event: Event): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 80%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
@@ -1068,18 +1065,18 @@ function handleGestureSensitivityInput(event: Event): void {
 .mobile-settings__content {
   min-height: 0;
   overflow: auto;
-  padding: 12px 12px calc(env(safe-area-inset-bottom, 0px) + 18px);
+  padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 16px);
 }
 
 .mobile-settings__content--detail {
-  padding-top: 14px;
+  padding-top: 12px;
 }
 
 .mobile-settings__nav-group {
   display: grid;
   gap: 1px;
   overflow: hidden;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
@@ -1087,15 +1084,15 @@ function handleGestureSensitivityInput(event: Event): void {
 
 .mobile-settings__nav-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 22px;
+  grid-template-columns: 30px minmax(0, 1fr) 20px;
   align-items: center;
-  gap: 10px;
-  min-height: 58px;
+  gap: 9px;
+  min-height: 52px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 54%, transparent);
   background: transparent;
   color: var(--theme-text-primary);
-  padding: 9px 10px;
+  padding: 8px 10px;
   text-align: left;
 }
 
@@ -1122,15 +1119,17 @@ function handleGestureSensitivityInput(event: Event): void {
 }
 
 .mobile-settings__nav-row strong {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
+  line-height: 1.15;
 }
 
 .mobile-settings__nav-row small {
   margin-top: 2px;
   color: var(--theme-text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
+  line-height: 1.2;
 }
 
 .mobile-settings__section {
@@ -1386,6 +1385,22 @@ function handleGestureSensitivityInput(event: Event): void {
   border-radius: 8px;
 }
 
+.mobile-settings__swatch--pseudocolor {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  isolation: isolate;
+}
+
+.mobile-settings__swatch--pseudocolor::before {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--mobile-settings-pseudocolor-gradient);
+  content: "";
+  transform: translateZ(0);
+}
+
 .mobile-settings__switch-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1634,16 +1649,12 @@ function handleGestureSensitivityInput(event: Event): void {
 
 @media (orientation: landscape) and (max-height: 520px) {
   .mobile-settings__header {
-    min-height: 48px;
-    padding: calc(env(safe-area-inset-top, 0px) + 6px) 10px 6px;
-  }
-
-  .mobile-settings__eyebrow {
-    display: none;
+    min-height: 44px;
+    padding: calc(env(safe-area-inset-top, 0px) + 5px) 10px 5px;
   }
 
   .mobile-settings__title {
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .mobile-settings__icon-button {

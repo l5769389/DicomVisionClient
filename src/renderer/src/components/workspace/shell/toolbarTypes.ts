@@ -23,6 +23,12 @@ export interface StackTool {
   swatchKey?: string
   kind?: 'mode' | 'action'
   menuKind?: 'options' | 'layout' | 'mprLayout'
+  inlineKind?: 'fusionPetDisplay' | 'fusionRegistration'
   options?: StackToolOption[]
+  dockOptions?: StackToolOption[]
   showSelectedOptionIcon?: boolean
+}
+
+export interface StackToolOptionSelectBehavior {
+  keepMenuOpen?: boolean
 }

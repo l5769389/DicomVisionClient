@@ -2,8 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import ViewerToolbar from '../../workspace/shell/ViewerToolbar.vue'
+import ViewerToolbarDock from '../../workspace/shell/ViewerToolbarDock.vue'
+import MprMipConfigPanel from '../../workspace/MprMipConfigPanel.vue'
+import FourDStatusControls from './FourDStatusControls.vue'
 import MprView from './MprView.vue'
-import type { StackTool } from '../../workspace/shell/toolbarTypes'
+import type { StackTool, StackToolOptionSelectBehavior } from '../../workspace/shell/toolbarTypes'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -14,6 +17,7 @@ import type {
   MeasurementDraft,
   MeasurementOverlay,
   MprLayoutKey,
+  MprMipConfig,
   MprViewportKey,
   ViewerMtfItem,
   ViewerTabItem
@@ -46,10 +50,19 @@ const props = defineProps<{
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
   toggleIconSize: number
+  toolbarPlacement?: 'top' | 'right'
+  activeMprMipConfig?: MprMipConfig | null
+  isMprMipPanelOpen?: boolean
+  isSlicePlaybackPaused?: boolean
+  isSlicePlaybackPlaying?: boolean
+  resultPanelIcon?: string
+  resultPanelOpen?: boolean
+  resultPanelTitle?: string
+  resultPanelToolKey?: string | null
 }>()
 
 const emit = defineEmits<{
-  applyTool: [tool: StackTool]
+  applyTool: [tool: StackTool, behavior?: StackToolOptionSelectBehavior]
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
@@ -61,8 +74,14 @@ const emit = defineEmits<{
   phaseChange: [phaseIndex: number]
   fpsChange: [fps: number]
   playbackChange: [isPlaying: boolean]
+  closeMprMipPanel: []
+  closeResultPanel: []
+  dockResize: []
+  endPlayback: []
+  mprMipConfigChange: [config: MprMipConfig, actionType?: 'move' | 'end']
+  pausePlayback: []
   selectMtf: [payload: { mtfId: string | null }]
-  selectToolOption: [tool: StackTool, optionValue: string]
+  selectToolOption: [tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior]
   setMenuOpen: [toolKey: string | null]
   toggleTabStrip: []
   pointerCancel: [event: PointerEvent]
@@ -79,13 +98,11 @@ const emit = defineEmits<{
 
 const FPS_MIN = 1
 const FPS_MAX = 30
-const FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
 
 const fps = ref(props.activeTab.fourDPlaybackFps ?? 2)
-const fpsMenuOpen = ref(false)
-const { toolbarCopy, viewerCopy } = useUiLocale()
+const { viewerCopy } = useUiLocale()
 const copy = computed(() => viewerCopy.value)
-const toolbarCopyValue = computed(() => toolbarCopy.value)
+const isRightToolbarLayout = computed(() => props.toolbarPlacement === 'right')
 
 const phaseItems = computed<FourDPhaseItem[]>(() => {
   if (props.activeTab.fourDPhaseItems?.length) {
@@ -118,11 +135,14 @@ const canPlay = computed(() => phaseCount.value > 1)
 const normalizedFps = computed(() => normalizeFpsValue(fps.value))
 const isPlaying = computed(() => Boolean(props.activeTab.fourDIsPlaying))
 const isPreloading = computed(() => Boolean(props.activeTab.fourDIsPreloading))
-const interactionLocked = computed(() => isPlaying.value || isPreloading.value)
+const isSlicePlaybackPlaying = computed(() => props.isSlicePlaybackPlaying === true)
+const isSlicePlaybackPaused = computed(() => props.isSlicePlaybackPaused === true)
+const isSlicePlaybackActive = computed(() => isSlicePlaybackPlaying.value || isSlicePlaybackPaused.value)
+const interactionLocked = computed(() => isPlaying.value || isPreloading.value || isSlicePlaybackActive.value)
 const toolbarLocked = computed(() => interactionLocked.value || props.areToolbarActionsDisabled)
-const playbackButtonDisabled = computed(() => !canPlay.value || isPreloading.value)
+const playbackButtonDisabled = computed(() => !canPlay.value || isPreloading.value || isSlicePlaybackActive.value)
 const playbackButtonLabel = computed(() => (isPreloading.value ? copy.value.loading4dPlayback : isPlaying.value ? copy.value.pause4dPlayback : copy.value.play4dPlayback))
-const playbackButtonTitle = computed(() => (isPreloading.value ? copy.value.loading : isPlaying.value ? copy.value.pause : copy.value.play))
+const playbackButtonTitle = computed(() => (isPreloading.value ? copy.value.loading4dPlayback : isPlaying.value ? copy.value.pause4dPlayback : copy.value.play4dPlayback))
 const interactionLockLabel = computed(() => (isPreloading.value ? copy.value.loading4dPhases : copy.value.playingMprToolsDisabled))
 const interactionLockDescription = computed(() =>
   isPreloading.value
@@ -254,7 +274,6 @@ function selectPhase(index: number): void {
 
 function selectFps(value: number): void {
   fps.value = normalizeFpsValue(value)
-  fpsMenuOpen.value = false
 }
 
 function emitWhenIdle(callback: () => void): void {
@@ -264,11 +283,18 @@ function emitWhenIdle(callback: () => void): void {
   callback()
 }
 
+function emitToolbarOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+  if (tool.key === 'play' && isSlicePlaybackActive.value) {
+    emit('selectToolOption', tool, optionValue, behavior)
+    return
+  }
+  emitWhenIdle(() => emit('selectToolOption', tool, optionValue, behavior))
+}
+
 watch(
   () => props.activeTab.key,
   () => {
     fps.value = props.activeTab.fourDPlaybackFps ?? 2
-    fpsMenuOpen.value = false
   }
 )
 
@@ -311,19 +337,14 @@ watch(
   }
 )
 
-watch(
-  interactionLocked,
-  (value) => {
-    if (value) {
-      fpsMenuOpen.value = false
-    }
-  }
-)
 </script>
 
 <template>
-  <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] gap-2 text-[var(--theme-text-primary)]">
-    <div class="four-d-toolbar-shell flex min-h-10 flex-wrap items-center justify-between gap-2 px-3 py-2">
+  <div
+    class="four-d-root h-full min-h-0 w-full gap-2 text-[var(--theme-text-primary)]"
+    :class="isRightToolbarLayout ? 'four-d-root--right' : 'four-d-root--top'"
+  >
+    <div v-if="!isRightToolbarLayout" class="four-d-toolbar-shell flex min-h-10 flex-wrap items-center justify-between gap-2 px-3 py-2">
       <div class="min-w-0 flex-1">
         <ViewerToolbar
           class="four-d-viewer-toolbar"
@@ -331,8 +352,8 @@ watch(
           :active-tools="activeTools"
           :are-toolbar-actions-disabled="toolbarLocked"
           embedded
-          :is-playing="false"
-          :is-playback-paused="false"
+          :is-playing="isSlicePlaybackPlaying"
+          :is-playback-paused="isSlicePlaybackPaused"
           :is-tool-selected="isToolSelected"
           :is-tab-strip-collapsed="props.isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
@@ -342,77 +363,43 @@ watch(
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
           @apply-tool="emitWhenIdle(() => emit('applyTool', $event))"
-          @end-playback="() => undefined"
-          @pause-playback="() => undefined"
-          @select-tool-option="(tool, optionValue) => emitWhenIdle(() => emit('selectToolOption', tool, optionValue))"
+          @end-playback="emit('endPlayback')"
+          @pause-playback="emit('pausePlayback')"
+          @select-tool-option="(tool, optionValue) => emitToolbarOption(tool, optionValue)"
           @set-menu-open="emit('setMenuOpen', $event)"
           @toggle-tab-strip="emit('toggleTabStrip')"
         />
       </div>
 
-      <div class="four-d-playback-controls flex flex-wrap items-center justify-end gap-2">
-        <VMenu
-          :model-value="fpsMenuOpen"
-          location="bottom end"
-          :offset="8"
-          :close-on-content-click="true"
-          @update:model-value="fpsMenuOpen = $event"
-        >
-          <template #activator="{ props: menuProps }">
-            <button
-              v-bind="menuProps"
-              class="four-d-fps-button"
-              type="button"
-              :disabled="interactionLocked"
-              :aria-expanded="fpsMenuOpen"
-              title="4D playback FPS"
-            >
-              <span class="four-d-fps-button__label">FPS</span>
-              <span class="four-d-fps-button__value">{{ normalizedFps }}</span>
-              <AppIcon name="chevron-down" :size="12" :stroke-width="2.2" />
-            </button>
-          </template>
-
-          <div
-            data-tool-menu-root
-            class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[22px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-2 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-          >
-            <button
-              v-for="option in FPS_OPTIONS"
-              :key="option"
-              type="button"
-              class="four-d-fps-option toolbar-menu-option group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
-              :class="{
-                'four-d-fps-option--active toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': option === normalizedFps
-              }"
-              @click="selectFps(option)"
-            >
-              <div
-                class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-                :class="{ 'opacity-100': option === normalizedFps }"
-              />
-              <span>FPS {{ option }}</span>
-              <AppIcon v-if="option === normalizedFps" name="check" :size="14" />
-            </button>
-          </div>
-        </VMenu>
-        <button class="four-d-icon-button" type="button" :disabled="playbackButtonDisabled" :aria-label="playbackButtonLabel" :title="playbackButtonTitle" @click="togglePlayback">
-          <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
-        </button>
-        <button
-          v-if="props.showTabStripToggle"
-          class="four-d-icon-button four-d-tab-strip-toggle-button"
-          type="button"
-          :aria-label="props.isTabStripCollapsed ? toolbarCopyValue.showTabs : toolbarCopyValue.hideTabs"
-          :title="props.isTabStripCollapsed ? toolbarCopyValue.showTabs : toolbarCopyValue.hideTabs"
-          @click="emit('toggleTabStrip')"
-        >
-          <AppIcon :name="props.isTabStripCollapsed ? 'chevron-down' : 'chevron-up'" :size="16" :stroke-width="2.3" />
-        </button>
-      </div>
+      <FourDStatusControls
+        :interaction-locked="interactionLocked"
+        :external-playback-locked="isSlicePlaybackActive"
+        :is-playing="isPlaying"
+        :normalized-fps="normalizedFps"
+        :normalized-phase-index="normalizedPhaseIndex"
+        :phase-items="phaseItems"
+        :phase-load-progress-label="phaseLoadProgressLabel"
+        :phase-runtime-kind="phaseRuntimeKind"
+        :phase-status-aria-label="phaseStatusAriaLabel"
+        :phase-visual-states="phaseVisualStates"
+        :playback-button-disabled="playbackButtonDisabled"
+        :playback-button-label="playbackButtonLabel"
+        :playback-button-title="playbackButtonTitle"
+        :playback-progress="playbackProgress"
+        :show-phase-panel="false"
+        show-playback-controls
+        :show-tab-strip-toggle="props.showTabStripToggle"
+        :is-tab-strip-collapsed="props.isTabStripCollapsed"
+        @fps-change="selectFps"
+        @playback-toggle="togglePlayback"
+        @toggle-tab-strip="emit('toggleTabStrip')"
+      />
     </div>
 
-    <div class="grid min-h-0 grid-cols-[minmax(0,1fr)_104px] gap-2 max-xl:grid-cols-1 max-xl:grid-rows-[minmax(0,1fr)_auto]">
+    <div
+      class="four-d-content grid min-h-0 gap-2"
+      :class="isRightToolbarLayout ? 'four-d-content--right' : 'four-d-content--top'"
+    >
       <div class="relative min-h-0">
         <MprView
           :active-tab="activeTab"
@@ -470,65 +457,133 @@ watch(
         </div>
       </div>
 
-      <aside class="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] content-start gap-2 rounded-2xl border border-[var(--theme-border-soft)] bg-[color:color-mix(in_srgb,var(--theme-surface-card)_66%,transparent)] p-2" aria-live="polite">
-        <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-secondary)]">{{ copy.phases }}</div>
-        <div class="h-1.5 overflow-hidden rounded-full bg-[color:color-mix(in_srgb,var(--theme-text-primary)_10%,transparent)]">
-          <div class="h-full rounded-full bg-[var(--theme-accent)] transition-[width] duration-150" :style="{ width: playbackProgress }"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 max-xl:grid-cols-10 max-md:grid-cols-5">
-          <button
-            v-for="phase in phaseItems"
-            :key="phase.phaseIndex"
-            class="four-d-phase-button"
-            :class="[
-              { 'four-d-phase-button--active': phase.phaseIndex === normalizedPhaseIndex },
-              `four-d-phase-button--${phaseVisualStates[phase.phaseIndex] ?? 'unloaded'}`
-            ]"
-            type="button"
-            :disabled="interactionLocked"
-            :aria-label="copy.select4dFrame(phase.phaseIndex + 1)"
-            @click="selectPhase(phase.phaseIndex)"
-          >
-            <span>{{ String(phase.phaseIndex + 1).padStart(2, '0') }}</span>
-            <span
-              class="four-d-phase-button__status"
-              :class="`four-d-phase-button__status--${phaseVisualStates[phase.phaseIndex] ?? 'unloaded'}`"
-              aria-hidden="true"
-            ></span>
-          </button>
-        </div>
-        <div class="four-d-phase-footer">
-          <div class="flex flex-wrap items-center gap-3">
-            <span class="four-d-phase-legend">
-              <span class="four-d-phase-legend__dot four-d-phase-legend__dot--loaded" aria-hidden="true"></span>
-              <span>{{ copy.loaded }}</span>
-            </span>
-            <span class="four-d-phase-legend">
-              <span class="four-d-phase-legend__dot four-d-phase-legend__dot--loading" aria-hidden="true"></span>
-              <span>{{ copy.loading }}</span>
-            </span>
-            <span class="four-d-phase-legend">
-              <span class="four-d-phase-legend__dot four-d-phase-legend__dot--unloaded" aria-hidden="true"></span>
-              <span>{{ copy.notLoaded }}</span>
-            </span>
-          </div>
-          <div
-            class="four-d-phase-runtime"
-            :class="`four-d-phase-runtime--${phaseRuntimeKind}`"
-            role="status"
-            :aria-label="phaseStatusAriaLabel"
-            :title="phaseStatusAriaLabel"
-          >
-            <span class="four-d-phase-runtime__dot" :class="`four-d-phase-runtime__dot--${phaseRuntimeKind}`" aria-hidden="true"></span>
-            <span class="four-d-phase-runtime__count">{{ phaseLoadProgressLabel }}</span>
-          </div>
-        </div>
-      </aside>
+      <FourDStatusControls
+        v-if="!isRightToolbarLayout"
+        :interaction-locked="interactionLocked"
+        :external-playback-locked="isSlicePlaybackActive"
+        :is-playing="isPlaying"
+        :normalized-fps="normalizedFps"
+        :normalized-phase-index="normalizedPhaseIndex"
+        :phase-items="phaseItems"
+        :phase-load-progress-label="phaseLoadProgressLabel"
+        :phase-runtime-kind="phaseRuntimeKind"
+        :phase-status-aria-label="phaseStatusAriaLabel"
+        :phase-visual-states="phaseVisualStates"
+        :playback-button-disabled="playbackButtonDisabled"
+        :playback-button-label="playbackButtonLabel"
+        :playback-button-title="playbackButtonTitle"
+        :playback-progress="playbackProgress"
+        show-phase-panel
+        :show-playback-controls="false"
+        @phase-change="selectPhase"
+      />
+
+      <ViewerToolbarDock
+        v-else
+        :active-tab="activeTab"
+        :active-tools="activeTools"
+        :are-toolbar-actions-disabled="toolbarLocked"
+        :is-playing="isSlicePlaybackPlaying"
+        :is-playback-paused="isSlicePlaybackPaused"
+        :is-tool-selected="isToolSelected"
+        :menu-icon-size="menuIconSize"
+        :open-menu-key="openMenuKey"
+        :result-panel-icon="resultPanelIcon"
+        :result-panel-open="Boolean(resultPanelOpen)"
+        :result-panel-title="resultPanelTitle"
+        :result-panel-tool-key="resultPanelToolKey ?? null"
+        :stack-tool-selections="stackToolSelections"
+        :toolbar-icon-size="toolbarIconSize"
+        utility-panel-icon="mip"
+        :utility-panel-open="Boolean(isMprMipPanelOpen && activeMprMipConfig)"
+        utility-panel-title="MIP Params"
+        utility-panel-tool-key="mprMip"
+        @apply-tool="(tool, behavior) => emitWhenIdle(() => emit('applyTool', tool, behavior))"
+        @close-result-panel="emit('closeResultPanel')"
+        @close-utility-panel="emit('closeMprMipPanel')"
+        @end-playback="emit('endPlayback')"
+        @pause-playback="emit('pausePlayback')"
+        @select-tool-option="emitToolbarOption"
+        @set-menu-open="emit('setMenuOpen', $event)"
+        @dock-resize="emit('dockResize')"
+      >
+        <template #result>
+          <slot name="result" />
+        </template>
+        <template #panel>
+          <MprMipConfigPanel
+            v-if="isMprMipPanelOpen && activeMprMipConfig"
+            class="four-d-dock-panel"
+            :config="activeMprMipConfig"
+            @config-change="(config, actionType) => emit('mprMipConfigChange', config, actionType)"
+          />
+        </template>
+        <template #status>
+          <FourDStatusControls
+            layout="dock"
+            :interaction-locked="interactionLocked"
+            :external-playback-locked="isSlicePlaybackActive"
+            :is-playing="isPlaying"
+            :normalized-fps="normalizedFps"
+            :normalized-phase-index="normalizedPhaseIndex"
+            :phase-items="phaseItems"
+            :phase-load-progress-label="phaseLoadProgressLabel"
+            :phase-runtime-kind="phaseRuntimeKind"
+            :phase-status-aria-label="phaseStatusAriaLabel"
+            :phase-visual-states="phaseVisualStates"
+            :playback-button-disabled="playbackButtonDisabled"
+            :playback-button-label="playbackButtonLabel"
+            :playback-button-title="playbackButtonTitle"
+            :playback-progress="playbackProgress"
+            show-phase-panel
+            show-playback-controls
+            :show-tab-strip-toggle="false"
+            :is-tab-strip-collapsed="props.isTabStripCollapsed"
+            @fps-change="selectFps"
+            @phase-change="selectPhase"
+            @playback-toggle="togglePlayback"
+            @toggle-tab-strip="emit('toggleTabStrip')"
+          />
+        </template>
+      </ViewerToolbarDock>
     </div>
   </div>
 </template>
 
 <style scoped>
+.four-d-root {
+  display: grid;
+}
+
+.four-d-root--top {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.four-d-root--right {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.four-d-content--top {
+  grid-template-columns: minmax(0, 1fr) 104px;
+}
+
+.four-d-content--right {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (max-width: 1280px) {
+  .four-d-content--top {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+}
+
+.four-d-dock-panel {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 14px !important;
+}
+
 .four-d-icon-button,
 .four-d-phase-button {
   border: 1px solid var(--theme-border-soft);

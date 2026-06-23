@@ -45,6 +45,7 @@ describe('useMobileViewerPreferences', () => {
     expect(preferences.defaultShowCornerInfo.value).toBe(true)
     expect(preferences.defaultShowScaleBar.value).toBe(true)
     expect(preferences.orientationLock.value).toBe('unlocked')
+    expect(preferences.volumeDefaultTool.value).toBe('rotate3d')
   })
 
   it('persists updated mobile viewer preferences', async () => {
@@ -52,7 +53,7 @@ describe('useMobileViewerPreferences', () => {
     const preferences = useMobileViewerPreferences()
 
     preferences.setStackDefaultTool('window')
-    preferences.setMprDefaultTool('zoom')
+    preferences.setMprDefaultTool('pan')
     preferences.setMprDefaultViewport('mpr-sag')
     preferences.setMprShowReferenceThumbnails(false)
     preferences.setGestureSensitivity('high')
@@ -60,17 +61,19 @@ describe('useMobileViewerPreferences', () => {
     preferences.setDefaultShowCornerInfo(false)
     preferences.setDefaultShowScaleBar(false)
     preferences.setOrientationLock('landscape')
+    preferences.setVolumeDefaultTool('pan')
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}')).toEqual({
       defaultShowCornerInfo: false,
       defaultShowScaleBar: false,
       gestureSensitivity: 'high',
-      mprDefaultTool: 'zoom',
+      mprDefaultTool: 'pan',
       mprDefaultViewport: 'mpr-sag',
       mprShowReferenceThumbnails: false,
       orientationLock: 'landscape',
       stackDefaultTool: 'window',
-      stackPlaybackFps: 15
+      stackPlaybackFps: 15,
+      volumeDefaultTool: 'pan'
     })
   })
 
@@ -86,7 +89,8 @@ describe('useMobileViewerPreferences', () => {
         mprShowReferenceThumbnails: 'no',
         orientationLock: 'upside-down',
         stackDefaultTool: 'play',
-        stackPlaybackFps: 7
+        stackPlaybackFps: 7,
+        volumeDefaultTool: 'orbit'
       })
     )
 
@@ -102,5 +106,6 @@ describe('useMobileViewerPreferences', () => {
     expect(preferences.orientationLock.value).toBe('unlocked')
     expect(preferences.stackDefaultTool.value).toBe('scroll')
     expect(preferences.stackPlaybackFps.value).toBe(5)
+    expect(preferences.volumeDefaultTool.value).toBe('rotate3d')
   })
 })

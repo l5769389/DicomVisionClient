@@ -6,6 +6,7 @@ import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, MAX_HANGING_PROTOCOL_RULES, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type HangingProtocolRule, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
+import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR } from '../../types/viewer'
 import {
   MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION,
   SAMPLE_VIEWPORT_CORNER_INFO,
@@ -52,8 +53,10 @@ type SettingsSection =
   | 'displayCrosshair'
   | 'displayCornerInfo'
   | 'displayMprLayout'
+  | 'displayToolbarLayout'
   | 'displayScaleBar'
   | 'displayMeasurement'
+  | 'displaySegmentation'
   | 'displayPseudocolor'
   | 'displayRoi'
   | 'pacs'
@@ -160,8 +163,10 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   displayCrosshair: ['十字线', 'mpr', 'crosshair', 'axis', '定位线'],
   displayCornerInfo: ['四角信息', '角标', '患者信息', 'corner', 'corner info', 'overlay', 'patient', 'tag'],
   displayMprLayout: ['mpr', '布局', '重建', '宫格', 'layout', 'grid', 'viewport'],
+  displayToolbarLayout: ['操作区', '工具栏', '按钮布局', '右侧', '顶部', 'toolbar', 'tool', 'operation', 'right', 'top', 'layout'],
   displayScaleBar: ['比例尺', '标尺', 'scale', 'scalebar', 'ruler'],
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
+  displaySegmentation: ['分割', 'voi', '阈值', '默认颜色', 'segmentation', 'threshold', 'default color'],
   displayPseudocolor: ['伪彩', '色图', '色带', '默认伪彩', 'pseudocolor', 'colormap', 'color', 'palette', 'bw', 'rainbow', 'pet', 'cardiac'],
   displayRoi: ['roi', '统计', '均值', '面积', '最大值', '最小值', 'stats', 'mean', 'area', 'min', 'max']
 }
@@ -214,6 +219,15 @@ const measurementColorPresets: ColorPreset[] = [
   { value: '#a855f7', label: 'Violet' }
 ]
 
+const segmentationColorPresets: ColorPreset[] = [
+  { value: DEFAULT_MPR_SEGMENTATION_COLOR, label: 'Threshold' },
+  { value: DEFAULT_MPR_VOI_COLOR, label: 'VOI' },
+  { value: '#f8fafc', label: 'White' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#a855f7', label: 'Violet' }
+]
+
 function createDefaultRoiStatOptions(): RoiStatOption[] {
   return [
     { key: 'mean', label: 'Mean', enabled: true },
@@ -256,6 +270,13 @@ function createDefaultMeasurementStylePreference() {
     lineWidth: 2.5,
     editingLineStyle: 'dash' as MeasurementLineStyle,
     completedLineStyle: 'solid' as MeasurementLineStyle
+  }
+}
+
+function createDefaultMprSegmentationStylePreference() {
+  return {
+    thresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    voiColor: DEFAULT_MPR_VOI_COLOR
   }
 }
 
@@ -327,7 +348,7 @@ function createShortcutGroups(copyValue: SettingsCopy, isZh: boolean): Array<{ t
     {
       title: copyValue.workspaceGroup,
       items: [
-        { id: 'quick-preview', action: 'Quick Preview', description: 'Open the current series in Stack view.', combo: 'Enter' },
+        { id: 'quick-preview', action: 'Quick Preview', description: 'Open the current series in 2D view.', combo: 'Enter' },
         { id: 'screenshot-png', action: 'Save Screenshot as PNG', description: 'Save the current viewport screenshot as PNG.', combo: 'F9' },
         { id: 'screenshot-dicom', action: 'Save Screenshot as DICOM', description: 'Save the current viewport screenshot as DICOM.', combo: 'F10' },
         { id: 'close-tab', action: 'Close Tab', description: 'Close the active tab.', combo: 'Ctrl + W' },
@@ -350,6 +371,7 @@ const {
   getWindowPresetLabel,
   hangingProtocolRules,
   measurementStylePreference,
+  mprSegmentationStylePreference,
   mprDefaultLayoutKey,
   qaWaterMetrics,
   removeHangingProtocolRule,
@@ -358,6 +380,7 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
+  viewerToolbarPlacement,
   viewportCornerInfoPreference,
   setCrosshairConfigs,
   setDicomDeidentifyPreference,
@@ -365,6 +388,7 @@ const {
   setHangingProtocolRules,
   updateHangingProtocolRule,
   setMeasurementStylePreference,
+  setMprSegmentationStylePreference,
   setMprDefaultLayoutKey,
   setQaWaterMetrics,
   setScaleBarPreference,
@@ -419,17 +443,29 @@ let cornerInfoAutoScrollVelocity = 0
 const isZh = computed(() => locale.value === 'zh-CN')
 const copy = settingsCopy
 const { resetExportSection } = useExportSettings(copy)
+const toolbarLayoutCopy = computed(() => ({
+  description: isZh.value
+    ? '选择视图操作按钮显示在视图顶部，或移动到右侧并在同一区域显示工具子菜单和参数面板。'
+    : 'Place viewer controls above the viewport, or move them to the right with tool menus and parameter panels in the same area.',
+  navSubtitle: isZh.value ? '顶部或右侧操作按钮' : 'Top or right-side controls',
+  navTitle: isZh.value ? '操作区布局' : 'Toolbar Layout',
+  rightLabel: isZh.value ? '右侧操作区' : 'Right Dock',
+  title: isZh.value ? '视图操作区布局' : 'Viewer Toolbar Layout',
+  topLabel: isZh.value ? '顶部工具栏' : 'Top Toolbar'
+}))
 const sections = computed<SettingsNavItem[]>(() => [
   { key: 'language' as const, title: isZh.value ? '语言与主题' : 'Language & Theme', subtitle: isZh.value ? '界面偏好' : 'UI preferences', icon: 'language' },
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
   { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb / DIMSE 配置' : 'DICOMweb / DIMSE profiles', icon: 'pacs' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
+  { key: 'displayToolbarLayout' as const, title: toolbarLayoutCopy.value.navTitle, subtitle: toolbarLayoutCopy.value.navSubtitle, icon: 'settings' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
   { key: 'displayCrosshair' as const, title: copy.value.crosshairTitle, subtitle: isZh.value ? 'MPR 十字线' : 'MPR crosshair', icon: 'crosshair' },
   { key: 'displayCornerInfo' as const, title: isZh.value ? '四角信息' : 'Corner Info', subtitle: isZh.value ? '视口角标内容' : 'Viewport corner tags', icon: 'tag' },
   { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
   { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '测量线样式' : 'Measurement style', icon: 'measure-line' },
+  { key: 'displaySegmentation' as const, title: isZh.value ? '分割样式' : 'Segmentation Style', subtitle: isZh.value ? '默认分割与 VOI 颜色' : 'Default segmentation and VOI colors', icon: 'segmentation-threshold' },
   { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
   { key: 'hangingProtocol' as const, title: isZh.value ? '挂片协议' : 'Hanging Protocol', subtitle: isZh.value ? '自动布局规则' : 'Layout rules', icon: 'layout' },
   { key: 'dicomTags' as const, title: isZh.value ? 'DICOM 标签' : 'DICOM Tags', subtitle: isZh.value ? '显示与修改保存' : 'Display and edit save', icon: 'tag' },
@@ -465,11 +501,13 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
       items: [
         getSection('displayPseudocolor'),
         getSection('displayMprLayout'),
+        getSection('displayToolbarLayout'),
         getSection('windowPresets'),
         getSection('displayCrosshair'),
         getSection('displayCornerInfo'),
         getSection('displayScaleBar'),
         getSection('displayMeasurement'),
+        getSection('displaySegmentation'),
         getSection('displayRoi'),
         getSection('hangingProtocol')
       ]
@@ -1652,6 +1690,10 @@ function resetDisplaySubSection(section: SettingsSection): void {
     setMprDefaultLayoutKey(DEFAULT_MPR_LAYOUT_KEY)
     return
   }
+  if (section === 'displayToolbarLayout') {
+    viewerToolbarPlacement.value = 'right'
+    return
+  }
   if (section === 'displayScaleBar') {
     setScaleBarPreference(createDefaultScaleBarPreference())
     return
@@ -1663,6 +1705,10 @@ function resetDisplaySubSection(section: SettingsSection): void {
   }
   if (section === 'displayMeasurement') {
     setMeasurementStylePreference(createDefaultMeasurementStylePreference())
+    return
+  }
+  if (section === 'displaySegmentation') {
+    setMprSegmentationStylePreference(createDefaultMprSegmentationStylePreference())
   }
 }
 
@@ -1727,9 +1773,11 @@ function resetCurrentSection(): void {
   if (
     activeSection.value === 'displayCrosshair' ||
     activeSection.value === 'displayMprLayout' ||
+    activeSection.value === 'displayToolbarLayout' ||
     activeSection.value === 'displayScaleBar' ||
     activeSection.value === 'displayCornerInfo' ||
     activeSection.value === 'displayMeasurement' ||
+    activeSection.value === 'displaySegmentation' ||
     activeSection.value === 'displayPseudocolor' ||
     activeSection.value === 'displayRoi'
   ) {
@@ -1927,7 +1975,7 @@ onBeforeUnmount(() => {
                       @click="activeSection = section.key"
                     >
                       <span class="settings-nav-subitem__dot h-2 w-2 shrink-0 rounded-full"></span>
-                      <span class="block min-w-0 truncate text-xs font-semibold text-[var(--theme-text-primary)]">{{ section.title }}</span>
+                      <span class="block min-w-0 truncate text-[13px] font-semibold leading-5 text-[var(--theme-text-primary)]">{{ section.title }}</span>
                     </button>
                   </div>
                 </div>
@@ -2626,8 +2674,10 @@ onBeforeUnmount(() => {
                     activeSection === 'displayCrosshair' ||
                     activeSection === 'displayCornerInfo' ||
                     activeSection === 'displayMprLayout' ||
+                    activeSection === 'displayToolbarLayout' ||
                     activeSection === 'displayScaleBar' ||
                     activeSection === 'displayMeasurement' ||
+                    activeSection === 'displaySegmentation' ||
                     activeSection === 'displayPseudocolor' ||
                     activeSection === 'displayRoi'
                   "
@@ -2899,6 +2949,78 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
+                    <div v-if="activeSection === 'displayToolbarLayout'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="settings" :size="18" />
+                            <span class="text-sm font-semibold">{{ toolbarLayoutCopy.title }}</span>
+                          </div>
+                          <div class="mt-2 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ toolbarLayoutCopy.description }}
+                          </div>
+                        </div>
+                        <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
+                          {{ viewerToolbarPlacement === 'right' ? toolbarLayoutCopy.rightLabel : toolbarLayoutCopy.topLabel }}
+                        </div>
+                      </div>
+
+                      <div class="grid gap-4 xl:grid-cols-2">
+                        <button
+                          type="button"
+                          class="settings-toolbar-layout-choice"
+                          :class="{ 'settings-toolbar-layout-choice--active': viewerToolbarPlacement === 'top' }"
+                          data-testid="settings-toolbar-layout-top"
+                          @click="viewerToolbarPlacement = 'top'"
+                        >
+                          <span class="settings-toolbar-layout-choice__header">
+                            <span class="settings-toolbar-layout-choice__title">{{ toolbarLayoutCopy.topLabel }}</span>
+                            <span class="settings-toolbar-layout-choice__check">
+                              <AppIcon v-if="viewerToolbarPlacement === 'top'" name="check" :size="13" />
+                            </span>
+                          </span>
+                          <span class="settings-toolbar-layout-skeleton settings-toolbar-layout-skeleton--top" aria-hidden="true">
+                            <span class="settings-toolbar-layout-skeleton__topbar">
+                              <span v-for="item in 8" :key="`top-tool-${item}`"></span>
+                            </span>
+                            <span class="settings-toolbar-layout-skeleton__viewport">
+                              <span class="settings-toolbar-layout-skeleton__viewport-line settings-toolbar-layout-skeleton__viewport-line--wide"></span>
+                              <span class="settings-toolbar-layout-skeleton__viewport-line"></span>
+                            </span>
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="settings-toolbar-layout-choice"
+                          :class="{ 'settings-toolbar-layout-choice--active': viewerToolbarPlacement === 'right' }"
+                          data-testid="settings-toolbar-layout-right"
+                          @click="viewerToolbarPlacement = 'right'"
+                        >
+                          <span class="settings-toolbar-layout-choice__header">
+                            <span class="settings-toolbar-layout-choice__title">{{ toolbarLayoutCopy.rightLabel }}</span>
+                            <span class="settings-toolbar-layout-choice__check">
+                              <AppIcon v-if="viewerToolbarPlacement === 'right'" name="check" :size="13" />
+                            </span>
+                          </span>
+                          <span class="settings-toolbar-layout-skeleton settings-toolbar-layout-skeleton--right" aria-hidden="true">
+                            <span class="settings-toolbar-layout-skeleton__viewport">
+                              <span class="settings-toolbar-layout-skeleton__viewport-line settings-toolbar-layout-skeleton__viewport-line--wide"></span>
+                              <span class="settings-toolbar-layout-skeleton__viewport-line"></span>
+                            </span>
+                            <span class="settings-toolbar-layout-skeleton__dock">
+                              <span class="settings-toolbar-layout-skeleton__button-group">
+                                <span v-for="item in 6" :key="`right-tool-${item}`"></span>
+                              </span>
+                              <span class="settings-toolbar-layout-skeleton__panel">
+                                <span v-for="item in 4" :key="`right-panel-${item}`"></span>
+                              </span>
+                            </span>
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+
                     <div v-if="activeSection === 'displayScaleBar'" class="theme-card-soft rounded-[24px] p-4">
                       <div class="mb-4">
                         <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
@@ -3113,6 +3235,83 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
+                    <div v-if="activeSection === 'displaySegmentation'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="segmentation-threshold" :size="18" />
+                            <span class="text-sm font-semibold">{{ isZh ? '分割样式' : 'Segmentation Style' }}</span>
+                          </div>
+                          <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '设置阈值分割和 VOI 的默认显示颜色。修改后会同步覆盖当前已有条目的显示颜色。' : 'Set default display colors for threshold regions and VOI. Changes also recolor current items.' }}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.75fr)]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '阈值分割默认色' : 'Threshold Default' }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="mprSegmentationStylePreference.thresholdColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ mprSegmentationStylePreference.thresholdColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in segmentationColorPresets"
+                              :key="`seg-threshold-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="mprSegmentationStylePreference.thresholdColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="mprSegmentationStylePreference.thresholdColor = preset.value"
+                            >
+                              <span
+                                v-if="mprSegmentationStylePreference.thresholdColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? 'VOI 默认色' : 'VOI Default' }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="mprSegmentationStylePreference.voiColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ mprSegmentationStylePreference.voiColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in segmentationColorPresets"
+                              :key="`seg-voi-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="mprSegmentationStylePreference.voiColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="mprSegmentationStylePreference.voiColor = preset.value"
+                            >
+                              <span
+                                v-if="mprSegmentationStylePreference.voiColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '预览' : 'Preview' }}</div>
+                          <svg class="h-28 w-full" viewBox="0 0 280 112" aria-hidden="true">
+                            <rect x="42" y="28" width="146" height="42" rx="4" fill="transparent" :stroke="mprSegmentationStylePreference.thresholdColor" stroke-width="3" />
+                            <circle cx="178" cy="62" r="34" :fill="`${mprSegmentationStylePreference.voiColor}22`" :stroke="mprSegmentationStylePreference.voiColor" stroke-width="3" />
+                            <circle cx="72" cy="49" r="3" :fill="mprSegmentationStylePreference.thresholdColor" />
+                            <circle cx="104" cy="56" r="3" :fill="mprSegmentationStylePreference.thresholdColor" />
+                            <circle cx="137" cy="44" r="3" :fill="mprSegmentationStylePreference.thresholdColor" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+
                     <div v-if="activeSection === 'displayPseudocolor' || activeSection === 'displayRoi'" class="grid gap-5">
                       <div v-if="activeSection === 'displayPseudocolor'" class="theme-card-soft rounded-[24px] p-4">
                         <div class="mb-4 flex items-center justify-between gap-3">
@@ -3133,7 +3332,11 @@ onBeforeUnmount(() => {
                             :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
                             @click="selectedPseudocolorKey = option.key"
                           >
-                            <span class="block h-8 rounded-[12px] border shadow-inner" :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'" :style="{ background: option.gradient }"></span>
+                            <span
+                              class="settings-pseudocolor-band block h-8 rounded-[12px] border shadow-inner"
+                              :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'"
+                              :style="{ '--settings-pseudocolor-gradient': option.gradient }"
+                            ></span>
                             <span class="mt-3 flex items-center justify-between gap-3">
                               <span class="truncate text-sm font-semibold" :class="selectedPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
                               <span
@@ -3413,6 +3616,191 @@ onBeforeUnmount(() => {
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 84%, transparent);
+}
+
+.settings-toolbar-layout-choice {
+  display: grid;
+  gap: 14px;
+  min-height: 230px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--theme-surface-card) 76%, transparent);
+  padding: 16px;
+  color: var(--theme-text-primary);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.settings-toolbar-layout-choice:hover {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 82%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+}
+
+.settings-toolbar-layout-choice:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 34%, transparent);
+}
+
+.settings-toolbar-layout-choice--active,
+.settings-toolbar-layout-choice--active:hover,
+.settings-toolbar-layout-choice--active:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card)),
+      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel-solid))
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+
+.settings-toolbar-layout-choice__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-toolbar-layout-choice__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-toolbar-layout-choice__check {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 92%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 82%, transparent);
+  color: var(--theme-accent-contrast);
+}
+
+.settings-toolbar-layout-choice--active .settings-toolbar-layout-choice__check {
+  border-color: color-mix(in srgb, var(--theme-accent) 84%, white 8%);
+  background: var(--theme-accent);
+}
+
+.settings-toolbar-layout-skeleton {
+  display: grid;
+  min-height: 162px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 84%, transparent);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 28% 18%, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 34%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, var(--theme-surface-card) 12%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 92%, var(--theme-surface-card-soft) 8%)
+    );
+  padding: 10px;
+}
+
+.settings-toolbar-layout-skeleton--top {
+  grid-template-rows: 34px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.settings-toolbar-layout-skeleton--right {
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 10px;
+}
+
+.settings-toolbar-layout-skeleton__topbar,
+.settings-toolbar-layout-skeleton__button-group,
+.settings-toolbar-layout-skeleton__panel,
+.settings-toolbar-layout-skeleton__viewport {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+}
+
+.settings-toolbar-layout-skeleton__topbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+}
+
+.settings-toolbar-layout-skeleton__topbar span,
+.settings-toolbar-layout-skeleton__button-group span {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--theme-accent) 22%, var(--theme-surface-card-soft));
+}
+
+.settings-toolbar-layout-skeleton__viewport {
+  display: grid;
+  align-content: end;
+  gap: 8px;
+  padding: 14px;
+}
+
+.settings-toolbar-layout-skeleton__viewport-line {
+  display: block;
+  width: 46%;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 12%, transparent);
+}
+
+.settings-toolbar-layout-skeleton__viewport-line--wide {
+  width: 68%;
+}
+
+.settings-toolbar-layout-skeleton__dock {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 64px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.settings-toolbar-layout-skeleton__button-group {
+  display: flex;
+  align-content: flex-start;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px;
+}
+
+.settings-toolbar-layout-skeleton__button-group span {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+}
+
+.settings-toolbar-layout-skeleton__panel {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 7px;
+}
+
+.settings-toolbar-layout-skeleton__panel span {
+  display: block;
+  height: 12px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--theme-text-primary) 13%, transparent);
+}
+
+.settings-toolbar-layout-skeleton__panel span:nth-child(2n) {
+  width: 72%;
 }
 
 .crosshair-preview-surface,
@@ -3992,5 +4380,21 @@ onBeforeUnmount(() => {
   height: 1px;
   margin: 4px 6px;
   background: var(--theme-border-soft);
+}
+
+.settings-pseudocolor-band {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  isolation: isolate;
+}
+
+.settings-pseudocolor-band::before {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--settings-pseudocolor-gradient);
+  content: "";
+  transform: translateZ(0);
 }
 </style>

@@ -964,6 +964,36 @@
     line-height: 1.46;
   }
 
+  .viewer-viewport[data-light-surface="true"] .viewer-corner-block,
+  .viewer-viewport--light-overlay .viewer-corner-block {
+    color: #182334;
+    font-weight: 750;
+    text-shadow:
+      0 1px 1px rgba(255, 255, 255, 0.86),
+      0 0 3px rgba(15, 23, 42, 0.22);
+  }
+
+  .viewer-viewport.viewer-stage-surface--pet-standalone .viewer-corner-block,
+  .viewer-viewport.viewer-stage-surface--pet-standalone.viewer-viewport--light-overlay .viewer-corner-block {
+    max-width: min(44%, 310px);
+    padding: 9px 10px;
+    color: #182334;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.34;
+    text-shadow:
+      0 1px 1px rgba(255, 255, 255, 0.86),
+      0 0 3px rgba(15, 23, 42, 0.22);
+  }
+
+  .viewer-viewport[data-light-surface="true"] .viewer-orientation-label,
+  .viewer-viewport--light-overlay .viewer-orientation-label {
+    color: #b91c1c;
+    text-shadow:
+      0 1px 1px rgba(255, 255, 255, 0.86),
+      0 0 3px rgba(15, 23, 42, 0.28);
+  }
+
   .viewer-orientation-label {
     position: absolute;
     color: color-mix(in srgb, var(--theme-accent-warm) 62%, #ffb3b3 38%);
@@ -1843,8 +1873,25 @@
       0 0 4px rgba(0, 0, 0, 0.72);
   }
 
+  :root[data-theme="industrial-utility"] .viewer-viewport[data-light-surface="true"] .viewer-corner-block,
+  :root[data-theme="industrial-utility"] .viewer-viewport.viewer-stage-surface--pet-standalone .viewer-corner-block {
+    color: #182334;
+    font-weight: 750;
+    text-shadow:
+      0 1px 1px rgba(255, 255, 255, 0.86),
+      0 0 3px rgba(15, 23, 42, 0.22);
+  }
+
   :root[data-theme="industrial-utility"] .viewer-orientation-label {
     color: #d28a47;
+  }
+
+  :root[data-theme="industrial-utility"] .viewer-viewport[data-light-surface="true"] .viewer-orientation-label,
+  :root[data-theme="industrial-utility"] .viewer-viewport--light-overlay .viewer-orientation-label {
+    color: #b91c1c;
+    text-shadow:
+      0 1px 1px rgba(255, 255, 255, 0.86),
+      0 0 3px rgba(15, 23, 42, 0.28);
   }
 
   :root[data-theme="industrial-utility"] .viewer-orientation-cube {

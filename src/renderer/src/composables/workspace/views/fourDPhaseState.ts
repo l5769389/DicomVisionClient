@@ -8,6 +8,7 @@ import {
   createEmptyMprImages,
   createEmptyMprOrientations,
   createEmptyMprPlanes,
+  createEmptyMprInitialWindowInfos,
   createEmptyMprPseudocolorPresets,
   createEmptyMprScaleBars,
   createEmptyMprSliceLabels,
@@ -319,10 +320,15 @@ export function getFourDPhaseDisplayState(
       ...createEmptyMprPseudocolorPresets(),
       ...(cache?.viewportPseudocolorPresets ?? {})
     },
+    viewportInitialWindowInfos: {
+      ...createEmptyMprInitialWindowInfos(),
+      ...(cache?.viewportInitialWindowInfos ?? {})
+    },
     mprCursor: cache?.mprCursor ?? null,
     mprFrame: cache?.mprFrame ?? null,
     mprRevision: cache?.mprRevision ?? null,
-    windowLabel: cache?.windowLabel ?? ''
+    windowLabel: cache?.windowLabel ?? '',
+    initialWindowInfo: cache?.initialWindowInfo ?? null
   }
 }
 

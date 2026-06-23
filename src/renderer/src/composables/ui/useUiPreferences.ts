@@ -6,6 +6,10 @@ import {
   isMprLayoutKey,
   type MprDefaultLayoutKey
 } from '../workspace/layout/mprLayoutOptions'
+import {
+  DEFAULT_MPR_SEGMENTATION_COLOR,
+  DEFAULT_MPR_VOI_COLOR
+} from '../../types/viewer'
 import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
 import {
   createDefaultViewportCornerInfoPreference,
@@ -75,6 +79,11 @@ export interface MeasurementStylePreference {
   lineWidth: number
   editingLineStyle: MeasurementLineStyle
   completedLineStyle: MeasurementLineStyle
+}
+
+export interface MprSegmentationStylePreference {
+  thresholdColor: string
+  voiColor: string
 }
 
 export interface ExportPreference {
@@ -149,6 +158,7 @@ export interface RoiStatPreference {
 }
 
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
+export type ViewerToolbarPlacement = 'top' | 'right'
 
 export interface QaWaterMetricPreference {
   key: QaWaterMetricKey
@@ -168,6 +178,7 @@ interface UiPreferencesState {
   version: number
   locale: AppLocale
   themeId: string
+  viewerToolbarPlacement: ViewerToolbarPlacement
   selectedPseudocolorKey: string
   mprDefaultLayoutKey: MprDefaultLayoutKey
   dicomTagDisplayMode: DicomTagDisplayMode
@@ -176,6 +187,7 @@ interface UiPreferencesState {
   scaleBarPreference: ScaleBarPreference
   viewportCornerInfoPreference: ViewportCornerInfoPreference
   measurementStylePreference: MeasurementStylePreference
+  mprSegmentationStylePreference: MprSegmentationStylePreference
   dicomTagEditSavePreference: DicomTagEditSavePreference
   dicomDeidentifyPreference: DicomDeidentifyPreference
   hangingProtocolRules: HangingProtocolRule[]
@@ -186,8 +198,9 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 14
+const CURRENT_PREFERENCES_VERSION = 16
 const DEFAULT_THEME_ID = 'industrial-utility'
+const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
@@ -202,6 +215,12 @@ const PREVIOUS_DEFAULT_CROSSHAIR_COLORS: Record<CrosshairViewportPreference['key
   'mpr-ax': '#22c55e',
   'mpr-cor': '#3b82f6',
   'mpr-sag': '#ef4444'
+}
+const PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE: ViewportCornerInfoPreference = {
+  topLeft: ['manufacturerModel', 'stationName', 'institutionName', 'examDescription', 'seriesNumber', 'viewportLocation'],
+  topRight: ['patientName', 'patientSummary'],
+  bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
+  bottomRight: ['zoom', 'coordinates']
 }
 
 const systemWindowPresets: WindowTemplatePreset[] = [
@@ -355,6 +374,13 @@ function createDefaultMeasurementStylePreference(): MeasurementStylePreference {
   }
 }
 
+function createDefaultMprSegmentationStylePreference(): MprSegmentationStylePreference {
+  return {
+    thresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    voiColor: DEFAULT_MPR_VOI_COLOR
+  }
+}
+
 function createDefaultExportPreference(): ExportPreference {
   return {
     locationMode: 'default',
@@ -442,6 +468,7 @@ function createDefaultState(): UiPreferencesState {
     version: CURRENT_PREFERENCES_VERSION,
     locale: 'zh-CN',
     themeId: DEFAULT_THEME_ID,
+    viewerToolbarPlacement: DEFAULT_VIEWER_TOOLBAR_PLACEMENT,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
     mprDefaultLayoutKey: DEFAULT_MPR_LAYOUT_KEY,
     dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
@@ -450,6 +477,7 @@ function createDefaultState(): UiPreferencesState {
     scaleBarPreference: createDefaultScaleBarPreference(),
     viewportCornerInfoPreference: createDefaultViewportCornerInfoPreference(),
     measurementStylePreference: createDefaultMeasurementStylePreference(),
+    mprSegmentationStylePreference: createDefaultMprSegmentationStylePreference(),
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
     hangingProtocolRules: createDefaultHangingProtocolRules(),
@@ -511,6 +539,10 @@ function normalizeLabel(value: unknown, fallback: string): string {
 
 function normalizeThemeId(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value : DEFAULT_THEME_ID
+}
+
+function normalizeViewerToolbarPlacement(value: unknown): ViewerToolbarPlacement {
+  return value === 'top' || value === 'right' ? value : DEFAULT_VIEWER_TOOLBAR_PLACEMENT
 }
 
 function normalizePseudocolorKey(value: unknown): string {
@@ -740,6 +772,16 @@ function normalizeMeasurementStylePreference(value: unknown): MeasurementStylePr
   }
 }
 
+function normalizeMprSegmentationStylePreference(value: unknown): MprSegmentationStylePreference {
+  const defaults = createDefaultMprSegmentationStylePreference()
+  const record = value && typeof value === 'object' ? (value as Partial<MprSegmentationStylePreference>) : null
+
+  return {
+    thresholdColor: normalizeHexColor(record?.thresholdColor, defaults.thresholdColor),
+    voiColor: normalizeHexColor(record?.voiColor, defaults.voiColor)
+  }
+}
+
 function normalizeExportPreference(value: unknown): ExportPreference {
   const defaults = createDefaultExportPreference()
   const record = value && typeof value === 'object'
@@ -797,6 +839,32 @@ function migrateCrosshairConfigs(version: number, value: CrosshairViewportPrefer
   }
 
   return nextValue
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function areViewportCornerInfoPreferencesEqual(
+  left: ViewportCornerInfoPreference,
+  right: ViewportCornerInfoPreference
+): boolean {
+  return (
+    areStringArraysEqual(left.topLeft, right.topLeft) &&
+    areStringArraysEqual(left.topRight, right.topRight) &&
+    areStringArraysEqual(left.bottomLeft, right.bottomLeft) &&
+    areStringArraysEqual(left.bottomRight, right.bottomRight)
+  )
+}
+
+function migrateViewportCornerInfoPreference(
+  version: number,
+  value: ViewportCornerInfoPreference
+): ViewportCornerInfoPreference {
+  if (version >= 15 || !areViewportCornerInfoPreferencesEqual(value, PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE)) {
+    return value
+  }
+  return createDefaultViewportCornerInfoPreference()
 }
 
 function normalizeRoiStatOptions(value: unknown): RoiStatPreference[] {
@@ -864,6 +932,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.version = nextState.version
   state.locale = nextState.locale
   state.themeId = nextState.themeId
+  state.viewerToolbarPlacement = nextState.viewerToolbarPlacement
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
   state.mprDefaultLayoutKey = nextState.mprDefaultLayoutKey
   state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
@@ -872,6 +941,7 @@ function applyState(nextState: UiPreferencesState): void {
   state.scaleBarPreference = nextState.scaleBarPreference
   state.viewportCornerInfoPreference = nextState.viewportCornerInfoPreference
   state.measurementStylePreference = nextState.measurementStylePreference
+  state.mprSegmentationStylePreference = nextState.mprSegmentationStylePreference
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
   state.hangingProtocolRules = nextState.hangingProtocolRules
@@ -888,6 +958,7 @@ function serializeState(): UiPreferencesState {
     version: CURRENT_PREFERENCES_VERSION,
     locale: state.locale,
     themeId: state.themeId,
+    viewerToolbarPlacement: state.viewerToolbarPlacement,
     selectedPseudocolorKey: state.selectedPseudocolorKey,
     mprDefaultLayoutKey: state.mprDefaultLayoutKey,
     dicomTagDisplayMode: state.dicomTagDisplayMode,
@@ -909,6 +980,10 @@ function serializeState(): UiPreferencesState {
       lineWidth: state.measurementStylePreference.lineWidth,
       editingLineStyle: state.measurementStylePreference.editingLineStyle,
       completedLineStyle: state.measurementStylePreference.completedLineStyle
+    },
+    mprSegmentationStylePreference: {
+      thresholdColor: state.mprSegmentationStylePreference.thresholdColor,
+      voiColor: state.mprSegmentationStylePreference.voiColor
     },
     dicomTagEditSavePreference: {
       locationMode: state.dicomTagEditSavePreference.locationMode,
@@ -989,14 +1064,19 @@ async function hydrateState(): Promise<void> {
         version: CURRENT_PREFERENCES_VERSION,
         locale: normalizeLocale(parsed.locale),
         themeId: normalizeThemeId(parsed.themeId),
+        viewerToolbarPlacement: normalizeViewerToolbarPlacement(parsed.viewerToolbarPlacement),
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
         mprDefaultLayoutKey: normalizeMprDefaultLayoutKey(parsed.mprDefaultLayoutKey),
         dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
         crosshairConfigs: migrateCrosshairConfigs(storedVersion, normalizeCrosshairConfigs(parsed.crosshairConfigs)),
         scaleBarPreference: normalizeScaleBarPreference(parsed.scaleBarPreference),
-        viewportCornerInfoPreference: normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference),
+        viewportCornerInfoPreference: migrateViewportCornerInfoPreference(
+          storedVersion,
+          normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference)
+        ),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
+        mprSegmentationStylePreference: normalizeMprSegmentationStylePreference(parsed.mprSegmentationStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
         hangingProtocolRules: normalizeHangingProtocolRules(parsed.hangingProtocolRules),
@@ -1050,6 +1130,13 @@ export function useUiPreferences() {
     get: () => state.themeId,
     set: (value: string) => {
       state.themeId = normalizeThemeId(value)
+      void persistState()
+    }
+  })
+  const viewerToolbarPlacement = computed({
+    get: () => state.viewerToolbarPlacement,
+    set: (value: ViewerToolbarPlacement) => {
+      state.viewerToolbarPlacement = normalizeViewerToolbarPlacement(value)
       void persistState()
     }
   })
@@ -1150,6 +1237,11 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setMprSegmentationStylePreference(nextValue: MprSegmentationStylePreference): void {
+    state.mprSegmentationStylePreference = normalizeMprSegmentationStylePreference(nextValue)
+    void persistState()
+  }
+
   function setDicomTagEditSavePreference(nextValue: DicomTagEditSavePreference): void {
     state.dicomTagEditSavePreference = normalizeDicomTagEditSavePreference(nextValue)
     void persistState()
@@ -1241,10 +1333,12 @@ export function useUiPreferences() {
     dicomTagEditSavePreference: computed(() => state.dicomTagEditSavePreference),
     getWindowPresetLabel,
     locale,
+    viewerToolbarPlacement,
     dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
     hangingProtocolRules: computed(() => state.hangingProtocolRules),
     measurementStylePreference: computed(() => state.measurementStylePreference),
+    mprSegmentationStylePreference: computed(() => state.mprSegmentationStylePreference),
     mprDefaultLayoutKey,
     pacsPreference: computed(() => state.pacsPreference),
     qaWaterMetrics: computed(() => state.qaWaterMetrics),
@@ -1261,6 +1355,7 @@ export function useUiPreferences() {
     setPacsPreference,
     setLocale,
     setMeasurementStylePreference,
+    setMprSegmentationStylePreference,
     setMprDefaultLayoutKey,
     setQaWaterMetrics,
     setScaleBarPreference,

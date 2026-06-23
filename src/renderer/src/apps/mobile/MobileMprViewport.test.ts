@@ -93,6 +93,25 @@ async function dispatchPointerEvent(
   await nextTick()
 }
 
+function stubElementRect(element: Element, rect: Partial<DOMRect>): void {
+  element.getBoundingClientRect = () => ({
+    bottom: rect.bottom ?? (rect.top ?? 0) + (rect.height ?? 0),
+    height: rect.height ?? 0,
+    left: rect.left ?? 0,
+    right: rect.right ?? (rect.left ?? 0) + (rect.width ?? 0),
+    top: rect.top ?? 0,
+    width: rect.width ?? 0,
+    x: rect.x ?? rect.left ?? 0,
+    y: rect.y ?? rect.top ?? 0,
+    toJSON: () => ({})
+  }) as DOMRect
+}
+
+async function waitForPointerClickSuppressionReset(): Promise<void> {
+  await new Promise((resolve) => window.setTimeout(resolve, 0))
+  await nextTick()
+}
+
 describe('MobileMprViewport', () => {
   it('mounts AX, COR, and SAG render surfaces and reports all viewport elements', async () => {
     const wrapper = mountMprViewport()
@@ -124,6 +143,10 @@ describe('MobileMprViewport', () => {
     expect(wrapper.findAll('[data-testid="mobile-mpr-reference"]')).toHaveLength(2)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-corner-info="false"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-scale-bar="false"]').exists()).toBe(true)
+    const sagReference = wrapper.get('[data-testid="mobile-mpr-reference-switch"][data-viewport-key="mpr-sag"]')
+    expect(sagReference.get('.mobile-mpr-viewport__reference-slice').text()).toBe('6 / 10')
+    expect(sagReference.get('.mobile-mpr-viewport__reference-title').text()).toBe('SAG')
+    expect(sagReference.text()).not.toContain('Im')
   })
 
   it('uses the same mobile MPR surface for 4D tabs', async () => {
@@ -195,6 +218,48 @@ describe('MobileMprViewport', () => {
 
     expect(wrapper.findAll('[data-active-render-surface="true"]')).toHaveLength(3)
     expect(wrapper.findAll('.mobile-mpr-viewport__pane--hidden')).toHaveLength(2)
+  })
+
+  it('collapses and restores reference MPR thumbnails without unmounting surfaces', async () => {
+    const wrapper = mountMprViewport('mpr-ax')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="mobile-mpr-reference-toggle"]').trigger('click')
+
+    expect(wrapper.findAll('[data-active-render-surface="true"]')).toHaveLength(3)
+    expect(wrapper.findAll('.mobile-mpr-viewport__pane--hidden')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="mobile-mpr-reference-switch"]')).toHaveLength(0)
+
+    await wrapper.get('[data-testid="mobile-mpr-reference-toggle"]').trigger('click')
+
+    expect(wrapper.findAll('.mobile-mpr-viewport__pane--hidden')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="mobile-mpr-reference-switch"]')).toHaveLength(2)
+  })
+
+  it('allows dragging the collapsed MPR reference toggle and resets it when thumbnails reopen', async () => {
+    const wrapper = mountMprViewport('mpr-ax')
+    await flushPromises()
+
+    stubElementRect(wrapper.get('[data-testid="mobile-mpr-viewport"]').element, { left: 0, top: 0, width: 360, height: 640 })
+    const toggle = wrapper.get('[data-testid="mobile-mpr-reference-toggle"]')
+    stubElementRect(toggle.element, { left: 314, top: 280, width: 36, height: 36 })
+
+    await toggle.trigger('click')
+    expect(wrapper.findAll('.mobile-mpr-viewport__pane--hidden')).toHaveLength(2)
+
+    await dispatchPointerEvent(toggle.element, 'pointerdown', { button: 0, clientX: 330, clientY: 298, isPrimary: true, pointerId: 8 })
+    await dispatchPointerEvent(toggle.element, 'pointermove', { clientX: 260, clientY: 240, pointerId: 8 })
+    await dispatchPointerEvent(toggle.element, 'pointerup', { clientX: 260, clientY: 240, pointerId: 8 })
+
+    expect(wrapper.findAll('.mobile-mpr-viewport__pane--hidden')).toHaveLength(2)
+    expect(toggle.attributes('style')).toContain('left: 244px')
+    expect(toggle.attributes('style')).toContain('top: 222px')
+
+    await waitForPointerClickSuppressionReset()
+    await toggle.trigger('click')
+
+    expect(wrapper.findAll('.mobile-mpr-viewport__pane--hidden')).toHaveLength(0)
+    expect(toggle.attributes('style') ?? '').not.toContain('left:')
   })
 
   it('emits smoothed pan drags for the active MPR viewport', async () => {

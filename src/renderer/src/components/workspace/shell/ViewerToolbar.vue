@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
-import LayoutMenuPanel from './LayoutMenuPanel.vue'
-import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
+import FusionPetDisplayTool from './FusionPetDisplayTool.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
+import ViewerToolbarMenuContent from './ViewerToolbarMenuContent.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
@@ -35,32 +36,82 @@ const emit = defineEmits<{
 }>()
 
 const { toolbarCopy: copy } = useUiLocale()
+const isFusionRegistrationHelpOpen = ref(false)
+
+const fusionRegistrationMenuOptions = [
+  { value: 'fusionRegistration:reset', label: '重置配准', icon: 'reset' },
+  { value: 'fusionRegistration:load', label: '加载配准', icon: 'folder-import' },
+  { value: 'fusionRegistration:save', label: '保存配准', icon: 'save' },
+  { value: 'fusionRegistration:exit', label: '退出配准模式', icon: 'close' },
+  { value: 'fusionRegistration:help', label: '使用说明', icon: 'info' }
+]
+
+const fusionRegistrationHelpItems = [
+  '鼠标需在融合图像上',
+  '鼠标左键：可平移 PET 图像',
+  '鼠标右键：可旋转 PET 图像',
+  '双击右键或按 Esc：退出手动配准模式'
+]
+
+function closeFusionRegistrationHelp(): void {
+  isFusionRegistrationHelpOpen.value = false
+}
+
+function handleFusionRegistrationMenuSelect(tool: StackTool, optionValue: string): void {
+  emit('setMenuOpen', null)
+  if (optionValue === 'fusionRegistration:help') {
+    isFusionRegistrationHelpOpen.value = true
+    return
+  }
+  emit('selectToolOption', tool, optionValue)
+}
+
+function handleFusionRegistrationHelpKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !isFusionRegistrationHelpOpen.value) {
+    return
+  }
+  event.preventDefault()
+  closeFusionRegistrationHelp()
+}
+
+watch(
+  isFusionRegistrationHelpOpen,
+  (isOpen) => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (isOpen) {
+      window.addEventListener('keydown', handleFusionRegistrationHelpKeydown)
+    } else {
+      window.removeEventListener('keydown', handleFusionRegistrationHelpKeydown)
+    }
+  }
+)
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleFusionRegistrationHelpKeydown)
+  }
+})
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
-  return viewType === 'Stack' || viewType === 'Layout'
+  return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
 }
 
 function hasSyncBesideLayout(viewType: ViewerTabItem['viewType']): boolean {
   return viewType === 'CompareStack' || viewType === 'Layout'
 }
 
-function getActiveLayoutRows(activeTab: ViewerTabItem): number {
-  if (activeTab.viewType === 'Layout') {
-    return activeTab.layoutTemplate?.rows ?? 1
-  }
-  return 1
-}
-
-function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
-  if (activeTab.viewType === 'Layout') {
-    return activeTab.layoutTemplate?.columns ?? 1
-  }
-  return 1
-}
-
 function getSelectedPlaybackFps(value: string | undefined): string {
   const match = String(value ?? '').match(/^playbackFps:(\d+)$/)
   return match?.[1] ?? '5'
+}
+
+function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
+  if (tool.key === 'export' && tool.options?.some((option) => option.value.startsWith('exportTarget:'))) {
+    return false
+  }
+  return tool.key !== 'compareSync' && tool.key !== 'display' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'
 }
 </script>
 
@@ -94,7 +145,78 @@ function getSelectedPlaybackFps(value: string | undefined): string {
           tool.key === 'tag' ? 'toolbar-tool-group--secondary-action' : ''
         ]"
       >
-        <template v-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
+        <FusionPetDisplayTool
+          v-if="tool.inlineKind === 'fusionPetDisplay'"
+          :active-tab="activeTab"
+          :disabled="areToolbarActionsDisabled"
+          @select="emit('selectToolOption', tool, $event)"
+        />
+        <div
+          v-else-if="tool.inlineKind === 'fusionRegistration'"
+          class="fusion-registration-tool"
+          :class="{ 'fusion-registration-tool--disabled': areToolbarActionsDisabled }"
+        >
+          <VBtn
+            variant="flat"
+            type="button"
+            data-testid="fusion-registration-toggle"
+            class="fusion-registration-tool__button fusion-registration-tool__button--toggle inline-flex! h-9! w-9! min-w-0! items-center! justify-center! border! transition hover:brightness-110"
+            :active="activeTab.fusionManualRegistration === true"
+            :class="[
+              activeTab.fusionManualRegistration === true ? 'rounded-l-xl! rounded-r-none! border-r-0!' : 'rounded-xl!',
+              { 'fusion-registration-tool__button--active': activeTab.fusionManualRegistration === true }
+            ]"
+            :disabled="areToolbarActionsDisabled"
+            :title="tool.label"
+            @click.stop="emit('selectToolOption', tool, 'fusionRegistration:toggle')"
+          >
+            <AppIcon name="crosshair" :size="toolbarIconSize" />
+          </VBtn>
+          <VMenu
+            v-if="activeTab.fusionManualRegistration === true"
+            :model-value="openMenuKey === tool.key"
+            location="bottom end"
+            :offset="8"
+            scroll-strategy="reposition"
+            :close-on-content-click="true"
+            @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
+          >
+            <template #activator="{ props: menuProps }">
+              <VBtn
+                v-bind="menuProps"
+                variant="flat"
+                type="button"
+                data-testid="fusion-registration-menu-button"
+                class="fusion-registration-tool__button fusion-registration-tool__menu-button inline-flex! h-9! w-6! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l-white/10! px-0! transition hover:brightness-110"
+                :disabled="areToolbarActionsDisabled"
+                :aria-expanded="openMenuKey === tool.key"
+                :title="copy.toolOptions('Registration Actions')"
+              >
+                <AppIcon name="chevron-down" :size="Math.max(10, toggleIconSize - 1)" />
+              </VBtn>
+            </template>
+
+            <div
+              data-tool-menu-root
+              data-testid="fusion-registration-menu"
+              class="fusion-registration-menu theme-shell-panel relative inline-flex min-w-[172px] flex-col overflow-hidden rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+            >
+              <button
+                v-for="option in fusionRegistrationMenuOptions"
+                :key="option.value"
+                type="button"
+                class="fusion-registration-menu__option group relative inline-flex w-full items-center gap-2.5 overflow-hidden rounded-xl border border-transparent bg-transparent px-2.5 py-1.5 text-left text-[13px] text-[var(--theme-text-secondary)] transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)] hover:text-[var(--theme-text-primary)]"
+                :data-testid="`fusion-registration-action-${option.value.replace('fusionRegistration:', '')}`"
+                @click="handleFusionRegistrationMenuSelect(tool, option.value)"
+              >
+                <AppIcon :name="option.icon" :size="menuIconSize" />
+                <span class="font-medium">{{ option.label }}</span>
+              </button>
+            </div>
+          </VMenu>
+
+        </div>
+        <template v-else-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
           <VBtn
             variant="flat"
             class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
@@ -126,28 +248,13 @@ function getSelectedPlaybackFps(value: string | undefined): string {
               </VBtn>
             </template>
 
-            <div
-              data-tool-menu-root
-              class="theme-shell-panel relative inline-flex min-w-[120px] flex-col overflow-hidden rounded-[18px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-            >
-              <button
-                v-for="option in tool.options"
-                :key="option.value"
-                type="button"
-                class="toolbar-menu-option group relative inline-flex items-center justify-between gap-2.5 overflow-hidden rounded-xl! border border-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
-                :class="{
-                  'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
-                }"
-                @click="emit('selectToolOption', tool, option.value)"
-              >
-                <div
-                  class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-                  :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
-                />
-                <span>{{ option.label }}</span>
-                <AppIcon v-if="stackToolSelections[tool.key] === option.value" name="check" :size="14" />
-              </button>
-            </div>
+            <ViewerToolbarMenuContent
+              :active-tab="activeTab"
+              :menu-icon-size="menuIconSize"
+              :stack-tool-selections="stackToolSelections"
+              :tool="tool"
+              @select="emit('selectToolOption', tool, $event)"
+            />
           </VMenu>
           <VBtn
             variant="flat"
@@ -164,7 +271,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
             variant="flat"
             type="button"
             class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
-            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType))"
+            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused))"
             :active="isToolSelected(tool) || openMenuKey === tool.key"
             :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) || openMenuKey === tool.key }"
             :title="tool.label"
@@ -188,7 +295,7 @@ function getSelectedPlaybackFps(value: string | undefined): string {
             location="bottom end"
             :offset="8"
             scroll-strategy="reposition"
-            :close-on-content-click="tool.key !== 'compareSync' && tool.key !== 'display' && tool.menuKind !== 'layout' && tool.menuKind !== 'mprLayout'"
+            :close-on-content-click="shouldCloseToolMenuOnContentClick(tool)"
             @update:model-value="emit('setMenuOpen', $event ? tool.key : null)"
           >
             <template #activator="{ props: menuProps }">
@@ -204,101 +311,13 @@ function getSelectedPlaybackFps(value: string | undefined): string {
               </VBtn>
             </template>
 
-            <div
-              data-tool-menu-root
-              class="theme-shell-panel relative inline-flex min-w-[220px] max-w-[320px] flex-col overflow-hidden rounded-[20px] border border-[color:color-mix(in_srgb,var(--theme-border-strong)_74%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card)_92%,white_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] p-1.5 shadow-[0_24px_52px_rgba(2,8,18,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-              :class="{ 'toolbar-layout-menu': tool.menuKind === 'layout', 'toolbar-mpr-layout-menu': tool.menuKind === 'mprLayout', 'toolbar-display-menu': tool.key === 'display' }"
-            >
-              <div class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
-              <template v-if="tool.menuKind === 'layout'">
-                <LayoutMenuPanel
-                  :options="tool.options ?? []"
-                  :active-rows="getActiveLayoutRows(activeTab)"
-                  :active-columns="getActiveLayoutColumns(activeTab)"
-                  @select="emit('selectToolOption', tool, $event)"
-                />
-              </template>
-              <template v-else-if="tool.menuKind === 'mprLayout'">
-                <MprLayoutMenuPanel
-                  :options="tool.options ?? []"
-                  :active-value="stackToolSelections[tool.key]"
-                  @select="emit('selectToolOption', tool, $event)"
-                />
-              </template>
-              <template v-else>
-                <template
-                  v-for="(option, optionIndex) in tool.options"
-                  :key="option.value"
-                >
-                  <div
-                    v-if="option.group && option.group !== tool.options?.[optionIndex - 1]?.group"
-                    class="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:color-mix(in_srgb,var(--theme-text-muted)_88%,white_10%)]"
-                  >
-                    {{ option.group }}
-                  </div>
-                  <button
-                    type="button"
-                    class="toolbar-menu-option group relative w-full appearance-none overflow-hidden rounded-xl! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
-                    :class="{
-                      'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value || option.checked
-                    }"
-                    @click="emit('selectToolOption', tool, option.value)"
-                  >
-                    <div
-                      class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-                      :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value || option.checked }"
-                    />
-                    <div class="flex items-center justify-between gap-2.5">
-                      <div class="flex min-w-0 items-center gap-3">
-                        <div
-                          class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
-                          :class="{
-                            'w-[46px] rounded-xl': tool.key === 'pseudocolor',
-                            'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel-solid)_90%))]': stackToolSelections[tool.key] === option.value || option.checked
-                          }"
-                        >
-                          <PseudocolorBand
-                            v-if="tool.key === 'pseudocolor'"
-                            compact
-                            class="w-[36px] scale-[1.04]"
-                            :preset="option.swatchKey ?? 'bw'"
-                          />
-                          <AppIcon
-                            v-else
-                            :name="option.icon"
-                            :size="menuIconSize + 2"
-                          />
-                        </div>
-                        <div :class="tool.key === 'display' ? 'min-w-[4.75rem]' : 'min-w-0'">
-                          <div
-                            class="whitespace-nowrap font-medium text-[var(--theme-text-primary)]"
-                            :class="{ truncate: tool.key !== 'display' }"
-                          >
-                            {{ option.label }}
-                          </div>
-                          <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.2] text-[var(--theme-text-muted)]">
-                            {{ option.description }}
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        v-if="tool.key === 'compareSync' || tool.key === 'display'"
-                        class="toolbar-menu-option__check grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[color:color-mix(in_srgb,var(--theme-border-soft)_82%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_92%,transparent)] text-[var(--theme-text-muted)]"
-                        :class="{ 'border-[color:color-mix(in_srgb,var(--theme-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-accent)]': option.checked }"
-                      >
-                        <AppIcon v-if="option.checked" name="check" :size="14" />
-                      </span>
-                      <span
-                        v-if="option.badge"
-                        class="toolbar-menu-option__badge shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-muted)]"
-                      >
-                        {{ option.badge }}
-                      </span>
-                    </div>
-                  </button>
-                </template>
-              </template>
-            </div>
+            <ViewerToolbarMenuContent
+              :active-tab="activeTab"
+              :menu-icon-size="menuIconSize"
+              :stack-tool-selections="stackToolSelections"
+              :tool="tool"
+              @select="emit('selectToolOption', tool, $event)"
+            />
           </VMenu>
         </template>
       </div>
@@ -319,6 +338,42 @@ function getSelectedPlaybackFps(value: string | undefined): string {
       </VBtn>
     </div>
   </VCard>
+  <Teleport to="body">
+    <div
+      v-if="isFusionRegistrationHelpOpen"
+      class="fusion-registration-help-overlay"
+      data-testid="fusion-registration-help-overlay"
+      @click.self="closeFusionRegistrationHelp"
+    >
+      <section
+        class="fusion-registration-help-panel theme-shell-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="手动配准使用说明"
+        data-testid="fusion-registration-help"
+      >
+        <div class="fusion-registration-help-panel__header">
+          <div class="fusion-registration-help-panel__title">
+            <AppIcon name="info" :size="24" />
+            <span>手动配准使用说明</span>
+          </div>
+          <button
+            type="button"
+            class="fusion-registration-help-panel__close"
+            aria-label="关闭"
+            data-testid="fusion-registration-help-close"
+            @click="closeFusionRegistrationHelp"
+          >
+            <AppIcon name="close" :size="16" />
+          </button>
+        </div>
+        <p class="fusion-registration-help-panel__intro">用于对图像融合位置进行微调，请在融合图像上操作。</p>
+        <ul class="fusion-registration-help-panel__list">
+          <li v-for="item in fusionRegistrationHelpItems" :key="item">{{ item }}</li>
+        </ul>
+      </section>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -341,6 +396,149 @@ function getSelectedPlaybackFps(value: string | undefined): string {
 
 .toolbar-tool-group {
   flex: 0 0 auto;
+}
+
+.fusion-registration-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: visible;
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 48%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 68%, transparent));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24);
+}
+
+.fusion-registration-tool--disabled {
+  opacity: 0.62;
+}
+
+.fusion-registration-tool__button {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 82%, transparent) !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card-soft) 92%, white 2%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 4%)
+    ) !important;
+  color: var(--theme-text-primary) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.fusion-registration-tool__button--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong)) !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 26%, var(--theme-surface-card-soft) 74%),
+      color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-panel-solid) 82%)
+    ) !important;
+  color: var(--theme-active-foreground) !important;
+}
+
+.fusion-registration-tool__menu-button {
+  border-left-color: color-mix(in srgb, var(--theme-border-soft) 74%, transparent) !important;
+}
+
+.fusion-registration-help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: color-mix(in srgb, var(--theme-overlay-scrim, rgba(0, 0, 0, 0.56)) 54%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.fusion-registration-help-panel {
+  width: min(600px, calc(100vw - 32px));
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 76%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-card) 92%, white 4%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%)
+    );
+  color: var(--theme-text-primary);
+  padding: 14px 16px 16px;
+  box-shadow: 0 24px 52px rgba(2, 8, 18, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.fusion-registration-help-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fusion-registration-help-panel__title {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  color: var(--theme-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.fusion-registration-help-panel__title :deep(.app-icon-svg) {
+  flex: 0 0 auto;
+  color: var(--theme-text-secondary);
+}
+
+.fusion-registration-help-panel__title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fusion-registration-help-panel__close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.fusion-registration-help-panel__close:hover {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 56%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 70%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.fusion-registration-help-panel__intro {
+  margin: 8px 38px 0;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.fusion-registration-help-panel__list {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 0 38px;
+  padding: 0;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.fusion-registration-help-panel__list li {
+  white-space: nowrap;
 }
 
 .toolbar-tool-menu-button :deep(.v-btn__content) {

@@ -9,11 +9,19 @@ import type {
   MeasurementDraft,
   MeasurementOverlay,
   MprLayoutKey,
+  MprSegmentationConfigActionType,
+  MprSegmentationConfig,
+  MprSegmentationOverlay,
+  MprCrosshairInfo,
   MprViewportKey,
   ScaleBarInfo,
   ViewProgressInfo,
   ViewerMtfItem,
   ViewerTabItem
+} from '../../../types/viewer'
+import {
+  DEFAULT_MPR_SEGMENTATION_COLOR,
+  DEFAULT_MPR_VOI_COLOR
 } from '../../../types/viewer'
 import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
@@ -27,6 +35,9 @@ const props = withDefaults(
     activeViewportKey: string
     allowViewportMaximize?: boolean
     layoutKey?: MprLayoutKey | null
+    mprSegmentationDefaultThresholdColor?: string
+    mprSegmentationDefaultVoiColor?: string
+    mprSegmentationConfig?: MprSegmentationConfig | null
     getAnnotations: (viewportKey: MprViewportKey) => AnnotationOverlay[]
     getCursorClass: (viewportKey: MprViewportKey) => string
     getDraftAnnotation: (viewportKey: MprViewportKey) => AnnotationDraft | null
@@ -42,6 +53,9 @@ const props = withDefaults(
   {
     allowViewportMaximize: true,
     layoutKey: DEFAULT_MPR_LAYOUT_KEY,
+    mprSegmentationDefaultThresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
+    mprSegmentationDefaultVoiColor: DEFAULT_MPR_VOI_COLOR,
+    mprSegmentationConfig: null,
     selectedMtfId: null
   }
 )
@@ -56,6 +70,8 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
+  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
+  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerLeave: [viewportKey: string]
@@ -174,6 +190,20 @@ const emptyVolumeCornerInfo: CornerInfo = {
   bottomRight: []
 }
 
+const DEFAULT_MPR_CROSSHAIR: MprCrosshairInfo = {
+  centerX: 0.5,
+  centerY: 0.5,
+  hitRadius: 8,
+  horizontalPosition: 0.5,
+  verticalPosition: 0.5,
+  horizontalAngleRad: null,
+  verticalAngleRad: null,
+  horizontalSlabOffsetX: null,
+  horizontalSlabOffsetY: null,
+  verticalSlabOffsetX: null,
+  verticalSlabOffsetY: null
+}
+
 type MprOnlyLayoutItem = MprViewportLayoutItem & { key: MprViewportKey; kind: 'mpr' }
 
 function isMprLayoutItem(item: MprViewportLayoutItem): item is MprOnlyLayoutItem {
@@ -193,7 +223,7 @@ function getViewportOrientation(viewportKey: MprViewportKey) {
 }
 
 function getViewportCrosshair(viewportKey: MprViewportKey) {
-  return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
+  return props.activeTab.viewportCrosshairs?.[viewportKey] ?? DEFAULT_MPR_CROSSHAIR
 }
 
 function getViewportPlane(viewportKey: MprViewportKey) {
@@ -202,6 +232,15 @@ function getViewportPlane(viewportKey: MprViewportKey) {
 
 function getViewportScaleBar(viewportKey: MprViewportKey): ScaleBarInfo | null {
   return props.activeTab.viewportScaleBars?.[viewportKey] ?? null
+}
+
+function getViewportSegmentationOverlay(viewportKey: MprViewportKey): MprSegmentationOverlay | null {
+  return props.activeTab.viewportSegmentationOverlays?.[viewportKey] ?? null
+}
+
+function getItemSegmentationOverlay(item: MprViewportLayoutItem): MprSegmentationOverlay | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportSegmentationOverlay(viewportKey) : null
 }
 
 function isViewportLoading(viewportKey: MprViewportKey): boolean {
@@ -334,6 +373,11 @@ function getItemScaleBar(item: MprViewportLayoutItem): ScaleBarInfo | null {
   return viewportKey ? getViewportScaleBar(viewportKey) : null
 }
 
+function getItemTransform(item: MprViewportLayoutItem) {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.activeTab.viewportTransformStates?.[viewportKey] ?? props.activeTab.transformState ?? null : props.activeTab.transformState ?? null
+}
+
 function getItemOrientation(item: MprViewportLayoutItem) {
   const viewportKey = asMprViewportKey(item)
   return viewportKey ? getViewportOrientation(viewportKey) : props.activeTab.orientation
@@ -347,12 +391,48 @@ function normalizeOperation(operation: string): string {
   return operation.startsWith('stack:') ? operation.slice('stack:'.length) : operation
 }
 
+function isSegmentationEditOperation(): boolean {
+  const operation = normalizeOperation(props.activeOperation)
+  return operation === 'segmentation:threshold' || operation === 'segmentation:voi'
+}
+
+function isItemVoiOblique(item: MprViewportLayoutItem): boolean {
+  return Boolean(props.activeTab.mprCrosshairMode === 'double-oblique' || getItemPlane(item)?.isOblique)
+}
+
+function isItemSegmentationEditable(item: MprViewportLayoutItem): boolean {
+  return item.kind === 'mpr' && isSegmentationEditOperation() && !isItemVoiOblique(item)
+}
+
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
+  emit('mprSegmentationConfigChange', config, actionType)
+}
+
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
+  emit('mprSegmentationModeChange', mode, viewportKey)
+}
+
 function getViewportClass(viewportKey: MprDisplayViewportKey, className: string): string {
   return maximizedViewportKey.value === viewportKey ? 'col-start-1 row-start-1' : className
 }
 
+const effectiveActiveViewportKey = computed<MprDisplayViewportKey>(() => {
+  const maximizedKey = maximizedViewportKey.value
+  if (maximizedKey) {
+    return maximizedKey
+  }
+
+  const activeViewportItem = viewportItems.value.find((item) => item.key === props.activeViewportKey)
+  if (activeViewportItem) {
+    return activeViewportItem.key
+  }
+
+  const firstMprViewport = viewportItems.value.find((item) => isMprViewportKey(item.key))?.key
+  return firstMprViewport ?? viewportItems.value[0]?.key ?? 'mpr-ax'
+})
+
 function isViewportActive(viewportKey: MprDisplayViewportKey): boolean {
-  return (maximizedViewportKey.value ?? props.activeViewportKey) === viewportKey
+  return effectiveActiveViewportKey.value === viewportKey
 }
 
 function isMprViewportKey(viewportKey: string): viewportKey is MprViewportKey {
@@ -365,8 +445,9 @@ function resolveWheelViewportKey(viewportKey: string): MprViewportKey | null {
     return isMprViewportKey(maximizedKey) ? maximizedKey : null
   }
 
-  if (isMprViewportKey(props.activeViewportKey)) {
-    return props.activeViewportKey
+  const activeViewportKey = effectiveActiveViewportKey.value
+  if (isMprViewportKey(activeViewportKey)) {
+    return activeViewportKey
   }
 
   return isMprViewportKey(viewportKey) ? viewportKey : null
@@ -444,9 +525,16 @@ watch(
       :mpr-crosshair="getItemCrosshair(item)"
       :mpr-frame="getItemFrame(item)"
       :mpr-plane="getItemPlane(item)"
+      :mpr-segmentation-default-threshold-color="props.mprSegmentationDefaultThresholdColor"
+      :mpr-segmentation-default-voi-color="props.mprSegmentationDefaultVoiColor"
+      :mpr-segmentation-config="props.mprSegmentationConfig"
+      :mpr-segmentation-overlay="getItemSegmentationOverlay(item)"
+      :voi-editable="isItemSegmentationEditable(item)"
+      :voi-oblique="isItemVoiOblique(item)"
       :scale-bar="getItemScaleBar(item)"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-scale-bar="props.activeTab.showScaleBar !== false"
+      :viewport-transform="getItemTransform(item)"
       :orientation="getItemOrientation(item)"
       :soft-image="item.kind === 'volume'"
       @clear-mtf="emit('clearMtf')"
@@ -460,6 +548,8 @@ watch(
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @open-mtf-curve="emit('openMtfCurve')"
       @select-mtf="emit('selectMtf', $event)"
+      @mpr-segmentation-config-change="handleMprSegmentationConfigChange"
+      @mpr-segmentation-mode-change="handleMprSegmentationModeChange"
       @wheel-viewport="handleViewportWheel"
       @pointer-down="emit('pointerDown', $event, item.key)"
       @pointer-leave="emit('pointerLeave', $event)"

@@ -366,6 +366,31 @@ describe('SidebarSeriesList compatibility check', () => {
     wrapper.unmount()
   })
 
+  it('merges standalone PET into the 2D context action and opens the PET viewer for PET series', async () => {
+    const wrapper = mountSidebar([
+      createSeries({
+        modality: 'PT',
+        seriesDescription: 'PET FDG SUV'
+      })
+    ])
+
+    await wrapper.find('.series-card-stub').trigger('contextmenu', {
+      clientX: 20,
+      clientY: 30
+    })
+    await nextTick()
+
+    const actions = wrapper.findAll('button.series-context-menu__item')
+    const twoDimensionalAction = actions.find((button) => button.text().includes('Quick preview') || button.text().includes('2D'))
+    expect(twoDimensionalAction).toBeTruthy()
+    expect(actions.some((button) => button.text().includes('PET view'))).toBe(false)
+
+    await twoDimensionalAction!.trigger('click')
+
+    expect(wrapper.emitted('openSeriesView')).toEqual([['series-1', 'PET']])
+    wrapper.unmount()
+  })
+
   it('opens the series source folder from the desktop context menu', async () => {
     const openPathInFileManager = vi.fn().mockResolvedValue(true)
     ;(window as Window & { viewerApi?: unknown }).viewerApi = {

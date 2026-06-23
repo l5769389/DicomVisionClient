@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import {
   DRAG_ACTION_TYPES,
   STACK_DEFAULT_OPERATION,
@@ -12,16 +12,22 @@ import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
   emitFourDPlaybackStop,
-  emitViewOperation,
+  emitViewOperation as emitSocketViewOperation,
+  emitViewOperationWithAck,
   type ViewOperationInput,
   type ViewOperationPayload
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
+  FUSION_PANE_KEYS,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
   createEmptyMprCrosshairs,
   createEmptyMprOrientations,
   createEmptyMprScaleBars,
   isCompareStackPaneKey,
+  isFusionPaneKey,
   isMprViewportKey,
   normalizeCornerInfo
 } from '../views/viewerWorkspaceTabs'
@@ -30,6 +36,7 @@ import {
   isMprLikeViewType,
   isStackLikeViewType,
   resolveComparePaneKey,
+  resolveFusionPaneKey,
   resolveOperationTargets,
   resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
@@ -73,8 +80,21 @@ import {
   type DicomLoadSource,
   type WebUploadPickMode
 } from '../../../platform/runtime'
-import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
-import { createDefaultMprMipConfig } from '../../../types/viewer'
+import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
+  DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PSEUDOCOLOR_PRESET,
+  normalizeFusionPetPseudocolorPresetKey,
+  normalizePseudocolorPresetKey
+} from '../../../constants/pseudocolor'
+import {
+  createDefaultMprMipConfig,
+  createDefaultMprSegmentationConfig,
+  normalizeMprSegmentationConfig,
+  recolorMprSegmentationConfig
+} from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { useUiLocale } from '../../ui/useUiLocale'
 import { useVolumeConfigSync } from '../volume/useVolumeConfigSync'
@@ -106,6 +126,7 @@ import type {
   MprCrosshairMode,
   MprMipConfig,
   MprMipOperationConfig,
+  MprSegmentationConfig,
   MprViewportKey,
   ViewImageResponse,
   ViewProgressInfo,
@@ -118,6 +139,16 @@ import type {
   WorkspaceReadyPayload
 } from '../../../types/viewer'
 
+export function normalizeViewportWheelScrollDelta(deltaY: number, exact = false): number {
+  if (!Number.isFinite(deltaY)) {
+    return 0
+  }
+  if (exact) {
+    return Math.trunc(deltaY)
+  }
+  return deltaY > 0 ? 1 : deltaY < 0 ? -1 : 0
+}
+
 interface ViewerWorkspaceState {
   activeOperation: Ref<string>
   activeTab: ComputedRef<ViewerTabItem | null>
@@ -129,13 +160,35 @@ interface ViewerWorkspaceState {
   closeOtherTabs: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
   hasSelectedSeries: ComputedRef<boolean>
-  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number }) => void
+  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number; exact?: boolean }) => void
   handleViewportDrag: (payload: {
     deltaX: number
     deltaY: number
     opType: ViewOperationType
     phase: 'start' | 'move' | 'end'
     viewportKey: string
+  }) => void
+  handleFusionRegistrationDrag: (payload: {
+    deltaX: number
+    deltaY: number
+    phase: 'start' | 'move' | 'end'
+    subOpType: 'translate' | 'rotate'
+    viewportKey: string
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
+    rotationDeltaDegrees?: number
+  }) => void
+  handleFusionConfigChange: (payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
+    action?: 'reset' | 'save'
   }) => void
   handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
   handleMeasurementDraft: (payload: {
@@ -153,6 +206,16 @@ interface ViewerWorkspaceState {
     labelLines?: string[]
   }) => void
   handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
+  handleAnnotationOperation: (payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: string
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: string
+  }) => void
   handleTagIndexChange: (payload: { tabKey: string; index: number }) => Promise<void>
   handleMtfClear: (payload?: { mtfId?: string | null }) => void
   handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
@@ -179,6 +242,7 @@ interface ViewerWorkspaceState {
   loadDicomPaths: (paths: string[]) => Promise<void>
   message: Ref<string>
   openSeriesCompare: (sourceSeriesId: string, targetSeriesId: string) => Promise<void>
+  openPetCtFusion: (ctSeriesId: string, petSeriesId: string) => Promise<void>
   openKeySlice: (seriesId: string, sliceIndex: number) => Promise<void>
   openSeriesView: (seriesId: string, viewType: ViewType, options?: OpenSeriesViewOptions) => Promise<void>
   openLayoutView: (template: ViewerLayoutTemplate) => Promise<void>
@@ -247,6 +311,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   // stays optimistic, while the backend receives only the last value in a burst.
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
   const PREVIEW_PERF_IDLE_GAP_MS = 5000
+  const FUSION_PET_WINDOW_DRAG_RANGE_FRACTION = 0.01
   // During MPR crosshair drag, incoming render frames may lag behind the pointer.
   // Keep the active viewport locally anchored, with the timer as a missing-end fallback.
   const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 1800
@@ -282,7 +347,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     offsetX: 0,
     offsetY: 0
   }
-  const { hangingProtocolRules, selectedPseudocolorKey } = useUiPreferences()
+  const { hangingProtocolRules, mprSegmentationStylePreference, selectedPseudocolorKey } = useUiPreferences()
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -296,6 +361,43 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const activeTab = computed(() => viewerTabs.value.find((item) => item.key === activeTabKey.value) ?? null)
   const hasSelectedSeries = computed(() => Boolean(selectedSeriesId.value))
 
+  function shouldMigrateStandalonePetPseudocolor(tab: ViewerTabItem | null): boolean {
+    if (!tab || tab.viewType !== 'PET') {
+      return false
+    }
+    const preset = normalizePseudocolorPresetKey(tab.petInfo?.pseudocolorPreset ?? tab.pseudocolorPreset)
+    return preset !== DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+  }
+
+  watch(
+    activeTab,
+    (tab) => {
+      if (shouldMigrateStandalonePetPseudocolor(tab)) {
+        handlePetConfigChange({ pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET })
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => [mprSegmentationStylePreference.value.thresholdColor, mprSegmentationStylePreference.value.voiColor] as const,
+    ([thresholdColor, voiColor], [previousThresholdColor, previousVoiColor]) => {
+      if (thresholdColor === previousThresholdColor && voiColor === previousVoiColor) {
+        return
+      }
+      viewerTabs.value = viewerTabs.value.map((tab) => {
+        const config = tab.viewType === 'MPR' ? tab.mprSegmentationConfig : null
+        if (!config) {
+          return tab
+        }
+        return {
+          ...tab,
+          mprSegmentationConfig: recolorMprSegmentationConfig(config, thresholdColor, voiColor)
+        }
+      })
+    }
+  )
+
   let resizeObserver: ResizeObserver | null = null
   let observedViewerStage: HTMLElement | null = null
   let activeMprCrosshairDragLockTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -303,6 +405,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const fourDPlaybackStartTokens = new Map<string, number>()
   const FOUR_D_SHARED_MPR_OPERATION_TYPES = new Set<string>()
   const activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
+  let fusionPetWindowDragOriginMax: number | null = null
 
   function dismissStatusToast(): void {
     if (statusToastTimer != null) {
@@ -686,7 +789,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function updateHoverCornerInfoByViewId(viewId: string, row: number | null = null, col: number | null = null): void {
     viewerTabs.value = viewerTabs.value.map((item) => {
-      if (item.viewId === viewId && item.viewType === 'Stack') {
+      if (item.viewId === viewId && (item.viewType === 'Stack' || item.viewType === 'PET')) {
         return {
           ...item,
           cornerInfo: withHoverCornerInfo(item.cornerInfo, row, col)
@@ -715,6 +818,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                 }
               : slot
           )
+        }
+      }
+
+      const fusionViewportKey = Object.entries(item.fusionViewIds ?? {}).find(([, candidateViewId]) => candidateViewId === viewId)?.[0]
+      if (item.viewType === 'PETCTFusion' && fusionViewportKey && isFusionPaneKey(fusionViewportKey)) {
+        return {
+          ...item,
+          fusionCornerInfos: {
+            ...(item.fusionCornerInfos ?? {}),
+            [fusionViewportKey]: withHoverCornerInfo(item.fusionCornerInfos?.[fusionViewportKey] ?? item.cornerInfo, row, col)
+          }
         }
       }
 
@@ -766,6 +880,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (tab.viewType === 'CompareStack') {
       return tab.compareTransformStates?.[resolveComparePaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
     }
+    if (tab.viewType === 'PETCTFusion') {
+      return tab.fusionTransformStates?.[resolveFusionPaneKey(viewportKey)] ?? DEFAULT_VIEW_TRANSFORM
+    }
     if (tab.viewType === 'Layout') {
       return tab.layoutSlots?.find((slot) => slot.id === viewportKey)?.transformState ?? DEFAULT_VIEW_TRANSFORM
     }
@@ -787,6 +904,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       opType: VIEW_OPERATION_TYPES.mprMipConfig,
       actionType,
       mprMipConfig
+    })
+  }
+
+  function emitMprSegmentationConfig(viewId: string, config: MprSegmentationConfig, actionType: 'move' | 'end' = 'end'): void {
+    viewInteractionOperationScheduler.emit(viewId, {
+      viewId,
+      opType: VIEW_OPERATION_TYPES.mprSegmentation,
+      actionType,
+      mprSegmentationConfig: normalizeMprSegmentationConfig(config)
     })
   }
 
@@ -820,6 +946,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'transformReset' && !isStackLikeViewType(tab.viewType) && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
     if ((payload.action === 'volumePreset' || payload.action === 'render3dMode') && !hasVolumeView(tab)) {
       return
     }
@@ -840,11 +970,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'mprSegmentation' && tab.viewType !== 'MPR') {
+      return
+    }
+
     if (payload.action === 'mprCrosshairMode' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
-    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -868,6 +1002,104 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
           : item
       )
+      return
+    }
+
+    if (payload.action === 'fusionManualRegistration') {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ manualRegistration: payload.enabled ?? !(tab.fusionManualRegistration === true) })
+      return
+    }
+
+    if (payload.action === 'fusionRegistrationLoad') {
+      if (tab.viewType !== 'PETCTFusion' || !payload.registrationFile) {
+        return
+      }
+      void handleFusionRegistrationLoad(payload.registrationFile)
+      return
+    }
+
+    if (payload.action === 'fusionRegistrationReset' || payload.action === 'fusionRegistrationSave') {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ action: payload.action === 'fusionRegistrationReset' ? 'reset' : 'save' })
+      return
+    }
+
+    if (payload.action === 'fusionPseudocolor' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ pseudocolorPreset: payload.value.replace(/^fusionPseudocolor:/, '') })
+      return
+    }
+
+    if (payload.action === 'fusionPetUnit' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ petUnit: payload.value.replace(/^fusionPetUnit:/, '') })
+      return
+    }
+
+    if (payload.action === 'fusionPetWindow' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      const [, maxValue] = payload.value.replace(/^fusionPetWindow:/, '').split(':')
+      const petWindowMax = Number(maxValue)
+      if (Number.isFinite(petWindowMax)) {
+        handleFusionConfigChange({ petWindowMin: 0, petWindowMax })
+      }
+      return
+    }
+
+    if (payload.action === 'fusionPetDisplayReset') {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({ pseudocolorPreset: 'petct-rainbow' })
+      handleFusionConfigChange({ petUnit: 'SUVbw' })
+      handleFusionConfigChange({
+        petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+        petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+      })
+      return
+    }
+
+    if (payload.action === 'petUnit' && payload.value) {
+      if (tab.viewType !== 'PET') {
+        return
+      }
+      handlePetConfigChange({ petUnit: payload.value.replace(/^petUnit:/, '') })
+      return
+    }
+
+    if (payload.action === 'petWindow' && payload.value) {
+      if (tab.viewType !== 'PET') {
+        return
+      }
+      const [, maxValue] = payload.value.replace(/^petWindow:/, '').split(':')
+      const petWindowMax = Number(maxValue)
+      if (Number.isFinite(petWindowMax)) {
+        handlePetConfigChange({ petWindowMin: 0, petWindowMax })
+      }
+      return
+    }
+
+    if (payload.action === 'petDisplayReset') {
+      if (tab.viewType !== 'PET') {
+        return
+      }
+      handlePetConfigChange({
+        pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+        petUnit: 'SUVbw',
+        petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+        petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+      })
       return
     }
 
@@ -927,6 +1159,33 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'transformReset') {
+      const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
+      if (!targets.length) {
+        return
+      }
+
+      viewInteractionOperationScheduler.cancel()
+      clearActiveMprCrosshairDragLock()
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key ? applyTransformToTabTargets(item, targets, DEFAULT_VIEW_TRANSFORM) : item
+      )
+
+      targets.forEach((target) => {
+        emitViewOperation({
+          viewId: target.viewId,
+          opType: VIEW_OPERATION_TYPES.transform2d,
+          rotationDegrees: DEFAULT_VIEW_TRANSFORM.rotationDegrees,
+          hor_flip: DEFAULT_VIEW_TRANSFORM.horFlip,
+          ver_flip: DEFAULT_VIEW_TRANSFORM.verFlip
+        })
+      })
+      if (tab.viewType === '4D') {
+        views.invalidateFourDMprState(tab.key)
+      }
+      return
+    }
+
     if (payload.action === 'mprCrosshairMode') {
       const mode = normalizeMprCrosshairMode(payload.mode ?? payload.value)
       const viewId = getActiveMprOperationViewId(tab)
@@ -979,6 +1238,70 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
 
       emitMprMipConfig(viewId, payload.config, actionType)
+      return
+    }
+
+    if (payload.action === 'mprSegmentation' && payload.segmentationConfig) {
+      const viewId = getActiveMprOperationViewId(tab)
+      if (!viewId) {
+        return
+      }
+      const previousConfig = tab.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
+      const normalizedConfig = normalizeMprSegmentationConfig(payload.segmentationConfig, previousConfig)
+      if (payload.actionType === 'local' || payload.actionType === 'select' || payload.actionType === 'style') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                mprSegmentationConfig: normalizedConfig
+              }
+            : item
+        )
+        return
+      }
+      const nextConfig = normalizeMprSegmentationConfig({
+        ...normalizedConfig,
+        clientRevision: Math.max(previousConfig.clientRevision ?? 0, normalizedConfig.clientRevision ?? 0) + 1
+      }, normalizedConfig)
+      const shouldEmitDisabled = previousConfig.enabled && !nextConfig.enabled
+      const actionType = payload.actionType === DRAG_ACTION_TYPES.move ? DRAG_ACTION_TYPES.move : DRAG_ACTION_TYPES.end
+      const shouldShowSegmentationProgress =
+        nextConfig.enabled && nextConfig.thresholdRegions.some((region) => region.enabled)
+
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              viewportLoadingProgress: MPR_VIEWPORT_KEYS.reduce<Partial<Record<MprViewportKey, ViewProgressInfo | null>>>(
+                (progress, viewportKey) => {
+                  progress[viewportKey] = shouldShowSegmentationProgress
+                    ? {
+                        viewId,
+                        phase: 'render',
+                        progressPercent: null,
+                        message: null
+                      }
+                    : null
+                  return progress
+                },
+                {
+                  ...(item.viewportLoadingProgress ?? {})
+                }
+              ),
+              mprSegmentationConfig: nextConfig
+            }
+          : item
+      )
+
+      if (!nextConfig.enabled) {
+        if (shouldEmitDisabled) {
+          viewInteractionOperationScheduler.cancel()
+          emitMprSegmentationConfig(viewId, nextConfig, DRAG_ACTION_TYPES.end)
+        }
+        return
+      }
+
+      emitMprSegmentationConfig(viewId, nextConfig, actionType)
       return
     }
 
@@ -1085,6 +1408,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           ...currentTransform,
           verFlip: !currentTransform.verFlip
         }
+      } else if (payload.value === 'rotate:reset') {
+        nextTransform = {
+          ...currentTransform,
+          rotationDegrees: 0,
+          horFlip: false,
+          verFlip: false
+        }
       } else {
         return
       }
@@ -1173,6 +1503,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             mprCursor: null,
             mprFrame: null,
             mprMipConfig: createDefaultMprMipConfig(),
+            mprSegmentationConfig: createDefaultMprSegmentationConfig(),
             mprCrosshairMode: 'orthogonal',
             viewportCrosshairs: createEmptyMprCrosshairs(),
             viewportScaleBars: createEmptyMprScaleBars(),
@@ -1238,6 +1569,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           mprCursor: null,
           mprFrame: null,
           mprMipConfig: createDefaultMprMipConfig(),
+          mprSegmentationConfig: createDefaultMprSegmentationConfig(),
           viewportCrosshairs: createEmptyMprCrosshairs(),
           viewportScaleBars: createEmptyMprScaleBars(),
           viewportOrientations: createEmptyMprOrientations(),
@@ -1381,6 +1713,54 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       actionType: payload.phase,
       viewportKey: payload.viewportKey,
       points: payload.points
+    }
+
+    if (isMprLikeViewType(tab.viewType)) {
+      emitMprViewOperation(payload.viewportKey, operationPayload)
+      return
+    }
+
+    const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
+    if (!viewId) {
+      return
+    }
+
+    emitViewOperation({
+      viewId,
+      ...operationPayload
+    })
+  }
+
+  function emitAnnotationOperation(payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: string
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: string
+  }): void {
+    const tab = activeTab.value
+    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
+      return
+    }
+
+    if (payload.actionType !== 'delete' && !payload.points?.length) {
+      return
+    }
+
+    const operationPayload: ViewOperationInput = {
+      opType: VIEW_OPERATION_TYPES.annotation,
+      annotationId: payload.annotationId,
+      subOpType: payload.toolType ?? 'arrow',
+      toolType: payload.toolType ?? 'arrow',
+      actionType: payload.actionType,
+      viewportKey: payload.viewportKey,
+      points: payload.points,
+      text: payload.text,
+      color: payload.color,
+      size: payload.size
     }
 
     if (isMprLikeViewType(tab.viewType)) {
@@ -1785,6 +2165,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           (hasReadyViewport(payload, 'mpr-ax') || hasReadyViewport(payload, 'mpr-cor') || hasReadyViewport(payload, 'mpr-sag'))
       )
     }
+    if (tab.viewType === 'PETCTFusion') {
+      return Boolean(
+        Object.values(tab.fusionViewIds ?? {}).some(Boolean) &&
+          Object.values(tab.fusionImages ?? {}).some((imageSrc) => !imageSrc) &&
+          FUSION_PANE_KEYS.some((viewportKey) => hasReadyViewport(payload, viewportKey))
+      )
+    }
     return false
   }
 
@@ -1885,6 +2272,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewInteractionOperationScheduler = createMprInteractionOperationScheduler<ViewOperationPayload>({
     emit: (_operationKey, payload) => emitViewOperation(payload)
   })
+  const pendingPseudocolorOverlayPreservationViewIds = new Set<string>()
+
+  function emitViewOperation(payload: ViewOperationPayload): void {
+    if (payload.opType === VIEW_OPERATION_TYPES.pseudocolor && payload.viewId) {
+      pendingPseudocolorOverlayPreservationViewIds.add(payload.viewId)
+    }
+    emitSocketViewOperation(payload)
+  }
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
     if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
@@ -1898,20 +2293,47 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return null
   }
 
+  function normalizeExtraImageBinaries(value: unknown): Record<string, ArrayBuffer | Uint8Array> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {}
+    }
+
+    const normalized: Record<string, ArrayBuffer | Uint8Array> = {}
+    Object.entries(value as Record<string, unknown>).forEach(([key, binaryValue]) => {
+      const binary = normalizeImageBinary(binaryValue)
+      if (binary) {
+        normalized[key] = binary
+      }
+    })
+    return normalized
+  }
+
   function normalizeImageUpdateArgs(
     args: unknown[]
-  ): { payload: Partial<ViewImageResponse>; imageBinary?: ArrayBuffer | Uint8Array } | null {
+  ): { payload: Partial<ViewImageResponse>; imageBinary?: ArrayBuffer | Uint8Array; extraImageBinaries: Record<string, ArrayBuffer | Uint8Array> } | null {
     if (!args.length) {
       return null
     }
 
     if (Array.isArray(args[0])) {
-      const [payload, imageBinary] = args[0] as [Partial<ViewImageResponse> | undefined, unknown]
-      return payload ? { payload, imageBinary: normalizeImageBinary(imageBinary) ?? undefined } : null
+      const [payload, imageBinary, extraImageBinaries] = args[0] as [Partial<ViewImageResponse> | undefined, unknown, unknown]
+      return payload
+        ? {
+            payload,
+            imageBinary: normalizeImageBinary(imageBinary) ?? undefined,
+            extraImageBinaries: normalizeExtraImageBinaries(extraImageBinaries)
+          }
+        : null
     }
 
-    const [payload, imageBinary] = args as [Partial<ViewImageResponse> | undefined, unknown]
-    return payload ? { payload, imageBinary: normalizeImageBinary(imageBinary) ?? undefined } : null
+    const [payload, imageBinary, extraImageBinaries] = args as [Partial<ViewImageResponse> | undefined, unknown, unknown]
+    return payload
+      ? {
+          payload,
+          imageBinary: normalizeImageBinary(imageBinary) ?? undefined,
+          extraImageBinaries: normalizeExtraImageBinaries(extraImageBinaries)
+        }
+      : null
   }
 
   function handleImageUpdate(...args: unknown[]): void {
@@ -1920,7 +2342,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const { payload, imageBinary } = normalized
+    const { payload, imageBinary, extraImageBinaries } = normalized
     const viewId = payload.viewId
     if (!viewId || !imageBinary) {
       return
@@ -1932,24 +2354,65 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     logInteractivePreviewReceiveInterval(tab, payload)
-    if (payload.imageFormat === 'jpeg' || payload.imageFormat === 'png') {
+    logFusionRegistrationImageReceive(tab, payload, imageBinary, extraImageBinaries)
+    if (isInteractivePreviewPayload(payload)) {
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
       viewInteractionOperationScheduler.recordBackendPreview(
         viewId,
         typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
       )
     }
-    views.updateTabImage(tab.key, payload, imageBinary)
+    const shouldPreserveFrontendOverlays =
+      pendingPseudocolorOverlayPreservationViewIds.has(viewId) && payload.color?.pseudocolorPreset != null
+    if (shouldPreserveFrontendOverlays) {
+      pendingPseudocolorOverlayPreservationViewIds.delete(viewId)
+    }
+    views.updateTabImage(
+      tab.key,
+      shouldPreserveFrontendOverlays
+        ? {
+            ...payload,
+            annotations: undefined,
+            measurements: undefined
+          }
+        : payload,
+      imageBinary,
+      extraImageBinaries
+    )
   }
 
   const interactivePreviewTimingByView = new Map<string, number>()
+  const fusionRegistrationDragTimingByView = new Map<string, {
+    phase: 'start' | 'move' | 'end'
+    sentAt: number
+    sequence: number
+    deltaX: number
+    deltaY: number
+    rotationDeltaDegrees: number | null
+  }>()
+  const fusionRegistrationImageReceiveTimingByView = new Map<string, number>()
+  let fusionRegistrationDragSequence = 0
+
+  function isInteractivePreviewPayload(payload: Partial<ViewImageResponse>): boolean {
+    const rawFastPreview = payload.fastPreview ?? ((payload as { fast_preview?: unknown }).fast_preview ?? null)
+    if (typeof rawFastPreview === 'boolean') {
+      return rawFastPreview
+    }
+    return payload.imageFormat === 'jpeg'
+  }
 
   function logInteractivePreviewReceiveInterval(tab: ViewerTabItem, payload: Partial<ViewImageResponse>): void {
-    if (!isViewerPerfDebugEnabled() || !payload.viewId || (payload.imageFormat !== 'jpeg' && payload.imageFormat !== 'png')) {
+    if (!isViewerPerfDebugEnabled() || !payload.viewId || !isInteractivePreviewPayload(payload)) {
       return
     }
 
-    const perfScope = isMprLikeViewType(tab.viewType) ? 'mpr' : isStackLikeViewType(tab.viewType) ? 'stack' : null
+    const perfScope = tab.viewType === 'PETCTFusion'
+      ? 'fusion'
+      : isMprLikeViewType(tab.viewType)
+        ? 'mpr'
+        : isStackLikeViewType(tab.viewType)
+          ? 'stack'
+          : null
     if (!perfScope) {
       return
     }
@@ -1965,6 +2428,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (deltaMs > PREVIEW_PERF_IDLE_GAP_MS) {
       console.debug(`[${perfScope} perf] image_update interval restarted`, {
         idleMs: Math.round(deltaMs * 10) / 10,
+        fastPreview: payload.fastPreview,
         format: payload.imageFormat,
         viewType: tab.viewType,
         viewId: payload.viewId
@@ -1974,10 +2438,92 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
     console.debug(`[${perfScope} perf] image_update interval`, {
       deltaMs: Math.round(deltaMs * 10) / 10,
+      fastPreview: payload.fastPreview,
       format: payload.imageFormat,
       mprRevision: typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null,
       viewType: tab.viewType,
       viewId: payload.viewId
+    })
+  }
+
+  function getBinaryByteLength(binary: ArrayBuffer | Uint8Array | undefined): number | null {
+    if (!binary) {
+      return null
+    }
+    return binary.byteLength
+  }
+
+  function getPayloadFusionComposite(payload: Partial<ViewImageResponse>) {
+    return payload.fusionComposite ?? ((payload as { fusion_composite?: ViewImageResponse['fusionComposite'] }).fusion_composite ?? null)
+  }
+
+  function getPayloadFusionInfo(payload: Partial<ViewImageResponse>) {
+    return payload.fusionInfo ?? ((payload as { fusion_info?: ViewImageResponse['fusionInfo'] }).fusion_info ?? null)
+  }
+
+  function shouldLogFusionRegistrationImageReceive(
+    tab: ViewerTabItem,
+    payload: Partial<ViewImageResponse>,
+    extraImageBinaries: Record<string, ArrayBuffer | Uint8Array>
+  ): boolean {
+    if (!isViewerPerfDebugEnabled() || tab.viewType !== 'PETCTFusion' || !payload.viewId) {
+      return false
+    }
+    const overlayViewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+    if (payload.viewId !== overlayViewId) {
+      return false
+    }
+    const fusionInfo = getPayloadFusionInfo(payload)
+    if (fusionInfo?.paneRole && resolveFusionPaneKey(fusionInfo.paneRole) !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
+      return false
+    }
+    const fusionComposite = getPayloadFusionComposite(payload)
+    if (!fusionComposite || fusionComposite.mode !== 'ctPetLayers' || !extraImageBinaries.pet) {
+      return false
+    }
+    if (fusionComposite.primaryImageUnchanged === true) {
+      return true
+    }
+
+    const latestDrag = fusionRegistrationDragTimingByView.get(payload.viewId)
+    return latestDrag != null && performance.now() - latestDrag.sentAt <= 10_000
+  }
+
+  function logFusionRegistrationImageReceive(
+    tab: ViewerTabItem,
+    payload: Partial<ViewImageResponse>,
+    imageBinary: ArrayBuffer | Uint8Array,
+    extraImageBinaries: Record<string, ArrayBuffer | Uint8Array>
+  ): void {
+    if (!shouldLogFusionRegistrationImageReceive(tab, payload, extraImageBinaries) || !payload.viewId) {
+      return
+    }
+
+    const now = performance.now()
+    const latestDrag = fusionRegistrationDragTimingByView.get(payload.viewId)
+    const previousReceiveAt = fusionRegistrationImageReceiveTimingByView.get(payload.viewId)
+    fusionRegistrationImageReceiveTimingByView.set(payload.viewId, now)
+    const fusionComposite = getPayloadFusionComposite(payload)
+    const fusionInfo = getPayloadFusionInfo(payload)
+    console.debug('[fusion registration perf] image_update received', {
+      receiveAt: new Date().toISOString(),
+      receiveAtMs: Math.round(now * 10) / 10,
+      sinceLastDragSentMs: latestDrag ? Math.round((now - latestDrag.sentAt) * 10) / 10 : null,
+      sincePreviousRegistrationImageMs: previousReceiveAt == null ? null : Math.round((now - previousReceiveAt) * 10) / 10,
+      dragPhase: latestDrag?.phase ?? null,
+      dragSequence: latestDrag?.sequence ?? null,
+      deltaX: latestDrag?.deltaX ?? null,
+      deltaY: latestDrag?.deltaY ?? null,
+      rotationDeltaDegrees: latestDrag?.rotationDeltaDegrees ?? null,
+      viewId: payload.viewId,
+      tabKey: tab.key,
+      fastPreview: payload.fastPreview ?? ((payload as { fast_preview?: unknown }).fast_preview ?? null),
+      imageFormat: payload.imageFormat,
+      primaryImageUnchanged: fusionComposite?.primaryImageUnchanged === true,
+      fusionRevision: fusionComposite?.revision ?? fusionInfo?.revision ?? null,
+      compositeSize: fusionComposite ? `${fusionComposite.width}x${fusionComposite.height}` : null,
+      primaryBytes: getBinaryByteLength(imageBinary),
+      petBytes: getBinaryByteLength(extraImageBinaries.pet)
     })
   }
 
@@ -2128,7 +2674,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await backendConnectionPromise
   }
 
-  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number }): void {
+  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number; exact?: boolean }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -2141,7 +2687,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const normalizedDelta = Number.isFinite(deltaY) ? Math.trunc(deltaY) : 0
+    const normalizedDelta = normalizeViewportWheelScrollDelta(deltaY, typeof payload !== 'number' && payload.exact === true)
     const scroll = normalizedDelta > 0 ? normalizedDelta : normalizedDelta < 0 ? normalizedDelta : 0
     if (!scroll) {
       return
@@ -2167,6 +2713,96 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function isFusionPetDisplayPane(viewportKey: string): boolean {
+    const paneKey = resolveFusionPaneKey(viewportKey)
+    return paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
+  }
+
+  function resolveFusionPetWindowMax(tab: ViewerTabItem): number {
+    const value = Number(tab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+    return Number.isFinite(value) ? Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value) : DEFAULT_FUSION_PET_WINDOW_MAX
+  }
+
+  function resolveFusionPetWindowDragSensitivity(windowMax: number): number {
+    return Math.max(0.001, Math.abs(windowMax) * FUSION_PET_WINDOW_DRAG_RANGE_FRACTION)
+  }
+
+  function applyOptimisticFusionPetWindowRange(tabKey: string, petWindowMax: number): void {
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tabKey
+        ? {
+            ...item,
+            fusionInfo: item.fusionInfo
+              ? {
+                  ...item.fusionInfo,
+                  petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+                  petWindowMax
+                }
+              : item.fusionInfo
+          }
+        : item
+    )
+  }
+
+  function handleFusionPetWindowDrag(
+    tab: ViewerTabItem,
+    payload: {
+      deltaX: number
+      deltaY: number
+      opType: ViewOperationType
+      phase: 'start' | 'move' | 'end'
+      viewportKey: string
+    }
+  ): boolean {
+    if (tab.viewType !== 'PETCTFusion' || payload.opType !== VIEW_OPERATION_TYPES.window || !isFusionPetDisplayPane(payload.viewportKey)) {
+      return false
+    }
+
+    const paneKey = resolveFusionPaneKey(payload.viewportKey)
+    const viewId = tab.fusionViewIds?.[paneKey] ?? ''
+    if (!viewId) {
+      return true
+    }
+
+    if (payload.phase === DRAG_ACTION_TYPES.start) {
+      fusionPetWindowDragOriginMax = resolveFusionPetWindowMax(tab)
+      return true
+    }
+
+    if (payload.phase === DRAG_ACTION_TYPES.end) {
+      const petWindowMax = resolveFusionPetWindowMax(tab)
+      fusionPetWindowDragOriginMax = null
+      emitScheduledViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        actionType: DRAG_ACTION_TYPES.end,
+        fusionPetWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+        fusionPetWindowMax: petWindowMax
+      })
+      return true
+    }
+
+    if (!payload.deltaX && !payload.deltaY) {
+      return true
+    }
+
+    const baseMax = fusionPetWindowDragOriginMax ?? resolveFusionPetWindowMax(tab)
+    const dragSensitivity = resolveFusionPetWindowDragSensitivity(baseMax)
+    const petWindowMax = Math.max(
+      DEFAULT_FUSION_PET_WINDOW_MIN,
+      baseMax + (Number(payload.deltaX || 0) - Number(payload.deltaY || 0)) * dragSensitivity
+    )
+    applyOptimisticFusionPetWindowRange(tab.key, petWindowMax)
+    emitScheduledViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.fusionConfig,
+      actionType: DRAG_ACTION_TYPES.move,
+      fusionPetWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+      fusionPetWindowMax: petWindowMax
+    })
+    return true
+  }
+
   function handleViewportDrag(payload: {
     deltaX: number
     deltaY: number
@@ -2181,6 +2817,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const viewId = getActiveViewIdForTab(tab, payload.viewportKey)
     if (!viewId) {
+      return
+    }
+
+    if (handleFusionPetWindowDrag(tab, payload)) {
       return
     }
 
@@ -2207,6 +2847,300 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         y: payload.deltaY
       })
     })
+  }
+
+  function handleFusionRegistrationDrag(payload: {
+    deltaX: number
+    deltaY: number
+    phase: 'start' | 'move' | 'end'
+    subOpType: 'translate' | 'rotate'
+    viewportKey: string
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
+    rotationDeltaDegrees?: number
+  }): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PETCTFusion' || !tab.fusionManualRegistration) {
+      return
+    }
+    const viewportKey = resolveFusionPaneKey(payload.viewportKey)
+    if (viewportKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
+      return
+    }
+    const viewId = tab.fusionViewIds?.[viewportKey] ?? ''
+    if (!viewId) {
+      return
+    }
+    if (payload.phase === DRAG_ACTION_TYPES.start || payload.phase === DRAG_ACTION_TYPES.end) {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionRegistrationDragActive: payload.phase === DRAG_ACTION_TYPES.start
+            }
+          : item
+      )
+    }
+    if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
+      return
+    }
+    if (isViewerPerfDebugEnabled()) {
+      fusionRegistrationDragTimingByView.set(viewId, {
+        phase: payload.phase,
+        sentAt: performance.now(),
+        sequence: ++fusionRegistrationDragSequence,
+        deltaX: payload.deltaX,
+        deltaY: payload.deltaY,
+        rotationDeltaDegrees: typeof payload.rotationDeltaDegrees === 'number' && Number.isFinite(payload.rotationDeltaDegrees)
+          ? payload.rotationDeltaDegrees
+          : null
+      })
+    }
+    emitScheduledViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: payload.phase,
+      subOpType: payload.subOpType,
+      x: payload.deltaX,
+      y: payload.deltaY,
+      anchorX: payload.anchorX,
+      anchorY: payload.anchorY,
+      currentX: payload.currentX,
+      currentY: payload.currentY,
+      pivotX: payload.pivotX,
+      pivotY: payload.pivotY,
+      rotationDeltaDegrees: payload.rotationDeltaDegrees
+    })
+  }
+
+  function handlePetConfigChange(payload: {
+    pseudocolorPreset?: string
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
+  }): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PET') {
+      return
+    }
+    const viewId = tab.viewId
+    if (!viewId) {
+      return
+    }
+
+    const petUnit = payload.petUnit
+    const pseudocolorPreset = payload.pseudocolorPreset
+      ? normalizePseudocolorPresetKey(payload.pseudocolorPreset)
+      : null
+    const petWindowMin = Number.isFinite(payload.petWindowMin)
+      ? Number(payload.petWindowMin)
+      : (tab.petInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+    const petWindowMax = Number.isFinite(payload.petWindowMax)
+      ? Number(payload.petWindowMax)
+      : (tab.petInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            petInfo: {
+              seriesId: item.seriesId,
+              ...(item.petInfo ?? {}),
+              ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
+              ...(petUnit ? { petUnit } : {}),
+              ...(payload.petWindowMin != null || payload.petWindowMax != null
+                ? { petWindowMin, petWindowMax }
+                : {})
+            },
+            ...(pseudocolorPreset ? { pseudocolorPreset } : {})
+          }
+        : item
+    )
+
+    emitViewOperation({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.petConfig,
+      ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
+      ...(petUnit ? { petUnit } : {}),
+      ...(payload.petWindowMin != null || payload.petWindowMax != null
+        ? {
+            petWindowMin,
+            petWindowMax
+          }
+        : {})
+    })
+  }
+
+  function handleFusionConfigChange(payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
+    action?: 'reset' | 'save'
+  }): void {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PETCTFusion') {
+      return
+    }
+    const viewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean) ?? ''
+    if (!viewId) {
+      return
+    }
+
+    if (typeof payload.manualRegistration === 'boolean') {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionManualRegistration: payload.manualRegistration
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionManualRegistration: payload.manualRegistration
+      })
+      return
+    }
+
+    if (payload.pseudocolorPreset) {
+      const presetKey = normalizeFusionPetPseudocolorPresetKey(payload.pseudocolorPreset)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? {
+                    ...item.fusionInfo,
+                    petPseudocolorPreset: presetKey
+                  }
+                : item.fusionInfo,
+              fusionPseudocolorPresets: {
+                ...(item.fusionPseudocolorPresets ?? {}),
+                [FUSION_PET_AXIAL_PANE_KEY]: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+                [FUSION_OVERLAY_AXIAL_PANE_KEY]: presetKey,
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+              }
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        pseudocolorPreset: presetKey
+      })
+      return
+    }
+
+    if (payload.petUnit) {
+      const petUnit = payload.petUnit
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? {
+                    ...item.fusionInfo,
+                    petUnit
+                  }
+                : item.fusionInfo
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionPetUnit: petUnit
+      })
+      return
+    }
+
+    if (payload.petWindowMin != null || payload.petWindowMax != null) {
+      const petWindowMin = Number.isFinite(payload.petWindowMin)
+        ? Number(payload.petWindowMin)
+        : (tab.fusionInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+      const petWindowMax = Number.isFinite(payload.petWindowMax)
+        ? Number(payload.petWindowMax)
+        : (tab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? {
+                    ...item.fusionInfo,
+                    petWindowMin,
+                    petWindowMax
+                  }
+                : item.fusionInfo
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionPetWindowMin: petWindowMin,
+        fusionPetWindowMax: petWindowMax
+      })
+      return
+    }
+
+    if (payload.action) {
+      if (payload.action === 'reset') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                fusionRegistrationDragActive: false,
+                fusionRegistrationResetRevision: (item.fusionRegistrationResetRevision ?? 0) + 1,
+                fusionInfo: item.fusionInfo
+                  ? {
+                      ...item.fusionInfo,
+                      registration: {
+                        ...item.fusionInfo.registration,
+                        translateRowMm: 0,
+                        translateColMm: 0,
+                        rotationDegrees: 0
+                      }
+                    }
+                  : item.fusionInfo
+              }
+            : item
+        )
+      }
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionRegistration,
+        actionType: 'end',
+        subOpType: payload.action
+      })
+    }
+  }
+
+  async function handleFusionRegistrationLoad(registrationFile: Record<string, unknown>): Promise<void> {
+    const tab = activeTab.value
+    if (!tab || tab.viewType !== 'PETCTFusion') {
+      return
+    }
+    const viewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean) ?? ''
+    if (!viewId) {
+      showStatusToast('融合视图尚未初始化，请等待图像加载完成后再加载配准文件。', 'warning')
+      return
+    }
+    const ok = await emitViewOperationWithAck({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.fusionRegistration,
+      actionType: 'end',
+      subOpType: 'load',
+      fusionRegistrationFile: registrationFile
+    })
+    showStatusToast(ok ? '配准文件已加载。' : '加载配准文件失败，请确认 CT/PET 序列匹配。', ok ? 'success' : 'error')
   }
 
   function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {
@@ -2478,6 +3412,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     emitMeasurementOperation(payload)
   }
 
+  function handleAnnotationOperation(payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: string
+    points?: MeasurementDraftPoint[]
+    text?: string
+    color?: string
+    size?: string
+  }): void {
+    emitAnnotationOperation(payload)
+  }
+
   function clearActiveTabMtf(): void {
     updateActiveTabMtfState((item) => ({
       ...item,
@@ -2532,7 +3479,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const currentIndex = slice?.index ?? 0
     const delta = clampedTargetIndex - currentIndex
     if (delta !== 0) {
-      handleViewportWheel({ viewportKey: 'single', deltaY: delta })
+      handleViewportWheel({ viewportKey: 'single', deltaY: delta, exact: true })
     }
   }
 
@@ -2551,6 +3498,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   async function openSeriesCompareWithBackend(sourceSeriesId: string, targetSeriesId: string): Promise<void> {
     await ensureBackendConnection()
     await views.openSeriesCompare(sourceSeriesId, targetSeriesId)
+  }
+
+  async function openPetCtFusionWithBackend(ctSeriesId: string, petSeriesId: string): Promise<void> {
+    await ensureBackendConnection()
+    await views.openPetCtFusion(ctSeriesId, petSeriesId)
   }
 
   function shouldAutoSelectLoadedSeries(): boolean {
@@ -2862,6 +3814,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleMeasurementCreate,
     handleMeasurementDelete,
     handleMeasurementDraft,
+    handleAnnotationOperation,
     handleTagIndexChange,
     handleMtfClear,
     handleMtfCommit,
@@ -2870,6 +3823,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleFourDPhaseChange,
     handleFourDFpsChange,
     handleFourDPlaybackChange,
+    handleFusionConfigChange,
+    handleFusionRegistrationDrag,
     handleMprCrosshair,
     handleCompareSyncChange,
     handleViewportLayoutChange,
@@ -2888,6 +3843,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     openKeySlice,
     openSeriesView: openSeriesViewWithHangingProtocol,
     openLayoutView: openLayoutViewWithBackend,
+    openPetCtFusion: openPetCtFusionWithBackend,
     openSeriesCompare: openSeriesCompareWithBackend,
     openView: openViewWithHangingProtocol,
     removeSeries: views.removeSeries,

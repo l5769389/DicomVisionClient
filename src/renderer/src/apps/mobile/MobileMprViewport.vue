@@ -1,15 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES, type ViewOperationType } from '@shared/viewerConstants'
+import AppIcon from '../../components/AppIcon.vue'
 import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  AnnotationSize,
   CornerInfo,
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementToolType,
   MprCrosshairInteractionPayload,
+  MprSegmentationConfig,
+  MprSegmentationConfigActionType,
   MprViewportKey,
+  ViewerMtfItem,
   ViewerTabItem,
   WorkspaceReadyPayload
 } from '../../types/viewer'
@@ -32,25 +39,73 @@ type PointerPoint = {
   y: number
 }
 
+type FloatingTogglePosition = {
+  left: number
+  top: number
+}
+
+type FloatingToggleDragState = {
+  pointerId: number
+  startX: number
+  startY: number
+  baseLeft: number
+  baseTop: number
+  moved: boolean
+}
+
+const REFERENCE_TOGGLE_DRAG_THRESHOLD = 4
+const REFERENCE_TOGGLE_MARGIN = 6
+const REFERENCE_TOGGLE_SIZE = 36
+
 const props = withDefaults(defineProps<{
   activeMprViewportKey: MprViewportKey
   activeOperation: string
   activeTab: ViewerTabItem | null
+  annotationPointerCancel?: (event: PointerEvent) => boolean
+  annotationPointerDown?: (event: PointerEvent, viewportKey: string) => boolean
+  annotationPointerLeave?: (viewportKey: string) => void
+  annotationPointerMove?: (event: PointerEvent) => boolean
+  annotationPointerUp?: (event: PointerEvent) => boolean
+  getAnnotations?: (viewportKey: string) => AnnotationOverlay[]
+  getDraftAnnotation?: (viewportKey: string) => AnnotationDraft | null
+  getMtfItems?: (viewportKey: string) => ViewerMtfItem[]
   isViewLoading: boolean
+  mprSegmentationConfig?: MprSegmentationConfig | null
+  mprSegmentationDefaultThresholdColor?: string
+  mprSegmentationDefaultVoiColor?: string
   scrollThreshold?: number
+  selectedMtfId?: string | null
   showReferenceThumbnails?: boolean
 }>(), {
+  getAnnotations: () => [],
+  getDraftAnnotation: () => null,
+  getMtfItems: () => [],
+  mprSegmentationConfig: null,
+  mprSegmentationDefaultThresholdColor: undefined,
+  mprSegmentationDefaultVoiColor: undefined,
   scrollThreshold: 28,
   showReferenceThumbnails: true
 })
 
 const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
+  clearMtf: [payload?: { mtfId?: string | null }]
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  copySelectedMtf: [viewportKey: string]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
+  mtfCommit: [payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }]
+  openMtfCurve: []
+  selectMtf: [payload: { mtfId: string | null }]
   mprCrosshair: [payload: MprCrosshairInteractionPayload]
+  mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
+  mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: AnnotationSize }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
@@ -95,6 +150,130 @@ const activeViewport = computed(() =>
 const referenceViewportKeys = computed(() =>
   MPR_VIEWPORTS.map((viewport) => viewport.key).filter((viewportKey) => viewportKey !== activeViewport.value)
 )
+const referenceThumbnailsVisible = ref(props.showReferenceThumbnails)
+const referenceTogglePosition = ref<FloatingTogglePosition | null>(null)
+const referenceToggleDrag = ref<FloatingToggleDragState | null>(null)
+const suppressReferenceToggleClick = ref(false)
+let referenceToggleClickResetTimer: number | null = null
+
+const referenceToggleStyle = computed(() => {
+  if (referenceThumbnailsVisible.value || !referenceTogglePosition.value) {
+    return undefined
+  }
+  return {
+    left: `${referenceTogglePosition.value.left}px`,
+    top: `${referenceTogglePosition.value.top}px`,
+    right: 'auto',
+    bottom: 'auto'
+  }
+})
+
+function toggleReferenceThumbnails(): void {
+  referenceThumbnailsVisible.value = !referenceThumbnailsVisible.value
+  if (referenceThumbnailsVisible.value) {
+    referenceTogglePosition.value = null
+  }
+}
+
+function getHostRect(): DOMRect | null {
+  return viewportHostRef.value?.getBoundingClientRect() ?? null
+}
+
+function clampReferenceTogglePosition(left: number, top: number): FloatingTogglePosition {
+  const rect = getHostRect()
+  if (!rect) {
+    return { left, top }
+  }
+  const maxLeft = Math.max(REFERENCE_TOGGLE_MARGIN, rect.width - REFERENCE_TOGGLE_SIZE - REFERENCE_TOGGLE_MARGIN)
+  const maxTop = Math.max(REFERENCE_TOGGLE_MARGIN, rect.height - REFERENCE_TOGGLE_SIZE - REFERENCE_TOGGLE_MARGIN)
+  return {
+    left: Math.min(maxLeft, Math.max(REFERENCE_TOGGLE_MARGIN, left)),
+    top: Math.min(maxTop, Math.max(REFERENCE_TOGGLE_MARGIN, top))
+  }
+}
+
+function getReferenceTogglePositionFromElement(element: HTMLElement): FloatingTogglePosition | null {
+  const hostRect = getHostRect()
+  if (!hostRect) {
+    return null
+  }
+  const buttonRect = element.getBoundingClientRect()
+  return clampReferenceTogglePosition(buttonRect.left - hostRect.left, buttonRect.top - hostRect.top)
+}
+
+function scheduleReferenceToggleClickReset(): void {
+  if (referenceToggleClickResetTimer !== null) {
+    window.clearTimeout(referenceToggleClickResetTimer)
+  }
+  referenceToggleClickResetTimer = window.setTimeout(() => {
+    suppressReferenceToggleClick.value = false
+    referenceToggleClickResetTimer = null
+  }, 0)
+}
+
+function handleReferenceTogglePointerDown(event: PointerEvent): void {
+  if (referenceThumbnailsVisible.value || event.button !== 0) {
+    return
+  }
+  const element = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  const position = element ? getReferenceTogglePositionFromElement(element) : null
+  if (!position) {
+    return
+  }
+  referenceToggleDrag.value = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    baseLeft: position.left,
+    baseTop: position.top,
+    moved: false
+  }
+  element?.setPointerCapture?.(event.pointerId)
+}
+
+function handleReferenceTogglePointerMove(event: PointerEvent): void {
+  const drag = referenceToggleDrag.value
+  if (!drag || drag.pointerId !== event.pointerId) {
+    return
+  }
+  const deltaX = event.clientX - drag.startX
+  const deltaY = event.clientY - drag.startY
+  if (!drag.moved && Math.hypot(deltaX, deltaY) < REFERENCE_TOGGLE_DRAG_THRESHOLD) {
+    return
+  }
+  drag.moved = true
+  referenceTogglePosition.value = clampReferenceTogglePosition(drag.baseLeft + deltaX, drag.baseTop + deltaY)
+  event.preventDefault()
+}
+
+function finishReferenceToggleDrag(event: PointerEvent): void {
+  const drag = referenceToggleDrag.value
+  if (!drag || drag.pointerId !== event.pointerId) {
+    return
+  }
+  const element = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  element?.releasePointerCapture?.(event.pointerId)
+  referenceToggleDrag.value = null
+  if (drag.moved) {
+    suppressReferenceToggleClick.value = true
+    scheduleReferenceToggleClickReset()
+    event.preventDefault()
+  }
+}
+
+function handleReferenceToggleClick(event: MouseEvent): void {
+  if (suppressReferenceToggleClick.value) {
+    suppressReferenceToggleClick.value = false
+    if (referenceToggleClickResetTimer !== null) {
+      window.clearTimeout(referenceToggleClickResetTimer)
+      referenceToggleClickResetTimer = null
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    return
+  }
+  toggleReferenceThumbnails()
+}
 
 function createMeasurementId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -135,13 +314,13 @@ const {
   emitMeasurementDraft: () => {},
   emitMeasurementCreate,
   emitMeasurementDelete: () => {},
-  emitMtfCommit: () => {},
-  emitMtfDelete: () => {},
-  emitMtfSelect: () => {},
+  emitMtfCommit: (payload) => emit('mtfCommit', payload),
+  emitMtfDelete: (payload) => emit('clearMtf', payload),
+  emitMtfSelect: (payload) => emit('selectMtf', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
   emitViewportDrag: (payload) => emit('viewportDrag', payload),
   getCommittedMeasurements: (viewportKey) => mprTab.value?.viewportMeasurements?.[viewportKey] ?? [],
-  getMtfItems: () => []
+  getMtfItems: (viewportKey) => props.getMtfItems?.(viewportKey) ?? []
 })
 
 function emitActiveViewportChange(viewportKey: string): void {
@@ -175,6 +354,10 @@ function getCornerInfo(viewportKey: MprViewportKey): CornerInfo {
 
 function getSliceLabel(viewportKey: MprViewportKey): string {
   return mprTab.value?.viewportSliceLabels?.[viewportKey] ?? ''
+}
+
+function getReferenceSliceLabel(viewportKey: MprViewportKey): string {
+  return getSliceLabel(viewportKey).trim() || '--'
 }
 
 function getDraftMeasurement(viewportKey: MprViewportKey): MeasurementDraft | null {
@@ -336,6 +519,9 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
   }
 
   emitActiveViewportChange(viewportKey)
+  if (props.annotationPointerDown?.(event, viewportKey)) {
+    return
+  }
   const point = getPoint(event, viewportKey)
   activePointers.set(event.pointerId, point)
 
@@ -374,6 +560,9 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
 }
 
 function handlePointerMove(event: PointerEvent): void {
+  if (props.annotationPointerMove?.(event)) {
+    return
+  }
   const trackedPoint = activePointers.get(event.pointerId)
   if (trackedPoint) {
     activePointers.set(event.pointerId, getPoint(event, trackedPoint.viewportKey))
@@ -418,7 +607,8 @@ function handlePointerMove(event: PointerEvent): void {
       activeScroll.accumulator -= sliceDelta * props.scrollThreshold
       emit('viewportWheel', {
         viewportKey: activeScroll.viewportKey,
-        deltaY: sliceDelta
+        deltaY: sliceDelta,
+        exact: true
       })
     }
     return
@@ -446,6 +636,9 @@ function handlePointerMove(event: PointerEvent): void {
 }
 
 function handlePointerUp(event: PointerEvent): void {
+  if (props.annotationPointerUp?.(event)) {
+    return
+  }
   activePointers.delete(event.pointerId)
   if (activeScrollPointer.value?.pointerId === event.pointerId) {
     activeScrollPointer.value = null
@@ -471,6 +664,9 @@ function handlePointerUp(event: PointerEvent): void {
 }
 
 function handlePointerCancel(event: PointerEvent): void {
+  if (props.annotationPointerCancel?.(event)) {
+    return
+  }
   activePointers.delete(event.pointerId)
   if (activeScrollPointer.value?.pointerId === event.pointerId) {
     activeScrollPointer.value = null
@@ -492,12 +688,21 @@ function handlePointerCancel(event: PointerEvent): void {
   }
 }
 
+function handlePointerLeave(viewportKey: string): void {
+  props.annotationPointerLeave?.(viewportKey)
+  handleViewportPointerLeave(viewportKey)
+}
+
 onMounted(() => {
   void nextTick(emitWorkspaceReady)
 })
 
 onBeforeUnmount(() => {
   activeScrollPointer.value = null
+  referenceToggleDrag.value = null
+  if (referenceToggleClickResetTimer !== null) {
+    window.clearTimeout(referenceToggleClickResetTimer)
+  }
   activePointers.clear()
   workspacePointerIds.clear()
   totalDragDeltaX = 0
@@ -517,10 +722,25 @@ watch(
     void nextTick(emitWorkspaceReady)
   }
 )
+
+watch(
+  () => props.showReferenceThumbnails,
+  (visible) => {
+    referenceThumbnailsVisible.value = visible
+    if (visible) {
+      referenceTogglePosition.value = null
+    }
+  }
+)
 </script>
 
 <template>
-  <section ref="viewportHostRef" class="mobile-mpr-viewport" data-testid="mobile-mpr-viewport">
+  <section
+    ref="viewportHostRef"
+    class="mobile-mpr-viewport"
+    :class="{ 'mobile-mpr-viewport--references-collapsed': !referenceThumbnailsVisible }"
+    data-testid="mobile-mpr-viewport"
+  >
     <div
       v-for="viewport in MPR_VIEWPORTS"
       :key="viewport.key"
@@ -530,7 +750,7 @@ watch(
         'mobile-mpr-viewport__pane--reference': isReferenceViewport(viewport.key),
         'mobile-mpr-viewport__pane--reference-0': getReferenceIndex(viewport.key) === 0,
         'mobile-mpr-viewport__pane--reference-1': getReferenceIndex(viewport.key) === 1,
-        'mobile-mpr-viewport__pane--hidden': isReferenceViewport(viewport.key) && !showReferenceThumbnails
+        'mobile-mpr-viewport__pane--hidden': isReferenceViewport(viewport.key) && !referenceThumbnailsVisible
       }"
       :data-testid="isReferenceViewport(viewport.key) ? 'mobile-mpr-reference' : 'mobile-mpr-primary'"
       :data-viewport-role="isReferenceViewport(viewport.key) ? 'reference' : 'primary'"
@@ -539,42 +759,60 @@ watch(
         :viewport-key="viewport.key"
         viewport-class="mobile-mpr-viewport__stage"
         image-class="mobile-mpr-viewport__image"
-        :is-active="activeViewport === viewport.key"
+        :is-active="isReferenceViewport(viewport.key) && activeViewport === viewport.key"
+        compact-loading
         :render-surface-active="true"
         :image-src="getImage(viewport.key)"
         :is-loading="Boolean(mprTab?.viewportViewIds?.[viewport.key]) && (isViewportLoading(viewport.key) || isViewLoading)"
         :loading-label="`Loading ${viewport.label}...`"
         :alt="viewport.label"
         :active-operation="activeOperation"
-        :annotations="[]"
+        :annotations="getAnnotations(viewport.key)"
         :corner-info="isReferenceViewport(viewport.key) ? emptyCornerInfo : getCornerInfo(viewport.key)"
         :cursor-class="viewportCursorClasses[viewport.key] ?? 'cursor-crosshair'"
+        :draft-annotation="getDraftAnnotation(viewport.key)"
         :draft-measurement-mode="getDraftMeasurementMode(viewport.key)"
         :draft-measurement="getDraftMeasurement(viewport.key)"
         :measurements="mprTab?.viewportMeasurements?.[viewport.key] ?? []"
         :mtf-draft-mode="getMtfDraftMode(viewport.key)"
         :mtf-draft="getMtfDraft(viewport.key)"
-        :mtf-items="[]"
-        :selected-mtf-id="null"
+        :mtf-items="getMtfItems(viewport.key)"
+        :selected-mtf-id="selectedMtfId ?? null"
         :mpr-crosshair="mprTab?.viewportCrosshairs?.[viewport.key] ?? null"
         :mpr-frame="mprTab?.mprFrame ?? null"
         :mpr-plane="mprTab?.viewportPlanes?.[viewport.key] ?? null"
+        :mpr-segmentation-default-threshold-color="mprSegmentationDefaultThresholdColor"
+        :mpr-segmentation-default-voi-color="mprSegmentationDefaultVoiColor"
+        :mpr-segmentation-config="mprSegmentationConfig"
+        :mpr-segmentation-overlay="mprTab?.viewportSegmentationOverlays?.[viewport.key] ?? null"
         :scale-bar="isReferenceViewport(viewport.key) ? null : mprTab?.viewportScaleBars?.[viewport.key] ?? null"
         :show-corner-info="!isReferenceViewport(viewport.key) && mprTab?.showCornerInfo !== false"
         :show-scale-bar="!isReferenceViewport(viewport.key) && mprTab?.showScaleBar !== false"
         :orientation="mprTab?.viewportOrientations?.[viewport.key] ?? mprTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
+        :viewport-transform="mprTab?.viewportTransformStates?.[viewport.key] ?? mprTab?.transformState ?? null"
         :placeholder="`${viewport.label} preview`"
         @click-viewport="handleViewportClick"
+        @copy-annotation="emit('copyAnnotation', $event)"
+        @copy-selected-mtf="emit('copySelectedMtf', $event)"
+        @clear-mtf="emit('clearMtf')"
+        @delete-annotation="emit('deleteAnnotation', $event)"
         @hover-viewport-change="emit('hoverViewportChange', $event)"
+        @mpr-segmentation-config-change="(config, actionType) => emit('mprSegmentationConfigChange', config, actionType)"
+        @mpr-segmentation-mode-change="emit('mprSegmentationModeChange', $event, viewport.key)"
+        @open-mtf-curve="emit('openMtfCurve')"
+        @select-mtf="emit('selectMtf', $event)"
         @wheel-viewport="emit('viewportWheel', $event)"
         @pointer-down="handlePointerDown"
         @pointer-move="handlePointerMove"
         @pointer-up="handlePointerUp"
         @pointer-cancel="handlePointerCancel"
-        @pointer-leave="handleViewportPointerLeave"
+        @pointer-leave="handlePointerLeave"
+        @update-annotation-color="emit('updateAnnotationColor', $event)"
+        @update-annotation-size="emit('updateAnnotationSize', $event)"
+        @update-annotation-text="emit('updateAnnotationText', $event)"
       />
       <button
-        v-if="isReferenceViewport(viewport.key)"
+        v-if="isReferenceViewport(viewport.key) && referenceThumbnailsVisible"
         type="button"
         class="mobile-mpr-viewport__reference-switch"
         :aria-label="`Switch to ${viewport.label}`"
@@ -585,12 +823,33 @@ watch(
         @pointerdown="handleReferenceSwitch($event, viewport.key)"
         @touchstart="handleReferenceSwitch($event, viewport.key)"
       >
+        <span class="mobile-mpr-viewport__reference-slice" aria-hidden="true">
+          {{ getReferenceSliceLabel(viewport.key) }}
+        </span>
         <span class="mobile-mpr-viewport__reference-label" aria-hidden="true">
-          <strong>{{ viewport.label }}</strong>
-          <span>{{ getSliceLabel(viewport.key) || '--' }}</span>
+          <strong class="mobile-mpr-viewport__reference-title">{{ viewport.label }}</strong>
         </span>
       </button>
     </div>
+    <button
+      type="button"
+      class="mobile-mpr-viewport__reference-toggle"
+      :class="{
+        'mobile-mpr-viewport__reference-toggle--collapsed': !referenceThumbnailsVisible,
+        'mobile-mpr-viewport__reference-toggle--dragging': referenceToggleDrag?.moved
+      }"
+      :style="referenceToggleStyle"
+      :aria-label="referenceThumbnailsVisible ? 'Hide reference images' : 'Show reference images'"
+      :aria-pressed="referenceThumbnailsVisible"
+      data-testid="mobile-mpr-reference-toggle"
+      @click="handleReferenceToggleClick"
+      @pointerdown="handleReferenceTogglePointerDown"
+      @pointermove="handleReferenceTogglePointerMove"
+      @pointerup="finishReferenceToggleDrag"
+      @pointercancel="finishReferenceToggleDrag"
+    >
+      <AppIcon :name="referenceThumbnailsVisible ? 'chevron-right' : 'layout'" :size="16" />
+    </button>
   </section>
 </template>
 
@@ -640,6 +899,10 @@ watch(
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 140ms ease;
 }
 
 .mobile-mpr-viewport__pane--reference-0 {
@@ -653,7 +916,51 @@ watch(
 .mobile-mpr-viewport__pane--hidden {
   opacity: 0;
   pointer-events: none;
+  transform: translateX(18px);
   visibility: hidden;
+}
+
+.mobile-mpr-viewport__reference-toggle {
+  position: absolute;
+  top: calc(var(--mobile-mpr-reference-offset) + var(--mobile-mpr-reference-height) + var(--mobile-mpr-reference-gap) + var(--mobile-mpr-reference-height) + 8px);
+  right: var(--mobile-mpr-reference-offset);
+  bottom: auto;
+  z-index: 9;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 70%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(18, 27, 40, 0.96), rgba(8, 13, 22, 0.96));
+  color: #f7fbff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.44);
+  appearance: none;
+  cursor: pointer;
+  touch-action: none;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.mobile-mpr-viewport__reference-toggle--collapsed {
+  border-color: color-mix(in srgb, var(--theme-accent) 76%, transparent);
+  background:
+    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.18), transparent 34%),
+    color-mix(in srgb, var(--theme-accent) 24%, rgba(8, 13, 22, 0.96));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 16px 34px rgba(0, 0, 0, 0.54);
+  cursor: grab;
+}
+
+.mobile-mpr-viewport__reference-toggle--dragging {
+  cursor: grabbing;
+  transform: scale(1.04);
 }
 
 .mobile-mpr-viewport :deep(.mobile-mpr-viewport__stage) {
@@ -695,10 +1002,7 @@ watch(
   left: 6px;
   right: 6px;
   bottom: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  display: block;
   pointer-events: none;
   color: #f7fbff;
   font-size: 10px;
@@ -706,23 +1010,29 @@ watch(
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
 }
 
-.mobile-mpr-viewport__reference-label strong,
-.mobile-mpr-viewport__reference-label span {
+.mobile-mpr-viewport__reference-title {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mobile-mpr-viewport__reference-label strong {
-  flex: 0 0 auto;
   font-size: 11px;
   font-weight: 900;
 }
 
-.mobile-mpr-viewport__reference-label span {
-  min-width: 0;
-  color: rgba(247, 251, 255, 0.82);
+.mobile-mpr-viewport__reference-slice {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  color: #f7fbff;
+  font-size: 11px;
   font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

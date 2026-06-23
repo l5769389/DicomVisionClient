@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { VApp, VMain } from 'vuetify/components'
-import AppIcon from './components/AppIcon.vue'
 import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
 import { useUiLocale } from './composables/ui/useUiLocale'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
-import { openExportLocation } from './platform/exporting'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
+import { resolvePrimaryTwoDimensionalViewType } from './composables/workspace/views/seriesViewSupport'
 import { normalizeInlineSvg } from './utils/svg'
 
 const SidebarBootFallback = defineComponent({
@@ -44,6 +43,51 @@ const WorkspaceBootFallback = defineComponent({
     ])
 })
 
+const shellIconPaths: Record<string, string> = {
+  close:
+    'M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29 10.59 10.59 16.89 4.29z',
+  error:
+    'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm3.54 12.12-1.42 1.42L12 13.41l-2.12 2.13-1.42-1.42L10.59 12 8.46 9.88l1.42-1.42L12 10.59l2.12-2.13 1.42 1.42L13.41 12l2.13 2.12Z',
+  fullscreen:
+    'M5 5h6v2H7v4H5V5Zm8 0h6v6h-2V7h-4V5ZM5 13h2v4h4v2H5v-6Zm12 0h2v6h-6v-2h4v-4Z',
+  info:
+    'M11 17h2v-6h-2v6Zm0-8h2V7h-2v2Zm1-7a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z',
+  minimize: 'M5 18h14v-2H5v2Z',
+  success:
+    'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 13.8-3.6-3.6 1.4-1.4 2.2 2.2 4.8-4.8 1.4 1.4-6.2 6.2Z',
+  warning:
+    'M1.8 21h20.4L12 3 1.8 21Zm11.2-3h-2v-2h2v2Zm0-4h-2V9h2v5Z'
+}
+
+const ShellIcon = defineComponent({
+  name: 'ShellIcon',
+  props: {
+    name: {
+      type: String,
+      required: true
+    },
+    size: {
+      type: Number,
+      default: 24
+    }
+  },
+  setup(props) {
+    return () =>
+      h(
+        'svg',
+        {
+          class: 'app-shell-icon-svg',
+          width: props.size,
+          height: props.size,
+          viewBox: '0 0 24 24',
+          focusable: 'false',
+          'aria-hidden': 'true'
+        },
+        [h('path', { d: shellIconPaths[props.name] ?? shellIconPaths.info })]
+      )
+  }
+})
+
 const SidebarPanel = defineAsyncComponent({
   loader: () => import('./components/SidebarPanel.vue'),
   loadingComponent: SidebarBootFallback,
@@ -64,6 +108,13 @@ type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const isWebPlatform = computed(() => viewer.viewerPlatform === 'web')
+const shouldShowIcpFooter = computed(
+  () =>
+    isWebPlatform.value &&
+    !viewer.hasSelectedSeries.value &&
+    viewer.seriesList.value.length === 0 &&
+    viewer.viewerTabs.value.length === 0
+)
 const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
@@ -215,6 +266,7 @@ async function handleOpenStatusToastLocation(): Promise<void> {
   if (!toast?.canOpenLocation) {
     return
   }
+  const { openExportLocation } = await import('./platform/exporting')
   const opened = await openExportLocation({
     directoryPath: toast.directoryPath ?? null,
     filePath: toast.filePath ?? null
@@ -245,7 +297,8 @@ onBeforeUnmount(() => {
 })
 
 const handleQuickPreviewSeriesDrop = (seriesId: string): void => {
-  void viewer.openSeriesView(seriesId, 'Stack')
+  const series = viewer.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+  void viewer.openSeriesView(seriesId, resolvePrimaryTwoDimensionalViewType(series))
 }
 
 const handleQuickPreviewSelectedSeries = (): void => {
@@ -253,7 +306,8 @@ const handleQuickPreviewSelectedSeries = (): void => {
     return
   }
 
-  void viewer.openSeriesView(viewer.selectedSeriesId.value, 'Stack')
+  const series = viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value) ?? null
+  void viewer.openSeriesView(viewer.selectedSeriesId.value, resolvePrimaryTwoDimensionalViewType(series))
 }
 
 const handleLayoutSlotDicomDrop = (payload: { tabKey: string; slotId: string; drop: DicomDropInput }): void => {
@@ -372,6 +426,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
     <VMain
       class="relative h-full overflow-hidden bg-transparent text-[var(--theme-text-primary)]"
       :data-platform="viewer.viewerPlatform"
+      :data-icp-footer-visible="shouldShowIcpFooter ? 'true' : 'false'"
       @dragenter="handleDicomFileDragEnter"
       @dragover="handleDicomFileDragOver"
       @dragleave="handleDicomFileDragLeave"
@@ -380,17 +435,17 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       <div class="window-drag-region" aria-hidden="true"></div>
       <div v-if="hasDesktopWindowControls" class="app-window-controls" :aria-label="windowControlsLabel">
         <button type="button" class="app-window-control-button" :title="minimizeWindowLabel" :aria-label="minimizeWindowLabel" @click="minimizeWindow">
-          <AppIcon name="minimize" :size="14" />
+          <ShellIcon name="minimize" :size="14" />
         </button>
         <button type="button" class="app-window-control-button" :title="toggleFullScreenLabel" :aria-label="toggleFullScreenLabel" @click="toggleWindowFullScreen">
-          <AppIcon name="fullscreen" :size="16" />
+          <ShellIcon name="fullscreen" :size="16" />
         </button>
         <button type="button" class="app-window-control-button app-window-control-button--danger" :title="closeWindowLabel" :aria-label="closeWindowLabel" @click="closeWindow">
-          <AppIcon name="close" :size="15" />
+          <ShellIcon name="close" :size="15" />
         </button>
       </div>
       <div
-        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent py-4 pr-4 pl-2"
+        class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent pt-2 pr-4 pb-4 pl-2"
         :data-sidebar-collapsed="viewer.isSidebarCollapsed.value ? 'true' : 'false'"
       >
         <SidebarPanel
@@ -407,6 +462,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @choose-folder="viewer.chooseFolder"
           @open-key-slice="viewer.openKeySlice"
           @open-view="viewer.openView"
+          @open-pet-ct-fusion="viewer.openPetCtFusion"
           @open-series-view="viewer.openSeriesView"
           @pacs-series-loaded="viewer.applyLoadedDicomSeries($event, { selectLoadedSeries: true, openFirstSeriesView: true })"
           @remove-series="viewer.removeSeries"
@@ -422,6 +478,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
           :selected-series-id="viewer.selectedSeriesId.value"
+          :viewer-platform="viewer.viewerPlatform"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
           @close-tab="viewer.closeTab"
@@ -440,6 +497,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @measurement-draft="viewer.handleMeasurementDraft"
           @measurement-create="viewer.handleMeasurementCreate"
           @measurement-delete="viewer.handleMeasurementDelete"
+          @annotation-operation="viewer.handleAnnotationOperation"
           @tag-index-change="viewer.handleTagIndexChange"
           @mtf-clear="viewer.handleMtfClear"
           @mtf-commit="viewer.handleMtfCommit"
@@ -450,6 +508,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @four-d-phase-change="viewer.handleFourDPhaseChange"
           @four-d-fps-change="viewer.handleFourDFpsChange"
           @four-d-playback-change="viewer.handleFourDPlaybackChange"
+          @fusion-config-change="viewer.handleFusionConfigChange"
+          @fusion-registration-drag="viewer.handleFusionRegistrationDrag"
           @compare-sync-change="viewer.handleCompareSyncChange"
           @volume-config-change="viewer.handleVolumeConfigChange"
           @viewport-drag="viewer.handleViewportDrag"
@@ -458,7 +518,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @workspace-ready="viewer.setViewerStage"
         />
       </div>
-      <footer v-if="isWebPlatform" class="app-icp-footer">
+      <footer v-if="shouldShowIcpFooter" class="app-icp-footer">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">皖ICP备2026017376号</a>
       </footer>
       <div v-if="isDicomFileDropActive" class="dicom-file-drop-overlay" aria-live="polite">
@@ -478,7 +538,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
         aria-live="polite"
       >
         <span class="app-status-toast__icon" :class="{ 'app-status-toast__icon--busy': viewer.statusToast.value.busy }" aria-hidden="true">
-          <AppIcon :name="statusToastIcon" :size="18" />
+          <ShellIcon :name="statusToastIcon" :size="18" />
         </span>
         <span class="app-status-toast__content">
           <span class="app-status-toast__message">{{ viewer.statusToast.value.message }}</span>
@@ -506,7 +566,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           </span>
         </span>
         <button type="button" class="app-status-toast__close" :aria-label="closeNotificationLabel" @click="viewer.dismissStatusToast">
-          <AppIcon name="close" :size="13" />
+          <ShellIcon name="close" :size="13" />
         </button>
       </div>
     </VMain>
@@ -523,7 +583,14 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   grid-template-columns: 72px minmax(0, 1fr);
 }
 
-.v-main[data-platform="web"] .app-main-layout {
+.app-shell-icon-svg {
+  display: inline-flex;
+  flex: 0 0 auto;
+  fill: currentColor;
+  line-height: 1;
+}
+
+.v-main[data-platform="web"][data-icp-footer-visible="true"] .app-main-layout {
   height: calc(100vh - 28px);
   max-height: calc(100vh - 28px);
   padding-bottom: 8px;

@@ -288,6 +288,18 @@ describe('useViewerWorkspacePointer', () => {
     expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.window)).toBe(false)
   })
 
+  it('keeps explicit zoom ahead of the default left-button window drag', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:zoom' })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 12 }), 'single')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.2, y: 0.28 }, { pointerId: 12 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.2, y: 0.28 }, { buttons: 0, pointerId: 12 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.zoom)).toBe(true)
+    expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.window)).toBe(false)
+  })
+
   it('uses a window cursor while window-level drag is active', () => {
     const { pointer, viewport } = createPointerHarness({ activeOperation: 'stack:window' })
 

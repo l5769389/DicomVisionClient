@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useUiPreferences, type CrosshairViewportPreference } from '../../../composables/ui/useUiPreferences'
 import { getMprViewportCanvasCrosshairGeometry } from '../../../composables/workspace/views/mprFrameGeometry'
 import type {
@@ -38,6 +38,7 @@ const props = withDefaults(
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const { crosshairConfigs } = useUiPreferences()
 const gapRadius = computed(() => (props.isActive ? 6 : 5))
+let drawRaf: number | null = null
 
 function getCrosshairConfig(key: MprViewportKey): CrosshairViewportPreference {
   return crosshairConfigs.value.find((item) => item.key === key) ?? crosshairConfigs.value[0]!
@@ -232,6 +233,17 @@ function drawCrosshair(): void {
   drawCrosshairLine(context, centerX, centerY, verticalAngle, axes.vertical.color, axes.vertical.thickness)
 }
 
+function scheduleCrosshairDraw(): void {
+  if (drawRaf != null) {
+    return
+  }
+
+  drawRaf = window.requestAnimationFrame(() => {
+    drawRaf = null
+    drawCrosshair()
+  })
+}
+
 watch(
   () => [
     props.stageWidth,
@@ -243,10 +255,17 @@ watch(
     crosshairConfigs.value
   ] as const,
   () => {
-    drawCrosshair()
+    scheduleCrosshairDraw()
   },
-  { deep: true, immediate: true }
+  { deep: true, immediate: true, flush: 'post' }
 )
+
+onBeforeUnmount(() => {
+  if (drawRaf != null) {
+    window.cancelAnimationFrame(drawRaf)
+    drawRaf = null
+  }
+})
 </script>
 
 <template>

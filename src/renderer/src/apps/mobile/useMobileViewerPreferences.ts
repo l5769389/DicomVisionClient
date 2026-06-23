@@ -1,8 +1,9 @@
 import { computed, reactive } from 'vue'
 import type { MprViewportKey } from '../../types/viewer'
 
-export type MobileStackDefaultTool = 'scroll' | 'window' | 'pan' | 'zoom'
+export type MobileStackDefaultTool = 'scroll' | 'window' | 'pan'
 export type MobileMprDefaultTool = 'crosshair' | MobileStackDefaultTool
+export type MobileVolumeDefaultTool = 'window' | 'pan' | 'rotate3d'
 export type MobileGestureSensitivity = 'low' | 'normal' | 'high'
 export type MobileStackPlaybackFps = 1 | 2 | 5 | 10 | 15 | 30
 export type MobileOrientationLock = 'unlocked' | 'portrait' | 'landscape'
@@ -17,6 +18,7 @@ export interface MobileViewerPreferences {
   orientationLock: MobileOrientationLock
   stackDefaultTool: MobileStackDefaultTool
   stackPlaybackFps: MobileStackPlaybackFps
+  volumeDefaultTool: MobileVolumeDefaultTool
 }
 
 export const MOBILE_STACK_PLAYBACK_FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
@@ -33,7 +35,8 @@ const DEFAULT_PREFERENCES: MobileViewerPreferences = {
   mprShowReferenceThumbnails: true,
   orientationLock: 'unlocked',
   stackDefaultTool: 'scroll',
-  stackPlaybackFps: 5
+  stackPlaybackFps: 5,
+  volumeDefaultTool: 'rotate3d'
 }
 
 function isMprViewportKey(value: unknown): value is MprViewportKey {
@@ -41,11 +44,15 @@ function isMprViewportKey(value: unknown): value is MprViewportKey {
 }
 
 function isStackDefaultTool(value: unknown): value is MobileStackDefaultTool {
-  return value === 'scroll' || value === 'window' || value === 'pan' || value === 'zoom'
+  return value === 'scroll' || value === 'window' || value === 'pan'
 }
 
 function isMprDefaultTool(value: unknown): value is MobileMprDefaultTool {
   return value === 'crosshair' || isStackDefaultTool(value)
+}
+
+function isVolumeDefaultTool(value: unknown): value is MobileVolumeDefaultTool {
+  return value === 'window' || value === 'pan' || value === 'rotate3d'
 }
 
 function isGestureSensitivity(value: unknown): value is MobileGestureSensitivity {
@@ -104,7 +111,10 @@ function normalizePreferences(value: unknown): MobileViewerPreferences {
       : DEFAULT_PREFERENCES.stackDefaultTool,
     stackPlaybackFps: isStackPlaybackFps(raw.stackPlaybackFps)
       ? raw.stackPlaybackFps
-      : DEFAULT_PREFERENCES.stackPlaybackFps
+      : DEFAULT_PREFERENCES.stackPlaybackFps,
+    volumeDefaultTool: isVolumeDefaultTool(raw.volumeDefaultTool)
+      ? raw.volumeDefaultTool
+      : DEFAULT_PREFERENCES.volumeDefaultTool
   }
 }
 
@@ -200,6 +210,13 @@ export function useMobileViewerPreferences() {
       persist()
     }
   })
+  const volumeDefaultTool = computed({
+    get: () => state.volumeDefaultTool,
+    set: (value: MobileVolumeDefaultTool) => {
+      state.volumeDefaultTool = isVolumeDefaultTool(value) ? value : DEFAULT_PREFERENCES.volumeDefaultTool
+      persist()
+    }
+  })
 
   function setDefaultShowCornerInfo(value: boolean): void {
     defaultShowCornerInfo.value = value
@@ -237,6 +254,10 @@ export function useMobileViewerPreferences() {
     stackPlaybackFps.value = value
   }
 
+  function setVolumeDefaultTool(value: MobileVolumeDefaultTool): void {
+    volumeDefaultTool.value = value
+  }
+
   return {
     defaultShowCornerInfo,
     defaultShowScaleBar,
@@ -247,6 +268,7 @@ export function useMobileViewerPreferences() {
     orientationLock,
     stackDefaultTool,
     stackPlaybackFps,
+    volumeDefaultTool,
     setDefaultShowCornerInfo,
     setDefaultShowScaleBar,
     setGestureSensitivity,
@@ -255,6 +277,7 @@ export function useMobileViewerPreferences() {
     setMprShowReferenceThumbnails,
     setOrientationLock,
     setStackDefaultTool,
-    setStackPlaybackFps
+    setStackPlaybackFps,
+    setVolumeDefaultTool
   }
 }

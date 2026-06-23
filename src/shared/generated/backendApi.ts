@@ -22,7 +22,7 @@ export interface CornerInfoPayload {
   topRight?: string[]
   bottomLeft?: string[]
   bottomRight?: string[]
-  tags?: { [key: string]: string[] }
+  tags?: Record<string, string[]>
 }
 
 export interface CornerInfoRequest {
@@ -157,6 +157,79 @@ export interface FourDPlaybackStopRequest {
   tabKey: string
 }
 
+export interface FusionCompositeInfo {
+  mode?: string
+  revision: number
+  alpha: number
+  registration: FusionRegistrationInfo
+  width: number
+  height: number
+  layers: FusionCompositeLayerInfo[]
+  primaryImageUnchanged?: boolean
+}
+
+export interface FusionCompositeLayerInfo {
+  key: string
+  role: string
+  imageFormat?: string
+}
+
+export interface FusionInfo {
+  paneRole: string
+  ctSeriesId: string
+  petSeriesId: string
+  petPseudocolorPreset: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  alpha: number
+  revision: number
+  registration: FusionRegistrationInfo
+}
+
+export interface FusionProjectionInfo {
+  paneRole: string
+  referenceWorld: [number, number, number]
+  referenceX: number
+  referenceY: number
+  normalizedToWorldOrigin: [number, number, number]
+  normalizedToWorldX: [number, number, number]
+  normalizedToWorldY: [number, number, number]
+  worldToNormalizedX: [number, number, number, number]
+  worldToNormalizedY: [number, number, number, number]
+}
+
+export interface FusionRegistrationArtifactExportRequest {
+  viewId: string
+  mode: 'newDicom' | 'br'
+  seriesDescription?: string | null
+}
+
+export interface FusionRegistrationExportRequest {
+  viewId: string
+  mode: 'newDicom' | 'br'
+  seriesDescription?: string | null
+  outputDirectory: string
+}
+
+export interface FusionRegistrationExportResponse {
+  mode: 'newDicom' | 'br'
+  directoryPath: string
+  filePath?: string | null
+  fileCount: number
+  seriesDescription: string
+  petUnit: string
+  petUnitLabel: string
+}
+
+export interface FusionRegistrationInfo {
+  translateRowMm?: number
+  translateColMm?: number
+  rotationDegrees?: number
+  saved?: boolean
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[]
 }
@@ -202,8 +275,6 @@ export interface MprCrosshairInfo {
   verticalSlabOffsetY?: number | null
 }
 
-export type MprCrosshairMode = 'orthogonal' | 'double-oblique'
-
 export interface MprCursorInfo {
   centerWorld: [number, number, number]
   referenceCenterWorld: [number, number, number]
@@ -237,11 +308,115 @@ export interface MprPlaneInfo {
   normalWorld: [number, number, number]
   pixelSpacingRowMm: number
   pixelSpacingColMm: number
+  pixelSpacingNormalMm?: number
   outputShape: [number, number]
   row: [number, number, number]
   col: [number, number, number]
   normal: [number, number, number]
+  imageToCanvasMatrix?: [[number, number, number], [number, number, number], [number, number, number]] | null
   isOblique: boolean
+}
+
+export interface MprSegmentationConfig {
+  enabled?: boolean
+  clientRevision?: number
+  selectedRegionId?: string | null
+  selectedVoi?: boolean
+  selectedVoiId?: string | null
+  thresholdRegions?: MprThresholdRegion[]
+  voiSpheres?: MprVoiSphere[]
+  voiSphere?: MprVoiSphere | null
+  lowerHu?: number | null
+  upperHu?: number | null
+  opacity?: number
+  color?: string
+  voiBox?: MprSegmentationVoiBox | null
+}
+
+export interface MprSegmentationOverlay {
+  regions?: MprSegmentationOverlayRegion[]
+}
+
+export interface MprSegmentationOverlayRect {
+  xMin?: number
+  yMin?: number
+  xMax?: number
+  yMax?: number
+}
+
+export interface MprSegmentationOverlayRegion {
+  regionId: string
+  visible?: boolean
+  rect?: MprSegmentationOverlayRect | null
+  sampleRevision?: number
+  samples?: MprSegmentationOverlaySamples | null
+}
+
+export interface MprSegmentationOverlaySamples {
+  points?: number[]
+  totalCount?: number
+  sampledCount?: number
+}
+
+export interface MprSegmentationVoiBox {
+  xMin?: number
+  xMax?: number
+  yMin?: number
+  yMax?: number
+  zMin?: number
+  zMax?: number
+}
+
+export interface MprThresholdRegion {
+  id: string
+  enabled?: boolean
+  label?: string
+  thresholdHu?: number
+  thresholdMode?: string
+  thresholdPercentile?: number
+  color?: string
+  box: MprThresholdRegionBox
+  stats?: MprThresholdRegionStats | null
+}
+
+export interface MprThresholdRegionBox {
+  centerWorld: [number, number, number]
+  rowWorld: [number, number, number]
+  colWorld: [number, number, number]
+  normalWorld: [number, number, number]
+  widthMm?: number
+  heightMm?: number
+  depthMm?: number
+  sourceViewport?: string
+}
+
+export interface MprThresholdRegionStats {
+  huMean?: number | null
+  huMin?: number | null
+  huMax?: number | null
+  huStdDev?: number | null
+  volumeCm3?: number
+  sampleCount?: number
+  effectiveThresholdHu?: number | null
+}
+
+export interface MprVoiSphere {
+  id?: string | null
+  label?: string
+  enabled?: boolean
+  centerWorld: [number, number, number]
+  radiusMm?: number
+  color?: string
+  stats?: MprVoiSphereStats | null
+}
+
+export interface MprVoiSphereStats {
+  huMean?: number | null
+  huMin?: number | null
+  huMax?: number | null
+  huStdDev?: number | null
+  volumeCm3?: number
+  sampleCount?: number
 }
 
 export interface MtfCurvePointPayload {
@@ -460,6 +635,15 @@ export interface PacsWadoSeriesDownloadRequest {
   seriesInstanceUid: string
 }
 
+export interface PetInfo {
+  seriesId: string
+  petUnit?: string
+  petUnitLabel?: string
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  pseudocolorPreset?: string
+}
+
 export interface QaWaterAccuracyMetricsPayload {
   centerMean: number
   deviationHu: number
@@ -576,7 +760,9 @@ export interface ViewColorInfo {
 
 export interface ViewCreateRequest {
   seriesId: string
-  viewType: 'Stack' | 'MPR' | '3D' | 'AX' | 'COR' | 'SAG'
+  viewType: 'Stack' | 'MPR' | '3D' | 'PET' | 'AX' | 'COR' | 'SAG' | 'FusionCTAxial' | 'FusionPETAxial' | 'FusionOverlayAxial' | 'FusionPETCoronalMip'
+  secondarySeriesId?: string | null
+  fusionPaneRole?: string | null
   viewGroupKey?: string | null
   fourDPhaseIndex?: number | null
 }
@@ -648,8 +834,14 @@ export interface ViewImageResponse {
   orientation?: OrientationInfo | null
   transform?: ViewTransformPayload | null
   color?: ViewColorInfo | null
+  petInfo?: PetInfo | null
+  fusionInfo?: FusionInfo | null
+  fusionComposite?: FusionCompositeInfo | null
+  fusionProjection?: FusionProjectionInfo | null
   mprMipConfig?: MprMipConfig | null
-  mprCrosshairMode?: MprCrosshairMode
+  mprSegmentationConfig?: MprSegmentationConfig | null
+  mprSegmentationOverlay?: MprSegmentationOverlay | null
+  mprCrosshairMode?: 'orthogonal' | 'double-oblique'
   volumePreset?: string | null
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: 'volume' | 'surface' | null
@@ -673,13 +865,21 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'annotation' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
   measurementId?: string | null
+  annotationId?: string | null
   viewportKey?: string | null
   subOpType?: string | null
   actionType?: 'start' | 'move' | 'end' | 'delete' | null
   x?: number | null
   y?: number | null
+  anchorX?: number | null
+  anchorY?: number | null
+  currentX?: number | null
+  currentY?: number | null
+  pivotX?: number | null
+  pivotY?: number | null
+  rotationDeltaDegrees?: number | null
   line?: 'horizontal' | 'vertical' | null
   points?: MeasurementPointPayload[] | null
   zoom?: number | null
@@ -687,8 +887,22 @@ export interface ViewOperationRequest {
   ww?: number | null
   wl?: number | null
   pseudocolorPreset?: string | null
+  fusionAlpha?: number | null
+  fusionManualRegistration?: boolean | null
+  fusionPetUnit?: string | null
+  fusionPetWindowMin?: number | null
+  fusionPetWindowMax?: number | null
+  petUnit?: string | null
+  petWindowMin?: number | null
+  petWindowMax?: number | null
+  fusionRegistrationFile?: Record<string, unknown> | null
   mprMipConfig?: MprMipConfig | null
-  mprCrosshairMode?: MprCrosshairMode | null
+  mprSegmentationConfig?: MprSegmentationConfig | null
+  mprCrosshairMode?: 'orthogonal' | 'double-oblique' | null
+  toolType?: string | null
+  text?: string | null
+  color?: string | null
+  size?: string | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null
@@ -799,8 +1013,12 @@ export interface ApiOperations {
   CloseViewApiV1ViewClosePost: { method: 'POST'; path: '/api/v1/view/close'; request: ViewCloseRequest; response: OperationAcceptedResponse }
   CreateViewApiV1ViewCreatePost: { method: 'POST'; path: '/api/v1/view/create'; request: ViewCreateRequest; response: ViewCreateResponse }
   ExportViewApiV1ViewExportPost: { method: 'POST'; path: '/api/v1/view/export'; request: ViewExportRequest; response: unknown }
+  ExportFusionRegistrationApiV1ViewFusionRegistrationExportPost: { method: 'POST'; path: '/api/v1/view/fusion/registration/export'; request: FusionRegistrationExportRequest; response: FusionRegistrationExportResponse }
+  ExportFusionRegistrationArtifactApiV1ViewFusionRegistrationExportArtifactPost: { method: 'POST'; path: '/api/v1/view/fusion/registration/export/artifact'; request: FusionRegistrationArtifactExportRequest; response: unknown }
   AnalyzeMtfApiV1ViewMtfAnalyzePost: { method: 'POST'; path: '/api/v1/view/mtf/analyze'; request: ViewMtfAnalyzeRequest; response: ViewMtfAnalyzeResponse }
   AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost: { method: 'POST'; path: '/api/v1/view/qa/water/analyze'; request: ViewQaWaterAnalyzeRequest; response: ViewQaWaterAnalyzeResponse }
   SetViewSizeApiV1ViewSetSizePost: { method: 'POST'; path: '/api/v1/view/setSize'; request: ViewSetSizeRequest; response: OperationAcceptedResponse }
+  ReleaseWorkspaceApiV1WorkspaceReleasePost: { method: 'POST'; path: '/api/v1/workspace/release'; request: never; response: Record<string, unknown> }
+  GetWorkspaceStatsApiV1WorkspaceStatsGet: { method: 'GET'; path: '/api/v1/workspace/stats'; request: never; response: Record<string, unknown> }
   HealthcheckHealthGet: { method: 'GET'; path: '/health'; request: never; response: Record<string, string> }
 }

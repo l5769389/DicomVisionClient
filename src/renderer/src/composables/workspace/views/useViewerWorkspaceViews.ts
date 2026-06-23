@@ -15,8 +15,11 @@ import {
   buildTabTitle,
   createComparePaneRecord,
   createCompareStackTabKey,
+  createDefaultFusionInfo,
+  createDefaultPetInfo,
   createEmptyCompareCornerInfos,
   createEmptyCompareImages,
+  createEmptyCompareInitialWindowInfos,
   createEmptyCompareOrientations,
   createEmptyComparePseudocolorPresets,
   createEmptyCompareScaleBars,
@@ -25,30 +28,56 @@ import {
   createEmptyCompareViewIds,
   createEmptyCompareWindowLabels,
   createEmptyCornerInfo,
+  createEmptyFusionComposites,
+  createEmptyFusionCornerInfos,
+  createEmptyFusionImages,
+  createEmptyFusionInitialWindowInfos,
+  createEmptyFusionLayerImages,
+  createEmptyFusionLoadingProgress,
+  createEmptyFusionOrientations,
+  createEmptyFusionProjections,
+  createEmptyFusionPseudocolorPresets,
+  createEmptyFusionScaleBars,
+  createEmptyFusionSliceLabels,
+  createEmptyFusionTransformStates,
+  createEmptyFusionViewIds,
+  createEmptyFusionWindowLabels,
   createEmptyMprCornerInfos,
   createEmptyMprCrosshairs,
   createEmptyMprImages,
+  createEmptyMprInitialWindowInfos,
   createEmptyMprOrientations,
   createEmptyMprPlanes,
   createEmptyMprPseudocolorPresets,
   createEmptyMprScaleBars,
+  createEmptyMprSegmentationOverlays,
   createEmptyMprSliceLabels,
   createEmptyMprTransformStates,
   createEmptyMprViewIds,
   createEmptyOrientationInfo,
   createDefaultTransformInfo,
   createLayoutTab,
+  createPetCtFusionTabKey,
   createTab,
+  FUSION_CT_AXIAL_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PANE_KEYS,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
   getSeriesDisplayName,
+  getViewTypeDisplayLabel,
   isCompareStackPaneKey,
+  isFusionPaneKey,
   isMprViewportKey,
   mergeCornerInfo,
   normalizeCornerInfo,
+  normalizeFusionProjectionInfo,
   normalizeMprCursorInfo,
   normalizeMprFrameInfo,
   normalizeMprPlaneInfo,
   normalizeOrientationInfo,
-  normalizeScaleBarInfo
+  normalizeScaleBarInfo,
+  resolveFusionPaneSeriesId
 } from './viewerWorkspaceTabs'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import {
@@ -56,7 +85,7 @@ import {
   getOwnedLayoutSlotImageSrcs
 } from '../layout/viewerLayoutSlotSeeds'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
-import { isSeriesViewSupported } from './seriesViewSupport'
+import { isSeriesViewSupported, resolvePrimaryTwoDimensionalViewType } from './seriesViewSupport'
 import {
   FourDPhaseRenderTracker,
   MPR_VIEWPORT_KEYS,
@@ -83,8 +112,25 @@ import {
   normalizeFourDManifestResponse,
   resolveFourDPhasePlan
 } from './fourDPhaseManifest'
-import { DEFAULT_PSEUDOCOLOR_PRESET, normalizePseudocolorPresetKey } from '../../../constants/pseudocolor'
-import { createDefaultMprMipConfig, isFourDSeriesItem, normalizeMprMipConfig } from '../../../types/viewer'
+import {
+  DEFAULT_FUSION_PET_WINDOW_MAX,
+  DEFAULT_FUSION_PET_WINDOW_MIN,
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+  DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  DEFAULT_PSEUDOCOLOR_PRESET,
+  normalizeFusionPetPseudocolorPresetKey,
+  normalizePseudocolorPresetKey
+} from '../../../constants/pseudocolor'
+import {
+  createDefaultMprMipConfig,
+  createDefaultMprSegmentationConfig,
+  isStaleMprSegmentationPreviewConfig,
+  isFourDSeriesItem,
+  mergeMprSegmentationPreviewConfig,
+  normalizeMprMipConfig,
+  normalizeMprSegmentationConfig
+} from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
   normalizeVolumePresetKey,
@@ -116,17 +162,24 @@ import type {
   CornerInfo,
   DicomTagItem,
   FolderSeriesItem,
+  FusionInfo,
+  FusionCompositeInfo,
+  FusionPaneKey,
+  FusionLayerImages,
   FourDPhaseCacheItem,
   FourDPhaseItem,
   FourDPhasesResponse,
   MeasurementOverlay,
+  MprSegmentationOverlay,
   MprViewportKey,
+  PetInfo,
   ViewImageResponse,
   ViewProgressInfo,
   ViewerLayoutSlot,
   ViewerLayoutTemplate,
   ViewerTabItem,
-  ViewType
+  ViewType,
+  WindowLevelInfo
 } from '../../../types/viewer'
 
 interface ViewerWorkspaceViewsOptions {
@@ -171,8 +224,213 @@ interface ViewSizeUpdate {
   }
 }
 
+function getMprSegmentationConfigPayload(payload: Partial<ViewImageResponse>) {
+  return payload.mprSegmentationConfig ?? (payload as { mpr_segmentation_config?: ViewImageResponse['mprSegmentationConfig'] | null }).mpr_segmentation_config
+}
+
+function getMprSegmentationOverlayPayload(payload: Partial<ViewImageResponse>) {
+  return payload.mprSegmentationOverlay ?? (payload as { mpr_segmentation_overlay?: ViewImageResponse['mprSegmentationOverlay'] | null }).mpr_segmentation_overlay
+}
+
+function hasMprSegmentationOverlayPayload(payload: Partial<ViewImageResponse>): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, 'mprSegmentationOverlay') ||
+    Object.prototype.hasOwnProperty.call(payload, 'mpr_segmentation_overlay')
+}
+
+function getMprCrosshairPayload(payload: Partial<ViewImageResponse>) {
+  return payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] | null }).mprCrosshair ?? null)
+}
+
+function hasMprCrosshairPayload(payload: Partial<ViewImageResponse>): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, 'mpr_crosshair') ||
+    Object.prototype.hasOwnProperty.call(payload, 'mprCrosshair')
+}
+
+function hasImageUpdatePayloadField(payload: Partial<ViewImageResponse>, key: keyof ViewImageResponse): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, key)
+}
+
+type ImageUpdateRenderIntent = NonNullable<ViewImageResponse['renderIntent']>
+
+interface ImageUpdateLayerPolicy {
+  geometry: boolean
+  pixelCornerTags: boolean
+  projectedOverlay: boolean
+  semanticOverlay: boolean
+}
+
+const IMAGE_UPDATE_LAYER_POLICIES: Record<ImageUpdateRenderIntent, ImageUpdateLayerPolicy> = {
+  'pixel-only': {
+    geometry: false,
+    pixelCornerTags: true,
+    projectedOverlay: false,
+    semanticOverlay: false
+  },
+  'geometry-preview': {
+    geometry: true,
+    pixelCornerTags: true,
+    projectedOverlay: true,
+    semanticOverlay: false
+  },
+  'overlay-preview': {
+    geometry: true,
+    pixelCornerTags: true,
+    projectedOverlay: true,
+    semanticOverlay: true
+  },
+  full: {
+    geometry: true,
+    pixelCornerTags: true,
+    projectedOverlay: true,
+    semanticOverlay: true
+  }
+}
+
+function mergePixelCornerTags(
+  current: CornerInfo | null | undefined,
+  nextWindowLabel: string | null,
+  fallback: CornerInfo
+): CornerInfo {
+  const base = current ?? fallback
+  if (!nextWindowLabel) {
+    return base
+  }
+  return {
+    ...base,
+    tags: {
+      ...(base.tags ?? {}),
+      windowLevel: [nextWindowLabel]
+    }
+  }
+}
+
+function formatWindowInfoValue(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '-'
+  }
+  return String(Math.round(Number(value)))
+}
+
+function formatWindowInfoLabel(ww: number | null | undefined, wl: number | null | undefined): string | null {
+  if (ww == null && wl == null) {
+    return null
+  }
+  return `WW ${formatWindowInfoValue(ww)}  WL ${formatWindowInfoValue(wl)}`
+}
+
+function normalizeWindowLevelInfo(ww: number | null | undefined, wl: number | null | undefined): WindowLevelInfo | null {
+  const width = Number(ww)
+  const level = Number(wl)
+  return Number.isFinite(width) && width > 0 && Number.isFinite(level)
+    ? {
+        ww: width,
+        wl: level
+      }
+    : null
+}
+
+function rememberInitialWindowInfo(
+  current: WindowLevelInfo | null | undefined,
+  ww: number | null | undefined,
+  wl: number | null | undefined
+): WindowLevelInfo | null | undefined {
+  return current ?? normalizeWindowLevelInfo(ww, wl) ?? current
+}
+
+function getImageUpdateMetadataMode(payload: Partial<ViewImageResponse>): string {
+  const raw = payload.metadataMode ?? (payload as { metadata_mode?: unknown }).metadata_mode
+  return typeof raw === 'string' ? raw : ''
+}
+
+function normalizeImageUpdateRenderIntent(payload: Partial<ViewImageResponse>): ImageUpdateRenderIntent {
+  const rawIntent = payload.renderIntent ?? (payload as { render_intent?: unknown }).render_intent
+  if (
+    rawIntent === 'pixel-only' ||
+    rawIntent === 'geometry-preview' ||
+    rawIntent === 'overlay-preview' ||
+    rawIntent === 'full'
+  ) {
+    return rawIntent
+  }
+
+  const metadataMode = getImageUpdateMetadataMode(payload)
+  if (metadataMode === 'stack-pixel-preview' || metadataMode === 'mpr-pixel-preview') {
+    return 'pixel-only'
+  }
+  if (metadataMode === 'stack-geometry-preview' || metadataMode === 'mpr-pan-zoom-preview' || metadataMode === 'stack-preview-lite') {
+    return 'geometry-preview'
+  }
+  if (metadataMode === 'mpr-segmentation-preview' || metadataMode === 'fusion-registration-layer-preview') {
+    return 'overlay-preview'
+  }
+
+  const rawFastPreview = payload.fastPreview ?? ((payload as { fast_preview?: unknown }).fast_preview ?? null)
+  if (rawFastPreview === true || payload.imageFormat === 'jpeg') {
+    return 'geometry-preview'
+  }
+  return 'full'
+}
+
+function getImageUpdateRenderRevision(payload: Partial<ViewImageResponse>): number | null {
+  const raw = payload.renderRevision ?? (payload as { render_revision?: unknown }).render_revision ?? null
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
+}
+
+function updateImageUpdateRevisions(
+  item: ViewerTabItem,
+  viewId: string | undefined,
+  renderRevision: number | null
+): Record<string, number> | undefined {
+  if (!viewId || renderRevision == null) {
+    return item.imageUpdateRevisions
+  }
+  return {
+    ...(item.imageUpdateRevisions ?? {}),
+    [viewId]: renderRevision
+  }
+}
+
+function mergeMprSegmentationOverlaySamples(
+  currentOverlay: MprSegmentationOverlay | null | undefined,
+  incomingOverlay: MprSegmentationOverlay | null | undefined
+): MprSegmentationOverlay | null {
+  if (!incomingOverlay) {
+    return incomingOverlay ?? null
+  }
+  const currentRegionsById = new Map((currentOverlay?.regions ?? []).map((region) => [region.regionId, region]))
+  return {
+    ...incomingOverlay,
+    regions: incomingOverlay.regions.map((region) => {
+      if (region.samples?.points?.length) {
+        return region
+      }
+      const currentRegion = currentRegionsById.get(region.regionId)
+      if (currentRegion?.samples?.points?.length) {
+        return {
+          ...region,
+          samples: currentRegion.samples
+        }
+      }
+      return region
+    })
+  }
+}
+
+function hasMprSegmentationOverlaySamples(overlay: MprSegmentationOverlay | null | undefined): boolean {
+  return Boolean(overlay?.regions?.some((region) => region.samples?.points?.length))
+}
+
 interface CompareViewSizeUpdate {
   viewportKey: CompareStackPaneKey
+  viewId: string
+  size: {
+    width: number
+    height: number
+  }
+}
+
+interface FusionViewSizeUpdate {
+  viewportKey: FusionPaneKey
   viewId: string
   size: {
     width: number
@@ -228,6 +486,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return (
       Boolean(tab.viewId) ||
       Object.values(tab.compareViewIds ?? {}).some(Boolean) ||
+      Object.values(tab.fusionViewIds ?? {}).some(Boolean) ||
       Object.values(tab.viewportViewIds ?? {}).some(Boolean) ||
       getLayoutSlotViewIds(tab).length > 0 ||
       getFourDPhaseBackendViewIds(tab).length > 0
@@ -304,6 +563,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     releaseBackendViews([
       tab.viewId,
       ...Object.values(tab.compareViewIds ?? {}),
+      ...Object.values(tab.fusionViewIds ?? {}),
       ...Object.values(tab.viewportViewIds ?? {}),
       ...getFourDPhaseBackendViewIds(tab),
       ...getLayoutSlotViewIds(tab)
@@ -313,6 +573,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       viewSizeCache.delete(tab.viewId)
     }
     Object.values(tab.compareViewIds ?? {}).forEach((viewId) => {
+      if (viewId) {
+        viewSizeCache.delete(viewId)
+      }
+    })
+    Object.values(tab.fusionViewIds ?? {}).forEach((viewId) => {
       if (viewId) {
         viewSizeCache.delete(viewId)
       }
@@ -330,6 +595,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
     revokeObjectUrlIfNeeded(tab.imageSrc)
     Object.values(tab.compareImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fusionImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fusionLayerImages ?? {}).forEach((layerImages) => {
+      revokeObjectUrlIfNeeded(layerImages?.pet)
+    })
     Object.values(tab.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
     Object.values(tab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
       Object.values(phaseCache.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
@@ -428,11 +697,58 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
+  async function emitInitialPetConfigOperation(viewId: string, preset: string): Promise<void> {
+    const normalizedPreset = normalizePseudocolorPresetKey(preset)
+    if (!viewId) {
+      return
+    }
+    await emitViewOperationWithAck({
+      viewId,
+      opType: VIEW_OPERATION_TYPES.petConfig,
+      pseudocolorPreset: normalizedPreset,
+      petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+      petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+    })
+  }
+
+  function normalizeStandalonePetPseudocolorPreset(): string {
+    return DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+  }
+
+  async function migrateStandalonePetPseudocolorIfNeeded(tab: ViewerTabItem): Promise<boolean> {
+    if (tab.viewType !== 'PET') {
+      return false
+    }
+    const nextPreset = normalizeStandalonePetPseudocolorPreset()
+    if (tab.pseudocolorPreset === nextPreset && tab.petInfo?.pseudocolorPreset === nextPreset) {
+      return false
+    }
+
+    options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            pseudocolorPreset: nextPreset,
+            petInfo: {
+              ...createDefaultPetInfo(item.seriesId),
+              ...(item.petInfo ?? {}),
+              pseudocolorPreset: nextPreset
+            }
+          }
+        : item
+    )
+    if (tab.viewId) {
+      await emitInitialPetConfigOperation(tab.viewId, nextPreset)
+    }
+    return true
+  }
+
   function findTabByViewId(viewId: string): ViewerTabItem | undefined {
     return options.viewerTabs.value.find(
       (item) =>
         item.viewId === viewId ||
         Object.values(item.compareViewIds ?? {}).includes(viewId) ||
+        Object.values(item.fusionViewIds ?? {}).includes(viewId) ||
         Object.values(item.viewportViewIds ?? {}).includes(viewId) ||
         getLayoutSlotViewIds(item).includes(viewId) ||
         Boolean(findFourDPhaseViewportByViewId(item, viewId))
@@ -630,6 +946,46 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
+  function getCreateViewTypeForFusionPane(paneKey: FusionPaneKey): BackendCreateViewType {
+    if (paneKey === FUSION_CT_AXIAL_PANE_KEY) {
+      return 'FusionCTAxial'
+    }
+    if (paneKey === FUSION_PET_AXIAL_PANE_KEY) {
+      return 'FusionPETAxial'
+    }
+    if (paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY) {
+      return 'FusionPETCoronalMip'
+    }
+    return 'FusionOverlayAxial'
+  }
+
+  async function createFusionViewIds(
+    ctSeriesId: string,
+    petSeriesId: string,
+    viewGroupKey: string
+  ): Promise<Record<FusionPaneKey, string>> {
+    const entries = await Promise.all(
+      FUSION_PANE_KEYS.map(async (paneKey) => {
+        const data = await postApi('CreateViewApiV1ViewCreatePost', {
+          seriesId: ctSeriesId,
+          secondarySeriesId: petSeriesId,
+          viewType: getCreateViewTypeForFusionPane(paneKey),
+          fusionPaneRole: paneKey,
+          viewGroupKey
+        })
+        return [paneKey, data.viewId] as const
+      })
+    )
+
+    return entries.reduce(
+      (accumulator, [paneKey, viewId]) => ({
+        ...accumulator,
+        [paneKey]: viewId
+      }),
+      createEmptyFusionViewIds()
+    )
+  }
+
   function createFourDViewGroupKey(tab: ViewerTabItem, phaseIndex: number): string {
     return `4d:${tab.key}:${getFourDPhaseKey(phaseIndex)}`
   }
@@ -675,6 +1031,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
       }
     })
+  }
+
+  async function bindFusionViewIdsSilentlyWithAck(viewIds: Partial<Record<FusionPaneKey, string>>): Promise<void> {
+    await Promise.all(
+      Object.values(viewIds).map(async (viewId) => {
+        if (viewId) {
+          await bindViewSilentlyWithAck(viewId)
+        }
+      })
+    )
   }
 
   async function bindMprViewIdsSilentlyWithAck(viewIds: Partial<Record<MprViewportKey, string>>): Promise<void> {
@@ -823,6 +1189,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         bindView(tab.viewId)
       }
       Object.values(tab.compareViewIds ?? {}).forEach((viewId) => {
+        if (viewId) {
+          bindView(viewId)
+        }
+      })
+      Object.values(tab.fusionViewIds ?? {}).forEach((viewId) => {
         if (viewId) {
           bindView(viewId)
         }
@@ -1291,19 +1662,73 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  function updateTabImage(tabKey: string, payload: Partial<ViewImageResponse>, imageBinary: ArrayBuffer | Uint8Array): void {
+  function updateTabImage(
+    tabKey: string,
+    payload: Partial<ViewImageResponse>,
+    imageBinary: ArrayBuffer | Uint8Array,
+    extraImageBinaries: Record<string, ArrayBuffer | Uint8Array> = {}
+  ): void {
     let mprCrosshairSettlingCompletionUpdate: IncomingMprViewportUpdate | null = null
     options.viewerTabs.value = options.viewerTabs.value.map((item) => {
       if (item.key !== tabKey) {
         return item
       }
 
+      const renderIntent = normalizeImageUpdateRenderIntent(payload)
+      const layerPolicy = IMAGE_UPDATE_LAYER_POLICIES[renderIntent]
+      const allowGeometryUpdate = layerPolicy.geometry
+      const allowPixelCornerTagsUpdate = layerPolicy.pixelCornerTags
+      const allowMeasurementOverlayUpdate = layerPolicy.projectedOverlay
+      const allowSegmentationOverlayUpdate = layerPolicy.semanticOverlay
+      const renderRevision = getImageUpdateRenderRevision(payload)
+      if (payload.viewId && renderRevision != null) {
+        const acceptedRenderRevision = item.imageUpdateRevisions?.[payload.viewId]
+        if (acceptedRenderRevision != null && renderRevision < acceptedRenderRevision) {
+          return item
+        }
+      }
+      const withRenderRevision = (nextItem: ViewerTabItem): ViewerTabItem => ({
+        ...nextItem,
+        imageUpdateRevisions: updateImageUpdateRevisions(nextItem, payload.viewId, renderRevision)
+      })
+
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
       const mimeType = payload.imageFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
-      const imageSrc = imageUrlRegistry.create(imageBinary, mimeType)
+      const currentMprSegmentationConfig = normalizeMprSegmentationConfig(
+        item.mprSegmentationConfig,
+        createDefaultMprSegmentationConfig()
+      )
+      const mprSegmentationPayload = allowSegmentationOverlayUpdate ? getMprSegmentationConfigPayload(payload) : null
+      const incomingMprSegmentationConfig = normalizeMprSegmentationConfig(
+        mprSegmentationPayload,
+        currentMprSegmentationConfig
+      )
+      const mprSegmentationOverlayPayload = allowSegmentationOverlayUpdate ? getMprSegmentationOverlayPayload(payload) : null
+      const hasMprSegmentationOverlayUpdate = allowSegmentationOverlayUpdate && hasMprSegmentationOverlayPayload(payload)
+      const isStaleMprSegmentationPreview =
+        mprSegmentationPayload != null &&
+        isStaleMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      if (isStaleMprSegmentationPreview && (!hasMprSegmentationOverlayUpdate || !hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload))) {
+        return item
+      }
+      let incomingImageSrc: string | null = null
+      const getIncomingImageSrc = (): string => {
+        if (incomingImageSrc == null) {
+          incomingImageSrc = imageUrlRegistry.create(imageBinary, mimeType)
+        }
+        return incomingImageSrc
+      }
+      const revokeIncomingImageSrcIfNeeded = (): void => {
+        if (incomingImageSrc == null) {
+          return
+        }
+        revokeObjectUrlIfNeeded(incomingImageSrc)
+        incomingImageSrc = null
+      }
       const sliceLabel = payload.slice_info ? `${payload.slice_info.current + 1} / ${payload.slice_info.total}` : item.sliceLabel
-      const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
+      const windowLabel = formatWindowInfoLabel(ww, wl) ?? item.windowLabel
+      const pixelWindowLabel = allowPixelCornerTagsUpdate && (ww != null || wl != null) ? windowLabel : null
       const fourDViewportMatch = item.viewType === '4D' ? findFourDPhaseViewportByViewId(item, payload.viewId) : null
       const metadataSeriesId =
         item.viewType === '4D' && fourDViewportMatch
@@ -1313,24 +1738,41 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         options.seriesCornerInfoMap.value[metadataSeriesId] ??
         options.seriesCornerInfoMap.value[item.seriesId] ??
         createEmptyCornerInfo()
-      const hasCornerInfoPayload = payload.cornerInfo != null
-      const hasOrientationPayload = payload.orientation != null
-      const hasTransformPayload = payload.transform != null
-      const hasMeasurementsPayload = payload.measurements != null
-      const hasAnnotationsPayload = payload.annotations != null
-      const rawScaleBar = payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null)
+      const hasCornerInfoPayload = allowGeometryUpdate && payload.cornerInfo != null
+      const hasOrientationPayload = allowGeometryUpdate && payload.orientation != null
+      const hasTransformPayload = allowGeometryUpdate && payload.transform != null
+      const hasMeasurementsPayload = allowMeasurementOverlayUpdate && hasImageUpdatePayloadField(payload, 'measurements')
+      const hasAnnotationsPayload = allowMeasurementOverlayUpdate && hasImageUpdatePayloadField(payload, 'annotations')
+      const rawScaleBar = allowGeometryUpdate ? payload.scaleBar ?? ((payload as { scale_bar?: unknown }).scale_bar ?? null) : null
       const hasScaleBarPayload = rawScaleBar != null
       const sliceCornerInfo = options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo))
       const orientationInfo = normalizeOrientationInfo(payload.orientation)
-      const transformState = payload.transform ?? createDefaultTransformInfo()
+      const transformState = allowGeometryUpdate ? payload.transform ?? createDefaultTransformInfo() : createDefaultTransformInfo()
       const pseudocolorPreset = normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? item.pseudocolorPreset)
-      const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
-      const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
-      const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
-      const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
-      const mprPlane = normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null))
-      const mprCrosshair = payload.mpr_crosshair ?? ((payload as { mprCrosshair?: ViewImageResponse['mpr_crosshair'] }).mprCrosshair ?? null)
-      const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
+      const mprMipConfig = allowGeometryUpdate
+        ? normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+        : item.mprMipConfig ?? createDefaultMprMipConfig()
+      const mprSegmentationConfig = mprSegmentationPayload == null
+        ? currentMprSegmentationConfig
+        : isStaleMprSegmentationPreview
+          ? currentMprSegmentationConfig
+          : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      const shouldAcceptMprSegmentationOverlay =
+        hasMprSegmentationOverlayUpdate &&
+        (
+          mprSegmentationPayload == null ||
+          (isStaleMprSegmentationPreview && hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload)) ||
+          incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
+        )
+      const mprCrosshairMode = allowGeometryUpdate
+        ? payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : 'orthogonal'
+        : item.mprCrosshairMode ?? 'orthogonal'
+      const mprCursor = allowGeometryUpdate ? normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null)) : null
+      const mprFrame = allowGeometryUpdate ? normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null)) : null
+      const mprPlane = allowGeometryUpdate ? normalizeMprPlaneInfo(payload.mprPlane ?? ((payload as { mpr_plane?: unknown }).mpr_plane ?? null)) : null
+      const hasMprCrosshairUpdate = allowGeometryUpdate && hasMprCrosshairPayload(payload)
+      const mprCrosshair = hasMprCrosshairUpdate ? getMprCrosshairPayload(payload) : null
+      const rawMprRevision = allowGeometryUpdate ? payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null) : null
       const mprRevision = typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
       const scaleBar = normalizeScaleBarInfo(rawScaleBar)
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
@@ -1354,7 +1796,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           payload.color?.pseudocolorPreset ?? layoutSlot.pseudocolorPreset ?? item.pseudocolorPreset
         )
         if (payload.color?.pseudocolorPreset && layoutPseudocolorPreset !== expectedLayoutPseudocolorPreset) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
 
@@ -1363,7 +1805,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           options.seriesCornerInfoMap.value[item.seriesId] ??
           createEmptyCornerInfo()
 
-        return {
+        return withRenderRevision({
           ...item,
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
@@ -1386,20 +1828,25 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             }
             return {
               ...slot,
-              imageSrc,
+              imageSrc: getIncomingImageSrc(),
               ownsImageSrc: true,
               sliceLabel,
               windowLabel,
+              initialWindowInfo: rememberInitialWindowInfo(slot.initialWindowInfo, ww, wl) ?? null,
               scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
               cornerInfo: hasCornerInfoPayload
                 ? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
-                : slot.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo)),
+                : mergePixelCornerTags(
+                    slot.cornerInfo,
+                    pixelWindowLabel,
+                    options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
+                  ),
               orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
               transformState: hasTransformPayload ? transformState : slot.transformState ?? transformState,
               pseudocolorPreset: layoutPseudocolorPreset
             }
           })
-        }
+        })
       }
 
       const compareViewportKey = Object.entries(item.compareViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
@@ -1416,17 +1863,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           payload.color?.pseudocolorPreset ?? item.comparePseudocolorPresets?.[compareViewportKey] ?? item.pseudocolorPreset
         )
         if (payload.color?.pseudocolorPreset && comparePseudocolorPreset !== expectedComparePseudocolorPreset) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
         const currentImage = item.compareImages?.[compareViewportKey]
         revokeObjectUrlIfNeeded(currentImage)
 
-        return {
+        return withRenderRevision({
           ...item,
           compareImages: {
             ...(item.compareImages ?? createEmptyCompareImages()),
-            [compareViewportKey]: imageSrc
+            [compareViewportKey]: getIncomingImageSrc()
           },
           compareSliceLabels: {
             ...(item.compareSliceLabels ?? createEmptyCompareSliceLabels()),
@@ -1435,6 +1882,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           compareWindowLabels: {
             ...(item.compareWindowLabels ?? createEmptyCompareWindowLabels()),
             [compareViewportKey]: windowLabel
+          },
+          compareInitialWindowInfos: {
+            ...(item.compareInitialWindowInfos ?? createEmptyCompareInitialWindowInfos()),
+            [compareViewportKey]: rememberInitialWindowInfo(item.compareInitialWindowInfos?.[compareViewportKey], ww, wl)
           },
           compareScaleBars: {
             ...(item.compareScaleBars ?? createEmptyCompareScaleBars()),
@@ -1446,7 +1897,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.compareCornerInfos ?? createEmptyCompareCornerInfos()),
             [compareViewportKey]: hasCornerInfoPayload
               ? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
-              : item.compareCornerInfos?.[compareViewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+              : mergePixelCornerTags(
+                  item.compareCornerInfos?.[compareViewportKey],
+                  pixelWindowLabel,
+                  options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+                )
           },
           compareOrientations: {
             ...(item.compareOrientations ?? createEmptyCompareOrientations()),
@@ -1476,7 +1931,170 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               ? payloadAnnotations
               : item.viewportAnnotations?.[compareViewportKey] ?? []
           }
+        })
+      }
+
+      const fusionViewportKey = Object.entries(item.fusionViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
+        | FusionPaneKey
+        | undefined
+      if (item.viewType === 'PETCTFusion' && fusionViewportKey) {
+        const previousFusionInfo = item.fusionInfo ?? createDefaultFusionInfo(
+          item.fusionSeriesIds?.ctSeriesId ?? item.seriesId,
+          item.fusionSeriesIds?.petSeriesId ?? ''
+        )
+        const rawFusionInfo = payload.fusionInfo ?? ((payload as { fusion_info?: unknown }).fusion_info ?? null)
+        const fusionInfo = normalizeFusionInfoPayload(rawFusionInfo, previousFusionInfo)
+        const payloadRecord = payload as Record<string, unknown>
+        const hasFusionProjectionPayload = 'fusionProjection' in payloadRecord || 'fusion_projection' in payloadRecord
+        const rawFusionProjection = payload.fusionProjection ?? ((payload as { fusion_projection?: unknown }).fusion_projection ?? null)
+        const fusionProjection = normalizeFusionProjectionInfo(rawFusionProjection)
+        const rawFusionComposite = payload.fusionComposite ?? ((payload as { fusion_composite?: unknown }).fusion_composite ?? null)
+        const fusionComposite = normalizeFusionCompositeInfoPayload(rawFusionComposite, fusionInfo)
+        const acceptedRevision = item.fusionInfo?.revision ?? null
+        const isStaleFusionImage = acceptedRevision != null && fusionInfo.revision < acceptedRevision
+        if (isStaleFusionImage) {
+          revokeIncomingImageSrcIfNeeded()
+          return item
         }
+        const fusionSeriesId = resolveFusionPaneSeriesId(fusionViewportKey, item.fusionSeriesIds, item.seriesId)
+        const fusionSeriesCornerInfo =
+          options.seriesCornerInfoMap.value[fusionSeriesId] ??
+          options.seriesCornerInfoMap.value[item.seriesId] ??
+          createEmptyCornerInfo()
+        const currentImage = item.fusionImages?.[fusionViewportKey]
+        const currentLayerImages = item.fusionLayerImages?.[fusionViewportKey] ?? null
+        const layeredFusionComposite =
+          fusionViewportKey === FUSION_OVERLAY_AXIAL_PANE_KEY && fusionComposite?.mode === 'ctPetLayers'
+            ? fusionComposite
+            : null
+        const primaryImageUnchanged = layeredFusionComposite?.primaryImageUnchanged === true
+        if (primaryImageUnchanged && !currentImage) {
+          revokeIncomingImageSrcIfNeeded()
+          return item
+        }
+        const shouldKeepCurrentPrimaryImage = primaryImageUnchanged && Boolean(currentImage)
+        const nextPrimaryImage = shouldKeepCurrentPrimaryImage ? currentImage! : getIncomingImageSrc()
+        const nextPetLayerSrc = layeredFusionComposite && extraImageBinaries.pet
+          ? imageUrlRegistry.create(extraImageBinaries.pet, 'image/png')
+          : null
+        const nextLayerImages: FusionLayerImages | null = layeredFusionComposite
+          ? {
+              ct: shouldKeepCurrentPrimaryImage
+                ? currentLayerImages?.ct ?? currentImage
+                : getIncomingImageSrc(),
+              pet: nextPetLayerSrc ?? currentLayerImages?.pet,
+              revision: layeredFusionComposite.revision,
+              width: layeredFusionComposite.width,
+              height: layeredFusionComposite.height
+            }
+          : null
+        const mergedFusionCornerInfo = hasCornerInfoPayload
+          ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+          : mergePixelCornerTags(
+              item.fusionCornerInfos?.[fusionViewportKey],
+              pixelWindowLabel,
+              options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+            )
+        const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
+        if (shouldKeepCurrentPrimaryImage) {
+          revokeIncomingImageSrcIfNeeded()
+        } else {
+          revokeObjectUrlIfNeeded(currentImage)
+        }
+        if (nextPetLayerSrc) {
+          revokeObjectUrlIfNeeded(currentLayerImages?.pet)
+        } else if (!layeredFusionComposite) {
+          revokeObjectUrlIfNeeded(currentLayerImages?.pet)
+        }
+
+        return withRenderRevision({
+          ...item,
+          fusionInfo,
+          fusionImages: {
+            ...(item.fusionImages ?? createEmptyFusionImages()),
+            [fusionViewportKey]: nextPrimaryImage
+          },
+          fusionLayerImages: {
+            ...(item.fusionLayerImages ?? createEmptyFusionLayerImages()),
+            [fusionViewportKey]: nextLayerImages
+          },
+          fusionComposites: {
+            ...(item.fusionComposites ?? createEmptyFusionComposites()),
+            [fusionViewportKey]: layeredFusionComposite
+          },
+          fusionLoadingProgress: {
+            ...(item.fusionLoadingProgress ?? createEmptyFusionLoadingProgress()),
+            [fusionViewportKey]: null
+          },
+          fusionSliceLabels: {
+            ...(item.fusionSliceLabels ?? createEmptyFusionSliceLabels()),
+            [fusionViewportKey]: sliceLabel
+          },
+          fusionWindowLabels: {
+            ...(item.fusionWindowLabels ?? createEmptyFusionWindowLabels()),
+            [fusionViewportKey]: windowLabel
+          },
+          fusionInitialWindowInfos: {
+            ...(item.fusionInitialWindowInfos ?? createEmptyFusionInitialWindowInfos()),
+            [fusionViewportKey]: rememberInitialWindowInfo(item.fusionInitialWindowInfos?.[fusionViewportKey], ww, wl)
+          },
+          fusionScaleBars: {
+            ...(item.fusionScaleBars ?? createEmptyFusionScaleBars()),
+            [fusionViewportKey]: hasScaleBarPayload
+              ? scaleBar
+              : item.fusionScaleBars?.[fusionViewportKey] ?? null
+          },
+          fusionCornerInfos: {
+            ...(item.fusionCornerInfos ?? createEmptyFusionCornerInfos()),
+            [fusionViewportKey]: fusionCornerInfo
+          },
+          fusionOrientations: {
+            ...(item.fusionOrientations ?? createEmptyFusionOrientations()),
+            [fusionViewportKey]: hasOrientationPayload
+              ? orientationInfo
+              : item.fusionOrientations?.[fusionViewportKey] ?? orientationInfo
+          },
+          fusionTransformStates: {
+            ...(item.fusionTransformStates ?? createEmptyFusionTransformStates()),
+            [fusionViewportKey]: hasTransformPayload
+              ? transformState
+              : item.fusionTransformStates?.[fusionViewportKey] ?? transformState
+          },
+          fusionPseudocolorPresets: {
+            ...(item.fusionPseudocolorPresets ?? createEmptyFusionPseudocolorPresets()),
+            [fusionViewportKey]:
+              fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY
+                ? normalizePseudocolorPresetKey(payload.color?.pseudocolorPreset ?? DEFAULT_PSEUDOCOLOR_PRESET)
+                : fusionViewportKey === FUSION_OVERLAY_AXIAL_PANE_KEY
+                  ? normalizeFusionPetPseudocolorPresetKey(
+                      payload.color?.pseudocolorPreset ??
+                        fusionInfo.petPseudocolorPreset ??
+                        DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
+                    )
+                  : normalizePseudocolorPresetKey(
+                      payload.color?.pseudocolorPreset ??
+                      DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+                    )
+          },
+          fusionProjections: {
+            ...(item.fusionProjections ?? createEmptyFusionProjections()),
+            [fusionViewportKey]: hasFusionProjectionPayload
+              ? fusionProjection
+              : item.fusionProjections?.[fusionViewportKey] ?? null
+          },
+          viewportMeasurements: {
+            ...(item.viewportMeasurements ?? {}),
+            [fusionViewportKey]: hasMeasurementsPayload
+              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              : item.viewportMeasurements?.[fusionViewportKey] ?? []
+          },
+          viewportAnnotations: {
+            ...(item.viewportAnnotations ?? {}),
+            [fusionViewportKey]: hasAnnotationsPayload
+              ? payloadAnnotations
+              : item.viewportAnnotations?.[fusionViewportKey] ?? []
+          }
+        })
       }
 
       const currentViewportKey = Object.entries(item.viewportViewIds ?? {}).find(([, viewId]) => viewId === payload.viewId)?.[0] as
@@ -1484,7 +2102,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         | undefined
       const viewportKey = currentViewportKey ?? fourDViewportMatch?.viewportKey
       if (viewportKey && (item.viewType === 'MPR' || item.viewType === '4D')) {
-        const isMprPreview = payload.imageFormat === 'jpeg'
+        const isMprPreview = renderIntent === 'geometry-preview' || renderIntent === 'overlay-preview'
         const activeFourDPhaseKey =
           item.viewType === '4D' ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)) : null
         const mprViewportUpdate: IncomingMprViewportUpdate = {
@@ -1505,7 +2123,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             imageFormat: payload.imageFormat
           })
         ) {
-          revokeObjectUrlIfNeeded(imageSrc)
+          revokeIncomingImageSrcIfNeeded()
           return item
         }
         const shouldCompleteSettling = shouldCompleteMprCrosshairSettling({
@@ -1521,7 +2139,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
         const mprCrosshairPreservationLock = shouldCompleteSettling ? null : options.activeMprCrosshairDragLock.value
         const currentViewportImage = item.viewportImages?.[viewportKey]
-        if (currentViewportKey) {
+        const currentSegmentationProgress = item.viewportLoadingProgress?.[viewportKey] ?? null
+        const shouldPreserveImageForMprSegmentationUpdate =
+          item.viewType === 'MPR' &&
+          mprSegmentationPayload != null &&
+          currentViewportKey != null &&
+          currentViewportImage != null &&
+          currentSegmentationProgress?.phase === 'render'
+        if (shouldPreserveImageForMprSegmentationUpdate) {
+          revokeIncomingImageSrcIfNeeded()
+        } else if (currentViewportKey) {
           revokeObjectUrlIfNeeded(currentViewportImage)
         }
 
@@ -1538,20 +2165,28 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
           const nextViewportImages = {
             ...(phaseCacheSeed.viewportImages ?? createEmptyMprImages()),
-            [viewportKey]: imageSrc
+            [viewportKey]: getIncomingImageSrc()
           }
-          const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
-            incomingCrosshair: mprCrosshair,
-            currentCrosshair: phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null,
-            lock: mprCrosshairPreservationLock,
-            update: mprViewportUpdate
-          })
+          const currentPhaseCrosshair = phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null
+          const nextViewportCrosshair = hasMprCrosshairUpdate
+            ? resolveMprCrosshairForImageUpdate({
+                incomingCrosshair: mprCrosshair,
+                currentCrosshair: currentPhaseCrosshair,
+                lock: mprCrosshairPreservationLock,
+                update: mprViewportUpdate
+              })
+            : currentPhaseCrosshair
           nextFourDPhaseCache = {
             ...(item.fourDPhaseCache ?? {}),
             [fourDViewportMatch.phaseKey]: {
               ...phaseCacheSeed,
               status: hasCompleteMprViewportImages(nextViewportImages) ? 'ready' : 'loading',
               windowLabel,
+              initialWindowInfo: rememberInitialWindowInfo(phaseCacheSeed.initialWindowInfo, ww, wl) ?? null,
+              viewportInitialWindowInfos: {
+                ...(phaseCacheSeed.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
+                [viewportKey]: rememberInitialWindowInfo(phaseCacheSeed.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+              },
               mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
               mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
               mprRevision: mprRevision ?? phaseCacheSeed.mprRevision ?? null,
@@ -1574,25 +2209,29 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportMeasurements: {
                 ...(phaseCacheSeed.viewportMeasurements ?? {}),
-                [viewportKey]: isMprPreview && !payload.measurements?.length
+                [viewportKey]: !hasMeasurementsPayload || (isMprPreview && !payload.measurements?.length)
                   ? phaseCacheSeed.viewportMeasurements?.[viewportKey] ?? []
                   : (payload.measurements ?? []) as MeasurementOverlay[]
               },
               viewportCornerInfos: {
                 ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-                [viewportKey]: payload.cornerInfo == null
-                  ? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                [viewportKey]: !hasCornerInfoPayload
+                  ? mergePixelCornerTags(
+                      phaseCacheSeed.viewportCornerInfos?.[viewportKey],
+                      pixelWindowLabel,
+                      options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                    )
                   : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
               },
               viewportOrientations: {
                 ...(phaseCacheSeed.viewportOrientations ?? createEmptyMprOrientations()),
-                [viewportKey]: payload.orientation == null
+                [viewportKey]: !hasOrientationPayload
                   ? phaseCacheSeed.viewportOrientations?.[viewportKey] ?? orientationInfo
                   : orientationInfo
               },
               viewportTransformStates: {
                 ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
-                [viewportKey]: payload.transform == null
+                [viewportKey]: !hasTransformPayload
                   ? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? transformState
                   : transformState
               },
@@ -1614,34 +2253,40 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               ...item,
               fourDPhaseCache: nextFourDPhaseCache
             }
-            return {
+            return withRenderRevision({
               ...nextItem,
               ...getFourDPhaseDisplayState(nextItem, activePhaseIndex, options.seriesCornerInfoMap.value)
-            }
+            })
           }
-          return {
+          return withRenderRevision({
             ...item,
             fourDPhaseCache: nextFourDPhaseCache
-          }
+          })
         }
 
-        const nextViewportCrosshair = resolveMprCrosshairForImageUpdate({
-          incomingCrosshair: mprCrosshair,
-          currentCrosshair: item.viewportCrosshairs?.[viewportKey] ?? null,
-          lock: mprCrosshairPreservationLock,
-          update: mprViewportUpdate
-        })
+        const currentViewportCrosshair = item.viewportCrosshairs?.[viewportKey] ?? null
+        const nextViewportCrosshair = hasMprCrosshairUpdate
+          ? resolveMprCrosshairForImageUpdate({
+              incomingCrosshair: mprCrosshair,
+              currentCrosshair: currentViewportCrosshair,
+              lock: mprCrosshairPreservationLock,
+              update: mprViewportUpdate
+            })
+          : currentViewportCrosshair
 
-        return {
+        return withRenderRevision({
           ...item,
           windowLabel,
+          initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
           mprCursor: mprCursor ?? item.mprCursor ?? null,
           mprFrame: mprFrame ?? item.mprFrame ?? null,
           mprRevision: mprRevision ?? item.mprRevision ?? null,
-          viewportImages: {
-            ...(item.viewportImages ?? createEmptyMprImages()),
-            [viewportKey]: imageSrc
-          },
+          viewportImages: shouldPreserveImageForMprSegmentationUpdate
+            ? item.viewportImages ?? createEmptyMprImages()
+            : {
+                ...(item.viewportImages ?? createEmptyMprImages()),
+                [viewportKey]: getIncomingImageSrc()
+              },
           viewportSliceLabels: {
             ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
             [viewportKey]: sliceLabel
@@ -1658,27 +2303,44 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
             [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
           },
+          viewportSegmentationOverlays: {
+            ...(item.viewportSegmentationOverlays ?? createEmptyMprSegmentationOverlays()),
+            [viewportKey]: hasMprSegmentationOverlayUpdate
+              ? (
+                  shouldAcceptMprSegmentationOverlay
+                    ? mergeMprSegmentationOverlaySamples(
+                        item.viewportSegmentationOverlays?.[viewportKey] ?? null,
+                        mprSegmentationOverlayPayload ?? null
+                      )
+                    : item.viewportSegmentationOverlays?.[viewportKey] ?? null
+                )
+              : item.viewportSegmentationOverlays?.[viewportKey] ?? null
+          },
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
-            [viewportKey]: isMprPreview && !payload.measurements?.length
+            [viewportKey]: !hasMeasurementsPayload || (isMprPreview && !payload.measurements?.length)
               ? item.viewportMeasurements?.[viewportKey] ?? []
               : (payload.measurements ?? []) as MeasurementOverlay[]
           },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-            [viewportKey]: payload.cornerInfo == null
-              ? item.viewportCornerInfos?.[viewportKey] ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+            [viewportKey]: !hasCornerInfoPayload
+              ? mergePixelCornerTags(
+                  item.viewportCornerInfos?.[viewportKey],
+                  pixelWindowLabel,
+                  options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                )
               : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
           },
           viewportOrientations: {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
-            [viewportKey]: payload.orientation == null
+            [viewportKey]: !hasOrientationPayload
               ? item.viewportOrientations?.[viewportKey] ?? orientationInfo
               : orientationInfo
           },
           viewportTransformStates: {
             ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
-            [viewportKey]: payload.transform == null
+            [viewportKey]: !hasTransformPayload
               ? item.viewportTransformStates?.[viewportKey] ?? transformState
               : transformState
           },
@@ -1686,50 +2348,81 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
             [viewportKey]: pseudocolorPreset
           },
+          viewportInitialWindowInfos: {
+            ...(item.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
+            [viewportKey]: rememberInitialWindowInfo(item.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+          },
           viewportLoadingProgress: {
             ...(item.viewportLoadingProgress ?? {}),
             [viewportKey]: null
           },
           mprMipConfig,
+          mprSegmentationConfig,
           mprCrosshairMode,
           volumePreset,
           volumeRenderConfig,
           render3dMode,
           surfaceRenderConfig,
           fourDPhaseCache: nextFourDPhaseCache
-        }
+        })
       }
 
       if (item.viewType === '4D') {
-        revokeObjectUrlIfNeeded(imageSrc)
+        revokeIncomingImageSrcIfNeeded()
         return item
       }
 
+      const previousPetInfo = item.petInfo ?? createDefaultPetInfo(item.seriesId)
+      const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
+      const normalizedPetInfo = item.viewType === 'PET'
+        ? normalizePetInfoPayload(rawPetInfo, previousPetInfo)
+        : null
+      const singlePseudocolorPreset = item.viewType === 'PET'
+        ? normalizeStandalonePetPseudocolorPreset()
+        : pseudocolorPreset
+      const petInfo = normalizedPetInfo
+        ? {
+            ...normalizedPetInfo,
+            pseudocolorPreset: singlePseudocolorPreset
+          }
+        : item.petInfo ?? null
+      const baseSingleCornerInfo = hasCornerInfoPayload
+        ? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+        : mergePixelCornerTags(
+            item.cornerInfo,
+            pixelWindowLabel,
+            options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+          )
+      const singleCornerInfo = item.viewType === 'PET'
+        ? normalizeStandalonePetCornerInfo(baseSingleCornerInfo, petInfo ?? previousPetInfo)
+        : baseSingleCornerInfo
+
       revokeObjectUrlIfNeeded(item.imageSrc)
 
-      return {
+      return withRenderRevision({
         ...item,
         viewId: payload.viewId ?? item.viewId,
-        imageSrc,
+        imageSrc: getIncomingImageSrc(),
         sliceLabel,
         windowLabel,
+        initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
         measurements: hasMeasurementsPayload ? (payload.measurements ?? []) as MeasurementOverlay[] : item.measurements ?? [],
         annotations: hasAnnotationsPayload ? payloadAnnotations : item.annotations ?? [],
         scaleBar: hasScaleBarPayload ? scaleBar : item.scaleBar ?? null,
-        cornerInfo: hasCornerInfoPayload
-          ? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
-          : item.cornerInfo ?? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo)),
+        cornerInfo: singleCornerInfo,
         orientation: hasOrientationPayload ? orientationInfo : item.orientation ?? orientationInfo,
         transformState: hasTransformPayload ? transformState : item.transformState ?? transformState,
-        pseudocolorPreset,
+        pseudocolorPreset: singlePseudocolorPreset,
+        petInfo,
         mprMipConfig,
+        mprSegmentationConfig,
         mprCrosshairMode,
         volumePreset,
         volumeRenderConfig,
         render3dMode,
         surfaceRenderConfig,
         loadingProgress: null
-      }
+      })
     })
     if (mprCrosshairSettlingCompletionUpdate) {
       options.completeActiveMprCrosshairDragLock(mprCrosshairSettlingCompletionUpdate)
@@ -1775,7 +2468,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         : item.viewportSliceLabels?.[viewportKey] ?? item.sliceLabel
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
-      const windowLabel = ww != null || wl != null ? `WW ${ww ?? '-'}  WL ${wl ?? '-'}` : item.windowLabel
+      const windowLabel = formatWindowInfoLabel(ww, wl) ?? item.windowLabel
+      const pixelWindowLabel = ww != null || wl != null ? windowLabel : null
       const metadataSeriesId =
         item.viewType === '4D' && fourDViewportMatch
           ? resolveFourDPhaseSeriesId(item, fourDViewportMatch.phaseKey)
@@ -1799,6 +2493,32 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const orientationInfo = payload.orientation != null ? normalizeOrientationInfo(payload.orientation) : null
       const transformState = payload.transform ?? null
       const mprMipConfig = normalizeMprMipConfig(payload.mprMipConfig, item.mprMipConfig ?? createDefaultMprMipConfig())
+      const currentMprSegmentationConfig = normalizeMprSegmentationConfig(
+        item.mprSegmentationConfig,
+        createDefaultMprSegmentationConfig()
+      )
+      const mprSegmentationPayload = getMprSegmentationConfigPayload(payload)
+      const incomingMprSegmentationConfig = normalizeMprSegmentationConfig(
+        mprSegmentationPayload,
+        currentMprSegmentationConfig
+      )
+      const mprSegmentationOverlayPayload = getMprSegmentationOverlayPayload(payload)
+      const hasMprSegmentationOverlayUpdate = hasMprSegmentationOverlayPayload(payload)
+      const isStaleMprSegmentationPreview =
+        mprSegmentationPayload != null &&
+        isStaleMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      const mprSegmentationConfig = mprSegmentationPayload == null
+        ? currentMprSegmentationConfig
+        : isStaleMprSegmentationPreview
+          ? currentMprSegmentationConfig
+          : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+      const shouldAcceptMprSegmentationOverlay =
+        hasMprSegmentationOverlayUpdate &&
+        (
+          mprSegmentationPayload == null ||
+          (isStaleMprSegmentationPreview && hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload)) ||
+          incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
+        )
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : item.mprCrosshairMode ?? 'orthogonal'
 
       let nextFourDPhaseCache = item.fourDPhaseCache
@@ -1811,6 +2531,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           [fourDViewportMatch.phaseKey]: {
             ...phaseCacheSeed,
             windowLabel,
+            initialWindowInfo: rememberInitialWindowInfo(phaseCacheSeed.initialWindowInfo, ww, wl) ?? null,
+            viewportInitialWindowInfos: {
+              ...(phaseCacheSeed.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
+              [viewportKey]: rememberInitialWindowInfo(phaseCacheSeed.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+            },
             mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
             mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
             mprRevision: mprRevision ?? phaseCacheSeed.mprRevision ?? null,
@@ -1828,7 +2553,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             },
             viewportCornerInfos: {
               ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-              [viewportKey]: stateCornerInfo ?? phaseCacheSeed.viewportCornerInfos?.[viewportKey] ?? createEmptyCornerInfo()
+              [viewportKey]: stateCornerInfo ?? mergePixelCornerTags(
+                phaseCacheSeed.viewportCornerInfos?.[viewportKey],
+                pixelWindowLabel,
+                createEmptyCornerInfo()
+              )
             },
             viewportScaleBars: {
               ...(phaseCacheSeed.viewportScaleBars ?? createEmptyMprScaleBars()),
@@ -1856,7 +2585,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...item,
             fourDPhaseCache: nextFourDPhaseCache,
             mprCrosshairMode,
-            mprMipConfig
+            mprMipConfig,
+            mprSegmentationConfig
           }
           return {
             ...nextItem,
@@ -1867,13 +2597,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           fourDPhaseCache: nextFourDPhaseCache,
           mprCrosshairMode,
-          mprMipConfig
+          mprMipConfig,
+          mprSegmentationConfig
         }
       }
 
       return {
         ...item,
         windowLabel,
+        initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
         mprCursor: mprCursor ?? item.mprCursor ?? null,
         mprFrame: mprFrame ?? item.mprFrame ?? null,
         mprRevision: mprRevision ?? item.mprRevision ?? null,
@@ -1891,11 +2623,28 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         },
         viewportCornerInfos: {
           ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-          [viewportKey]: stateCornerInfo ?? item.viewportCornerInfos?.[viewportKey] ?? createEmptyCornerInfo()
+          [viewportKey]: stateCornerInfo ?? mergePixelCornerTags(
+            item.viewportCornerInfos?.[viewportKey],
+            pixelWindowLabel,
+            createEmptyCornerInfo()
+          )
         },
         viewportScaleBars: {
           ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
           [viewportKey]: scaleBar ?? item.viewportScaleBars?.[viewportKey] ?? null
+        },
+        viewportSegmentationOverlays: {
+          ...(item.viewportSegmentationOverlays ?? createEmptyMprSegmentationOverlays()),
+          [viewportKey]: hasMprSegmentationOverlayUpdate
+            ? (
+                shouldAcceptMprSegmentationOverlay
+                  ? mergeMprSegmentationOverlaySamples(
+                      item.viewportSegmentationOverlays?.[viewportKey] ?? null,
+                      mprSegmentationOverlayPayload ?? null
+                    )
+                  : item.viewportSegmentationOverlays?.[viewportKey] ?? null
+              )
+            : item.viewportSegmentationOverlays?.[viewportKey] ?? null
         },
         viewportOrientations: {
           ...(item.viewportOrientations ?? createEmptyMprOrientations()),
@@ -1905,7 +2654,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
           [viewportKey]: transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
         },
+        viewportInitialWindowInfos: {
+          ...(item.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
+          [viewportKey]: rememberInitialWindowInfo(item.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+        },
         mprMipConfig,
+        mprSegmentationConfig,
         mprCrosshairMode,
         fourDPhaseCache: nextFourDPhaseCache
       }
@@ -1955,6 +2709,294 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
+  function isLikelyCtWindowLeakedIntoPetRange(minValue: number | null | undefined, maxValue: number | null | undefined, fusionInfo: FusionInfo): boolean {
+    if (typeof minValue !== 'number' || typeof maxValue !== 'number') {
+      return false
+    }
+    const unit = String(fusionInfo.petUnit ?? fusionInfo.petUnitLabel ?? '').toLowerCase()
+    const isPetQuantUnit = unit.includes('suv') || unit.includes('sul') || unit.includes('g/ml')
+    return isPetQuantUnit && minValue < -1 && maxValue >= 100
+  }
+
+  function normalizeFusionPetWindowRange(
+    minCandidate: unknown,
+    maxCandidate: unknown,
+    fallback: FusionInfo,
+    nextInfo: Pick<FusionInfo, 'petUnit' | 'petUnitLabel'>
+  ): { min: number | null | undefined; max: number | null | undefined } {
+    const minValue = typeof minCandidate === 'number' && Number.isFinite(minCandidate) ? Number(minCandidate) : fallback.petWindowMin
+    const maxValue = typeof maxCandidate === 'number' && Number.isFinite(maxCandidate) ? Number(maxCandidate) : fallback.petWindowMax
+    const candidateInfo = {
+      ...fallback,
+      petUnit: nextInfo.petUnit,
+      petUnitLabel: nextInfo.petUnitLabel
+    }
+    if (!isLikelyCtWindowLeakedIntoPetRange(minValue, maxValue, candidateInfo)) {
+      return { min: minValue, max: maxValue }
+    }
+    const fallbackIsLeaked = isLikelyCtWindowLeakedIntoPetRange(fallback.petWindowMin, fallback.petWindowMax, candidateInfo)
+    return {
+      min: fallbackIsLeaked ? DEFAULT_FUSION_PET_WINDOW_MIN : fallback.petWindowMin,
+      max: fallbackIsLeaked ? DEFAULT_FUSION_PET_WINDOW_MAX : fallback.petWindowMax
+    }
+  }
+
+  function formatPetWindowLabel(info: Pick<FusionInfo, 'petWindowMin' | 'petWindowMax' | 'petUnit' | 'petUnitLabel'>): string | null {
+    const minValue =
+      typeof info.petWindowMin === 'number' && Number.isFinite(info.petWindowMin)
+        ? info.petWindowMin
+        : DEFAULT_FUSION_PET_WINDOW_MIN
+    const maxValue =
+      typeof info.petWindowMax === 'number' && Number.isFinite(info.petWindowMax)
+        ? info.petWindowMax
+        : DEFAULT_FUSION_PET_WINDOW_MAX
+    const unitLabel = stripTrailingUnitDetail(info.petUnitLabel || (info.petUnit === 'SUVbw' ? 'g/ml (SUVbw)' : info.petUnit) || '')
+    const unit = String(info.petUnit ?? unitLabel).toLowerCase()
+    const prefix = unit.includes('suv') || unit.includes('sul') || unit.includes('g/ml') ? 'SUV' : 'PET'
+    return `${prefix}:${minValue.toFixed(2)}--${maxValue.toFixed(2)}${unitLabel}`.trim()
+  }
+
+  function formatFusionPetWindowLabel(fusionInfo: FusionInfo): string | null {
+    return formatPetWindowLabel(fusionInfo)
+  }
+
+  function formatStandalonePetWindowLabel(petInfo: PetInfo): string | null {
+    return formatPetWindowLabel(petInfo)
+  }
+
+  function stripTrailingUnitDetail(value: string): string {
+    return value.replace(/\s*\([^)]*\)\s*$/, '').trim()
+  }
+
+  function isPetWindowCornerLine(line: string): boolean {
+    const value = line.trim()
+    return /^(?:SUV|PET)\s*:/i.test(value) || /^W\s*:/i.test(value) || /^WW\b/i.test(value)
+  }
+
+  function stripPetWindowCornerInfo(cornerInfo: CornerInfo, options: { hideMipSourceSliceLine?: boolean } = {}): CornerInfo {
+    const sliceThicknessLines = new Set(cornerInfo.tags?.sliceThickness ?? [])
+    const shouldDropLine = (line: string): boolean =>
+      isPetWindowCornerLine(line) || (options.hideMipSourceSliceLine === true && sliceThicknessLines.has(line))
+    const nextTags = { ...(cornerInfo.tags ?? {}) }
+    delete nextTags.windowLevel
+    if (options.hideMipSourceSliceLine === true) {
+      delete nextTags.imageIndex
+      delete nextTags.sliceThickness
+    }
+    return {
+      ...cornerInfo,
+      topLeft: cornerInfo.topLeft.filter((line) => !shouldDropLine(line)),
+      topRight: cornerInfo.topRight.filter((line) => !shouldDropLine(line)),
+      bottomLeft: cornerInfo.bottomLeft.filter((line) => !shouldDropLine(line)),
+      bottomRight: cornerInfo.bottomRight.filter((line) => !shouldDropLine(line)),
+      tags: nextTags
+    }
+  }
+
+  function normalizePetWindowCornerInfo(
+    cornerInfo: CornerInfo,
+    label: string | null,
+    options: { hideMipSourceSliceLine?: boolean } = {}
+  ): CornerInfo {
+    if (!label) {
+      return stripPetWindowCornerInfo(cornerInfo, options)
+    }
+    const sliceThicknessLines = new Set(cornerInfo.tags?.sliceThickness ?? [])
+    const shouldHideLine = (line: string): boolean =>
+      options.hideMipSourceSliceLine === true && sliceThicknessLines.has(line)
+    const normalizeLines = (lines: string[], insertLabel: boolean): string[] => {
+      const nextLines = lines
+        .map((line) => (isPetWindowCornerLine(line) ? (insertLabel ? label : '') : line))
+        .filter((line) => line && !shouldHideLine(line))
+      if (insertLabel && !nextLines.includes(label)) {
+        nextLines.unshift(label)
+      }
+      return [...new Set(nextLines)]
+    }
+    const nextTags: CornerInfo['tags'] = { ...(cornerInfo.tags ?? {}), windowLevel: [label] }
+    if (options.hideMipSourceSliceLine === true) {
+      delete nextTags.imageIndex
+      delete nextTags.sliceThickness
+    }
+    return {
+      ...cornerInfo,
+      topLeft: normalizeLines(cornerInfo.topLeft, false),
+      topRight: normalizeLines(cornerInfo.topRight, false),
+      bottomLeft: normalizeLines(cornerInfo.bottomLeft, true),
+      bottomRight: normalizeLines(cornerInfo.bottomRight, false),
+      tags: nextTags
+    }
+  }
+
+  function normalizeStandalonePetCornerInfo(cornerInfo: CornerInfo, petInfo: PetInfo): CornerInfo {
+    return normalizePetWindowCornerInfo(cornerInfo, formatStandalonePetWindowLabel(petInfo))
+  }
+
+  function normalizeFusionPetCornerInfo(cornerInfo: CornerInfo, fusionInfo: FusionInfo, paneKey: FusionPaneKey): CornerInfo {
+    const label = formatFusionPetWindowLabel(fusionInfo)
+    const isPetOnlyPane = paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
+    const isMipPane = paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
+    if (isPetOnlyPane) {
+      return normalizePetWindowCornerInfo(cornerInfo, label, { hideMipSourceSliceLine: isMipPane })
+    }
+    return normalizePetWindowCornerInfo(cornerInfo, label)
+  }
+
+  function normalizeFusionInfoPayload(value: unknown, fallback: FusionInfo): FusionInfo {
+    if (typeof value !== 'object' || value == null) {
+      return fallback
+    }
+
+    const record = value as Record<string, unknown>
+    const registrationRecord =
+      typeof record.registration === 'object' && record.registration != null
+        ? (record.registration as Record<string, unknown>)
+        : {}
+    const numberOrFallback = (candidate: unknown, fallbackValue: number): number =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
+    const paneRoleCandidate = record.paneRole ?? record.pane_role
+    const petPresetCandidate = record.petPseudocolorPreset ?? record.pet_pseudocolor_preset
+    const petUnitCandidate = record.petUnit ?? record.pet_unit
+    const petUnitLabelCandidate = record.petUnitLabel ?? record.pet_unit_label
+    const petUnit = typeof petUnitCandidate === 'string' ? petUnitCandidate : fallback.petUnit
+    const petUnitLabel = typeof petUnitLabelCandidate === 'string' ? petUnitLabelCandidate : fallback.petUnitLabel
+    const petWindow = normalizeFusionPetWindowRange(
+      record.petWindowMin ?? record.pet_window_min,
+      record.petWindowMax ?? record.pet_window_max,
+      fallback,
+      { petUnit, petUnitLabel }
+    )
+    return {
+      paneRole: typeof paneRoleCandidate === 'string' ? paneRoleCandidate : fallback.paneRole,
+      ctSeriesId: typeof (record.ctSeriesId ?? record.ct_series_id) === 'string'
+        ? String(record.ctSeriesId ?? record.ct_series_id)
+        : fallback.ctSeriesId,
+      petSeriesId: typeof (record.petSeriesId ?? record.pet_series_id) === 'string'
+        ? String(record.petSeriesId ?? record.pet_series_id)
+        : fallback.petSeriesId,
+      petPseudocolorPreset: typeof petPresetCandidate === 'string'
+        ? normalizeFusionPetPseudocolorPresetKey(petPresetCandidate)
+        : fallback.petPseudocolorPreset,
+      petUnit,
+      petUnitLabel,
+      petWindowMin: petWindow.min,
+      petWindowMax: petWindow.max,
+      alpha: numberOrFallback(record.alpha, fallback.alpha),
+      revision: numberOrFallback(record.revision, fallback.revision),
+      registration: {
+        translateRowMm: numberOrFallback(
+          registrationRecord.translateRowMm ?? registrationRecord.translate_row_mm,
+          fallback.registration.translateRowMm
+        ),
+        translateColMm: numberOrFallback(
+          registrationRecord.translateColMm ?? registrationRecord.translate_col_mm,
+          fallback.registration.translateColMm
+        ),
+        rotationDegrees: numberOrFallback(
+          registrationRecord.rotationDegrees ?? registrationRecord.rotation_degrees,
+          fallback.registration.rotationDegrees
+        ),
+        saved: typeof registrationRecord.saved === 'boolean' ? registrationRecord.saved : fallback.registration.saved
+      }
+    }
+  }
+
+  function normalizeFusionCompositeInfoPayload(
+    value: unknown,
+    fallbackInfo: FusionInfo
+  ): FusionCompositeInfo | null {
+    if (typeof value !== 'object' || value == null) {
+      return null
+    }
+
+    const record = value as Record<string, unknown>
+    const revision = record.revision
+    const alpha = record.alpha
+    const width = record.width
+    const height = record.height
+    if (
+      typeof revision !== 'number' ||
+      !Number.isFinite(revision) ||
+      typeof alpha !== 'number' ||
+      !Number.isFinite(alpha) ||
+      typeof width !== 'number' ||
+      !Number.isFinite(width) ||
+      typeof height !== 'number' ||
+      !Number.isFinite(height)
+    ) {
+      return null
+    }
+
+    const normalizedInfo = normalizeFusionInfoPayload(
+      {
+        paneRole: fallbackInfo.paneRole,
+        ctSeriesId: fallbackInfo.ctSeriesId,
+        petSeriesId: fallbackInfo.petSeriesId,
+        petPseudocolorPreset: fallbackInfo.petPseudocolorPreset,
+        petUnit: fallbackInfo.petUnit,
+        petUnitLabel: fallbackInfo.petUnitLabel,
+        petWindowMin: fallbackInfo.petWindowMin,
+        petWindowMax: fallbackInfo.petWindowMax,
+        alpha,
+        revision,
+        registration: record.registration
+      },
+      fallbackInfo
+    )
+    const layers = Array.isArray(record.layers)
+      ? record.layers
+          .filter((layer): layer is Record<string, unknown> => typeof layer === 'object' && layer != null)
+          .map((layer) => ({
+            key: typeof layer.key === 'string' ? layer.key : '',
+            role: typeof layer.role === 'string' ? layer.role : '',
+            imageFormat: typeof (layer.imageFormat ?? layer.image_format) === 'string'
+              ? String(layer.imageFormat ?? layer.image_format)
+              : 'png'
+          }))
+          .filter((layer) => layer.key && layer.role)
+      : []
+
+    return {
+      mode: typeof record.mode === 'string' ? record.mode : 'ctPetLayers',
+      revision: normalizedInfo.revision,
+      alpha: normalizedInfo.alpha,
+      registration: normalizedInfo.registration,
+      width: Math.max(0, Math.round(width)),
+      height: Math.max(0, Math.round(height)),
+      layers,
+      primaryImageUnchanged: record.primaryImageUnchanged === true || record.primary_image_unchanged === true
+    }
+  }
+
+  function normalizePetInfoPayload(value: unknown, fallback: PetInfo): PetInfo {
+    if (typeof value !== 'object' || value == null) {
+      return {
+        ...fallback,
+        pseudocolorPreset: normalizeStandalonePetPseudocolorPreset()
+      }
+    }
+
+    const record = value as Record<string, unknown>
+    const petWindowMin = record.petWindowMin ?? record.pet_window_min
+    const petWindowMax = record.petWindowMax ?? record.pet_window_max
+    const numberOrFallback = (candidate: unknown, fallbackValue: number | null | undefined): number | null | undefined =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
+    return {
+      seriesId: typeof (record.seriesId ?? record.series_id) === 'string'
+        ? String(record.seriesId ?? record.series_id)
+        : fallback.seriesId,
+      petUnit: typeof (record.petUnit ?? record.pet_unit) === 'string'
+        ? String(record.petUnit ?? record.pet_unit)
+        : fallback.petUnit,
+      petUnitLabel: typeof (record.petUnitLabel ?? record.pet_unit_label) === 'string'
+        ? String(record.petUnitLabel ?? record.pet_unit_label)
+        : fallback.petUnitLabel,
+      petWindowMin: numberOrFallback(petWindowMin, fallback.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN),
+      petWindowMax: numberOrFallback(petWindowMax, fallback.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX),
+      pseudocolorPreset: normalizeStandalonePetPseudocolorPreset()
+    }
+  }
+
   function updateViewProgress(payload: ViewProgressInfo | undefined): void {
     const progress = normalizeViewProgressPayload(payload)
     if (!progress) {
@@ -1985,6 +3027,22 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportLoadingProgress: {
             ...(item.viewportLoadingProgress ?? {}),
             [viewportKey]: nextProgress
+          }
+        }
+      }
+
+      const fusionViewportKey = Object.entries(item.fusionViewIds ?? {}).find(([, viewId]) => viewId === progress.viewId)?.[0] as
+        | FusionPaneKey
+        | undefined
+      if (fusionViewportKey && item.viewType === 'PETCTFusion') {
+        if (nextProgress && item.fusionImages?.[fusionViewportKey]) {
+          return item
+        }
+        return {
+          ...item,
+          fusionLoadingProgress: {
+            ...(item.fusionLoadingProgress ?? createEmptyFusionLoadingProgress()),
+            [fusionViewportKey]: nextProgress
           }
         }
       }
@@ -2038,6 +3096,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return { viewportKey, ...update }
       })
       .filter((item): item is CompareViewSizeUpdate => Boolean(item))
+  }
+
+  function resolveFusionViewportElement(viewportKey: FusionPaneKey): HTMLElement | null {
+    const cachedSurface = resolveCachedViewportSurface(viewportKey)
+    if (cachedSurface) {
+      return cachedSurface
+    }
+
+    return (
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-active-render-surface][data-viewport-key="${viewportKey}"]`) ??
+      options.viewerStage.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
+      null
+    )
+  }
+
+  function collectFusionViewSizeUpdates(
+    fusionViewIds: Partial<Record<FusionPaneKey, string>> | undefined,
+    force = false
+  ): FusionViewSizeUpdate[] {
+    const entries = Object.entries(fusionViewIds ?? {}) as [FusionPaneKey, string][]
+    return entries
+      .filter(([viewportKey, viewId]) => isFusionPaneKey(viewportKey) && Boolean(viewId))
+      .map(([viewportKey, viewId]) => {
+        const update = collectViewSizeUpdate(viewId, resolveFusionViewportElement(viewportKey), force)
+        if (!update) {
+          return null
+        }
+        return { viewportKey, ...update }
+      })
+      .filter((item): item is FusionViewSizeUpdate => Boolean(item))
   }
 
   function resolveLayoutViewportElement(slotId: string): HTMLElement | null {
@@ -2106,6 +3194,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     await postViewSizeUpdates(updates, renderOnBind)
   }
 
+  async function postFusionViewSizeUpdates(updates: FusionViewSizeUpdate[], renderOnBind = true): Promise<void> {
+    await postViewSizeUpdates(updates, renderOnBind)
+  }
+
   async function postLayoutViewSizeUpdates(updates: LayoutViewSizeUpdate[], renderOnBind = true): Promise<void> {
     await postViewSizeUpdates(updates, renderOnBind)
   }
@@ -2145,6 +3237,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       const requiredKeys = (Object.keys(compareViewIds) as CompareStackPaneKey[]).filter((key) => Boolean(compareViewIds[key]))
       if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveCompareViewportElement(key))))) {
+        return
+      }
+    }
+  }
+
+  async function waitForFusionViewportLayout(fusionViewIds: Partial<Record<FusionPaneKey, string>>): Promise<void> {
+    for (let attempt = 0; attempt < VIEWPORT_LAYOUT_WAIT_FRAMES; attempt += 1) {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const requiredKeys = (Object.keys(fusionViewIds) as FusionPaneKey[]).filter((key) => Boolean(fusionViewIds[key]))
+      if (requiredKeys.length > 0 && requiredKeys.every((key) => Boolean(getViewportSize(resolveFusionViewportElement(key))))) {
         return
       }
     }
@@ -2199,6 +3302,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return viewSizeUpdatesToViewIds(updates)
   }
 
+  async function renderFusionViewIds(
+    fusionViewIds: Partial<Record<FusionPaneKey, string>> | undefined,
+    force = false
+  ): Promise<void> {
+    let updates = collectFusionViewSizeUpdates(fusionViewIds, force)
+    if (!updates.length && Object.values(fusionViewIds ?? {}).some(Boolean)) {
+      await waitForFusionViewportLayout(fusionViewIds ?? {})
+      updates = collectFusionViewSizeUpdates(fusionViewIds, force)
+    }
+    await postFusionViewSizeUpdates(updates)
+  }
+
   async function renderFourDPhaseSizeUpdatesAndWait(
     tabKey: string,
     phaseKey: string,
@@ -2239,6 +3354,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     if (tab.viewType === 'CompareStack') {
       await postCompareViewSizeUpdates(collectCompareViewSizeUpdates(tab.compareViewIds, force))
+      return
+    }
+
+    if (tab.viewType === 'PETCTFusion') {
+      await renderFusionViewIds(tab.fusionViewIds, force)
       return
     }
 
@@ -2300,7 +3420,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     if (!seriesId) {
       return
     }
-    if (viewType === 'CompareStack' || viewType === 'Layout') {
+    if (viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion') {
       return
     }
 
@@ -2324,6 +3444,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : Boolean(existingTab?.viewId)
     if (hasExistingView && existingTab) {
       options.activeTabKey.value = existingTab.key
+      const petPseudocolorMigrated = viewType === 'PET'
+        ? await migrateStandalonePetPseudocolorIfNeeded(existingTab)
+        : false
       if (viewType === '4D') {
         options.activeViewportKey.value = 'mpr-ax'
         options.isViewLoading.value = true
@@ -2351,7 +3474,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await nextTick()
         await renderTab(existingTab.key, true)
       }
-      if (viewType === 'Stack' && !existingTab.imageSrc) {
+      if ((viewType === 'Stack' || viewType === 'PET') && (!existingTab.imageSrc || petPseudocolorMigrated)) {
         options.activeViewportKey.value = 'single'
         options.isViewLoading.value = false
         await nextTick()
@@ -2430,7 +3553,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
 
       const seriesCornerInfo = options.withHoverCornerInfo(await options.ensureSeriesCornerInfo(options.selectedSeriesId.value))
-      const initialPseudocolorPreset = normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+      const initialPseudocolorPreset = viewType === 'PET'
+        ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+        : normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
 
@@ -2498,6 +3623,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               transformState: createDefaultTransformInfo(),
               viewportTransformStates: createEmptyMprTransformStates(),
               pseudocolorPreset: initialPseudocolorPreset,
+              petInfo: viewType === 'PET' ? createDefaultPetInfo(seriesId) : item.petInfo ?? null,
               viewportPseudocolorPresets:
                 viewType === 'MPR'
                   ? {
@@ -2507,6 +3633,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                     }
                   : createEmptyMprPseudocolorPresets(),
               mprMipConfig: createDefaultMprMipConfig(),
+              mprSegmentationConfig: createDefaultMprSegmentationConfig(),
               volumePreset: 'volumePreset:bone',
               volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
               render3dMode: 'volume',
@@ -2517,7 +3644,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
       if (viewType !== 'MPR' && nextViewId) {
         await bindViewSilentlyWithAck(nextViewId)
-        await emitInitialPseudocolorOperation(nextViewId, initialPseudocolorPreset)
+        if (viewType === 'PET') {
+          await emitInitialPetConfigOperation(nextViewId, initialPseudocolorPreset)
+        } else {
+          await emitInitialPseudocolorOperation(nextViewId, initialPseudocolorPreset)
+        }
       }
 
       options.activeViewportKey.value = viewType === 'MPR' ? 'mpr-ax' : viewType === '3D' ? 'volume' : 'single'
@@ -2539,6 +3670,138 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       options.message.value = ''
     } catch (error) {
       handleOpenSeriesViewFailure(error, seriesId, viewType, tabKey)
+      console.error(error)
+    } finally {
+      options.isViewLoading.value = false
+    }
+  }
+
+  async function openPetCtFusion(ctSeriesId: string, petSeriesId: string): Promise<void> {
+    if (!ctSeriesId || !petSeriesId || ctSeriesId === petSeriesId) {
+      return
+    }
+
+    const ctSeries = options.seriesList.value.find((item) => item.seriesId === ctSeriesId) ?? null
+    const petSeries = options.seriesList.value.find((item) => item.seriesId === petSeriesId) ?? null
+    if (!ctSeries || !petSeries) {
+      options.message.value = viewMessage('PET/CT 融合序列不存在或已被移除。', 'The PET/CT fusion series does not exist or has been removed.')
+      return
+    }
+
+    options.selectedSeriesId.value = ctSeriesId
+    const tabKey = createPetCtFusionTabKey(ctSeriesId, petSeriesId)
+    const existingTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+    const hasExistingViews = FUSION_PANE_KEYS.every((paneKey) => Boolean(existingTab?.fusionViewIds?.[paneKey]))
+    if (existingTab && hasExistingViews) {
+      options.activeTabKey.value = existingTab.key
+      options.activeViewportKey.value = FUSION_OVERLAY_AXIAL_PANE_KEY
+      await nextTick()
+      await waitForFusionViewportLayout(existingTab.fusionViewIds ?? {})
+      await renderTab(existingTab.key, true)
+      return
+    }
+
+    if (!existingTab) {
+      const tab: ViewerTabItem = {
+        ...createTab(ctSeries, 'PETCTFusion'),
+        key: tabKey,
+        title: `${getSeriesDisplayName(ctSeries, ctSeriesId)} + ${getSeriesDisplayName(petSeries, petSeriesId)} · PET/CT`,
+        viewType: 'PETCTFusion',
+        seriesId: ctSeriesId,
+        seriesTitle: getSeriesDisplayName(ctSeries, ctSeriesId),
+        viewId: '',
+        imageSrc: '',
+        fusionSeriesIds: { ctSeriesId, petSeriesId },
+        fusionSeriesDescriptions: {
+          ct: getSeriesDisplayName(ctSeries, ctSeriesId),
+          pet: getSeriesDisplayName(petSeries, petSeriesId)
+        },
+        fusionViewIds: createEmptyFusionViewIds(),
+        fusionImages: createEmptyFusionImages(),
+        fusionLayerImages: createEmptyFusionLayerImages(),
+        fusionComposites: createEmptyFusionComposites(),
+        fusionSliceLabels: createEmptyFusionSliceLabels(),
+        fusionWindowLabels: createEmptyFusionWindowLabels(),
+        fusionScaleBars: createEmptyFusionScaleBars(),
+        fusionCornerInfos: createEmptyFusionCornerInfos(),
+        fusionOrientations: createEmptyFusionOrientations(),
+        fusionTransformStates: createEmptyFusionTransformStates(),
+        fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+        fusionProjections: createEmptyFusionProjections(),
+        fusionLoadingProgress: createEmptyFusionLoadingProgress(),
+        fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
+        fusionManualRegistration: false,
+        fusionRegistrationDragActive: false
+      }
+      options.viewerTabs.value = [...options.viewerTabs.value, tab]
+    }
+
+    options.activeTabKey.value = tabKey
+    options.activeViewportKey.value = FUSION_OVERLAY_AXIAL_PANE_KEY
+    options.isViewLoading.value = true
+
+    try {
+      const [ctCornerInfo, petCornerInfo, nextFusionViewIds] = await Promise.all([
+        options.ensureSeriesCornerInfo(ctSeriesId),
+        options.ensureSeriesCornerInfo(petSeriesId),
+        createFusionViewIds(ctSeriesId, petSeriesId, tabKey)
+      ])
+      options.viewerTabs.value = options.viewerTabs.value.map((item) =>
+        item.key === tabKey
+          ? {
+              ...item,
+              viewType: 'PETCTFusion',
+              title: `${getSeriesDisplayName(ctSeries, ctSeriesId)} + ${getSeriesDisplayName(petSeries, petSeriesId)} · PET/CT`,
+              seriesId: ctSeriesId,
+              seriesTitle: getSeriesDisplayName(ctSeries, ctSeriesId),
+              viewId: '',
+              imageSrc: '',
+              sliceLabel: '',
+              windowLabel: '',
+              fusionSeriesIds: { ctSeriesId, petSeriesId },
+              fusionSeriesDescriptions: {
+                ct: getSeriesDisplayName(ctSeries, ctSeriesId),
+                pet: getSeriesDisplayName(petSeries, petSeriesId)
+              },
+              fusionViewIds: nextFusionViewIds,
+              fusionImages: createEmptyFusionImages(),
+              fusionLayerImages: createEmptyFusionLayerImages(),
+              fusionComposites: createEmptyFusionComposites(),
+              fusionSliceLabels: createEmptyFusionSliceLabels(),
+              fusionWindowLabels: createEmptyFusionWindowLabels(),
+              fusionScaleBars: createEmptyFusionScaleBars(),
+              fusionCornerInfos: {
+                [FUSION_CT_AXIAL_PANE_KEY]: options.withHoverCornerInfo(ctCornerInfo),
+                [FUSION_PET_AXIAL_PANE_KEY]: options.withHoverCornerInfo(petCornerInfo),
+                [FUSION_OVERLAY_AXIAL_PANE_KEY]: options.withHoverCornerInfo(ctCornerInfo),
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: options.withHoverCornerInfo(petCornerInfo)
+              },
+              fusionOrientations: createEmptyFusionOrientations(),
+              fusionTransformStates: createEmptyFusionTransformStates(),
+              fusionPseudocolorPresets: createEmptyFusionPseudocolorPresets(),
+              fusionProjections: createEmptyFusionProjections(),
+              fusionLoadingProgress: createEmptyFusionLoadingProgress(),
+              fusionInfo: createDefaultFusionInfo(ctSeriesId, petSeriesId),
+              fusionManualRegistration: false,
+              fusionRegistrationDragActive: false,
+              viewportMeasurements: {},
+              viewportAnnotations: {}
+            }
+          : item
+      )
+
+      options.isViewLoading.value = false
+      await nextTick()
+      await waitForFusionViewportLayout(nextFusionViewIds)
+      await bindFusionViewIdsSilentlyWithAck(nextFusionViewIds)
+      await renderTab(tabKey, true)
+      options.message.value = ''
+    } catch (error) {
+      closeIncompleteTab(tabKey)
+      const detail = resolveBackendErrorDetail(error)
+      options.message.value = detail
+        ? viewMessage(`PET/CT 融合浏览打开失败：${detail}`, `Failed to open PET/CT fusion view: ${detail}`)
+        : viewMessage('PET/CT 融合浏览打开失败。', 'Failed to open PET/CT fusion view.')
       console.error(error)
     } finally {
       options.isViewLoading.value = false
@@ -2591,7 +3854,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const tab = {
         ...createTab(sourceSeries, 'CompareStack'),
         key: tabKey,
-        title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
+        title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · ${getViewTypeDisplayLabel('CompareStack')}`,
         compareSeriesIds: createComparePaneRecord((paneKey) =>
           paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? sourceSeriesId : targetSeriesId
         ),
@@ -2624,7 +3887,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
-              title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · Stack`,
+              title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · ${getViewTypeDisplayLabel('CompareStack')}`,
               seriesId: sourceSeriesId,
               seriesTitle: getSeriesDisplayName(sourceSeries, sourceSeriesId),
               pseudocolorPreset: initialPseudocolorPreset,
@@ -2668,7 +3931,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
       options.message.value = ''
     } catch (error) {
-      options.message.value = viewMessage('Stack 对比视图打开失败。', 'Failed to open the Stack compare view.')
+      options.message.value = viewMessage('2D 对比视图打开失败。', 'Failed to open the 2D compare view.')
       console.error(error)
     } finally {
       options.isViewLoading.value = false
@@ -2836,7 +4099,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
-    await openSeriesView(options.selectedSeriesId.value, viewType)
+    const resolvedViewType = viewType === 'Stack'
+      ? resolvePrimaryTwoDimensionalViewType(options.selectedSeries.value)
+      : viewType
+    await openSeriesView(options.selectedSeriesId.value, resolvedViewType)
   }
 
   function selectSeries(seriesId: string): void {
@@ -2867,6 +4133,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? 'volume'
             : tab.viewType === 'CompareStack'
               ? COMPARE_STACK_SOURCE_PANE_KEY
+              : tab.viewType === 'PETCTFusion'
+                ? FUSION_OVERLAY_AXIAL_PANE_KEY
               : tab.viewType === 'Layout'
                 ? getFirstLayoutViewportKey(tab)
                 : 'single'
@@ -2980,7 +4248,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     delete nextSeriesCornerInfoMap[seriesId]
     options.seriesCornerInfoMap.value = nextSeriesCornerInfoMap
 
-    const relatedTabs = options.viewerTabs.value.filter((item) => item.seriesId === seriesId)
+    const relatedTabs = options.viewerTabs.value.filter(
+      (item) =>
+        item.seriesId === seriesId ||
+        item.fusionSeriesIds?.ctSeriesId === seriesId ||
+        item.fusionSeriesIds?.petSeriesId === seriesId
+    )
     relatedTabs.forEach((tab) => closeTab(tab.key))
 
     if (options.selectedSeriesId.value === seriesId) {
@@ -3000,6 +4273,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     findTabByViewId,
     invalidateFourDMprState,
     openLayoutView,
+    openPetCtFusion,
     openSeriesCompare,
     openSeriesView,
     openView,

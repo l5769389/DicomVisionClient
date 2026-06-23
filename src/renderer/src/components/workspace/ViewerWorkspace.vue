@@ -14,7 +14,8 @@ import type {
   MeasurementOverlay,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
-  MprMipConfig,
+  MprSegmentationConfigActionType,
+  MprSegmentationConfig,
   QaWaterAnalysis,
   QaWaterMetricKey,
   ViewerLayoutTemplate,
@@ -22,7 +23,14 @@ import type {
   ViewType,
   WorkspaceReadyPayload
 } from '../../types/viewer'
-import { findArrowAnnotationAtPoint, isValidArrowAnnotation, translateAnnotationPoints, updateEditedArrowPoints } from '../../composables/annotations/annotationGeometry'
+import {
+  findArrowAnnotationAtScreenPoint,
+  isValidArrowAnnotation,
+  translateAnnotationPoints,
+  updateEditedArrowPoints,
+  type AnnotationProjectionFrame,
+  type AnnotationScreenPoint
+} from '../../composables/annotations/annotationGeometry'
 import { getSmoothCurveSegments } from '../../composables/measurements/measurementGeometry'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
@@ -30,27 +38,43 @@ import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useVi
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import MprMipConfigPanel from './MprMipConfigPanel.vue'
+import MprSegmentationPanel from './MprSegmentationPanel.vue'
 import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
+import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
+import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
+import MtfCurvePanelContent from './results/MtfCurvePanelContent.vue'
+import QaWaterResultPanelContent from './results/QaWaterResultPanelContent.vue'
+import ViewerResultDock from './results/ViewerResultDock.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
-import MtfCurveDialog from '../viewer/overlays/MtfCurveDialog.vue'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { applyViewportCornerInfoPreference } from '../../composables/ui/viewportCornerInfo'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { analyzeWaterPhantomView } from '../../composables/qa/waterPhantomQa'
 import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
-import type { DicomDropInput } from '../../platform/runtime'
+import { resolveBackendErrorDetail } from '../../composables/workspace/tasks/workspaceStatus'
+import { viewerRuntime, type DicomDropInput } from '../../platform/runtime'
+import { chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation, saveBinaryFile } from '../../platform/exporting'
+import {
+  postFusionRegistrationExport,
+  postFusionRegistrationExportArtifact,
+  type FusionRegistrationExportMode,
+  type FusionRegistrationExportResponse
+} from '../../services/typedApi'
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
+import FusionRegistrationSaveDialog from './export/FusionRegistrationSaveDialog.vue'
 import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
 import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
 import { DEFAULT_MPR_LAYOUT_KEY, parseMprLayoutSelectionValue } from '../../composables/workspace/layout/mprLayoutOptions'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
-  COMPARE_STACK_TARGET_PANE_KEY
+  COMPARE_STACK_TARGET_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  isFusionPaneKey
 } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import {
   CompareStackView,
@@ -58,6 +82,7 @@ import {
   FourDView,
   LayoutView,
   MprView,
+  PetCtFusionView,
   StackView,
   VolumeView
 } from './asyncWorkspaceViews'
@@ -70,6 +95,7 @@ const props = defineProps<{
   isViewLoading: boolean
   message: string
   selectedSeriesId: string
+  viewerPlatform: 'desktop' | 'web'
   viewerTabs: ViewerTabItem[]
 }>()
 
@@ -87,6 +113,16 @@ const emit = defineEmits<{
     labelLines?: string[]
   }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
+  annotationOperation: [payload: {
+    viewportKey: string
+    annotationId?: string
+    actionType: 'end' | 'delete'
+    toolType?: AnnotationDraft['toolType']
+    points?: { x: number; y: number }[]
+    text?: string
+    color?: string
+    size?: AnnotationSize
+  }]
   tagIndexChange: [payload: { tabKey: string; index: number }]
   mtfClear: []
   mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string }]
@@ -103,7 +139,22 @@ const emit = defineEmits<{
   triggerViewAction: [payload: ViewerToolbarActionPayload]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [payload: number | { viewportKey: string; deltaY: number }]
+  fusionRegistrationDrag: [payload: {
+    deltaX: number
+    deltaY: number
+    phase: 'start' | 'move' | 'end'
+    subOpType: 'translate' | 'rotate'
+    viewportKey: string
+    anchorX?: number
+    anchorY?: number
+    currentX?: number
+    currentY?: number
+    pivotX?: number
+    pivotY?: number
+    rotationDeltaDegrees?: number
+  }]
+  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
+  viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean }]
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
@@ -116,6 +167,7 @@ const emit = defineEmits<{
 }>()
 
 const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
+const workspaceContentRef = useTemplateRef<HTMLElement>('workspaceContentRef')
 const exportNameInputRef = ref<HTMLInputElement | null>(null)
 const activeTabRef = computed(() => props.activeTab)
 const activeTabKeyRef = computed(() => props.activeTabKey)
@@ -123,8 +175,18 @@ const activeOperationRef = computed(() => props.activeOperation)
 const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
-const { t, workspaceExportCopy } = useUiLocale()
-const { exportPreference, mprDefaultLayoutKey, qaWaterMetrics, roiStatOptions, viewportCornerInfoPreference } = useUiPreferences()
+const { locale, t, overlayCopy, workspaceExportCopy } = useUiLocale()
+const {
+  exportPreference,
+  mprDefaultLayoutKey,
+  mprSegmentationStylePreference,
+  qaWaterMetrics,
+  roiStatOptions,
+  viewerToolbarPlacement,
+  viewportCornerInfoPreference
+} = useUiPreferences()
+const mprSegmentationDefaultThresholdColor = computed(() => mprSegmentationStylePreference.value.thresholdColor)
+const mprSegmentationDefaultVoiColor = computed(() => mprSegmentationStylePreference.value.voiColor)
 const {
   getStarredSliceIndexes,
   getStarredSliceCount,
@@ -137,7 +199,9 @@ const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
 const ANNOTATION_DRAG_START_THRESHOLD = 3
 const ANNOTATION_POINT_CLOSE_EPSILON = 0.0005
 const EXPORT_LABEL_LINE_HEIGHT_PX = 18
+const TOP_RESULT_DOCK_MIN_CONTENT_WIDTH = 1280
 const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
+type WorkspaceResultPanel = 'mtfCurve' | 'qaWater'
 
 type AnnotationInteractionState =
   | { kind: 'idle' }
@@ -147,6 +211,7 @@ type AnnotationInteractionState =
       viewportKey: string
       annotationId: string
       startPoint: MeasurementDraftPoint
+      startScreenPoint: AnnotationScreenPoint
       originalPoints: MeasurementDraftPoint[]
     }
   | {
@@ -154,6 +219,7 @@ type AnnotationInteractionState =
       viewportKey: string
       annotationId: string
       startPoint: MeasurementDraftPoint
+      startScreenPoint: AnnotationScreenPoint
       originalPoints: MeasurementDraftPoint[]
     }
   | { kind: 'editing_handle'; viewportKey: string; annotationId: string; handleIndex: number }
@@ -200,9 +266,12 @@ const {
 const {
   activeTools,
   activeMprMipConfig,
+  activeMprSegmentationConfig,
   activeVolumeRenderConfig,
+  activateSegmentationSelectionMode,
   applyTool,
   areToolbarActionsDisabled,
+  closeMprSegmentationPanel,
   closeMenus,
   endPlayback,
   handleViewportClick,
@@ -210,6 +279,7 @@ const {
   isPlaying,
   isPlaybackPaused,
   isMprMipPanelOpen,
+  isMprSegmentationPanelOpen,
   isToolSelected,
   isVolumeConfigPanelOpen,
   menuIconSize,
@@ -220,7 +290,8 @@ const {
   stackToolSelections,
   toolbarIconSize,
   toggleIconSize,
-  updateActiveMprMipConfig
+  updateActiveMprMipConfig,
+  updateActiveMprSegmentationConfig
 } = useViewerWorkspaceToolbar({
   activeOperation: activeOperationRef,
   activeTab: activeTabRef,
@@ -230,8 +301,8 @@ const {
   emitOpenLayoutView: (template) => emit('openLayoutView', template),
   emitViewportWheel: (payload) => emit('viewportWheel', payload),
   emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
-  exportCurrentView: (format) => {
-    void handleExportCurrentView(format)
+  exportCurrentView: (format, viewportKey) => {
+    void handleExportCurrentView(format, viewportKey)
   },
   activeViewportKey,
   cleanupPointerInteractions,
@@ -241,6 +312,50 @@ const {
 
 function closeVolumeConfigPanel(): void {
   isVolumeConfigPanelOpen.value = false
+}
+
+function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
+  updateActiveMprSegmentationConfig(config, actionType)
+}
+
+function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
+  if (viewportKey) {
+    setActiveViewport(viewportKey)
+  }
+  activateSegmentationSelectionMode(mode)
+}
+
+function closeMprMipPanel(): void {
+  isMprMipPanelOpen.value = false
+}
+
+function closeRightToolbarUtilityPanel(): void {
+  closeVolumeConfigPanel()
+  closeMprMipPanel()
+  closeMprSegmentationPanel()
+}
+
+function handleToolbarApplyTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
+  closeResultPanel()
+  applyTool(tool, behavior)
+  if (tool.key === 'qa' && isWaterPhantomQaOperation(stackToolSelections.value.qa ?? '')) {
+    requestQaWaterResultPanel()
+  }
+}
+
+function handleToolbarSelectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+  closeResultPanel()
+  selectToolOption(tool, optionValue, behavior)
+  if (tool.key === 'qa' && isWaterPhantomQaOperation(optionValue)) {
+    requestQaWaterResultPanel()
+  }
+}
+
+function handleToolbarSetMenuOpen(toolKey: string | null): void {
+  if (toolKey) {
+    closeResultPanel()
+  }
+  setMenuOpen(toolKey)
 }
 
 const activeMprLayoutKey = computed(() => {
@@ -258,13 +373,65 @@ const isVolumeConfigPanelAvailable = computed(() => {
   return activeTabRef.value.viewType === '3D' || (activeTabRef.value.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
 })
 
+const isRightToolbarLayout = computed(() => viewerToolbarPlacement.value === 'right')
+const shouldShowTopToolbar = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && !isRightToolbarLayout.value))
+const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && isRightToolbarLayout.value))
+const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | 'segmentation' | null>(() => {
+  const activeTab = activeTabRef.value
+  if (!shouldShowRightToolbarDock.value || !activeTab) {
+    return null
+  }
+  if (isVolumeConfigPanelAvailable.value && isVolumeConfigPanelOpen.value && activeVolumeRenderConfig.value) {
+    return 'volume'
+  }
+  if ((activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen.value && activeMprMipConfig.value) {
+    return 'mprMip'
+  }
+  if (activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen.value && activeMprSegmentationConfig.value) {
+    return 'segmentation'
+  }
+  return null
+})
+const rightToolbarUtilityPanelIcon = computed(() => {
+  if (rightToolbarUtilityPanelKind.value === 'volume') {
+    return 'settings'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'segmentation') {
+    return 'segmentation'
+  }
+  return 'mip'
+})
+const rightToolbarUtilityPanelTitle = computed(() => {
+  if (rightToolbarUtilityPanelKind.value === 'volume') {
+    return '3D Params'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'segmentation') {
+    return locale.value === 'zh-CN' ? '阈值分割' : 'Segmentation'
+  }
+  return 'MIP Params'
+})
+const rightToolbarUtilityPanelToolKey = computed(() => {
+  if (rightToolbarUtilityPanelKind.value === 'volume') {
+    return 'volumeParams'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'mprMip') {
+    return 'mprMip'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'segmentation') {
+    return 'segmentation'
+  }
+  return null
+})
+
 const annotationStore = ref<Record<string, Partial<Record<string, AnnotationOverlay[]>>>>({})
 const draftAnnotations = ref<Partial<Record<string, AnnotationDraft | null>>>({})
+const pendingDeletedAnnotationIds = ref<Partial<Record<string, string[]>>>({})
 const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
 const annotationActivePointerId = ref<number | null>(null)
 const qaWaterAnalysis = ref<QaWaterAnalysis | null>(null)
 const qaWaterAnalysisCache = ref<Record<string, QaWaterAnalysis>>({})
 let qaWaterAnalysisRequestId = 0
+const activeResultPanel = ref<WorkspaceResultPanel | null>(null)
 const {
   cancelExportNameDialog,
   cleanupExportUi,
@@ -280,6 +447,19 @@ const {
   showExportFailureNotice,
   showExportNotice
 } = useWorkspaceExportUi(workspaceExportCopy, exportNameInputRef)
+const isFusionRegistrationSaveDialogOpen = ref(false)
+const isFusionRegistrationSaving = ref(false)
+const fusionRegistrationSaveMode = ref<FusionRegistrationExportMode>('newDicom')
+const fusionRegistrationSeriesDescription = ref('')
+const fusionRegistrationOutputDirectory = ref('')
+const fusionRegistrationSaveError = ref<string | null>(null)
+const lastFusionRegistrationExport = ref<FusionRegistrationExportResponse | null>(null)
+const fusionRegistrationFileInputRef = ref<HTMLInputElement | null>(null)
+const isFusionRegistrationWebMode = computed(() => viewerRuntime.platform === 'web')
+const fusionRegistrationSourceSeriesDescription = computed(() => getFusionPetSeriesDescription(props.activeTab) || 'PET')
+const canOpenFusionRegistrationFolder = computed(() =>
+  !isFusionRegistrationWebMode.value && Boolean(lastFusionRegistrationExport.value?.directoryPath && window.viewerApi?.openExportLocation)
+)
 
 function resolveActiveExportImageElement(viewportKey: string): HTMLImageElement | null {
   const host = viewportHostRef.value
@@ -325,6 +505,17 @@ function rememberQaWaterAnalysis(key: string, analysis: QaWaterAnalysis): void {
   }
 }
 
+function requestQaWaterResultPanel(): void {
+  const key = qaWaterAnalysisKey.value
+  if (!key) {
+    return
+  }
+  activeResultPanel.value = 'qaWater'
+  if (!qaWaterAnalysis.value) {
+    void refreshQaWaterAnalysis(key)
+  }
+}
+
 async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<void> {
   const requestId = qaWaterAnalysisRequestId + 1
   qaWaterAnalysisRequestId = requestId
@@ -334,6 +525,7 @@ async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<v
     return
   }
 
+  activeResultPanel.value = 'qaWater'
   qaWaterAnalysis.value = {
     viewId: tab.viewId,
     viewportKey: 'single',
@@ -354,7 +546,7 @@ async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<v
       viewportKey: 'single',
       rois: [],
       status: 'error',
-      message: 'Water phantom QA analysis failed.'
+      message: overlayCopy.value.qaWaterFailed
     }
     rememberQaWaterAnalysis(key, analysis)
     if (requestId === qaWaterAnalysisRequestId && key === qaWaterAnalysisKey.value) {
@@ -567,6 +759,10 @@ function isLayoutViewType(viewType: ViewerTabItem['viewType'] | null | undefined
   return viewType === 'Layout'
 }
 
+function isPetCtFusionViewType(viewType: ViewerTabItem['viewType'] | null | undefined): boolean {
+  return viewType === 'PETCTFusion'
+}
+
 function resolveLayoutSlot(tab: ViewerTabItem, viewportKey: string) {
   const slots = tab.layoutSlots ?? []
   return slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
@@ -585,6 +781,10 @@ function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): 
   }
   if (isLayoutViewType(tab.viewType)) {
     return resolveLayoutSlot(tab, viewportKey)?.cornerInfo ?? tab.cornerInfo
+  }
+  if (isPetCtFusionViewType(tab.viewType)) {
+    const paneKey = isFusionPaneKey(viewportKey) ? viewportKey : FUSION_OVERLAY_AXIAL_PANE_KEY
+    return tab.fusionCornerInfos?.[paneKey] ?? tab.cornerInfo
   }
   return tab.cornerInfo
 }
@@ -671,17 +871,19 @@ async function buildAnnotatedPngData(viewportKey: string, overlays: ViewerExport
   }
 }
 
-async function handleExportCurrentView(format: ViewerExportFormat): Promise<void> {
+async function handleExportCurrentView(format: ViewerExportFormat, viewportKeyOverride?: string): Promise<void> {
   try {
     if (!props.activeTab) {
       showExportNotice(null, format)
       return
     }
 
-    const exportViewportKey =
-      isMprLikeViewType(props.activeTab?.viewType) || isCompareStackViewType(props.activeTab?.viewType) || isLayoutViewType(props.activeTab?.viewType)
-        ? activeViewportKey.value
-        : 'single'
+    const shouldUseActiveViewport =
+      isMprLikeViewType(props.activeTab.viewType) ||
+      isCompareStackViewType(props.activeTab.viewType) ||
+      isLayoutViewType(props.activeTab.viewType) ||
+      isPetCtFusionViewType(props.activeTab.viewType)
+    const exportViewportKey = viewportKeyOverride ?? (shouldUseActiveViewport ? activeViewportKey.value : 'single')
     const exportFileNameStem = buildExportFileStem(props.activeTab, exportViewportKey)
     const defaultFileNameStem =
       format === 'dicom-sr'
@@ -756,6 +958,7 @@ function createAnnotationId(): string {
 function isAnnotationOperationEnabled(): boolean {
   return (
     (props.activeTab?.viewType === 'Stack' ||
+      props.activeTab?.viewType === 'PET' ||
       isCompareStackViewType(props.activeTab?.viewType) ||
       isLayoutViewType(props.activeTab?.viewType) ||
       isMprLikeViewType(props.activeTab?.viewType)) &&
@@ -768,82 +971,267 @@ function getDraftAnnotation(viewportKey: string): AnnotationDraft | null {
 }
 
 function getAnnotations(viewportKey: string): AnnotationOverlay[] {
-  const tabKey = props.activeTab?.key
   const activeTab = props.activeTab
-  if (!tabKey || !activeTab) {
+  if (!activeTab) {
     return []
   }
 
-  const importedAnnotations =
-    activeTab.viewType === 'Stack'
+  const committedAnnotations =
+    activeTab.viewType === 'Stack' || activeTab.viewType === 'PET'
       ? (activeTab.annotations ?? [])
       : (activeTab.viewportAnnotations?.[viewportKey] ?? [])
-  const localAnnotations = annotationStore.value[tabKey]?.[viewportKey] ?? []
-  if (!localAnnotations.length) {
-    return importedAnnotations
-  }
 
-  const localAnnotationIds = new Set(localAnnotations.map((annotation) => annotation.annotationId))
-  return [
-    ...importedAnnotations.filter((annotation) => !localAnnotationIds.has(annotation.annotationId)),
-    ...localAnnotations
-  ]
-}
-
-function setViewportAnnotations(viewportKey: string, annotations: AnnotationOverlay[]): void {
-  const tabKey = props.activeTab?.key
-  if (!tabKey) {
-    return
-  }
-
-  annotationStore.value = {
-    ...annotationStore.value,
-    [tabKey]: {
-      ...(annotationStore.value[tabKey] ?? {}),
-      [viewportKey]: annotations
-    }
-  }
+  const pendingDeletedIds = new Set(pendingDeletedAnnotationIds.value[viewportKey] ?? [])
+  return committedAnnotations.filter((annotation) => !pendingDeletedIds.has(annotation.annotationId))
 }
 
 function clearAllAnnotationsForActiveTab(): void {
-  const tabKey = props.activeTab?.key
-  if (!tabKey) {
-    return
-  }
-
-  annotationStore.value = {
-    ...annotationStore.value,
-    [tabKey]: {}
-  }
+  pendingDeletedAnnotationIds.value = {}
   clearDraftAnnotations()
   annotationInteraction.value = { kind: 'idle' }
 }
 
-function handleToolbarViewAction(payload: ViewerToolbarActionPayload): void {
-  if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
-    clearAllAnnotationsForActiveTab()
-    if (payload.action === 'clearAnnotations') {
+function getFusionPetSeriesDescription(tab: ViewerTabItem | null): string {
+  const fromMetadata = tab?.fusionSeriesDescriptions?.pet?.trim()
+  if (fromMetadata) {
+    return fromMetadata
+  }
+  const title = tab?.title ?? ''
+  const titleMatch = /\+\s*(.+?)(?:\s+(?:路|·)\s*PET\/CT|\s+PET\/CT|$)/i.exec(title)
+  const fromTitle = titleMatch?.[1]?.trim()
+  if (fromTitle) {
+    return fromTitle
+  }
+  return tab?.fusionInfo?.petSeriesId?.trim() || 'PET'
+}
+
+function buildFusionRegistrationSeriesDescription(tab: ViewerTabItem | null): string {
+  return `${getFusionPetSeriesDescription(tab)}_Reg`.slice(0, 64)
+}
+
+async function resolveFusionRegistrationDefaultOutputDirectory(): Promise<string> {
+  const customDirectory =
+    exportPreference.value.locationMode === 'custom'
+      ? exportPreference.value.desktopDirectory?.trim()
+      : ''
+  if (customDirectory) {
+    return customDirectory
+  }
+  const defaultDirectory = (await getDefaultExportLocationLabel()).trim()
+  return defaultDirectory === 'Browser default downloads' ? '' : defaultDirectory
+}
+
+async function openFusionRegistrationSaveDialog(): Promise<void> {
+  if (!props.activeTab || props.activeTab.viewType !== 'PETCTFusion') {
+    return
+  }
+  fusionRegistrationSaveMode.value = 'newDicom'
+  fusionRegistrationSeriesDescription.value = buildFusionRegistrationSeriesDescription(props.activeTab)
+  fusionRegistrationSaveError.value = null
+  lastFusionRegistrationExport.value = null
+  isFusionRegistrationSaveDialogOpen.value = true
+  if (isFusionRegistrationWebMode.value) {
+    fusionRegistrationOutputDirectory.value = ''
+    return
+  }
+  try {
+    fusionRegistrationOutputDirectory.value = await resolveFusionRegistrationDefaultOutputDirectory()
+  } catch {
+    fusionRegistrationOutputDirectory.value = ''
+  }
+}
+
+async function handleFusionRegistrationBrowseDirectory(): Promise<void> {
+  try {
+    const selectedDirectory = await chooseCustomExportDirectory()
+    if (selectedDirectory?.desktopDirectory) {
+      fusionRegistrationOutputDirectory.value = selectedDirectory.desktopDirectory
+      fusionRegistrationSaveError.value = null
       return
     }
+    if (selectedDirectory?.webDirectoryName) {
+      fusionRegistrationSaveError.value = '当前保存配准结果需要桌面文件夹路径，请选择本地文件夹。'
+    }
+  } catch (error) {
+    fusionRegistrationSaveError.value = resolveBackendErrorDetail(error) || '选择输出文件夹失败。'
+  }
+}
+
+function resolveFusionRegistrationExportViewId(tab: ViewerTabItem): string | null {
+  const overlayViewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+  if (overlayViewId) {
+    return overlayViewId
+  }
+  return Object.values(tab.fusionViewIds ?? {}).find((value): value is string => Boolean(value)) ?? null
+}
+
+async function handleFusionRegistrationSaveConfirm(): Promise<void> {
+  const tab = props.activeTab
+  if (!tab || tab.viewType !== 'PETCTFusion') {
+    fusionRegistrationSaveError.value = '当前没有可保存的 PET/CT 配准视图。'
+    return
+  }
+  const viewId = resolveFusionRegistrationExportViewId(tab)
+  if (!viewId) {
+    fusionRegistrationSaveError.value = '融合视图尚未初始化，请等待图像加载完成后再保存。'
+    return
+  }
+  const outputDirectory = fusionRegistrationOutputDirectory.value.trim()
+  if (!isFusionRegistrationWebMode.value && !outputDirectory) {
+    fusionRegistrationSaveError.value = '请选择输出路径。'
+    return
+  }
+  const seriesDescription = fusionRegistrationSeriesDescription.value.trim() || buildFusionRegistrationSeriesDescription(tab)
+  isFusionRegistrationSaving.value = true
+  fusionRegistrationSaveError.value = null
+  try {
+    if (isFusionRegistrationWebMode.value) {
+      const artifact = await postFusionRegistrationExportArtifact({
+        mode: fusionRegistrationSaveMode.value,
+        seriesDescription,
+        viewId
+      })
+      await saveBinaryFile({
+        data: artifact.data,
+        fileName: artifact.fileName,
+        mimeType: artifact.mediaType,
+        preference: { locationMode: 'default' }
+      })
+      exportNotice.value = {
+        canOpenLocation: false,
+        filePath: null,
+        message: `已生成 ${artifact.fileCount} 个文件并发送到浏览器下载。`,
+        title: workspaceExportCopy.value.exportComplete
+      }
+      emit('triggerViewAction', { action: 'fusionRegistrationSave' })
+      return
+    }
+
+    const result = await postFusionRegistrationExport({
+      mode: fusionRegistrationSaveMode.value,
+      outputDirectory,
+      seriesDescription,
+      viewId
+    })
+    lastFusionRegistrationExport.value = result
+    fusionRegistrationSeriesDescription.value = result.seriesDescription
+    exportNotice.value = {
+      canOpenLocation: Boolean(result.directoryPath && window.viewerApi?.openExportLocation),
+      directoryPath: result.directoryPath,
+      filePath: result.filePath ?? null,
+      message: `已保存 ${result.fileCount} 个文件到 ${result.directoryPath}`,
+      title: workspaceExportCopy.value.exportComplete
+    }
+    emit('triggerViewAction', { action: 'fusionRegistrationSave' })
+  } catch (error) {
+    fusionRegistrationSaveError.value = resolveBackendErrorDetail(error) || '保存配准结果失败。'
+  } finally {
+    isFusionRegistrationSaving.value = false
+  }
+}
+
+async function handleOpenFusionRegistrationFolder(): Promise<void> {
+  const result = lastFusionRegistrationExport.value
+  if (!result?.directoryPath) {
+    return
+  }
+  const opened = await openExportLocation({
+    directoryPath: result.directoryPath,
+    filePath: null
+  })
+  if (!opened) {
+    fusionRegistrationSaveError.value = workspaceExportCopy.value.openLocationFailed
+  }
+}
+
+function handleOpenFusionRegistrationLoadFile(): void {
+  if (!props.activeTab || props.activeTab.viewType !== 'PETCTFusion') {
+    return
+  }
+  if (fusionRegistrationFileInputRef.value) {
+    fusionRegistrationFileInputRef.value.value = ''
+    fusionRegistrationFileInputRef.value.click()
+  }
+}
+
+async function handleFusionRegistrationFileSelected(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file) {
+    return
+  }
+  if (!file.name.toLowerCase().endsWith('.br')) {
+    exportNotice.value = {
+      canOpenLocation: false,
+      message: '请选择 DicomVision .br 配准文件。',
+      title: workspaceExportCopy.value.exportFailed
+    }
+    return
+  }
+  try {
+    const parsed = JSON.parse(await file.text()) as Record<string, unknown>
+    emit('triggerViewAction', { action: 'fusionRegistrationLoad', registrationFile: parsed })
+  } catch {
+    exportNotice.value = {
+      canOpenLocation: false,
+      message: '配准文件不是有效的 JSON。',
+      title: workspaceExportCopy.value.exportFailed
+    }
+  }
+}
+
+function handleToolbarViewAction(payload: ViewerToolbarActionPayload): void {
+  if (payload.action === 'fusionRegistrationSave' && props.activeTab?.viewType === 'PETCTFusion') {
+    void openFusionRegistrationSaveDialog()
+    return
+  }
+
+  if (payload.action === 'fusionRegistrationLoad' && props.activeTab?.viewType === 'PETCTFusion') {
+    handleOpenFusionRegistrationLoadFile()
+    return
+  }
+
+  if (payload.action === 'clearAnnotations' || payload.action === 'resetAll') {
+    clearAllAnnotationsForActiveTab()
   }
 
   emit('triggerViewAction', payload)
 }
 
-function upsertAnnotation(viewportKey: string, annotation: AnnotationOverlay): void {
-  const current = getAnnotations(viewportKey)
-  const index = current.findIndex((item) => item.annotationId === annotation.annotationId)
-  setViewportAnnotations(
+function commitAnnotation(viewportKey: string, annotation: AnnotationOverlay | AnnotationDraft): void {
+  if (!annotation.annotationId || !isValidArrowAnnotation(annotation.points)) {
+    return
+  }
+
+  emit('annotationOperation', {
     viewportKey,
-    index === -1 ? [...current, annotation] : current.map((item, currentIndex) => (currentIndex === index ? annotation : item))
-  )
+    annotationId: annotation.annotationId,
+    actionType: 'end',
+    toolType: annotation.toolType,
+    points: annotation.points,
+    text: annotation.text,
+    color: annotation.color,
+    size: annotation.size
+  })
 }
 
-function removeAnnotation(viewportKey: string, annotationId: string): void {
-  setViewportAnnotations(
+function markAnnotationPendingDelete(viewportKey: string, annotationId: string): void {
+  const nextIds = new Set(pendingDeletedAnnotationIds.value[viewportKey] ?? [])
+  nextIds.add(annotationId)
+  pendingDeletedAnnotationIds.value = {
+    ...pendingDeletedAnnotationIds.value,
+    [viewportKey]: Array.from(nextIds)
+  }
+}
+
+function emitAnnotationDelete(viewportKey: string, annotationId: string): void {
+  markAnnotationPendingDelete(viewportKey, annotationId)
+  emit('annotationOperation', {
     viewportKey,
-    getAnnotations(viewportKey).filter((item) => item.annotationId !== annotationId)
-  )
+    annotationId,
+    actionType: 'delete'
+  })
 }
 
 function setDraftAnnotation(viewportKey: string, annotation: AnnotationDraft | null): void {
@@ -989,7 +1377,13 @@ function getRenderedImageRect(imageElement: HTMLImageElement): DOMRect {
   return new DOMRect(rect.left, rect.top + offsetY, rect.width, renderedHeight)
 }
 
-function getNormalizedViewportPoint(event: PointerEvent): MeasurementDraftPoint | null {
+interface AnnotationPointerProjection {
+  sourcePoint: MeasurementDraftPoint
+  screenPoint: AnnotationScreenPoint
+  frame: AnnotationProjectionFrame
+}
+
+function getAnnotationPointerProjection(event: PointerEvent): AnnotationPointerProjection | null {
   const imageElement = resolveViewportImageElement(event)
   if (!imageElement) {
     return null
@@ -1000,9 +1394,26 @@ function getNormalizedViewportPoint(event: PointerEvent): MeasurementDraftPoint 
     return null
   }
 
+  const frame: AnnotationProjectionFrame = {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    naturalWidth: imageElement.naturalWidth || rect.width,
+    naturalHeight: imageElement.naturalHeight || rect.height
+  }
+  const screenPoint = {
+    x: event.clientX,
+    y: event.clientY
+  }
+
   return {
-    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+    sourcePoint: {
+      x: Math.max(0, Math.min(1, (screenPoint.x - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (screenPoint.y - rect.top) / rect.height))
+    },
+    screenPoint,
+    frame
   }
 }
 
@@ -1028,15 +1439,25 @@ function stopAnnotationInteraction(pointerTarget?: EventTarget | null): void {
   annotationInteraction.value = { kind: 'idle' }
 }
 
-function updateSelectedAnnotation(viewportKey: string, annotationId: string, updater: (current: AnnotationOverlay) => AnnotationOverlay): void {
-  const current = findAnnotation(viewportKey, annotationId)
+function updateSelectedAnnotation(
+  viewportKey: string,
+  annotationId: string,
+  updater: (current: AnnotationOverlay) => AnnotationOverlay,
+  options: { commit?: boolean } = {}
+): void {
+  const draft = getDraftAnnotation(viewportKey)
+  const current = draft?.annotationId === annotationId
+    ? ({ ...draft, annotationId } as AnnotationOverlay)
+    : findAnnotation(viewportKey, annotationId)
   if (!current) {
     return
   }
 
   const nextAnnotation = updater(current)
-  upsertAnnotation(viewportKey, nextAnnotation)
   selectAnnotation(viewportKey, nextAnnotation)
+  if (options.commit ?? true) {
+    commitAnnotation(viewportKey, nextAnnotation)
+  }
 }
 
 function offsetAnnotationPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
@@ -1121,8 +1542,8 @@ function copySelectedAnnotation(viewportKey?: string): boolean {
     points: copiedPoints
   }
 
-  upsertAnnotation(resolvedViewportKey, copiedAnnotation)
   selectAnnotation(resolvedViewportKey, copiedAnnotation)
+  commitAnnotation(resolvedViewportKey, copiedAnnotation)
   annotationInteraction.value = { kind: 'idle' }
   return true
 }
@@ -1134,14 +1555,14 @@ function deleteSelectedAnnotation(viewportKey?: string): boolean {
     return false
   }
 
-  removeAnnotation(resolvedViewportKey, draft.annotationId)
+  emitAnnotationDelete(resolvedViewportKey, draft.annotationId)
   setDraftAnnotation(resolvedViewportKey, null)
   annotationInteraction.value = { kind: 'idle' }
   return true
 }
 
 function handleAnnotationDelete(payload: { viewportKey: string; annotationId: string }): void {
-  removeAnnotation(payload.viewportKey, payload.annotationId)
+  emitAnnotationDelete(payload.viewportKey, payload.annotationId)
   const draft = getDraftAnnotation(payload.viewportKey)
   if (draft?.annotationId === payload.annotationId) {
     setDraftAnnotation(payload.viewportKey, null)
@@ -1169,17 +1590,16 @@ function handleAnnotationPointerDown(event: PointerEvent, viewportKey: string): 
   }
 
   const pointerTarget = resolvePointerContainer(event)
-  const point = getNormalizedViewportPoint(event)
-  const imageElement = resolveViewportImageElement(event)
-  if (!(pointerTarget instanceof HTMLElement) || !point || !imageElement) {
+  const projection = getAnnotationPointerProjection(event)
+  if (!(pointerTarget instanceof HTMLElement) || !projection) {
     return false
   }
 
   event.preventDefault()
   setActiveViewport(viewportKey)
-  const rect = getRenderedImageRect(imageElement)
+  const point = projection.sourcePoint
   const annotations = getAnnotations(viewportKey)
-  const hit = findArrowAnnotationAtPoint(annotations, point, rect)
+  const hit = findArrowAnnotationAtScreenPoint(annotations, projection.screenPoint, projection.frame)
 
   if (hit?.handleIndex != null) {
     selectAnnotation(viewportKey, hit.annotation)
@@ -1201,6 +1621,7 @@ function handleAnnotationPointerDown(event: PointerEvent, viewportKey: string): 
       viewportKey,
       annotationId: hit.annotation.annotationId,
       startPoint: point,
+      startScreenPoint: projection.screenPoint,
       originalPoints: hit.annotation.points
     }
     return true
@@ -1228,10 +1649,14 @@ function handleAnnotationPointerMove(event: PointerEvent): boolean {
   }
 
   const interaction = annotationInteraction.value
-  const point = getNormalizedViewportPoint(event)
-  if (!point) {
+  if (interaction.kind === 'idle') {
+    return false
+  }
+  const projection = getAnnotationPointerProjection(event)
+  if (!projection) {
     return true
   }
+  const point = projection.sourcePoint
 
   if (interaction.kind === 'creating') {
     const draft = getDraftAnnotation(interaction.viewportKey)
@@ -1247,14 +1672,8 @@ function handleAnnotationPointerMove(event: PointerEvent): boolean {
   }
 
   if (interaction.kind === 'move_pending') {
-    const imageElement = resolveViewportImageElement(event)
-    if (!imageElement) {
-      return true
-    }
-
-    const rect = getRenderedImageRect(imageElement)
-    const deltaX = (point.x - interaction.startPoint.x) * rect.width
-    const deltaY = (point.y - interaction.startPoint.y) * rect.height
+    const deltaX = projection.screenPoint.x - interaction.startScreenPoint.x
+    const deltaY = projection.screenPoint.y - interaction.startScreenPoint.y
     if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < ANNOTATION_DRAG_START_THRESHOLD) {
       return true
     }
@@ -1277,7 +1696,8 @@ function handleAnnotationPointerMove(event: PointerEvent): boolean {
           point.x - movingInteraction.startPoint.x,
           point.y - movingInteraction.startPoint.y
         )
-      })
+      }),
+      { commit: false }
     )
     return true
   }
@@ -1286,7 +1706,7 @@ function handleAnnotationPointerMove(event: PointerEvent): boolean {
     updateSelectedAnnotation(interaction.viewportKey, interaction.annotationId, (current) => ({
       ...current,
       points: updateEditedArrowPoints(current.points, interaction.handleIndex, point)
-    }))
+    }), { commit: false })
     return true
   }
 
@@ -1310,8 +1730,8 @@ function handleAnnotationPointerUp(event: PointerEvent): boolean {
         color: draft.color,
         size: draft.size
       }
-      upsertAnnotation(interaction.viewportKey, annotation)
       selectAnnotation(interaction.viewportKey, annotation)
+      commitAnnotation(interaction.viewportKey, annotation)
     } else {
       setDraftAnnotation(interaction.viewportKey, null)
     }
@@ -1321,6 +1741,10 @@ function handleAnnotationPointerUp(event: PointerEvent): boolean {
   }
 
   if (interaction.kind === 'move_pending' || interaction.kind === 'moving' || interaction.kind === 'editing_handle') {
+    const draft = getDraftAnnotation(interaction.viewportKey)
+    if (draft?.annotationId) {
+      commitAnnotation(interaction.viewportKey, draft)
+    }
     stopAnnotationInteraction(event.currentTarget)
     return true
   }
@@ -1377,11 +1801,16 @@ function handleViewportPointerLeaveWithAnnotations(viewportKey: string): void {
   handleViewportPointerLeave(viewportKey)
 }
 
-const isMtfCurveDialogOpen = ref(false)
 const activeMtfState = computed(() => props.activeTab?.mtfState ?? null)
 const canAcceptQuickPreviewDrop = computed(() => !props.isViewLoading && !props.activeTab)
+const MPR_SEGMENTATION_PROGRESS_VIEWPORTS = ['mpr-ax', 'mpr-cor', 'mpr-sag'] as const
+const isMprSegmentationProcessing = computed(() => {
+  const progress = props.activeTab?.viewportLoadingProgress
+  return MPR_SEGMENTATION_PROGRESS_VIEWPORTS.some((viewportKey) => Boolean(progress?.[viewportKey]))
+})
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const isTabStripCollapsed = ref(false)
+const workspaceContentWidth = ref(0)
 const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
 const shouldShowTabStrip = computed(() => hasViewerTabs.value && (!isTabStripCollapsed.value || shouldForceShowTabStrip.value))
 const shouldShowTabStripToggle = computed(() => hasViewerTabs.value && Boolean(props.activeTab) && props.activeTab?.viewType !== 'Tag')
@@ -1394,15 +1823,49 @@ const selectedMtfItem = computed(() => {
 
   return state.items.find((item) => item.mtfId === state.selectedMtfId) ?? null
 })
+const activeResultPanelKind = computed<WorkspaceResultPanel | null>(() => {
+  if (activeResultPanel.value === 'mtfCurve') {
+    return selectedMtfItem.value?.status === 'ready' ? 'mtfCurve' : null
+  }
+  if (activeResultPanel.value === 'qaWater') {
+    return isWaterPhantomQaOperation(props.activeOperation) ? 'qaWater' : null
+  }
+  return null
+})
+const topResultDockCanReserve = computed(() => workspaceContentWidth.value >= TOP_RESULT_DOCK_MIN_CONTENT_WIDTH)
+const qaResultPanelTitle = computed(() => (locale.value === 'zh-CN' ? 'QA 报告' : 'QA Report'))
+const resultPanelTitle = computed(() =>
+  activeResultPanelKind.value === 'mtfCurve'
+    ? overlayCopy.value.mtfCurveTitle
+    : qaResultPanelTitle.value
+)
+const resultPanelIcon = computed(() => (activeResultPanelKind.value === 'mtfCurve' ? 'mtf' : 'water-phantom'))
+const resultPanelToolKey = computed(() => {
+  if (activeResultPanelKind.value === 'mtfCurve') {
+    return activeTools.value.some((tool) => tool.key === 'mtf') ? 'mtf' : 'qa'
+  }
+  if (activeResultPanelKind.value === 'qaWater') {
+    return 'qa'
+  }
+  return null
+})
+const shouldShowTopResultDock = computed(() =>
+  Boolean(
+    activeTabRef.value &&
+    activeTabRef.value.viewType !== 'Tag' &&
+    !isRightToolbarLayout.value &&
+    (activeResultPanelKind.value || topResultDockCanReserve.value)
+  )
+)
 
 function handleOpenMtfCurve(): void {
   if (selectedMtfItem.value?.status === 'ready') {
-    isMtfCurveDialogOpen.value = true
+    activeResultPanel.value = 'mtfCurve'
   }
 }
 
-function handleCloseMtfCurve(): void {
-  isMtfCurveDialogOpen.value = false
+function closeResultPanel(): void {
+  activeResultPanel.value = null
 }
 
 const {
@@ -1430,7 +1893,7 @@ function isStackCurrentSliceStarred(tab: ViewerTabItem): boolean {
 }
 
 function handleStackSliceStar(payload: { sliceIndex: number }): void {
-  if (props.activeTab?.viewType !== 'Stack') {
+  if (props.activeTab?.viewType !== 'Stack' && props.activeTab?.viewType !== 'PET') {
     return
   }
   toggleSliceStar(props.activeTab.seriesId, payload.sliceIndex)
@@ -1544,6 +2007,10 @@ function handleDeleteSelectedMeasurementHotkey(): boolean {
 
 function handleSelectMtf(payload: { mtfId: string | null }): void {
   emit('mtfSelect', payload)
+  const item = payload.mtfId ? activeMtfState.value?.items.find((candidate) => candidate.mtfId === payload.mtfId) : null
+  if (item?.status === 'ready') {
+    activeResultPanel.value = 'mtfCurve'
+  }
 }
 
 function runSelectedMtfAction(action: (mtfId: string) => void): boolean {
@@ -1558,7 +2025,9 @@ function runSelectedMtfAction(action: (mtfId: string) => void): boolean {
 
 function handleDeleteSelectedMtf(): void {
   void runSelectedMtfAction((mtfId) => {
-    isMtfCurveDialogOpen.value = false
+    if (activeResultPanel.value === 'mtfCurve') {
+      closeResultPanel()
+    }
     emit('mtfDelete', { mtfId })
   })
 }
@@ -1567,7 +2036,18 @@ watch(
   () => activeMtfState.value,
   (value) => {
     if (!value?.items.length || !selectedMtfItem.value) {
-      isMtfCurveDialogOpen.value = false
+      if (activeResultPanel.value === 'mtfCurve') {
+        closeResultPanel()
+      }
+    }
+  }
+)
+
+watch(
+  () => [selectedMtfItem.value?.mtfId ?? null, selectedMtfItem.value?.status ?? null] as const,
+  ([mtfId, status]) => {
+    if (mtfId && status === 'ready') {
+      activeResultPanel.value = 'mtfCurve'
     }
   }
 )
@@ -1588,12 +2068,16 @@ watch(
     if (!value) {
       qaWaterAnalysisRequestId += 1
       qaWaterAnalysis.value = null
+      if (activeResultPanel.value === 'qaWater') {
+        closeResultPanel()
+      }
       return
     }
     const cachedAnalysis = qaWaterAnalysisCache.value[value]
     if (cachedAnalysis) {
       qaWaterAnalysisRequestId += 1
       qaWaterAnalysis.value = cachedAnalysis
+      activeResultPanel.value = 'qaWater'
       return
     }
     void refreshQaWaterAnalysis(value)
@@ -1604,6 +2088,7 @@ watch(
 watch(
   () => props.activeTabKey,
   () => {
+    closeResultPanel()
     clearDraftAnnotations()
     annotationInteraction.value = { kind: 'idle' }
   }
@@ -1623,11 +2108,47 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorksp
     viewportHostRef
   })
 
+function updateWorkspaceContentWidth(): void {
+  workspaceContentWidth.value = workspaceContentRef.value?.clientWidth ?? 0
+}
+
+watch(
+  () => workspaceContentRef.value,
+  (element, _previousElement, onCleanup) => {
+    updateWorkspaceContentWidth()
+    if (!element || typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateWorkspaceContentWidth()
+    })
+    resizeObserver.observe(element)
+    onCleanup(() => resizeObserver.disconnect())
+  },
+  { flush: 'post', immediate: true }
+)
+
+watch(
+  () => [viewerToolbarPlacement.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
+  () => {
+    void nextTick().then(() => {
+      notifyWorkspaceReady()
+    })
+  }
+)
+
 function toggleTabStripCollapsed(): void {
   isTabStripCollapsed.value = !isTabStripCollapsed.value
   void nextTick().then(() => {
     notifyWorkspaceReady()
     updateTabScrollState()
+  })
+}
+
+function handleRightToolbarDockResize(): void {
+  void nextTick().then(() => {
+    notifyWorkspaceReady()
   })
 }
 
@@ -1669,7 +2190,9 @@ useWorkspaceHotkeys({
   deleteSelectedAnnotation,
   deleteSelectedMeasurement: handleDeleteSelectedMeasurementHotkey,
   deleteSelectedMtf: () => runSelectedMtfAction((mtfId) => {
-    isMtfCurveDialogOpen.value = false
+    if (activeResultPanel.value === 'mtfCurve') {
+      closeResultPanel()
+    }
     emit('mtfDelete', { mtfId })
   }),
   exportCurrentView: (format) => {
@@ -1730,7 +2253,7 @@ onBeforeUnmount(() => {
       />
 
       <ViewerToolbar
-        v-if="activeTab && activeTab.viewType !== 'Tag' && activeTab.viewType !== '4D'"
+        v-if="shouldShowTopToolbar && activeTab"
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="areToolbarActionsDisabled"
@@ -1744,11 +2267,11 @@ onBeforeUnmount(() => {
         :stack-tool-selections="stackToolSelections"
         :toggle-icon-size="toggleIconSize"
         :toolbar-icon-size="toolbarIconSize"
-        @apply-tool="applyTool"
+        @apply-tool="handleToolbarApplyTool"
         @end-playback="endPlayback"
         @pause-playback="pausePlayback"
-        @select-tool-option="selectToolOption"
-        @set-menu-open="setMenuOpen"
+        @select-tool-option="handleToolbarSelectToolOption"
+        @set-menu-open="handleToolbarSetMenuOpen"
         @toggle-tab-strip="toggleTabStripCollapsed"
       />
 
@@ -1761,11 +2284,16 @@ onBeforeUnmount(() => {
 
       <div
         v-else-if="activeTab"
-        ref="viewportHostRef"
-        class="theme-viewport-surface relative flex-1 overflow-hidden rounded-[20px] border p-2"
+        ref="workspaceContentRef"
+        class="viewer-workspace-content flex min-h-0 flex-1 gap-2"
+        :class="{ 'viewer-workspace-content--right-toolbar': shouldShowRightToolbarDock }"
       >
         <div
-          v-if="isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
+          ref="viewportHostRef"
+          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden rounded-[20px] border p-2"
+        >
+        <div
+          v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
           class="absolute right-5 top-5 z-[20]"
         >
           <VolumeRenderConfigPanel
@@ -1776,13 +2304,29 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="(activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
+          v-if="!isRightToolbarLayout && (activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
           class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
         >
           <MprMipConfigPanel
             class="pointer-events-auto max-h-full rounded-r-[18px]!"
             :config="activeMprMipConfig"
             @config-change="updateActiveMprMipConfig"
+          />
+        </div>
+
+        <div
+          v-if="!isRightToolbarLayout && activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen && activeMprSegmentationConfig"
+          class="contents"
+        >
+          <MprSegmentationPanel
+            class="pointer-events-auto"
+            :config="activeMprSegmentationConfig"
+            :is-processing="isMprSegmentationProcessing"
+            :series-id="activeTab.seriesId"
+            :series-label="activeTab.seriesTitle"
+            @close="closeMprSegmentationPanel"
+            @config-change="handleMprSegmentationConfigChange"
+            @mode-change="handleMprSegmentationModeChange"
           />
         </div>
 
@@ -1848,7 +2392,7 @@ onBeforeUnmount(() => {
         />
 
         <StackView
-          v-else-if="activeTab.viewType === 'Stack'"
+          v-else-if="activeTab.viewType === 'Stack' || activeTab.viewType === 'PET'"
           :active-tab="activeTab"
           :active-operation="props.activeOperation"
           :annotations="getViewportAnnotations('single')"
@@ -1891,9 +2435,12 @@ onBeforeUnmount(() => {
         <MprView
           v-else-if="activeTab.viewType === 'MPR'"
           :active-tab="activeTab"
-          :active-operation="props.activeOperation"
+          :active-operation="isPlaying || isPlaybackPaused ? '' : props.activeOperation"
           :active-viewport-key="activeViewportKey"
           :layout-key="activeMprLayoutKey"
+          :mpr-segmentation-default-threshold-color="mprSegmentationDefaultThresholdColor"
+          :mpr-segmentation-default-voi-color="mprSegmentationDefaultVoiColor"
+          :mpr-segmentation-config="activeTab.mprSegmentationConfig ?? null"
           :get-annotations="getViewportAnnotations"
           :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
           :get-draft-annotation="getViewportDraftAnnotation"
@@ -1914,6 +2461,38 @@ onBeforeUnmount(() => {
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @open-mtf-curve="handleOpenMtfCurve"
           @select-mtf="handleSelectMtf"
+          @mpr-segmentation-config-change="handleMprSegmentationConfigChange"
+          @mpr-segmentation-mode-change="handleMprSegmentationModeChange"
+          @viewport-click="handleViewportClick"
+          @viewport-wheel="handleViewportWheel"
+          @pointer-down="handleViewportPointerDownWithAnnotations"
+          @pointer-leave="handleViewportPointerLeaveWithAnnotations"
+          @pointer-move="handleViewportPointerMoveWithAnnotations"
+          @pointer-up="handleViewportPointerUpWithAnnotations"
+          @pointer-cancel="handleViewportPointerCancelWithAnnotations"
+          @update-annotation-color="handleAnnotationColorUpdate"
+          @update-annotation-size="handleAnnotationSizeUpdate"
+          @update-annotation-text="handleAnnotationTextUpdate"
+        />
+
+        <PetCtFusionView
+          v-else-if="activeTab.viewType === 'PETCTFusion'"
+          :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :active-viewport-key="activeViewportKey"
+          :get-annotations="getViewportAnnotations"
+          :get-cursor-class="(viewportKey) => getViewportCursorClass(viewportKey)"
+          :get-draft-annotation="getViewportDraftAnnotation"
+          :get-draft-measurement-mode="getViewportDraftMeasurementMode"
+          :get-draft-measurement="getViewportDraftMeasurement"
+          :get-measurements="getViewportMeasurements"
+          @copy-annotation="handleAnnotationCopy"
+          @delete-annotation="handleAnnotationDelete"
+          @copy-selected-measurement="handleCopySelectedMeasurement"
+          @delete-selected-measurement="handleDeleteSelectedMeasurement"
+          @fusion-config-change="emit('fusionConfigChange', $event)"
+          @fusion-registration-drag="emit('fusionRegistrationDrag', $event)"
+          @hover-viewport-change="emit('hoverViewportChange', $event)"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
           @pointer-down="handleViewportPointerDownWithAnnotations"
@@ -1958,21 +2537,34 @@ onBeforeUnmount(() => {
           :is-tool-selected="isToolSelected"
           :is-tab-strip-collapsed="isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
+          :active-mpr-mip-config="activeMprMipConfig"
+          :is-mpr-mip-panel-open="isMprMipPanelOpen"
+          :is-slice-playback-paused="isPlaybackPaused"
+          :is-slice-playback-playing="isPlaying"
           :open-menu-key="openMenuKey"
           :show-tab-strip-toggle="shouldShowTabStripToggle"
           :stack-tool-selections="stackToolSelections"
           :mpr-layout-key="activeMprLayoutKey"
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
-          @apply-tool="applyTool"
+          :toolbar-placement="viewerToolbarPlacement"
+          :result-panel-icon="resultPanelIcon"
+          :result-panel-open="activeResultPanelKind === 'mtfCurve'"
+          :result-panel-title="resultPanelTitle"
+          :result-panel-tool-key="resultPanelToolKey"
+          @apply-tool="handleToolbarApplyTool"
+          @close-mpr-mip-panel="closeMprMipPanel"
+          @close-result-panel="closeResultPanel"
           @copy-annotation="handleAnnotationCopy"
           @delete-annotation="handleAnnotationDelete"
           @copy-selected-measurement="handleCopySelectedMeasurement"
           @delete-selected-measurement="handleDeleteSelectedMeasurement"
           @clear-mtf="handleDeleteSelectedMtf"
           @copy-selected-mtf="handleCopySelectedMtf"
+          @end-playback="endPlayback"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @open-mtf-curve="handleOpenMtfCurve"
+          @pause-playback="pausePlayback"
           @select-mtf="handleSelectMtf"
           @viewport-click="handleViewportClick"
           @viewport-wheel="handleViewportWheel"
@@ -1984,25 +2576,124 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
-          @select-tool-option="selectToolOption"
-          @set-menu-open="setMenuOpen"
+          @select-tool-option="handleToolbarSelectToolOption"
+          @set-menu-open="handleToolbarSetMenuOpen"
           @toggle-tab-strip="toggleTabStripCollapsed"
+          @mpr-mip-config-change="updateActiveMprMipConfig"
           @phase-change="emit('fourDPhaseChange', { tabKey: activeTab.key, phaseIndex: $event })"
           @fps-change="emit('fourDFpsChange', { tabKey: activeTab.key, fps: $event })"
           @playback-change="emit('fourDPlaybackChange', { tabKey: activeTab.key, isPlaying: $event })"
-        />
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <template #result>
+            <MtfCurvePanelContent
+              v-if="activeResultPanelKind === 'mtfCurve'"
+              :mtf-item="selectedMtfItem"
+              @copy="handleCopySelectedMtf"
+              @delete="handleDeleteSelectedMtf"
+            />
+          </template>
+        </FourDView>
 
         <DicomTagView
           v-else
           :active-tab="activeTab"
+          :viewer-platform="viewerPlatform"
           @index-change="emit('tagIndexChange', $event)"
         />
 
-        <MtfCurveDialog
-          :is-open="isMtfCurveDialogOpen"
-          :mtf-item="selectedMtfItem"
-          @close="handleCloseMtfCurve"
-        />
+        </div>
+
+        <ViewerResultDock
+          v-if="shouldShowTopResultDock"
+          :has-content="Boolean(activeResultPanelKind)"
+          :icon="resultPanelIcon"
+          :title="resultPanelTitle"
+          @close="closeResultPanel"
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <MtfCurvePanelContent
+            v-if="activeResultPanelKind === 'mtfCurve'"
+            :mtf-item="selectedMtfItem"
+            @copy="handleCopySelectedMtf"
+            @delete="handleDeleteSelectedMtf"
+          />
+          <QaWaterResultPanelContent
+            v-else-if="activeResultPanelKind === 'qaWater'"
+            :analysis="qaWaterAnalysis"
+          />
+        </ViewerResultDock>
+
+        <ViewerToolbarDock
+          v-if="shouldShowRightToolbarDock && activeTab"
+          :active-tab="activeTab"
+          :active-tools="activeTools"
+          :are-toolbar-actions-disabled="areToolbarActionsDisabled"
+          :is-playing="isPlaying"
+          :is-playback-paused="isPlaybackPaused"
+          :is-tool-selected="isToolSelected"
+          :menu-icon-size="menuIconSize"
+          :open-menu-key="openMenuKey"
+          :result-panel-icon="resultPanelIcon"
+          :result-panel-open="Boolean(activeResultPanelKind)"
+          :result-panel-title="resultPanelTitle"
+          :result-panel-tool-key="resultPanelToolKey"
+          :stack-tool-selections="stackToolSelections"
+          :toolbar-icon-size="toolbarIconSize"
+          :utility-panel-icon="rightToolbarUtilityPanelIcon"
+          :utility-panel-open="rightToolbarUtilityPanelKind != null"
+          :utility-panel-title="rightToolbarUtilityPanelTitle"
+          :utility-panel-tool-key="rightToolbarUtilityPanelToolKey"
+          @apply-tool="handleToolbarApplyTool"
+          @close-result-panel="closeResultPanel"
+          @close-utility-panel="closeRightToolbarUtilityPanel"
+          @end-playback="endPlayback"
+          @pause-playback="pausePlayback"
+          @select-tool-option="handleToolbarSelectToolOption"
+          @set-menu-open="handleToolbarSetMenuOpen"
+          @dock-resize="handleRightToolbarDockResize"
+        >
+          <template #result>
+            <MtfCurvePanelContent
+              v-if="activeResultPanelKind === 'mtfCurve'"
+              :mtf-item="selectedMtfItem"
+              @copy="handleCopySelectedMtf"
+              @delete="handleDeleteSelectedMtf"
+            />
+            <QaWaterResultPanelContent
+              v-else-if="activeResultPanelKind === 'qaWater'"
+              :analysis="qaWaterAnalysis"
+            />
+          </template>
+          <template #panel>
+            <VolumeRenderConfigPanel
+              v-if="rightToolbarUtilityPanelKind === 'volume' && activeVolumeRenderConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeVolumeRenderConfig"
+              embedded
+              @close="closeVolumeConfigPanel"
+              @config-change="emit('volumeConfigChange', $event)"
+            />
+            <MprMipConfigPanel
+              v-else-if="rightToolbarUtilityPanelKind === 'mprMip' && activeMprMipConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeMprMipConfig"
+              embedded
+              @config-change="updateActiveMprMipConfig"
+            />
+            <MprSegmentationPanel
+              v-else-if="rightToolbarUtilityPanelKind === 'segmentation' && activeMprSegmentationConfig && activeTab.viewType === 'MPR'"
+              class="viewer-workspace-dock-panel"
+              :config="activeMprSegmentationConfig"
+              :is-processing="isMprSegmentationProcessing"
+              :series-id="activeTab.seriesId"
+              :series-label="activeTab.seriesTitle"
+              embedded
+              @config-change="handleMprSegmentationConfigChange"
+              @mode-change="handleMprSegmentationModeChange"
+            />
+          </template>
+        </ViewerToolbarDock>
       </div>
 
       <div
@@ -2022,6 +2713,31 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <FusionRegistrationSaveDialog
+      v-model:mode="fusionRegistrationSaveMode"
+      v-model:output-directory="fusionRegistrationOutputDirectory"
+      v-model:series-description="fusionRegistrationSeriesDescription"
+      :can-open-folder="canOpenFusionRegistrationFolder"
+      :error="fusionRegistrationSaveError"
+      :is-open="isFusionRegistrationSaveDialogOpen"
+      :is-saving="isFusionRegistrationSaving"
+      :is-web="isFusionRegistrationWebMode"
+      :saved-directory="lastFusionRegistrationExport?.directoryPath ?? null"
+      :source-series-description="fusionRegistrationSourceSeriesDescription"
+      @browse="handleFusionRegistrationBrowseDirectory"
+      @close="isFusionRegistrationSaveDialogOpen = false"
+      @open-folder="handleOpenFusionRegistrationFolder"
+      @save="handleFusionRegistrationSaveConfirm"
+    />
+
+    <input
+      ref="fusionRegistrationFileInputRef"
+      class="hidden"
+      type="file"
+      accept=".br,application/json"
+      @change="handleFusionRegistrationFileSelected"
+    />
 
     <WorkspaceExportNameDialog
       v-if="isExportNameDialogOpen"
@@ -2054,5 +2770,17 @@ onBeforeUnmount(() => {
 
 .viewer-workspace-empty.theme-drop-active {
   border-style: dashed;
+}
+
+.viewer-workspace-content--right-toolbar {
+  align-items: stretch;
+}
+
+.viewer-workspace-dock-panel {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 14px !important;
 }
 </style>

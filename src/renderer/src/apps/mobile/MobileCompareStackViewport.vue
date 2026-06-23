@@ -4,6 +4,9 @@ import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES, type ViewOperationType } 
 import ViewerCanvasStage from '../../components/viewer/views/ViewerCanvasStage.vue'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import type {
+  AnnotationDraft,
+  AnnotationOverlay,
+  AnnotationSize,
   CompareStackPaneKey,
   CornerInfo,
   MeasurementDraft,
@@ -45,18 +48,32 @@ const props = withDefaults(defineProps<{
   activeCompareViewportKey: CompareStackPaneKey
   activeOperation: string
   activeTab: ViewerTabItem | null
+  annotationPointerCancel?: (event: PointerEvent) => boolean
+  annotationPointerDown?: (event: PointerEvent, viewportKey: string) => boolean
+  annotationPointerLeave?: (viewportKey: string) => void
+  annotationPointerMove?: (event: PointerEvent) => boolean
+  annotationPointerUp?: (event: PointerEvent) => boolean
+  getAnnotations?: (viewportKey: string) => AnnotationOverlay[]
+  getDraftAnnotation?: (viewportKey: string) => AnnotationDraft | null
   isViewLoading: boolean
   scrollThreshold?: number
 }>(), {
+  getAnnotations: () => [],
+  getDraftAnnotation: () => null,
   scrollThreshold: 28
 })
 
 const emit = defineEmits<{
   activeViewportChange: [viewportKey: CompareStackPaneKey]
+  copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
+  deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
   measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
+  updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
+  updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: AnnotationSize }]
+  updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
 
@@ -305,6 +322,9 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
     return
   }
   event.preventDefault()
+  if (props.annotationPointerDown?.(event, viewportKey)) {
+    return
+  }
   if (event.currentTarget instanceof HTMLElement) {
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -332,11 +352,15 @@ function handleScrollDrag(deltaY: number, viewportKey: CompareStackPaneKey): voi
   scrollAccumulator -= sliceDelta * props.scrollThreshold
   emit('viewportWheel', {
     viewportKey,
-    deltaY: sliceDelta
+    deltaY: sliceDelta,
+    exact: true
   })
 }
 
 function handlePointerMove(event: PointerEvent): void {
+  if (props.annotationPointerMove?.(event)) {
+    return
+  }
   if (workspacePointerIds.has(event.pointerId)) {
     handleViewportPointerMove(event)
     return
@@ -395,6 +419,9 @@ function handlePointerMove(event: PointerEvent): void {
 
 function handlePointerUp(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerUp?.(event)) {
+    return
+  }
   if (workspacePointerIds.delete(event.pointerId)) {
     handleViewportPointerUp(event)
     return
@@ -418,6 +445,9 @@ function handlePointerUp(event: PointerEvent): void {
 
 function handlePointerCancel(event: PointerEvent): void {
   event.preventDefault()
+  if (props.annotationPointerCancel?.(event)) {
+    return
+  }
   if (workspacePointerIds.delete(event.pointerId)) {
     handleViewportPointerCancel(event)
     return
@@ -427,6 +457,11 @@ function handlePointerCancel(event: PointerEvent): void {
     endPinch()
     endDrag()
   }
+}
+
+function handlePointerLeave(viewportKey: string): void {
+  props.annotationPointerLeave?.(viewportKey)
+  handleViewportPointerLeave(viewportKey)
 }
 
 onMounted(() => {
@@ -475,6 +510,7 @@ watch(
         viewport-class="mobile-compare-viewport__stage"
         image-class="mobile-compare-viewport__image"
         :is-active="activeViewport === pane.key"
+        compact-loading
         :render-surface-active="true"
         :image-src="pane.imageSrc"
         :is-loading="Boolean(compareTab?.compareViewIds?.[pane.key]) && (!pane.imageSrc || isViewLoading)"
@@ -483,8 +519,9 @@ watch(
         :active-operation="activeOperation"
         :cursor-class="viewportCursorClasses[pane.key] ?? ''"
         placeholder="Compare preview"
-        :annotations="[]"
+        :annotations="getAnnotations(pane.key)"
         :corner-info="compareTab?.compareCornerInfos?.[pane.key] ?? compareTab?.cornerInfo ?? emptyCornerInfo"
+        :draft-annotation="getDraftAnnotation(pane.key)"
         :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
         :draft-measurement="getDraftMeasurement(pane.key)"
         :measurements="compareTab?.viewportMeasurements?.[pane.key] ?? []"
@@ -492,14 +529,20 @@ watch(
         :show-corner-info="compareTab?.showCornerInfo !== false"
         :show-scale-bar="compareTab?.showScaleBar !== false"
         :orientation="compareTab?.compareOrientations?.[pane.key] ?? compareTab?.orientation ?? emptyOrientationInfo"
+        :viewport-transform="compareTab?.compareTransformStates?.[pane.key] ?? compareTab?.transformState ?? null"
         @click-viewport="emitActiveViewportChange"
+        @copy-annotation="emit('copyAnnotation', $event)"
+        @delete-annotation="emit('deleteAnnotation', $event)"
         @hover-viewport-change="emit('hoverViewportChange', $event)"
         @wheel-viewport="emit('viewportWheel', $event)"
         @pointer-down="handlePointerDown"
         @pointer-move="handlePointerMove"
         @pointer-up="handlePointerUp"
         @pointer-cancel="handlePointerCancel"
-        @pointer-leave="handleViewportPointerLeave"
+        @pointer-leave="handlePointerLeave"
+        @update-annotation-color="emit('updateAnnotationColor', $event)"
+        @update-annotation-size="emit('updateAnnotationSize', $event)"
+        @update-annotation-text="emit('updateAnnotationText', $event)"
       />
     </div>
   </section>

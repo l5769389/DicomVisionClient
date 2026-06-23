@@ -8,8 +8,10 @@ const props = withDefaults(
     stageHeight: number
     stageWidth: number
     scaleBar?: ScaleBarInfo | null
+    colorOverride?: string | null
   }>(),
   {
+    colorOverride: null,
     scaleBar: null
   }
 )
@@ -39,7 +41,10 @@ const metrics = computed(() => {
   const top = Math.round(Math.max(12, roundedStageHeight - totalHeight - bottomPadding))
 
   return {
-    color: scaleBarPreference.value.color,
+    color: props.colorOverride?.trim() || scaleBarPreference.value.color,
+    textShadow: props.colorOverride?.trim()
+      ? '0 1px 1px rgba(255,255,255,0.82), 0 0 4px rgba(15,23,42,0.24)'
+      : '0 1px 6px rgba(0,0,0,0.88)',
     label: props.scaleBar.label,
     left,
     top,
@@ -56,7 +61,7 @@ const metrics = computed(() => {
   >
     <div
       class="mb-1 text-center text-[11px] font-semibold tracking-[0.12em]"
-      :style="{ color: metrics.color, textShadow: '0 1px 6px rgba(0,0,0,0.88)' }"
+      :style="{ color: metrics.color, textShadow: metrics.textShadow }"
     >
       {{ metrics.label }}
     </div>

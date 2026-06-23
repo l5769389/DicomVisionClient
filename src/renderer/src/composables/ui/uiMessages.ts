@@ -162,6 +162,9 @@ export interface WorkspaceExportCopy {
 }
 
 export interface ToolbarCopy {
+  dockCollapse: string
+  dockExpand: string
+  dockNoDetails: string
   hideTabs: string
   pausePlayback: string
   resumePlayback: string
@@ -247,6 +250,8 @@ export interface OverlayCopy {
   readingGuide: string
   closeMtfCurve: string
   close: string
+  resultDockCollapse: string
+  resultDockExpand: string
   noCurveData: string
   curveMarkersIncomplete: string
   measuredFromCurrentRoi: string
@@ -361,7 +366,7 @@ export const uiMessages = {
       loadingView: '正在加载视图...',
       openView: '开始浏览 DICOM',
       openViewDesc: '选择“上传 DICOM/加载文件夹”或拖拽载入影像；加载后双击序列快速浏览，也可以右键序列选择 2D、3D、MPR 等浏览方式。',
-      emptyDropQuickPreviewDesc: '当前右侧为空白区域，松开后将直接打开该序列的栈快速浏览。',
+      emptyDropQuickPreviewDesc: '当前右侧为空白区域，松开后将直接打开该序列的 2D 快速浏览。',
       scrollTabsLeft: '向左滚动标签页',
       scrollTabsRight: '向右滚动标签页',
       closeView: '关闭视图',
@@ -526,6 +531,9 @@ export const uiMessages = {
       exportedTo: (location: string) => `已导出到 ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      dockCollapse: '收起右侧操作区',
+      dockExpand: '展开右侧操作区',
+      dockNoDetails: '该工具没有额外设置。',
       hideTabs: '收起标签栏',
       pausePlayback: '暂停播放',
       resumePlayback: '继续播放',
@@ -536,7 +544,7 @@ export const uiMessages = {
     viewer: {
       active: '当前',
       keySliceDialogEmpty: '暂无关键切片',
-      keySliceDialogHint: '打开栈视图并跳转到该切片',
+      keySliceDialogHint: '打开 2D 视图并跳转到该切片',
       keySliceDialogTitle: '关键切片',
       keySliceClear: '清空',
       keySliceClearTitle: '清空当前序列的关键切片标记',
@@ -550,7 +558,7 @@ export const uiMessages = {
       unmarkKeySlice: '取消关键切片标记',
       loadingView: '正在加载视图...',
       loadingMprView: '正在加载 MPR 视图...',
-      loadingStackView: '正在加载栈视图...',
+      loadingStackView: '正在加载 2D 视图...',
       loadingVolumeView: '正在加载 3D 视图...',
       stackPlaceholder: '单视口预览',
       volumePlaceholder: '3D 视图预留区域',
@@ -560,7 +568,7 @@ export const uiMessages = {
       playbackFps: '4D 播放 FPS',
       loading4dPlayback: '正在加载 4D 播放',
       pause4dPlayback: '暂停 4D 播放',
-      play4dPlayback: '播放 4D',
+      play4dPlayback: '4D 播放',
       loading: '加载中',
       pause: '暂停',
       play: '播放',
@@ -610,6 +618,8 @@ export const uiMessages = {
       readingGuide: '阅读提示',
       closeMtfCurve: '关闭 MTF 曲线',
       close: '关闭',
+      resultDockCollapse: '收起结果区',
+      resultDockExpand: '展开结果区',
       noCurveData: '暂无曲线数据',
       curveMarkersIncomplete: '曲线标记不完整',
       measuredFromCurrentRoi: '基于当前 ROI 测量',
@@ -716,11 +726,11 @@ export const uiMessages = {
       waitingSeries: 'Waiting For Series',
       dropQuickPreview: 'Release To Quick Preview',
       waitingSeriesDesc: 'Load DICOM images with Upload DICOM / Load Folder, or drag files and folders into the window. After loading, double-click a series for quick preview or right-click it to choose a view.',
-      dropQuickPreviewDesc: 'Release now to open a stack quick preview for this series on the right.',
+      dropQuickPreviewDesc: 'Release now to open a 2D quick preview for this series on the right.',
       loadingView: 'Loading view...',
       openView: 'Start Reviewing DICOM',
       openViewDesc: 'Load images with Upload DICOM / Load Folder or drag them into the window. Then double-click a series for quick preview, or right-click it to choose 2D, 3D, MPR, and other views.',
-      emptyDropQuickPreviewDesc: 'The right side is empty. Release now to open this series in Stack quick preview.',
+      emptyDropQuickPreviewDesc: 'The right side is empty. Release now to open this series in 2D quick preview.',
       scrollTabsLeft: 'Scroll Tabs Left',
       scrollTabsRight: 'Scroll Tabs Right',
       closeView: 'Close View',
@@ -885,6 +895,9 @@ export const uiMessages = {
       exportedTo: (location: string) => `Exported to ${location}`
     } satisfies WorkspaceExportCopy,
     toolbar: {
+      dockCollapse: 'Collapse right toolbar',
+      dockExpand: 'Expand right toolbar',
+      dockNoDetails: 'No additional settings for this tool.',
       hideTabs: 'Hide tabs',
       pausePlayback: 'Pause playback',
       resumePlayback: 'Resume playback',
@@ -895,7 +908,7 @@ export const uiMessages = {
     viewer: {
       active: 'Active',
       keySliceDialogEmpty: 'No key slices.',
-      keySliceDialogHint: 'Open Stack view at this slice',
+      keySliceDialogHint: 'Open 2D view at this slice',
       keySliceDialogTitle: 'Key slices',
       keySliceClear: 'Clear',
       keySliceClearTitle: 'Clear key slice marks for this series',
@@ -909,7 +922,7 @@ export const uiMessages = {
       unmarkKeySlice: 'Unmark key slice',
       loadingView: 'Loading view...',
       loadingMprView: 'Loading MPR view...',
-      loadingStackView: 'Loading stack view...',
+      loadingStackView: 'Loading 2D view...',
       loadingVolumeView: 'Loading 3D view...',
       stackPlaceholder: 'Single viewport preview',
       volumePlaceholder: '3D view placeholder',
@@ -969,6 +982,8 @@ export const uiMessages = {
       readingGuide: 'Reading Guide',
       closeMtfCurve: 'Close MTF curve',
       close: 'Close',
+      resultDockCollapse: 'Collapse result panel',
+      resultDockExpand: 'Expand result panel',
       noCurveData: 'No curve data',
       curveMarkersIncomplete: 'Curve markers are incomplete',
       measuredFromCurrentRoi: 'Measured from the current ROI',

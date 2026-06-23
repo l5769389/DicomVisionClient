@@ -11,6 +11,7 @@ import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
 import PacsBrowserDialog from './sidebar/PacsBrowserDialog.vue'
 import { useUiPreferences } from '../composables/ui/useUiPreferences'
 import { useUiLocale } from '../composables/ui/useUiLocale'
+import { resolveInitialSeriesViewType } from '../composables/workspace/views/seriesViewSupport'
 import { getSeriesMetaLabel } from './sidebar/seriesMetadata'
 import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesThumbnail'
 import type { WebUploadPickMode } from '../platform/runtime'
@@ -34,6 +35,7 @@ const emit = defineEmits<{
   chooseFolder: [mode?: WebUploadPickMode]
   openKeySlice: [seriesId: string, sliceIndex: number]
   openView: [viewType: ViewType]
+  openPetCtFusion: [ctSeriesId: string, petSeriesId: string]
   openSeriesView: [seriesId: string, viewType: ViewType]
   removeSeries: [seriesId: string]
   pacsSeriesLoaded: [response: LoadFolderResponse]
@@ -95,8 +97,17 @@ function handleOpenSeriesView(seriesId: string, viewType: ViewType): void {
   emit('openSeriesView', seriesId, viewType)
 }
 
+function handleCollapsedOpenSeriesView(seriesId: string): void {
+  const series = props.seriesList.find((item) => item.seriesId === seriesId) ?? null
+  emit('openSeriesView', seriesId, resolveInitialSeriesViewType(series))
+}
+
 function handleCompareSeries(sourceSeriesId: string, targetSeriesId: string): void {
   emit('compareSeries', sourceSeriesId, targetSeriesId)
+}
+
+function handleOpenPetCtFusion(ctSeriesId: string, petSeriesId: string): void {
+  emit('openPetCtFusion', ctSeriesId, petSeriesId)
 }
 
 function openMenu(): void {
@@ -141,7 +152,7 @@ function hideSeriesHoverCard(): void {
           <div v-if="isPacsEntryVisible" class="sidebar-source-divider"></div>
           <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
         </div>
-        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" :viewer-platform="viewerPlatform" @compare-series="handleCompareSeries" @open-key-slice="(seriesId, sliceIndex) => emit('openKeySlice', seriesId, sliceIndex)" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
+        <SidebarSeriesList :is-loading-folder="isLoadingFolder" :selected-series-id="selectedSeriesId" :series-list="seriesList" :viewer-platform="viewerPlatform" @compare-series="handleCompareSeries" @open-key-slice="(seriesId, sliceIndex) => emit('openKeySlice', seriesId, sliceIndex)" @open-pet-ct-fusion="handleOpenPetCtFusion" @open-series-view="handleOpenSeriesView" @remove-series="emit('removeSeries', $event)" @select-series="emit('selectSeries', $event)" />
         <SidebarStatusFooter :connection-dot-class="connectionDotClass" :connection-icon="connectionIcon" :connection-state="connectionState" :connection-tone-class="connectionToneClass" @open-menu="openMenu" @toggle-sidebar="emit('toggleSidebar')" />
       </template>
 
@@ -155,7 +166,7 @@ function hideSeriesHoverCard(): void {
           :viewer-platform="viewerPlatform"
           @hide-series-hover-card="hideSeriesHoverCard"
           @open-menu="openMenu"
-          @open-series-view="emit('openSeriesView', $event, 'Stack')"
+          @open-series-view="handleCollapsedOpenSeriesView"
           @select-series="emit('selectSeries', $event)"
           @show-series-hover-card="showSeriesHoverCard"
           @toggle-sidebar="emit('toggleSidebar')"

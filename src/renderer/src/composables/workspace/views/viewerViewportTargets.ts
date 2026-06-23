@@ -1,9 +1,11 @@
 import type { ViewOperationType } from '@shared/viewerConstants'
-import type { CompareStackPaneKey, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import type { CompareStackPaneKey, FusionPaneKey, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
   COMPARE_STACK_TARGET_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
   isCompareStackPaneKey,
+  isFusionPaneKey,
   isMprViewportKey
 } from './viewerWorkspaceTabs'
 import { shouldSyncViewOperation } from '../sync/viewSyncConfig'
@@ -12,7 +14,7 @@ export { COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY } from './
 
 export const MPR_PRIMARY_VIEWPORT_KEY: MprViewportKey = 'mpr-ax'
 
-export type ViewportOperationTargetKind = 'single' | 'compare' | 'layout' | 'mpr' | 'mpr-volume'
+export type ViewportOperationTargetKind = 'single' | 'compare' | 'layout' | 'mpr' | 'mpr-volume' | 'fusion'
 
 export interface ViewportOperationTarget {
   viewId: string
@@ -25,7 +27,7 @@ export function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefine
 }
 
 export function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-  return viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout'
+  return viewType === 'Stack' || viewType === 'PET' || viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion'
 }
 
 export function resolveMprViewportKey(viewportKey: string): MprViewportKey {
@@ -34,6 +36,10 @@ export function resolveMprViewportKey(viewportKey: string): MprViewportKey {
 
 export function resolveComparePaneKey(viewportKey: string): CompareStackPaneKey {
   return isCompareStackPaneKey(viewportKey) ? viewportKey : COMPARE_STACK_SOURCE_PANE_KEY
+}
+
+export function resolveFusionPaneKey(viewportKey: string): FusionPaneKey {
+  return isFusionPaneKey(viewportKey) ? viewportKey : FUSION_OVERLAY_AXIAL_PANE_KEY
 }
 
 export function resolveViewIdForTabViewport(tab: ViewerTabItem, viewportKey: string): string {
@@ -45,6 +51,9 @@ export function resolveViewIdForTabViewport(tab: ViewerTabItem, viewportKey: str
   }
   if (tab.viewType === 'CompareStack') {
     return tab.compareViewIds?.[resolveComparePaneKey(viewportKey)] ?? ''
+  }
+  if (tab.viewType === 'PETCTFusion') {
+    return tab.fusionViewIds?.[resolveFusionPaneKey(viewportKey)] ?? ''
   }
   if (tab.viewType === 'Layout') {
     return resolveLayoutSlotForViewport(tab, viewportKey)?.viewId ?? ''
@@ -58,6 +67,9 @@ export function hasOperableView(tab: ViewerTabItem): boolean {
   }
   if (tab.viewType === 'CompareStack') {
     return Object.values(tab.compareViewIds ?? {}).some(Boolean)
+  }
+  if (tab.viewType === 'PETCTFusion') {
+    return Object.values(tab.fusionViewIds ?? {}).some(Boolean)
   }
   if (tab.viewType === 'Layout') {
     return (tab.layoutSlots ?? []).some((slot) => Boolean(slot.viewId))
@@ -133,12 +145,16 @@ export function resolveOperationTargets(
     return [
       {
         viewId,
-        viewportKey: isMprLikeViewType(tab.viewType)
+        viewportKey: tab.viewType === 'PETCTFusion'
+          ? resolveFusionPaneKey(viewportKey)
+          : isMprLikeViewType(tab.viewType)
           ? tab.viewType === 'MPR' && viewportKey === 'volume'
             ? 'volume'
             : resolveMprViewportKey(viewportKey)
           : viewportKey || 'single',
-        kind: isMprLikeViewType(tab.viewType)
+        kind: tab.viewType === 'PETCTFusion'
+          ? 'fusion'
+          : isMprLikeViewType(tab.viewType)
           ? tab.viewType === 'MPR' && viewportKey === 'volume'
             ? 'mpr-volume'
             : 'mpr'

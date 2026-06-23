@@ -22,24 +22,36 @@ import {
 } from './toolbarStateMachines'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
-  COMPARE_STACK_TARGET_PANE_KEY
+  COMPARE_STACK_TARGET_PANE_KEY,
+  FUSION_CT_AXIAL_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PANE_KEYS,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
+  isFusionPaneKey
 } from '../views/viewerWorkspaceTabs'
 import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../sync/viewSyncConfig'
 import type { ViewerToolbarActionPayload } from '../operations/viewActionTypes'
 import {
   createDefaultMprMipConfig,
+  createDefaultMprSegmentationConfig,
+  normalizeMprSegmentationConfig,
   normalizeMprMipConfig,
   type CompareSyncSettingKey,
+  type CompareStackPaneKey,
+  type FusionPaneKey,
   type MprCrosshairMode,
   type MprMipConfig,
+  type MprSegmentationConfigActionType,
+  type MprSegmentationConfig,
   type ViewerLayoutTemplate,
   type ViewerTabItem,
   type VolumeRenderConfig
 } from '../../../types/viewer'
-import type { StackTool, StackToolOption } from '../../../components/workspace/shell/toolbarTypes'
+import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from '../../../components/workspace/shell/toolbarTypes'
 
 const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate', 'segmentation'])
 const DEFAULT_QA_OPERATION = 'qa:mtf'
 const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
 const STACK_PLAYBACK_DEFAULT_FPS = 5
@@ -50,6 +62,13 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   compareSync: '同步',
   crosshair: '十字线',
   export: '导出',
+  fusionManualRegistration: '配准',
+  fusionRegistration: '配准',
+  fusionPseudocolor: 'PET 伪彩',
+  fusionPetDisplay: 'PET 显示',
+  fusionRegistrationReset: '重置配准',
+  fusionRegistrationSave: '保存配准',
+  fusionRegistrationLoad: '加载配准',
   layout: '布局',
   measure: '测量',
   mprLayout: 'MPR 布局',
@@ -109,10 +128,15 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'reset:measurements': { label: '清除测量', description: '移除当前视图中的所有测量。' },
   'reset:mtf': { label: '清除 MTF', description: '移除当前视图中的所有 MTF ROI。' },
   'reset:view': { label: '重置视图', description: '重置当前视图参数和显示状态。' },
+  'transform:reset': { label: '重置变换', description: '恢复当前视图的平移、缩放、旋转和镜像状态。' },
+  'window:reset': { label: '重置窗值', description: '恢复当前选择的窗值，或回到影像内置窗值。' },
+  'petDisplay:reset': { label: '重置 PET 显示', description: '恢复 PET 强度范围和单位。' },
+  'fusionPetDisplay:reset': { label: '重置 PET 显示', description: '恢复 PET 伪彩、单位和强度范围。' },
   'rotate:ccw90': { label: '逆时针 90°' },
   'rotate:cw90': { label: '顺时针 90°' },
   'rotate:mirror-h': { label: '水平镜像' },
   'rotate:mirror-v': { label: '垂直镜像' },
+  'rotate:reset': { label: '重置旋转' },
   'volumePreset:bone': { label: '骨骼' },
   'volumePreset:cardiac': { label: '心脏' },
   'volumePreset:muscle': { label: '肌肉' },
@@ -174,6 +198,42 @@ const pseudocolorTool: StackTool = {
   }))
 }
 
+function toFusionPseudocolorSelectionValue(value: string | null | undefined): string {
+  return `fusionPseudocolor:${String(value ?? 'petct-rainbow').replace(/^pseudocolor:/, '')}`
+}
+
+const fusionPetDisplayTool: StackTool = {
+  key: 'fusionPetDisplay',
+  label: 'PET',
+  icon: 'pseudocolor',
+  kind: 'action',
+  inlineKind: 'fusionPetDisplay',
+  showSelectedOptionIcon: false,
+  dockOptions: [
+    {
+      value: 'petDisplay:reset',
+      label: 'Reset PET Display',
+      icon: 'reset',
+      description: 'Restore PET display range and unit.'
+    }
+  ]
+}
+
+const fusionRegistrationTool: StackTool = {
+  key: 'fusionRegistration',
+  label: 'Registration',
+  icon: 'crosshair',
+  kind: 'action',
+  inlineKind: 'fusionRegistration',
+  dockOptions: [
+    { value: 'fusionRegistration:toggle', label: 'Manual Registration', icon: 'crosshair' },
+    { value: 'fusionRegistration:reset', label: 'Reset Registration', icon: 'reset' },
+    { value: 'fusionRegistration:load', label: 'Load Registration', icon: 'folder-import' },
+    { value: 'fusionRegistration:save', label: 'Save Registration', icon: 'save' },
+    { value: 'fusionRegistration:exit', label: 'Exit Registration', icon: 'close' }
+  ]
+}
+
 const layoutTool: StackTool = {
   key: 'layout',
   label: 'Layout',
@@ -208,6 +268,7 @@ const mprLayoutTool: StackTool = {
 
 const MPR_CROSSHAIR_MODE_SELECTION_PREFIX = 'mprCrosshairMode:'
 const DISPLAY_OVERLAY_SELECTION_PREFIX = 'display:'
+export const EXPORT_TARGET_SELECTION_PREFIX = 'exportTarget:'
 type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
 
 function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
@@ -226,6 +287,17 @@ function toDisplayOverlaySelectionValue(key: DisplayOverlayKey): string {
 function parseDisplayOverlaySelectionValue(value: string | null | undefined): DisplayOverlayKey | null {
   const key = String(value ?? '').replace(DISPLAY_OVERLAY_SELECTION_PREFIX, '')
   return key === 'cornerInfo' || key === 'scaleBar' ? key : null
+}
+
+function toExportTargetSelectionValue(viewportKey: string): string {
+  return `${EXPORT_TARGET_SELECTION_PREFIX}${viewportKey}`
+}
+
+function parseExportTargetSelectionValue(value: string | null | undefined): string | null {
+  const rawValue = String(value ?? '')
+  return rawValue.startsWith(EXPORT_TARGET_SELECTION_PREFIX)
+    ? rawValue.slice(EXPORT_TARGET_SELECTION_PREFIX.length)
+    : null
 }
 
 const tagTool: StackTool = {
@@ -261,27 +333,56 @@ const playTool: StackTool = {
   }))
 }
 
+const rotateOptions: StackToolOption[] = [
+  { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
+  { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
+  { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
+  { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' },
+  { value: 'rotate:reset', label: 'Reset Rotation', icon: 'reset' }
+]
+
+const transformResetDockOptions: StackToolOption[] = [
+  {
+    value: 'transform:reset',
+    label: 'Reset Transform',
+    icon: 'reset',
+    description: 'Restore pan, zoom, rotation, and mirror state for the current view.'
+  }
+]
+
+const annotationClearDockOptions: StackToolOption[] = [
+  {
+    value: 'reset:annotations',
+    label: 'Clear Annotations',
+    icon: 'reset',
+    description: 'Remove annotations from the current target view.'
+  }
+]
+
+const annotateTool: StackTool = {
+  key: 'annotate',
+  label: 'Annotate',
+  icon: 'annotate',
+  kind: 'mode',
+  dockOptions: annotationClearDockOptions
+}
+
 const stackTools: StackTool[] = [
   layoutTool,
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   {
     key: 'rotate',
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
-    options: [
-      { value: 'rotate:cw90', label: 'CW 90', icon: 'rotate-cw90' },
-      { value: 'rotate:ccw90', label: 'CCW 90', icon: 'rotate-ccw90' },
-      { value: 'rotate:mirror-h', label: 'Mirror H', icon: 'mirror-h' },
-      { value: 'rotate:mirror-v', label: 'Mirror V', icon: 'mirror-v' }
-    ]
+    options: rotateOptions
   },
   { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
   playTool,
   pseudocolorTool,
-  { key: 'annotate', label: 'Annotate', icon: 'annotate', kind: 'mode' },
+  annotateTool,
   measureTool,
   qaTool,
   exportTool,
@@ -337,7 +438,8 @@ function localizeToolbarTool(tool: StackTool, isZh: boolean): StackTool {
   return {
     ...tool,
     label: tool.key === 'crosshair' && tool.options ? tool.label : (ZH_TOOL_LABELS[tool.key] ?? tool.label),
-    options: tool.options?.map((option) => localizeToolbarOption(option, isZh))
+    options: tool.options?.map((option) => localizeToolbarOption(option, isZh)),
+    dockOptions: tool.dockOptions?.map((option) => localizeToolbarOption(option, isZh))
   }
 }
 
@@ -356,6 +458,146 @@ function withSupportedExportOptions(tool: StackTool, viewType: ViewerTabItem['vi
   }
 }
 
+function getFusionPaneLabel(paneKey: FusionPaneKey): string {
+  switch (paneKey) {
+    case FUSION_CT_AXIAL_PANE_KEY:
+      return 'CT Axial'
+    case FUSION_PET_AXIAL_PANE_KEY:
+      return 'PET Axial'
+    case FUSION_PET_CORONAL_MIP_PANE_KEY:
+      return 'PET Coronal MIP'
+    case FUSION_OVERLAY_AXIAL_PANE_KEY:
+    default:
+      return 'Fusion Axial'
+  }
+}
+
+function getComparePaneLabel(tab: ViewerTabItem, paneKey: CompareStackPaneKey): string {
+  return tab.compareSeriesTitles?.[paneKey]?.trim() || (paneKey === COMPARE_STACK_TARGET_PANE_KEY ? 'Compare B' : 'Compare A')
+}
+
+function getExportTargetOptions(
+  tab: ViewerTabItem | null | undefined,
+  selectedViewportKey: string | null,
+  isZh: boolean
+): StackToolOption[] {
+  if (!tab) {
+    return []
+  }
+
+  const group = isZh ? '视图' : 'View'
+  if (tab.viewType === 'CompareStack') {
+    return [COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY]
+      .filter((paneKey) => Boolean(tab.compareViewIds?.[paneKey]))
+      .map((paneKey) => ({
+        value: toExportTargetSelectionValue(paneKey),
+        label: getComparePaneLabel(tab, paneKey),
+        icon: 'layout',
+        group,
+        checked: selectedViewportKey === paneKey
+      }))
+  }
+
+  if (tab.viewType === 'PETCTFusion') {
+    return FUSION_PANE_KEYS
+      .filter((paneKey) => Boolean(tab.fusionViewIds?.[paneKey]))
+      .map((paneKey) => ({
+        value: toExportTargetSelectionValue(paneKey),
+        label: getFusionPaneLabel(paneKey),
+        icon: paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY ? 'pseudocolor' : 'page',
+        group,
+        checked: selectedViewportKey === paneKey
+      }))
+  }
+
+  if (tab.viewType === 'Layout') {
+    return (tab.layoutSlots ?? [])
+      .filter((slot) => Boolean(slot.viewId))
+      .map((slot) => ({
+        value: toExportTargetSelectionValue(slot.id),
+        label: slot.seriesTitle?.trim() || slot.id,
+        icon: 'layout',
+        group,
+        checked: selectedViewportKey === slot.id
+      }))
+  }
+
+  return []
+}
+
+function getValidExportTargetViewportKeys(tab: ViewerTabItem | null | undefined): string[] {
+  if (!tab) {
+    return []
+  }
+  if (tab.viewType === 'CompareStack') {
+    return [COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY].filter((paneKey) => Boolean(tab.compareViewIds?.[paneKey]))
+  }
+  if (tab.viewType === 'PETCTFusion') {
+    return FUSION_PANE_KEYS.filter((paneKey) => Boolean(tab.fusionViewIds?.[paneKey]))
+  }
+  if (tab.viewType === 'Layout') {
+    return (tab.layoutSlots ?? []).filter((slot) => Boolean(slot.viewId)).map((slot) => slot.id)
+  }
+  return []
+}
+
+function getDefaultExportTargetViewportKey(tab: ViewerTabItem | null | undefined, activeViewportKey: string): string | null {
+  const validKeys = getValidExportTargetViewportKeys(tab)
+  if (!validKeys.length) {
+    return null
+  }
+  if (validKeys.includes(activeViewportKey)) {
+    return activeViewportKey
+  }
+  if (tab?.viewType === 'PETCTFusion' && isFusionPaneKey(activeViewportKey) && validKeys.includes(activeViewportKey)) {
+    return activeViewportKey
+  }
+  return validKeys[0] ?? null
+}
+
+function getSelectedExportTargetViewportKey(
+  tab: ViewerTabItem | null | undefined,
+  activeViewportKey: string,
+  selectedExportTargetValue: string | null | undefined
+): string | null {
+  const selected = parseExportTargetSelectionValue(selectedExportTargetValue)
+  const validKeys = getValidExportTargetViewportKeys(tab)
+  if (selected && validKeys.includes(selected)) {
+    return selected
+  }
+  return getDefaultExportTargetViewportKey(tab, activeViewportKey)
+}
+
+function withDynamicExportTool(
+  tools: StackTool[],
+  tab: ViewerTabItem | null | undefined,
+  activeViewportKey: string,
+  selectedExportTargetValue: string | null | undefined,
+  isZh: boolean
+): StackTool[] {
+  const selectedViewportKey = getSelectedExportTargetViewportKey(tab, activeViewportKey, selectedExportTargetValue)
+  const targetOptions = getExportTargetOptions(tab, selectedViewportKey, isZh)
+  if (!targetOptions.length) {
+    return tools
+  }
+
+  return tools.map((tool) =>
+    tool.key === 'export'
+      ? {
+          ...tool,
+          showSelectedOptionIcon: false,
+          options: [
+            ...targetOptions,
+            ...(tool.options ?? []).map((option) => ({
+              ...option,
+              group: isZh ? '格式' : 'Format'
+            }))
+          ]
+        }
+      : tool
+  )
+}
+
 const compareStackTools: StackTool[] = stackTools
   .filter((tool) => tool.key !== 'play' && tool.key !== 'qa')
   .map(withoutMtfResetOption)
@@ -364,10 +606,74 @@ const layoutStackTools: StackTool[] = stackTools
   .filter((tool) => tool.key !== 'qa')
   .map(withoutMtfResetOption)
 
+const fusionTools: StackTool[] = [
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  {
+    key: 'rotate',
+    label: 'Rotate',
+    icon: 'rotate',
+    kind: 'action',
+    options: rotateOptions
+  },
+  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  annotateTool,
+  measureTool,
+  exportTool,
+  tagTool,
+  withoutMtfResetOption({
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
+      { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurement overlays in the current view.' },
+      { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current view.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
+    ]
+  }),
+  fusionPetDisplayTool,
+  fusionRegistrationTool
+]
+
+const petTools: StackTool[] = [
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  fusionPetDisplayTool,
+  {
+    key: 'rotate',
+    label: 'Rotate',
+    icon: 'rotate',
+    kind: 'action',
+    options: rotateOptions
+  },
+  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  annotateTool,
+  measureTool,
+  exportTool,
+  tagTool,
+  withoutMtfResetOption({
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    showSelectedOptionIcon: false,
+    options: [
+      { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
+      { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurement overlays in the current view.' },
+      { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current view.' },
+      { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
+    ]
+  })
+]
+
 const genericTools: StackTool[] = [
   layoutTool,
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   measureTool,
   pseudocolorTool,
@@ -403,11 +709,32 @@ const volumePresetTool: StackTool = {
   ]
 }
 
+const segmentationTool: StackTool = {
+  key: 'segmentation',
+  label: '阈值分割',
+  icon: 'segmentation',
+  kind: 'action',
+  options: [
+    {
+      value: 'segmentation:threshold',
+      label: '阈值分割',
+      icon: 'segmentation-threshold',
+      description: 'Preview a HU threshold mask'
+    },
+    {
+      value: 'segmentation:voi',
+      label: 'VOI',
+      icon: 'segmentation-voi',
+      description: 'Edit a 3D volume of interest'
+    }
+  ]
+}
+
 const volumeTools: StackTool[] = [
   layoutTool,
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   render3dModeTool,
   volumeParamsTool,
@@ -432,9 +759,10 @@ const genericToolsWithCrosshair: StackTool[] = [
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode', showSelectedOptionIcon: false },
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode' },
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  playTool,
   measureTool,
   pseudocolorTool,
   exportTool,
@@ -455,8 +783,12 @@ const genericToolsWithCrosshair: StackTool[] = [
   }
 ]
 
+const mprToolsWithSegmentation: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
+  tool.key === 'mprMip' ? [tool, segmentationTool] : [tool]
+)
+
 const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
-  tool.key === 'mprMip' ? [tool, render3dModeTool, volumeParamsTool, volumePresetTool] : [tool]
+  tool.key === 'mprMip' ? [tool, segmentationTool, render3dModeTool, volumeParamsTool, volumePresetTool] : [tool]
 )
 
 interface ViewerWorkspaceToolbarOptions {
@@ -466,9 +798,9 @@ interface ViewerWorkspaceToolbarOptions {
   emitTriggerViewAction: (payload: ViewerToolbarActionPayload) => void
   emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   emitOpenLayoutView: (template: ViewerLayoutTemplate) => void | Promise<void>
-  emitViewportWheel: (payload: { viewportKey: string; deltaY: number }) => void
+  emitViewportWheel: (payload: { viewportKey: string; deltaY: number; exact?: boolean }) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
-  exportCurrentView: (format: ViewerExportFormat) => void
+  exportCurrentView: (format: ViewerExportFormat, viewportKey?: string) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
   stopViewportDrag: () => void
@@ -494,6 +826,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const isVolumeConfigPanelOpen = ref(false)
   const isMprMipPanelOpen = ref(false)
+  const isMprSegmentationPanelOpen = ref(false)
   const displayOverlayDraftByTabKey = ref<Record<string, Partial<Record<DisplayOverlayKey, boolean>>>>({})
   const stackToolSelections = ref<Partial<Record<string, string>>>({
     rotate: 'rotate:cw90',
@@ -502,15 +835,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     qa: DEFAULT_QA_OPERATION,
     play: `playbackFps:${STACK_PLAYBACK_DEFAULT_FPS}`,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
+    fusionPseudocolor: toFusionPseudocolorSelectionValue('petct-rainbow'),
     export: 'png',
+    exportTarget: '',
     render3dMode: 'render3dMode:volume',
     volumePreset: 'volumePreset:bone',
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
     crosshair: toMprCrosshairModeSelectionValue('orthogonal'),
+    segmentation: 'segmentation:threshold',
     reset: 'reset:view'
   })
   const toolbarStateByTabKey = new Map<string, StoredToolbarState>()
+  const explicitWindowSelectionByTargetKey = new Map<string, string>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
 
   const toolbarIconSize = 18
@@ -519,9 +856,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const isZh = computed(() => locale.value === 'zh-CN')
 
   let playbackTimer: ReturnType<typeof window.setInterval> | null = null
+  let playbackTarget: { current: number; total: number; viewportKey: string } | null = null
 
   function formatWindowPresetValue(ww: number, wl: number): string {
     return `${ww}|${wl}`
+  }
+
+  function parseWindowPresetValue(value: string | null | undefined): { ww: number; wl: number } | null {
+    const [wwRaw, wlRaw] = String(value ?? '').split('|')
+    const ww = Number.parseFloat(wwRaw)
+    const wl = Number.parseFloat(wlRaw)
+    return Number.isFinite(ww) && ww > 0 && Number.isFinite(wl) ? { ww, wl } : null
   }
 
   function clampStackPlaybackFps(value: number | null | undefined): number {
@@ -681,7 +1026,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'MPR' || viewType === '4D'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion'
   }
 
   function withDisplayTool(tools: StackTool[]): StackTool[] {
@@ -746,10 +1091,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     switch (viewType) {
       case 'Stack':
         return stackTools
+      case 'PET':
+        return petTools
+      case 'PETCTFusion':
+        return fusionTools
       case 'CompareStack':
         return withSyncToolAfterLayout(compareStackTools)
       case 'MPR':
-        return isActiveMpr3dLayout.value ? mprWithVolumeTools : genericToolsWithCrosshair
+        return isActiveMpr3dLayout.value ? mprWithVolumeTools : mprToolsWithSegmentation
       case '4D':
         return genericToolsWithCrosshair
       case 'Layout':
@@ -776,14 +1125,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeTools = computed(() => {
     const viewType = options.activeTab.value?.viewType
-    return withDisplayTool(withDynamicWindowTool(withRenderModeTools(withMprCrosshairModeTool(getBaseToolsForActiveTab()))))
+    return withDisplayTool(
+      withDynamicExportTool(
+        withDynamicWindowTool(withRenderModeTools(withMprCrosshairModeTool(getBaseToolsForActiveTab()))),
+        options.activeTab.value,
+        options.activeViewportKey.value,
+        stackToolSelections.value.exportTarget,
+        isZh.value
+      )
+    )
       .map((tool) => withSupportedExportOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
   })
 
   const areToolbarActionsDisabled = computed(
     () =>
-      (supportsStackPlayback(options.activeTab.value?.viewType) && (isPlaying.value || isPlaybackPaused.value)) ||
+      (supportsSlicePlayback(options.activeTab.value?.viewType) && (isPlaying.value || isPlaybackPaused.value)) ||
       Boolean(options.activeTab.value?.viewType === '4D' && options.activeTab.value.fourDIsPlaying)
   )
 
@@ -806,6 +1163,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     return normalizeMprMipConfig(activeTab.mprMipConfig, createDefaultMprMipConfig())
+  })
+
+  const activeMprSegmentationConfig = computed(() => {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'MPR') {
+      return null
+    }
+
+    return normalizeMprSegmentationConfig(activeTab.mprSegmentationConfig, createDefaultMprSegmentationConfig())
   })
 
   function getModeOperationValue(toolKey: string): string {
@@ -835,13 +1201,73 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return normalizedOperation
   }
 
-  function supportsStackPlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'Layout'
+  function supportsSlicePlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
   }
 
   function getActiveLayoutSlot(tab: ViewerTabItem): NonNullable<ViewerTabItem['layoutSlots']>[number] | null {
     const slots = tab.layoutSlots ?? []
     return slots.find((slot) => slot.id === options.activeViewportKey.value && slot.viewId) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
+  }
+
+  function resolveActiveComparePaneKey(tab: ViewerTabItem): CompareStackPaneKey {
+    const viewportKey = options.activeViewportKey.value
+    if (viewportKey === COMPARE_STACK_TARGET_PANE_KEY && tab.compareViewIds?.[COMPARE_STACK_TARGET_PANE_KEY]) {
+      return COMPARE_STACK_TARGET_PANE_KEY
+    }
+    return COMPARE_STACK_SOURCE_PANE_KEY
+  }
+
+  function resolveActiveFusionPaneKey(tab: ViewerTabItem): FusionPaneKey {
+    const viewportKey = options.activeViewportKey.value
+    return isFusionPaneKey(viewportKey) && tab.fusionViewIds?.[viewportKey]
+      ? viewportKey
+      : FUSION_OVERLAY_AXIAL_PANE_KEY
+  }
+
+  function resolveActiveMprViewportKey(tab: ViewerTabItem): 'mpr-ax' | 'mpr-cor' | 'mpr-sag' {
+    const viewportKey = options.activeViewportKey.value
+    if ((viewportKey === 'mpr-ax' || viewportKey === 'mpr-cor' || viewportKey === 'mpr-sag') && tab.viewportViewIds?.[viewportKey]) {
+      return viewportKey
+    }
+    return 'mpr-ax'
+  }
+
+  function getWindowSelectionTargetKey(tab: ViewerTabItem): string {
+    if (tab.viewType === 'Layout') {
+      return `${tab.key}:${getActiveLayoutSlot(tab)?.id ?? 'layout'}`
+    }
+    if (tab.viewType === 'CompareStack') {
+      return `${tab.key}:${resolveActiveComparePaneKey(tab)}`
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      return `${tab.key}:${resolveActiveFusionPaneKey(tab)}`
+    }
+    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+      return `${tab.key}:${resolveActiveMprViewportKey(tab)}`
+    }
+    return `${tab.key}:single`
+  }
+
+  function getInitialWindowSelectionValue(tab: ViewerTabItem): string | null {
+    if (tab.viewType === 'Layout') {
+      const info = getActiveLayoutSlot(tab)?.initialWindowInfo
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    if (tab.viewType === 'CompareStack') {
+      const info = tab.compareInitialWindowInfos?.[resolveActiveComparePaneKey(tab)]
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      const info = tab.fusionInitialWindowInfos?.[resolveActiveFusionPaneKey(tab)]
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+      const info = tab.viewportInitialWindowInfos?.[resolveActiveMprViewportKey(tab)] ?? tab.initialWindowInfo
+      return info ? formatWindowPresetValue(info.ww, info.wl) : null
+    }
+    const info = tab.initialWindowInfo
+    return info ? formatWindowPresetValue(info.ww, info.wl) : null
   }
 
   function getActiveSeriesIdForTab(tab: ViewerTabItem | null | undefined): string {
@@ -967,6 +1393,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return exportOptions.some((option) => option.value === selectedFormat) ? selectedFormat : 'png'
   }
 
+  function getSelectedExportTargetForActiveTab(): string | undefined {
+    return getSelectedExportTargetViewportKey(
+      options.activeTab.value,
+      options.activeViewportKey.value,
+      stackToolSelections.value.exportTarget
+    ) ?? undefined
+  }
+
   function activateSelectedOption(toolKey: string): string | null {
     const selectedOption = getSelectedOption(toolKey)
     if (!selectedOption) {
@@ -987,6 +1421,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function isToolSelected(tool: StackTool): boolean {
+    if (tool.key === 'fusionRegistration') {
+      return options.activeTab.value?.viewType === 'PETCTFusion' && options.activeTab.value.fusionManualRegistration === true
+    }
     if (transientActiveToolKey.value === tool.key) {
       return true
     }
@@ -995,6 +1432,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function closeMenus(): void {
     menuController.close()
+  }
+
+  function closeMenusIfNeeded(behavior?: StackToolOptionSelectBehavior): void {
+    if (behavior?.keepMenuOpen) {
+      return
+    }
+    closeMenus()
   }
 
   function setMenuOpen(toolKey: string | null): void {
@@ -1010,6 +1454,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       window.clearInterval(playbackTimer)
       playbackTimer = null
     }
+    playbackTarget = null
     playbackController.stop()
   }
 
@@ -1029,13 +1474,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     startPlaybackTimer()
   }
 
-  function getCurrentStackSliceInfo(): { current: number; total: number } | null {
+  function getCurrentSlicePlaybackInfo(): { current: number; total: number; viewportKey: string } | null {
     const activeTab = options.activeTab.value
-    if (!activeTab || !supportsStackPlayback(activeTab.viewType)) {
+    if (!activeTab || !supportsSlicePlayback(activeTab.viewType)) {
       return null
     }
 
-    const sliceLabel = activeTab.viewType === 'Layout' ? (getActiveLayoutSlot(activeTab)?.sliceLabel ?? '') : activeTab.sliceLabel
+    const viewportKey = getPlaybackViewportKey()
+    const mprViewportKey = activeTab.viewType === 'MPR' || activeTab.viewType === '4D' ? resolveActiveMprViewportKey(activeTab) : null
+    const sliceLabel =
+      activeTab.viewType === 'Layout'
+        ? (getActiveLayoutSlot(activeTab)?.sliceLabel ?? '')
+        : mprViewportKey
+          ? (activeTab.viewportSliceLabels?.[mprViewportKey] ?? '')
+          : activeTab.sliceLabel
     const match = sliceLabel.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
     if (!match) {
       return null
@@ -1047,7 +1499,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return null
     }
 
-    return { current, total }
+    return { current, total, viewportKey }
   }
 
   function getPlaybackViewportKey(): string {
@@ -1055,57 +1507,62 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (activeTab?.viewType === 'Layout') {
       return getActiveLayoutSlot(activeTab)?.id ?? options.activeViewportKey.value
     }
+    if (activeTab?.viewType === 'MPR' || activeTab?.viewType === '4D') {
+      return resolveActiveMprViewportKey(activeTab)
+    }
     return 'single'
   }
 
   function tickPlayback(): void {
-    const sliceInfo = getCurrentStackSliceInfo()
-    if (!sliceInfo) {
+    if (!playbackTarget) {
       stopPlayback()
       return
     }
 
-    if (sliceInfo.current >= sliceInfo.total) {
+    if (playbackTarget.current >= playbackTarget.total) {
       stopPlayback()
       return
     }
 
+    playbackTarget.current += 1
     options.emitViewportWheel({
-      viewportKey: getPlaybackViewportKey(),
+      viewportKey: playbackTarget.viewportKey,
       deltaY: 1
     })
   }
 
-  function startPlayback(): void {
-    if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
+  function startPlayback(behavior?: StackToolOptionSelectBehavior): void {
+    if (!supportsSlicePlayback(options.activeTab.value?.viewType)) {
       return
     }
-    if (!getCurrentStackSliceInfo()) {
+    const sliceInfo = getCurrentSlicePlaybackInfo()
+    if (!sliceInfo) {
       return
     }
 
-    closeMenus()
+    playbackTarget = { current: sliceInfo.current, total: sliceInfo.total, viewportKey: sliceInfo.viewportKey }
+    closeMenusIfNeeded(behavior)
     playbackController.start()
     startPlaybackTimer()
   }
 
-  function resumePlayback(): void {
-    if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
+  function resumePlayback(behavior?: StackToolOptionSelectBehavior): void {
+    if (!supportsSlicePlayback(options.activeTab.value?.viewType)) {
       stopPlayback()
       return
     }
-    if (!getCurrentStackSliceInfo()) {
+    if (!playbackTarget && !getCurrentSlicePlaybackInfo()) {
       stopPlayback()
       return
     }
 
-    closeMenus()
+    closeMenusIfNeeded(behavior)
     playbackController.resume()
     startPlaybackTimer()
   }
 
-  function pausePlayback(): void {
-    closeMenus()
+  function pausePlayback(behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
     if (isPlaying.value) {
       if (playbackTimer != null) {
         window.clearInterval(playbackTimer)
@@ -1115,12 +1572,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
     if (isPlaybackPaused.value) {
-      resumePlayback()
+      resumePlayback(behavior)
     }
   }
 
-  function endPlayback(): void {
-    closeMenus()
+  function endPlayback(behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
     stopPlayback()
   }
 
@@ -1133,8 +1590,75 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.emitTriggerViewAction({ action: 'mprMipConfig', actionType, config })
   }
 
-  function activateModeTool(tool: StackTool): void {
+  function updateActiveMprSegmentationConfig(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
+    const activeTab = options.activeTab.value
+    if (!activeTab || activeTab.viewType !== 'MPR') {
+      return
+    }
+
+    options.emitTriggerViewAction({ action: 'mprSegmentation', actionType, segmentationConfig: config })
+  }
+
+  function closeMprSegmentationPanel(): void {
+    isMprSegmentationPanelOpen.value = false
+  }
+
+  function isSegmentationOption(value: string | null | undefined): value is 'segmentation:threshold' | 'segmentation:voi' {
+    return value === 'segmentation:threshold' || value === 'segmentation:voi'
+  }
+
+  function createSegmentationConfigForOption(value: string): MprSegmentationConfig | null {
+    const current = activeMprSegmentationConfig.value
+    if (!current || !isSegmentationOption(value)) {
+      return null
+    }
+    if (value === 'segmentation:threshold') {
+      return normalizeMprSegmentationConfig({
+        ...current,
+        enabled: true
+      })
+    }
+    return normalizeMprSegmentationConfig({
+      ...current,
+      enabled: current.enabled
+    })
+  }
+
+  function activateSegmentationOption(value: string): void {
+    const nextConfig = createSegmentationConfigForOption(value)
+    if (!nextConfig) {
+      return
+    }
     closeMenus()
+    options.stopViewportDrag()
+    setToolbarToolActive('segmentation')
+    isVolumeConfigPanelOpen.value = false
+    isMprMipPanelOpen.value = false
+    isMprSegmentationPanelOpen.value = true
+    stackToolSelections.value = {
+      ...stackToolSelections.value,
+      segmentation: value
+    }
+    options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
+    updateActiveMprSegmentationConfig(nextConfig, 'end')
+  }
+
+  function activateSegmentationSelectionMode(value: 'segmentation:threshold' | 'segmentation:voi'): void {
+    closeMenus()
+    options.stopViewportDrag()
+    setToolbarToolActive('segmentation')
+    isVolumeConfigPanelOpen.value = false
+    isMprMipPanelOpen.value = false
+    isMprSegmentationPanelOpen.value = true
+    stackToolSelections.value = {
+      ...stackToolSelections.value,
+      segmentation: value
+    }
+    options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
+  }
+
+  function activateModeTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
     options.stopViewportDrag()
     setToolbarToolActive(tool.key)
     if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
@@ -1171,7 +1695,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function applySelectedViewAction(
     tool: StackTool,
-    action: 'volumePreset' | 'render3dMode' | 'rotate' | 'pseudocolor'
+    action: 'volumePreset' | 'render3dMode' | 'rotate' | 'pseudocolor' | 'fusionPseudocolor'
   ): void {
     closeMenus()
     const selectedOption = getSelectedOption(tool.key)
@@ -1183,18 +1707,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     })
   }
 
-  function applySelectedModeTool(tool: StackTool): void {
-    closeMenus()
-    if (!getSelectedOption(tool.key)) {
+  function applySelectedModeTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
+    closeMenusIfNeeded(behavior)
+    const selectedOption = getSelectedOption(tool.key)
+    if (!selectedOption) {
       return
     }
-    if (activeToolbarToolKey.value !== tool.key) {
-      setToolbarToolActive(tool.key)
-      activateSelectedOption(tool.key)
+    options.stopViewportDrag()
+    setToolbarToolActive(tool.key)
+    const nextOperation = `${STACK_OPERATION_PREFIX}${selectedOption.value}`
+    if (options.activeOperation.value !== nextOperation) {
+      options.emitSetActiveOperation(nextOperation)
     }
   }
 
-  const toolApplyHandlers: Record<string, (tool: StackTool) => void> = {
+  const toolApplyHandlers: Record<string, (tool: StackTool, behavior?: StackToolOptionSelectBehavior) => void> = {
     compareSync: toggleToolMenu,
     display: toggleToolMenu,
     layout: toggleToolMenu,
@@ -1202,21 +1729,64 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     reset: () => applyResetTool(),
     volumeParams: () => {
       closeMenus()
-      isVolumeConfigPanelOpen.value = !isVolumeConfigPanelOpen.value
+      const nextOpen = !isVolumeConfigPanelOpen.value
+      isMprMipPanelOpen.value = false
+      isMprSegmentationPanelOpen.value = false
+      isVolumeConfigPanelOpen.value = nextOpen
     },
     mprMip: () => {
       closeMenus()
+      isVolumeConfigPanelOpen.value = false
+      isMprSegmentationPanelOpen.value = false
       isMprMipPanelOpen.value = !isMprMipPanelOpen.value
+    },
+    segmentation: () => {
+      const selectedOption = stackToolSelections.value.segmentation ?? 'segmentation:threshold'
+      if (!isSegmentationOption(selectedOption) || options.activeTab.value?.viewType !== 'MPR') {
+        return
+      }
+      if (isMprSegmentationPanelOpen.value) {
+        activateSegmentationSelectionMode(selectedOption)
+        return
+      }
+      activateSegmentationOption(selectedOption)
     },
     volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
     render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
     rotate: (tool) => applySelectedViewAction(tool, 'rotate'),
     pseudocolor: (tool) => applySelectedViewAction(tool, 'pseudocolor'),
+    fusionPseudocolor: (tool) => applySelectedViewAction(tool, 'fusionPseudocolor'),
+    fusionRegistration: () => {
+      closeMenus()
+      options.emitTriggerViewAction({
+        action: 'fusionManualRegistration',
+        enabled: !(options.activeTab.value?.fusionManualRegistration === true)
+      })
+    },
+    fusionManualRegistration: () => {
+      closeMenus()
+      options.emitTriggerViewAction({
+        action: 'fusionManualRegistration',
+        enabled: !(options.activeTab.value?.fusionManualRegistration === true)
+      })
+    },
+    fusionRegistrationReset: () => {
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'fusionRegistrationReset' })
+    },
+    fusionRegistrationSave: () => {
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'fusionRegistrationSave' })
+    },
+    fusionRegistrationLoad: () => {
+      closeMenus()
+      options.emitTriggerViewAction({ action: 'fusionRegistrationLoad' })
+    },
     measure: applySelectedModeTool,
     qa: applySelectedModeTool,
-    play: () => {
-      closeMenus()
-      startPlayback()
+    play: (_tool, behavior) => {
+      closeMenusIfNeeded(behavior)
+      startPlayback(behavior)
     },
     tag: () => {
       closeMenus()
@@ -1225,26 +1795,38 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         options.emitOpenSeriesView(seriesId, 'Tag')
       }
     },
-    export: () => {
+    export: (tool) => {
+      if (getValidExportTargetViewportKeys(options.activeTab.value).length > 0) {
+        toggleToolMenu(tool)
+        return
+      }
       closeMenus()
-      options.exportCurrentView(getSelectedExportFormat())
+      options.exportCurrentView(getSelectedExportFormat(), getSelectedExportTargetForActiveTab())
     }
   }
 
-  function applyTool(tool: StackTool): void {
+  function applyTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
     if (areToolbarActionsDisabled.value && tool.key !== 'play') {
       return
     }
 
     if (MODE_TOOL_KEYS.has(tool.key) || tool.key === 'page') {
-      activateModeTool(tool)
+      activateModeTool(tool, behavior)
       return
     }
 
-    toolApplyHandlers[tool.key]?.(tool)
+    toolApplyHandlers[tool.key]?.(tool, behavior)
   }
 
-  function selectToolOption(tool: StackTool, optionValue: string): void {
+  function selectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+    if (optionValue === 'transform:reset') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      options.emitTriggerViewAction({ action: 'transformReset' })
+      return
+    }
+
     if (tool.key === 'display') {
       const overlay = parseDisplayOverlaySelectionValue(optionValue)
       const selectedOption = tool.options?.find((option) => option.value === optionValue)
@@ -1277,7 +1859,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         crosshair: toMprCrosshairModeSelectionValue(mode)
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       options.emitTriggerViewAction({ action: 'mprCrosshairMode', mode })
       return
     }
@@ -1289,11 +1871,24 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         return
       }
 
+      if (layoutKey === activeMprLayoutKey.value) {
+        closeMenusIfNeeded(behavior)
+        return
+      }
+
       stackToolSelections.value = {
         ...stackToolSelections.value,
         mprLayout: optionValue
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
+      return
+    }
+
+    if (tool.key === 'segmentation') {
+      if (options.activeTab.value?.viewType !== 'MPR') {
+        return
+      }
+      activateSegmentationOption(optionValue)
       return
     }
 
@@ -1303,11 +1898,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         return
       }
 
+      const activeTab = options.activeTab.value
+      if (
+        activeTab?.viewType === 'Layout' &&
+        activeTab.layoutTemplate?.rows === template.rows &&
+        activeTab.layoutTemplate?.columns === template.columns
+      ) {
+        closeMenusIfNeeded(behavior)
+        return
+      }
+
       stackToolSelections.value = {
         ...stackToolSelections.value,
         layout: optionValue
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       void options.emitOpenLayoutView(template)
       return
     }
@@ -1332,8 +1937,50 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         play: `playbackFps:${fps}`
       }
-      closeMenus()
+      closeMenusIfNeeded(behavior)
       restartPlaybackTimerIfActive()
+      return
+    }
+
+    if (tool.key === 'measure' && optionValue === 'reset:measurements') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      options.emitTriggerViewAction({ action: 'clearMeasurements' })
+      return
+    }
+
+    if (tool.key === 'annotate' && optionValue === 'reset:annotations') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      options.emitTriggerViewAction({ action: 'clearAnnotations' })
+      return
+    }
+
+    if (tool.key === 'export') {
+      const targetViewportKey = parseExportTargetSelectionValue(optionValue)
+      if (targetViewportKey) {
+        const validTargets = getValidExportTargetViewportKeys(options.activeTab.value)
+        if (!validTargets.includes(targetViewportKey)) {
+          return
+        }
+        stackToolSelections.value = {
+          ...stackToolSelections.value,
+          exportTarget: toExportTargetSelectionValue(targetViewportKey)
+        }
+        return
+      }
+
+      const exportOptions = activeTools.value.find((item) => item.key === 'export')?.options ?? []
+      if (!exportOptions.some((option) => option.value === optionValue)) {
+        return
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        export: optionValue
+      }
+      closeMenus()
+      flashToolActive(tool.key, activeToolbarToolKey.value)
+      options.exportCurrentView(optionValue as ViewerExportFormat, getSelectedExportTargetForActiveTab())
       return
     }
 
@@ -1341,7 +1988,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       ...stackToolSelections.value,
       [tool.key]: optionValue
     }
-    closeMenus()
+    closeMenusIfNeeded(behavior)
 
     if (tool.key === 'rotate') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
@@ -1357,12 +2004,126 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
+    if (tool.key === 'fusionPseudocolor') {
+      options.emitTriggerViewAction({ action: 'fusionPseudocolor', value: optionValue })
+      return
+    }
+
+    if (tool.key === 'fusionPetDisplay') {
+      if (optionValue.startsWith('fusionPetPseudocolor:')) {
+        options.emitTriggerViewAction({
+          action: 'fusionPseudocolor',
+          value: optionValue.replace(/^fusionPetPseudocolor:/, 'fusionPseudocolor:')
+        })
+        return
+      }
+      if (optionValue.startsWith('fusionPetUnit:')) {
+        options.emitTriggerViewAction({ action: 'fusionPetUnit', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('fusionPetWindow:')) {
+        options.emitTriggerViewAction({ action: 'fusionPetWindow', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('petUnit:')) {
+        options.emitTriggerViewAction({ action: 'petUnit', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('petWindow:')) {
+        options.emitTriggerViewAction({ action: 'petWindow', value: optionValue })
+        return
+      }
+      if (optionValue === 'petDisplay:reset') {
+        options.emitTriggerViewAction({ action: 'petDisplayReset' })
+        return
+      }
+      if (optionValue === 'fusionPetDisplay:reset') {
+        options.emitTriggerViewAction({ action: 'fusionPetDisplayReset' })
+        return
+      }
+    }
+
+    if (tool.key === 'fusionRegistration') {
+      if (optionValue === 'fusionRegistration:toggle') {
+        options.emitTriggerViewAction({
+          action: 'fusionManualRegistration',
+          enabled: !(options.activeTab.value?.fusionManualRegistration === true)
+        })
+        return
+      }
+      if (optionValue === 'fusionRegistration:exit') {
+        options.emitTriggerViewAction({
+          action: 'fusionManualRegistration',
+          enabled: false
+        })
+        return
+      }
+      if (optionValue === 'fusionRegistration:help') {
+        return
+      }
+      if (optionValue === 'fusionRegistration:reset') {
+        options.emitTriggerViewAction({ action: 'fusionRegistrationReset' })
+        return
+      }
+      if (optionValue === 'fusionRegistration:save') {
+        options.emitTriggerViewAction({ action: 'fusionRegistrationSave' })
+        return
+      }
+      if (optionValue === 'fusionRegistration:load') {
+        options.emitTriggerViewAction({ action: 'fusionRegistrationLoad' })
+      }
+      return
+    }
+
     if (tool.key === 'window') {
+      if (optionValue === 'window:reset') {
+        const activeTab = options.activeTab.value
+        if (!activeTab) {
+          return
+        }
+        options.stopViewportDrag()
+        setToolbarToolActive('window')
+        if (options.activeOperation.value !== `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`) {
+          options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
+        }
+        const targetKey = getWindowSelectionTargetKey(activeTab)
+        const resetValue = explicitWindowSelectionByTargetKey.get(targetKey) ?? getInitialWindowSelectionValue(activeTab)
+        if (!resetValue || !parseWindowPresetValue(resetValue)) {
+          closeMenusIfNeeded(behavior)
+          return
+        }
+        stackToolSelections.value = {
+          ...stackToolSelections.value,
+          window: resetValue
+        }
+        closeMenusIfNeeded(behavior)
+        options.emitTriggerViewAction({ action: 'windowPreset', value: resetValue })
+        return
+      }
+
+      const parsedWindowValue = parseWindowPresetValue(optionValue)
+      if (!parsedWindowValue) {
+        return
+      }
       const selectedPreset = windowPresets.value.find((preset) => formatWindowPresetValue(preset.ww, preset.wl) === optionValue)
       if (selectedPreset) {
         selectedWindowPresetId.value = selectedPreset.id
       }
-      options.emitTriggerViewAction({ action: 'windowPreset', value: optionValue })
+      options.stopViewportDrag()
+      setToolbarToolActive('window')
+      if (options.activeOperation.value !== `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`) {
+        options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
+      }
+      const activeTab = options.activeTab.value
+      if (activeTab) {
+        explicitWindowSelectionByTargetKey.set(getWindowSelectionTargetKey(activeTab), formatWindowPresetValue(parsedWindowValue.ww, parsedWindowValue.wl))
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        window: formatWindowPresetValue(parsedWindowValue.ww, parsedWindowValue.wl)
+      }
+      closeMenusIfNeeded(behavior)
+      options.emitTriggerViewAction({ action: 'windowPreset', value: formatWindowPresetValue(parsedWindowValue.ww, parsedWindowValue.wl) })
       return
     }
 
@@ -1407,15 +2168,6 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'export') {
-      const exportOptions = activeTools.value.find((item) => item.key === 'export')?.options ?? []
-      if (!exportOptions.some((option) => option.value === optionValue)) {
-        return
-      }
-      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.exportCurrentView(optionValue as ViewerExportFormat)
-      })
-    }
   }
 
   function handleViewportClick(viewportKey: string): void {
@@ -1453,6 +2205,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         stopPlayback()
         isVolumeConfigPanelOpen.value = false
         isMprMipPanelOpen.value = false
+        isMprSegmentationPanelOpen.value = false
         options.setActiveViewport(
           viewType === 'MPR' || viewType === '4D'
             ? 'mpr-ax'
@@ -1462,7 +2215,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
                 ? COMPARE_STACK_SOURCE_PANE_KEY
                 : viewType === 'Layout'
                   ? (options.activeTab.value?.layoutSlots?.find((slot) => Boolean(slot.viewId))?.id ?? 'layout')
-                  : 'single'
+                  : viewType === 'PETCTFusion'
+                    ? FUSION_OVERLAY_AXIAL_PANE_KEY
+                    : 'single'
         )
         restoreToolbarState(tabKey, viewType)
         closeMenus()
@@ -1644,6 +2399,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     { immediate: true }
   )
 
+  watch(
+    () => options.activeTab.value?.viewType === 'PETCTFusion'
+      ? options.activeTab.value.fusionInfo?.petPseudocolorPreset ?? 'petct-rainbow'
+      : null,
+    (value) => {
+      if (!value) {
+        return
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        fusionPseudocolor: toFusionPseudocolorSelectionValue(value)
+      }
+    },
+    { immediate: true }
+  )
+
   const playbackSubscription = playbackController.subscribe((snapshot) => {
     playbackSnapshot.value = snapshot
   })
@@ -1674,9 +2445,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     activeTools,
     activeToolbarToolKey,
     activeMprMipConfig,
+    activeMprSegmentationConfig,
     activeVolumeRenderConfig,
     applyTool,
     areToolbarActionsDisabled,
+    closeMprSegmentationPanel,
     closeMenus,
     endPlayback,
     handleViewportClick,
@@ -1684,16 +2457,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     isPlaying,
     isPlaybackPaused,
     isMprMipPanelOpen,
+    isMprSegmentationPanelOpen,
     isToolSelected,
     isVolumeConfigPanelOpen,
     menuIconSize,
     openMenuKey,
     pausePlayback,
+    activateSegmentationSelectionMode,
     selectToolOption,
     setMenuOpen,
     stackToolSelections,
     toolbarIconSize,
     toggleIconSize,
-    updateActiveMprMipConfig
+    updateActiveMprMipConfig,
+    updateActiveMprSegmentationConfig
   }
 }

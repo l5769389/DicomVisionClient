@@ -29,7 +29,7 @@ const emit = defineEmits<{
 const viewportHostRef = ref<HTMLElement | null>(null)
 const volumeTab = computed(() => (props.activeTab?.viewType === '3D' ? props.activeTab : null))
 const activePointers = new Map<number, PointerPoint>()
-const MOBILE_VOLUME_ROTATE_SENSITIVITY = 0.45
+const MOBILE_VOLUME_ROTATE_SENSITIVITY = 0.25
 
 let lastPrimaryPoint: PointerPoint | null = null
 let activeDragOperation: ViewOperationType | null = null

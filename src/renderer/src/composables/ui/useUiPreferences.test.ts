@@ -57,6 +57,7 @@ describe('useUiPreferences', () => {
       version: 11,
       locale: 'en-US',
       themeId: 'clinical-light',
+      viewerToolbarPlacement: 'right',
       selectedPseudocolorKey: 'rainbow',
       mprDefaultLayoutKey: 'quad',
       dicomTagDisplayMode: 'flat',
@@ -102,6 +103,7 @@ describe('useUiPreferences', () => {
     expect(preferences.themeId.value).toBe('clinical-light')
     expect(document.documentElement.dataset.theme).toBe('clinical-light')
     expect(document.documentElement.style.colorScheme).toBe('light')
+    expect(preferences.viewerToolbarPlacement.value).toBe('right')
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
     expect(preferences.mprDefaultLayoutKey.value).toBe('quad')
     expect(preferences.dicomTagDisplayMode.value).toBe('flat')
@@ -122,10 +124,10 @@ describe('useUiPreferences', () => {
       topLeft: [
         'manufacturerModel',
         'stationName',
-        'institutionName',
         'examDescription',
         'seriesNumber',
-        'viewportLocation'
+        'viewportLocation',
+        'imageIndex'
       ],
       topRight: ['patientName', 'patientSummary'],
       bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
@@ -146,6 +148,7 @@ describe('useUiPreferences', () => {
   it('persists user changes after hydration', async () => {
     const preferences = await loadPreferences()
 
+    preferences.viewerToolbarPlacement.value = 'right'
     preferences.setMprDefaultLayoutKey('mpr-3d')
     preferences.dicomTagDisplayMode.value = 'flat'
     preferences.setHangingProtocolRules([
@@ -195,6 +198,7 @@ describe('useUiPreferences', () => {
     await flushPreferences()
 
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(saved.viewerToolbarPlacement).toBe('right')
     expect(saved.mprDefaultLayoutKey).toBe('mpr-3d')
     expect(saved.dicomTagDisplayMode).toBe('flat')
     expect(saved.hangingProtocolRules).toEqual([
@@ -219,6 +223,86 @@ describe('useUiPreferences', () => {
       enabled: true,
       activeProfileId: 'pacs-2'
     })
+  })
+
+  it('normalizes and persists MPR segmentation display colors', async () => {
+    const preferences = await loadPreferences({
+      mprSegmentationStylePreference: {
+        thresholdColor: 'not-a-color',
+        voiColor: '#ABCDEF'
+      }
+    })
+
+    expect(preferences.mprSegmentationStylePreference.value).toEqual({
+      thresholdColor: '#ff4df8',
+      voiColor: '#ABCDEF'
+    })
+
+    preferences.setMprSegmentationStylePreference({
+      thresholdColor: '#112233',
+      voiColor: 'bad'
+    })
+    await flushPreferences()
+
+    expect(preferences.mprSegmentationStylePreference.value).toEqual({
+      thresholdColor: '#112233',
+      voiColor: '#22d3ee'
+    })
+
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(saved.mprSegmentationStylePreference).toEqual({
+      thresholdColor: '#112233',
+      voiColor: '#22d3ee'
+    })
+  })
+
+  it('migrates the previous default corner layout to include Im without changing custom layouts', async () => {
+    const preferences = await loadPreferences({
+      version: 14,
+      viewportCornerInfoPreference: {
+        topLeft: ['manufacturerModel', 'stationName', 'institutionName', 'examDescription', 'seriesNumber', 'viewportLocation'],
+        topRight: ['patientName', 'patientSummary'],
+        bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
+        bottomRight: ['zoom', 'coordinates']
+      }
+    })
+
+    expect(preferences.viewportCornerInfoPreference.value.topLeft).toEqual([
+      'manufacturerModel',
+      'stationName',
+      'examDescription',
+      'seriesNumber',
+      'viewportLocation',
+      'imageIndex'
+    ])
+
+    const customPreferences = await loadPreferences({
+      version: 14,
+      viewportCornerInfoPreference: {
+        topLeft: ['patientName', 'windowLevel'],
+        topRight: ['seriesNumber'],
+        bottomLeft: [],
+        bottomRight: ['zoom']
+      }
+    })
+
+    expect(customPreferences.viewportCornerInfoPreference.value).toEqual({
+      topLeft: ['patientName', 'windowLevel'],
+      topRight: ['seriesNumber'],
+      bottomLeft: [],
+      bottomRight: ['zoom']
+    })
+  })
+
+  it('defaults to the right toolbar and falls back to it for unknown placement values', async () => {
+    const defaultPreferences = await loadPreferences()
+    expect(defaultPreferences.viewerToolbarPlacement.value).toBe('right')
+
+    const preferences = await loadPreferences({
+      viewerToolbarPlacement: 'floating'
+    })
+
+    expect(preferences.viewerToolbarPlacement.value).toBe('right')
   })
 
   it('creates PACS profiles with preset-specific DIMSE ports', async () => {

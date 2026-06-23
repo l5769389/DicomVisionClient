@@ -35,7 +35,7 @@ const props = defineProps<{
 const { locale, viewerCopy } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
 const compareLoadingLabel = computed(() => (isZh.value ? '正在加载对比视图...' : 'Loading compare view...'))
-const comparePlaceholder = computed(() => (isZh.value ? 'Stack 对比预览' : 'Stack compare preview'))
+const comparePlaceholder = computed(() => (isZh.value ? '2D 对比预览' : '2D compare preview'))
 const compareSliceLabel = computed(() => (isZh.value ? '切换对比切片' : 'Change compare slice'))
 const syncedCompareSliceLabel = computed(() => (isZh.value ? '切换同步对比切片' : 'Change synced compare slice'))
 
@@ -257,6 +257,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           :measurements="getMeasurements(pane.key)"
           :scale-bar="activeTab.compareScaleBars?.[pane.key] ?? null"
           :orientation="activeTab.compareOrientations?.[pane.key] ?? activeTab.orientation"
+          :viewport-transform="activeTab.compareTransformStates?.[pane.key] ?? activeTab.transformState ?? null"
           @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
           @copy-annotation="emit('copyAnnotation', $event)"
           @delete-annotation="emit('deleteAnnotation', $event)"

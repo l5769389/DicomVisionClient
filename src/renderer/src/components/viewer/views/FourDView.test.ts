@@ -188,7 +188,10 @@ describe('FourDView', () => {
       }
     })
 
-    await wrapper.find('button[aria-label="Play 4D playback"]').trigger('click')
+    const phasePlayButton = wrapper.find('button[aria-label="Play 4D playback"]')
+    expect(phasePlayButton.attributes('title')).toBe('Play 4D playback')
+
+    await phasePlayButton.trigger('click')
 
     expect(wrapper.emitted('playbackChange')).toEqual([[true]])
     wrapper.unmount()

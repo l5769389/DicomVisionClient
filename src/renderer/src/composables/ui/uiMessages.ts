@@ -568,7 +568,7 @@ export const uiMessages = {
       playbackFps: '4D 播放 FPS',
       loading4dPlayback: '正在加载 4D 播放',
       pause4dPlayback: '暂停 4D 播放',
-      play4dPlayback: '播放 4D',
+      play4dPlayback: '4D 播放',
       loading: '加载中',
       pause: '暂停',
       play: '播放',

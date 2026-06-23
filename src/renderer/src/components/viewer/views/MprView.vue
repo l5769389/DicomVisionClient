@@ -12,6 +12,7 @@ import type {
   MprSegmentationConfigActionType,
   MprSegmentationConfig,
   MprSegmentationOverlay,
+  MprCrosshairInfo,
   MprViewportKey,
   ScaleBarInfo,
   ViewProgressInfo,
@@ -189,6 +190,20 @@ const emptyVolumeCornerInfo: CornerInfo = {
   bottomRight: []
 }
 
+const DEFAULT_MPR_CROSSHAIR: MprCrosshairInfo = {
+  centerX: 0.5,
+  centerY: 0.5,
+  hitRadius: 8,
+  horizontalPosition: 0.5,
+  verticalPosition: 0.5,
+  horizontalAngleRad: null,
+  verticalAngleRad: null,
+  horizontalSlabOffsetX: null,
+  horizontalSlabOffsetY: null,
+  verticalSlabOffsetX: null,
+  verticalSlabOffsetY: null
+}
+
 type MprOnlyLayoutItem = MprViewportLayoutItem & { key: MprViewportKey; kind: 'mpr' }
 
 function isMprLayoutItem(item: MprViewportLayoutItem): item is MprOnlyLayoutItem {
@@ -208,7 +223,7 @@ function getViewportOrientation(viewportKey: MprViewportKey) {
 }
 
 function getViewportCrosshair(viewportKey: MprViewportKey) {
-  return props.activeTab.viewportCrosshairs?.[viewportKey] ?? null
+  return props.activeTab.viewportCrosshairs?.[viewportKey] ?? DEFAULT_MPR_CROSSHAIR
 }
 
 function getViewportPlane(viewportKey: MprViewportKey) {
@@ -401,8 +416,23 @@ function getViewportClass(viewportKey: MprDisplayViewportKey, className: string)
   return maximizedViewportKey.value === viewportKey ? 'col-start-1 row-start-1' : className
 }
 
+const effectiveActiveViewportKey = computed<MprDisplayViewportKey>(() => {
+  const maximizedKey = maximizedViewportKey.value
+  if (maximizedKey) {
+    return maximizedKey
+  }
+
+  const activeViewportItem = viewportItems.value.find((item) => item.key === props.activeViewportKey)
+  if (activeViewportItem) {
+    return activeViewportItem.key
+  }
+
+  const firstMprViewport = viewportItems.value.find((item) => isMprViewportKey(item.key))?.key
+  return firstMprViewport ?? viewportItems.value[0]?.key ?? 'mpr-ax'
+})
+
 function isViewportActive(viewportKey: MprDisplayViewportKey): boolean {
-  return (maximizedViewportKey.value ?? props.activeViewportKey) === viewportKey
+  return effectiveActiveViewportKey.value === viewportKey
 }
 
 function isMprViewportKey(viewportKey: string): viewportKey is MprViewportKey {
@@ -415,8 +445,9 @@ function resolveWheelViewportKey(viewportKey: string): MprViewportKey | null {
     return isMprViewportKey(maximizedKey) ? maximizedKey : null
   }
 
-  if (isMprViewportKey(props.activeViewportKey)) {
-    return props.activeViewportKey
+  const activeViewportKey = effectiveActiveViewportKey.value
+  if (isMprViewportKey(activeViewportKey)) {
+    return activeViewportKey
   }
 
   return isMprViewportKey(viewportKey) ? viewportKey : null

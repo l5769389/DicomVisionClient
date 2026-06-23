@@ -129,6 +129,7 @@ const mdiIconMap: Record<string, string> = {
   qa: mdiClipboardPulseOutline,
   mtf: mdiChartBellCurveCumulative,
   'water-phantom': mdiWaterCircle,
+  history: mdiTimelineClockOutline,
   play: mdiPlay,
   pause: mdiPause,
   stop: mdiStop,

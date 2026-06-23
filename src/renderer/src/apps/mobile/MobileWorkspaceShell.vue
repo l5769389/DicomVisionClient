@@ -34,7 +34,9 @@ import {
   FUSION_CT_AXIAL_PANE_KEY,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PET_AXIAL_PANE_KEY,
-  FUSION_PET_CORONAL_MIP_PANE_KEY
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
+  getSeriesDisplayName,
+  getViewTypeDisplayLabel
 } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import { setApiBaseURL } from '../../services/api'
 import { postApi, postDicomUpload, type LoadFolderResponse } from '../../services/typedApi'
@@ -64,7 +66,7 @@ type MobileInlineToolKey = 'fusionRegistrationToggle' | 'fusionRegistrationTrans
 type MobileToolbarKey = MobileToolKey | MobileInlineToolKey | 'more'
 type FusionRegistrationExitToolKey = Extract<MobileToolKey, 'pan' | 'zoom' | 'scroll' | 'crosshair' | 'rotate3d'>
 type MobileInlineToolPanel = 'measure' | 'color' | 'transform' | 'segmentation' | 'qa' | 'playback' | 'fusion-registration' | 'volume-render' | null
-type MobileSheetKind = 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'fusion' | 'segmentation' | 'mpr' | 'measure' | 'annotate' | 'qa' | 'export' | 'volumeParams' | 'reset' | 'tag' | null
+type MobileSheetKind = 'history' | 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'fusion' | 'segmentation' | 'mpr' | 'measure' | 'annotate' | 'qa' | 'export' | 'volumeParams' | 'reset' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
 type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
@@ -108,6 +110,12 @@ interface MobileSliceSliderState {
   viewportKey: string
 }
 
+interface MobileSlicePlaybackTarget {
+  current: number
+  total: number
+  viewportKey: string
+}
+
 interface MobileFavoriteSliceItem {
   displaySlice: number
   series: FolderSeriesItem | null
@@ -116,7 +124,23 @@ interface MobileFavoriteSliceItem {
   total: number | null
 }
 
+interface MobileViewHistoryRecord {
+  id: string
+  openedAt: number
+  seriesId: string
+  targetSeriesId?: string
+  viewType: ViewType
+}
+
+interface MobileViewHistoryItem extends MobileViewHistoryRecord {
+  detail: string
+  openable: boolean
+  title: string
+  viewLabel: string
+}
+
 const DEFAULT_MOBILE_DEV_SAMPLE_DICOM_PATH = 'D:/test/sample'
+const MAX_MOBILE_VIEW_HISTORY = 20
 type MobileSampleMode = 'local-path' | 'server-sample'
 const GESTURE_SCROLL_THRESHOLDS: Record<MobileGestureSensitivity, number> = {
   high: 18,
@@ -165,9 +189,9 @@ const MOBILE_QA_TOOLS = [
 
 const MOBILE_RESET_OPTIONS = [
   { value: 'reset:view', icon: 'reset', zh: '\u91cd\u7f6e\u89c6\u56fe', en: 'Reset View' },
-  { value: 'reset:measurements', icon: 'measure', zh: '清除测量', en: 'Clear Measurements' },
-  { value: 'reset:mtf', icon: 'mtf', zh: '清除 MTF', en: 'Clear MTF' },
-  { value: 'reset:annotations', icon: 'annotate', zh: '清除标注', en: 'Clear Annotations' },
+  { value: 'reset:measurements', icon: 'reset', zh: '清除测量', en: 'Clear Measurements' },
+  { value: 'reset:mtf', icon: 'reset', zh: '清除 MTF', en: 'Clear MTF' },
+  { value: 'reset:annotations', icon: 'reset', zh: '清除标注', en: 'Clear Annotations' },
   { value: 'reset:all', icon: 'trash', zh: '\u5168\u90e8\u91cd\u7f6e', en: 'Reset All' }
 ]
 
@@ -268,6 +292,7 @@ const selectedCustomPresetIds = ref<string[]>([])
 const explicitWindowSelectionByTargetKey = new Map<string, string>()
 const activeCompareViewportKey = ref<CompareStackPaneKey>(COMPARE_STACK_SOURCE_PANE_KEY)
 const activeFusionViewportKey = ref<FusionPaneKey>(FUSION_OVERLAY_AXIAL_PANE_KEY)
+const mobileViewHistory = ref<MobileViewHistoryRecord[]>([])
 const mobileFusionRegistrationMode = ref<'translate' | 'rotate'>('translate')
 const fusionSourceSeriesId = ref<string | null>(null)
 const activeMprViewportKey = ref<MprViewportKey>(mprDefaultViewport.value)
@@ -288,6 +313,7 @@ const seriesActionSeriesId = ref<string | null>(null)
 let playbackTimer: ReturnType<typeof window.setInterval> | null = null
 let fourDPlaybackStartingTimer: ReturnType<typeof window.setTimeout> | null = null
 let sliceSliderFrame: number | null = null
+let activeSlicePlaybackTarget: MobileSlicePlaybackTarget | null = null
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const isWebPlatform = computed(() => viewerRuntime.platform === 'web')
@@ -396,13 +422,13 @@ const activeSliceLabel = computed(() => {
 const sliceSliderValue = computed(() => displayedSlice.value?.current ?? 1)
 const activeStackSlice = computed(() => (activeStackLikeTab.value ? parseSliceLabel(activeStackLikeTab.value.sliceLabel) : null))
 const activeMprSlice = computed(() => (
-  activeMprTab.value ? parseSliceLabel(activeMprTab.value.viewportSliceLabels?.[activeMprViewportKey.value] ?? '') : null
+  activeMprLikeTab.value ? parseSliceLabel(activeMprLikeTab.value.viewportSliceLabels?.[activeMprViewportKey.value] ?? '') : null
 ))
 const isCurrentStackSliceStarred = computed(() =>
   Boolean(activeStackLikeTab.value && activeStackSlice.value && isSliceStarred(activeStackLikeTab.value.seriesId, activeStackSlice.value.index))
 )
 const canPlayStack = computed(() => Boolean(activeStackSlice.value && activeStackSlice.value.total > 1 && activeStackLikeTab.value))
-const canPlayMpr = computed(() => Boolean(activeMprSlice.value && activeMprSlice.value.total > 1 && activeMprTab.value))
+const canPlayMpr = computed(() => Boolean(activeMprSlice.value && activeMprSlice.value.total > 1 && activeMprLikeTab.value))
 const showSlicePanel = computed(() => Boolean(activeStackLikeTab.value || activeCompareTab.value || activeFusionTab.value || activeMprLikeTab.value))
 const fourDPhaseCount = computed(() => Math.max(1, activeFourDTab.value?.fourDPhaseItems?.length ?? activeFourDTab.value?.fourDPhaseCount ?? 1))
 const fourDPhaseIndex = computed(() =>
@@ -418,17 +444,24 @@ const activePlaybackFpsIndex = computed(() => {
   return index >= 0 ? index : 0
 })
 const activePlaybackFpsLabel = computed(() => `${activePlaybackFps.value} FPS`)
+const isPlayingActiveSlicePlayback = computed(() => (activeMprLikeTab.value ? isPlayingMpr.value : isPlayingStack.value))
+const isAnyPlaybackActive = computed(() => isPlayingFourD.value || fourDPlaybackStarting.value || isPlayingActiveSlicePlayback.value)
 const canPlayActive = computed(() => {
   if (activeFourDTab.value) {
-    return canPlayFourD.value
+    return canPlayFourD.value && !isPlayingActiveSlicePlayback.value
   }
-  if (activeMprTab.value) {
+  if (activeMprLikeTab.value) {
     return canPlayMpr.value
   }
   return canPlayStack.value
 })
-const showSlicePlayButton = computed(() => Boolean(activeStackLikeTab.value || activeMprTab.value || activeFourDTab.value))
-const isPlayingActiveSlicePlayback = computed(() => (activeMprTab.value ? isPlayingMpr.value : isPlayingStack.value))
+const canPlaySlicePlayback = computed(() => {
+  if (activeMprLikeTab.value) {
+    return canPlayMpr.value && !isPlayingFourD.value && !fourDPlaybackStarting.value
+  }
+  return canPlayStack.value
+})
+const showSlicePlayButton = computed(() => Boolean(activeStackLikeTab.value || activeMprLikeTab.value))
 const activePlayLabel = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
     return isZh.value ? '加载' : 'Loading'
@@ -438,10 +471,16 @@ const activePlayLabel = computed(() => {
 })
 const activePlayIcon = computed(() => {
   if (activeFourDTab.value && fourDPlaybackStarting.value) {
-    return 'connecting'
+    return 'play'
   }
   return (activeFourDTab.value ? isPlayingFourD.value : isPlayingActiveSlicePlayback.value) ? 'pause' : 'play'
 })
+const activeSlicePlayLabel = computed(() =>
+  isPlayingActiveSlicePlayback.value
+    ? (isZh.value ? '暂停切片播放' : 'Pause slice playback')
+    : (isZh.value ? '播放切片' : 'Play slices')
+)
+const activeSlicePlayIcon = computed(() => (isPlayingActiveSlicePlayback.value ? 'pause' : 'play'))
 const scrollDragThreshold = computed(() => GESTURE_SCROLL_THRESHOLDS[gestureSensitivity.value] ?? GESTURE_SCROLL_THRESHOLDS.normal)
 const filteredTagItems = computed(() => {
   const items = activeTagTab.value?.tagItems ?? []
@@ -485,6 +524,10 @@ const favoriteSliceItems = computed<MobileFavoriteSliceItem[]>(() => {
     })
 })
 const favoriteSliceCount = computed(() => favoriteSliceItems.value.length)
+const mobileViewHistoryItems = computed<MobileViewHistoryItem[]>(() =>
+  mobileViewHistory.value.map(resolveMobileViewHistoryItem)
+)
+const mobileViewHistoryCount = computed(() => mobileViewHistoryItems.value.length)
 
 function createMobileResetTool(): MobileToolbarItem {
   return { key: 'reset', icon: 'reset', label: isZh.value ? '\u91cd\u7f6e' : 'Reset' }
@@ -538,6 +581,16 @@ const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
     ]
   }
 
+  if (activeFourDTab.value) {
+    return [
+      windowTool.value,
+      panTool.value,
+      zoomTool.value,
+      crosshairTool.value,
+      { key: 'play', icon: activePlayIcon.value, label: isZh.value ? '播放' : 'Play' }
+    ]
+  }
+
   const primaryTools = [
     windowTool.value,
     panTool.value,
@@ -580,7 +633,6 @@ const secondaryMobileTools = computed<MobileToolbarItem[]>(() => {
       measureTool.value,
       annotateTool.value,
       colorTool.value,
-      { key: 'play', icon: 'play', label: isZh.value ? '播放' : 'Play' },
       createMoreTool()
     ])
   }
@@ -751,7 +803,7 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
       },
       ...MOBILE_STACK_PLAYBACK_FPS_OPTIONS.map((fps) => ({
         key: getMobileInlineActionKey('playback-fps', `${fps}`),
-        icon: 'play',
+        icon: 'four-d',
         label: `${fps} FPS`,
         active: activePlaybackFps.value === fps,
         disabled: !canPlayActive.value,
@@ -822,6 +874,7 @@ const isIconOnlyInlineToolPanel = computed(() => {
 
 const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; label: string }>>(() => {
   const tabs: Array<{ key: MobileSheetTabKey; icon: string; label: string }> = [
+    { key: 'history', icon: 'history', label: isZh.value ? '历史' : 'History' },
     { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' },
     { key: 'favorites', icon: 'star', label: isZh.value ? '收藏' : 'Favorites' }
   ]
@@ -920,6 +973,7 @@ const sheetTitle = computed(() => {
     favorites: isZh.value ? '收藏 DICOM' : 'Favorite DICOM',
     export: isZh.value ? '导出' : 'Export',
     fusion: isZh.value ? 'PET/CT 融合' : 'PET/CT Fusion',
+    history: isZh.value ? '浏览记录' : 'Recent Views',
     mpr: 'MPR',
     measure: isZh.value ? '测量' : 'Measure',
     qa: 'QA',
@@ -1372,6 +1426,107 @@ function resolveMobileFusionPaneSeriesId(tab: ViewerTabItem, paneKey: FusionPane
   return tab.seriesId ?? null
 }
 
+function getHistoryRecordId(viewType: ViewType, seriesId: string, targetSeriesId?: string): string {
+  return [viewType, seriesId, targetSeriesId ?? ''].join('::')
+}
+
+function shouldRememberMobileViewHistory(viewType: ViewType): boolean {
+  return viewType !== 'Tag' && viewType !== 'Layout'
+}
+
+function rememberMobileViewHistory(viewType: ViewType, seriesId: string, targetSeriesId?: string): void {
+  if (!shouldRememberMobileViewHistory(viewType)) {
+    return
+  }
+  const id = getHistoryRecordId(viewType, seriesId, targetSeriesId)
+  const record: MobileViewHistoryRecord = {
+    id,
+    openedAt: Date.now(),
+    seriesId,
+    targetSeriesId,
+    viewType
+  }
+  mobileViewHistory.value = [
+    record,
+    ...mobileViewHistory.value.filter((item) => item.id !== id)
+  ].slice(0, MAX_MOBILE_VIEW_HISTORY)
+}
+
+function getHistoryViewLabel(viewType: ViewType): string {
+  return getViewTypeDisplayLabel(viewType, isZh.value ? 'zh-CN' : 'en-US')
+}
+
+function getSeriesForHistory(seriesId: string): FolderSeriesItem | null {
+  return viewer.seriesList.value.find((series) => series.seriesId === seriesId) ?? null
+}
+
+function isMobileViewHistoryRecordOpenable(record: MobileViewHistoryRecord): boolean {
+  const source = getSeriesForHistory(record.seriesId)
+  if (!source) {
+    return false
+  }
+  if (record.viewType === 'CompareStack') {
+    const target = record.targetSeriesId ? getSeriesForHistory(record.targetSeriesId) : null
+    return Boolean(target && canOpenCompare.value && isSeriesActionSupported(source, 'CompareStack') && isSeriesActionSupported(target, 'CompareStack'))
+  }
+  if (record.viewType === 'PETCTFusion') {
+    const target = record.targetSeriesId ? getSeriesForHistory(record.targetSeriesId) : null
+    return Boolean(target && canOpenFusion.value && resolveFusionPair(source, target))
+  }
+  return isSeriesActionSupported(source, record.viewType)
+}
+
+function resolveMobileViewHistoryItem(record: MobileViewHistoryRecord): MobileViewHistoryItem {
+  const source = getSeriesForHistory(record.seriesId)
+  const target = record.targetSeriesId ? getSeriesForHistory(record.targetSeriesId) : null
+  const viewLabel = getHistoryViewLabel(record.viewType)
+  const sourceName = getSeriesDisplayName(source, record.seriesId)
+  const targetName = record.targetSeriesId ? getSeriesDisplayName(target, record.targetSeriesId) : ''
+  const title = record.viewType === 'CompareStack'
+    ? `${sourceName} vs ${targetName}`
+    : record.viewType === 'PETCTFusion'
+      ? `${sourceName} + ${targetName}`
+      : sourceName
+  const detailParts = [
+    viewLabel,
+    source ? formatSeriesMeta(source) : record.seriesId,
+    target ? formatSeriesMeta(target) : ''
+  ].filter(Boolean)
+  return {
+    ...record,
+    detail: detailParts.join(' · '),
+    openable: isMobileViewHistoryRecordOpenable(record),
+    title,
+    viewLabel
+  }
+}
+
+function removeMobileViewHistoryRecord(recordId: string): void {
+  mobileViewHistory.value = mobileViewHistory.value.filter((item) => item.id !== recordId)
+}
+
+async function openMobileViewHistoryRecord(record: MobileViewHistoryRecord): Promise<void> {
+  if (!isMobileViewHistoryRecordOpenable(record)) {
+    return
+  }
+  if (record.viewType === 'CompareStack' && record.targetSeriesId) {
+    stopSlicePlayback()
+    viewer.selectSeries(record.seriesId)
+    activeCompareViewportKey.value = COMPARE_STACK_SOURCE_PANE_KEY
+    await viewer.openSeriesCompare(record.seriesId, record.targetSeriesId)
+    viewer.setActiveViewportKey(COMPARE_STACK_SOURCE_PANE_KEY)
+    applyMobileViewDefaults('CompareStack')
+    rememberMobileViewHistory('CompareStack', record.seriesId, record.targetSeriesId)
+    dismissSheet()
+    return
+  }
+  if (record.viewType === 'PETCTFusion' && record.targetSeriesId) {
+    await openMobilePetCtFusion(record.seriesId, record.targetSeriesId)
+    return
+  }
+  await openSeriesView(record.seriesId, record.viewType)
+}
+
 async function openSeriesView(seriesId: string, viewType: ViewType): Promise<void> {
   const series = viewer.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
   if (!isSeriesActionSupported(series, viewType)) {
@@ -1393,6 +1548,7 @@ async function openSeriesView(seriesId: string, viewType: ViewType): Promise<voi
   if (viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '3D' || viewType === '4D') {
     applyMobileViewDefaults(viewType)
   }
+  rememberMobileViewHistory(viewType, seriesId)
   dismissSheet()
 }
 
@@ -1440,6 +1596,7 @@ async function openSeriesCompareTo(targetSeriesId: string): Promise<void> {
   await viewer.openSeriesCompare(sourceSeriesId, targetSeriesId)
   viewer.setActiveViewportKey(COMPARE_STACK_SOURCE_PANE_KEY)
   applyMobileViewDefaults('CompareStack')
+  rememberMobileViewHistory('CompareStack', sourceSeriesId, targetSeriesId)
   compareSourceSeriesId.value = null
   dismissSheet()
 }
@@ -1470,6 +1627,7 @@ async function openMobilePetCtFusion(sourceSeriesId: string, targetSeriesId: str
   await viewer.openPetCtFusion(pair.ctSeriesId, pair.petSeriesId)
   viewer.setActiveViewportKey(FUSION_OVERLAY_AXIAL_PANE_KEY)
   applyMobileViewDefaults('PETCTFusion')
+  rememberMobileViewHistory('PETCTFusion', pair.ctSeriesId, pair.petSeriesId)
   fusionSourceSeriesId.value = null
   dismissSheet()
 }
@@ -2245,23 +2403,45 @@ function getCurrentMprSliceInfo(): { current: number; total: number; viewportKey
   return slice && slice.total > 1 ? { current: slice.current, total: slice.total, viewportKey: activeMprViewportKey.value } : null
 }
 
+function getSlicePlaybackIntervalMs(fps = activePlaybackFps.value): number {
+  return Math.max(34, Math.round(1000 / fps))
+}
+
+function startSlicePlaybackTimer(tick: () => void, fps = activePlaybackFps.value): void {
+  clearSlicePlaybackTimer()
+  playbackTimer = window.setInterval(tick, getSlicePlaybackIntervalMs(fps))
+}
+
+function resetSlicePlaybackTarget(sliceInfo: { current: number; total: number; viewportKey: string }): MobileSlicePlaybackTarget {
+  return {
+    current: sliceInfo.current,
+    total: sliceInfo.total,
+    viewportKey: sliceInfo.viewportKey
+  }
+}
+
 function tickStackPlayback(): void {
-  const sliceInfo = getCurrentStackSliceInfo()
-  if (!sliceInfo || sliceInfo.current >= sliceInfo.total) {
+  if (!activeSlicePlaybackTarget || activeSlicePlaybackTarget.current >= activeSlicePlaybackTarget.total) {
     stopStackPlayback()
     return
   }
 
-  viewer.handleViewportWheel({ viewportKey: 'single', deltaY: 1 })
+  activeSlicePlaybackTarget.current += 1
+  viewer.handleViewportWheel({ viewportKey: activeSlicePlaybackTarget.viewportKey, deltaY: 1 })
 }
 
 function startStackPlayback(): void {
   if (!canPlayStack.value) {
     return
   }
+  const sliceInfo = getCurrentStackSliceInfo()
+  if (!sliceInfo) {
+    return
+  }
   stopSlicePlayback()
+  activeSlicePlaybackTarget = resetSlicePlaybackTarget({ ...sliceInfo, viewportKey: 'single' })
   isPlayingStack.value = true
-  playbackTimer = window.setInterval(tickStackPlayback, Math.max(34, Math.round(1000 / playbackFps.value)))
+  startSlicePlaybackTimer(tickStackPlayback, playbackFps.value)
 }
 
 function clearSlicePlaybackTimer(): void {
@@ -2273,37 +2453,55 @@ function clearSlicePlaybackTimer(): void {
 
 function stopStackPlayback(): void {
   clearSlicePlaybackTimer()
+  activeSlicePlaybackTarget = null
   isPlayingStack.value = false
 }
 
 function tickMprPlayback(): void {
-  const sliceInfo = getCurrentMprSliceInfo()
-  if (!sliceInfo || sliceInfo.current >= sliceInfo.total) {
+  if (!activeSlicePlaybackTarget || activeSlicePlaybackTarget.current >= activeSlicePlaybackTarget.total) {
     stopMprPlayback()
     return
   }
 
-  viewer.handleViewportWheel({ viewportKey: sliceInfo.viewportKey, deltaY: 1 })
+  activeSlicePlaybackTarget.current += 1
+  viewer.handleViewportWheel({ viewportKey: activeSlicePlaybackTarget.viewportKey, deltaY: 1 })
 }
 
 function startMprPlayback(): void {
-  if (!canPlayMpr.value) {
+  if (!canPlayMpr.value || isPlayingFourD.value || fourDPlaybackStarting.value) {
+    return
+  }
+  const sliceInfo = getCurrentMprSliceInfo()
+  if (!sliceInfo) {
     return
   }
   stopSlicePlayback()
+  activeSlicePlaybackTarget = resetSlicePlaybackTarget(sliceInfo)
   isPlayingMpr.value = true
-  playbackTimer = window.setInterval(tickMprPlayback, Math.max(34, Math.round(1000 / playbackFps.value)))
+  startSlicePlaybackTimer(tickMprPlayback)
 }
 
 function stopMprPlayback(): void {
   clearSlicePlaybackTimer()
+  activeSlicePlaybackTarget = null
   isPlayingMpr.value = false
 }
 
 function stopSlicePlayback(): void {
   clearSlicePlaybackTimer()
+  activeSlicePlaybackTarget = null
   isPlayingStack.value = false
   isPlayingMpr.value = false
+}
+
+function restartActiveSlicePlaybackTimer(fps = activePlaybackFps.value): void {
+  if (isPlayingStack.value) {
+    startSlicePlaybackTimer(tickStackPlayback, fps)
+    return
+  }
+  if (isPlayingMpr.value) {
+    startSlicePlaybackTimer(tickMprPlayback, fps)
+  }
 }
 
 function clearFourDPlaybackStarting(): void {
@@ -2341,7 +2539,7 @@ function toggleMprPlayback(): void {
 
 function toggleFourDPlayback(): void {
   const tab = activeFourDTab.value
-  if (!tab || !canPlayFourD.value || fourDPlaybackStarting.value) {
+  if (!tab || !canPlayFourD.value || fourDPlaybackStarting.value || isPlayingActiveSlicePlayback.value) {
     return
   }
   if (!tab.fourDIsPlaying) {
@@ -2353,6 +2551,16 @@ function toggleFourDPlayback(): void {
     tabKey: tab.key,
     isPlaying: !tab.fourDIsPlaying
   })
+}
+
+function toggleFourDPhasePlayback(): void {
+  if (!activeFourDTab.value) {
+    return
+  }
+  dismissSheet()
+  activeTool.value = 'play'
+  activeInlineToolPanel.value = 'playback'
+  toggleFourDPlayback()
 }
 
 function toggleActivePlayback(): void {
@@ -2367,22 +2575,25 @@ function toggleActivePlayback(): void {
   toggleStackPlayback()
 }
 
+function toggleSlicePlayback(): void {
+  if (activeMprLikeTab.value) {
+    toggleMprPlayback()
+    return
+  }
+  toggleStackPlayback()
+}
+
 function setPlaybackFps(value: MobileStackPlaybackFps): void {
   if (activeFourDTab.value) {
     viewer.handleFourDFpsChange({
       tabKey: activeFourDTab.value.key,
       fps: value
     })
+    restartActiveSlicePlaybackTimer(value)
     return
   }
   playbackFps.value = value
-  if (isPlayingStack.value) {
-    startStackPlayback()
-    return
-  }
-  if (isPlayingMpr.value) {
-    startMprPlayback()
-  }
+  restartActiveSlicePlaybackTimer(value)
 }
 
 function handlePlaybackFpsSliderInput(event: Event): void {
@@ -2396,7 +2607,7 @@ function handlePlaybackFpsSliderInput(event: Event): void {
 
 function handleFourDPhaseSliderInput(event: Event): void {
   const tab = activeFourDTab.value
-  if (!tab || tab.fourDIsPlaying || fourDPlaybackStarting.value) {
+  if (!tab || tab.fourDIsPlaying || fourDPlaybackStarting.value || isPlayingActiveSlicePlayback.value) {
     return
   }
   const value = Number((event.target as HTMLInputElement | null)?.value)
@@ -2506,6 +2717,9 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
 }
 
 function isToolbarItemDisabled(tool: MobileToolbarItem): boolean {
+  if (isAnyPlaybackActive.value && tool.key !== 'play') {
+    return true
+  }
   if (tool.key === 'play') {
     return !canPlayActive.value || fourDPlaybackStarting.value
   }
@@ -2846,19 +3060,16 @@ watch(
   stackPlaybackFps,
   (value) => {
     playbackFps.value = value
-    if (isPlayingStack.value) {
-      startStackPlayback()
-      return
-    }
-    if (isPlayingMpr.value) {
-      startMprPlayback()
-    }
+    restartActiveSlicePlaybackTimer(value)
   }
 )
 
 watch(
   [isPlayingFourD, activeFourDTab],
   ([isPlaying, tab]) => {
+    if (isPlaying) {
+      stopSlicePlayback()
+    }
     if (isPlaying || !tab) {
       clearFourDPlaybackStarting()
     }
@@ -3159,7 +3370,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="fourDPlaybackStarting" class="mobile-shell__playback-loading" role="status" data-testid="mobile-four-d-loading">
-        <AppIcon name="connecting" :size="18" />
+        <AppIcon name="play" :size="18" />
         <span>{{ isZh ? '正在准备 4D 播放...' : 'Preparing 4D playback...' }}</span>
       </div>
     </main>
@@ -3173,7 +3384,7 @@ onBeforeUnmount(() => {
       }"
       aria-label="Slice navigation"
     >
-      <div v-if="activeMprLikeTab" class="mobile-shell__plane-tabs" data-testid="mobile-mpr-plane-tabs">
+      <div v-if="activeMprTab" class="mobile-shell__plane-tabs" data-testid="mobile-mpr-plane-tabs">
         <button
           v-for="viewport in MPR_VIEWPORT_OPTIONS"
           :key="viewport.key"
@@ -3185,9 +3396,9 @@ onBeforeUnmount(() => {
           {{ viewport.label }}
         </button>
       </div>
-      <div v-if="activeFourDTab" class="mobile-shell__four-d-phase" data-testid="mobile-four-d-phase-panel">
+      <div v-if="activeFourDTab" class="mobile-shell__slice-control-row mobile-shell__four-d-phase" data-testid="mobile-four-d-phase-panel">
         <div class="mobile-shell__four-d-copy">
-          <span>4D Phase</span>
+          <span>{{ isZh ? '时相' : 'Phase' }}</span>
           <strong>{{ fourDPhaseLabel }}</strong>
         </div>
         <input
@@ -3198,57 +3409,70 @@ onBeforeUnmount(() => {
           :max="fourDPhaseCount"
           step="1"
           :value="fourDPhaseSliderValue"
-          :disabled="fourDPhaseCount <= 1 || isPlayingFourD || fourDPlaybackStarting"
+          :disabled="fourDPhaseCount <= 1 || isPlayingFourD || fourDPlaybackStarting || isPlayingActiveSlicePlayback"
           @change="handleFourDPhaseSliderInput"
           @input="handleFourDPhaseSliderInput"
         />
-      </div>
-      <div class="mobile-shell__slice-copy">
-        <span>{{ isZh ? '切片' : 'Slice' }}</span>
-        <strong>{{ activeSliceLabel }}</strong>
-      </div>
-      <input
-        class="mobile-shell__slice-range"
-        data-testid="mobile-slice-range"
-        type="range"
-        min="1"
-        :max="activeSlice?.total ?? 1"
-        step="1"
-        :value="sliceSliderValue"
-        :disabled="!activeSlice"
-        @change="handleSliceSliderCommit"
-        @input="handleSliceSliderInput"
-        @pointercancel="finishSliceSliderInteraction"
-        @pointerdown="beginSliceSliderInteraction"
-        @pointerup="finishSliceSliderInteraction"
-      />
-      <span v-if="showSlicePlayButton || activeStackLikeTab" class="mobile-shell__slice-actions">
         <button
-          v-if="activeStackLikeTab"
           type="button"
-          class="mobile-shell__slice-icon-button mobile-shell__slice-star"
-          :class="{ 'mobile-shell__slice-star--active': isCurrentStackSliceStarred }"
-          data-testid="mobile-toggle-star"
-          :aria-label="isCurrentStackSliceStarred ? (isZh ? '取消收藏当前切片' : 'Unstar current slice') : (isZh ? '收藏当前切片' : 'Star current slice')"
-          :aria-pressed="isCurrentStackSliceStarred"
-          :disabled="!activeStackSlice"
-          @click="toggleStackStarForCurrentSlice"
-        >
-          <AppIcon :name="isCurrentStackSliceStarred ? 'star' : 'star-outline'" :size="20" />
-        </button>
-        <button
-          v-if="showSlicePlayButton"
-          type="button"
-          class="mobile-shell__slice-icon-button mobile-shell__slice-play"
-          :class="{ 'mobile-shell__slice-play--active': activeFourDTab ? (isPlayingFourD || fourDPlaybackStarting) : isPlayingActiveSlicePlayback }"
-          data-testid="mobile-slice-play"
+          class="mobile-shell__slice-icon-button mobile-shell__phase-play"
+          :class="{ 'mobile-shell__slice-play--active': isPlayingFourD || fourDPlaybackStarting }"
+          data-testid="mobile-four-d-phase-play"
           :aria-label="activePlayLabel"
           :disabled="!canPlayActive || fourDPlaybackStarting"
-          @click="toggleActivePlayback"
+          @click="toggleFourDPhasePlayback"
         >
           <AppIcon :name="activePlayIcon" :size="20" />
         </button>
-      </span>
+      </div>
+      <div class="mobile-shell__slice-control-row">
+        <div class="mobile-shell__slice-copy">
+          <span>{{ isZh ? '切片' : 'Slice' }}</span>
+          <strong>{{ activeSliceLabel }}</strong>
+        </div>
+        <input
+          class="mobile-shell__slice-range"
+          data-testid="mobile-slice-range"
+          type="range"
+          min="1"
+          :max="activeSlice?.total ?? 1"
+          step="1"
+          :value="sliceSliderValue"
+          :disabled="!activeSlice || isPlayingFourD || fourDPlaybackStarting || isPlayingActiveSlicePlayback"
+          @change="handleSliceSliderCommit"
+          @input="handleSliceSliderInput"
+          @pointercancel="finishSliceSliderInteraction"
+          @pointerdown="beginSliceSliderInteraction"
+          @pointerup="finishSliceSliderInteraction"
+        />
+        <span v-if="showSlicePlayButton || activeStackLikeTab" class="mobile-shell__slice-actions">
+          <button
+            v-if="activeStackLikeTab"
+            type="button"
+            class="mobile-shell__slice-icon-button mobile-shell__slice-star"
+            :class="{ 'mobile-shell__slice-star--active': isCurrentStackSliceStarred }"
+            data-testid="mobile-toggle-star"
+            :aria-label="isCurrentStackSliceStarred ? (isZh ? '取消收藏当前切片' : 'Unstar current slice') : (isZh ? '收藏当前切片' : 'Star current slice')"
+            :aria-pressed="isCurrentStackSliceStarred"
+            :disabled="!activeStackSlice"
+            @click="toggleStackStarForCurrentSlice"
+          >
+            <AppIcon :name="isCurrentStackSliceStarred ? 'star' : 'star-outline'" :size="20" />
+          </button>
+          <button
+            v-if="showSlicePlayButton"
+            type="button"
+            class="mobile-shell__slice-icon-button mobile-shell__slice-play"
+            :class="{ 'mobile-shell__slice-play--active': isPlayingActiveSlicePlayback }"
+            data-testid="mobile-slice-play"
+            :aria-label="activeSlicePlayLabel"
+            :disabled="!canPlaySlicePlayback && !isPlayingActiveSlicePlayback"
+            @click="toggleSlicePlayback"
+          >
+            <AppIcon :name="activeSlicePlayIcon" :size="20" />
+          </button>
+        </span>
+      </div>
     </section>
 
     <nav v-if="activeImageTab" class="mobile-shell__toolbar" aria-label="Viewer tools">
@@ -3286,7 +3510,38 @@ onBeforeUnmount(() => {
           <strong>{{ isZh ? '配准' : 'REG' }}</strong>
           <span>{{ isZh ? 'PET 层' : 'PET layer' }}</span>
         </div>
-        <div class="mobile-shell__inline-tool-track">
+        <div v-if="activeInlineToolPanel === 'playback'" class="mobile-shell__inline-playback" data-testid="mobile-inline-playback-panel">
+          <button
+            type="button"
+            class="mobile-shell__inline-playback-toggle"
+            data-testid="mobile-inline-playback-toggle"
+            :disabled="!canPlayActive || fourDPlaybackStarting"
+            :aria-label="activePlayLabel"
+            @click="toggleActivePlayback"
+          >
+            <AppIcon :name="activePlayIcon" :size="16" />
+            <span>{{ activePlayLabel }}</span>
+          </button>
+          <div class="mobile-shell__inline-fps-control" data-testid="mobile-inline-playback-fps-control">
+            <div class="mobile-shell__inline-fps-label">
+              <span>FPS</span>
+              <strong>{{ activePlaybackFps }}</strong>
+            </div>
+            <input
+              class="mobile-shell__inline-fps-slider"
+              data-testid="mobile-inline-playback-fps-slider"
+              type="range"
+              min="0"
+              :max="MOBILE_STACK_PLAYBACK_FPS_OPTIONS.length - 1"
+              step="1"
+              :value="activePlaybackFpsIndex"
+              :disabled="!canPlayActive"
+              @change="handlePlaybackFpsSliderInput"
+              @input="handlePlaybackFpsSliderInput"
+            />
+          </div>
+        </div>
+        <div v-else class="mobile-shell__inline-tool-track">
           <button
             v-for="tool in activeInlineTools"
             :key="`inline-${tool.key}`"
@@ -3381,7 +3636,48 @@ onBeforeUnmount(() => {
               activeSheetKind === 'mpr'
           }"
         >
-          <div v-if="activeSheetKind === 'series'" class="mobile-shell__series-list">
+          <div v-if="activeSheetKind === 'history'" class="mobile-shell__history-panel">
+            <div class="mobile-shell__favorite-summary" data-testid="mobile-history-summary">
+              <span>{{ isZh ? '最近打开' : 'Recently Opened' }}</span>
+              <strong>{{ mobileViewHistoryCount }}</strong>
+            </div>
+            <div v-if="!mobileViewHistoryItems.length" class="mobile-shell__empty-inline" data-testid="mobile-history-empty">
+              {{ isZh ? '还没有打开过的视图' : 'No recently opened views yet' }}
+            </div>
+            <div v-else class="mobile-shell__action-list">
+              <div
+                v-for="item in mobileViewHistoryItems"
+                :key="item.id"
+                class="mobile-shell__history-row"
+                data-testid="mobile-history-record"
+              >
+                <button
+                  type="button"
+                  class="mobile-shell__history-open"
+                  :disabled="!item.openable"
+                  data-testid="mobile-open-history-record"
+                  @click="openMobileViewHistoryRecord(item)"
+                >
+                  <span class="mobile-shell__history-view">{{ item.viewLabel }}</span>
+                  <span>
+                    <strong>{{ item.title }}</strong>
+                    <small>{{ item.detail }}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="mobile-shell__history-remove"
+                  :aria-label="isZh ? '删除记录' : 'Remove history record'"
+                  data-testid="mobile-remove-history-record"
+                  @click="removeMobileViewHistoryRecord(item.id)"
+                >
+                  <AppIcon name="trash" :size="16" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="activeSheetKind === 'series'" class="mobile-shell__series-list">
             <div
               v-for="series in mobileSeriesList"
               :key="series.seriesId"
@@ -3643,7 +3939,7 @@ onBeforeUnmount(() => {
             <div class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--warning"
+                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
                 data-testid="mobile-window-reset"
                 @click="applyResetOption('window:reset', { keepSheetOpen: true })"
               >
@@ -3769,7 +4065,7 @@ onBeforeUnmount(() => {
             <div class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--warning"
+                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
                 data-testid="mobile-transform-reset"
                 @click="applyResetOption('transform:reset', { keepSheetOpen: true })"
               >
@@ -3952,7 +4248,7 @@ onBeforeUnmount(() => {
             <div class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--warning"
+                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
                 data-testid="mobile-mpr-reset"
                 @click="handleResetView({ keepSheetOpen: true })"
               >
@@ -4003,7 +4299,7 @@ onBeforeUnmount(() => {
                 data-testid="mobile-measure-clear"
                 @click="applyResetOption('reset:measurements', { keepSheetOpen: true })"
               >
-                <AppIcon name="measure" :size="18" />
+                <AppIcon name="reset" :size="18" />
                 <span>
                   <strong>{{ isZh ? '\u6e05\u9664\u6d4b\u91cf' : 'Clear Measurements' }}</strong>
                   <small>{{ isZh ? '\u79fb\u9664\u5f53\u524d\u89c6\u56fe\u4e2d\u7684\u5168\u90e8\u6d4b\u91cf' : 'Remove all measurements in the current view.' }}</small>
@@ -4035,7 +4331,7 @@ onBeforeUnmount(() => {
               data-testid="mobile-annotate-clear"
               @click="applyResetOption('reset:annotations', { keepSheetOpen: true })"
             >
-              <AppIcon name="annotate" :size="18" />
+              <AppIcon name="reset" :size="18" />
               <span>
                 <strong>{{ isZh ? '清除标注' : 'Clear Annotations' }}</strong>
                 <small>{{ isZh ? '移除当前视图中的全部标注' : 'Remove all annotations in the current view' }}</small>
@@ -4439,9 +4735,10 @@ onBeforeUnmount(() => {
 
 .mobile-shell__slice-panel {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(52px, 1fr) max-content;
   align-items: center;
-  gap: 10px;
+  column-gap: 10px;
+  row-gap: 8px;
   padding: 8px 12px;
   padding-right: calc(12px + env(safe-area-inset-right, 0px));
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
@@ -4450,7 +4747,12 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__slice-panel--stack {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(52px, 1fr) max-content;
+}
+
+.mobile-shell__slice-control-row {
+  grid-column: 1 / -1;
+  display: contents;
 }
 
 .mobile-shell__plane-tabs {
@@ -4462,22 +4764,19 @@ onBeforeUnmount(() => {
 
 .mobile-shell__four-d-phase {
   grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+  display: contents;
 }
 
 .mobile-shell__four-d-copy {
   display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 72px;
+  align-items: baseline;
+  gap: 6px;
+  min-width: max-content;
   color: var(--theme-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .mobile-shell__four-d-copy strong {
@@ -4512,13 +4811,14 @@ onBeforeUnmount(() => {
 
 .mobile-shell__slice-copy {
   display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 58px;
+  align-items: baseline;
+  gap: 6px;
+  min-width: max-content;
   color: var(--theme-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .mobile-shell__slice-copy strong {
@@ -4676,6 +4976,88 @@ onBeforeUnmount(() => {
 
 .mobile-shell__inline-tool-track::-webkit-scrollbar {
   display: none;
+}
+
+.mobile-shell__inline-playback {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  gap: 8px;
+}
+
+.mobile-shell__inline-playback-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: var(--mobile-inline-tool-height);
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 58%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.mobile-shell__inline-playback-toggle:disabled,
+.mobile-shell__inline-fps-tick:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.mobile-shell__inline-fps-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.mobile-shell__inline-fps-label {
+  display: grid;
+  gap: 0;
+  color: var(--theme-text-muted);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mobile-shell__inline-fps-label strong {
+  color: var(--theme-text-primary);
+  font-size: 12px;
+}
+
+.mobile-shell__inline-fps-slider {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--theme-accent);
+}
+
+.mobile-shell__inline-fps-ticks {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.mobile-shell__inline-fps-tick {
+  min-width: 24px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 44%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--theme-surface-card) 50%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.mobile-shell__inline-fps-tick--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 64%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
 }
 
 .mobile-shell__inline-tool {
@@ -5423,7 +5805,8 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
-.mobile-shell__favorite-panel {
+.mobile-shell__favorite-panel,
+.mobile-shell__history-panel {
   display: grid;
   gap: 8px;
 }
@@ -5447,7 +5830,8 @@ onBeforeUnmount(() => {
   font-size: 18px;
 }
 
-.mobile-shell__favorite-row {
+.mobile-shell__favorite-row,
+.mobile-shell__history-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
   gap: 7px;
@@ -5455,14 +5839,17 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__favorite-open,
-.mobile-shell__favorite-remove {
+.mobile-shell__favorite-remove,
+.mobile-shell__history-open,
+.mobile-shell__history-remove {
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
   color: var(--theme-text-primary);
 }
 
-.mobile-shell__favorite-open {
+.mobile-shell__favorite-open,
+.mobile-shell__history-open {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
@@ -5473,31 +5860,50 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__favorite-open > .app-icon,
-.mobile-shell__favorite-open > :first-child {
+.mobile-shell__favorite-open > :first-child,
+.mobile-shell__history-open > :first-child {
   justify-self: center;
   color: var(--theme-accent-warm);
 }
 
 .mobile-shell__favorite-open strong,
-.mobile-shell__favorite-open small {
+.mobile-shell__favorite-open small,
+.mobile-shell__history-open strong,
+.mobile-shell__history-open small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobile-shell__favorite-open small {
+.mobile-shell__favorite-open small,
+.mobile-shell__history-open small {
   margin-top: 3px;
   color: var(--theme-text-muted);
   font-size: 12px;
 }
 
-.mobile-shell__favorite-open:disabled {
+.mobile-shell__favorite-open:disabled,
+.mobile-shell__history-open:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
 
-.mobile-shell__favorite-remove {
+.mobile-shell__history-view {
+  display: grid;
+  min-width: 0;
+  min-height: 34px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent) 13%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.mobile-shell__favorite-remove,
+.mobile-shell__history-remove {
   display: grid;
   place-items: center;
   color: var(--theme-text-muted);

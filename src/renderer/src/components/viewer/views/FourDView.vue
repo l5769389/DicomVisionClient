@@ -53,6 +53,8 @@ const props = defineProps<{
   toolbarPlacement?: 'top' | 'right'
   activeMprMipConfig?: MprMipConfig | null
   isMprMipPanelOpen?: boolean
+  isSlicePlaybackPaused?: boolean
+  isSlicePlaybackPlaying?: boolean
   resultPanelIcon?: string
   resultPanelOpen?: boolean
   resultPanelTitle?: string
@@ -75,7 +77,9 @@ const emit = defineEmits<{
   closeMprMipPanel: []
   closeResultPanel: []
   dockResize: []
+  endPlayback: []
   mprMipConfigChange: [config: MprMipConfig, actionType?: 'move' | 'end']
+  pausePlayback: []
   selectMtf: [payload: { mtfId: string | null }]
   selectToolOption: [tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior]
   setMenuOpen: [toolKey: string | null]
@@ -131,11 +135,14 @@ const canPlay = computed(() => phaseCount.value > 1)
 const normalizedFps = computed(() => normalizeFpsValue(fps.value))
 const isPlaying = computed(() => Boolean(props.activeTab.fourDIsPlaying))
 const isPreloading = computed(() => Boolean(props.activeTab.fourDIsPreloading))
-const interactionLocked = computed(() => isPlaying.value || isPreloading.value)
+const isSlicePlaybackPlaying = computed(() => props.isSlicePlaybackPlaying === true)
+const isSlicePlaybackPaused = computed(() => props.isSlicePlaybackPaused === true)
+const isSlicePlaybackActive = computed(() => isSlicePlaybackPlaying.value || isSlicePlaybackPaused.value)
+const interactionLocked = computed(() => isPlaying.value || isPreloading.value || isSlicePlaybackActive.value)
 const toolbarLocked = computed(() => interactionLocked.value || props.areToolbarActionsDisabled)
-const playbackButtonDisabled = computed(() => !canPlay.value || isPreloading.value)
+const playbackButtonDisabled = computed(() => !canPlay.value || isPreloading.value || isSlicePlaybackActive.value)
 const playbackButtonLabel = computed(() => (isPreloading.value ? copy.value.loading4dPlayback : isPlaying.value ? copy.value.pause4dPlayback : copy.value.play4dPlayback))
-const playbackButtonTitle = computed(() => (isPreloading.value ? copy.value.loading : isPlaying.value ? copy.value.pause : copy.value.play))
+const playbackButtonTitle = computed(() => (isPreloading.value ? copy.value.loading4dPlayback : isPlaying.value ? copy.value.pause4dPlayback : copy.value.play4dPlayback))
 const interactionLockLabel = computed(() => (isPreloading.value ? copy.value.loading4dPhases : copy.value.playingMprToolsDisabled))
 const interactionLockDescription = computed(() =>
   isPreloading.value
@@ -276,6 +283,14 @@ function emitWhenIdle(callback: () => void): void {
   callback()
 }
 
+function emitToolbarOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+  if (tool.key === 'play' && isSlicePlaybackActive.value) {
+    emit('selectToolOption', tool, optionValue, behavior)
+    return
+  }
+  emitWhenIdle(() => emit('selectToolOption', tool, optionValue, behavior))
+}
+
 watch(
   () => props.activeTab.key,
   () => {
@@ -337,8 +352,8 @@ watch(
           :active-tools="activeTools"
           :are-toolbar-actions-disabled="toolbarLocked"
           embedded
-          :is-playing="false"
-          :is-playback-paused="false"
+          :is-playing="isSlicePlaybackPlaying"
+          :is-playback-paused="isSlicePlaybackPaused"
           :is-tool-selected="isToolSelected"
           :is-tab-strip-collapsed="props.isTabStripCollapsed"
           :menu-icon-size="menuIconSize"
@@ -348,9 +363,9 @@ watch(
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
           @apply-tool="emitWhenIdle(() => emit('applyTool', $event))"
-          @end-playback="() => undefined"
-          @pause-playback="() => undefined"
-          @select-tool-option="(tool, optionValue) => emitWhenIdle(() => emit('selectToolOption', tool, optionValue))"
+          @end-playback="emit('endPlayback')"
+          @pause-playback="emit('pausePlayback')"
+          @select-tool-option="(tool, optionValue) => emitToolbarOption(tool, optionValue)"
           @set-menu-open="emit('setMenuOpen', $event)"
           @toggle-tab-strip="emit('toggleTabStrip')"
         />
@@ -358,6 +373,7 @@ watch(
 
       <FourDStatusControls
         :interaction-locked="interactionLocked"
+        :external-playback-locked="isSlicePlaybackActive"
         :is-playing="isPlaying"
         :normalized-fps="normalizedFps"
         :normalized-phase-index="normalizedPhaseIndex"
@@ -444,6 +460,7 @@ watch(
       <FourDStatusControls
         v-if="!isRightToolbarLayout"
         :interaction-locked="interactionLocked"
+        :external-playback-locked="isSlicePlaybackActive"
         :is-playing="isPlaying"
         :normalized-fps="normalizedFps"
         :normalized-phase-index="normalizedPhaseIndex"
@@ -466,8 +483,8 @@ watch(
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="toolbarLocked"
-        :is-playing="false"
-        :is-playback-paused="false"
+        :is-playing="isSlicePlaybackPlaying"
+        :is-playback-paused="isSlicePlaybackPaused"
         :is-tool-selected="isToolSelected"
         :menu-icon-size="menuIconSize"
         :open-menu-key="openMenuKey"
@@ -484,9 +501,9 @@ watch(
         @apply-tool="(tool, behavior) => emitWhenIdle(() => emit('applyTool', tool, behavior))"
         @close-result-panel="emit('closeResultPanel')"
         @close-utility-panel="emit('closeMprMipPanel')"
-        @end-playback="() => undefined"
-        @pause-playback="() => undefined"
-        @select-tool-option="(tool, optionValue, behavior) => emitWhenIdle(() => emit('selectToolOption', tool, optionValue, behavior))"
+        @end-playback="emit('endPlayback')"
+        @pause-playback="emit('pausePlayback')"
+        @select-tool-option="emitToolbarOption"
         @set-menu-open="emit('setMenuOpen', $event)"
         @dock-resize="emit('dockResize')"
       >
@@ -505,6 +522,7 @@ watch(
           <FourDStatusControls
             layout="dock"
             :interaction-locked="interactionLocked"
+            :external-playback-locked="isSlicePlaybackActive"
             :is-playing="isPlaying"
             :normalized-fps="normalizedFps"
             :normalized-phase-index="normalizedPhaseIndex"

@@ -119,11 +119,11 @@ const annotationActionCopy = computed(() => ({
 }))
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
-  return viewType === 'Stack' || viewType === 'Layout'
+  return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
 }
 
 function isToolDisabled(tool: StackTool): boolean {
-  return props.areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(props.activeTab.viewType))
+  return props.areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(props.activeTab.viewType) && (props.isPlaying || props.isPlaybackPaused))
 }
 
 function isDockToolActive(tool: StackTool): boolean {

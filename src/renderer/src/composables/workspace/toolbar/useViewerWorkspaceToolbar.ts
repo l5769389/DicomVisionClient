@@ -762,6 +762,7 @@ const genericToolsWithCrosshair: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
+  playTool,
   measureTool,
   pseudocolorTool,
   exportTool,
@@ -855,6 +856,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const isZh = computed(() => locale.value === 'zh-CN')
 
   let playbackTimer: ReturnType<typeof window.setInterval> | null = null
+  let playbackTarget: { current: number; total: number; viewportKey: string } | null = null
 
   function formatWindowPresetValue(ww: number, wl: number): string {
     return `${ww}|${wl}`
@@ -1138,7 +1140,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const areToolbarActionsDisabled = computed(
     () =>
-      (supportsStackPlayback(options.activeTab.value?.viewType) && (isPlaying.value || isPlaybackPaused.value)) ||
+      (supportsSlicePlayback(options.activeTab.value?.viewType) && (isPlaying.value || isPlaybackPaused.value)) ||
       Boolean(options.activeTab.value?.viewType === '4D' && options.activeTab.value.fourDIsPlaying)
   )
 
@@ -1199,8 +1201,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     return normalizedOperation
   }
 
-  function supportsStackPlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'Layout'
+  function supportsSlicePlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
+    return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
   }
 
   function getActiveLayoutSlot(tab: ViewerTabItem): NonNullable<ViewerTabItem['layoutSlots']>[number] | null {
@@ -1452,6 +1454,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       window.clearInterval(playbackTimer)
       playbackTimer = null
     }
+    playbackTarget = null
     playbackController.stop()
   }
 
@@ -1471,13 +1474,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     startPlaybackTimer()
   }
 
-  function getCurrentStackSliceInfo(): { current: number; total: number } | null {
+  function getCurrentSlicePlaybackInfo(): { current: number; total: number; viewportKey: string } | null {
     const activeTab = options.activeTab.value
-    if (!activeTab || !supportsStackPlayback(activeTab.viewType)) {
+    if (!activeTab || !supportsSlicePlayback(activeTab.viewType)) {
       return null
     }
 
-    const sliceLabel = activeTab.viewType === 'Layout' ? (getActiveLayoutSlot(activeTab)?.sliceLabel ?? '') : activeTab.sliceLabel
+    const viewportKey = getPlaybackViewportKey()
+    const mprViewportKey = activeTab.viewType === 'MPR' || activeTab.viewType === '4D' ? resolveActiveMprViewportKey(activeTab) : null
+    const sliceLabel =
+      activeTab.viewType === 'Layout'
+        ? (getActiveLayoutSlot(activeTab)?.sliceLabel ?? '')
+        : mprViewportKey
+          ? (activeTab.viewportSliceLabels?.[mprViewportKey] ?? '')
+          : activeTab.sliceLabel
     const match = sliceLabel.trim().match(/^(\d+)\s*\/\s*(\d+)$/)
     if (!match) {
       return null
@@ -1489,7 +1499,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return null
     }
 
-    return { current, total }
+    return { current, total, viewportKey }
   }
 
   function getPlaybackViewportKey(): string {
@@ -1497,46 +1507,51 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (activeTab?.viewType === 'Layout') {
       return getActiveLayoutSlot(activeTab)?.id ?? options.activeViewportKey.value
     }
+    if (activeTab?.viewType === 'MPR' || activeTab?.viewType === '4D') {
+      return resolveActiveMprViewportKey(activeTab)
+    }
     return 'single'
   }
 
   function tickPlayback(): void {
-    const sliceInfo = getCurrentStackSliceInfo()
-    if (!sliceInfo) {
+    if (!playbackTarget) {
       stopPlayback()
       return
     }
 
-    if (sliceInfo.current >= sliceInfo.total) {
+    if (playbackTarget.current >= playbackTarget.total) {
       stopPlayback()
       return
     }
 
+    playbackTarget.current += 1
     options.emitViewportWheel({
-      viewportKey: getPlaybackViewportKey(),
+      viewportKey: playbackTarget.viewportKey,
       deltaY: 1
     })
   }
 
   function startPlayback(behavior?: StackToolOptionSelectBehavior): void {
-    if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
+    if (!supportsSlicePlayback(options.activeTab.value?.viewType)) {
       return
     }
-    if (!getCurrentStackSliceInfo()) {
+    const sliceInfo = getCurrentSlicePlaybackInfo()
+    if (!sliceInfo) {
       return
     }
 
+    playbackTarget = { current: sliceInfo.current, total: sliceInfo.total, viewportKey: sliceInfo.viewportKey }
     closeMenusIfNeeded(behavior)
     playbackController.start()
     startPlaybackTimer()
   }
 
   function resumePlayback(behavior?: StackToolOptionSelectBehavior): void {
-    if (!supportsStackPlayback(options.activeTab.value?.viewType)) {
+    if (!supportsSlicePlayback(options.activeTab.value?.viewType)) {
       stopPlayback()
       return
     }
-    if (!getCurrentStackSliceInfo()) {
+    if (!playbackTarget && !getCurrentSlicePlaybackInfo()) {
       stopPlayback()
       return
     }

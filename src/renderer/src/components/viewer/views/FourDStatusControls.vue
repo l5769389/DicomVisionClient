@@ -8,6 +8,7 @@ type FourDPhaseVisualState = 'unloaded' | 'loading' | 'loaded' | 'error'
 type FourDPhaseRuntimeKind = 'idle' | 'ready' | 'loading' | 'playing' | 'error'
 
 const props = defineProps<{
+  externalPlaybackLocked?: boolean
   interactionLocked: boolean
   isPlaying: boolean
   layout?: 'top' | 'dock'
@@ -40,9 +41,10 @@ const { toolbarCopy, viewerCopy } = useUiLocale()
 const copy = computed(() => viewerCopy.value)
 const toolbarCopyValue = computed(() => toolbarCopy.value)
 const FPS_OPTIONS = [1, 2, 5, 10, 15, 30] as const
+const controlsLocked = computed(() => props.interactionLocked || props.externalPlaybackLocked === true)
 
 watch(
-  () => props.interactionLocked,
+  controlsLocked,
   (value) => {
     if (value) {
       fpsMenuOpen.value = false
@@ -71,7 +73,7 @@ function selectFps(value: number): void {
             v-bind="menuProps"
             class="four-d-fps-button"
             type="button"
-            :disabled="interactionLocked"
+            :disabled="controlsLocked"
             :aria-expanded="fpsMenuOpen"
             title="4D playback FPS"
           >
@@ -134,7 +136,7 @@ function selectFps(value: number): void {
             `four-d-phase-button--${phaseVisualStates[phase.phaseIndex] ?? 'unloaded'}`
           ]"
           type="button"
-          :disabled="interactionLocked"
+          :disabled="controlsLocked"
           :aria-label="copy.select4dFrame(phase.phaseIndex + 1)"
           @click="emit('phaseChange', phase.phaseIndex)"
         >

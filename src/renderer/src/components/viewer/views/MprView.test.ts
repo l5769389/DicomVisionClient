@@ -49,7 +49,7 @@ function createMprTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
 const globalStubs = {
   ViewerCanvasStage: {
     name: 'ViewerCanvasStage',
-    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel'],
+    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel', 'mprCrosshair'],
     emits: ['clickViewport', 'doubleClickViewport', 'wheelViewport'],
     template: `
       <button
@@ -60,6 +60,7 @@ const globalStubs = {
         :data-active="isActive ? 'true' : 'false'"
         :data-loading="isLoading ? 'true' : 'false'"
         :data-loading-label="loadingLabel"
+        :data-has-crosshair="mprCrosshair ? 'true' : 'false'"
         @click="$emit('clickViewport', viewportKey)"
         @dblclick="$emit('doubleClickViewport', viewportKey)"
         @wheel="$emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
@@ -105,6 +106,24 @@ describe('MprView', () => {
       'mpr-sag',
       'mpr-cor'
     ])
+    expect(wrapper.find('[data-viewport-key="mpr-ax"]').attributes('data-active')).toBe('true')
+    expect(wrapper.find('[data-viewport-key="mpr-ax"]').attributes('data-has-crosshair')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('falls back to the first MPR viewport as active when the active key is not visible', () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeViewportKey: 'single'
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.find('[data-viewport-key="mpr-ax"]').attributes('data-active')).toBe('true')
+    expect(wrapper.find('[data-viewport-key="mpr-ax"]').attributes('data-has-crosshair')).toBe('true')
+    expect(wrapper.find('[data-viewport-key="mpr-sag"]').attributes('data-active')).toBe('false')
     wrapper.unmount()
   })
 

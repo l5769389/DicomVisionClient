@@ -266,6 +266,85 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.wrapper.unmount()
   })
 
+  it('plays MPR slices from the current slice in the active viewport', async () => {
+    vi.useFakeTimers()
+    try {
+      const harness = mountToolbarHarness({
+        ...create3dTab(),
+        key: 'series-1::mpr',
+        title: 'Series 1 / MPR',
+        viewType: 'MPR',
+        viewportViewIds: {
+          'mpr-ax': 'view-ax',
+          'mpr-cor': 'view-cor',
+          'mpr-sag': 'view-sag'
+        },
+        viewportSliceLabels: {
+          'mpr-ax': '2 / 8',
+          'mpr-cor': '4 / 12',
+          'mpr-sag': '1 / 10'
+        }
+      })
+      harness.activeViewportKey.value = 'mpr-cor'
+      await nextTick()
+
+      const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+      expect(toolKeys).toContain('play')
+
+      harness.toolbar.applyTool(harness.toolbar.activeTools.value.find((tool) => tool.key === 'play')!)
+      expect(harness.emitViewportWheel).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(210)
+      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-cor', deltaY: 1 })
+
+      harness.wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('plays 4D MPR slices independently from phase playback', async () => {
+    vi.useFakeTimers()
+    try {
+      const harness = mountToolbarHarness({
+        ...create3dTab(),
+        key: 'series-1::4d',
+        title: 'Series 1 / 4D',
+        viewType: '4D',
+        fourDIsPlaying: false,
+        viewportViewIds: {
+          'mpr-ax': 'view-ax',
+          'mpr-cor': 'view-cor',
+          'mpr-sag': 'view-sag'
+        },
+        viewportSliceLabels: {
+          'mpr-ax': '2 / 8',
+          'mpr-cor': '1 / 12',
+          'mpr-sag': '3 / 10'
+        }
+      })
+      harness.activeViewportKey.value = 'mpr-sag'
+      await nextTick()
+
+      harness.toolbar.applyTool(harness.toolbar.activeTools.value.find((tool) => tool.key === 'play')!)
+      expect(harness.emitViewportWheel).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(210)
+      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-sag', deltaY: 1 })
+
+      harness.activeTab.value = {
+        ...harness.activeTab.value!,
+        fourDIsPlaying: true
+      }
+      await nextTick()
+      expect(harness.toolbar.areToolbarActionsDisabled.value).toBe(true)
+
+      harness.wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('adds display overlay toggles for Stack, MPR, and 4D views', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),

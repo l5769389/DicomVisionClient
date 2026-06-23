@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
 })
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
-  return viewType === 'Stack' || viewType === 'Layout'
+  return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
 }
 
 function hasSyncBesideLayout(viewType: ViewerTabItem['viewType']): boolean {
@@ -271,7 +271,7 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
             variant="flat"
             type="button"
             class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
-            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType))"
+            :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused))"
             :active="isToolSelected(tool) || openMenuKey === tool.key"
             :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) || openMenuKey === tool.key }"
             :title="tool.label"

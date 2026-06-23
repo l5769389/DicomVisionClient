@@ -10,6 +10,7 @@ const postDicomUploadMock = vi.fn()
 const setApiBaseURLMock = vi.fn()
 const getBackendStatusMock = vi.fn()
 const chooseFolderMock = vi.fn()
+const mockLocale = vi.hoisted(() => ({ value: 'zh-CN' }))
 let mockViewer: ReturnType<typeof createMockViewer>
 
 function installLocalStorageMock(): void {
@@ -31,7 +32,7 @@ function installLocalStorageMock(): void {
 
 vi.mock('../../composables/ui/useUiLocale', () => ({
   useUiLocale: () => ({
-    locale: ref('zh-CN'),
+    locale: mockLocale,
     workspaceExportCopy: computed(() => ({
       cancel: 'Cancel',
       closeExportNotification: 'Close',
@@ -111,7 +112,7 @@ vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
     useUiPreferences: () => ({
       addCustomWindowPreset: vi.fn(() => 'soft'),
       getWindowPresetLabel: (preset: { labels: Record<string, string> }) => preset.labels['zh-CN'],
-      locale: ref('zh-CN'),
+      locale: mockLocale,
       mprSegmentationStylePreference: ref({
         thresholdColor: '#ff4df8',
         voiColor: '#22d3ee'
@@ -530,6 +531,7 @@ function mountShell() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockLocale.value = 'zh-CN'
   installLocalStorageMock()
   window.localStorage.clear()
   mockViewer = createMockViewer()
@@ -706,6 +708,40 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-2', 'Stack', { useHangingProtocol: false })
   })
 
+  it('records recently opened mobile views and lets users reopen or delete them', async () => {
+    mockViewer.seriesList.value = [createSeries({ seriesId: 'series-1', seriesDescription: 'Primary CT' })]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createStackTab('series-1', { seriesTitle: 'Primary CT', title: 'Primary CT' }))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-sheet-tab-history"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="mobile-open-stack"]').trigger('click')
+    await flushPromises()
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+
+    mockViewer.openSeriesView.mockClear()
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-history"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="mobile-history-summary"]').text()).toContain('1')
+    expect(wrapper.get('[data-testid="mobile-history-record"]').text()).toContain('Primary CT')
+    expect(wrapper.get('[data-testid="mobile-history-record"]').text()).toContain('2D')
+
+    await wrapper.get('[data-testid="mobile-open-history-record"]').trigger('click')
+    await flushPromises()
+
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+
+    await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-history"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-remove-history-record"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-history-empty"]').exists()).toBe(true)
+  })
+
   it('switches bottom toolbar tools through stack operations', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
@@ -832,6 +868,7 @@ describe('MobileWorkspaceShell', () => {
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
     expect(wrapper.get('.mobile-shell__sheet').classes()).toContain('mobile-shell__sheet--presentation-menu')
+    expect(wrapper.find('[data-testid="mobile-sheet-tab-history"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="mobile-sheet-tab-series"]').text()).toContain('series')
     expect(wrapper.find('[data-testid="mobile-sheet-tab-window"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-sheet-tab-display"]').exists()).toBe(true)
@@ -944,6 +981,9 @@ describe('MobileWorkspaceShell', () => {
 
     expect(wrapper.find('[data-testid="mobile-sheet-footer-actions"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).toContain('mobile-shell__footer-action')
+    expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).toContain('mobile-shell__footer-action--danger')
+    expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).not.toContain('mobile-shell__footer-action--warning')
+    expect(wrapper.get('[data-testid="mobile-window-reset"] .app-icon-stub').text()).toBe('reset')
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-window-reset"]').trigger('click')
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '350|45' })
@@ -957,6 +997,8 @@ describe('MobileWorkspaceShell', () => {
 
     await wrapper.get('[data-testid="mobile-sheet-tab-transform"]').trigger('click')
     expect(wrapper.get('[data-testid="mobile-transform-reset"]').classes()).toContain('mobile-shell__footer-action')
+    expect(wrapper.get('[data-testid="mobile-transform-reset"]').classes()).toContain('mobile-shell__footer-action--danger')
+    expect(wrapper.get('[data-testid="mobile-transform-reset"] .app-icon-stub').text()).toBe('reset')
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-transform-reset"]').trigger('click')
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'transformReset' })
@@ -965,6 +1007,7 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-sheet-tab-measure"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-measure-line"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="mobile-measure-clear"]').classes()).toContain('mobile-shell__footer-action')
+    expect(wrapper.get('[data-testid="mobile-measure-clear"] .app-icon-stub').text()).toBe('reset')
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-measure-clear"]').trigger('click')
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'clearMeasurements' })
@@ -974,6 +1017,7 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.find('[data-testid="mobile-annotate-arrow"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="mobile-annotate-clear"]').classes()).toContain('mobile-shell__footer-action')
     expect(wrapper.get('[data-testid="mobile-annotate-clear"]').classes()).not.toContain('mobile-shell__action-row')
+    expect(wrapper.get('[data-testid="mobile-annotate-clear"] .app-icon-stub').text()).toBe('reset')
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-annotate-clear"]').trigger('click')
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'clearAnnotations' })
@@ -1436,28 +1480,66 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.get('[data-testid="mobile-tool-zoom"]').classes()).toContain('mobile-shell__tool--active')
   })
 
-  it('uses 4D MPR controls for phase, playback, and active plane scrolling', async () => {
+  it('uses 4D phase controls, hides plane tabs, and exposes playback in the first toolbar row', async () => {
     mockViewer.seriesList.value = [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })]
     mockViewer.selectedSeriesId.value = 'series-1'
     mockViewer.__setActiveTab(createFourDTab())
 
     const wrapper = mountShell()
+    const toolbarRows = wrapper.findAll('.mobile-shell__toolbar-row')
+    expect(toolbarRows[0].findAll('button').map((button) => button.attributes('data-testid'))).toEqual([
+      'mobile-tool-window',
+      'mobile-tool-pan',
+      'mobile-tool-zoom',
+      'mobile-tool-crosshair',
+      'mobile-tool-play'
+    ])
+    expect(toolbarRows[1].findAll('button').map((button) => button.attributes('data-testid'))).not.toContain('mobile-tool-play')
+    expect(wrapper.find('[data-testid="mobile-mpr-plane-tabs"]').exists()).toBe(false)
+
     const phaseRange = wrapper.get('[data-testid="mobile-four-d-phase-range"]')
     ;(phaseRange.element as HTMLInputElement).value = '3'
     await phaseRange.trigger('input')
 
     expect(mockViewer.handleFourDPhaseChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', phaseIndex: 2 })
+    expect(wrapper.get('[data-testid="mobile-four-d-phase-panel"]').classes()).toContain('mobile-shell__slice-control-row')
+    expect(wrapper.get('[data-testid="mobile-four-d-phase-panel"]').text()).toContain('时相')
+    expect(wrapper.get('[data-testid="mobile-four-d-phase-panel"]').text()).not.toContain('4D Phase')
+    expect(wrapper.get('.mobile-shell__slice-copy').text()).toContain('切片')
 
-    await wrapper.get('[data-testid="mobile-slice-play"]').trigger('click')
-    expect(mockViewer.handleFourDPlaybackChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', isPlaying: true })
-
-    await wrapper.get('[data-testid="mobile-mpr-plane-mpr-cor"]').trigger('click')
     const slider = wrapper.get('[data-testid="mobile-slice-range"]')
     ;(slider.element as HTMLInputElement).value = '7'
     await slider.trigger('input')
     await slider.trigger('pointerup')
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-cor', deltaY: 3, exact: true })
+    expect(mockViewer.handleViewportWheel).toHaveBeenCalledWith({ viewportKey: 'mpr-ax', deltaY: 5, exact: true })
+    mockViewer.handleViewportWheel.mockClear()
+
+    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-four-d-phase-play"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-inline-playback-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-inline-playback-fps-slider"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-inline-playback-toggle"]').exists()).toBe(true)
+    expect(wrapper.findAll('button[data-testid^="mobile-inline-playback-fps-"]')).toHaveLength(0)
+
+    await wrapper.get('[data-testid="mobile-four-d-phase-play"]').trigger('click')
+    expect(mockViewer.handleFourDPlaybackChange).toHaveBeenCalledWith({ tabKey: 'four-d-tab', isPlaying: true })
+    expect(wrapper.get('[data-testid="mobile-tool-play"]').classes()).toContain('mobile-shell__tool--active')
+    expect(mockViewer.handleViewportWheel).not.toHaveBeenCalled()
+  })
+
+  it('localizes mobile 4D phase and slice labels in English', () => {
+    mockLocale.value = 'en-US'
+    mockViewer.seriesList.value = [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createFourDTab())
+
+    const wrapper = mountShell()
+
+    expect(wrapper.get('[data-testid="mobile-four-d-phase-panel"]').text()).toContain('Phase')
+    expect(wrapper.get('[data-testid="mobile-four-d-phase-panel"]').text()).not.toContain('4D Phase')
+    expect(wrapper.get('.mobile-shell__slice-copy').text()).toContain('Slice')
   })
 
   it('uses the active MPR plane for plane switches and slice slider deltas', async () => {
@@ -1557,7 +1639,11 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-inline-tool-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-sheet-tab-reset"]').trigger('click')
-    await wrapper.findAll('[data-testid="mobile-reset-option"]')[0].trigger('click')
+    const resetOptions = wrapper.findAll('[data-testid="mobile-reset-option"]')
+    expect(resetOptions[1].find('.app-icon-stub').text()).toBe('reset')
+    expect(resetOptions[2].find('.app-icon-stub').text()).toBe('reset')
+    expect(resetOptions[3].find('.app-icon-stub').text()).toBe('reset')
+    await resetOptions[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'reset' })
   })
@@ -1592,6 +1678,7 @@ describe('MobileWorkspaceShell', () => {
 
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-slice-play"]').trigger('click')
+    expect(mockViewer.handleViewportWheel).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(210)
     expect(mockViewer.handleViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-ax', deltaY: 1 })
@@ -1600,7 +1687,7 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-mpr-plane-mpr-cor"]').trigger('click')
     vi.advanceTimersByTime(210)
 
-    expect(mockViewer.handleViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-cor', deltaY: 1 })
+    expect(mockViewer.handleViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-ax', deltaY: 1 })
   })
 
   it('uses a discrete FPS slider in the mobile playback sheet', async () => {

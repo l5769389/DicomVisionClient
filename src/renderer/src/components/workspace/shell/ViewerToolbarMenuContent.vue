@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
@@ -31,6 +32,41 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
   }
   return 1
 }
+
+function parsePlaybackFps(value: string): number | null {
+  const match = value.match(/^playbackFps:(\d+)$/)
+  return match ? Number(match[1]) : null
+}
+
+const playbackFpsOptions = computed(() =>
+  (props.tool.options ?? [])
+    .map((option) => ({ ...option, fps: parsePlaybackFps(option.value) }))
+    .filter((option): option is typeof option & { fps: number } => Number.isFinite(option.fps))
+)
+const playbackSelectedIndex = computed(() => {
+  const selectedValue = props.stackToolSelections[props.tool.key]
+  const selectedIndex = playbackFpsOptions.value.findIndex((option) => option.value === selectedValue)
+  if (selectedIndex >= 0) {
+    return selectedIndex
+  }
+  const defaultIndex = playbackFpsOptions.value.findIndex((option) => option.fps === 5)
+  return defaultIndex >= 0 ? defaultIndex : 0
+})
+const playbackSliderMax = computed(() => Math.max(0, playbackFpsOptions.value.length - 1))
+const playbackSelectedFps = computed(() => playbackFpsOptions.value[playbackSelectedIndex.value]?.fps ?? 5)
+
+function selectPlaybackIndex(index: number): void {
+  const clampedIndex = Math.max(0, Math.min(playbackSliderMax.value, Math.round(index)))
+  const option = playbackFpsOptions.value[clampedIndex]
+  if (option) {
+    emit('select', option.value)
+  }
+}
+
+function handlePlaybackSliderInput(event: Event): void {
+  const value = Number((event.target as HTMLInputElement | null)?.value ?? playbackSelectedIndex.value)
+  selectPlaybackIndex(Number.isFinite(value) ? value : playbackSelectedIndex.value)
+}
 </script>
 
 <template>
@@ -52,23 +88,34 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
     <div v-if="tool.key !== 'play'" class="pointer-events-none absolute inset-x-3 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" />
 
     <template v-if="tool.key === 'play'">
-      <button
-        v-for="option in tool.options ?? []"
-        :key="option.value"
-        type="button"
-        class="toolbar-menu-option group relative inline-flex items-center justify-between gap-2.5 overflow-hidden rounded-xl! border border-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
-        :class="{
-          'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value
-        }"
-        @click="emit('select', option.value)"
-      >
-        <div
-          class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-          :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value }"
+      <div class="viewer-toolbar-menu-content__playback-fps">
+        <div class="viewer-toolbar-menu-content__playback-head">
+          <span>FPS</span>
+          <strong>{{ playbackSelectedFps }}</strong>
+        </div>
+        <input
+          class="viewer-toolbar-menu-content__playback-slider"
+          type="range"
+          min="0"
+          :max="playbackSliderMax"
+          step="1"
+          :value="playbackSelectedIndex"
+          @change="handlePlaybackSliderInput"
+          @input="handlePlaybackSliderInput"
         />
-        <span>{{ option.label }}</span>
-        <AppIcon v-if="stackToolSelections[tool.key] === option.value" name="check" :size="14" />
-      </button>
+        <div class="viewer-toolbar-menu-content__playback-ticks">
+          <button
+            v-for="(option, optionIndex) in playbackFpsOptions"
+            :key="option.value"
+            type="button"
+            class="viewer-toolbar-menu-content__playback-tick"
+            :class="{ 'viewer-toolbar-menu-content__playback-tick--active': optionIndex === playbackSelectedIndex }"
+            @click="selectPlaybackIndex(optionIndex)"
+          >
+            {{ option.fps }}
+          </button>
+        </div>
+      </div>
     </template>
 
     <template v-else-if="tool.menuKind === 'layout'">
@@ -182,6 +229,59 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
   width: min(224px, calc(100vw - 32px));
   min-width: 0 !important;
   max-width: min(224px, calc(100vw - 32px)) !important;
+}
+
+.viewer-toolbar-menu-content__playback-fps {
+  display: grid;
+  gap: 9px;
+  min-width: 168px;
+  padding: 8px;
+}
+
+.viewer-toolbar-menu-content__playback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.viewer-toolbar-menu-content__playback-head strong {
+  color: var(--theme-text-primary);
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.viewer-toolbar-menu-content__playback-slider {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--theme-accent);
+}
+
+.viewer-toolbar-menu-content__playback-ticks {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.viewer-toolbar-menu-content__playback-tick {
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 62%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 84%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-menu-content__playback-tick--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card-soft));
+  color: var(--theme-text-primary);
 }
 
 .viewer-toolbar-menu-content--docked {

@@ -361,10 +361,14 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       : options.activeOperation.value.split(':')[0]
   }
 
-  function getMeasurementToolType(): MeasurementToolType | null {
-    const normalized = options.activeOperation.value.startsWith('stack:')
+  function getNormalizedOperationPath(): string {
+    return options.activeOperation.value.startsWith('stack:')
       ? options.activeOperation.value.slice('stack:'.length)
       : options.activeOperation.value
+  }
+
+  function getMeasurementToolType(): MeasurementToolType | null {
+    const normalized = getNormalizedOperationPath()
     const [toolKey, toolType] = normalized.split(':')
     if (toolKey !== 'measure') {
       return null
@@ -376,9 +380,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function getQaToolType(): string | null {
-    const normalized = options.activeOperation.value.startsWith('stack:')
-      ? options.activeOperation.value.slice('stack:'.length)
-      : options.activeOperation.value
+    const normalized = getNormalizedOperationPath()
     const [toolKey, toolType] = normalized.split(':')
     if (toolKey !== 'qa') {
       return null
@@ -405,6 +407,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function isMeasurementOperationEnabled(): boolean {
     const viewType = options.activeTab.value?.viewType
     return (isStackLikeViewType(viewType) || isMprLikeViewType(viewType)) && getMeasurementToolType() != null
+  }
+
+  function isSegmentationOperationEnabled(): boolean {
+    const operation = getNormalizedOperationPath()
+    return operation === 'segmentation:threshold' || operation === 'segmentation:voi'
   }
 
   function isMtfOperationEnabled(): boolean {
@@ -438,6 +445,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (button !== POINTER_BUTTON_LEFT) {
+      return null
+    }
+
+    if (isSegmentationOperationEnabled()) {
       return null
     }
 

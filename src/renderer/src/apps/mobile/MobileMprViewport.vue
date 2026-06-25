@@ -155,6 +155,8 @@ const referenceTogglePosition = ref<FloatingTogglePosition | null>(null)
 const referenceToggleDrag = ref<FloatingToggleDragState | null>(null)
 const suppressReferenceToggleClick = ref(false)
 let referenceToggleClickResetTimer: number | null = null
+let workspaceReadyRaf: number | null = null
+let isComponentMounted = false
 
 const referenceToggleStyle = computed(() => {
   if (referenceThumbnailsVisible.value || !referenceTogglePosition.value) {
@@ -327,8 +329,16 @@ function emitActiveViewportChange(viewportKey: string): void {
   emit('activeViewportChange', viewportKey)
 }
 
+function getViewportRole(viewportKey: MprViewportKey): 'primary' | 'reference' {
+  return viewportKey === activeViewport.value ? 'primary' : 'reference'
+}
+
 function getViewportElement(viewportKey: MprViewportKey): HTMLElement | null {
-  return viewportHostRef.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ?? null
+  return (
+    viewportHostRef.value?.querySelector<HTMLElement>(`[data-active-render-surface="true"][data-viewport-key="${viewportKey}"]`) ??
+    viewportHostRef.value?.querySelector<HTMLElement>(`[data-viewport-key="${viewportKey}"]`) ??
+    null
+  )
 }
 
 function emitWorkspaceReady(): void {
@@ -341,6 +351,29 @@ function emitWorkspaceReady(): void {
       'mpr-cor': getViewportElement('mpr-cor'),
       'mpr-sag': getViewportElement('mpr-sag')
     }
+  })
+}
+
+function scheduleWorkspaceReadyAfterLayout(): void {
+  if (!isComponentMounted) {
+    return
+  }
+  if (workspaceReadyRaf !== null) {
+    window.cancelAnimationFrame(workspaceReadyRaf)
+    workspaceReadyRaf = null
+  }
+  void nextTick(() => {
+    if (!isComponentMounted) {
+      return
+    }
+    workspaceReadyRaf = window.requestAnimationFrame(() => {
+      if (!isComponentMounted) {
+        workspaceReadyRaf = null
+        return
+      }
+      workspaceReadyRaf = null
+      emitWorkspaceReady()
+    })
   })
 }
 
@@ -694,14 +727,20 @@ function handlePointerLeave(viewportKey: string): void {
 }
 
 onMounted(() => {
-  void nextTick(emitWorkspaceReady)
+  isComponentMounted = true
+  scheduleWorkspaceReadyAfterLayout()
 })
 
 onBeforeUnmount(() => {
+  isComponentMounted = false
   activeScrollPointer.value = null
   referenceToggleDrag.value = null
   if (referenceToggleClickResetTimer !== null) {
     window.clearTimeout(referenceToggleClickResetTimer)
+  }
+  if (workspaceReadyRaf !== null) {
+    window.cancelAnimationFrame(workspaceReadyRaf)
+    workspaceReadyRaf = null
   }
   activePointers.clear()
   workspacePointerIds.clear()
@@ -719,8 +758,9 @@ onBeforeUnmount(() => {
 watch(
   () => [mprTab.value?.key, props.activeMprViewportKey] as const,
   () => {
-    void nextTick(emitWorkspaceReady)
-  }
+    scheduleWorkspaceReadyAfterLayout()
+  },
+  { flush: 'post' }
 )
 
 watch(
@@ -743,23 +783,24 @@ watch(
   >
     <div
       v-for="viewport in MPR_VIEWPORTS"
-      :key="viewport.key"
+      :key="`${viewport.key}-${getViewportRole(viewport.key)}`"
       class="mobile-mpr-viewport__pane"
       :class="{
-        'mobile-mpr-viewport__pane--primary': !isReferenceViewport(viewport.key),
-        'mobile-mpr-viewport__pane--reference': isReferenceViewport(viewport.key),
+        'mobile-mpr-viewport__pane--primary': getViewportRole(viewport.key) === 'primary',
+        'mobile-mpr-viewport__pane--reference': getViewportRole(viewport.key) === 'reference',
         'mobile-mpr-viewport__pane--reference-0': getReferenceIndex(viewport.key) === 0,
         'mobile-mpr-viewport__pane--reference-1': getReferenceIndex(viewport.key) === 1,
-        'mobile-mpr-viewport__pane--hidden': isReferenceViewport(viewport.key) && !referenceThumbnailsVisible
+        'mobile-mpr-viewport__pane--hidden': getViewportRole(viewport.key) === 'reference' && !referenceThumbnailsVisible
       }"
-      :data-testid="isReferenceViewport(viewport.key) ? 'mobile-mpr-reference' : 'mobile-mpr-primary'"
-      :data-viewport-role="isReferenceViewport(viewport.key) ? 'reference' : 'primary'"
+      :data-testid="getViewportRole(viewport.key) === 'reference' ? 'mobile-mpr-reference' : 'mobile-mpr-primary'"
+      :data-viewport-role="getViewportRole(viewport.key)"
     >
       <ViewerCanvasStage
+        :key="`${viewport.key}-${getViewportRole(viewport.key)}`"
         :viewport-key="viewport.key"
         viewport-class="mobile-mpr-viewport__stage"
         image-class="mobile-mpr-viewport__image"
-        :is-active="isReferenceViewport(viewport.key) && activeViewport === viewport.key"
+        :is-active="viewport.key === activeViewport"
         compact-loading
         :render-surface-active="true"
         :image-src="getImage(viewport.key)"
@@ -785,6 +826,7 @@ watch(
         :mpr-segmentation-default-voi-color="mprSegmentationDefaultVoiColor"
         :mpr-segmentation-config="mprSegmentationConfig"
         :mpr-segmentation-overlay="mprTab?.viewportSegmentationOverlays?.[viewport.key] ?? null"
+        :voi-editable="!isReferenceViewport(viewport.key)"
         :scale-bar="isReferenceViewport(viewport.key) ? null : mprTab?.viewportScaleBars?.[viewport.key] ?? null"
         :show-corner-info="!isReferenceViewport(viewport.key) && mprTab?.showCornerInfo !== false"
         :show-scale-bar="!isReferenceViewport(viewport.key) && mprTab?.showScaleBar !== false"

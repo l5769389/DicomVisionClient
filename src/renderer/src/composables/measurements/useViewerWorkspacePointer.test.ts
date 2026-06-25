@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import { DRAG_ACTION_TYPES, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
+import { DRAG_ACTION_TYPES, STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import type { MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType, ViewerTabItem } from '../../types/viewer'
 import { useViewerWorkspacePointer } from './useViewerWorkspacePointer'
 
@@ -274,6 +274,24 @@ describe('useViewerWorkspacePointer', () => {
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.start)).toBe(true)
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.move)).toBe(true)
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.end)).toBe(true)
+  })
+
+  it.each([
+    `${STACK_OPERATION_PREFIX}segmentation:threshold`,
+    `${STACK_OPERATION_PREFIX}segmentation:voi`
+  ])('does not let %s fall back to left-button window drag', (activeOperation) => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation,
+      activeTab: { viewType: 'MPR' } as ViewerTabItem
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 101 }), 'single')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.27, y: 0.24 }, { pointerId: 101 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.27, y: 0.24 }, { buttons: 0, pointerId: 101 }))
+
+    const payloads = getViewportDragPayloads(emitViewportDrag)
+    expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.window)).toBe(false)
+    expect(payloads).toHaveLength(0)
   })
 
   it('keeps explicit drag tools ahead of the default window drag', () => {

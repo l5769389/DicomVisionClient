@@ -107,7 +107,6 @@ function mountQuickActions(selectedSeries: FolderSeriesItem | null) {
   return mount(SidebarQuickActions, {
     props: {
       hasSelectedSeries: Boolean(selectedSeries),
-      isLocalSourceEnabled: true,
       isSelectedSeriesFourD: false,
       selectedSeries,
       viewerFolderSourceMode: 'desktop-picker',

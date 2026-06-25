@@ -10,7 +10,8 @@ import {
   FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS,
   PSEUDOCOLOR_PRESET_OPTIONS,
   getFusionPetPseudocolorGradient,
-  getPseudocolorGradient
+  getPseudocolorGradient,
+  normalizePseudocolorPresetKey
 } from '../../constants/pseudocolor'
 import { filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
@@ -42,8 +43,8 @@ import { setApiBaseURL } from '../../services/api'
 import { postApi, postDicomUpload, type LoadFolderResponse } from '../../services/typedApi'
 import { viewerRuntime, type DicomLoadSelection, type DicomLoadSource } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
-import type { AnnotationSize, CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, FusionPaneKey, MeasurementOverlay, MeasurementToolType, MprSegmentationConfig, MprSegmentationConfigActionType, MprViewportKey, ViewerMtfItem, ViewerTabItem, ViewType, WindowLevelInfo } from '../../types/viewer'
-import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR, createDefaultMprSegmentationConfig } from '../../types/viewer'
+import type { AnnotationSize, CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, FusionPaneKey, MeasurementOverlay, MeasurementToolType, MprSegmentationConfig, MprSegmentationConfigActionType, MprThresholdRegion, MprViewportKey, ViewerMtfItem, ViewerTabItem, ViewType, WindowLevelInfo } from '../../types/viewer'
+import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR, MPR_SEGMENTATION_DEPTH_LIMITS, MPR_SEGMENTATION_HU_LIMITS, createDefaultMprSegmentationConfig } from '../../types/viewer'
 import MobileCompareStackViewport from './MobileCompareStackViewport.vue'
 import MobileMprViewport from './MobileMprViewport.vue'
 import MobilePetCtFusionViewport from './MobilePetCtFusionViewport.vue'
@@ -84,10 +85,11 @@ interface MobileToolbarItem {
 
 interface MobileInlineActionItem {
   key: string
-  icon: string
+  icon?: string
   label: string
   active?: boolean
   disabled?: boolean
+  iconOnly?: boolean
   tone?: 'danger' | 'warm'
   onClick: () => void
 }
@@ -288,6 +290,7 @@ const customPresetZhName = ref('')
 const customPresetEnName = ref('')
 const customPresetWw = ref('400')
 const customPresetWl = ref('40')
+const isCustomWindowDialogOpen = ref(false)
 const selectedCustomPresetIds = ref<string[]>([])
 const explicitWindowSelectionByTargetKey = new Map<string, string>()
 const activeCompareViewportKey = ref<CompareStackPaneKey>(COMPARE_STACK_SOURCE_PANE_KEY)
@@ -329,8 +332,33 @@ const isFusionRegistrationEnabled = computed(() => activeFusionTab.value?.fusion
 const activeMprLikeTab = computed(() => activeMprTab.value ?? activeFourDTab.value)
 const activeTagTab = computed(() => (viewer.activeTab.value?.viewType === 'Tag' ? viewer.activeTab.value : null))
 const activeImageTab = computed(() => activeStackLikeTab.value ?? activeCompareTab.value ?? activeMprTab.value ?? activeVolumeTab.value ?? activeFourDTab.value ?? activeFusionTab.value)
+const activeMobilePseudocolorKey = computed(() => {
+  const tab = viewer.activeTab.value
+  if (!tab) {
+    return normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+  }
+  if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+    return normalizePseudocolorPresetKey(
+      tab.viewportPseudocolorPresets?.[activeMprViewportKey.value] ??
+      tab.pseudocolorPreset ??
+      selectedPseudocolorKey.value
+    )
+  }
+  if (tab.viewType === 'CompareStack') {
+    return normalizePseudocolorPresetKey(
+      tab.comparePseudocolorPresets?.[activeCompareViewportKey.value] ??
+      tab.pseudocolorPreset ??
+      selectedPseudocolorKey.value
+    )
+  }
+  if (tab.viewType === 'Stack' || tab.viewType === 'Layout') {
+    return normalizePseudocolorPresetKey(tab.pseudocolorPreset ?? selectedPseudocolorKey.value)
+  }
+  return normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+})
 const selectedSeries = computed(() => viewer.seriesList.value.find((series) => series.seriesId === viewer.selectedSeriesId.value) ?? null)
 const mobileSeriesList = computed(() => viewer.seriesList.value.filter((series) => series.isImageSeries !== false))
+const hasLoadedSeries = computed(() => mobileSeriesList.value.length > 0)
 const seriesActionSeries = computed(() => {
   const explicit = seriesActionSeriesId.value
     ? mobileSeriesList.value.find((series) => series.seriesId === seriesActionSeriesId.value)
@@ -548,7 +576,7 @@ function withResetAfterMore(tools: MobileToolbarItem[]): MobileToolbarItem[] {
 }
 
 function createMoreTool(): MobileToolbarItem {
-  return { key: 'more', icon: 'menu', label: isZh.value ? '更多' : 'More' }
+  return { key: 'more', icon: 'dots-horizontal', label: isZh.value ? '更多' : 'More' }
 }
 
 const windowTool = computed<MobileToolbarItem>(() => ({ key: 'window', icon: 'window', label: isZh.value ? '调窗' : 'Window' }))
@@ -623,6 +651,7 @@ const secondaryMobileTools = computed<MobileToolbarItem[]>(() => {
   if (activeMprLikeTab.value) {
     if (activeMprTab.value) {
       return withResetAfterMore([
+        { key: 'play', icon: activePlayIcon.value, label: isZh.value ? '播放' : 'Play' },
         annotateTool.value,
         colorTool.value,
         { key: 'segmentation', icon: 'segmentation', label: isZh.value ? '分割' : 'Seg' },
@@ -638,6 +667,7 @@ const secondaryMobileTools = computed<MobileToolbarItem[]>(() => {
   }
 
   return withResetAfterMore([
+    ...(activeStackTab.value ? [{ key: 'play' as const, icon: activePlayIcon.value, label: isZh.value ? '播放' : 'Play' }] : []),
     ...(!activeStackTab.value ? [measureTool.value] : []),
     annotateTool.value,
     colorTool.value,
@@ -711,7 +741,7 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
       key: getMobileInlineActionKey('pseudocolor', preset.key),
       icon: 'pseudocolor',
       label: preset.label,
-      active: selectedPseudocolorKey.value === preset.key,
+      active: activeMobilePseudocolorKey.value === preset.key,
       onClick: () => applyPseudocolor(`pseudocolor:${preset.key}`)
     }))
   }
@@ -753,29 +783,21 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
     return [
       {
         key: 'segmentation-threshold',
-        icon: 'segmentation',
-        label: isZh.value ? '阈值' : 'Threshold',
-        active: viewer.activeOperation.value === 'segmentation:threshold',
+        label: isZh.value ? '阈值分割' : 'Threshold',
+        active: getNormalizedMobileOperation(viewer.activeOperation.value) === 'segmentation:threshold',
         onClick: () => handleMprSegmentationModeChange('segmentation:threshold', activeMprViewportKey.value)
       },
       {
         key: 'segmentation-voi',
-        icon: 'crosshair',
         label: 'VOI',
-        active: viewer.activeOperation.value === 'segmentation:voi',
+        active: getNormalizedMobileOperation(viewer.activeOperation.value) === 'segmentation:voi',
         onClick: () => handleMprSegmentationModeChange('segmentation:voi', activeMprViewportKey.value)
       },
       {
-        key: 'segmentation-exit',
-        icon: 'close',
-        label: isZh.value ? '退出' : 'Exit',
-        tone: 'danger',
-        onClick: () => setActiveMobileTool('pan', { closeSheet: false })
-      },
-      {
         key: 'segmentation-details',
-        icon: 'settings',
+        icon: 'dots-vertical',
         label: isZh.value ? '详情' : 'Details',
+        iconOnly: true,
         onClick: () => openFocusedSheet('segmentation')
       }
     ]
@@ -862,7 +884,6 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
 const ICON_ONLY_INLINE_TOOL_PANELS = new Set<Exclude<MobileInlineToolPanel, null>>([
   'measure',
   'transform',
-  'segmentation',
   'qa',
   'playback'
 ])
@@ -1043,6 +1064,17 @@ const activeFusionPseudocolorKey = computed(() => (
 const activeMprSegmentationConfig = computed<MprSegmentationConfig>(() =>
   activeMprTab.value?.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
 )
+const selectedMobileThresholdRegion = computed<MprThresholdRegion | null>(() => {
+  const config = activeMprSegmentationConfig.value
+  if (!config.thresholdRegions.length) {
+    return null
+  }
+  return config.thresholdRegions.find((region) => region.id === config.selectedRegionId) ?? config.thresholdRegions[0] ?? null
+})
+const showMobileSegmentationInlineControl = computed(() =>
+  activeInlineToolPanel.value === 'segmentation' &&
+  getNormalizedMobileOperation(viewer.activeOperation.value) === 'segmentation:threshold'
+)
 const mprSegmentationDefaultThresholdColor = computed(() => mprSegmentationStylePreference?.value?.thresholdColor ?? DEFAULT_MPR_SEGMENTATION_COLOR)
 const mprSegmentationDefaultVoiColor = computed(() => mprSegmentationStylePreference?.value?.voiColor ?? DEFAULT_MPR_VOI_COLOR)
 const currentConnectionState = computed<ConnectionState>(() => viewer.connectionState?.value ?? 'idle')
@@ -1194,8 +1226,12 @@ function getConnectionIcon(state: ConnectionState): string {
 }
 
 function normalizeToolOperation(tool: MobileToolKey): string {
-  if (tool === 'fusion' || tool === 'segmentation') {
+  if (tool === 'fusion') {
     return viewer.activeOperation.value
+  }
+  if (tool === 'segmentation') {
+    const currentSegmentationMode = getActiveMobileSegmentationMode()
+    return `${STACK_OPERATION_PREFIX}${currentSegmentationMode ?? 'segmentation:threshold'}`
   }
   if (tool === 'measure') {
     return 'measure:line'
@@ -1208,6 +1244,18 @@ function normalizeToolOperation(tool: MobileToolKey): string {
   }
   const operation = tool === 'scroll' ? VIEW_OPERATION_TYPES.scroll : tool
   return `${STACK_OPERATION_PREFIX}${operation}`
+}
+
+function getNormalizedMobileOperation(operation: string): string {
+  return operation.startsWith(STACK_OPERATION_PREFIX) ? operation.slice(STACK_OPERATION_PREFIX.length) : operation
+}
+
+function getActiveMobileSegmentationMode(): 'segmentation:threshold' | 'segmentation:voi' | null {
+  const operation = getNormalizedMobileOperation(viewer.activeOperation.value)
+  if (operation === 'segmentation:threshold' || operation === 'segmentation:voi') {
+    return operation
+  }
+  return null
 }
 
 function setActiveMobileTool(tool: MobileToolKey, options: { closeInlinePanel?: boolean; closeSheet?: boolean } = {}): void {
@@ -1802,6 +1850,9 @@ async function handlePacsSeriesLoaded(response: LoadFolderResponse): Promise<voi
 function dismissSheet(): void {
   activeSheetKind.value = null
   activeSheetPresentation.value = null
+  if (isCustomWindowDialogOpen.value) {
+    closeCustomWindowPresetDialog()
+  }
 }
 
 function closeInlineToolPanel(): void {
@@ -1813,6 +1864,9 @@ function openInlineToolPanel(panel: Exclude<MobileInlineToolPanel, null>): void 
   activeInlineToolPanel.value = panel
   if (panel === 'measure') {
     setActiveMeasurementTool('line', { closeSheet: false })
+  }
+  if (panel === 'segmentation') {
+    handleMprSegmentationModeChange(getActiveMobileSegmentationMode() ?? 'segmentation:threshold', activeMprViewportKey.value)
   }
   if (panel === 'fusion-registration') {
     mobileFusionRegistrationMode.value = 'translate'
@@ -2109,6 +2163,25 @@ function handleRemoveSelectedCustomWindowPresets(): void {
   selectedCustomPresetIds.value = []
 }
 
+function resetCustomWindowPresetForm(): void {
+  customPresetZhName.value = ''
+  customPresetEnName.value = ''
+  customPresetWw.value = '400'
+  customPresetWl.value = '40'
+}
+
+function openCustomWindowPresetDialog(): void {
+  if (!canAddCustomWindowPreset.value) {
+    return
+  }
+  isCustomWindowDialogOpen.value = true
+}
+
+function closeCustomWindowPresetDialog(): void {
+  isCustomWindowDialogOpen.value = false
+  resetCustomWindowPresetForm()
+}
+
 function handleAddCustomWindowPreset(): void {
   if (!canAddCustomWindowPreset.value) {
     return
@@ -2124,10 +2197,8 @@ function handleAddCustomWindowPreset(): void {
   if (createdPreset) {
     viewer.triggerViewAction({ action: 'windowPreset', value: formatWindowPresetValue(createdPreset) })
   }
-  customPresetZhName.value = ''
-  customPresetEnName.value = ''
-  customPresetWw.value = '400'
-  customPresetWl.value = '40'
+  isCustomWindowDialogOpen.value = false
+  resetCustomWindowPresetForm()
 }
 
 watch(displayCustomWindowPresets, () => {
@@ -2144,9 +2215,14 @@ function toggleDisplayOverlay(key: DisplayOverlayKey): void {
 }
 
 function applyPseudocolor(value: string): void {
-  selectedPseudocolorKey.value = value.replace(/^pseudocolor:/, '')
-  handleToolbarViewAction({ action: 'pseudocolor', value })
+  const presetKey = normalizePseudocolorPresetKey(value)
+  handleToolbarViewAction({ action: 'pseudocolor', value: `pseudocolor:${presetKey}` })
   dismissSheet()
+}
+
+function resetPseudocolorToDefault(): void {
+  const presetKey = normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+  handleToolbarViewAction({ action: 'pseudocolor', value: `pseudocolor:${presetKey}` })
 }
 
 function applyFusionPseudocolor(value: string): void {
@@ -2314,8 +2390,83 @@ function handleMprSegmentationConfigChange(config: MprSegmentationConfig, action
   })
 }
 
+function clampMobileNumber(value: string | number, min: number, max: number, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(value)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.min(max, Math.max(min, parsed))
+}
+
+function handleMobileNumberInputKeydown(event: KeyboardEvent, allowNegative = false): void {
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return
+  }
+  if (event.key === 'e' || event.key === 'E' || event.key === '+' || (!allowNegative && event.key === '-')) {
+    event.preventDefault()
+  }
+}
+
+function patchMobileThresholdRegion(region: MprThresholdRegion, patch: Partial<MprThresholdRegion>, actionType: MprSegmentationConfigActionType): void {
+  const currentConfig = activeMprSegmentationConfig.value
+  handleMprSegmentationConfigChange({
+    ...currentConfig,
+    selectedRegionId: region.id,
+    selectedVoi: false,
+    selectedVoiId: null,
+    thresholdRegions: currentConfig.thresholdRegions.map((item) => (
+      item.id === region.id
+        ? {
+            ...item,
+            ...patch,
+            stats: patch.stats === undefined ? item.stats : patch.stats
+          }
+        : item
+    ))
+  }, actionType)
+}
+
+function updateMobileThresholdHu(region: MprThresholdRegion, rawValue: string | number, actionType: MprSegmentationConfigActionType): void {
+  const value = Math.round(clampMobileNumber(rawValue, MPR_SEGMENTATION_HU_LIMITS.min, MPR_SEGMENTATION_HU_LIMITS.max, region.thresholdHu))
+  patchMobileThresholdRegion(region, { thresholdHu: value, stats: null }, actionType)
+}
+
+function updateMobileThresholdPercentile(region: MprThresholdRegion, rawValue: string | number, actionType: MprSegmentationConfigActionType): void {
+  const value = clampMobileNumber(rawValue, 0, 100, region.thresholdPercentile)
+  patchMobileThresholdRegion(region, { thresholdPercentile: value, stats: null }, actionType)
+}
+
+function updateMobileThresholdDepth(region: MprThresholdRegion, rawValue: string | number, actionType: MprSegmentationConfigActionType): void {
+  const depthMm = clampMobileNumber(
+    rawValue,
+    MPR_SEGMENTATION_DEPTH_LIMITS.min,
+    MPR_SEGMENTATION_DEPTH_LIMITS.max,
+    region.box.depthMm
+  )
+  patchMobileThresholdRegion(region, { box: { ...region.box, depthMm }, stats: null }, actionType)
+}
+
+function ensureMprSegmentationEnabled(): void {
+  if (!activeMprTab.value) {
+    return
+  }
+  const currentConfig = activeMprSegmentationConfig.value
+  if (currentConfig.enabled) {
+    return
+  }
+  viewer.triggerViewAction({
+    action: 'mprSegmentation',
+    actionType: 'end',
+    segmentationConfig: {
+      ...currentConfig,
+      enabled: true
+    }
+  })
+}
+
 function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
-  viewer.setActiveOperation(mode)
+  ensureMprSegmentationEnabled()
+  viewer.setActiveOperation(`${STACK_OPERATION_PREFIX}${mode}`)
   if (viewportKey && isMprViewportKey(viewportKey)) {
     selectMprViewport(viewportKey)
   }
@@ -2708,7 +2859,7 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
   }
   if (tool.key === 'segmentation') {
     return (activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'segmentation') ||
-      viewer.activeOperation.value.startsWith('segmentation:')
+      getActiveMobileSegmentationMode() != null
   }
   if (tool.key === 'play') {
     return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingActiveSlicePlayback.value
@@ -3103,7 +3254,16 @@ onBeforeUnmount(() => {
 <template>
   <div ref="mobileShellRef" class="mobile-shell" :class="mobileShellClasses">
     <header class="mobile-shell__header">
-      <button type="button" class="mobile-shell__title-group" data-testid="mobile-title-series-button" @click="openSheet('series')">
+      <div v-if="!hasLoadedSeries" class="mobile-shell__brand-title" data-testid="mobile-brand-title">
+        <div class="mobile-shell__brand-mark" aria-hidden="true">
+          <span class="mobile-shell__brand-mark-frame"></span>
+          <span class="mobile-shell__brand-mark-slice mobile-shell__brand-mark-slice--top"></span>
+          <span class="mobile-shell__brand-mark-slice mobile-shell__brand-mark-slice--bottom"></span>
+          <span class="mobile-shell__brand-mark-letters">DV</span>
+        </div>
+        <div class="mobile-shell__brand-copy">DicomVision</div>
+      </div>
+      <button v-else type="button" class="mobile-shell__title-group" data-testid="mobile-title-series-button" @click="openSheet('series')">
         <div class="mobile-shell__title">{{ activeTitle }}</div>
         <span class="mobile-shell__title-action" aria-hidden="true">
           <AppIcon name="chevron-down" :size="15" />
@@ -3342,7 +3502,7 @@ onBeforeUnmount(() => {
               :disabled="!canLoadDemo || isLoadingAnySource"
               @click="loadDemoSeries"
             >
-              <AppIcon :name="isLoadingDemo ? 'connecting' : 'play'" :size="18" />
+              <AppIcon :name="isLoadingDemo ? 'loading' : 'play'" :size="18" :class="{ 'mobile-shell__loading-icon': isLoadingDemo }" />
               <span>{{ isLoadingDemo ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? 'Demo 影像' : 'Demo') }}</span>
             </button>
             <button
@@ -3352,7 +3512,7 @@ onBeforeUnmount(() => {
               :disabled="!canLoadLocal || isLoadingAnySource"
               @click="loadLocalFolder"
             >
-              <AppIcon :name="isLoadingLocal ? 'connecting' : 'folder-upload'" :size="18" />
+              <AppIcon :name="isLoadingLocal ? 'loading' : 'folder-upload'" :size="18" :class="{ 'mobile-shell__loading-icon': isLoadingLocal }" />
               <span>{{ isLoadingLocal ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? '本地文件夹' : 'Local Folder') }}</span>
             </button>
             <button
@@ -3370,8 +3530,104 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="fourDPlaybackStarting" class="mobile-shell__playback-loading" role="status" data-testid="mobile-four-d-loading">
-        <AppIcon name="play" :size="18" />
+        <AppIcon name="loading" :size="18" class="mobile-shell__loading-icon" />
         <span>{{ isZh ? '正在准备 4D 播放...' : 'Preparing 4D playback...' }}</span>
+      </div>
+      <div
+        v-if="showMobileSegmentationInlineControl"
+        class="mobile-shell__segmentation-floating-control"
+        data-testid="mobile-segmentation-threshold-control"
+      >
+        <template v-if="selectedMobileThresholdRegion">
+          <label class="mobile-shell__segmentation-floating-field">
+            <span>{{ selectedMobileThresholdRegion.thresholdMode === 'percentile' ? '%' : 'HU' }}</span>
+            <input
+              v-if="selectedMobileThresholdRegion.thresholdMode === 'percentile'"
+              class="mobile-shell__segmentation-floating-slider"
+              data-testid="mobile-segmentation-threshold-slider"
+              type="range"
+              min="0"
+              max="100"
+              step="0.5"
+              :value="selectedMobileThresholdRegion.thresholdPercentile"
+              @input.stop="updateMobileThresholdPercentile(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'local')"
+              @change.stop="updateMobileThresholdPercentile(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'end')"
+            />
+            <input
+              v-else
+              class="mobile-shell__segmentation-floating-slider"
+              data-testid="mobile-segmentation-threshold-slider"
+              type="range"
+              :min="MPR_SEGMENTATION_HU_LIMITS.min"
+              :max="MPR_SEGMENTATION_HU_LIMITS.max"
+              step="1"
+              :value="selectedMobileThresholdRegion.thresholdHu"
+              @input.stop="updateMobileThresholdHu(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'local')"
+              @change.stop="updateMobileThresholdHu(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'end')"
+            />
+            <input
+              v-if="selectedMobileThresholdRegion.thresholdMode === 'percentile'"
+              class="mobile-shell__segmentation-floating-value"
+              data-testid="mobile-segmentation-threshold-input"
+              type="number"
+              inputmode="decimal"
+              autocomplete="off"
+              min="0"
+              max="100"
+              step="0.5"
+              :value="selectedMobileThresholdRegion.thresholdPercentile"
+              @keydown="handleMobileNumberInputKeydown($event)"
+              @input.stop="updateMobileThresholdPercentile(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'local')"
+              @change.stop="updateMobileThresholdPercentile(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'end')"
+            />
+            <input
+              v-else
+              class="mobile-shell__segmentation-floating-value"
+              data-testid="mobile-segmentation-threshold-input"
+              type="number"
+              inputmode="decimal"
+              autocomplete="off"
+              :min="MPR_SEGMENTATION_HU_LIMITS.min"
+              :max="MPR_SEGMENTATION_HU_LIMITS.max"
+              step="1"
+              :value="selectedMobileThresholdRegion.thresholdHu"
+              @keydown="handleMobileNumberInputKeydown($event, true)"
+              @input.stop="updateMobileThresholdHu(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'local')"
+              @change.stop="updateMobileThresholdHu(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'end')"
+            />
+          </label>
+          <label class="mobile-shell__segmentation-floating-field">
+            <span>{{ isZh ? '深度' : 'Depth' }}</span>
+            <input
+              class="mobile-shell__segmentation-floating-slider"
+              data-testid="mobile-segmentation-depth-slider"
+              type="range"
+              :min="MPR_SEGMENTATION_DEPTH_LIMITS.min"
+              :max="MPR_SEGMENTATION_DEPTH_LIMITS.max"
+              step="0.5"
+              :value="selectedMobileThresholdRegion.box.depthMm"
+              @input.stop="updateMobileThresholdDepth(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'local')"
+              @change.stop="updateMobileThresholdDepth(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'end')"
+            />
+            <input
+              class="mobile-shell__segmentation-floating-value"
+              data-testid="mobile-segmentation-depth-input"
+              type="number"
+              inputmode="decimal"
+              autocomplete="off"
+              :min="MPR_SEGMENTATION_DEPTH_LIMITS.min"
+              :max="MPR_SEGMENTATION_DEPTH_LIMITS.max"
+              step="0.5"
+              :value="selectedMobileThresholdRegion.box.depthMm"
+              @keydown="handleMobileNumberInputKeydown($event)"
+              @input.stop="updateMobileThresholdDepth(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'local')"
+              @change.stop="updateMobileThresholdDepth(selectedMobileThresholdRegion, ($event.target as HTMLInputElement).value, 'end')"
+            />
+          </label>
+        </template>
+        <div v-else class="mobile-shell__segmentation-floating-empty" data-testid="mobile-segmentation-threshold-empty">
+          {{ isZh ? '绘制矩形区域后可调整阈值和深度' : 'Draw a region to adjust threshold and depth.' }}
+        </div>
       </div>
     </main>
 
@@ -3475,7 +3731,11 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <nav v-if="activeImageTab" class="mobile-shell__toolbar" aria-label="Viewer tools">
+    <nav
+      v-if="activeImageTab"
+      class="mobile-shell__toolbar"
+      aria-label="Viewer tools"
+    >
       <div class="mobile-shell__toolbar-row" :style="{ gridTemplateColumns: `repeat(${primaryMobileTools.length}, minmax(0, 1fr))` }">
         <button
           v-for="tool in primaryMobileTools"
@@ -3550,7 +3810,9 @@ onBeforeUnmount(() => {
             :class="{
               'mobile-shell__inline-tool--active': tool.active,
               'mobile-shell__inline-tool--danger': tool.tone === 'danger',
-              'mobile-shell__inline-tool--warm': tool.tone === 'warm'
+              'mobile-shell__inline-tool--warm': tool.tone === 'warm',
+              'mobile-shell__inline-tool--text-only': !tool.icon,
+              'mobile-shell__inline-tool--icon-action': tool.iconOnly
             }"
             :disabled="tool.disabled"
             :aria-label="tool.label"
@@ -3558,11 +3820,21 @@ onBeforeUnmount(() => {
             :data-testid="`mobile-tool-${tool.key}`"
             @click="tool.onClick"
           >
-            <span class="mobile-shell__inline-tool-icon" aria-hidden="true">
+            <span v-if="tool.icon" class="mobile-shell__inline-tool-icon" aria-hidden="true">
               <AppIcon :name="tool.icon" :size="15" />
             </span>
-            <span class="mobile-shell__inline-tool-label">{{ tool.label }}</span>
+            <span v-if="!tool.iconOnly" class="mobile-shell__inline-tool-label">{{ tool.label }}</span>
           </button>
+        </div>
+        <div
+          v-if="false && showMobileSegmentationInlineControl"
+          class="mobile-shell__inline-segmentation-control"
+          data-testid="mobile-segmentation-threshold-control"
+        >
+          <template v-if="false"></template>
+          <div v-else class="mobile-shell__inline-segmentation-empty" data-testid="mobile-segmentation-threshold-empty">
+            {{ isZh ? '绘制矩形区域后可调整阈值' : 'Draw a region to adjust the threshold.' }}
+          </div>
         </div>
       </div>
       <div v-else class="mobile-shell__toolbar-row" :style="{ gridTemplateColumns: `repeat(${visibleSecondaryMobileTools.length}, minmax(0, 1fr))` }">
@@ -3630,9 +3902,11 @@ onBeforeUnmount(() => {
           :class="{
             'mobile-shell__sheet-content--panel':
               activeSheetKind === 'window' ||
+              activeSheetKind === 'color' ||
               activeSheetKind === 'transform' ||
               activeSheetKind === 'measure' ||
               activeSheetKind === 'annotate' ||
+              activeSheetKind === 'segmentation' ||
               activeSheetKind === 'mpr'
           }"
         >
@@ -3898,45 +4172,21 @@ onBeforeUnmount(() => {
                 {{ isZh ? '还没有自定义窗模版' : 'No custom window templates yet' }}
               </div>
               </section>
-
-              <section class="mobile-shell__window-section">
-              <div class="mobile-shell__window-subhead-row">
-                <span class="mobile-shell__window-subhead">{{ isZh ? '新增自定义窗模板' : 'Add Custom Template' }}</span>
-                <span class="mobile-shell__window-limit">{{ customPresetLimitLabel }}</span>
-              </div>
-              <div class="mobile-shell__window-form">
-                <label class="mobile-shell__window-field">
-                  <span>{{ isZh ? '中文名称' : 'Chinese Name' }}</span>
-                  <input v-model="customPresetZhName" type="text" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-zh" />
-                </label>
-                <label class="mobile-shell__window-field">
-                  <span>{{ isZh ? '英文名称' : 'English Name' }}</span>
-                  <input v-model="customPresetEnName" type="text" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-en" />
-                </label>
-                <label class="mobile-shell__window-field">
-                  <span>{{ isZh ? '窗宽 WW' : 'Window Width' }}</span>
-                  <input v-model="customPresetWw" type="number" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-ww" />
-                </label>
-                <label class="mobile-shell__window-field">
-                  <span>{{ isZh ? '窗位 WL' : 'Window Level' }}</span>
-                  <input v-model="customPresetWl" type="number" :disabled="!canAddCustomWindowPreset" data-testid="mobile-window-custom-wl" />
-                </label>
-              </div>
-              <p v-if="!canAddCustomWindowPreset" class="mobile-shell__window-hint">
-                {{ isZh ? `最多只能保留 ${MAX_CUSTOM_WINDOW_PRESETS} 个自定义模板。` : `Up to ${MAX_CUSTOM_WINDOW_PRESETS} custom templates can be saved.` }}
-              </p>
-              <button
-                type="button"
-                class="mobile-shell__window-submit"
-                :disabled="!canAddCustomWindowPreset"
-                data-testid="mobile-window-add-custom"
-                @click="handleAddCustomWindowPreset"
-              >
-                {{ isZh ? '添加模板' : 'Add Template' }}
-              </button>
-              </section>
             </div>
             <div class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
+              <button
+                type="button"
+                class="mobile-shell__footer-action mobile-shell__footer-action--primary"
+                :disabled="!canAddCustomWindowPreset"
+                data-testid="mobile-window-add-custom"
+                @click="openCustomWindowPresetDialog"
+              >
+                <AppIcon name="plus" :size="18" />
+                <span>
+                  <strong>{{ isZh ? '添加窗模板' : 'Add Template' }}</strong>
+                  <small>{{ customPresetLimitLabel }}</small>
+                </span>
+              </button>
               <button
                 type="button"
                 class="mobile-shell__footer-action mobile-shell__footer-action--danger"
@@ -3946,7 +4196,6 @@ onBeforeUnmount(() => {
                 <AppIcon name="reset" :size="18" />
                 <span>
                   <strong>{{ isZh ? '\u91cd\u7f6e\u7a97\u503c' : 'Reset Window' }}</strong>
-                  <small>{{ isZh ? '\u6062\u590d\u5df2\u9009\u7a97\u503c\uff0c\u672a\u9009\u62e9\u65f6\u56de\u5230\u5f71\u50cf\u5185\u7f6e\u7a97\u503c' : 'Restore the selected or image default window.' }}</small>
                 </span>
               </button>
             </div>
@@ -3971,81 +4220,97 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div v-else-if="activeSheetKind === 'color'" class="mobile-shell__action-list">
-            <template v-if="activeFusionTab">
+          <div v-else-if="activeSheetKind === 'color'" class="mobile-shell__sheet-panel">
+            <div class="mobile-shell__sheet-scroll mobile-shell__action-list">
+              <template v-if="activeFusionTab">
+                <button
+                  v-for="preset in FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS"
+                  :key="preset.key"
+                  type="button"
+                  class="mobile-shell__action-row mobile-shell__action-row--pseudocolor"
+                  :class="{ 'mobile-shell__action-row--active': activeFusionPseudocolorKey === preset.key }"
+                  data-testid="mobile-fusion-pseudocolor"
+                  @click="applyFusionPseudocolor(`fusionPseudocolor:${preset.key}`)"
+                >
+                  <span
+                    class="mobile-shell__swatch"
+                    :style="{ '--mobile-pseudocolor-gradient': getFusionPetPseudocolorGradient(preset.key) }"
+                    aria-hidden="true"
+                  ></span>
+                  <span><strong>{{ preset.label }}</strong></span>
+                </button>
+                <button
+                  type="button"
+                  class="mobile-shell__action-row"
+                  data-testid="mobile-fusion-pet-display-reset"
+                  @click="resetFusionPetDisplay"
+                >
+                  <AppIcon name="reset" :size="18" />
+                  <span><strong>{{ isZh ? '\u91cd\u7f6e PET \u663e\u793a' : 'Reset PET display' }}</strong></span>
+                </button>
+              </template>
+              <template v-else-if="activeVolumeTab">
+                <button
+                  v-for="option in VOLUME_RENDER_MODE_OPTIONS"
+                  :key="option.value"
+                  type="button"
+                  class="mobile-shell__action-row"
+                  :class="{ 'mobile-shell__action-row--active': activeVolumeRenderModeValue === option.value }"
+                  data-testid="mobile-volume-render-mode"
+                  @click="applyVolumeRenderMode(option.value)"
+                >
+                  <AppIcon :name="option.icon" :size="18" />
+                  <span>
+                    <strong>{{ option.label }}</strong>
+                    <small>{{ option.detail }}</small>
+                  </span>
+                </button>
+                <button
+                  v-for="option in VOLUME_PRESET_OPTIONS"
+                  :key="option.value"
+                  type="button"
+                  class="mobile-shell__action-row"
+                  :class="{ 'mobile-shell__action-row--active': activeVolumePresetValue === option.value }"
+                  data-testid="mobile-volume-preset"
+                  @click="applyVolumePreset(option.value)"
+                >
+                  <AppIcon :name="option.icon" :size="18" />
+                  <span><strong>{{ option.label }}</strong></span>
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  v-for="preset in PSEUDOCOLOR_PRESET_OPTIONS"
+                  :key="preset.key"
+                  type="button"
+                  class="mobile-shell__action-row mobile-shell__action-row--pseudocolor"
+                  :class="{ 'mobile-shell__action-row--active': activeMobilePseudocolorKey === preset.key }"
+                  data-testid="mobile-pseudocolor"
+                  @click="applyPseudocolor(`pseudocolor:${preset.key}`)"
+                >
+                  <span
+                    class="mobile-shell__swatch"
+                    :style="{ '--mobile-pseudocolor-gradient': getPseudocolorGradient(preset.key) }"
+                    aria-hidden="true"
+                  ></span>
+                  <span><strong>{{ preset.label }}</strong></span>
+                </button>
+              </template>
+            </div>
+            <div v-if="!activeVolumeTab && !activeFusionTab" class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
-                v-for="preset in FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS"
-                :key="preset.key"
                 type="button"
-                class="mobile-shell__action-row mobile-shell__action-row--pseudocolor"
-                :class="{ 'mobile-shell__action-row--active': activeFusionPseudocolorKey === preset.key }"
-                data-testid="mobile-fusion-pseudocolor"
-                @click="applyFusionPseudocolor(`fusionPseudocolor:${preset.key}`)"
-              >
-                <span
-                  class="mobile-shell__swatch"
-                  :style="{ '--mobile-pseudocolor-gradient': getFusionPetPseudocolorGradient(preset.key) }"
-                  aria-hidden="true"
-                ></span>
-                <span><strong>{{ preset.label }}</strong></span>
-              </button>
-              <button
-                type="button"
-                class="mobile-shell__action-row"
-                data-testid="mobile-fusion-pet-display-reset"
-                @click="resetFusionPetDisplay"
+                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
+                data-testid="mobile-pseudocolor-reset"
+                @click="resetPseudocolorToDefault"
               >
                 <AppIcon name="reset" :size="18" />
-                <span><strong>{{ isZh ? '\u91cd\u7f6e PET \u663e\u793a' : 'Reset PET display' }}</strong></span>
-              </button>
-            </template>
-            <template v-else-if="activeVolumeTab">
-              <button
-                v-for="option in VOLUME_RENDER_MODE_OPTIONS"
-                :key="option.value"
-                type="button"
-                class="mobile-shell__action-row"
-                :class="{ 'mobile-shell__action-row--active': activeVolumeRenderModeValue === option.value }"
-                data-testid="mobile-volume-render-mode"
-                @click="applyVolumeRenderMode(option.value)"
-              >
-                <AppIcon :name="option.icon" :size="18" />
                 <span>
-                  <strong>{{ option.label }}</strong>
-                  <small>{{ option.detail }}</small>
+                  <strong>{{ isZh ? '\u91cd\u7f6e\u4f2a\u5f69' : 'Reset Pseudocolor' }}</strong>
+                  <small>{{ isZh ? '\u6062\u590d\u5230\u8bbe\u7f6e\u4e2d\u7684\u9ed8\u8ba4\u4f2a\u5f69' : 'Restore the default pseudocolor from settings.' }}</small>
                 </span>
               </button>
-              <button
-                v-for="option in VOLUME_PRESET_OPTIONS"
-                :key="option.value"
-                type="button"
-                class="mobile-shell__action-row"
-                :class="{ 'mobile-shell__action-row--active': activeVolumePresetValue === option.value }"
-                data-testid="mobile-volume-preset"
-                @click="applyVolumePreset(option.value)"
-              >
-                <AppIcon :name="option.icon" :size="18" />
-                <span><strong>{{ option.label }}</strong></span>
-              </button>
-            </template>
-            <template v-else>
-              <button
-                v-for="preset in PSEUDOCOLOR_PRESET_OPTIONS"
-                :key="preset.key"
-                type="button"
-                class="mobile-shell__action-row mobile-shell__action-row--pseudocolor"
-                :class="{ 'mobile-shell__action-row--active': selectedPseudocolorKey === preset.key }"
-                data-testid="mobile-pseudocolor"
-                @click="applyPseudocolor(`pseudocolor:${preset.key}`)"
-              >
-                <span
-                  class="mobile-shell__swatch"
-                  :style="{ '--mobile-pseudocolor-gradient': getPseudocolorGradient(preset.key) }"
-                  aria-hidden="true"
-                ></span>
-                <span><strong>{{ preset.label }}</strong></span>
-              </button>
-            </template>
+            </div>
           </div>
 
           <div v-else-if="activeSheetKind === 'transform'" class="mobile-shell__sheet-panel">
@@ -4262,6 +4527,7 @@ onBeforeUnmount(() => {
             <MprSegmentationPanel
               v-if="activeMprTab"
               embedded
+              mobile
               :config="activeMprSegmentationConfig"
               :series-id="activeMprTab.seriesId"
               :series-label="activeMprTab.title"
@@ -4422,7 +4688,7 @@ onBeforeUnmount(() => {
             :disabled="!canLoadLocal || isLoadingAnySource"
             @click="loadLocalFolder"
           >
-            <AppIcon :name="isLoadingLocal ? 'connecting' : 'folder-upload'" :size="17" />
+            <AppIcon :name="isLoadingLocal ? 'loading' : 'folder-upload'" :size="17" :class="{ 'mobile-shell__loading-icon': isLoadingLocal }" />
             <span>{{ isLoadingLocal ? (isZh ? '正在加载...' : 'Loading...') : (isZh ? '加载文件夹' : 'Load Folder') }}</span>
           </button>
           <button
@@ -4434,6 +4700,60 @@ onBeforeUnmount(() => {
           >
             <AppIcon name="pacs" :size="17" />
             <span>{{ isZh ? '加载 PACS' : 'Load PACS' }}</span>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="isCustomWindowDialogOpen"
+      class="mobile-shell__dialog-backdrop"
+      data-testid="mobile-window-custom-dialog"
+      @click.self="closeCustomWindowPresetDialog"
+    >
+      <section class="mobile-shell__dialog" role="dialog" aria-modal="true">
+        <div class="mobile-shell__dialog-header">
+          <div>
+            <strong>{{ isZh ? '添加窗模板' : 'Add Window Template' }}</strong>
+            <small>{{ customPresetLimitLabel }}</small>
+          </div>
+          <button type="button" class="mobile-shell__dialog-close" :aria-label="isZh ? '取消' : 'Cancel'" @click="closeCustomWindowPresetDialog">
+            <AppIcon name="close" :size="18" />
+          </button>
+        </div>
+        <div class="mobile-shell__window-form mobile-shell__dialog-form">
+          <label class="mobile-shell__window-field">
+            <span>{{ isZh ? '中文名称' : 'Chinese Name' }}</span>
+            <input v-model="customPresetZhName" type="text" data-testid="mobile-window-custom-zh" />
+          </label>
+          <label class="mobile-shell__window-field">
+            <span>{{ isZh ? '英文名称' : 'English Name' }}</span>
+            <input v-model="customPresetEnName" type="text" data-testid="mobile-window-custom-en" />
+          </label>
+          <label class="mobile-shell__window-field">
+            <span>{{ isZh ? '窗宽 WW' : 'Window Width' }}</span>
+            <input v-model="customPresetWw" type="number" data-testid="mobile-window-custom-ww" />
+          </label>
+          <label class="mobile-shell__window-field">
+            <span>{{ isZh ? '窗位 WL' : 'Window Level' }}</span>
+            <input v-model="customPresetWl" type="number" data-testid="mobile-window-custom-wl" />
+          </label>
+        </div>
+        <p v-if="!canAddCustomWindowPreset" class="mobile-shell__window-hint">
+          {{ isZh ? `最多只能保留 ${MAX_CUSTOM_WINDOW_PRESETS} 个自定义模板。` : `Up to ${MAX_CUSTOM_WINDOW_PRESETS} custom templates can be saved.` }}
+        </p>
+        <div class="mobile-shell__dialog-actions">
+          <button type="button" class="mobile-shell__dialog-button" data-testid="mobile-window-custom-cancel" @click="closeCustomWindowPresetDialog">
+            {{ isZh ? '取消' : 'Cancel' }}
+          </button>
+          <button
+            type="button"
+            class="mobile-shell__dialog-button mobile-shell__dialog-button--primary"
+            :disabled="!canAddCustomWindowPreset"
+            data-testid="mobile-window-custom-confirm"
+            @click="handleAddCustomWindowPreset"
+          >
+            {{ isZh ? '完成' : 'Done' }}
           </button>
         </div>
       </section>
@@ -4478,7 +4798,11 @@ onBeforeUnmount(() => {
       @open-location="handleOpenExportLocation"
     />
 
-    <MobileSettingsOverlay :is-open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <MobileSettingsOverlay
+      :is-open="isSettingsOpen"
+      @close="isSettingsOpen = false"
+      @orientation-lock-request="applyOrientationLock"
+    />
     <PacsBrowserDialog
       :is-open="isPacsBrowserOpen"
       :loaded-series-list="viewer.seriesList.value"
@@ -4521,6 +4845,135 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
   background: color-mix(in srgb, var(--theme-surface-panel-solid) 90%, transparent);
   backdrop-filter: blur(18px);
+}
+
+.mobile-shell__brand-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 46px;
+  color: var(--theme-text-primary);
+}
+
+.mobile-shell__brand-mark {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft));
+  border-radius: 13px 8px 13px 8px;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface-panel-strong)),
+      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-card-soft))
+    );
+  color: color-mix(in srgb, var(--theme-accent) 86%, var(--theme-text-primary));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 12%, transparent),
+    inset 0 -8px 14px color-mix(in srgb, black 14%, transparent);
+}
+
+.mobile-shell__brand-mark::before,
+.mobile-shell__brand-mark::after {
+  position: absolute;
+  content: '';
+  pointer-events: none;
+}
+
+.mobile-shell__brand-mark::before {
+  inset: 7px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 26%, transparent);
+  border-radius: 8px 5px 8px 5px;
+  opacity: 0.7;
+}
+
+.mobile-shell__brand-mark::after {
+  width: 24px;
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  border-radius: 50%;
+  opacity: 0.22;
+}
+
+.mobile-shell__brand-mark-frame {
+  position: absolute;
+  inset: 4px;
+  border-radius: 10px 6px 10px 6px;
+  background:
+    linear-gradient(currentColor, currentColor) left 7px top 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) left 7px top 7px / 1.5px 9px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px top 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px top 7px / 1.5px 9px no-repeat,
+    linear-gradient(currentColor, currentColor) left 7px bottom 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) left 7px bottom 7px / 1.5px 9px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px bottom 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px bottom 7px / 1.5px 9px no-repeat;
+  opacity: 0.54;
+}
+
+.mobile-shell__brand-mark-slice {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--theme-text-primary) 26%, transparent);
+}
+
+.mobile-shell__brand-mark-slice--top {
+  top: 16px;
+}
+
+.mobile-shell__brand-mark-slice--bottom {
+  bottom: 16px;
+}
+
+.mobile-shell__brand-mark-letters {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 25px;
+  height: 19px;
+  place-items: center;
+  border-radius: 6px 3px 6px 3px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 58%, transparent);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 8px color-mix(in srgb, black 24%, transparent);
+}
+
+.mobile-shell__brand-copy {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(:root[data-theme="clinical-light"]) .mobile-shell__brand-mark {
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--theme-accent) 18%, white),
+      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-card-soft))
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 16px color-mix(in srgb, var(--theme-accent-strong) 10%, transparent);
+}
+
+:global(:root[data-theme="clinical-light"]) .mobile-shell__brand-mark-letters {
+  background: color-mix(in srgb, white 62%, transparent);
 }
 
 .mobile-shell__title-group {
@@ -4678,6 +5131,78 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+.mobile-shell__segmentation-floating-control {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  z-index: 16;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-strong));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(14px);
+  padding: 8px;
+  pointer-events: auto;
+}
+
+.mobile-shell__segmentation-floating-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mobile-shell__segmentation-floating-field span {
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.mobile-shell__segmentation-floating-slider {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--theme-accent);
+}
+
+.mobile-shell__segmentation-floating-value {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 88%, transparent);
+  color: var(--theme-text-primary);
+  padding: 0 4px;
+  appearance: textfield;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mobile-shell__segmentation-floating-value::-webkit-outer-spin-button,
+.mobile-shell__segmentation-floating-value::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.mobile-shell__segmentation-floating-empty {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mobile-shell__primary-action {
   display: inline-flex;
   align-items: center;
@@ -4731,6 +5256,17 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
   color: var(--theme-text-primary);
+}
+
+.mobile-shell__loading-icon {
+  animation: mobile-shell-spin 840ms linear infinite;
+  transform-origin: center;
+}
+
+@keyframes mobile-shell-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .mobile-shell__slice-panel {
@@ -5078,6 +5614,29 @@ onBeforeUnmount(() => {
   appearance: none;
 }
 
+.mobile-shell__inline-tool--text-only {
+  min-width: 86px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: center;
+}
+
+.mobile-shell__inline-tool--text-only .mobile-shell__inline-tool-label {
+  text-align: center;
+}
+
+.mobile-shell__inline-tool--icon-action {
+  width: var(--mobile-inline-tool-height);
+  min-width: var(--mobile-inline-tool-height);
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: center;
+  margin-left: auto;
+  padding: 4px;
+}
+
+.mobile-shell__inline-tool--icon-action .mobile-shell__inline-tool-icon {
+  justify-self: center;
+}
+
 .mobile-shell__inline-tool-panel--icon-only .mobile-shell__inline-tool {
   flex: 1 1 0;
   width: auto;
@@ -5253,16 +5812,15 @@ onBeforeUnmount(() => {
 
 .mobile-shell__icp-footer {
   display: flex;
-  min-height: 24px;
+  min-height: 20px;
   align-items: center;
   justify-content: center;
   padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 2px);
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
-  background: rgba(7, 12, 19, 0.9);
+  border-top: 0;
+  background: transparent;
   color: var(--theme-text-muted);
   font-size: 11px;
   line-height: 1;
-  backdrop-filter: blur(18px);
 }
 
 .mobile-shell__icp-footer a {
@@ -5415,7 +5973,9 @@ onBeforeUnmount(() => {
 
 .mobile-shell__sheet-content--panel {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
+  height: 0;
   overflow: hidden;
 }
 
@@ -5427,13 +5987,14 @@ onBeforeUnmount(() => {
 
 .mobile-shell__sheet-panel {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
 }
 
 .mobile-shell__sheet-scroll {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -5454,8 +6015,8 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 8px;
   flex: 0 0 auto;
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: auto;
+  padding: 8px 0 0;
   border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
 }
 
@@ -5511,6 +6072,7 @@ onBeforeUnmount(() => {
 
 .mobile-shell__window-panel .mobile-shell__sheet-scroll {
   display: grid;
+  align-content: start;
   gap: 14px;
 }
 
@@ -5520,12 +6082,14 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__window-system-list {
-  max-height: min(32dvh, 260px);
-  overflow: auto;
-  overscroll-behavior: contain;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding-right: 2px;
-  scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-shell__window-system-list .mobile-shell__action-row {
+  grid-template-columns: 32px minmax(0, 1fr);
+  min-height: 58px;
+  padding: 7px 8px;
 }
 
 .mobile-shell__window-subhead,
@@ -5691,11 +6255,14 @@ onBeforeUnmount(() => {
 
 .mobile-shell__segmentation-panel {
   display: flex;
+  flex: 1 1 0;
   justify-content: center;
-  padding: 4px 0 10px;
+  min-height: 0;
+  padding: 4px 0 0;
 }
 
 .mobile-shell__segmentation-panel :deep(.mpr-segmentation-panel) {
+  height: 100%;
   width: 100%;
   max-width: min(100%, 460px);
 }
@@ -5851,7 +6418,7 @@ onBeforeUnmount(() => {
 .mobile-shell__favorite-open,
 .mobile-shell__history-open {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
   min-height: 56px;
@@ -5891,7 +6458,8 @@ onBeforeUnmount(() => {
 
 .mobile-shell__history-view {
   display: grid;
-  min-width: 0;
+  width: 36px;
+  min-width: 36px;
   min-height: 34px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, transparent);
@@ -5948,6 +6516,11 @@ onBeforeUnmount(() => {
 .mobile-shell__footer-action--warning {
   border-color: color-mix(in srgb, var(--theme-accent-warm) 48%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent-warm) 13%, var(--theme-surface-card));
+}
+
+.mobile-shell__footer-action--primary {
+  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface-card));
 }
 
 .mobile-shell__footer-action--danger {
@@ -6029,7 +6602,8 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.mobile-shell__sheet--presentation-focused.mobile-shell__sheet--color .mobile-shell__sheet-content {
+.mobile-shell__sheet--presentation-focused.mobile-shell__sheet--color .mobile-shell__sheet-content,
+.mobile-shell__sheet--presentation-focused.mobile-shell__sheet--segmentation .mobile-shell__sheet-content {
   padding-bottom: 8px;
 }
 
@@ -6037,8 +6611,11 @@ onBeforeUnmount(() => {
   gap: 5px;
 }
 
-.mobile-shell__sheet--presentation-focused.mobile-shell__sheet--color {
-  max-height: min(60dvh, 440px);
+.mobile-shell__sheet--presentation-focused.mobile-shell__sheet--color,
+.mobile-shell__sheet--presentation-focused.mobile-shell__sheet--segmentation {
+  height: min(64dvh, 500px);
+  min-height: min(54dvh, 420px);
+  max-height: min(64dvh, 500px);
 }
 
 .mobile-shell__swatch {
@@ -6277,6 +6854,93 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   color: var(--theme-text-muted);
+}
+
+.mobile-shell__dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 72;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.42);
+  padding: 18px;
+}
+
+.mobile-shell__dialog {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 97%, transparent);
+  color: var(--theme-text-primary);
+  padding: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.mobile-shell__dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-shell__dialog-header strong,
+.mobile-shell__dialog-header small {
+  display: block;
+}
+
+.mobile-shell__dialog-header strong {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.mobile-shell__dialog-header small {
+  margin-top: 3px;
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mobile-shell__dialog-close {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.mobile-shell__dialog-form {
+  gap: 10px;
+}
+
+.mobile-shell__dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mobile-shell__dialog-button {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card) 84%, transparent);
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.mobile-shell__dialog-button--primary {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
+}
+
+.mobile-shell__dialog-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .mobile-shell__toast {

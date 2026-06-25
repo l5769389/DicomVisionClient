@@ -3,7 +3,7 @@ import { nextTick } from 'vue'
 import { describe, expect, it } from 'vitest'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import MobileMprViewport from './MobileMprViewport.vue'
-import type { MprViewportKey, ViewerTabItem } from '../../types/viewer'
+import type { MprSegmentationConfig, MprViewportKey, ViewerTabItem } from '../../types/viewer'
 
 function createMprTab(): ViewerTabItem {
   return {
@@ -57,7 +57,18 @@ function mountMprViewport(
     global: {
       stubs: {
         ViewerCanvasStage: {
-          props: ['viewportKey', 'isActive', 'showCornerInfo', 'showScaleBar'],
+          props: [
+            'viewportKey',
+            'isActive',
+            'showCornerInfo',
+            'showScaleBar',
+            'activeOperation',
+            'mprSegmentationConfig',
+            'mprSegmentationDefaultThresholdColor',
+            'mprSegmentationDefaultVoiColor',
+            'mprSegmentationOverlay',
+            'voiEditable'
+          ],
           emits: [
             'clickViewport',
             'hoverViewportChange',
@@ -66,14 +77,29 @@ function mountMprViewport(
             'pointerMove',
             'pointerUp',
             'pointerCancel',
-            'pointerLeave'
+            'pointerLeave',
+            'mprSegmentationConfigChange',
+            'mprSegmentationModeChange'
           ],
           template:
-            '<div class="viewer-stage-stub" data-active-render-surface="true" :data-active="isActive" :data-show-corner-info="showCornerInfo" :data-show-scale-bar="showScaleBar" :data-viewport-key="viewportKey" @click="$emit(\'clickViewport\', viewportKey)" @pointerdown="$emit(\'pointerDown\', $event, viewportKey)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)"></div>'
+            '<div class="viewer-stage-stub" data-active-render-surface="true" :data-active="isActive ? \'true\' : \'false\'" :data-active-operation="activeOperation" :data-show-corner-info="showCornerInfo" :data-show-scale-bar="showScaleBar" :data-viewport-key="viewportKey" :data-voi-editable="voiEditable ? \'true\' : \'false\'" @click="$emit(\'clickViewport\', viewportKey)" @pointerdown="$emit(\'pointerDown\', $event, viewportKey)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)"><button class="segmentation-config-stub" @click.stop="$emit(\'mprSegmentationConfigChange\', mprSegmentationConfig, \'end\')">Config</button><button class="segmentation-mode-stub" @click.stop="$emit(\'mprSegmentationModeChange\', \'segmentation:voi\')">Mode</button></div>'
         }
       }
     }
   })
+}
+
+function createSegmentationConfig(): MprSegmentationConfig {
+  return {
+    enabled: true,
+    clientRevision: 1,
+    selectedRegionId: null,
+    selectedVoi: false,
+    selectedVoiId: null,
+    thresholdRegions: [],
+    voiSpheres: [],
+    voiSphere: null
+  }
 }
 
 async function dispatchPointerEvent(
@@ -112,10 +138,16 @@ async function waitForPointerClickSuppressionReset(): Promise<void> {
   await nextTick()
 }
 
+async function waitForWorkspaceReadyFrame(): Promise<void> {
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+  await nextTick()
+}
+
 describe('MobileMprViewport', () => {
   it('mounts AX, COR, and SAG render surfaces and reports all viewport elements', async () => {
     const wrapper = mountMprViewport()
     await flushPromises()
+    await waitForWorkspaceReadyFrame()
 
     expect(wrapper.findAll('[data-active-render-surface="true"]')).toHaveLength(3)
     expect(wrapper.find('[data-viewport-key="mpr-ax"]').exists()).toBe(true)
@@ -134,15 +166,44 @@ describe('MobileMprViewport', () => {
     expect(payload.viewportElements['mpr-sag']).toBeInstanceOf(HTMLElement)
   })
 
+  it('refreshes pane roles and workspace surfaces after the active MPR plane changes', async () => {
+    const wrapper = mountMprViewport('mpr-ax')
+    await flushPromises()
+    await waitForWorkspaceReadyFrame()
+
+    await wrapper.setProps({ activeMprViewportKey: 'mpr-cor' })
+    await flushPromises()
+    await waitForWorkspaceReadyFrame()
+
+    expect(wrapper.findAll('[data-testid="mobile-mpr-primary"]')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-cor"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid="mobile-mpr-reference"] .viewer-stage-stub[data-viewport-key="mpr-ax"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="mobile-mpr-reference"] .viewer-stage-stub[data-viewport-key="mpr-sag"]')).toHaveLength(1)
+
+    const readyEvents = wrapper.emitted('workspaceReady')
+    const payload = readyEvents?.at(-1)?.[0] as {
+      viewportElements: Record<string, HTMLElement | null>
+      viewportKey: string
+    }
+    expect(payload.viewportKey).toBe('mpr-cor')
+    expect(payload.viewportElements['mpr-ax']?.dataset.activeRenderSurface).toBe('true')
+    expect(payload.viewportElements['mpr-cor']?.dataset.activeRenderSurface).toBe('true')
+    expect(payload.viewportElements['mpr-sag']?.dataset.activeRenderSurface).toBe('true')
+  })
+
   it('shows the active MPR plane as primary and the other two as reference thumbnails', async () => {
     const wrapper = mountMprViewport('mpr-cor')
     await flushPromises()
 
     expect(wrapper.findAll('[data-testid="mobile-mpr-primary"]')).toHaveLength(1)
     expect(wrapper.find('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-cor"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-cor"]').attributes('data-active')).toBe('true')
+    expect(wrapper.get('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-cor"]').attributes('data-voi-editable')).toBe('true')
     expect(wrapper.findAll('[data-testid="mobile-mpr-reference"]')).toHaveLength(2)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-corner-info="false"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-mpr-reference"] [data-show-scale-bar="false"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid="mobile-mpr-reference"] .viewer-stage-stub').every((stage) => stage.attributes('data-active') === 'false')).toBe(true)
+    expect(wrapper.findAll('[data-testid="mobile-mpr-reference"] .viewer-stage-stub').every((stage) => stage.attributes('data-voi-editable') === 'false')).toBe(true)
     const sagReference = wrapper.get('[data-testid="mobile-mpr-reference-switch"][data-viewport-key="mpr-sag"]')
     expect(sagReference.get('.mobile-mpr-viewport__reference-slice').text()).toBe('6 / 10')
     expect(sagReference.get('.mobile-mpr-viewport__reference-title').text()).toBe('SAG')
@@ -158,6 +219,42 @@ describe('MobileMprViewport', () => {
 
     expect(wrapper.findAll('[data-active-render-surface="true"]')).toHaveLength(3)
     expect(wrapper.find('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-ax"]').exists()).toBe(true)
+  })
+
+  it('passes mobile MPR segmentation state through the active render surfaces', async () => {
+    const config = createSegmentationConfig()
+    const wrapper = mount(MobileMprViewport, {
+      props: {
+        activeMprViewportKey: 'mpr-ax',
+        activeOperation: `${STACK_OPERATION_PREFIX}segmentation:threshold`,
+        activeTab: createMprTab(),
+        isViewLoading: false,
+        mprSegmentationConfig: config,
+        mprSegmentationDefaultThresholdColor: '#ff4df8',
+        mprSegmentationDefaultVoiColor: '#22d3ee'
+      },
+      global: {
+        stubs: {
+          ViewerCanvasStage: {
+            props: ['viewportKey', 'activeOperation', 'isActive', 'mprSegmentationConfig', 'voiEditable'],
+            emits: ['mprSegmentationConfigChange', 'mprSegmentationModeChange'],
+            template:
+              '<div data-active-render-surface="true" :data-active="isActive ? \'true\' : \'false\'" :data-active-operation="activeOperation" :data-viewport-key="viewportKey" :data-voi-editable="voiEditable ? \'true\' : \'false\'"><button class="segmentation-config-stub" @click="$emit(\'mprSegmentationConfigChange\', mprSegmentationConfig, \'end\')">Config</button><button class="segmentation-mode-stub" @click="$emit(\'mprSegmentationModeChange\', \'segmentation:voi\')">Mode</button></div>'
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-viewport-key="mpr-ax"]').attributes('data-active-operation')).toBe(`${STACK_OPERATION_PREFIX}segmentation:threshold`)
+    expect(wrapper.get('[data-viewport-key="mpr-ax"]').attributes('data-active')).toBe('true')
+    expect(wrapper.get('[data-viewport-key="mpr-ax"]').attributes('data-voi-editable')).toBe('true')
+
+    await wrapper.get('[data-viewport-key="mpr-ax"] .segmentation-config-stub').trigger('click')
+    expect(wrapper.emitted('mprSegmentationConfigChange')?.at(-1)).toEqual([config, 'end'])
+
+    await wrapper.get('[data-viewport-key="mpr-ax"] .segmentation-mode-stub').trigger('click')
+    expect(wrapper.emitted('mprSegmentationModeChange')?.at(-1)).toEqual(['segmentation:voi', 'mpr-ax'])
   })
 
   it('switches the active MPR plane when a reference thumbnail is clicked', async () => {

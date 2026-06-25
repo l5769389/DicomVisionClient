@@ -54,7 +54,6 @@ const isPacsEntryVisible = computed(() => (
   pacsPreference.value.enabled &&
   pacsPreference.value.profiles.some((profile) => profile.enabled)
 ))
-const isLocalSourceEnabled = computed(() => pacsPreference.value.localSourceEnabled !== false)
 const selectedSeries = computed(() =>
   props.seriesList.find((item) => item.seriesId === props.selectedSeriesId) ?? null
 )
@@ -148,7 +147,7 @@ function hideSeriesHoverCard(): void {
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
         <div class="sidebar-source-group">
-          <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-local-source-enabled="isLocalSourceEnabled" :is-selected-series-four-d="isSelectedSeriesFourD" :selected-series="selectedSeries" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
+          <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :selected-series="selectedSeries" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
           <div v-if="isPacsEntryVisible" class="sidebar-source-divider"></div>
           <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
         </div>

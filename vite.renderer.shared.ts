@@ -3,7 +3,6 @@ import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import type { PluginOption } from 'vite'
-import VueDevTools from 'vite-plugin-vue-devtools'
 import vuetify from 'vite-plugin-vuetify'
 
 const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string }
@@ -23,7 +22,6 @@ export const rendererDefine = {
 
 export function createRendererPlugins(): PluginOption[] {
   return [
-    process.env.NODE_ENV === 'production' ? null : VueDevTools(),
     vue(),
     vuetify({
       autoImport: {
@@ -31,7 +29,7 @@ export function createRendererPlugins(): PluginOption[] {
       }
     }),
     tailwindcss()
-  ].filter((plugin): plugin is PluginOption => plugin != null)
+  ]
 }
 
 export function createRendererManualChunks(id: string): string | undefined {

@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { STACK_OPERATION_PREFIX } from '@shared/viewerConstants'
 import ViewportVoiOverlay from './ViewportVoiOverlay.vue'
 import type { MprPlaneInfo, MprSegmentationConfig } from '../../../types/viewer'
 import {
@@ -668,6 +669,38 @@ describe('ViewportVoiOverlay', () => {
     ])
   })
 
+  it.each([
+    [`${STACK_OPERATION_PREFIX}segmentation:threshold`, 'threshold'],
+    [`${STACK_OPERATION_PREFIX}segmentation:voi`, 'voi']
+  ])('creates segmentation geometry with %s', async (activeOperation, kind) => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation,
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createEmptyConfig(),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    const overlay = prepareOverlayElement(wrapper)
+    const background = wrapper.find('svg rect').element
+    const [startX, startY]: [number, number] = kind === 'threshold' ? [20, 20] : [50, 50]
+    const [endX, endY]: [number, number] = kind === 'threshold' ? [70, 70] : [62, 50]
+
+    background.dispatchEvent(createPointerEvent('pointerdown', startX, startY))
+    overlay.dispatchEvent(createPointerEvent('pointermove', endX, endY))
+    overlay.dispatchEvent(createPointerEvent('pointerup', endX, endY))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('configChange')?.at(-1)?.[0]).toEqual(expect.objectContaining(
+      kind === 'threshold'
+        ? { thresholdRegions: [expect.objectContaining({ id: expect.stringContaining('threshold-') })] }
+        : { voiSpheres: [expect.objectContaining({ id: expect.stringContaining('voi-') })] }
+    ))
+  })
+
   it('uses the provided default colors when creating threshold and VOI items', async () => {
     const thresholdWrapper = mount(ViewportVoiOverlay, {
       props: {
@@ -1022,6 +1055,66 @@ describe('ViewportVoiOverlay', () => {
         selectedRegionId: 'r1',
         selectedVoi: false,
         selectedVoiId: null
+      }),
+      'select'
+    ])
+  })
+
+  it('activates threshold mode when an existing rectangle is hit from another operation', async () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: `${STACK_OPERATION_PREFIX}segmentation:voi`,
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createMixedConfig(),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    prepareOverlayElement(wrapper)
+
+    const thresholdRect = wrapper.find('rect[data-region-id="r1"]')
+    expect(thresholdRect.exists()).toBe(true)
+    thresholdRect.element.dispatchEvent(createPointerEvent('pointerdown', 50, 50))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:threshold', 'mpr-cor'])
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null
+      }),
+      'select'
+    ])
+  })
+
+  it('activates VOI mode when an existing sphere is hit from another operation', async () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: `${STACK_OPERATION_PREFIX}segmentation:threshold`,
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createVoiConfig(false),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane
+      }
+    })
+    prepareOverlayElement(wrapper)
+
+    const sphere = wrapper.find('ellipse[data-voi-id="v1"]')
+    expect(sphere.exists()).toBe(true)
+    sphere.element.dispatchEvent(createPointerEvent('pointerdown', 50, 50))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:voi'])
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: null,
+        selectedVoi: true,
+        selectedVoiId: 'v1'
       }),
       'select'
     ])

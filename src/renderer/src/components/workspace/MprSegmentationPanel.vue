@@ -33,6 +33,7 @@ import {
 const props = defineProps<{
   config: MprSegmentationConfig
   embedded?: boolean
+  mobile?: boolean
   isProcessing?: boolean
   seriesId?: string | null
   seriesLabel?: string | null
@@ -216,6 +217,11 @@ watch(
 )
 
 const exportableItemCount = computed(() => regions.value.length + voiSpheres.value.length)
+const isEmbeddedVoiMode = computed(() => props.embedded && embeddedMode.value === 'segmentation:voi')
+const currentModeClearDisabled = computed(() => isEmbeddedVoiMode.value ? voiSpheres.value.length === 0 : regions.value.length === 0)
+const currentModeClearLabel = computed(() => isEmbeddedVoiMode.value ? (isZh.value ? '清除 VOI' : 'Clear VOI') : panelCopy.value.clearRegions)
+const currentModeClearIcon = computed(() => isEmbeddedVoiMode.value ? 'segmentation-voi' : 'segmentation-threshold')
+const hasAnySegmentationItems = computed(() => regions.value.length > 0 || voiSpheres.value.length > 0)
 const pendingExportSelectedCount = computed(() => {
   const request = pendingExportConfirmation.value
   if (!request) {
@@ -672,6 +678,24 @@ function clearVoi(sphereId: string): void {
   }, 'end')
 }
 
+function clearVoiSpheres(): void {
+  emitPatch({
+    selectedRegionId: displayedConfig.value.selectedRegionId,
+    selectedVoi: false,
+    selectedVoiId: null,
+    voiSpheres: [],
+    voiSphere: null
+  }, 'end')
+}
+
+function clearCurrentModeItems(): void {
+  if (isEmbeddedVoiMode.value) {
+    clearVoiSpheres()
+    return
+  }
+  clearThresholdRegions()
+}
+
 function patchVoiSphere(sphereId: string, patch: Partial<MprVoiSphere>, actionType: PanelActionType = 'end'): void {
   const sphere = voiSpheres.value.find((candidate) => candidate.id === sphereId)
   if (!sphere) {
@@ -806,7 +830,10 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
     v-bind="$attrs"
     ref="panelRef"
     class="theme-shell-panel mpr-segmentation-panel flex flex-col overflow-hidden rounded-xl border border-sky-100/25 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_98%,black_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_96%,black_4%))] px-3 pb-2.5 pt-0 backdrop-blur-xl"
-    :class="props.embedded ? 'mpr-segmentation-panel--embedded relative h-full min-h-0 w-full shadow-none ring-0' : 'mpr-segmentation-panel--floating fixed z-[60] w-[min(520px,calc(100vw-2.5rem))] shadow-[0_30px_80px_rgba(0,0,0,0.58),0_10px_24px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.04)] ring-1 ring-black/45'"
+    :class="[
+      props.embedded ? 'mpr-segmentation-panel--embedded relative h-full min-h-0 w-full shadow-none ring-0' : 'mpr-segmentation-panel--floating fixed z-[60] w-[min(520px,calc(100vw-2.5rem))] shadow-[0_30px_80px_rgba(0,0,0,0.58),0_10px_24px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.04)] ring-1 ring-black/45',
+      { 'mpr-segmentation-panel--mobile': props.mobile }
+    ]"
     :style="panelRootStyle"
   >
     <div class="-mx-3 mb-2.5 flex items-center justify-between gap-3 rounded-t-xl border-b border-white/10 bg-white/[0.055] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(0,0,0,0.22)]">
@@ -958,8 +985,8 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         v-for="region in regions"
         v-if="!props.embedded || embeddedMode === 'segmentation:threshold'"
         :key="region.id"
-        class="rounded-md border px-2.5 py-2 transition"
-        :class="region.id === displayedConfig.selectedRegionId ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
+        class="mpr-segmentation-panel__item rounded-md border px-2.5 py-2 transition"
+        :class="region.id === displayedConfig.selectedRegionId ? 'mpr-segmentation-panel__item--active' : ''"
         :data-testid="`mpr-threshold-select-${region.id}`"
         @click="selectRegion(region.id)"
       >
@@ -1022,7 +1049,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             </button>
           </div>
           <button
-            class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--theme-text-secondary)] transition hover:bg-rose-500/12 hover:text-rose-100"
+            class="mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
             type="button"
             :title="panelCopy.deleteRegion"
             :data-testid="`mpr-threshold-delete-${region.id}`"
@@ -1040,16 +1067,16 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         </div>
 
         <div
-          class="mt-2 grid min-h-[4.5rem] grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3"
+          class="mpr-segmentation-panel__metrics mt-2 grid min-h-[4.5rem] grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3"
           :data-testid="`mpr-threshold-metrics-${region.id}`"
         >
           <div
             v-for="metric in getThresholdMetricRows(region)"
             :key="metric.key"
-            class="min-w-0 rounded-lg border border-white/8 bg-black/10 px-2 py-1.5"
+            class="mpr-segmentation-panel__metric-cell min-w-0 rounded-lg border px-2 py-1.5"
           >
-            <div class="text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
-            <div class="mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
+            <div class="mpr-segmentation-panel__metric-label text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
+            <div class="mpr-segmentation-panel__metric-value mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
           </div>
         </div>
 
@@ -1159,8 +1186,8 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         v-for="sphere in voiSpheres"
         v-if="!props.embedded || embeddedMode === 'segmentation:voi'"
         :key="sphere.id"
-        class="rounded-md border px-2.5 py-2 transition"
-        :class="displayedConfig.selectedVoiId === sphere.id ? 'border-cyan-300/45 bg-cyan-500/16' : 'border-white/8 bg-black/10'"
+        class="mpr-segmentation-panel__item rounded-md border px-2.5 py-2 transition"
+        :class="displayedConfig.selectedVoiId === sphere.id ? 'mpr-segmentation-panel__item--active' : ''"
         :data-testid="`mpr-voi-select-${sphere.id}`"
         @click="selectVoi(sphere.id)"
       >
@@ -1205,7 +1232,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               {{ panelCopy.radius }} {{ formatMetric(sphere.radiusMm) }} mm
             </span>
             <button
-              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--theme-text-secondary)] transition hover:bg-rose-500/12 hover:text-rose-100"
+              class="mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
               type="button"
               :title="panelCopy.deleteVoi"
               :data-testid="`mpr-voi-delete-${sphere.id}`"
@@ -1215,35 +1242,38 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             </button>
           </div>
           <div
-            class="mt-2 grid min-h-[4.5rem] grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3"
+            class="mpr-segmentation-panel__metrics mt-2 grid min-h-[4.5rem] grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-3"
             :data-testid="`mpr-voi-metrics-${sphere.id}`"
           >
             <div
               v-for="metric in getVoiMetricRows(sphere)"
               :key="metric.key"
-              class="min-w-0 rounded-lg border border-white/8 bg-black/10 px-2 py-1.5"
+              class="mpr-segmentation-panel__metric-cell min-w-0 rounded-lg border px-2 py-1.5"
             >
-              <div class="text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
-              <div class="mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
+              <div class="mpr-segmentation-panel__metric-label text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
+              <div class="mpr-segmentation-panel__metric-value mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
             </div>
           </div>
         </div>
 
     </div>
 
-    <div class="flex shrink-0 items-center gap-2 border-t border-[var(--theme-border-soft)] pt-2">
+    <div class="mpr-segmentation-panel__footer" data-testid="mpr-segmentation-footer">
       <button
-        class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 text-[11px] font-semibold text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)] disabled:cursor-not-allowed disabled:opacity-45"
+        class="mpr-segmentation-panel__clear-button"
         type="button"
-        :disabled="regions.length === 0"
-        @click="clearThresholdRegions"
+        :disabled="currentModeClearDisabled"
+        data-testid="mpr-segmentation-clear-current"
+        @click="clearCurrentModeItems"
       >
-        <AppIcon name="segmentation-threshold" :size="14" />
-        <span>{{ panelCopy.clearRegions }}</span>
+        <AppIcon :name="currentModeClearIcon" :size="14" />
+        <span>{{ currentModeClearLabel }}</span>
       </button>
       <button
-        class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-rose-300/25 bg-rose-500/10 px-2.5 text-[11px] font-semibold text-rose-100 transition hover:border-rose-200/45 hover:bg-rose-500/15"
+        class="mpr-segmentation-panel__clear-button mpr-segmentation-panel__clear-button--danger"
         type="button"
+        :disabled="!hasAnySegmentationItems"
+        data-testid="mpr-segmentation-clear-all"
         @click="clearAll"
       >
         <AppIcon name="trash" :size="14" />
@@ -1450,3 +1480,153 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
   </Teleport>
   </div>
 </template>
+
+<style scoped>
+.mpr-segmentation-panel--mobile {
+  height: 100%;
+  min-height: 0;
+  border-color: color-mix(in srgb, var(--theme-border-strong) 62%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-panel-strong-solid) 94%, var(--theme-accent) 6%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 98%, transparent)
+    );
+}
+
+.mpr-segmentation-panel--mobile [data-testid='mpr-segmentation-record-list'] {
+  flex: 1 1 0;
+  min-height: 0;
+  padding-bottom: 0.25rem;
+}
+
+.mpr-segmentation-panel__item {
+  position: relative;
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card) 84%, transparent);
+}
+
+.mpr-segmentation-panel__item::before {
+  content: '';
+  position: absolute;
+  inset: 10px auto 10px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.mpr-segmentation-panel__item--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 13%, var(--theme-surface-card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+}
+
+.mpr-segmentation-panel__item--active::before {
+  background: var(--theme-accent);
+}
+
+.mpr-segmentation-panel__metric-cell {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+}
+
+.mpr-segmentation-panel--mobile .mpr-segmentation-panel__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+  gap: 0.375rem;
+}
+
+.mpr-segmentation-panel--mobile .mpr-segmentation-panel__metric-cell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+  border-radius: 0.5rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.mpr-segmentation-panel--mobile .mpr-segmentation-panel__metric-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.06em;
+}
+
+.mpr-segmentation-panel--mobile .mpr-segmentation-panel__metric-value {
+  margin-top: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpr-segmentation-panel__icon-action {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--theme-text-secondary);
+  transition: color 0.16s ease, background 0.16s ease;
+}
+
+.mpr-segmentation-panel__icon-action--danger:hover {
+  background: var(--theme-status-danger-surface);
+  color: var(--theme-status-danger-text);
+}
+
+.mpr-segmentation-panel__footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 1px solid var(--theme-border-soft);
+  padding-top: 0.5rem;
+}
+
+.mpr-segmentation-panel--mobile .mpr-segmentation-panel__footer {
+  margin-top: auto;
+  padding-bottom: 0.125rem;
+}
+
+.mpr-segmentation-panel__clear-button {
+  display: inline-flex;
+  min-height: 2rem;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-surface-card-soft);
+  color: var(--theme-text-primary);
+  padding: 0.375rem 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.mpr-segmentation-panel__clear-button:hover:not(:disabled) {
+  border-color: var(--theme-border-strong);
+  background: var(--theme-hover-surface);
+}
+
+.mpr-segmentation-panel__clear-button--danger {
+  border-color: var(--theme-status-danger-border);
+  background: var(--theme-status-danger-surface);
+  color: var(--theme-status-danger-text);
+}
+
+.mpr-segmentation-panel__clear-button--danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-status-danger-border) 78%, var(--theme-text-primary));
+  background: color-mix(in srgb, var(--theme-status-danger-surface) 84%, var(--theme-status-danger-text) 16%);
+}
+
+.mpr-segmentation-panel__clear-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+  filter: grayscale(0.28);
+}
+</style>

@@ -30,7 +30,6 @@ type SourcePickerAction = {
 
 const props = defineProps<{
   hasSelectedSeries: boolean
-  isLocalSourceEnabled: boolean
   isSelectedSeriesFourD: boolean
   selectedSeries: FolderSeriesItem | null
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
@@ -139,7 +138,7 @@ function handleUploadClick(mode: WebUploadPickMode): void {
 <template>
   <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
     <VBtn
-      v-if="isLocalSourceEnabled && isServerSampleMode"
+      v-if="isServerSampleMode"
       variant="flat"
       class="sample-action-button mb-2 w-full! min-w-0! rounded-2xl! border! px-3! py-0!"
       :aria-label="folderActionLabel"
@@ -156,7 +155,6 @@ function handleUploadClick(mode: WebUploadPickMode): void {
 
     <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
       <VMenu
-        v-if="isLocalSourceEnabled"
         location="bottom start"
         :offset="8"
         :close-on-content-click="true"

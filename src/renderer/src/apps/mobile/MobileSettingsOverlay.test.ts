@@ -1,8 +1,9 @@
 import { computed } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MobileSettingsOverlay from './MobileSettingsOverlay.vue'
 
+const postApiMock = vi.hoisted(() => vi.fn())
 const settingsState = vi.hoisted(() => ({
   crosshairConfigs: [
     { key: 'mpr-ax', label: 'AX', color: '#ef4444', thickness: 2 },
@@ -36,6 +37,33 @@ const settingsState = vi.hoisted(() => ({
   mprDefaultViewport: 'mpr-ax',
   mprShowReferenceThumbnails: true,
   orientationLock: 'unlocked',
+  pacsPreference: {
+    activeProfileId: 'orthanc-local',
+    enabled: false,
+    localSourceEnabled: true,
+    profiles: [
+      {
+        authType: 'none',
+        baseUrl: 'http://127.0.0.1:8042',
+        bearerToken: '',
+        calledAeTitle: 'ORTHANC',
+        clientAeTitle: 'DICOMVISION',
+        enabled: true,
+        host: '127.0.0.1',
+        id: 'orthanc-local',
+        name: 'Orthanc Local',
+        password: '',
+        port: 4242,
+        preset: 'orthanc',
+        protocol: 'dicomweb',
+        qidoPath: '/dicom-web',
+        queryModel: 'study-root',
+        timeoutSeconds: 8,
+        username: '',
+        wadoPath: '/dicom-web'
+      }
+    ]
+  },
   roiStatOptions: [
     { key: 'mean', label: 'Mean', enabled: true },
     { key: 'max', label: 'Max', enabled: true },
@@ -62,6 +90,7 @@ const settingsState = vi.hoisted(() => ({
   setMprDefaultViewportMock: vi.fn(),
   setMprShowReferenceThumbnailsMock: vi.fn(),
   setOrientationLockMock: vi.fn(),
+  setPacsPreferenceMock: vi.fn(),
   setRoiStatOptionsMock: vi.fn(),
   setScaleBarPreferenceMock: vi.fn(),
   setStackDefaultToolMock: vi.fn(),
@@ -71,6 +100,10 @@ const settingsState = vi.hoisted(() => ({
   stackPlaybackFps: 5,
   themeId: 'industrial-utility',
   volumeDefaultTool: 'rotate3d'
+}))
+
+vi.mock('../../services/typedApi', () => ({
+  postApi: postApiMock
 }))
 
 vi.mock('../../composables/ui/useUiPreferences', () => ({
@@ -91,6 +124,7 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
       }
     }),
     measurementStylePreference: computed(() => settingsState.measurementStylePreference),
+    pacsPreference: computed(() => settingsState.pacsPreference),
     roiStatOptions: computed(() => settingsState.roiStatOptions),
     scaleBarPreference: computed(() => settingsState.scaleBarPreference),
     selectedPseudocolorKey: computed({
@@ -120,6 +154,10 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
     setMeasurementStylePreference: (value: typeof settingsState.measurementStylePreference) => {
       Object.assign(settingsState.measurementStylePreference, value)
       settingsState.setMeasurementStylePreferenceMock(value)
+    },
+    setPacsPreference: (value: typeof settingsState.pacsPreference) => {
+      Object.assign(settingsState.pacsPreference, value)
+      settingsState.setPacsPreferenceMock(value)
     },
     setRoiStatOptions: (value: typeof settingsState.roiStatOptions) => {
       settingsState.roiStatOptions.splice(0, settingsState.roiStatOptions.length, ...value)
@@ -259,6 +297,33 @@ beforeEach(() => {
   settingsState.mprDefaultViewport = 'mpr-ax'
   settingsState.mprShowReferenceThumbnails = true
   settingsState.orientationLock = 'unlocked'
+  settingsState.pacsPreference = {
+    activeProfileId: 'orthanc-local',
+    enabled: false,
+    localSourceEnabled: true,
+    profiles: [
+      {
+        authType: 'none',
+        baseUrl: 'http://127.0.0.1:8042',
+        bearerToken: '',
+        calledAeTitle: 'ORTHANC',
+        clientAeTitle: 'DICOMVISION',
+        enabled: true,
+        host: '127.0.0.1',
+        id: 'orthanc-local',
+        name: 'Orthanc Local',
+        password: '',
+        port: 4242,
+        preset: 'orthanc',
+        protocol: 'dicomweb',
+        qidoPath: '/dicom-web',
+        queryModel: 'study-root',
+        timeoutSeconds: 8,
+        username: '',
+        wadoPath: '/dicom-web'
+      }
+    ]
+  }
   settingsState.roiStatOptions = [
     { key: 'mean', label: 'Mean', enabled: true },
     { key: 'max', label: 'Max', enabled: true },
@@ -286,18 +351,20 @@ beforeEach(() => {
   settingsState.setMprDefaultViewportMock.mockClear()
   settingsState.setMprShowReferenceThumbnailsMock.mockClear()
   settingsState.setOrientationLockMock.mockClear()
+  settingsState.setPacsPreferenceMock.mockClear()
   settingsState.setRoiStatOptionsMock.mockClear()
   settingsState.setScaleBarPreferenceMock.mockClear()
   settingsState.setStackDefaultToolMock.mockClear()
   settingsState.setStackPlaybackFpsMock.mockClear()
   settingsState.setVolumeDefaultToolMock.mockClear()
+  postApiMock.mockReset()
 })
 
 describe('MobileSettingsOverlay', () => {
   it('updates mobile settings and selected web viewer preferences', async () => {
     const wrapper = mountSettings()
 
-    expect(wrapper.findAll('[data-testid^="mobile-settings-nav-"]')).toHaveLength(9)
+    expect(wrapper.findAll('[data-testid^="mobile-settings-nav-"]')).toHaveLength(10)
     expect(wrapper.find('.mobile-settings__eyebrow').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Mobile')
     expect(wrapper.text()).not.toContain('移动端')
@@ -356,9 +423,25 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-export-dicom-annotations"]').trigger('click')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-nav-pacs"]').trigger('click')
+    expect(wrapper.text()).toContain('PACS 数据源')
+    expect(wrapper.find('[data-testid="mobile-settings-pacs-local-enabled"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-settings-pacs-enabled"]').exists()).toBe(false)
+    postApiMock.mockResolvedValueOnce({ ok: true, message: 'OK' })
+    await wrapper.get('[data-testid="mobile-settings-pacs-profile-test"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="mobile-settings-pacs-profile-edit"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-pacs-profile-name"]').setValue('Mobile PACS')
+    await wrapper.get('[data-testid="mobile-settings-pacs-add"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-pacs-draft-name"]').setValue('Backup PACS')
+    await wrapper.get('[data-testid="mobile-settings-pacs-draft-save"]').trigger('click')
+
+    await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-playback"]').trigger('click')
-    expect(wrapper.text()).toContain('2D / MPR 播放 FPS')
-    await wrapper.get('[data-testid="mobile-settings-playback-fps"]').setValue('4')
+    expect(wrapper.find('[data-testid="mobile-settings-playback-fps"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('orientation-unlocked')
+    expect(wrapper.text()).toContain('orientation-landscape')
+    expect(wrapper.text()).toContain('orientation-portrait')
     await wrapper.get('[data-testid="mobile-settings-gesture-sensitivity"]').setValue('2')
     await wrapper.findAll('[data-testid="mobile-settings-orientation-lock"]')[2].trigger('click')
 
@@ -401,8 +484,14 @@ describe('MobileSettingsOverlay', () => {
     expect(settingsState.setMeasurementStylePreferenceMock).toHaveBeenCalled()
     expect(settingsState.setRoiStatOptionsMock).toHaveBeenCalled()
     expect(settingsState.setExportPreferenceMock).toHaveBeenCalled()
-    expect(settingsState.setStackPlaybackFpsMock).toHaveBeenCalledWith(15)
+    expect(settingsState.setPacsPreferenceMock).toHaveBeenCalled()
+    expect(postApiMock).toHaveBeenCalledWith('TestDicomwebConnectionApiV1PacsDicomwebTestPost', expect.any(Object))
+    expect(settingsState.pacsPreference.enabled).toBe(false)
+    expect(settingsState.pacsPreference.localSourceEnabled).toBe(true)
+    expect(settingsState.pacsPreference.profiles).toHaveLength(2)
+    expect(settingsState.pacsPreference.profiles[0].name).toBe('Mobile PACS')
     expect(settingsState.setGestureSensitivityMock).toHaveBeenCalledWith('high')
     expect(settingsState.setOrientationLockMock).toHaveBeenCalledWith('landscape')
+    expect(wrapper.emitted('orientationLockRequest')).toEqual([['landscape']])
   })
 })

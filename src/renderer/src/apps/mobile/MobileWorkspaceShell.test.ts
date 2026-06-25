@@ -505,14 +505,18 @@ function mountShell() {
           template: '<div data-testid="mobile-fusion-stub"><button data-testid="stub-fusion-pet" @click="$emit(\'activeViewportChange\', \'fusion-pet-ax\')">PET</button><button data-testid="stub-fusion-drag" @click="$emit(\'fusionRegistrationDrag\', { viewportKey: \'fusion-overlay-ax\', phase: \'move\', subOpType: \'translate\', deltaX: 3, deltaY: 4 })">Drag</button></div>'
         },
         MprSegmentationPanel: {
-          props: ['config'],
+          props: {
+            config: { type: Object, required: true },
+            embedded: Boolean,
+            mobile: Boolean
+          },
           emits: ['close', 'configChange', 'modeChange'],
-          template: '<div data-testid="mobile-segmentation-panel"><button data-testid="mobile-segmentation-config-change" @click="$emit(\'configChange\', config, \'local\')">Config</button><button data-testid="mobile-segmentation-mode-change" @click="$emit(\'modeChange\', \'segmentation:voi\', \'mpr-cor\')">Mode</button></div>'
+          template: '<div data-testid="mobile-segmentation-panel" :data-embedded="embedded ? \'true\' : \'false\'" :data-mobile="mobile ? \'true\' : \'false\'"><button data-testid="mobile-segmentation-config-change" @click="$emit(\'configChange\', config, \'local\')">Config</button><button data-testid="mobile-segmentation-mode-change" @click="$emit(\'modeChange\', \'segmentation:voi\', \'mpr-cor\')">Mode</button></div>'
         },
         MobileSettingsOverlay: {
           props: ['isOpen'],
-          emits: ['close'],
-          template: '<div v-if="isOpen" data-testid="mobile-settings-overlay"><button data-testid="mobile-settings-close-stub" @click="$emit(\'close\')">Close</button></div>'
+          emits: ['close', 'orientationLockRequest'],
+          template: '<div v-if="isOpen" data-testid="mobile-settings-overlay"><button data-testid="mobile-settings-close-stub" @click="$emit(\'close\')">Close</button><button data-testid="mobile-settings-landscape-stub" @click="$emit(\'orientationLockRequest\', \'landscape\')">Landscape</button></div>'
         },
         PacsBrowserDialog: {
           props: ['isOpen', 'loadedSeriesList'],
@@ -546,7 +550,8 @@ afterEach(() => {
 describe('MobileWorkspaceShell', () => {
   it('renders demo, local file, and PACS entries before any Stack tab is open', () => {
     const wrapper = mountShell()
-    expect(wrapper.find('.mobile-shell__title').text()).toBe('DicomVision')
+    expect(wrapper.find('[data-testid="mobile-brand-title"]').text()).toContain('DicomVision')
+    expect(wrapper.find('[data-testid="mobile-title-series-button"]').exists()).toBe(false)
     expect(wrapper.find('.mobile-shell__eyebrow').exists()).toBe(false)
     expect(wrapper.find('.mobile-shell__empty-title').text()).toBe('DicomVision')
     expect(wrapper.find('[data-testid="mobile-load-demo"]').exists()).toBe(true)
@@ -935,15 +940,22 @@ describe('MobileWorkspaceShell', () => {
       'mobile-tool-measure'
     ])
     expect(secondaryToolbarIds).toEqual([
+      'mobile-tool-play',
       'mobile-tool-annotate',
       'mobile-tool-color',
       'mobile-tool-transform',
       'mobile-more-button',
       'mobile-tool-reset'
     ])
+    expect(wrapper.get('[data-testid="mobile-more-button"] .app-icon-stub').text()).toBe('dots-horizontal')
     expect(wrapper.find('[data-testid="mobile-tool-qa"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-export"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-tag"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-playback-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-inline-playback-fps-slider"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-inline-tool-back"]').trigger('click')
 
     await wrapper.get('[data-testid="mobile-tool-annotate"]').trigger('click')
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}annotate:arrow`)
@@ -980,10 +992,36 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
 
     expect(wrapper.find('[data-testid="mobile-sheet-footer-actions"]').exists()).toBe(true)
+    const windowPanel = wrapper.get('.mobile-shell__window-panel')
+    const windowScroll = wrapper.get('.mobile-shell__window-panel .mobile-shell__sheet-scroll')
+    const windowFooter = wrapper.get('[data-testid="mobile-sheet-footer-actions"]')
+    expect(windowPanel.element.lastElementChild).toBe(windowFooter.element)
+    expect(windowFooter.element.previousElementSibling).toBe(windowScroll.element)
+    expect(wrapper.find('[data-testid="mobile-window-custom-dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-window-custom-zh"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="mobile-window-add-custom"]').classes()).toContain('mobile-shell__footer-action')
+    expect(wrapper.get('[data-testid="mobile-window-add-custom"]').classes()).toContain('mobile-shell__footer-action--primary')
+    await wrapper.get('[data-testid="mobile-window-add-custom"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-window-custom-dialog"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-window-custom-zh"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-window-custom-cancel"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-window-custom-dialog"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="mobile-window-add-custom"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-window-custom-zh"]').setValue('测试窗')
+    await wrapper.get('[data-testid="mobile-window-custom-en"]').setValue('Test Window')
+    await wrapper.get('[data-testid="mobile-window-custom-ww"]').setValue('420')
+    await wrapper.get('[data-testid="mobile-window-custom-wl"]').setValue('24')
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-window-custom-confirm"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '400|40' })
+    expect(wrapper.find('[data-testid="mobile-window-custom-dialog"]').exists()).toBe(false)
+
     expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).toContain('mobile-shell__footer-action')
     expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).toContain('mobile-shell__footer-action--danger')
     expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).not.toContain('mobile-shell__footer-action--warning')
     expect(wrapper.get('[data-testid="mobile-window-reset"] .app-icon-stub').text()).toBe('reset')
+    expect(wrapper.find('[data-testid="mobile-window-reset"] small').exists()).toBe(false)
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-window-reset"]').trigger('click')
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '350|45' })
@@ -1545,9 +1583,15 @@ describe('MobileWorkspaceShell', () => {
   it('uses the active MPR plane for plane switches and slice slider deltas', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
-    mockViewer.__setActiveTab(createMprTab())
+    mockViewer.__setActiveTab(createMprTab('series-1'))
 
     const wrapper = mountShell()
+    expect(wrapper.find('[data-testid="mobile-tool-play"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-tool-play"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-playback-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-inline-playback-fps-slider"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="mobile-inline-tool-back"]').trigger('click')
+
     await wrapper.get('[data-testid="mobile-mpr-plane-mpr-cor"]').trigger('click')
 
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-cor')
@@ -1581,7 +1625,39 @@ describe('MobileWorkspaceShell', () => {
   it('opens mobile MPR segmentation controls and forwards config updates', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
-    mockViewer.__setActiveTab(createMprTab())
+    mockViewer.__setActiveTab(createMprTab('series-1', {
+      mprSegmentationConfig: {
+        enabled: false,
+        clientRevision: 1,
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null,
+        thresholdRegions: [
+          {
+            id: 'r1',
+            enabled: true,
+            label: '',
+            thresholdHu: 300,
+            thresholdMode: 'hu',
+            thresholdPercentile: 80,
+            color: '#ff4df8',
+            box: {
+              centerWorld: [0, 0, 0],
+              rowWorld: [1, 0, 0],
+              colWorld: [0, 1, 0],
+              normalWorld: [0, 0, 1],
+              widthMm: 20,
+              heightMm: 20,
+              depthMm: 10,
+              sourceViewport: 'mpr-ax'
+            },
+            stats: null
+          }
+        ],
+        voiSpheres: [],
+        voiSphere: null
+      }
+    }))
 
     const wrapper = mountShell()
     const toolbarRows = wrapper.findAll('.mobile-shell__toolbar-row')
@@ -1594,15 +1670,80 @@ describe('MobileWorkspaceShell', () => {
     ])
     expect(toolbarRows[1].findAll('button').map((button) => button.attributes('data-testid'))).not.toContain('mobile-tool-measure')
 
+    mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-tool-segmentation"]').trigger('click')
 
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith(`${STACK_OPERATION_PREFIX}segmentation:threshold`)
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'end',
+      segmentationConfig: expect.objectContaining({ enabled: true })
+    }))
     expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-segmentation-exit"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="mobile-tool-segmentation-threshold"]').text()).toContain('阈值分割')
+    expect(wrapper.get('[data-testid="mobile-tool-segmentation-threshold"]').find('.app-icon-stub').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="mobile-tool-segmentation-voi"]').find('.app-icon-stub').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="mobile-tool-segmentation-details"]').text()).toContain('dots-vertical')
+    expect(wrapper.get('[data-testid="mobile-tool-segmentation-threshold"]').classes()).toContain('mobile-shell__inline-tool--active')
+    expect(wrapper.get('.mobile-shell__toolbar').classes()).not.toContain('mobile-shell__toolbar--inline-expanded')
+    expect(wrapper.get('[data-testid="mobile-inline-tool-panel"]').classes()).not.toContain('mobile-shell__inline-tool-panel--segmentation-control')
+    const thresholdControl = wrapper.get('[data-testid="mobile-segmentation-threshold-control"]')
+    expect(wrapper.get('.mobile-shell__viewer').element.contains(thresholdControl.element)).toBe(true)
+    const thresholdInput = wrapper.get('[data-testid="mobile-segmentation-threshold-input"]')
+    expect(thresholdInput.attributes('type')).toBe('number')
+    expect(thresholdInput.attributes('inputmode')).toBe('decimal')
+    expect(thresholdInput.attributes('autocomplete')).toBe('off')
+    expect(thresholdInput.attributes('min')).toBe('-1024')
+    expect(thresholdInput.attributes('max')).toBe('3071')
+    const thresholdSlider = wrapper.get<HTMLInputElement>('[data-testid="mobile-segmentation-threshold-slider"]')
+    thresholdSlider.element.value = '420'
+    mockViewer.triggerViewAction.mockClear()
+    await thresholdSlider.trigger('input')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'local',
+      segmentationConfig: expect.objectContaining({
+        selectedRegionId: 'r1',
+        thresholdRegions: [expect.objectContaining({ id: 'r1', thresholdHu: 420, stats: null })]
+      })
+    }))
+    await thresholdSlider.trigger('change')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'end'
+    }))
+    const depthSlider = wrapper.get<HTMLInputElement>('[data-testid="mobile-segmentation-depth-slider"]')
+    const depthInput = wrapper.get('[data-testid="mobile-segmentation-depth-input"]')
+    expect(depthInput.attributes('type')).toBe('number')
+    expect(depthInput.attributes('inputmode')).toBe('decimal')
+    expect(depthInput.attributes('autocomplete')).toBe('off')
+    expect(depthInput.attributes('min')).toBe('0.1')
+    expect(depthInput.attributes('max')).toBe('500')
+    depthSlider.element.value = '18'
+    mockViewer.triggerViewAction.mockClear()
+    await depthSlider.trigger('input')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'local',
+      segmentationConfig: expect.objectContaining({
+        selectedRegionId: 'r1',
+        thresholdRegions: [expect.objectContaining({
+          id: 'r1',
+          box: expect.objectContaining({ depthMm: 18 }),
+          stats: null
+        })]
+      })
+    }))
     await wrapper.get('[data-testid="mobile-tool-segmentation-voi"]').trigger('click')
-    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith('segmentation:voi')
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith(`${STACK_OPERATION_PREFIX}segmentation:voi`)
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-ax')
+    expect(wrapper.get('[data-testid="mobile-tool-segmentation-voi"]').classes()).toContain('mobile-shell__inline-tool--active')
 
     await wrapper.get('[data-testid="mobile-tool-segmentation-details"]').trigger('click')
-    expect(wrapper.find('[data-testid="mobile-segmentation-panel"]').exists()).toBe(true)
+    const segmentationPanel = wrapper.get('[data-testid="mobile-segmentation-panel"]')
+    expect(segmentationPanel.attributes('data-embedded')).toBe('true')
+    expect(segmentationPanel.attributes('data-mobile')).toBe('true')
 
     await wrapper.get('[data-testid="mobile-segmentation-config-change"]').trigger('click')
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith(expect.objectContaining({
@@ -1611,7 +1752,7 @@ describe('MobileWorkspaceShell', () => {
     }))
 
     await wrapper.get('[data-testid="mobile-segmentation-mode-change"]').trigger('click')
-    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith('segmentation:voi')
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith(`${STACK_OPERATION_PREFIX}segmentation:voi`)
     expect(mockViewer.setActiveViewportKey).toHaveBeenCalledWith('mpr-cor')
   })
 
@@ -1624,12 +1765,29 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-sheet-tab-window"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="mobile-pseudocolor-reset"]').classes()).toContain('mobile-shell__footer-action')
+    expect(wrapper.get('[data-testid="mobile-pseudocolor-reset"] .app-icon-stub').text()).toBe('reset')
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-pseudocolor-reset"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'pseudocolor', value: 'pseudocolor:bw' })
+    expect(wrapper.find('.mobile-shell__sheet').exists()).toBe(true)
+
     const blackbodyPreset = wrapper.findAll('[data-testid="mobile-pseudocolor"]').find((button) => button.text().includes('BlackBody'))
     expect(blackbodyPreset).toBeTruthy()
     expect(blackbodyPreset!.find('small').exists()).toBe(false)
+    mockViewer.triggerViewAction.mockClear()
     await blackbodyPreset!.trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'pseudocolor', value: 'pseudocolor:blackbody' })
+
+    mockViewer.__setActiveTab(createMprTab())
+    const mprWrapper = mountShell()
+    await mprWrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
+    expect(mprWrapper.findAll('[data-testid="mobile-pseudocolor"]').length).toBeGreaterThan(0)
+    expect(mprWrapper.find('[data-testid="mobile-pseudocolor-reset"]').exists()).toBe(true)
+    mprWrapper.unmount()
+    mockViewer.__setActiveTab(createStackTab())
+    await flushPromises()
 
     await wrapper.get('[data-testid="mobile-tool-transform"]').trigger('click')
     await wrapper.get('[data-testid="mobile-tool-transform-rotate-cw90"]').trigger('click')
@@ -1797,5 +1955,23 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-settings-button"]').trigger('click')
 
     expect(wrapper.find('[data-testid="mobile-settings-overlay"]').exists()).toBe(true)
+  })
+
+  it('requests orientation lock immediately from the mobile settings overlay', async () => {
+    const lockMock = vi.fn().mockResolvedValue(undefined)
+    const unlockMock = vi.fn()
+    Object.defineProperty(window.screen, 'orientation', {
+      configurable: true,
+      value: {
+        lock: lockMock,
+        unlock: unlockMock
+      }
+    })
+    const wrapper = mountShell()
+
+    await wrapper.get('[data-testid="mobile-settings-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-landscape-stub"]').trigger('click')
+
+    expect(lockMock).toHaveBeenCalledWith('landscape-primary')
   })
 })

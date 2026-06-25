@@ -368,6 +368,120 @@ describe('MprSegmentationPanel', () => {
     expect(wrapper.text()).toContain('在 VOI 模式中绘制圆形区域')
   })
 
+  it('uses theme-safe footer actions without hard-coded rose text classes', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig(createRegion()),
+        embedded: true,
+        mobile: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.classes()).toContain('mpr-segmentation-panel--mobile')
+    const clearCurrent = wrapper.get('[data-testid="mpr-segmentation-clear-current"]')
+    const clearAll = wrapper.get('[data-testid="mpr-segmentation-clear-all"]')
+
+    expect(wrapper.find('[data-testid="mpr-segmentation-footer"]').exists()).toBe(true)
+    expect(clearCurrent.classes()).toContain('mpr-segmentation-panel__clear-button')
+    expect(clearAll.classes()).toContain('mpr-segmentation-panel__clear-button--danger')
+    expect(clearAll.attributes('class')).not.toContain('text-rose')
+    expect(clearAll.attributes('class')).not.toContain('border-white')
+    expect(wrapper.get('[data-testid="mpr-segmentation-record-list"]').classes()).toContain('overflow-y-auto')
+    expect(wrapper.get('[data-testid="mpr-threshold-metrics-r1"]').classes()).toContain('mpr-segmentation-panel__metrics')
+    expect(wrapper.get('[data-testid="mpr-threshold-metrics-r1"]').find('.mpr-segmentation-panel__metric-label').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mpr-threshold-metrics-r1"]').find('.mpr-segmentation-panel__metric-value').exists()).toBe(true)
+  })
+
+  it('clears only the active mobile segmentation mode and keeps the other mode intact', async () => {
+    const region = createRegion()
+    const sphere = createVoiSphere()
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createConfig(region),
+          voiSpheres: [sphere],
+          voiSphere: sphere
+        },
+        embedded: true,
+        mobile: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.get('[data-testid="mpr-segmentation-clear-current"]').trigger('click')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [],
+        voiSpheres: [expect.objectContaining({ id: 'v1' })]
+      }),
+      'end'
+    ])
+
+    await wrapper.setProps({
+      config: {
+        ...createMixedConfig(),
+        thresholdRegions: [region],
+        voiSpheres: [sphere],
+        voiSphere: sphere
+      }
+    })
+    await wrapper.get('[data-testid="mpr-segmentation-mode-voi"]').trigger('click')
+    await wrapper.get('[data-testid="mpr-segmentation-clear-current"]').trigger('click')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [expect.objectContaining({ id: 'r1' })],
+        selectedVoi: false,
+        selectedVoiId: null,
+        voiSpheres: [],
+        voiSphere: null
+      }),
+      'end'
+    ])
+  })
+
+  it('clears threshold and VOI items together from mobile all clear', async () => {
+    const region = createRegion()
+    const sphere = createVoiSphere()
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createMixedConfig(),
+          thresholdRegions: [region],
+          voiSpheres: [sphere],
+          voiSphere: sphere
+        },
+        embedded: true,
+        mobile: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await wrapper.get('[data-testid="mpr-segmentation-clear-all"]').trigger('click')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [],
+        voiSpheres: []
+      }),
+      'end'
+    ])
+  })
+
   it('keeps embedded threshold metrics structurally stable while stats are loading and ready', async () => {
     const wrapper = mount(MprSegmentationPanel, {
       props: {

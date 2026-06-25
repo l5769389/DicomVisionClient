@@ -153,11 +153,13 @@ const isVoiMode = computed(() => normalizedOperation.value === 'segmentation:voi
 const canEdit = computed(() => Boolean(props.editable && !props.isOblique && props.mprPlane && mprViewportKey.value))
 const canEditThreshold = computed(() => canEdit.value && isThresholdMode.value)
 const canCreateOrSelectVoi = computed(() => canEdit.value && props.isActive && isVoiMode.value)
+const canSelectExistingSegmentation = computed(() => canEdit.value && normalizedConfig.value.enabled)
 const selectedVoiSphere = computed(() =>
   normalizedConfig.value.voiSpheres.find((sphere) => sphere.id === normalizedConfig.value.selectedVoiId) ?? null
 )
 const canEditSelectedVoi = computed(() => canCreateOrSelectVoi.value && selectedVoiSphere.value !== null)
 const canInteract = computed(() => normalizedConfig.value.enabled && (canEditThreshold.value || canCreateOrSelectVoi.value))
+const canReceivePointerEvents = computed(() => canInteract.value || canSelectExistingSegmentation.value)
 const isZh = computed(() => locale.value === 'zh-CN')
 
 const normalizedConfig = computed(() =>
@@ -1034,7 +1036,16 @@ function beginCreate(event: PointerEvent): void {
 
 function beginMoveThreshold(event: PointerEvent, region: MprThresholdRegion): void {
   const point = getPoint(event)
-  if (!point || !canEditThreshold.value || region.box.sourceViewport !== mprViewportKey.value) {
+  if (!point || !canSelectExistingSegmentation.value || region.box.sourceViewport !== mprViewportKey.value) {
+    return
+  }
+  if (region.id !== normalizedConfig.value.selectedRegionId || !isThresholdMode.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    selectRegion(region.id, 'select')
+    return
+  }
+  if (!canEditThreshold.value) {
     return
   }
   selectRegion(region.id, 'select')
@@ -1064,10 +1075,10 @@ function beginMoveVoi(event: PointerEvent): void {
   const point = getPoint(event)
   const target = (event.currentTarget as SVGElement | null)?.dataset.voiId
   const sphere = normalizedConfig.value.voiSpheres.find((candidate) => candidate.id === target)
-  if (!point || !sphere || !canCreateOrSelectVoi.value) {
+  if (!point || !sphere || !canSelectExistingSegmentation.value) {
     return
   }
-  if (sphere.id !== normalizedConfig.value.selectedVoiId) {
+  if (sphere.id !== normalizedConfig.value.selectedVoiId || !isVoiMode.value || !canCreateOrSelectVoi.value) {
     event.preventDefault()
     event.stopPropagation()
     selectVoi(sphere.id, 'select')
@@ -1269,7 +1280,7 @@ function endDrag(event: PointerEvent): void {
 function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProjectionItem): void {
   event.preventDefault()
   event.stopPropagation()
-  if (item.region.id !== normalizedConfig.value.selectedRegionId) {
+  if (item.region.id !== normalizedConfig.value.selectedRegionId || !isThresholdMode.value) {
     selectRegion(item.region.id, 'select')
     return
   }
@@ -1286,7 +1297,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
     v-if="shouldRender"
     ref="overlayRef"
     class="absolute z-[3]"
-    :class="canInteract ? 'cursor-crosshair' : 'pointer-events-none'"
+    :class="canInteract ? 'cursor-crosshair' : canReceivePointerEvents ? '' : 'pointer-events-none'"
     :style="overlayStyle"
     data-testid="viewport-segmentation-overlay"
     @pointermove="handlePointerMove"
@@ -1327,7 +1338,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
           :stroke-width="item.region.id === normalizedConfig.selectedRegionId ? 2.25 : 1.5"
           :stroke-dasharray="item.projection.intersectsPlane ? undefined : '4 4'"
           vector-effect="non-scaling-stroke"
-          :pointer-events="canEditThreshold ? 'all' : 'none'"
+          :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
           @pointerdown="handleThresholdRegionPointerDown($event, item)"
         />
       </g>
@@ -1337,7 +1348,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         :key="item.sphere.id"
         class="transition-colors"
         :class="[
-          canCreateOrSelectVoi ? (item.selected ? 'cursor-move' : 'cursor-pointer') : ''
+          canSelectExistingSegmentation ? (item.selected && isVoiMode ? 'cursor-move' : 'cursor-pointer') : ''
         ]"
         :data-voi-id="item.sphere.id"
         :cx="`${item.projection.center.x * 100}%`"
@@ -1349,7 +1360,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         :stroke-width="item.selected ? 2.25 : (item.projection.intersectsPlane ? 1.75 : 1.5)"
         :stroke-dasharray="item.projection.intersectsPlane ? undefined : '5 5'"
         vector-effect="non-scaling-stroke"
-        :pointer-events="canCreateOrSelectVoi ? 'all' : 'none'"
+        :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
         @pointerdown="beginMoveVoi"
       />
 
@@ -1363,7 +1374,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         stroke-width="2.25"
         :stroke-dasharray="selectedRegionProjection.projection.intersectsPlane ? undefined : '4 4'"
         vector-effect="non-scaling-stroke"
-        :pointer-events="canEditThreshold ? 'all' : 'none'"
+        :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
         @pointerdown="handleThresholdRegionPointerDown($event, selectedRegionProjection)"
       />
       <circle
@@ -1395,7 +1406,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         stroke-width="2.25"
         :stroke-dasharray="selectedSphereProjection.projection.intersectsPlane ? undefined : '5 5'"
         vector-effect="non-scaling-stroke"
-        :pointer-events="canCreateOrSelectVoi ? 'all' : 'none'"
+        :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
         @pointerdown="beginMoveVoi"
       />
       <circle

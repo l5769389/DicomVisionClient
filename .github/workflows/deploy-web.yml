@@ -117,7 +117,7 @@ jobs:
           SKIP_GIT_SYNC=1 bash "$APP_DIR/DicomVisionClient/deploy/start-deploy.sh"
           rm -f "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "${REMOTE_SCRIPT:-}"
           echo "Uploaded source deploy started at $ts"
-EOF
+          EOF
 
           retry_remote scp "${SSH_OPTS[@]}" "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "$REMOTE_SCRIPT_LOCAL" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
 

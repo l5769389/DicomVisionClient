@@ -79,11 +79,27 @@ function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '')
 }
 
+function isHttpOrigin(origin: string): boolean {
+  return /^http:\/\//i.test(origin.trim())
+}
+
 function resolveSameOriginBackendOrigin(): string | null {
   if (typeof window === 'undefined' || !window.location.origin) {
     return null
   }
   return normalizeOrigin(window.location.origin)
+}
+
+export function resolveWebBackendOriginForPage(
+  configuredOrigin: string,
+  sameOrigin: string | null,
+  pageProtocol: string | null | undefined
+): string {
+  const normalizedConfiguredOrigin = normalizeOrigin(configuredOrigin)
+  if (pageProtocol === 'https:' && sameOrigin && isHttpOrigin(normalizedConfiguredOrigin)) {
+    return normalizeOrigin(sameOrigin)
+  }
+  return normalizedConfiguredOrigin
 }
 
 function normalizeBackendStatus(status: ViewerBackendStatusPayload | null | undefined, fallbackOrigin: string): BackendStatus {
@@ -107,7 +123,11 @@ function resolveWebBackendOrigin(): string {
     ) {
       return resolveSameOriginBackendOrigin() ?? APP_BACKEND_CONFIG.web.prodOrigin
     }
-    return normalizeOrigin(configuredOrigin)
+    return resolveWebBackendOriginForPage(
+      configuredOrigin,
+      resolveSameOriginBackendOrigin(),
+      typeof window === 'undefined' ? null : window.location.protocol
+    )
   }
 
   if (import.meta.env.DEV) {

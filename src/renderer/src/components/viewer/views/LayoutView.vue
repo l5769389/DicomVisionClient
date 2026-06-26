@@ -55,6 +55,7 @@ interface SliceInfo {
 const activeDropSlotId = ref<string | null>(null)
 const sliderValues = ref<Record<string, number>>({})
 const activeSliderIds = ref<Record<string, boolean>>({})
+const maximizedSlotId = ref<string | null>(null)
 const { locale, viewerCopy } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
 
@@ -89,6 +90,13 @@ const sliceInfos = computed<Record<string, SliceInfo>>(() =>
 )
 
 function getSlotStyle(slot: ViewerLayoutSlot): Record<string, string> {
+  if (maximizedSlotId.value === slot.id) {
+    return {
+      gridColumn: `1 / span ${columns.value}`,
+      gridRow: `1 / span ${rows.value}`
+    }
+  }
+
   return {
     gridColumn: `${slot.column + 1} / span ${Math.max(1, slot.columnSpan)}`,
     gridRow: `${slot.row + 1} / span ${Math.max(1, slot.rowSpan)}`
@@ -314,6 +322,22 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
     }
   })
 }
+
+function handleSlotDoubleClick(slot: ViewerLayoutSlot): void {
+  if (!isStackSlot(slot)) {
+    return
+  }
+
+  emit('viewportClick', slot.id)
+  maximizedSlotId.value = maximizedSlotId.value === slot.id ? null : slot.id
+}
+
+watch(
+  () => [props.activeTab.key, props.activeTab.layoutTemplate?.rows, props.activeTab.layoutTemplate?.columns] as const,
+  () => {
+    maximizedSlotId.value = null
+  }
+)
 </script>
 
 <template>
@@ -332,6 +356,8 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
         :class="{
           'layout-view__slot--filled': Boolean(slot.imageSrc || slot.viewId),
           'layout-view__slot--active': isSingleStackLayout || activeViewportKey === slot.id,
+          'layout-view__slot--maximized': maximizedSlotId === slot.id,
+          'layout-view__slot--hidden-by-maximized': maximizedSlotId != null && maximizedSlotId !== slot.id,
           'layout-view__slot--drop-target': canDropFilesIntoSlot(slot),
           'layout-view__slot--drop-active': activeDropSlotId === slot.id
         }"
@@ -378,12 +404,14 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
               @pointer-move="emit('pointerMove', $event)"
               @pointer-up="emit('pointerUp', $event)"
               @pointer-cancel="emit('pointerCancel', $event)"
+              @double-click-viewport="handleSlotDoubleClick(slot)"
               @update-annotation-color="emit('updateAnnotationColor', $event)"
               @update-annotation-size="emit('updateAnnotationSize', $event)"
               @update-annotation-text="emit('updateAnnotationText', $event)"
             />
 
             <div
+              v-if="activeTab.showSliceSlider !== false"
               class="layout-view__slider flex min-h-0 flex-col items-center rounded-xl border px-1 py-2"
               :class="isSingleStackLayout ? 'layout-view__slider--single stack-slice-panel theme-shell-panel-strong' : 'theme-card-soft'"
             >
@@ -475,15 +503,24 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
 }
 
 .layout-view__slot--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  border-color: color-mix(in srgb, var(--theme-accent) 82%, var(--theme-border-strong));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+    inset 0 0 0 2px color-mix(in srgb, var(--theme-accent) 24%, transparent),
+    inset 4px 0 0 color-mix(in srgb, var(--theme-accent) 78%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 16%, transparent);
 }
 
 .layout-view--single-stack .layout-view__slot--active {
   border-color: transparent;
   box-shadow: none;
+}
+
+.layout-view__slot--maximized {
+  z-index: 2;
+}
+
+.layout-view__slot--hidden-by-maximized {
+  display: none;
 }
 
 .layout-view__slot--drop-target {

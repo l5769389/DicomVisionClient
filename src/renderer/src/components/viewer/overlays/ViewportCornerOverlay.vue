@@ -21,7 +21,7 @@ function getCornerLines(cornerInfo: CornerInfo, position: CornerPosition): strin
 </script>
 
 <template>
-  <div class="pointer-events-none absolute inset-0 z-[2]">
+  <div class="viewer-corner-overlay pointer-events-none absolute inset-0 z-[2]">
     <div
       v-for="position in cornerPositions"
       :key="`${viewportKey}-${position}`"

@@ -1174,6 +1174,7 @@ export interface ViewerTabItem {
   cornerInfo: CornerInfo
   showCornerInfo?: boolean
   showScaleBar?: boolean
+  showSliceSlider?: boolean
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
   viewportMeasurements?: Partial<Record<string, MeasurementOverlay[]>>
   viewportAnnotations?: Partial<Record<string, AnnotationOverlay[]>>

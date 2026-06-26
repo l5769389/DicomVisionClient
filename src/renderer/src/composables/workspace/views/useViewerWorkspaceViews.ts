@@ -1,4 +1,4 @@
-import { nextTick, type ComputedRef, type Ref } from 'vue'
+import { nextTick, watch, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { resolveBackendAssetUrl } from '../../../services/api'
 import { postApi } from '../../../services/typedApi'
@@ -464,6 +464,29 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     renderNow: renderTabNow
   })
   const { locale, selectedPseudocolorKey } = useUiPreferences()
+  let tabActivationHistory: string[] = []
+
+  function rememberActiveTabKey(tabKey: string): void {
+    if (!tabKey) {
+      return
+    }
+    tabActivationHistory = [...tabActivationHistory.filter((key) => key !== tabKey), tabKey]
+  }
+
+  function getMostRecentRemainingTabKey(nextTabs: ViewerTabItem[], closingTabKey: string): string {
+    const remainingKeys = new Set(nextTabs.map((tab) => tab.key))
+    return [...tabActivationHistory]
+      .reverse()
+      .find((key) => key !== closingTabKey && remainingKeys.has(key)) ?? ''
+  }
+
+  watch(
+    () => options.activeTabKey.value,
+    (tabKey) => {
+      rememberActiveTabKey(tabKey)
+    },
+    { immediate: true }
+  )
 
   function viewMessage(zh: string, en: string): string {
     return locale.value === 'zh-CN' ? zh : en
@@ -4209,7 +4232,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
 
     const nextTabs = options.viewerTabs.value.filter((item) => item.key !== tabKey)
+    const recentFallbackTabKey = getMostRecentRemainingTabKey(nextTabs, tabKey)
     options.viewerTabs.value = nextTabs
+    tabActivationHistory = tabActivationHistory.filter((key) => key !== tabKey && nextTabs.some((tab) => tab.key === key))
 
     const relatedTabs = nextTabs.filter((item) => item.seriesId === closingTab.seriesId)
     if (options.selectedSeriesId.value === closingTab.seriesId) {
@@ -4218,7 +4243,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     if (options.activeTabKey.value === tabKey) {
-      const fallbackTab = relatedTabs[0] ?? nextTabs[currentIndex] ?? nextTabs[currentIndex - 1] ?? null
+      const fallbackTab =
+        nextTabs.find((item) => item.key === recentFallbackTabKey) ??
+        relatedTabs[0] ??
+        nextTabs[currentIndex] ??
+        nextTabs[currentIndex - 1] ??
+        null
       options.activeTabKey.value = fallbackTab?.key ?? ''
     }
 

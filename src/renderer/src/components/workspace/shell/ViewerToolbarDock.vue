@@ -411,9 +411,9 @@ watch(
 .viewer-toolbar-dock {
   display: flex;
   flex-direction: column;
-  width: 344px;
-  min-width: 344px;
-  max-width: 344px;
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
@@ -467,7 +467,7 @@ watch(
   display: grid;
   min-width: 0;
   flex: 0 1 auto;
-  grid-template-columns: repeat(7, 42px);
+  grid-template-columns: repeat(5, 42px);
   justify-content: center;
   align-content: flex-start;
   gap: 5px;
@@ -552,10 +552,12 @@ watch(
 .viewer-toolbar-dock__button--active,
 .viewer-toolbar-dock__tool-group--active,
 .viewer-toolbar-dock__button[aria-expanded="true"] {
-  border-color: color-mix(in srgb, var(--theme-accent) 46%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card));
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
   color: var(--theme-text-primary);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 
 .viewer-toolbar-dock__button--accent {
@@ -835,10 +837,11 @@ watch(
 }
 
 .viewer-toolbar-dock__collapse-button {
-  display: grid;
+  display: inline-flex;
   width: 38px;
   height: 32px;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
   border-radius: 11px;
   background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);

@@ -3,6 +3,7 @@ import {
   mdiAlertCircleOutline,
   mdiAlertOutline,
   mdiAngleAcute,
+  mdiArrowExpandHorizontal,
   mdiArmFlexOutline,
   mdiBellOutline,
   mdiBone,
@@ -38,7 +39,6 @@ import {
   mdiFolderDownloadOutline,
   mdiFolderUploadOutline,
   mdiFormatColorFill,
-  mdiFullscreen,
   mdiGithub,
   mdiHeartPulse,
   mdiHelpCircleOutline,
@@ -57,6 +57,7 @@ import {
   mdiLoupe,
   mdiMagnify,
   mdiMolecule,
+  mdiMinus,
   mdiPaletteOutline,
   mdiPaletteSwatchOutline,
   mdiPause,
@@ -90,8 +91,7 @@ import {
   mdiVectorPolyline,
   mdiViewDashboardOutline,
   mdiWaterCircle,
-  mdiWaterOutline,
-  mdiWindowMinimize
+  mdiWaterOutline
 } from '@mdi/js'
 import { computed } from 'vue'
 
@@ -189,13 +189,13 @@ const mdiIconMap: Record<string, string> = {
   'close-all': mdiCloseCircleMultipleOutline,
   'folder-import': mdiFolderDownloadOutline,
   github: mdiGithub,
-  fullscreen: mdiFullscreen,
+  fullscreen: mdiArrowExpandHorizontal,
   'orientation-landscape': mdiPhoneRotateLandscape,
   'orientation-portrait': mdiPhoneRotatePortrait,
   'orientation-unlocked': mdiLockOpenOutline,
   'orientation-reset': mdiLockReset,
   plus: mdiPlus,
-  minimize: mdiWindowMinimize,
+  minimize: mdiMinus,
   success: mdiCheckCircleOutline,
   warning: mdiAlertOutline
 }

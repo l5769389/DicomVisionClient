@@ -203,19 +203,25 @@ function closeOtherTabsFromMenu(): void {
 .viewer-tab-item--active {
   z-index: 1;
   margin-bottom: -1px;
-  border-color: color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
-  border-top-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-soft));
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-strong));
+  border-top-color: color-mix(in srgb, var(--theme-accent) 86%, var(--theme-border-strong));
   border-bottom-color: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, black 4%);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface-card) 89%), color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 6%));
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 17%, var(--theme-surface-card) 83%), color-mix(in srgb, var(--theme-surface-panel-solid) 92%, var(--theme-accent) 8%));
   color: var(--theme-text-primary);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 -1px 0 color-mix(in srgb, var(--theme-accent) 18%, transparent);
+    inset 0 1px 0 color-mix(in srgb, white 34%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
+    0 -1px 0 color-mix(in srgb, var(--theme-accent) 44%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 
 .viewer-tab-item--active::after {
-  background: color-mix(in srgb, var(--theme-accent) 82%, white 6%);
+  right: 8px;
+  left: 8px;
+  height: 4px;
+  background: color-mix(in srgb, var(--theme-accent) 92%, white 8%);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--theme-accent) 24%, transparent);
 }
 
 .viewer-tab-item--inactive:hover {

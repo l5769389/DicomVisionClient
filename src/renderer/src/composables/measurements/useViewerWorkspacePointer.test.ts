@@ -263,7 +263,7 @@ describe('useViewerWorkspacePointer', () => {
     expect(pointer.draftMeasurements.value.single).toBeNull()
   })
 
-  it('defaults left-button viewport drag to window when no specific interaction handles it', () => {
+  it('uses explicit scroll for left-button viewport drag when page is active', () => {
     const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:scroll' })
 
     pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 10 }), 'single')
@@ -271,9 +271,10 @@ describe('useViewerWorkspacePointer', () => {
     pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.27, y: 0.24 }, { buttons: 0, pointerId: 10 }))
 
     const payloads = getViewportDragPayloads(emitViewportDrag)
-    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.start)).toBe(true)
-    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.move)).toBe(true)
-    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.end)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.scroll, DRAG_ACTION_TYPES.start)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.scroll, DRAG_ACTION_TYPES.move)).toBe(true)
+    expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.scroll, DRAG_ACTION_TYPES.end)).toBe(true)
+    expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.window)).toBe(false)
   })
 
   it.each([

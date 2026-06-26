@@ -44,7 +44,7 @@ function mountStackViewport(
           props: ['draftMeasurement', 'draftMeasurementMode'],
           emits: ['pointerDown', 'pointerMove', 'pointerUp', 'pointerCancel', 'pointerLeave'],
           template:
-            '<div class="viewer-viewport" data-testid="stack-stage" data-viewport-key="single" :data-draft-mode="draftMeasurementMode || \'\'" :data-draft-id="draftMeasurement?.measurementId || \'\'" @pointerdown="$emit(\'pointerDown\', $event)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)" @pointerleave="$emit(\'pointerLeave\', \'single\')"><img class="viewer-image" src="blob:image" /></div>'
+            '<div class="viewer-viewport" data-testid="stack-stage" data-viewport-key="single" :data-draft-mode="draftMeasurementMode || \'\'" :data-draft-id="draftMeasurement?.measurementId || \'\'" :data-draft-tool="draftMeasurement?.toolType || \'\'" :data-draft-points="draftMeasurement ? JSON.stringify(draftMeasurement.points) : \'\'" @pointerdown="$emit(\'pointerDown\', $event)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)" @pointerleave="$emit(\'pointerLeave\', \'single\')"><img class="viewer-image" src="blob:image" /></div>'
         }
       }
     }
@@ -197,7 +197,7 @@ describe('MobileStackViewport', () => {
     expect(stage.attributes('data-draft-id')).toBe('measure-line-1')
   })
 
-  it('creates angle measurements from two mobile segments', async () => {
+  it('creates angle measurements by confirming three mobile points', async () => {
     const wrapper = mountStackViewport('measure:angle')
     stubViewportRect(wrapper)
     const stage = wrapper.get('[data-testid="stack-stage"]')
@@ -207,8 +207,13 @@ describe('MobileStackViewport', () => {
     await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 10, pointerId: 1 })
     expect(wrapper.emitted('measurementCreate')).toBeUndefined()
 
-    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 50, clientY: 50, pointerId: 2 })
-    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 50, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 50, clientY: 10, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 10, pointerId: 2 })
+    expect(wrapper.emitted('measurementCreate')).toBeUndefined()
+
+    await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 50, clientY: 50, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 50, clientY: 50, pointerId: 3 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 50, clientY: 50, pointerId: 3 })
 
     const payload = wrapper.emitted('measurementCreate')?.[0]?.[0] as {
       points: Array<{ x: number; y: number }>

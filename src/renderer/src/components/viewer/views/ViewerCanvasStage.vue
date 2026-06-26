@@ -655,21 +655,22 @@ watch(
 }
 
 .viewer-viewport--active {
-  border-color: color-mix(in srgb, var(--theme-accent, #7dd3fc) 82%, #ffffff 8%) !important;
+  border-color: color-mix(in srgb, var(--theme-accent, #7dd3fc) 92%, #ffffff 8%) !important;
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--theme-accent, #7dd3fc) 54%, transparent),
-    0 0 0 5px color-mix(in srgb, var(--theme-accent, #7dd3fc) 16%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent, #7dd3fc) 44%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent, #7dd3fc) 72%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--theme-accent, #7dd3fc) 18%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--theme-accent, #7dd3fc) 42%, transparent),
     0 18px 36px rgba(0, 0, 0, 0.3);
 }
 
 .viewer-viewport--light-surface.viewer-viewport--active {
-  border-color: color-mix(in srgb, var(--theme-accent, #4b9ac6) 72%, #0f172a 12%) !important;
+  border-color: color-mix(in srgb, var(--theme-accent, #4b9ac6) 90%, #0f172a 10%) !important;
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--theme-accent, #4b9ac6) 48%, transparent),
-    0 0 0 5px color-mix(in srgb, var(--theme-accent, #4b9ac6) 14%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent, #4b9ac6) 34%, transparent),
-    0 16px 32px rgba(15, 23, 42, 0.16);
+    0 0 0 2px color-mix(in srgb, var(--theme-accent, #4b9ac6) 70%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--theme-accent, #4b9ac6) 18%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--theme-accent, #4b9ac6) 40%, transparent),
+    inset 4px 0 0 color-mix(in srgb, var(--theme-accent, #4b9ac6) 86%, transparent),
+    0 16px 32px rgba(15, 23, 42, 0.2);
 }
 
 .viewer-image {

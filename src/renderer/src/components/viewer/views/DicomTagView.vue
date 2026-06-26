@@ -1304,9 +1304,10 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 }
 
 :deep(.tag-view-chip) {
-  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft)) !important;
-  background: color-mix(in srgb, var(--theme-accent) 11%, transparent) !important;
-  color: color-mix(in srgb, var(--theme-text-primary) 78%, var(--theme-accent)) !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card)) !important;
+  color: color-mix(in srgb, var(--theme-text-primary) 86%, var(--theme-accent)) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent) !important;
 }
 
 .tag-view-meta-list {
@@ -1428,6 +1429,9 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 :deep(.tag-view-pagination .v-pagination__item--is-active .v-btn) {
   background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-surface-card)) !important;
   color: var(--theme-accent-contrast) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent-contrast) 42%, transparent),
+    0 2px 0 color-mix(in srgb, var(--theme-accent) 78%, var(--theme-border-strong)) !important;
 }
 
 .tag-state {

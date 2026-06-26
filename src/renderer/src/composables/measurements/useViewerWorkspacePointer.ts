@@ -414,6 +414,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return operation === 'segmentation:threshold' || operation === 'segmentation:voi'
   }
 
+  function isAnnotationOperationActive(): boolean {
+    return getNormalizedOperationPath().startsWith('annotate')
+  }
+
   function isMtfOperationEnabled(): boolean {
     const viewType = options.activeTab.value?.viewType
     return (
@@ -453,6 +457,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     const operation = getNormalizedOperation()
+    if (operation === VIEW_OPERATION_TYPES.scroll) {
+      return canUseDefaultWindowDrag(viewportKey) ? VIEW_OPERATION_TYPES.scroll : null
+    }
+    if (isAnnotationOperationActive()) {
+      return null
+    }
     if (isExplicitViewportDragOperation(operation)) {
       return operation
     }
@@ -1428,20 +1438,6 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return true
     }
 
-    if (isPointSequenceMeasurement(toolType)) {
-      const nextDraft = createMeasurementDraft(toolType, replaceLastMeasurementPoint(currentDraft.points, point), currentDraft.measurementId)
-      updateDraftMeasurement(state.viewportKey, {
-        ...nextDraft,
-        labelLines: currentDraft.labelLines
-      })
-      emitThrottledMeasurementDraft({
-        viewportKey: state.viewportKey,
-        toolType,
-        points: nextDraft.points
-      })
-      return true
-    }
-
     if (toolType === 'angle') {
       if (currentDraft.points.length === 2) {
         updateDraftMeasurement(state.viewportKey, createMeasurementDraft(toolType, [currentDraft.points[0], point]))
@@ -1454,6 +1450,20 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
           points: nextDraft.points
         })
       }
+      return true
+    }
+
+    if (isPointSequenceMeasurement(toolType)) {
+      const nextDraft = createMeasurementDraft(toolType, replaceLastMeasurementPoint(currentDraft.points, point), currentDraft.measurementId)
+      updateDraftMeasurement(state.viewportKey, {
+        ...nextDraft,
+        labelLines: currentDraft.labelLines
+      })
+      emitThrottledMeasurementDraft({
+        viewportKey: state.viewportKey,
+        toolType,
+        points: nextDraft.points
+      })
       return true
     }
 
@@ -1583,15 +1593,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     if (toolType === 'angle') {
       const vertexPoint = existingDraft.points[1]
-      if (vertexPoint && isValidMeasurement('line', [anchorPoint, vertexPoint])) {
-        commitMeasurementDraftFromClick(viewportKey, toolType, {
-          ...createMeasurementDraft(toolType, [anchorPoint, vertexPoint, point]),
-          labelLines: existingDraft.labelLines
-        })
-        return true
-      }
-
       if (existingDraft.points.length < 3) {
+        if (vertexPoint && !isValidMeasurement('line', [anchorPoint, vertexPoint])) {
+          clearDraftMeasurement(viewportKey)
+          resetMeasurementInteraction()
+          return true
+        }
+
         const nextDraft = {
           ...createMeasurementDraft(toolType, [anchorPoint, point, point]),
           labelLines: existingDraft.labelLines
@@ -1970,8 +1978,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     if (dragOperationType.value) {
       emitViewportDragMove({
-        deltaX: totalDeltaX,
-        deltaY: totalDeltaY,
+        deltaX: dragOperationType.value === VIEW_OPERATION_TYPES.scroll ? deltaX : totalDeltaX,
+        deltaY: dragOperationType.value === VIEW_OPERATION_TYPES.scroll ? deltaY : totalDeltaY,
         opType: dragOperationType.value,
         phase: DRAG_ACTION_TYPES.move,
         viewportKey: dragViewportKey.value
@@ -1992,6 +2000,42 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     setActiveViewport(viewportKey)
 
     const existingDraft = getDraftMeasurement(viewportKey)
+    if (
+      toolType === 'angle' &&
+      existingDraft &&
+      !existingDraft.measurementId &&
+      existingDraft.toolType === toolType &&
+      existingDraft.points.length
+    ) {
+      const anchorPoint = existingDraft.points[0]
+      const vertexPoint = existingDraft.points[1]
+      measurementInteractionController.startCreate(viewportKey, toolType)
+
+      if (anchorPoint && existingDraft.points.length < 3) {
+        if (vertexPoint && !isValidMeasurement('line', [anchorPoint, vertexPoint])) {
+          clearDraftMeasurement(viewportKey)
+          resetMeasurementInteraction()
+          return true
+        }
+
+        const nextDraft = {
+          ...createMeasurementDraft(toolType, [anchorPoint, context.point, context.point]),
+          labelLines: existingDraft.labelLines
+        }
+        updateDraftMeasurement(viewportKey, nextDraft)
+        emitMeasurementDraftPhase(viewportKey, toolType, DRAG_ACTION_TYPES.end, [anchorPoint, context.point])
+        return true
+      }
+
+      if (anchorPoint && vertexPoint) {
+        commitMeasurementDraftFromClick(viewportKey, toolType, {
+          ...createMeasurementDraft(toolType, [anchorPoint, vertexPoint, context.point]),
+          labelLines: existingDraft.labelLines
+        })
+        return true
+      }
+    }
+
     if (finishSelectedPointSequenceDraftOnDoubleClick(viewportKey, toolType, context.point, existingDraft, event)) {
       return true
     }
@@ -2185,15 +2229,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     const toolType = getMeasurementToolType()
     const draft = getDraftMeasurement(interactionState.viewportKey)
-    if (!toolType || !draft || isPointSequenceMeasurement(toolType)) {
+    if (!toolType || !draft || toolType === 'angle' || isPointSequenceMeasurement(toolType)) {
       return false
     }
 
     if (toolType === 'line' && !isValidMeasurement(toolType, draft.points)) {
-      return false
-    }
-
-    if (toolType === 'angle' && draft.points.length === 2 && !isValidMeasurement('line', draft.points)) {
       return false
     }
 

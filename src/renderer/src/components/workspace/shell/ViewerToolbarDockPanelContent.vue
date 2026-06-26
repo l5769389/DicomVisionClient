@@ -57,13 +57,18 @@ const measureActionCopy = computed(() => ({
   clearMeasurements: isZh.value ? '清除测量' : 'Clear Measurements',
   clearMeasurementsDesc: isZh.value ? '移除当前目标视图中的测量结果。' : 'Remove measurements from the current target view.'
 }))
+const measureGuideCopy = computed(() => ({
+  title: isZh.value ? '使用提示' : 'Usage Tips',
+  body: isZh.value
+    ? '鼠标按下确定一点，移动绘制边；双击鼠标或按 Esc 结束编辑。'
+    : 'Click to place each point, move to preview edges, then double-click or press Esc to finish.'
+}))
 const windowActionCopy = computed(() => ({
   resetWindow: isZh.value ? '重置窗值' : 'Reset Window',
   resetWindowDesc: isZh.value ? '恢复已选择窗值；未选择时回到影像内置窗值。' : 'Restore the selected window, or fall back to the image window.'
 }))
 const transformActionCopy = computed(() => ({
-  resetTransform: isZh.value ? '重置变换' : 'Reset Transform',
-  resetTransformDesc: isZh.value ? '恢复当前视图的平移、缩放、旋转和镜像状态。' : 'Restore pan, zoom, rotation, and mirror state for the current view.'
+  resetTransform: isZh.value ? '重置' : 'Reset'
 }))
 const rotateActionCopy = computed(() => ({
   resetRotation: isZh.value ? '重置旋转' : 'Reset Rotation',
@@ -332,32 +337,28 @@ const footerActions = computed(() => {
     actions.push({
       value: 'window:reset',
       label: windowActionCopy.value.resetWindow,
-      icon: 'reset',
-      description: windowActionCopy.value.resetWindowDesc
+      icon: 'reset'
     })
   }
   if (props.tool.key === 'pan' || props.tool.key === 'zoom') {
     actions.push({
       value: 'transform:reset',
       label: transformActionCopy.value.resetTransform,
-      icon: 'reset',
-      description: transformActionCopy.value.resetTransformDesc
+      icon: 'reset'
     })
   }
   if (props.tool.key === 'measure') {
     actions.push({
       value: 'reset:measurements',
       label: measureActionCopy.value.clearMeasurements,
-      icon: 'reset',
-      description: measureActionCopy.value.clearMeasurementsDesc
+      icon: 'reset'
     })
   }
   if (props.tool.key === 'annotate') {
     actions.push({
       value: 'reset:annotations',
       label: annotationActionCopy.value.clearAnnotations,
-      icon: 'reset',
-      description: annotationActionCopy.value.clearAnnotationsDesc
+      icon: 'reset'
     })
   }
   if (props.tool.key === 'rotate') {
@@ -365,8 +366,7 @@ const footerActions = computed(() => {
     if (resetOption) {
       actions.push({
         ...resetOption,
-        label: rotateActionCopy.value.resetRotation,
-        description: rotateActionCopy.value.resetRotationDesc
+        label: rotateActionCopy.value.resetRotation
       })
     }
   }
@@ -702,6 +702,10 @@ watch(
           class="viewer-toolbar-dock-panel-content__options-scroll"
           :class="{ 'viewer-toolbar-dock-panel-content__options-scroll--window': tool.key === 'window' }"
         >
+          <section v-if="tool.key === 'measure'" class="viewer-toolbar-dock-panel-content__measure-guide">
+            <div class="viewer-toolbar-dock-panel-content__measure-guide-title">{{ measureGuideCopy.title }}</div>
+            <p>{{ measureGuideCopy.body }}</p>
+          </section>
           <template
             v-for="(option, optionIndex) in regularOptions"
             :key="option.value"
@@ -830,6 +834,27 @@ watch(
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
+}
+
+.viewer-toolbar-dock-panel-content__measure-guide {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card) 62%, transparent);
+  padding: 10px 11px;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.viewer-toolbar-dock-panel-content__measure-guide-title {
+  margin-bottom: 3px;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.viewer-toolbar-dock-panel-content__measure-guide p {
+  margin: 0;
 }
 
 .viewer-toolbar-dock-panel-content__action-zone {

@@ -978,7 +978,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && tab.viewType !== 'Layout' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -988,7 +988,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'displayOverlay') {
       const overlay = payload.overlay
-      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar') {
+      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'sliceSlider') {
         return
       }
 
@@ -998,7 +998,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
               ...item,
               ...(overlay === 'cornerInfo'
                 ? { showCornerInfo: payload.enabled ?? item.showCornerInfo === false }
-                : { showScaleBar: payload.enabled ?? item.showScaleBar === false })
+                : overlay === 'scaleBar'
+                  ? { showScaleBar: payload.enabled ?? item.showScaleBar === false }
+                  : { showSliceSlider: payload.enabled ?? item.showSliceSlider === false })
             }
           : item
       )
@@ -1175,9 +1177,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         emitViewOperation({
           viewId: target.viewId,
           opType: VIEW_OPERATION_TYPES.transform2d,
-          rotationDegrees: DEFAULT_VIEW_TRANSFORM.rotationDegrees,
-          hor_flip: DEFAULT_VIEW_TRANSFORM.horFlip,
-          ver_flip: DEFAULT_VIEW_TRANSFORM.verFlip
+          rotationDegrees: DEFAULT_VIEW_TRANSFORM.rotationDegrees ?? 0,
+          zoom: DEFAULT_VIEW_TRANSFORM.zoom ?? 1,
+          x: DEFAULT_VIEW_TRANSFORM.offsetX ?? 0,
+          y: DEFAULT_VIEW_TRANSFORM.offsetY ?? 0,
+          hor_flip: DEFAULT_VIEW_TRANSFORM.horFlip ?? false,
+          ver_flip: DEFAULT_VIEW_TRANSFORM.verFlip ?? false
         })
       })
       if (tab.viewType === '4D') {
@@ -2811,7 +2816,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     viewportKey: string
   }): void {
     const tab = activeTab.value
-    if (!tab || isFourDPlaybackLocked(tab) || !STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])) {
+    if (!tab || isFourDPlaybackLocked(tab)) {
+      return
+    }
+
+    if (payload.opType === VIEW_OPERATION_TYPES.scroll) {
+      if (payload.phase !== DRAG_ACTION_TYPES.move || !payload.deltaY) {
+        return
+      }
+      handleViewportWheel({
+        viewportKey: payload.viewportKey,
+        deltaY: payload.deltaY > 0 ? 1 : -1,
+        exact: true
+      })
+      return
+    }
+
+    if (!STACK_DRAG_OPERATIONS.includes(payload.opType as (typeof STACK_DRAG_OPERATIONS)[number])) {
       return
     }
 

@@ -128,7 +128,7 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'reset:measurements': { label: '清除测量', description: '移除当前视图中的所有测量。' },
   'reset:mtf': { label: '清除 MTF', description: '移除当前视图中的所有 MTF ROI。' },
   'reset:view': { label: '重置视图', description: '重置当前视图参数和显示状态。' },
-  'transform:reset': { label: '重置变换', description: '恢复当前视图的平移、缩放、旋转和镜像状态。' },
+  'transform:reset': { label: '重置' },
   'window:reset': { label: '重置窗值', description: '恢复当前选择的窗值，或回到影像内置窗值。' },
   'petDisplay:reset': { label: '重置 PET 显示', description: '恢复 PET 强度范围和单位。' },
   'fusionPetDisplay:reset': { label: '重置 PET 显示', description: '恢复 PET 伪彩、单位和强度范围。' },
@@ -269,7 +269,7 @@ const mprLayoutTool: StackTool = {
 const MPR_CROSSHAIR_MODE_SELECTION_PREFIX = 'mprCrosshairMode:'
 const DISPLAY_OVERLAY_SELECTION_PREFIX = 'display:'
 export const EXPORT_TARGET_SELECTION_PREFIX = 'exportTarget:'
-type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
+type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'sliceSlider'
 
 function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
   return `${MPR_CROSSHAIR_MODE_SELECTION_PREFIX}${mode}`
@@ -286,7 +286,7 @@ function toDisplayOverlaySelectionValue(key: DisplayOverlayKey): string {
 
 function parseDisplayOverlaySelectionValue(value: string | null | undefined): DisplayOverlayKey | null {
   const key = String(value ?? '').replace(DISPLAY_OVERLAY_SELECTION_PREFIX, '')
-  return key === 'cornerInfo' || key === 'scaleBar' ? key : null
+  return key === 'cornerInfo' || key === 'scaleBar' || key === 'sliceSlider' ? key : null
 }
 
 function toExportTargetSelectionValue(viewportKey: string): string {
@@ -344,9 +344,8 @@ const rotateOptions: StackToolOption[] = [
 const transformResetDockOptions: StackToolOption[] = [
   {
     value: 'transform:reset',
-    label: 'Reset Transform',
-    icon: 'reset',
-    description: 'Restore pan, zoom, rotation, and mirror state for the current view.'
+    label: 'Reset',
+    icon: 'reset'
   }
 ]
 
@@ -943,7 +942,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!tab) {
       return true
     }
-    return key === 'cornerInfo' ? tab.showCornerInfo !== false : tab.showScaleBar !== false
+    if (key === 'cornerInfo') {
+      return tab.showCornerInfo !== false
+    }
+    if (key === 'scaleBar') {
+      return tab.showScaleBar !== false
+    }
+    return tab.showSliceSlider !== false
   }
 
   function getActiveDisplayOverlayVisible(key: DisplayOverlayKey): boolean {
@@ -980,7 +985,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     const nextDraft = { ...draft }
-    for (const key of ['cornerInfo', 'scaleBar'] as const) {
+    for (const key of ['cornerInfo', 'scaleBar', 'sliceSlider'] as const) {
       if (nextDraft[key] === getTabDisplayOverlayVisible(tab, key)) {
         delete nextDraft[key]
       }
@@ -1017,7 +1022,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         label: isZh.value ? '比例尺' : 'Scale Bar',
         icon: 'measure',
         checked: getActiveDisplayOverlayVisible('scaleBar')
-      }
+      },
+      ...(options.activeTab.value?.viewType === 'Layout'
+        ? [
+            {
+              value: toDisplayOverlaySelectionValue('sliceSlider'),
+              label: isZh.value ? '切片滑条' : 'Slice Slider',
+              icon: 'page',
+              checked: getActiveDisplayOverlayVisible('sliceSlider')
+            }
+          ]
+        : [])
     ]
   }))
 
@@ -1026,7 +1041,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion' || viewType === 'Layout'
   }
 
   function withDisplayTool(tools: StackTool[]): StackTool[] {
@@ -2264,6 +2279,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         }
         setToolbarToolActive(matchedToolKey)
       }
+      captureToolbarState(options.activeTab.value?.key)
     },
     { immediate: true }
   )
@@ -2299,7 +2315,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   )
 
   watch(
-    () => [options.activeTab.value?.key, options.activeTab.value?.showCornerInfo, options.activeTab.value?.showScaleBar] as const,
+    () => [options.activeTab.value?.key, options.activeTab.value?.showCornerInfo, options.activeTab.value?.showScaleBar, options.activeTab.value?.showSliceSlider] as const,
     () => pruneSettledDisplayOverlayDraft(options.activeTab.value)
   )
 

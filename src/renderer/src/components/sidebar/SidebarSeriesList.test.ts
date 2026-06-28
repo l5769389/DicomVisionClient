@@ -231,7 +231,7 @@ async function openCompatibilityAction(wrapper: ReturnType<typeof mountSidebar>)
     .find((button) => button.text().includes('Compatibility Check') || button.text().includes('CHK'))
   expect(action).toBeTruthy()
   await action!.trigger('click')
-  await nextTick()
+  await flushPromises()
 }
 
 afterEach(() => {

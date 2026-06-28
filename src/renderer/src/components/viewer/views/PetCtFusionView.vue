@@ -1389,8 +1389,8 @@ watch(
   max-width: min(44%, 310px);
   padding: 9px 10px;
   color: #ff9a9a;
-  font-size: 12px;
-  line-height: 1.34;
+  font-size: var(--viewer-corner-pet-font-size);
+  line-height: var(--viewer-corner-pet-line-height);
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.92),
     0 0 5px rgba(0, 0, 0, 0.62);
@@ -1402,6 +1402,14 @@ watch(
   text-shadow:
     0 1px 1px rgba(255, 255, 255, 0.86),
     0 0 3px rgba(15, 23, 42, 0.22);
+}
+
+.pet-ct-fusion-view__stage :deep(.viewer-corner-overlay--custom-color .viewer-corner-block) {
+  color: var(--viewer-corner-custom-dark-color);
+}
+
+.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-corner-overlay--custom-color .viewer-corner-block) {
+  color: var(--viewer-corner-custom-light-color);
 }
 
 .pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-orientation-label) {

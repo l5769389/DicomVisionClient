@@ -43,6 +43,7 @@ describe('useMobileViewerPreferences', () => {
     expect(preferences.gestureSensitivity.value).toBe('normal')
     expect(preferences.stackPlaybackFps.value).toBe(5)
     expect(preferences.defaultShowCornerInfo.value).toBe(true)
+    expect(preferences.defaultShowPseudocolorBar.value).toBe(true)
     expect(preferences.defaultShowScaleBar.value).toBe(true)
     expect(preferences.orientationLock.value).toBe('unlocked')
     expect(preferences.volumeDefaultTool.value).toBe('rotate3d')
@@ -59,12 +60,14 @@ describe('useMobileViewerPreferences', () => {
     preferences.setGestureSensitivity('high')
     preferences.setStackPlaybackFps(15)
     preferences.setDefaultShowCornerInfo(false)
+    preferences.setDefaultShowPseudocolorBar(false)
     preferences.setDefaultShowScaleBar(false)
     preferences.setOrientationLock('landscape')
     preferences.setVolumeDefaultTool('pan')
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}')).toEqual({
       defaultShowCornerInfo: false,
+      defaultShowPseudocolorBar: false,
       defaultShowScaleBar: false,
       gestureSensitivity: 'high',
       mprDefaultTool: 'pan',
@@ -82,6 +85,7 @@ describe('useMobileViewerPreferences', () => {
       STORAGE_KEY,
       JSON.stringify({
         defaultShowCornerInfo: 'yes',
+        defaultShowPseudocolorBar: 0,
         defaultShowScaleBar: 0,
         gestureSensitivity: 'fast',
         mprDefaultTool: 'measure',
@@ -98,6 +102,7 @@ describe('useMobileViewerPreferences', () => {
     const preferences = useMobileViewerPreferences()
 
     expect(preferences.defaultShowCornerInfo.value).toBe(true)
+    expect(preferences.defaultShowPseudocolorBar.value).toBe(true)
     expect(preferences.defaultShowScaleBar.value).toBe(true)
     expect(preferences.gestureSensitivity.value).toBe('normal')
     expect(preferences.mprDefaultTool.value).toBe('crosshair')

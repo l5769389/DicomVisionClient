@@ -150,7 +150,16 @@ vi.mock('../../composables/ui/useUiPreferences', async (importOriginal) => {
       setLocale: vi.fn(),
       systemWindowPresets: windowPresets.value.filter((preset) => preset.source === 'system'),
       themeId: ref('industrial-utility'),
-      viewportCornerInfoPreference: ref({ topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }),
+      viewportCornerInfoPreference: ref({
+        topLeft: ['patientName'],
+        topRight: ['patientSummary'],
+        bottomLeft: ['windowLevel'],
+        bottomRight: ['zoom'],
+        typographyPreset: 'comfortable',
+        colorMode: 'auto',
+        customDarkColor: '#f8fafc',
+        customLightColor: '#182334'
+      }),
       windowPresets
     })
   }
@@ -160,6 +169,7 @@ vi.mock('./useMobileViewerPreferences', () => ({
   MOBILE_STACK_PLAYBACK_FPS_OPTIONS: [1, 2, 5, 10, 15, 30],
   useMobileViewerPreferences: () => ({
     defaultShowCornerInfo: ref(true),
+    defaultShowPseudocolorBar: ref(true),
     defaultShowScaleBar: ref(true),
     gestureSensitivity: ref('normal'),
     mprDefaultTool: ref('crosshair'),
@@ -170,6 +180,7 @@ vi.mock('./useMobileViewerPreferences', () => ({
     stackPlaybackFps: ref(5),
     volumeDefaultTool: ref('rotate3d'),
     setDefaultShowCornerInfo: vi.fn(),
+    setDefaultShowPseudocolorBar: vi.fn(),
     setDefaultShowScaleBar: vi.fn(),
     setGestureSensitivity: vi.fn(),
     setMprDefaultTool: vi.fn(),
@@ -182,7 +193,11 @@ vi.mock('./useMobileViewerPreferences', () => ({
   })
 }))
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../services/apiBase', () => ({
+  getApiBaseURL: () => 'http://127.0.0.1:8000',
+  getBackendOrigin: () => 'http://127.0.0.1:8000',
+  onApiBaseURLChange: vi.fn(() => vi.fn()),
+  resolveBackendAssetUrl: (url: string) => url,
   setApiBaseURL: (...args: unknown[]) => setApiBaseURLMock(...args)
 }))
 
@@ -883,6 +898,7 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-sheet-tab-display"]').trigger('click')
     expect(wrapper.get('.mobile-shell__sheet').classes()).toContain('mobile-shell__sheet--presentation-menu')
     expect(wrapper.find('[data-testid="mobile-display-cornerInfo"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-display-pseudocolorBar"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="mobile-title-series-button"]').trigger('click')
     expect(wrapper.findAll('.mobile-shell__series-row')).toHaveLength(1)
@@ -1128,7 +1144,7 @@ describe('MobileWorkspaceShell', () => {
   it('toggles mobile display overlays through viewer actions', async () => {
     mockViewer.seriesList.value = [createSeries()]
     mockViewer.selectedSeriesId.value = 'series-1'
-    mockViewer.__setActiveTab(createStackTab('series-1', { showCornerInfo: true, showScaleBar: true }))
+    mockViewer.__setActiveTab(createStackTab('series-1', { showCornerInfo: true, showPseudocolorBar: true, showScaleBar: true }))
 
     const wrapper = mountShell()
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
@@ -1138,6 +1154,13 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
       action: 'displayOverlay',
       overlay: 'cornerInfo',
+      enabled: false
+    })
+
+    await wrapper.get('[data-testid="mobile-display-pseudocolorBar"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'displayOverlay',
+      overlay: 'pseudocolorBar',
       enabled: false
     })
   })

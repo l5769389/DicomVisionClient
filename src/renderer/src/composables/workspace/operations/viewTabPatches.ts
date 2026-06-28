@@ -93,6 +93,83 @@ export function applyTransformToTabTargets(
   }
 }
 
+export function applyTransformPatchToTabTargets(
+  tab: ViewerTabItem,
+  targets: ViewportOperationTarget[],
+  fallbackTransform: ViewTransformInfo,
+  getNextTransform: (currentTransform: ViewTransformInfo, viewportKey: string) => ViewTransformInfo
+): ViewerTabItem {
+  if (!targets.length) {
+    return tab
+  }
+
+  const viewportKeys = targetViewportKeys(targets)
+
+  if (tab.viewType === 'CompareStack') {
+    const nextStates = {
+      ...(tab.compareTransformStates ?? createEmptyCompareTransformStates())
+    }
+    viewportKeys.forEach((viewportKey) => {
+      if (isCompareStackPaneKey(viewportKey)) {
+        nextStates[viewportKey] = getNextTransform(nextStates[viewportKey] ?? fallbackTransform, viewportKey)
+      }
+    })
+    return {
+      ...tab,
+      compareTransformStates: nextStates
+    }
+  }
+
+  if (tab.viewType === 'Layout') {
+    return {
+      ...tab,
+      layoutSlots: (tab.layoutSlots ?? []).map((slot) =>
+        viewportKeys.has(slot.id)
+          ? {
+              ...slot,
+              transformState: getNextTransform(slot.transformState ?? fallbackTransform, slot.id)
+            }
+          : slot
+      )
+    }
+  }
+
+  if (tab.viewType === 'PETCTFusion') {
+    const nextStates = {
+      ...(tab.fusionTransformStates ?? createEmptyFusionTransformStates())
+    }
+    viewportKeys.forEach((viewportKey) => {
+      if (isFusionPaneKey(viewportKey)) {
+        nextStates[viewportKey as FusionPaneKey] = getNextTransform(nextStates[viewportKey as FusionPaneKey] ?? fallbackTransform, viewportKey)
+      }
+    })
+    return {
+      ...tab,
+      fusionTransformStates: nextStates
+    }
+  }
+
+  if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+    const nextStates = {
+      ...(tab.viewportTransformStates ?? createEmptyMprTransformStates())
+    }
+    viewportKeys.forEach((viewportKey) => {
+      if (isMprViewportKey(viewportKey)) {
+        nextStates[viewportKey] = getNextTransform(nextStates[viewportKey] ?? fallbackTransform, viewportKey)
+      }
+    })
+    return {
+      ...tab,
+      viewportTransformStates: nextStates
+    }
+  }
+
+  return {
+    ...tab,
+    transformState: getNextTransform(tab.transformState ?? fallbackTransform, targets[0]?.viewportKey ?? 'single')
+  }
+}
+
 export function applyPseudocolorToTabTargets(
   tab: ViewerTabItem,
   targets: ViewportOperationTarget[],

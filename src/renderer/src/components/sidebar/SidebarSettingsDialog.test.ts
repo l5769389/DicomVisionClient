@@ -4,6 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import SidebarSettingsDialog from './SidebarSettingsDialog.vue'
 
+const preferenceStorage = vi.hoisted(() => ({
+  value: null as string | null
+}))
+
+vi.mock('../../platform/preferencesStorage', () => ({
+  loadUiPreferencesFromStorage: () => Promise.resolve(preferenceStorage.value),
+  saveUiPreferencesToStorage: (value: string) => {
+    preferenceStorage.value = value
+    return Promise.resolve()
+  }
+}))
+
 vi.mock('../../platform/exporting', () => ({
   canChooseCustomExportDirectory: () => false,
   chooseCustomExportDirectory: vi.fn(),
@@ -69,9 +81,20 @@ async function openToolbarLayoutSection(
   await nextTick()
 }
 
+async function openCornerInfoSection(wrapper: ReturnType<typeof mountSettingsDialog>): Promise<void> {
+  const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes('Display'))
+  expect(displayGroupButton).toBeTruthy()
+  await displayGroupButton!.trigger('click')
+
+  const cornerInfoButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes('Corner Info'))
+  expect(cornerInfoButton).toBeTruthy()
+  await cornerInfoButton!.trigger('click')
+  await nextTick()
+}
+
 describe('SidebarSettingsDialog toolbar layout settings', () => {
   beforeEach(() => {
-    window.localStorage.clear()
+    preferenceStorage.value = null
     const preferences = useUiPreferences()
     preferences.setLocale('zh-CN')
     preferences.viewerToolbarPlacement.value = 'top'
@@ -131,6 +154,45 @@ describe('SidebarSettingsDialog toolbar layout settings', () => {
 
     expect(preferences.viewerToolbarPlacement.value).toBe('right')
     expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').classes()).toContain('settings-toolbar-layout-choice--active')
+
+    wrapper.unmount()
+  })
+})
+
+describe('SidebarSettingsDialog corner info style settings', () => {
+  beforeEach(() => {
+    preferenceStorage.value = null
+    const preferences = useUiPreferences()
+    preferences.setLocale('en-US')
+    preferences.setViewportCornerInfoPreference({
+      ...preferences.viewportCornerInfoPreference.value,
+      typographyPreset: 'comfortable',
+      colorMode: 'auto',
+      customDarkColor: '#f8fafc',
+      customLightColor: '#182334'
+    })
+  })
+
+  it('updates corner info typography and custom color from the settings panel', async () => {
+    const preferences = useUiPreferences()
+    const wrapper = mountSettingsDialog()
+
+    await openCornerInfoSection(wrapper)
+
+    expect(wrapper.find('[data-testid="settings-corner-typography-slider"]').exists()).toBe(true)
+    expect(wrapper.findAll('.corner-info-style-preview-surface')).toHaveLength(2)
+
+    await wrapper.get('[data-testid="settings-corner-typography-slider"]').setValue('1')
+    await wrapper.get('[data-testid="settings-corner-color-mode-custom"]').trigger('click')
+    await wrapper.findAll('[data-testid="settings-corner-dark-color-preset"]')[2].trigger('click')
+    await wrapper.findAll('[data-testid="settings-corner-light-color-preset"]')[3].trigger('click')
+
+    expect(preferences.viewportCornerInfoPreference.value).toMatchObject({
+      typographyPreset: 'standard',
+      colorMode: 'custom',
+      customDarkColor: '#22d3ee',
+      customLightColor: '#facc15'
+    })
 
     wrapper.unmount()
   })

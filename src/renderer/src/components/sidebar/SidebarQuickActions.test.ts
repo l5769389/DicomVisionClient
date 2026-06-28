@@ -1,7 +1,11 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import SidebarQuickActions from './SidebarQuickActions.vue'
 import type { FolderSeriesItem } from '../../types/viewer'
+
+const pwaCanInstallMock = vi.hoisted(() => ({ value: false }))
+const pwaIsInstalledMock = vi.hoisted(() => ({ value: false }))
+const promptInstallMock = vi.hoisted(() => vi.fn(() => Promise.resolve('accepted')))
 
 vi.mock('vuetify/components', async () => {
   const { defineComponent, h } = await import('vue')
@@ -70,6 +74,12 @@ vi.mock('../../assets/dicom-action-icons/dicom-file.svg?raw', () => ({
   default: '<svg />'
 }))
 
+vi.mock('../../platform/pwaInstall', () => ({
+  canInstall: pwaCanInstallMock,
+  isInstalled: pwaIsInstalledMock,
+  promptInstall: promptInstallMock
+}))
+
 const globalStubs = {
   AppIcon: {
     props: ['name'],
@@ -103,20 +113,33 @@ function createSeries(overrides: Partial<FolderSeriesItem> = {}): FolderSeriesIt
   }
 }
 
-function mountQuickActions(selectedSeries: FolderSeriesItem | null) {
+function mountQuickActions(
+  selectedSeries: FolderSeriesItem | null,
+  overrides: Partial<{
+    viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
+    viewerPlatform: 'desktop' | 'web'
+  }> = {}
+) {
   return mount(SidebarQuickActions, {
     props: {
       hasSelectedSeries: Boolean(selectedSeries),
       isSelectedSeriesFourD: false,
       selectedSeries,
       viewerFolderSourceMode: 'desktop-picker',
-      viewerPlatform: 'desktop'
+      viewerPlatform: 'desktop',
+      ...overrides
     },
     global: {
       stubs: globalStubs
     }
   })
 }
+
+afterEach(() => {
+  pwaCanInstallMock.value = false
+  pwaIsInstalledMock.value = false
+  promptInstallMock.mockClear()
+})
 
 describe('SidebarQuickActions', () => {
   it('uses the 2D action to open the PET viewer for PET series without showing a PET action', async () => {
@@ -139,5 +162,37 @@ describe('SidebarQuickActions', () => {
 
     expect(wrapper.emitted('openView')).toEqual([['Stack']])
     wrapper.unmount()
+  })
+
+  it('shows and triggers the install app action when the web app can be installed', async () => {
+    pwaCanInstallMock.value = true
+    const wrapper = mountQuickActions(null, {
+      viewerFolderSourceMode: 'web-upload',
+      viewerPlatform: 'web'
+    })
+
+    const installAction = wrapper.get('[data-testid="quick-actions-install-app"]')
+    expect(installAction.text()).toContain('Install app')
+    expect(installAction.find('.app-icon-stub').text()).toBe('install-app')
+
+    await installAction.trigger('click')
+
+    expect(promptInstallMock).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('hides the install app action outside installable web mode', () => {
+    pwaCanInstallMock.value = true
+    const desktopWrapper = mountQuickActions(null)
+    expect(desktopWrapper.find('[data-testid="quick-actions-install-app"]').exists()).toBe(false)
+    desktopWrapper.unmount()
+
+    pwaIsInstalledMock.value = true
+    const installedWebWrapper = mountQuickActions(null, {
+      viewerFolderSourceMode: 'web-upload',
+      viewerPlatform: 'web'
+    })
+    expect(installedWebWrapper.find('[data-testid="quick-actions-install-app"]').exists()).toBe(false)
+    installedWebWrapper.unmount()
   })
 })

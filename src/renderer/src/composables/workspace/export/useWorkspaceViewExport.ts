@@ -11,12 +11,7 @@ import { getSmoothCurveSegments } from '../../measurements/measurementGeometry'
 import { applyViewportCornerInfoPreference } from '../../ui/viewportCornerInfo'
 import type { WorkspaceExportCopy } from '../../ui/uiMessages'
 import { useUiPreferences } from '../../ui/useUiPreferences'
-import {
-  buildExportFileStem,
-  exportCurrentView,
-  type ViewerExportFormat,
-  type ViewerExportOverlays
-} from './viewExport'
+import type { ViewerExportFormat, ViewerExportOverlays } from './viewExport'
 import { useWorkspaceExportUi } from './useWorkspaceExportUi'
 import { isMprLikeViewType } from '../views/viewerViewportTargets'
 
@@ -350,6 +345,7 @@ export function useWorkspaceViewExport(options: WorkspaceViewExportOptions) {
         isLayoutViewType(activeTab.viewType) ||
         isPetCtFusionViewType(activeTab.viewType)
       const exportViewportKey = viewportKeyOverride ?? (shouldUseActiveViewport ? options.activeViewportKey.value : 'single')
+      const { buildExportFileStem, exportCurrentView } = await import('./viewExport')
       const exportFileNameStem = buildExportFileStem(activeTab, exportViewportKey)
       const defaultFileNameStem =
         format === 'dicom-sr'

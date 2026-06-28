@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import type { ViewOperationType } from '@shared/viewerConstants'
 import type {
   AnnotationDraft,
@@ -8,6 +8,7 @@ import type {
   CompareSyncSettingKey,
   CornerInfo,
   CornerPosition,
+  DrawingScope,
   DraftMeasurementMode,
   MeasurementDraft,
   MeasurementDraftPoint,
@@ -37,16 +38,10 @@ import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferen
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
-import MprMipConfigPanel from './MprMipConfigPanel.vue'
-import MprSegmentationPanel from './MprSegmentationPanel.vue'
-import VolumeRenderConfigPanel from './VolumeRenderConfigPanel.vue'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
 import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
 import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
-import MtfCurvePanelContent from './results/MtfCurvePanelContent.vue'
-import QaWaterResultPanelContent from './results/QaWaterResultPanelContent.vue'
-import ViewerResultDock from './results/ViewerResultDock.vue'
 import type { VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
@@ -54,21 +49,11 @@ import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { applyViewportCornerInfoPreference } from '../../composables/ui/viewportCornerInfo'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
-import { analyzeWaterPhantomView } from '../../composables/qa/waterPhantomQa'
-import { buildExportFileStem, exportCurrentView, type ViewerExportFormat, type ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
+import type { ViewerExportFormat, ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
 import { resolveBackendErrorDetail } from '../../composables/workspace/tasks/workspaceStatus'
 import { viewerRuntime, type DicomDropInput } from '../../platform/runtime'
-import { chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation, saveBinaryFile } from '../../platform/exporting'
-import {
-  postFusionRegistrationExport,
-  postFusionRegistrationExportArtifact,
-  type FusionRegistrationExportMode,
-  type FusionRegistrationExportResponse
-} from '../../services/typedApi'
+import type { FusionRegistrationExportMode, FusionRegistrationExportResponse } from '../../services/typedApi'
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
-import FusionRegistrationSaveDialog from './export/FusionRegistrationSaveDialog.vue'
-import WorkspaceExportNameDialog from './export/WorkspaceExportNameDialog.vue'
-import WorkspaceExportNotice from './export/WorkspaceExportNotice.vue'
 import { DEFAULT_MPR_LAYOUT_KEY, parseMprLayoutSelectionValue } from '../../composables/workspace/layout/mprLayoutOptions'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
@@ -87,6 +72,23 @@ import {
   VolumeView
 } from './asyncWorkspaceViews'
 
+const MprMipConfigPanel = defineAsyncComponent(() => import('./MprMipConfigPanel.vue'))
+const MprSegmentationPanel = defineAsyncComponent(() => import('./MprSegmentationPanel.vue'))
+const VolumeRenderConfigPanel = defineAsyncComponent(() => import('./VolumeRenderConfigPanel.vue'))
+const MeasurementMetricsPanelContent = defineAsyncComponent(() => import('./results/MeasurementMetricsPanelContent.vue'))
+const MtfCurvePanelContent = defineAsyncComponent(() => import('./results/MtfCurvePanelContent.vue'))
+const QaWaterResultPanelContent = defineAsyncComponent(() => import('./results/QaWaterResultPanelContent.vue'))
+const ViewerResultDock = defineAsyncComponent(() => import('./results/ViewerResultDock.vue'))
+const FusionRegistrationSaveDialog = defineAsyncComponent(() => import('./export/FusionRegistrationSaveDialog.vue'))
+const WorkspaceExportNameDialog = defineAsyncComponent(() => import('./export/WorkspaceExportNameDialog.vue'))
+const WorkspaceExportNotice = defineAsyncComponent(() => import('./export/WorkspaceExportNotice.vue'))
+let waterPhantomQaModulePromise: Promise<typeof import('../../composables/qa/waterPhantomQa')> | null = null
+
+function loadWaterPhantomQa(): Promise<typeof import('../../composables/qa/waterPhantomQa')> {
+  waterPhantomQaModulePromise ??= import('../../composables/qa/waterPhantomQa')
+  return waterPhantomQaModulePromise
+}
+
 const props = defineProps<{
   activeOperation: string
   activeTab: ViewerTabItem | null
@@ -104,13 +106,14 @@ const emit = defineEmits<{
   activeViewportChange: [viewportKey: string]
   closeTab: [tabKey: string]
   closeOtherTabs: [tabKey: string]
-  measurementDraft: [payload: { viewportKey: string; toolType: MeasurementDraft['toolType']; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[] }]
+  measurementDraft: [payload: { viewportKey: string; toolType: MeasurementDraft['toolType']; phase: 'start' | 'move' | 'end'; points: { x: number; y: number }[]; scope?: DrawingScope }]
   measurementCreate: [payload: {
     viewportKey: string
     toolType: MeasurementDraft['toolType']
     points: { x: number; y: number }[]
     measurementId?: string
     labelLines?: string[]
+    scope?: DrawingScope
   }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
   annotationOperation: [payload: {
@@ -125,7 +128,7 @@ const emit = defineEmits<{
   }]
   tagIndexChange: [payload: { tabKey: string; index: number }]
   mtfClear: []
-  mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string }]
+  mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string; scope?: DrawingScope }]
   mtfCopy: [payload?: { mtfId?: string | null }]
   mtfDelete: [payload?: { mtfId?: string | null }]
   mtfSelect: [payload: { mtfId: string | null }]
@@ -178,12 +181,15 @@ const viewerTabsRef = computed(() => props.viewerTabs)
 const { locale, t, overlayCopy, workspaceExportCopy } = useUiLocale()
 const {
   exportPreference,
+  drawingScopePreference,
   mprDefaultLayoutKey,
   mprSegmentationStylePreference,
   qaWaterMetrics,
   roiStatOptions,
+  setWorkspaceDockPreference,
   viewerToolbarPlacement,
-  viewportCornerInfoPreference
+  viewportCornerInfoPreference,
+  workspaceDockPreference
 } = useUiPreferences()
 const mprSegmentationDefaultThresholdColor = computed(() => mprSegmentationStylePreference.value.thresholdColor)
 const mprSegmentationDefaultVoiColor = computed(() => mprSegmentationStylePreference.value.voiColor)
@@ -200,8 +206,14 @@ const ANNOTATION_DRAG_START_THRESHOLD = 3
 const ANNOTATION_POINT_CLOSE_EPSILON = 0.0005
 const EXPORT_LABEL_LINE_HEIGHT_PX = 18
 const TOP_RESULT_DOCK_MIN_CONTENT_WIDTH = 1280
+const RIGHT_TOOLBAR_DOCK_MIN_WIDTH = 240
+const RIGHT_TOOLBAR_DOCK_MAX_WIDTH = 420
+const RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD = 210
+const RIGHT_RESULT_DOCK_MIN_WIDTH = 300
+const RIGHT_RESULT_DOCK_MAX_WIDTH = 520
+const RIGHT_RESULT_DOCK_COLLAPSE_THRESHOLD = 260
 const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
-type WorkspaceResultPanel = 'mtfCurve' | 'qaWater'
+type WorkspaceResultPanel = 'measurement' | 'mtfCurve' | 'qaWater'
 
 type AnnotationInteractionState =
   | { kind: 'idle' }
@@ -234,6 +246,7 @@ const {
   getMtfDraft,
   getMtfDraftMode,
   getDraftMeasurementMode,
+  getViewportIdleCursorClass,
   handleViewportPointerCancel,
   handleViewportPointerLeave,
   handleViewportPointerDown,
@@ -248,13 +261,22 @@ const {
   activeTab: activeTabRef,
   emitActiveViewportChange: (viewportKey) => emit('activeViewportChange', viewportKey),
   emitOperationChange: (value) => emit('setActiveOperation', value),
-  emitMeasurementDraft: (payload) => emit('measurementDraft', payload),
+  emitMeasurementDraft: (payload) => emit('measurementDraft', {
+    ...payload,
+    scope: drawingScopePreference.value.measurement
+  }),
   emitMeasurementCreate: (payload) => {
     clearMeasurementPendingDelete(payload.viewportKey, payload.measurementId)
-    emit('measurementCreate', payload)
+    emit('measurementCreate', {
+      ...payload,
+      scope: drawingScopePreference.value.measurement
+    })
   },
   emitMeasurementDelete: emitMeasurementDeleteRequest,
-  emitMtfCommit: (payload) => emit('mtfCommit', payload),
+  emitMtfCommit: (payload) => emit('mtfCommit', {
+    ...payload,
+    scope: drawingScopePreference.value.mtf
+  }),
   emitMtfDelete: (payload) => emit('mtfDelete', payload),
   emitMtfSelect: (payload) => emit('mtfSelect', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
@@ -491,9 +513,10 @@ const qaWaterAnalysisKey = computed(() => {
 
   return [
     props.activeOperation,
+    drawingScopePreference.value.qaWater,
     tab.key,
     tab.viewId,
-    tab.imageSrc,
+    drawingScopePreference.value.qaWater === 'image' ? tab.imageSrc : 'series',
     qaWaterMetrics.value.map((metric) => `${metric.key}:${metric.enabled ? '1' : '0'}`).join(',')
   ].join('|')
 })
@@ -534,6 +557,7 @@ async function refreshQaWaterAnalysis(key = qaWaterAnalysisKey.value): Promise<v
   }
 
   try {
+    const { analyzeWaterPhantomView } = await loadWaterPhantomQa()
     const analysis = await analyzeWaterPhantomView(tab.viewId, 'single', getEnabledQaWaterMetricKeys())
     rememberQaWaterAnalysis(key, analysis)
     if (requestId === qaWaterAnalysisRequestId && key === qaWaterAnalysisKey.value) {
@@ -768,6 +792,42 @@ function resolveLayoutSlot(tab: ViewerTabItem, viewportKey: string) {
   return slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
 }
 
+function resolveCurrentSliceIndex(viewportKey: string): number | null {
+  const tab = props.activeTab
+  if (!tab) {
+    return null
+  }
+  if (isMprLikeViewType(tab.viewType)) {
+    return parseSliceLabel(tab.viewportSliceLabels?.[viewportKey as keyof NonNullable<ViewerTabItem['viewportSliceLabels']>])?.index ?? null
+  }
+  if (isCompareStackViewType(tab.viewType)) {
+    const paneKey = viewportKey === COMPARE_STACK_TARGET_PANE_KEY ? COMPARE_STACK_TARGET_PANE_KEY : COMPARE_STACK_SOURCE_PANE_KEY
+    return parseSliceLabel(tab.compareSliceLabels?.[paneKey])?.index ?? null
+  }
+  if (isLayoutViewType(tab.viewType)) {
+    return parseSliceLabel(resolveLayoutSlot(tab, viewportKey)?.sliceLabel)?.index ?? null
+  }
+  if (isPetCtFusionViewType(tab.viewType)) {
+    const paneKey = isFusionPaneKey(viewportKey) ? viewportKey : FUSION_OVERLAY_AXIAL_PANE_KEY
+    return parseSliceLabel(tab.fusionSliceLabels?.[paneKey])?.index ?? null
+  }
+  return parseSliceLabel(tab.sliceLabel)?.index ?? null
+}
+
+function isScopedDrawingVisible(
+  scope: DrawingScope | null | undefined,
+  itemSliceIndex: number | null | undefined,
+  currentSliceIndex: number | null
+): boolean {
+  if ((scope ?? 'image') === 'series') {
+    return true
+  }
+  if (itemSliceIndex == null || currentSliceIndex == null) {
+    return true
+  }
+  return itemSliceIndex === currentSliceIndex
+}
+
 function getActiveCornerInfoForExport(tab: ViewerTabItem, viewportKey: string): CornerInfo {
   if (isMprLikeViewType(tab.viewType)) {
     return getMprCornerInfo(viewportKey)
@@ -884,6 +944,7 @@ async function handleExportCurrentView(format: ViewerExportFormat, viewportKeyOv
       isLayoutViewType(props.activeTab.viewType) ||
       isPetCtFusionViewType(props.activeTab.viewType)
     const exportViewportKey = viewportKeyOverride ?? (shouldUseActiveViewport ? activeViewportKey.value : 'single')
+    const { buildExportFileStem, exportCurrentView } = await import('../../composables/workspace/export/viewExport')
     const exportFileNameStem = buildExportFileStem(props.activeTab, exportViewportKey)
     const defaultFileNameStem =
       format === 'dicom-sr'
@@ -955,6 +1016,11 @@ function createAnnotationId(): string {
   return `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function isAnnotationOperationPath(value: string): boolean {
+  const normalized = value.startsWith('stack:') ? value.slice('stack:'.length) : value
+  return normalized === 'annotate' || normalized.startsWith('annotate:')
+}
+
 function isAnnotationOperationEnabled(): boolean {
   return (
     (props.activeTab?.viewType === 'Stack' ||
@@ -962,7 +1028,7 @@ function isAnnotationOperationEnabled(): boolean {
       isCompareStackViewType(props.activeTab?.viewType) ||
       isLayoutViewType(props.activeTab?.viewType) ||
       isMprLikeViewType(props.activeTab?.viewType)) &&
-    props.activeOperation.startsWith('stack:annotate')
+    isAnnotationOperationPath(props.activeOperation)
   )
 }
 
@@ -1017,6 +1083,7 @@ async function resolveFusionRegistrationDefaultOutputDirectory(): Promise<string
   if (customDirectory) {
     return customDirectory
   }
+  const { getDefaultExportLocationLabel } = await import('../../platform/exporting')
   const defaultDirectory = (await getDefaultExportLocationLabel()).trim()
   return defaultDirectory === 'Browser default downloads' ? '' : defaultDirectory
 }
@@ -1043,6 +1110,7 @@ async function openFusionRegistrationSaveDialog(): Promise<void> {
 
 async function handleFusionRegistrationBrowseDirectory(): Promise<void> {
   try {
+    const { chooseCustomExportDirectory } = await import('../../platform/exporting')
     const selectedDirectory = await chooseCustomExportDirectory()
     if (selectedDirectory?.desktopDirectory) {
       fusionRegistrationOutputDirectory.value = selectedDirectory.desktopDirectory
@@ -1086,6 +1154,8 @@ async function handleFusionRegistrationSaveConfirm(): Promise<void> {
   fusionRegistrationSaveError.value = null
   try {
     if (isFusionRegistrationWebMode.value) {
+      const { postFusionRegistrationExportArtifact } = await import('../../services/typedApi')
+      const { saveBinaryFile } = await import('../../platform/exporting')
       const artifact = await postFusionRegistrationExportArtifact({
         mode: fusionRegistrationSaveMode.value,
         seriesDescription,
@@ -1107,6 +1177,7 @@ async function handleFusionRegistrationSaveConfirm(): Promise<void> {
       return
     }
 
+    const { postFusionRegistrationExport } = await import('../../services/typedApi')
     const result = await postFusionRegistrationExport({
       mode: fusionRegistrationSaveMode.value,
       outputDirectory,
@@ -1135,6 +1206,7 @@ async function handleOpenFusionRegistrationFolder(): Promise<void> {
   if (!result?.directoryPath) {
     return
   }
+  const { openExportLocation } = await import('../../platform/exporting')
   const opened = await openExportLocation({
     directoryPath: result.directoryPath,
     filePath: null
@@ -1291,24 +1363,36 @@ function getVisibleCommittedMeasurements(viewportKey: string): MeasurementOverla
   const draft = draftMeasurements.value[viewportKey]
   const editingMeasurementId = draft?.measurementId
   const pendingDeletedIds = new Set(pendingDeletedMeasurementIds.value[viewportKey] ?? [])
+  const currentSliceIndex = resolveCurrentSliceIndex(viewportKey)
   const visibleCommittedMeasurements = pendingDeletedIds.size
     ? committedMeasurements.filter((measurement) => !pendingDeletedIds.has(measurement.measurementId))
     : committedMeasurements
+  const scopedMeasurements = visibleCommittedMeasurements.filter((measurement) =>
+    isScopedDrawingVisible(measurement.scope, measurement.sliceIndex, currentSliceIndex)
+  )
   if (!editingMeasurementId) {
-    return visibleCommittedMeasurements.map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
+    return scopedMeasurements.map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
   }
 
-  return visibleCommittedMeasurements
+  return scopedMeasurements
     .filter((measurement) => measurement.measurementId !== editingMeasurementId)
     .map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
 }
 
 function getExportMeasurements(viewportKey: string): MeasurementOverlay[] {
-  return getCommittedMeasurements(viewportKey).map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
+  const currentSliceIndex = resolveCurrentSliceIndex(viewportKey)
+  return getCommittedMeasurements(viewportKey)
+    .filter((measurement) => isScopedDrawingVisible(measurement.scope, measurement.sliceIndex, currentSliceIndex))
+    .map((measurement) => filterMeasurementOverlayByPreferences(measurement, roiStatOptions.value))
 }
 
 function getMtfItems(viewportKey: string) {
-  const items = (props.activeTab?.mtfState?.items ?? []).filter((item) => item.viewportKey === viewportKey)
+  const currentSliceIndex = resolveCurrentSliceIndex(viewportKey)
+  const items = (props.activeTab?.mtfState?.items ?? []).filter(
+    (item) =>
+      item.viewportKey === viewportKey &&
+      isScopedDrawingVisible(item.scope, item.sliceIndex, currentSliceIndex)
+  )
   const draft = getMtfDraft(viewportKey)
   if (!draft?.mtfId) {
     return items
@@ -1318,10 +1402,14 @@ function getMtfItems(viewportKey: string) {
 }
 
 function getViewportCursorClass(viewportKey: string): string {
-  if (isAnnotationOperationEnabled()) {
-    return viewportCursorClasses.value[viewportKey] ?? 'cursor-crosshair'
+  const transientCursorClass = viewportCursorClasses.value[viewportKey]
+  if (transientCursorClass) {
+    return transientCursorClass
   }
-  return viewportCursorClasses.value[viewportKey] ?? ''
+  if (isAnnotationOperationEnabled()) {
+    return 'cursor-crosshair'
+  }
+  return getViewportIdleCursorClass(viewportKey)
 }
 
 function getMprCornerInfo(viewportKey: string) {
@@ -1811,6 +1899,14 @@ const isMprSegmentationProcessing = computed(() => {
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const isTabStripCollapsed = ref(false)
 const workspaceContentWidth = ref(0)
+type RightDockResizeTarget = 'toolbar' | 'result'
+const activeRightDockResize = ref<{ target: RightDockResizeTarget; startX: number; startWidth: number } | null>(null)
+const rightDockResizePreviewWidth = ref<number | null>(null)
+const rightDockResizePreviewTarget = ref<RightDockResizeTarget | null>(null)
+const isRightDockResizing = computed(() => activeRightDockResize.value != null)
+const workspaceContentStyle = computed(() => ({
+  '--viewer-right-dock-preview-width': `${rightDockResizePreviewWidth.value ?? 0}px`
+}))
 const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
 const shouldShowTabStrip = computed(() => hasViewerTabs.value && (!isTabStripCollapsed.value || shouldForceShowTabStrip.value))
 const shouldShowTabStripToggle = computed(() => hasViewerTabs.value && Boolean(props.activeTab) && props.activeTab?.viewType !== 'Tag')
@@ -1821,9 +1917,41 @@ const selectedMtfItem = computed(() => {
     return null
   }
 
-  return state.items.find((item) => item.mtfId === state.selectedMtfId) ?? null
+  const item = state.items.find((candidate) => candidate.mtfId === state.selectedMtfId) ?? null
+  if (!item) {
+    return null
+  }
+  return isScopedDrawingVisible(item.scope, item.sliceIndex, resolveCurrentSliceIndex(item.viewportKey)) ? item : null
+})
+const selectedMeasurementEntry = computed<{ viewportKey: string; measurement: MeasurementDraft } | null>(() => {
+  const preferredKeys = [
+    activeViewportKey.value,
+    ...Object.keys(draftMeasurements.value)
+  ].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index)
+
+  for (const viewportKey of preferredKeys) {
+    const draft = draftMeasurements.value[viewportKey]
+    if (!draft?.measurementId) {
+      continue
+    }
+    if (!isScopedDrawingVisible(draft.scope, draft.sliceIndex, resolveCurrentSliceIndex(viewportKey))) {
+      continue
+    }
+    const filteredDraft = filterMeasurementDraftByPreferences(draft, roiStatOptions.value)
+    if (filteredDraft) {
+      return {
+        viewportKey,
+        measurement: filteredDraft
+      }
+    }
+  }
+
+  return null
 })
 const activeResultPanelKind = computed<WorkspaceResultPanel | null>(() => {
+  if (selectedMeasurementEntry.value) {
+    return 'measurement'
+  }
   if (activeResultPanel.value === 'mtfCurve') {
     return selectedMtfItem.value?.status === 'ready' ? 'mtfCurve' : null
   }
@@ -1834,13 +1962,26 @@ const activeResultPanelKind = computed<WorkspaceResultPanel | null>(() => {
 })
 const topResultDockCanReserve = computed(() => workspaceContentWidth.value >= TOP_RESULT_DOCK_MIN_CONTENT_WIDTH)
 const qaResultPanelTitle = computed(() => (locale.value === 'zh-CN' ? 'QA 报告' : 'QA Report'))
-const resultPanelTitle = computed(() =>
-  activeResultPanelKind.value === 'mtfCurve'
-    ? overlayCopy.value.mtfCurveTitle
-    : qaResultPanelTitle.value
-)
-const resultPanelIcon = computed(() => (activeResultPanelKind.value === 'mtfCurve' ? 'mtf' : 'water-phantom'))
+const measurementResultPanelTitle = computed(() => (locale.value === 'zh-CN' ? '测量详情' : 'Measurement Details'))
+const resultPanelTitle = computed(() => {
+  if (activeResultPanelKind.value === 'measurement') {
+    return measurementResultPanelTitle.value
+  }
+  if (activeResultPanelKind.value === 'mtfCurve') {
+    return overlayCopy.value.mtfCurveTitle
+  }
+  return qaResultPanelTitle.value
+})
+const resultPanelIcon = computed(() => {
+  if (activeResultPanelKind.value === 'measurement') {
+    return 'measure'
+  }
+  return activeResultPanelKind.value === 'mtfCurve' ? 'mtf' : 'water-phantom'
+})
 const resultPanelToolKey = computed(() => {
+  if (activeResultPanelKind.value === 'measurement') {
+    return 'measure'
+  }
   if (activeResultPanelKind.value === 'mtfCurve') {
     return activeTools.value.some((tool) => tool.key === 'mtf') ? 'mtf' : 'qa'
   }
@@ -1866,6 +2007,101 @@ function handleOpenMtfCurve(): void {
 
 function closeResultPanel(): void {
   activeResultPanel.value = null
+}
+
+function getRightDockResizeConfig(target: RightDockResizeTarget): { min: number; max: number; collapse: number; widthKey: 'rightToolbarWidth' | 'rightResultWidth'; collapsedKey: 'rightToolbarCollapsed' | 'rightResultCollapsed' } {
+  return target === 'toolbar'
+    ? {
+        min: RIGHT_TOOLBAR_DOCK_MIN_WIDTH,
+        max: RIGHT_TOOLBAR_DOCK_MAX_WIDTH,
+        collapse: RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD,
+        widthKey: 'rightToolbarWidth',
+        collapsedKey: 'rightToolbarCollapsed'
+      }
+    : {
+        min: RIGHT_RESULT_DOCK_MIN_WIDTH,
+        max: RIGHT_RESULT_DOCK_MAX_WIDTH,
+        collapse: RIGHT_RESULT_DOCK_COLLAPSE_THRESHOLD,
+        widthKey: 'rightResultWidth',
+        collapsedKey: 'rightResultCollapsed'
+      }
+}
+
+function clampRightDockWidth(target: RightDockResizeTarget, width: number): number {
+  const config = getRightDockResizeConfig(target)
+  return Math.max(config.min, Math.min(config.max, Math.round(width)))
+}
+
+function resolveRightDockPreviewWidth(target: RightDockResizeTarget, width: number): number {
+  const config = getRightDockResizeConfig(target)
+  return width < config.collapse ? 58 : clampRightDockWidth(target, width)
+}
+
+function updateWorkspaceDockPreferencePatch(patch: Partial<typeof workspaceDockPreference.value>): void {
+  setWorkspaceDockPreference({
+    ...workspaceDockPreference.value,
+    ...patch
+  })
+}
+
+function handleRightDockCollapseChange(target: RightDockResizeTarget, collapsed: boolean): void {
+  const config = getRightDockResizeConfig(target)
+  updateWorkspaceDockPreferencePatch({
+    [config.collapsedKey]: collapsed
+  })
+}
+
+function cleanupRightDockResizeListeners(): void {
+  window.removeEventListener('pointermove', handleRightDockResizeMove)
+  window.removeEventListener('pointerup', handleRightDockResizeEnd)
+  window.removeEventListener('pointercancel', handleRightDockResizeCancel)
+}
+
+function handleRightDockResizeMove(event: PointerEvent): void {
+  const activeResize = activeRightDockResize.value
+  if (!activeResize) {
+    return
+  }
+  const nextWidth = activeResize.startWidth + activeResize.startX - event.clientX
+  rightDockResizePreviewWidth.value = resolveRightDockPreviewWidth(activeResize.target, nextWidth)
+}
+
+function handleRightDockResizeCancel(): void {
+  activeRightDockResize.value = null
+  rightDockResizePreviewWidth.value = null
+  rightDockResizePreviewTarget.value = null
+  cleanupRightDockResizeListeners()
+}
+
+function handleRightDockResizeEnd(event: PointerEvent): void {
+  const activeResize = activeRightDockResize.value
+  if (!activeResize) {
+    return
+  }
+  const config = getRightDockResizeConfig(activeResize.target)
+  const rawWidth = activeResize.startWidth + activeResize.startX - event.clientX
+  const shouldCollapse = rawWidth < config.collapse
+  updateWorkspaceDockPreferencePatch({
+    [config.widthKey]: shouldCollapse ? workspaceDockPreference.value[config.widthKey] : clampRightDockWidth(activeResize.target, rawWidth),
+    [config.collapsedKey]: shouldCollapse
+  })
+  handleRightDockResizeCancel()
+}
+
+function startRightDockResize(target: RightDockResizeTarget, event: PointerEvent): void {
+  event.preventDefault()
+  const config = getRightDockResizeConfig(target)
+  const startWidth = workspaceDockPreference.value[config.widthKey]
+  activeRightDockResize.value = {
+    target,
+    startX: event.clientX,
+    startWidth
+  }
+  rightDockResizePreviewTarget.value = target
+  rightDockResizePreviewWidth.value = startWidth
+  window.addEventListener('pointermove', handleRightDockResizeMove)
+  window.addEventListener('pointerup', handleRightDockResizeEnd)
+  window.addEventListener('pointercancel', handleRightDockResizeCancel)
 }
 
 const {
@@ -2055,7 +2291,7 @@ watch(
 watch(
   () => props.activeOperation,
   (value) => {
-    if (!value.startsWith('stack:annotate')) {
+    if (!isAnnotationOperationPath(value)) {
       clearDraftAnnotations()
       annotationInteraction.value = { kind: 'idle' }
     }
@@ -2207,6 +2443,7 @@ useWorkspaceHotkeys({
 })
 
 onBeforeUnmount(() => {
+  handleRightDockResizeCancel()
   clearQuickPreviewDropState()
   cleanupExportUi()
   stopAnnotationInteraction()
@@ -2287,6 +2524,8 @@ onBeforeUnmount(() => {
         ref="workspaceContentRef"
         class="viewer-workspace-content flex min-h-0 flex-1 gap-2"
         :class="{ 'viewer-workspace-content--right-toolbar': shouldShowRightToolbarDock }"
+        :data-right-dock-resizing="isRightDockResizing ? 'true' : 'false'"
+        :style="workspaceContentStyle"
       >
         <div
           ref="viewportHostRef"
@@ -2586,6 +2825,11 @@ onBeforeUnmount(() => {
           @dock-resize="handleRightToolbarDockResize"
         >
           <template #result>
+            <MeasurementMetricsPanelContent
+              v-if="activeResultPanelKind === 'measurement'"
+              :measurement="selectedMeasurementEntry?.measurement ?? null"
+              :viewport-key="selectedMeasurementEntry?.viewportKey ?? null"
+            />
             <MtfCurvePanelContent
               v-if="activeResultPanelKind === 'mtfCurve'"
               :mtf-item="selectedMtfItem"
@@ -2604,14 +2848,29 @@ onBeforeUnmount(() => {
 
         </div>
 
+        <div
+          v-if="shouldShowTopResultDock && !workspaceDockPreference.rightResultCollapsed"
+          class="viewer-workspace-right-dock-resize-handle"
+          aria-hidden="true"
+          @pointerdown="startRightDockResize('result', $event)"
+        ></div>
+
         <ViewerResultDock
           v-if="shouldShowTopResultDock"
           :has-content="Boolean(activeResultPanelKind)"
           :icon="resultPanelIcon"
           :title="resultPanelTitle"
+          :width="workspaceDockPreference.rightResultWidth"
+          :collapsed="workspaceDockPreference.rightResultCollapsed"
           @close="closeResultPanel"
+          @collapse-change="handleRightDockCollapseChange('result', $event)"
           @dock-resize="handleRightToolbarDockResize"
         >
+          <MeasurementMetricsPanelContent
+            v-if="activeResultPanelKind === 'measurement'"
+            :measurement="selectedMeasurementEntry?.measurement ?? null"
+            :viewport-key="selectedMeasurementEntry?.viewportKey ?? null"
+          />
           <MtfCurvePanelContent
             v-if="activeResultPanelKind === 'mtfCurve'"
             :mtf-item="selectedMtfItem"
@@ -2623,6 +2882,13 @@ onBeforeUnmount(() => {
             :analysis="qaWaterAnalysis"
           />
         </ViewerResultDock>
+
+        <div
+          v-if="shouldShowRightToolbarDock && activeTab && !workspaceDockPreference.rightToolbarCollapsed"
+          class="viewer-workspace-right-dock-resize-handle"
+          aria-hidden="true"
+          @pointerdown="startRightDockResize('toolbar', $event)"
+        ></div>
 
         <ViewerToolbarDock
           v-if="shouldShowRightToolbarDock && activeTab"
@@ -2644,6 +2910,8 @@ onBeforeUnmount(() => {
           :utility-panel-open="rightToolbarUtilityPanelKind != null"
           :utility-panel-title="rightToolbarUtilityPanelTitle"
           :utility-panel-tool-key="rightToolbarUtilityPanelToolKey"
+          :width="workspaceDockPreference.rightToolbarWidth"
+          :collapsed="workspaceDockPreference.rightToolbarCollapsed"
           @apply-tool="handleToolbarApplyTool"
           @close-result-panel="closeResultPanel"
           @close-utility-panel="closeRightToolbarUtilityPanel"
@@ -2651,9 +2919,15 @@ onBeforeUnmount(() => {
           @pause-playback="pausePlayback"
           @select-tool-option="handleToolbarSelectToolOption"
           @set-menu-open="handleToolbarSetMenuOpen"
+          @collapse-change="handleRightDockCollapseChange('toolbar', $event)"
           @dock-resize="handleRightToolbarDockResize"
         >
           <template #result>
+            <MeasurementMetricsPanelContent
+              v-if="activeResultPanelKind === 'measurement'"
+              :measurement="selectedMeasurementEntry?.measurement ?? null"
+              :viewport-key="selectedMeasurementEntry?.viewportKey ?? null"
+            />
             <MtfCurvePanelContent
               v-if="activeResultPanelKind === 'mtfCurve'"
               :mtf-item="selectedMtfItem"
@@ -2694,6 +2968,12 @@ onBeforeUnmount(() => {
             />
           </template>
         </ViewerToolbarDock>
+        <div
+          v-if="isRightDockResizing"
+          class="viewer-workspace-right-dock-resize-preview"
+          :class="`viewer-workspace-right-dock-resize-preview--${rightDockResizePreviewTarget ?? 'toolbar'}`"
+          aria-hidden="true"
+        ></div>
       </div>
 
       <div
@@ -2772,8 +3052,46 @@ onBeforeUnmount(() => {
   border-style: dashed;
 }
 
+.viewer-workspace-content {
+  position: relative;
+}
+
 .viewer-workspace-content--right-toolbar {
   align-items: stretch;
+}
+
+.viewer-workspace-right-dock-resize-handle {
+  position: relative;
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  -webkit-app-region: no-drag;
+}
+
+.viewer-workspace-right-dock-resize-handle::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 50%;
+  border-left: 1px solid transparent;
+  content: "";
+  transform: translateX(-50%);
+  transition: border-color 150ms ease;
+}
+
+.viewer-workspace-right-dock-resize-handle:hover::before,
+.viewer-workspace-content[data-right-dock-resizing="true"] .viewer-workspace-right-dock-resize-handle::before {
+  border-left-color: color-mix(in srgb, var(--theme-accent) 52%, transparent);
+}
+
+.viewer-workspace-right-dock-resize-preview {
+  position: absolute;
+  top: 8px;
+  right: var(--viewer-right-dock-preview-width, 0px);
+  bottom: 8px;
+  z-index: 90;
+  border-left: 1px dashed color-mix(in srgb, var(--theme-accent) 78%, transparent);
+  pointer-events: none;
 }
 
 .viewer-workspace-dock-panel {

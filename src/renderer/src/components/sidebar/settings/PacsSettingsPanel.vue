@@ -6,12 +6,17 @@ import { toApiPacsDicomwebProfile, toApiPacsDimseProfile } from '../../../compos
 import { createPacsProfile, pacsAuthLabel, pacsPresetLabel, pacsProfileEndpoint } from '../../../composables/pacs/pacsProfileUtils'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { type PacsDicomwebProfile, useUiPreferences } from '../../../composables/ui/useUiPreferences'
-import { postApi } from '../../../services/typedApi'
 
 type PacsTestResult = { ok: boolean; message: string }
 
 const { locale } = useUiLocale()
 const { pacsPreference, setPacsPreference } = useUiPreferences()
+let typedApiModulePromise: Promise<typeof import('../../../services/typedApi')> | null = null
+
+function loadTypedApi(): Promise<typeof import('../../../services/typedApi')> {
+  typedApiModulePromise ??= import('../../../services/typedApi')
+  return typedApiModulePromise
+}
 
 const draftProfile = ref<PacsDicomwebProfile | null>(null)
 const editingProfileId = ref<string | null>(null)
@@ -159,6 +164,7 @@ async function testProfile(profile: PacsDicomwebProfile): Promise<void> {
   testingProfileIds.value = [...new Set([...testingProfileIds.value, profile.id])]
   removeTestResults([profile.id])
   try {
+    const { postApi } = await loadTypedApi()
     const response = profile.protocol === 'dimse'
       ? await postApi('TestDimseConnectionApiV1PacsDimseTestPost', {
           profile: toApiPacsDimseProfile(profile)

@@ -8,7 +8,8 @@ import {
 } from '../workspace/layout/mprLayoutOptions'
 import {
   DEFAULT_MPR_SEGMENTATION_COLOR,
-  DEFAULT_MPR_VOI_COLOR
+  DEFAULT_MPR_VOI_COLOR,
+  type DrawingScope
 } from '../../types/viewer'
 import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
 import {
@@ -79,6 +80,21 @@ export interface MeasurementStylePreference {
   lineWidth: number
   editingLineStyle: MeasurementLineStyle
   completedLineStyle: MeasurementLineStyle
+}
+
+export interface DrawingScopePreference {
+  measurement: DrawingScope
+  qaWater: DrawingScope
+  mtf: DrawingScope
+}
+
+export interface WorkspaceDockPreference {
+  leftWidth: number
+  leftCollapsed: boolean
+  rightToolbarWidth: number
+  rightToolbarCollapsed: boolean
+  rightResultWidth: number
+  rightResultCollapsed: boolean
 }
 
 export interface MprSegmentationStylePreference {
@@ -187,6 +203,8 @@ interface UiPreferencesState {
   scaleBarPreference: ScaleBarPreference
   viewportCornerInfoPreference: ViewportCornerInfoPreference
   measurementStylePreference: MeasurementStylePreference
+  drawingScopePreference: DrawingScopePreference
+  workspaceDockPreference: WorkspaceDockPreference
   mprSegmentationStylePreference: MprSegmentationStylePreference
   dicomTagEditSavePreference: DicomTagEditSavePreference
   dicomDeidentifyPreference: DicomDeidentifyPreference
@@ -198,7 +216,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 16
+const CURRENT_PREFERENCES_VERSION = 19
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
@@ -220,7 +238,11 @@ const PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE: ViewportCornerInfoPrefer
   topLeft: ['manufacturerModel', 'stationName', 'institutionName', 'examDescription', 'seriesNumber', 'viewportLocation'],
   topRight: ['patientName', 'patientSummary'],
   bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
-  bottomRight: ['zoom', 'coordinates']
+  bottomRight: ['zoom', 'coordinates'],
+  typographyPreset: 'comfortable',
+  colorMode: 'auto',
+  customDarkColor: '#f8fafc',
+  customLightColor: '#182334'
 }
 
 const systemWindowPresets: WindowTemplatePreset[] = [
@@ -374,6 +396,25 @@ function createDefaultMeasurementStylePreference(): MeasurementStylePreference {
   }
 }
 
+function createDefaultDrawingScopePreference(): DrawingScopePreference {
+  return {
+    measurement: 'image',
+    qaWater: 'image',
+    mtf: 'image'
+  }
+}
+
+function createDefaultWorkspaceDockPreference(): WorkspaceDockPreference {
+  return {
+    leftWidth: 320,
+    leftCollapsed: false,
+    rightToolbarWidth: 260,
+    rightToolbarCollapsed: false,
+    rightResultWidth: 344,
+    rightResultCollapsed: false
+  }
+}
+
 function createDefaultMprSegmentationStylePreference(): MprSegmentationStylePreference {
   return {
     thresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
@@ -477,6 +518,8 @@ function createDefaultState(): UiPreferencesState {
     scaleBarPreference: createDefaultScaleBarPreference(),
     viewportCornerInfoPreference: createDefaultViewportCornerInfoPreference(),
     measurementStylePreference: createDefaultMeasurementStylePreference(),
+    drawingScopePreference: createDefaultDrawingScopePreference(),
+    workspaceDockPreference: createDefaultWorkspaceDockPreference(),
     mprSegmentationStylePreference: createDefaultMprSegmentationStylePreference(),
     dicomTagEditSavePreference: createDefaultDicomTagEditSavePreference(),
     dicomDeidentifyPreference: createDefaultDicomDeidentifyPreference(),
@@ -772,6 +815,39 @@ function normalizeMeasurementStylePreference(value: unknown): MeasurementStylePr
   }
 }
 
+function normalizeDrawingScope(value: unknown, fallback: DrawingScope): DrawingScope {
+  return value === 'series' || value === 'image' ? value : fallback
+}
+
+function normalizeDrawingScopePreference(value: unknown): DrawingScopePreference {
+  const defaults = createDefaultDrawingScopePreference()
+  const record = value && typeof value === 'object' ? (value as Partial<DrawingScopePreference>) : null
+  return {
+    measurement: normalizeDrawingScope(record?.measurement, defaults.measurement),
+    qaWater: normalizeDrawingScope(record?.qaWater, defaults.qaWater),
+    mtf: normalizeDrawingScope(record?.mtf, defaults.mtf)
+  }
+}
+
+function normalizeWorkspaceDockWidth(value: unknown, fallback: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, normalizeInteger(value, fallback)))
+}
+
+function normalizeWorkspaceDockPreference(value: unknown): WorkspaceDockPreference {
+  const defaults = createDefaultWorkspaceDockPreference()
+  const record = value && typeof value === 'object' ? (value as Partial<WorkspaceDockPreference>) : null
+  return {
+    leftWidth: normalizeWorkspaceDockWidth(record?.leftWidth, defaults.leftWidth, 280, 480),
+    leftCollapsed: typeof record?.leftCollapsed === 'boolean' ? record.leftCollapsed : defaults.leftCollapsed,
+    rightToolbarWidth: normalizeWorkspaceDockWidth(record?.rightToolbarWidth, defaults.rightToolbarWidth, 240, 420),
+    rightToolbarCollapsed:
+      typeof record?.rightToolbarCollapsed === 'boolean' ? record.rightToolbarCollapsed : defaults.rightToolbarCollapsed,
+    rightResultWidth: normalizeWorkspaceDockWidth(record?.rightResultWidth, defaults.rightResultWidth, 300, 520),
+    rightResultCollapsed:
+      typeof record?.rightResultCollapsed === 'boolean' ? record.rightResultCollapsed : defaults.rightResultCollapsed
+  }
+}
+
 function normalizeMprSegmentationStylePreference(value: unknown): MprSegmentationStylePreference {
   const defaults = createDefaultMprSegmentationStylePreference()
   const record = value && typeof value === 'object' ? (value as Partial<MprSegmentationStylePreference>) : null
@@ -861,10 +937,10 @@ function migrateViewportCornerInfoPreference(
   version: number,
   value: ViewportCornerInfoPreference
 ): ViewportCornerInfoPreference {
-  if (version >= 15 || !areViewportCornerInfoPreferencesEqual(value, PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE)) {
-    return value
+  if (version < 19 && areViewportCornerInfoPreferencesEqual(value, PREVIOUS_DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE)) {
+    return createDefaultViewportCornerInfoPreference()
   }
-  return createDefaultViewportCornerInfoPreference()
+  return value
 }
 
 function normalizeRoiStatOptions(value: unknown): RoiStatPreference[] {
@@ -941,6 +1017,8 @@ function applyState(nextState: UiPreferencesState): void {
   state.scaleBarPreference = nextState.scaleBarPreference
   state.viewportCornerInfoPreference = nextState.viewportCornerInfoPreference
   state.measurementStylePreference = nextState.measurementStylePreference
+  state.drawingScopePreference = nextState.drawingScopePreference
+  state.workspaceDockPreference = nextState.workspaceDockPreference
   state.mprSegmentationStylePreference = nextState.mprSegmentationStylePreference
   state.dicomTagEditSavePreference = nextState.dicomTagEditSavePreference
   state.dicomDeidentifyPreference = nextState.dicomDeidentifyPreference
@@ -972,7 +1050,11 @@ function serializeState(): UiPreferencesState {
       topLeft: [...state.viewportCornerInfoPreference.topLeft],
       topRight: [...state.viewportCornerInfoPreference.topRight],
       bottomLeft: [...state.viewportCornerInfoPreference.bottomLeft],
-      bottomRight: [...state.viewportCornerInfoPreference.bottomRight]
+      bottomRight: [...state.viewportCornerInfoPreference.bottomRight],
+      typographyPreset: state.viewportCornerInfoPreference.typographyPreset,
+      colorMode: state.viewportCornerInfoPreference.colorMode,
+      customDarkColor: state.viewportCornerInfoPreference.customDarkColor,
+      customLightColor: state.viewportCornerInfoPreference.customLightColor
     },
     measurementStylePreference: {
       editingColor: state.measurementStylePreference.editingColor,
@@ -980,6 +1062,19 @@ function serializeState(): UiPreferencesState {
       lineWidth: state.measurementStylePreference.lineWidth,
       editingLineStyle: state.measurementStylePreference.editingLineStyle,
       completedLineStyle: state.measurementStylePreference.completedLineStyle
+    },
+    drawingScopePreference: {
+      measurement: state.drawingScopePreference.measurement,
+      qaWater: state.drawingScopePreference.qaWater,
+      mtf: state.drawingScopePreference.mtf
+    },
+    workspaceDockPreference: {
+      leftWidth: state.workspaceDockPreference.leftWidth,
+      leftCollapsed: state.workspaceDockPreference.leftCollapsed,
+      rightToolbarWidth: state.workspaceDockPreference.rightToolbarWidth,
+      rightToolbarCollapsed: state.workspaceDockPreference.rightToolbarCollapsed,
+      rightResultWidth: state.workspaceDockPreference.rightResultWidth,
+      rightResultCollapsed: state.workspaceDockPreference.rightResultCollapsed
     },
     mprSegmentationStylePreference: {
       thresholdColor: state.mprSegmentationStylePreference.thresholdColor,
@@ -1076,6 +1171,8 @@ async function hydrateState(): Promise<void> {
           normalizeViewportCornerInfoPreference(parsed.viewportCornerInfoPreference)
         ),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
+        drawingScopePreference: normalizeDrawingScopePreference(parsed.drawingScopePreference),
+        workspaceDockPreference: normalizeWorkspaceDockPreference(parsed.workspaceDockPreference),
         mprSegmentationStylePreference: normalizeMprSegmentationStylePreference(parsed.mprSegmentationStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
@@ -1237,6 +1334,16 @@ export function useUiPreferences() {
     void persistState()
   }
 
+  function setDrawingScopePreference(nextValue: DrawingScopePreference): void {
+    state.drawingScopePreference = normalizeDrawingScopePreference(nextValue)
+    void persistState()
+  }
+
+  function setWorkspaceDockPreference(nextValue: WorkspaceDockPreference): void {
+    state.workspaceDockPreference = normalizeWorkspaceDockPreference(nextValue)
+    void persistState()
+  }
+
   function setMprSegmentationStylePreference(nextValue: MprSegmentationStylePreference): void {
     state.mprSegmentationStylePreference = normalizeMprSegmentationStylePreference(nextValue)
     void persistState()
@@ -1337,6 +1444,7 @@ export function useUiPreferences() {
     dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
     hangingProtocolRules: computed(() => state.hangingProtocolRules),
+    drawingScopePreference: computed(() => state.drawingScopePreference),
     measurementStylePreference: computed(() => state.measurementStylePreference),
     mprSegmentationStylePreference: computed(() => state.mprSegmentationStylePreference),
     mprDefaultLayoutKey,
@@ -1345,6 +1453,7 @@ export function useUiPreferences() {
     roiStatOptions: computed(() => state.roiStatOptions),
     scaleBarPreference: computed(() => state.scaleBarPreference),
     viewportCornerInfoPreference: computed(() => state.viewportCornerInfoPreference),
+    workspaceDockPreference: computed(() => state.workspaceDockPreference),
     selectedPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
@@ -1354,12 +1463,14 @@ export function useUiPreferences() {
     setHangingProtocolRules,
     setPacsPreference,
     setLocale,
+    setDrawingScopePreference,
     setMeasurementStylePreference,
     setMprSegmentationStylePreference,
     setMprDefaultLayoutKey,
     setQaWaterMetrics,
     setScaleBarPreference,
     setViewportCornerInfoPreference,
+    setWorkspaceDockPreference,
     setRoiStatOptions,
     addCustomWindowPreset,
     removeCustomWindowPreset,

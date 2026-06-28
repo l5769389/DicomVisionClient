@@ -2,10 +2,6 @@
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import AppIcon from '../../components/AppIcon.vue'
-import MtfCurveDialog from '../../components/viewer/overlays/MtfCurveDialog.vue'
-import VolumeRenderConfigPanel from '../../components/workspace/VolumeRenderConfigPanel.vue'
-import WorkspaceExportNameDialog from '../../components/workspace/export/WorkspaceExportNameDialog.vue'
-import WorkspaceExportNotice from '../../components/workspace/export/WorkspaceExportNotice.vue'
 import {
   FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS,
   PSEUDOCOLOR_PRESET_OPTIONS,
@@ -39,18 +35,12 @@ import {
   getSeriesDisplayName,
   getViewTypeDisplayLabel
 } from '../../composables/workspace/views/viewerWorkspaceTabs'
-import { setApiBaseURL } from '../../services/api'
-import { postApi, postDicomUpload, type LoadFolderResponse } from '../../services/typedApi'
+import { setApiBaseURL } from '../../services/apiBase'
+import type { LoadFolderResponse } from '../../services/typedApi'
 import { viewerRuntime, type DicomLoadSelection, type DicomLoadSource } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
 import type { AnnotationSize, CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, FusionPaneKey, MeasurementOverlay, MeasurementToolType, MprSegmentationConfig, MprSegmentationConfigActionType, MprThresholdRegion, MprViewportKey, ViewerMtfItem, ViewerTabItem, ViewType, WindowLevelInfo } from '../../types/viewer'
 import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR, MPR_SEGMENTATION_DEPTH_LIMITS, MPR_SEGMENTATION_HU_LIMITS, createDefaultMprSegmentationConfig } from '../../types/viewer'
-import MobileCompareStackViewport from './MobileCompareStackViewport.vue'
-import MobileMprViewport from './MobileMprViewport.vue'
-import MobilePetCtFusionViewport from './MobilePetCtFusionViewport.vue'
-import MobileSettingsOverlay from './MobileSettingsOverlay.vue'
-import MobileStackViewport from './MobileStackViewport.vue'
-import MobileVolumeViewport from './MobileVolumeViewport.vue'
 import {
   MOBILE_STACK_PLAYBACK_FPS_OPTIONS,
   type MobileGestureSensitivity,
@@ -59,8 +49,25 @@ import {
   useMobileViewerPreferences
 } from './useMobileViewerPreferences'
 
+const MtfCurveDialog = defineAsyncComponent(() => import('../../components/viewer/overlays/MtfCurveDialog.vue'))
+const VolumeRenderConfigPanel = defineAsyncComponent(() => import('../../components/workspace/VolumeRenderConfigPanel.vue'))
+const WorkspaceExportNameDialog = defineAsyncComponent(() => import('../../components/workspace/export/WorkspaceExportNameDialog.vue'))
+const WorkspaceExportNotice = defineAsyncComponent(() => import('../../components/workspace/export/WorkspaceExportNotice.vue'))
+const MobileCompareStackViewport = defineAsyncComponent(() => import('./MobileCompareStackViewport.vue'))
+const MobileMprViewport = defineAsyncComponent(() => import('./MobileMprViewport.vue'))
+const MobilePetCtFusionViewport = defineAsyncComponent(() => import('./MobilePetCtFusionViewport.vue'))
+const MobileSettingsOverlay = defineAsyncComponent(() => import('./MobileSettingsOverlay.vue'))
+const MobileStackViewport = defineAsyncComponent(() => import('./MobileStackViewport.vue'))
+const MobileVolumeViewport = defineAsyncComponent(() => import('./MobileVolumeViewport.vue'))
 const PacsBrowserDialog = defineAsyncComponent(() => import('../../components/sidebar/PacsBrowserDialog.vue'))
 const MprSegmentationPanel = defineAsyncComponent(() => import('../../components/workspace/MprSegmentationPanel.vue'))
+
+let typedApiModulePromise: Promise<typeof import('../../services/typedApi')> | null = null
+
+function loadTypedApi() {
+  typedApiModulePromise ??= import('../../services/typedApi')
+  return typedApiModulePromise
+}
 
 type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'annotate' | 'qa' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'volumeParams' | 'export' | 'tag' | 'compare' | 'fusion' | 'segmentation'
 type MobileInlineToolKey = 'fusionRegistrationToggle' | 'fusionRegistrationTranslate' | 'fusionRegistrationRotate' | 'fusionRegistrationReset' | 'fusionRegistrationSave'
@@ -70,7 +77,7 @@ type MobileInlineToolPanel = 'measure' | 'color' | 'transform' | 'segmentation' 
 type MobileSheetKind = 'history' | 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'fusion' | 'segmentation' | 'mpr' | 'measure' | 'annotate' | 'qa' | 'export' | 'volumeParams' | 'reset' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
-type DisplayOverlayKey = 'cornerInfo' | 'scaleBar'
+type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar'
 type MobileScreenOrientationLockType = 'portrait-primary' | 'landscape-primary'
 type LockableScreenOrientation = ScreenOrientation & {
   lock?: (orientation: MobileScreenOrientationLockType) => Promise<void>
@@ -266,6 +273,7 @@ const {
 } = useUiPreferences()
 const {
   defaultShowCornerInfo,
+  defaultShowPseudocolorBar,
   defaultShowScaleBar,
   gestureSensitivity,
   mprDefaultTool,
@@ -1013,10 +1021,22 @@ const sheetTitle = computed(() => {
 
 const showSheetTabBar = computed(() => activeSheetPresentation.value === 'menu')
 
-const displayOverlayOptions = computed<Array<{ key: DisplayOverlayKey; icon: string; label: string; enabled: boolean }>>(() => [
+const displayOverlayOptions = computed<Array<{ key: DisplayOverlayKey; icon: string; label: string; enabled: boolean }>>(() => {
+  const tab = activeImageTab.value
+  const options: Array<{ key: DisplayOverlayKey; icon: string; label: string; enabled: boolean }> = [
   { key: 'cornerInfo', icon: 'info', label: isZh.value ? '四角信息' : 'Corner Info', enabled: activeImageTab.value?.showCornerInfo !== false },
   { key: 'scaleBar', icon: 'measure', label: isZh.value ? '比例尺' : 'Scale Bar', enabled: activeImageTab.value?.showScaleBar !== false }
-])
+  ]
+  if (tab?.viewType !== '3D' && tab?.viewType !== 'PETCTFusion') {
+    options.push({
+      key: 'pseudocolorBar',
+      icon: 'pseudocolor',
+      label: isZh.value ? '伪彩条' : 'Pseudocolor Bar',
+      enabled: tab?.showPseudocolorBar !== false
+    })
+  }
+  return options
+})
 const displayCustomWindowPresets = computed(() => windowPresets.value.filter((preset) => preset.source === 'custom'))
 const selectedCustomPresetIdSet = computed(() => new Set(selectedCustomPresetIds.value))
 const hasSelectedCustomPresets = computed(() => selectedCustomPresetIds.value.length > 0)
@@ -1310,6 +1330,11 @@ function applyDisplayOverlayDefaults(): void {
     action: 'displayOverlay',
     overlay: 'scaleBar',
     enabled: defaultShowScaleBar.value
+  })
+  viewer.triggerViewAction({
+    action: 'displayOverlay',
+    overlay: 'pseudocolorBar',
+    enabled: defaultShowPseudocolorBar.value
   })
 }
 
@@ -1737,6 +1762,7 @@ function resolveMobileSampleMode(): MobileSampleMode {
 }
 
 async function loadMobileDemoResponse() {
+  const { postApi } = await loadTypedApi()
   if (resolveMobileSampleMode() === 'local-path') {
     const devSamplePath = getMobileDevSampleDicomPath()
     if (!devSamplePath) {
@@ -1780,6 +1806,7 @@ async function applyMobileLoadResponse(response: LoadFolderResponse): Promise<vo
 }
 
 async function loadMobileLocalSource(source: DicomLoadSource): Promise<LoadFolderResponse | null> {
+  const { postApi, postDicomUpload } = await loadTypedApi()
   if (source.kind === 'files') {
     return postDicomUpload(source.files)
   }
@@ -3228,7 +3255,7 @@ watch(
 )
 
 watch(
-  [defaultShowCornerInfo, defaultShowScaleBar],
+  [defaultShowCornerInfo, defaultShowPseudocolorBar, defaultShowScaleBar],
   () => {
     applyDisplayOverlayDefaults()
   }

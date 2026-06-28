@@ -15,6 +15,7 @@ import type {
   CornerInfo,
   MeasurementDraftPoint,
   MeasurementToolType,
+  OrientationInfo,
   QaWaterAnalysis,
   ViewerMtfItem,
   ViewerTabItem,
@@ -87,6 +88,13 @@ const emptyCornerInfo: CornerInfo = {
   topRight: [],
   bottomLeft: [],
   bottomRight: []
+}
+const emptyOrientationInfo: OrientationInfo = {
+  top: null,
+  right: null,
+  bottom: null,
+  left: null,
+  volumeQuaternion: null
 }
 
 let lastPrimaryPoint: PointerPoint | null = null
@@ -540,10 +548,13 @@ watch(
       :qa-water-analysis="qaWaterAnalysis"
       :selected-mtf-id="selectedMtfId ?? null"
       :scale-bar="stackTab?.scaleBar ?? null"
+      :pseudocolor-preset="stackTab?.pseudocolorPreset ?? null"
+      :pseudocolor-window-info="stackTab?.currentWindowInfo ?? stackTab?.initialWindowInfo ?? null"
       :show-corner-info="stackTab?.showCornerInfo !== false"
       :show-scale-bar="stackTab?.showScaleBar !== false"
+      :show-pseudocolor-bar="stackTab?.showPseudocolorBar !== false"
       :viewport-transform="stackTab?.transformState ?? null"
-      :orientation="stackTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
+      :orientation="stackTab?.orientation ?? emptyOrientationInfo"
       @copy-annotation="emit('copyAnnotation', $event)"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="copySelectedMeasurement"

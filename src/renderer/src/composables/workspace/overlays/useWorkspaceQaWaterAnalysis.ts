@@ -1,7 +1,13 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { QaWaterAnalysis, QaWaterMetricKey, ViewerTabItem } from '../../../types/viewer'
-import { analyzeWaterPhantomView } from '../../qa/waterPhantomQa'
 import type { QaWaterMetricPreference } from '../../ui/useUiPreferences'
+
+let waterPhantomQaModulePromise: Promise<typeof import('../../qa/waterPhantomQa')> | null = null
+
+function loadWaterPhantomQa(): Promise<typeof import('../../qa/waterPhantomQa')> {
+  waterPhantomQaModulePromise ??= import('../../qa/waterPhantomQa')
+  return waterPhantomQaModulePromise
+}
 
 export function isWaterPhantomQaOperation(value: string): boolean {
   const normalized = value.startsWith('stack:') ? value.slice('stack:'.length) : value
@@ -64,6 +70,7 @@ export function useWorkspaceQaWaterAnalysis(options: WorkspaceQaWaterAnalysisOpt
     }
 
     try {
+      const { analyzeWaterPhantomView } = await loadWaterPhantomQa()
       const analysis = await analyzeWaterPhantomView(tab.viewId, 'single', getEnabledQaWaterMetricKeys())
       rememberQaWaterAnalysis(key, analysis)
       if (requestId === qaWaterAnalysisRequestId && key === qaWaterAnalysisKey.value) {

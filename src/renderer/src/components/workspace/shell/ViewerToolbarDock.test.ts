@@ -5,6 +5,19 @@ import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
 import ViewerToolbarDock from './ViewerToolbarDock.vue'
 
+function ensureLocalStorage(): void {
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      clear: () => store.clear(),
+      getItem: (key: string) => store.get(key) ?? null,
+      removeItem: (key: string) => store.delete(key),
+      setItem: (key: string, value: string) => store.set(key, value)
+    }
+  })
+}
+
 const activeTab = {
   key: 'series-1::stack',
   seriesId: 'series-1',
@@ -49,6 +62,7 @@ function mountDock(overrides: Partial<InstanceType<typeof ViewerToolbarDock>['$p
 
 describe('ViewerToolbarDock', () => {
   beforeEach(() => {
+    ensureLocalStorage()
     window.localStorage.clear()
     useUiPreferences().setLocale('en-US')
   })

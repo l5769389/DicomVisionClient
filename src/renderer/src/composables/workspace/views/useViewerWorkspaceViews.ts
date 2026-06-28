@@ -1,7 +1,6 @@
 import { nextTick, watch, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import { resolveBackendAssetUrl } from '../../../services/api'
-import { postApi } from '../../../services/typedApi'
+import { resolveBackendAssetUrl } from '../../../services/apiBase'
 import {
   bindView,
   bindViewSilently,
@@ -18,6 +17,7 @@ import {
   createDefaultFusionInfo,
   createDefaultPetInfo,
   createEmptyCompareCornerInfos,
+  createEmptyCompareCurrentWindowInfos,
   createEmptyCompareImages,
   createEmptyCompareInitialWindowInfos,
   createEmptyCompareOrientations,
@@ -44,6 +44,7 @@ import {
   createEmptyFusionWindowLabels,
   createEmptyMprCornerInfos,
   createEmptyMprCrosshairs,
+  createEmptyMprCurrentWindowInfos,
   createEmptyMprImages,
   createEmptyMprInitialWindowInfos,
   createEmptyMprOrientations,
@@ -152,6 +153,13 @@ import {
   type IncomingMprViewportUpdate
 } from './mprInteractionGuard'
 import { createViewSizeUpdateDeduper } from './viewSizeUpdateDeduper'
+
+let typedApiModulePromise: Promise<typeof import('../../../services/typedApi')> | null = null
+
+function loadTypedApi() {
+  typedApiModulePromise ??= import('../../../services/typedApi')
+  return typedApiModulePromise
+}
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { resolveBackendErrorDetail } from '../tasks/workspaceStatus'
 import { createKeyedLatestRequestGuard } from '../requests/latestRequest'
@@ -175,6 +183,7 @@ import type {
   PetInfo,
   ViewImageResponse,
   ViewProgressInfo,
+  ViewTransformInfo,
   ViewerLayoutSlot,
   ViewerLayoutTemplate,
   ViewerTabItem,
@@ -318,6 +327,34 @@ function formatWindowInfoLabel(ww: number | null | undefined, wl: number | null 
   return `WW ${formatWindowInfoValue(ww)}  WL ${formatWindowInfoValue(wl)}`
 }
 
+function normalizeTransformRotationDegrees(value: number | null | undefined): number {
+  const numeric = Number(value ?? 0)
+  if (!Number.isFinite(numeric)) {
+    return 0
+  }
+  const normalized = Math.round(numeric) % 360
+  return normalized < 0 ? normalized + 360 : normalized
+}
+
+function formatTransformCornerInfoLabel(transform: ViewTransformInfo | null | undefined): string {
+  const rotation = normalizeTransformRotationDegrees(transform?.rotationDegrees)
+  const flipParts = [
+    transform?.horFlip ? 'H' : '',
+    transform?.verFlip ? 'V' : ''
+  ].filter(Boolean)
+  return `Rot:${rotation}° / Flip:${flipParts.join('') || '-'}`
+}
+
+function mergeTransformCornerInfoTag(cornerInfo: CornerInfo, transform: ViewTransformInfo | null | undefined): CornerInfo {
+  return {
+    ...cornerInfo,
+    tags: {
+      ...(cornerInfo.tags ?? {}),
+      transform2dState: [formatTransformCornerInfoLabel(transform)]
+    }
+  }
+}
+
 function normalizeWindowLevelInfo(ww: number | null | undefined, wl: number | null | undefined): WindowLevelInfo | null {
   const width = Number(ww)
   const level = Number(wl)
@@ -335,6 +372,15 @@ function rememberInitialWindowInfo(
   wl: number | null | undefined
 ): WindowLevelInfo | null | undefined {
   return current ?? normalizeWindowLevelInfo(ww, wl) ?? current
+}
+
+function resolveCurrentWindowInfo(
+  current: WindowLevelInfo | null | undefined,
+  initial: WindowLevelInfo | null | undefined,
+  ww: number | null | undefined,
+  wl: number | null | undefined
+): WindowLevelInfo | null {
+  return normalizeWindowLevelInfo(ww, wl) ?? current ?? initial ?? null
 }
 
 function getImageUpdateMetadataMode(payload: Partial<ViewImageResponse>): string {
@@ -465,6 +511,24 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   })
   const { locale, selectedPseudocolorKey } = useUiPreferences()
   let tabActivationHistory: string[] = []
+
+  function withRuntimeCornerInfo(
+    cornerInfo: CornerInfo,
+    transform: ViewTransformInfo | null | undefined,
+    row?: number | null,
+    col?: number | null
+  ): CornerInfo {
+    return options.withHoverCornerInfo(mergeTransformCornerInfoTag(cornerInfo, transform), row, col)
+  }
+
+  function mergePixelRuntimeCornerInfo(
+    current: CornerInfo | null | undefined,
+    nextWindowLabel: string | null,
+    fallback: CornerInfo,
+    transform: ViewTransformInfo | null | undefined
+  ): CornerInfo {
+    return mergeTransformCornerInfoTag(mergePixelCornerTags(current, nextWindowLabel, fallback), transform)
+  }
 
   function rememberActiveTabKey(tabKey: string): void {
     if (!tabKey) {
@@ -667,6 +731,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return slot
     }
 
+    const { postApi } = await loadTypedApi()
     const data = await postApi('CreateViewApiV1ViewCreatePost', {
       seriesId: slot.seriesId,
       viewType: 'Stack'
@@ -849,6 +914,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
 
     try {
+      const { postApi } = await loadTypedApi()
       const data = await postApi(
         'GetDicomTagsApiV1DicomTagsPost',
         {
@@ -926,6 +992,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   }
 
   async function createMprViewportViews(seriesId: string, viewGroupKey?: string): Promise<Record<MprViewportKey, string>> {
+    const { postApi } = await loadTypedApi()
     const responses = await Promise.all(
       MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
@@ -950,6 +1017,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const seriesByPane = createComparePaneRecord((paneKey) =>
       paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? sourceSeriesId : targetSeriesId
     )
+    const { postApi } = await loadTypedApi()
     const entries = await Promise.all(
       COMPARE_STACK_PANE_KEYS.map(async (viewportKey) => {
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
@@ -987,6 +1055,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     petSeriesId: string,
     viewGroupKey: string
   ): Promise<Record<FusionPaneKey, string>> {
+    const { postApi } = await loadTypedApi()
     const entries = await Promise.all(
       FUSION_PANE_KEYS.map(async (paneKey) => {
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
@@ -1259,6 +1328,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     const request = (async () => {
       try {
+        const { postApi } = await loadTypedApi()
         const data = await postApi('GetFourDPhasesApiV1DicomFourDPhasesPost', { seriesId })
         const manifest = normalizeFourDManifestResponse(data, seriesId)
         if (!manifest) {
@@ -1323,6 +1393,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         imageSrc: '',
         sliceLabel: '',
         windowLabel: '',
+        currentWindowInfo: null,
         cornerInfo: options.seriesCornerInfoMap.value[activePhaseSeriesId] ?? createEmptyCornerInfo(),
         orientation: createEmptyOrientationInfo(),
         fourDPhaseIndex: nextPhaseIndex,
@@ -1849,6 +1920,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             if (slot.ownsImageSrc) {
               revokeObjectUrlIfNeeded(slot.imageSrc)
             }
+            const slotTransformState = hasTransformPayload ? transformState : slot.transformState ?? transformState
+            const slotCornerFallback = withRuntimeCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo), slotTransformState)
             return {
               ...slot,
               imageSrc: getIncomingImageSrc(),
@@ -1856,16 +1929,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               sliceLabel,
               windowLabel,
               initialWindowInfo: rememberInitialWindowInfo(slot.initialWindowInfo, ww, wl) ?? null,
+              currentWindowInfo: resolveCurrentWindowInfo(slot.currentWindowInfo, slot.initialWindowInfo, ww, wl),
               scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
               cornerInfo: hasCornerInfoPayload
-                ? options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
-                : mergePixelCornerTags(
+                ? slotCornerFallback
+                : mergePixelRuntimeCornerInfo(
                     slot.cornerInfo,
                     pixelWindowLabel,
-                    options.withHoverCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo))
+                    slotCornerFallback,
+                    slotTransformState
                   ),
               orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
-              transformState: hasTransformPayload ? transformState : slot.transformState ?? transformState,
+              transformState: slotTransformState,
               pseudocolorPreset: layoutPseudocolorPreset
             }
           })
@@ -1891,6 +1966,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
         const currentImage = item.compareImages?.[compareViewportKey]
         revokeObjectUrlIfNeeded(currentImage)
+        const compareTransformState = hasTransformPayload
+          ? transformState
+          : item.compareTransformStates?.[compareViewportKey] ?? transformState
+        const compareCornerFallback = withRuntimeCornerInfo(
+          mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo),
+          compareTransformState
+        )
 
         return withRenderRevision({
           ...item,
@@ -1910,6 +1992,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.compareInitialWindowInfos ?? createEmptyCompareInitialWindowInfos()),
             [compareViewportKey]: rememberInitialWindowInfo(item.compareInitialWindowInfos?.[compareViewportKey], ww, wl)
           },
+          compareCurrentWindowInfos: {
+            ...(item.compareCurrentWindowInfos ?? createEmptyCompareCurrentWindowInfos()),
+            [compareViewportKey]: resolveCurrentWindowInfo(
+              item.compareCurrentWindowInfos?.[compareViewportKey],
+              item.compareInitialWindowInfos?.[compareViewportKey],
+              ww,
+              wl
+            )
+          },
           compareScaleBars: {
             ...(item.compareScaleBars ?? createEmptyCompareScaleBars()),
             [compareViewportKey]: hasScaleBarPayload
@@ -1919,11 +2010,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           compareCornerInfos: {
             ...(item.compareCornerInfos ?? createEmptyCompareCornerInfos()),
             [compareViewportKey]: hasCornerInfoPayload
-              ? options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
-              : mergePixelCornerTags(
+              ? compareCornerFallback
+              : mergePixelRuntimeCornerInfo(
                   item.compareCornerInfos?.[compareViewportKey],
                   pixelWindowLabel,
-                  options.withHoverCornerInfo(mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo))
+                  compareCornerFallback,
+                  compareTransformState
                 )
           },
           compareOrientations: {
@@ -1934,9 +2026,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           compareTransformStates: {
             ...(item.compareTransformStates ?? createEmptyCompareTransformStates()),
-            [compareViewportKey]: hasTransformPayload
-              ? transformState
-              : item.compareTransformStates?.[compareViewportKey] ?? transformState
+            [compareViewportKey]: compareTransformState
           },
           comparePseudocolorPresets: {
             ...(item.comparePseudocolorPresets ?? createEmptyComparePseudocolorPresets()),
@@ -2011,12 +2101,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               height: layeredFusionComposite.height
             }
           : null
+        const fusionTransformState = hasTransformPayload
+          ? transformState
+          : item.fusionTransformStates?.[fusionViewportKey] ?? transformState
+        const fusionCornerFallback = withRuntimeCornerInfo(
+          mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo),
+          fusionTransformState
+        )
         const mergedFusionCornerInfo = hasCornerInfoPayload
-          ? options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
-          : mergePixelCornerTags(
+          ? fusionCornerFallback
+          : mergePixelRuntimeCornerInfo(
               item.fusionCornerInfos?.[fusionViewportKey],
               pixelWindowLabel,
-              options.withHoverCornerInfo(mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo))
+              fusionCornerFallback,
+              fusionTransformState
             )
         const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
         if (shouldKeepCurrentPrimaryImage) {
@@ -2079,9 +2177,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           fusionTransformStates: {
             ...(item.fusionTransformStates ?? createEmptyFusionTransformStates()),
-            [fusionViewportKey]: hasTransformPayload
-              ? transformState
-              : item.fusionTransformStates?.[fusionViewportKey] ?? transformState
+            [fusionViewportKey]: fusionTransformState
           },
           fusionPseudocolorPresets: {
             ...(item.fusionPseudocolorPresets ?? createEmptyFusionPseudocolorPresets()),
@@ -2199,6 +2295,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                 update: mprViewportUpdate
               })
             : currentPhaseCrosshair
+          const phaseViewportTransformState = !hasTransformPayload
+            ? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? transformState
+            : transformState
+          const phaseViewportCornerFallback = withRuntimeCornerInfo(
+            mergeCornerInfo(seriesCornerInfo, sliceCornerInfo),
+            phaseViewportTransformState
+          )
           nextFourDPhaseCache = {
             ...(item.fourDPhaseCache ?? {}),
             [fourDViewportMatch.phaseKey]: {
@@ -2206,9 +2309,24 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               status: hasCompleteMprViewportImages(nextViewportImages) ? 'ready' : 'loading',
               windowLabel,
               initialWindowInfo: rememberInitialWindowInfo(phaseCacheSeed.initialWindowInfo, ww, wl) ?? null,
+              currentWindowInfo: resolveCurrentWindowInfo(
+                phaseCacheSeed.currentWindowInfo,
+                phaseCacheSeed.initialWindowInfo,
+                ww,
+                wl
+              ),
               viewportInitialWindowInfos: {
                 ...(phaseCacheSeed.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
                 [viewportKey]: rememberInitialWindowInfo(phaseCacheSeed.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+              },
+              viewportCurrentWindowInfos: {
+                ...(phaseCacheSeed.viewportCurrentWindowInfos ?? createEmptyMprCurrentWindowInfos()),
+                [viewportKey]: resolveCurrentWindowInfo(
+                  phaseCacheSeed.viewportCurrentWindowInfos?.[viewportKey],
+                  phaseCacheSeed.viewportInitialWindowInfos?.[viewportKey],
+                  ww,
+                  wl
+                )
               },
               mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
               mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
@@ -2239,12 +2357,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportCornerInfos: {
                 ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
                 [viewportKey]: !hasCornerInfoPayload
-                  ? mergePixelCornerTags(
+                  ? mergePixelRuntimeCornerInfo(
                       phaseCacheSeed.viewportCornerInfos?.[viewportKey],
                       pixelWindowLabel,
-                      options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                      phaseViewportCornerFallback,
+                      phaseViewportTransformState
                     )
-                  : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                  : phaseViewportCornerFallback
               },
               viewportOrientations: {
                 ...(phaseCacheSeed.viewportOrientations ?? createEmptyMprOrientations()),
@@ -2254,9 +2373,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
               viewportTransformStates: {
                 ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
-                [viewportKey]: !hasTransformPayload
-                  ? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? transformState
-                  : transformState
+                [viewportKey]: phaseViewportTransformState
               },
               viewportPseudocolorPresets: {
                 ...(phaseCacheSeed.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
@@ -2296,11 +2413,19 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               update: mprViewportUpdate
             })
           : currentViewportCrosshair
+        const viewportTransformState = !hasTransformPayload
+          ? item.viewportTransformStates?.[viewportKey] ?? transformState
+          : transformState
+        const viewportCornerFallback = withRuntimeCornerInfo(
+          mergeCornerInfo(seriesCornerInfo, sliceCornerInfo),
+          viewportTransformState
+        )
 
         return withRenderRevision({
           ...item,
           windowLabel,
           initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
+          currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
           mprCursor: mprCursor ?? item.mprCursor ?? null,
           mprFrame: mprFrame ?? item.mprFrame ?? null,
           mprRevision: mprRevision ?? item.mprRevision ?? null,
@@ -2348,12 +2473,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
             [viewportKey]: !hasCornerInfoPayload
-              ? mergePixelCornerTags(
+              ? mergePixelRuntimeCornerInfo(
                   item.viewportCornerInfos?.[viewportKey],
                   pixelWindowLabel,
-                  options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+                  viewportCornerFallback,
+                  viewportTransformState
                 )
-              : options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+              : viewportCornerFallback
           },
           viewportOrientations: {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
@@ -2363,9 +2489,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportTransformStates: {
             ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
-            [viewportKey]: !hasTransformPayload
-              ? item.viewportTransformStates?.[viewportKey] ?? transformState
-              : transformState
+            [viewportKey]: viewportTransformState
           },
           viewportPseudocolorPresets: {
             ...(item.viewportPseudocolorPresets ?? createEmptyMprPseudocolorPresets()),
@@ -2374,6 +2498,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportInitialWindowInfos: {
             ...(item.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
             [viewportKey]: rememberInitialWindowInfo(item.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+          },
+          viewportCurrentWindowInfos: {
+            ...(item.viewportCurrentWindowInfos ?? createEmptyMprCurrentWindowInfos()),
+            [viewportKey]: resolveCurrentWindowInfo(
+              item.viewportCurrentWindowInfos?.[viewportKey],
+              item.viewportInitialWindowInfos?.[viewportKey],
+              ww,
+              wl
+            )
           },
           viewportLoadingProgress: {
             ...(item.viewportLoadingProgress ?? {}),
@@ -2409,12 +2542,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             pseudocolorPreset: singlePseudocolorPreset
           }
         : item.petInfo ?? null
+      const singleTransformState = hasTransformPayload ? transformState : item.transformState ?? transformState
+      const singleCornerFallback = withRuntimeCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo), singleTransformState)
       const baseSingleCornerInfo = hasCornerInfoPayload
-        ? options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
-        : mergePixelCornerTags(
+        ? singleCornerFallback
+        : mergePixelRuntimeCornerInfo(
             item.cornerInfo,
             pixelWindowLabel,
-            options.withHoverCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo))
+            singleCornerFallback,
+            singleTransformState
           )
       const singleCornerInfo = item.viewType === 'PET'
         ? normalizeStandalonePetCornerInfo(baseSingleCornerInfo, petInfo ?? previousPetInfo)
@@ -2429,12 +2565,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         sliceLabel,
         windowLabel,
         initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
+        currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
         measurements: hasMeasurementsPayload ? (payload.measurements ?? []) as MeasurementOverlay[] : item.measurements ?? [],
         annotations: hasAnnotationsPayload ? payloadAnnotations : item.annotations ?? [],
         scaleBar: hasScaleBarPayload ? scaleBar : item.scaleBar ?? null,
         cornerInfo: singleCornerInfo,
         orientation: hasOrientationPayload ? orientationInfo : item.orientation ?? orientationInfo,
-        transformState: hasTransformPayload ? transformState : item.transformState ?? transformState,
+        transformState: singleTransformState,
         pseudocolorPreset: singlePseudocolorPreset,
         petInfo,
         mprMipConfig,
@@ -2502,10 +2639,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         options.seriesCornerInfoMap.value[item.seriesId] ??
         createEmptyCornerInfo()
       const hasCornerInfoPayload = payload.cornerInfo != null
-      const stateCornerInfo = hasCornerInfoPayload
-        ? options.withHoverCornerInfo(
-            mergeCornerInfo(seriesCornerInfo, options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo)))
-          )
+      const stateCornerInfoBase = hasCornerInfoPayload
+        ? mergeCornerInfo(seriesCornerInfo, options.stripHoverCornerInfo(normalizeCornerInfo(payload.cornerInfo)))
         : null
       const mprCursor = normalizeMprCursorInfo(payload.mprCursor ?? ((payload as { mpr_cursor?: unknown }).mpr_cursor ?? null))
       const mprFrame = normalizeMprFrameInfo(payload.mprFrame ?? ((payload as { mpr_frame?: unknown }).mpr_frame ?? null))
@@ -2549,15 +2684,34 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const phase = getFourDPhaseByKey(item, fourDViewportMatch.phaseKey)
         const existingPhaseCache = item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]
         const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
+        const phaseViewportTransformState = transformState ?? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
+        const phaseStateCornerInfo = stateCornerInfoBase
+          ? withRuntimeCornerInfo(stateCornerInfoBase, phaseViewportTransformState)
+          : null
         nextFourDPhaseCache = {
           ...(item.fourDPhaseCache ?? {}),
           [fourDViewportMatch.phaseKey]: {
             ...phaseCacheSeed,
             windowLabel,
             initialWindowInfo: rememberInitialWindowInfo(phaseCacheSeed.initialWindowInfo, ww, wl) ?? null,
+            currentWindowInfo: resolveCurrentWindowInfo(
+              phaseCacheSeed.currentWindowInfo,
+              phaseCacheSeed.initialWindowInfo,
+              ww,
+              wl
+            ),
             viewportInitialWindowInfos: {
               ...(phaseCacheSeed.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
               [viewportKey]: rememberInitialWindowInfo(phaseCacheSeed.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+            },
+            viewportCurrentWindowInfos: {
+              ...(phaseCacheSeed.viewportCurrentWindowInfos ?? createEmptyMprCurrentWindowInfos()),
+              [viewportKey]: resolveCurrentWindowInfo(
+                phaseCacheSeed.viewportCurrentWindowInfos?.[viewportKey],
+                phaseCacheSeed.viewportInitialWindowInfos?.[viewportKey],
+                ww,
+                wl
+              )
             },
             mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
             mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
@@ -2576,10 +2730,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             },
             viewportCornerInfos: {
               ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-              [viewportKey]: stateCornerInfo ?? mergePixelCornerTags(
+              [viewportKey]: phaseStateCornerInfo ?? mergePixelRuntimeCornerInfo(
                 phaseCacheSeed.viewportCornerInfos?.[viewportKey],
                 pixelWindowLabel,
-                createEmptyCornerInfo()
+                mergeTransformCornerInfoTag(createEmptyCornerInfo(), phaseViewportTransformState),
+                phaseViewportTransformState
               )
             },
             viewportScaleBars: {
@@ -2592,7 +2747,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             },
             viewportTransformStates: {
               ...(phaseCacheSeed.viewportTransformStates ?? createEmptyMprTransformStates()),
-              [viewportKey]: transformState ?? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
+              [viewportKey]: phaseViewportTransformState
             }
           }
         }
@@ -2625,10 +2780,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
       }
 
+      const viewportTransformState = transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
+      const stateCornerInfo = stateCornerInfoBase
+        ? withRuntimeCornerInfo(stateCornerInfoBase, viewportTransformState)
+        : null
+
       return {
         ...item,
         windowLabel,
         initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
+        currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
         mprCursor: mprCursor ?? item.mprCursor ?? null,
         mprFrame: mprFrame ?? item.mprFrame ?? null,
         mprRevision: mprRevision ?? item.mprRevision ?? null,
@@ -2646,10 +2807,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         },
         viewportCornerInfos: {
           ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-          [viewportKey]: stateCornerInfo ?? mergePixelCornerTags(
+          [viewportKey]: stateCornerInfo ?? mergePixelRuntimeCornerInfo(
             item.viewportCornerInfos?.[viewportKey],
             pixelWindowLabel,
-            createEmptyCornerInfo()
+            mergeTransformCornerInfoTag(createEmptyCornerInfo(), viewportTransformState),
+            viewportTransformState
           )
         },
         viewportScaleBars: {
@@ -2675,11 +2837,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         },
         viewportTransformStates: {
           ...(item.viewportTransformStates ?? createEmptyMprTransformStates()),
-          [viewportKey]: transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
+          [viewportKey]: viewportTransformState
         },
         viewportInitialWindowInfos: {
           ...(item.viewportInitialWindowInfos ?? createEmptyMprInitialWindowInfos()),
           [viewportKey]: rememberInitialWindowInfo(item.viewportInitialWindowInfos?.[viewportKey], ww, wl)
+        },
+        viewportCurrentWindowInfos: {
+          ...(item.viewportCurrentWindowInfos ?? createEmptyMprCurrentWindowInfos()),
+          [viewportKey]: resolveCurrentWindowInfo(
+            item.viewportCurrentWindowInfos?.[viewportKey],
+            item.viewportInitialWindowInfos?.[viewportKey],
+            ww,
+            wl
+          )
         },
         mprMipConfig,
         mprSegmentationConfig,
@@ -3235,6 +3406,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     await viewSizeUpdateDeduper.run(update, renderOnBind, async () => {
+      const { postApi } = await loadTypedApi()
       if (renderOnBind) {
         await postApi('SetViewSizeApiV1ViewSetSizePost', {
           opType: VIEW_OPERATION_TYPES.setSize,
@@ -3412,6 +3584,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    const { postApi } = await loadTypedApi()
     const data = await postApi('CreateViewApiV1ViewCreatePost', {
       seriesId: tab.seriesId,
       viewType: '3D'
@@ -3575,7 +3748,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return
       }
 
-      const seriesCornerInfo = options.withHoverCornerInfo(await options.ensureSeriesCornerInfo(options.selectedSeriesId.value))
+      const defaultTransformState = createDefaultTransformInfo()
+      const seriesCornerInfo = withRuntimeCornerInfo(
+        await options.ensureSeriesCornerInfo(options.selectedSeriesId.value),
+        defaultTransformState
+      )
       const initialPseudocolorPreset = viewType === 'PET'
         ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
         : normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
@@ -3583,6 +3760,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       let nextViewportViewIds = createEmptyMprViewIds()
 
       if (viewType === 'MPR') {
+        const { postApi } = await loadTypedApi()
         const responses = await Promise.all(
           MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
             const data = await postApi('CreateViewApiV1ViewCreatePost', {
@@ -3600,6 +3778,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           createEmptyMprViewIds()
         )
       } else {
+        const { postApi } = await loadTypedApi()
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
           seriesId,
           viewType
@@ -3618,12 +3797,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               loadingProgress: null,
               sliceLabel: '',
               windowLabel: '',
+              currentWindowInfo: null,
               mprFrame: null,
               mprCursor: null,
               viewportViewIds: nextViewportViewIds,
               viewportImages: createEmptyMprImages(),
               viewportLoadingProgress: {},
               viewportSliceLabels: createEmptyMprSliceLabels(),
+              viewportCurrentWindowInfos: createEmptyMprCurrentWindowInfos(),
               viewportPlanes: createEmptyMprPlanes(),
               viewportCrosshairs: createEmptyMprCrosshairs(),
               viewportScaleBars: createEmptyMprScaleBars(),
@@ -3643,7 +3824,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               viewportMeasurements: {},
               viewportAnnotations: {},
               viewportOrientations: createEmptyMprOrientations(),
-              transformState: createDefaultTransformInfo(),
+              transformState: defaultTransformState,
               viewportTransformStates: createEmptyMprTransformStates(),
               pseudocolorPreset: initialPseudocolorPreset,
               petInfo: viewType === 'PET' ? createDefaultPetInfo(seriesId) : item.petInfo ?? null,
@@ -3781,6 +3962,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
+              currentWindowInfo: null,
               fusionSeriesIds: { ctSeriesId, petSeriesId },
               fusionSeriesDescriptions: {
                 ct: getSeriesDisplayName(ctSeries, ctSeriesId),
@@ -3794,10 +3976,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               fusionWindowLabels: createEmptyFusionWindowLabels(),
               fusionScaleBars: createEmptyFusionScaleBars(),
               fusionCornerInfos: {
-                [FUSION_CT_AXIAL_PANE_KEY]: options.withHoverCornerInfo(ctCornerInfo),
-                [FUSION_PET_AXIAL_PANE_KEY]: options.withHoverCornerInfo(petCornerInfo),
-                [FUSION_OVERLAY_AXIAL_PANE_KEY]: options.withHoverCornerInfo(ctCornerInfo),
-                [FUSION_PET_CORONAL_MIP_PANE_KEY]: options.withHoverCornerInfo(petCornerInfo)
+                [FUSION_CT_AXIAL_PANE_KEY]: withRuntimeCornerInfo(ctCornerInfo, createDefaultTransformInfo()),
+                [FUSION_PET_AXIAL_PANE_KEY]: withRuntimeCornerInfo(petCornerInfo, createDefaultTransformInfo()),
+                [FUSION_OVERLAY_AXIAL_PANE_KEY]: withRuntimeCornerInfo(ctCornerInfo, createDefaultTransformInfo()),
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: withRuntimeCornerInfo(petCornerInfo, createDefaultTransformInfo())
               },
               fusionOrientations: createEmptyFusionOrientations(),
               fusionTransformStates: createEmptyFusionTransformStates(),
@@ -3910,6 +4092,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
+              currentWindowInfo: null,
               title: `${getSeriesDisplayName(sourceSeries, sourceSeriesId)} vs ${getSeriesDisplayName(targetSeries, targetSeriesId)} · ${getViewTypeDisplayLabel('CompareStack')}`,
               seriesId: sourceSeriesId,
               seriesTitle: getSeriesDisplayName(sourceSeries, sourceSeriesId),
@@ -3926,11 +4109,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               compareImages: createEmptyCompareImages(),
               compareSliceLabels: createEmptyCompareSliceLabels(),
               compareWindowLabels: createEmptyCompareWindowLabels(),
+              compareCurrentWindowInfos: createEmptyCompareCurrentWindowInfos(),
               compareScaleBars: createEmptyCompareScaleBars(),
               compareCornerInfos: createComparePaneRecord((paneKey) =>
                 paneKey === COMPARE_STACK_SOURCE_PANE_KEY
-                  ? options.withHoverCornerInfo(sourceCornerInfo)
-                  : options.withHoverCornerInfo(targetCornerInfo)
+                  ? withRuntimeCornerInfo(sourceCornerInfo, createDefaultTransformInfo())
+                  : withRuntimeCornerInfo(targetCornerInfo, createDefaultTransformInfo())
               ),
               compareOrientations: createEmptyCompareOrientations(),
               compareTransformStates: createEmptyCompareTransformStates(),
@@ -3999,13 +4183,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               imageSrc: '',
               sliceLabel: '',
               windowLabel: '',
+              currentWindowInfo: null,
               compareViewIds: createEmptyCompareViewIds(),
               compareImages: createEmptyCompareImages(),
               compareSliceLabels: createEmptyCompareSliceLabels(),
               compareWindowLabels: createEmptyCompareWindowLabels(),
+              compareCurrentWindowInfos: createEmptyCompareCurrentWindowInfos(),
               viewportViewIds: createEmptyMprViewIds(),
               viewportImages: createEmptyMprImages(),
               viewportSliceLabels: createEmptyMprSliceLabels(),
+              viewportCurrentWindowInfos: createEmptyMprCurrentWindowInfos(),
               fourDPhaseViewIds: {},
               fourDPhaseCache: {},
               fourDIsPlaying: false,
@@ -4065,6 +4252,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ownsImageSrc: false,
         sliceLabel: getSeriesLayoutSliceLabel(payload.series),
         windowLabel: '',
+        currentWindowInfo: null,
         cornerInfo: seriesCornerInfo,
         orientation: createEmptyOrientationInfo(),
         scaleBar: null,
@@ -4167,9 +4355,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   function releaseBackendViews(viewIds: Array<string | null | undefined>): void {
     const uniqueViewIds = Array.from(new Set(viewIds.filter((viewId): viewId is string => Boolean(viewId))))
     uniqueViewIds.forEach((viewId) => {
-      void postApi('CloseViewApiV1ViewClosePost', { viewId }).catch(() => {
-        viewSizeCache.delete(viewId)
-      })
+      void loadTypedApi()
+        .then(({ postApi }) => postApi('CloseViewApiV1ViewClosePost', { viewId }))
+        .catch(() => {
+          viewSizeCache.delete(viewId)
+        })
     })
   }
 

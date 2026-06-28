@@ -53,16 +53,29 @@ describe('folderSeriesMerge', () => {
     expect(result.loadedSeries[0]?.thumbnailUrl).toBe('old-url')
   })
 
-  it('appends new series and exposes the loaded series in incoming order', () => {
+  it('places newly loaded series before existing series and exposes the loaded series in incoming order', () => {
     const existing = createSeries('series-a')
     const incomingB = createSeries('series-b')
     const incomingC = createSeries('series-c')
 
     const result = mergeLoadedFolderSeries([existing], [incomingB, incomingC])
 
-    expect(result.seriesList.map((item) => item.seriesId)).toEqual(['series-a', 'series-b', 'series-c'])
+    expect(result.seriesList.map((item) => item.seriesId)).toEqual(['series-b', 'series-c', 'series-a'])
     expect(result.loadedSeries.map((item) => item.seriesId)).toEqual(['series-b', 'series-c'])
     expect(result.appendedSeries.map((item) => item.seriesId)).toEqual(['series-b', 'series-c'])
+  })
+
+  it('moves reloaded existing series to the front of the series list', () => {
+    const existingA = createSeries('series-a')
+    const existingB = createSeries('series-b', { instanceCount: 1 })
+    const incomingB = createSeries('series-b', { instanceCount: 12 })
+
+    const result = mergeLoadedFolderSeries([existingA, existingB], [incomingB])
+
+    expect(result.seriesList.map((item) => item.seriesId)).toEqual(['series-b', 'series-a'])
+    expect(result.seriesList[0]?.instanceCount).toBe(12)
+    expect(result.loadedSeries.map((item) => item.seriesId)).toEqual(['series-b'])
+    expect(result.appendedSeries).toEqual([])
   })
 
   it('propagates incoming 4D metadata to an already loaded phase mate', () => {

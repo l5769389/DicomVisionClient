@@ -1,6 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { connectSocket, getSocket, type ServerToClientEvents } from '../../../services/socket'
-import { setApiBaseURL } from '../../../services/api'
+import { setApiBaseURL } from '../../../services/apiBase'
 import type { ConnectionState, FourDPlaybackPhaseEvent, FourDPlaybackStateEvent, ViewHoverResponse, ViewProgressInfo } from '../../../types/viewer'
 
 interface ViewerWorkspaceConnectionOptions {

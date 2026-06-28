@@ -194,6 +194,11 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
   const annotationInteraction = ref<AnnotationInteractionState>({ kind: 'idle' })
   const annotationActivePointerId = ref<number | null>(null)
 
+  function isAnnotationOperationPath(value: string): boolean {
+    const normalized = value.startsWith('stack:') ? value.slice('stack:'.length) : value
+    return normalized === 'annotate' || normalized.startsWith('annotate:')
+  }
+
   function isAnnotationOperationEnabled(): boolean {
     const viewType = options.activeTab.value?.viewType
     return (
@@ -201,7 +206,7 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
         isCompareStackViewType(viewType) ||
         isLayoutViewType(viewType) ||
         isMprLikeViewType(viewType)) &&
-      options.activeOperation.value.startsWith('stack:annotate')
+      isAnnotationOperationPath(options.activeOperation.value)
     )
   }
 
@@ -627,7 +632,7 @@ export function useWorkspaceAnnotations(options: WorkspaceAnnotationsOptions) {
   watch(
     () => options.activeOperation.value,
     (value) => {
-      if (!value.startsWith('stack:annotate')) {
+      if (!isAnnotationOperationPath(value)) {
         clearDraftAnnotations()
         resetAnnotationInteraction()
       }

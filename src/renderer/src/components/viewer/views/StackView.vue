@@ -88,6 +88,7 @@ const previousStarredSliceIndex = computed(() => {
   const current = currentSliceIndex.value
   return sortedStarredSliceIndexes.value.filter((index) => index < current).at(-1) ?? null
 })
+const showSliceSlider = computed(() => props.activeTab.showSliceSlider !== false)
 const nextStarredSliceIndex = computed(() => {
   const current = currentSliceIndex.value
   return sortedStarredSliceIndexes.value.find((index) => index > current) ?? null
@@ -176,7 +177,10 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
 </script>
 
 <template>
-  <div class="viewer-layout viewer-layout--stack grid h-full w-full grid-cols-[minmax(0,1fr)_34px] gap-2">
+  <div
+    class="viewer-layout viewer-layout--stack grid h-full w-full gap-2"
+    :class="showSliceSlider ? 'viewer-layout--stack-with-slider' : 'viewer-layout--stack-no-slider'"
+  >
     <ViewerCanvasStage
       class="min-w-0"
       viewport-key="single"
@@ -203,8 +207,11 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       :qa-water-analysis="props.qaWaterAnalysis ?? null"
       :selected-mtf-id="props.selectedMtfId ?? null"
       :scale-bar="props.activeTab.scaleBar ?? null"
+      :pseudocolor-preset="props.activeTab.pseudocolorPreset"
+      :pseudocolor-window-info="props.activeTab.currentWindowInfo ?? props.activeTab.initialWindowInfo ?? null"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-scale-bar="props.activeTab.showScaleBar !== false"
+      :show-pseudocolor-bar="props.activeTab.showPseudocolorBar !== false"
       :stage-surface-class="props.activeTab.viewType === 'PET' ? 'viewer-stage-surface--white viewer-stage-surface--pet-standalone' : ''"
       :viewport-transform="props.activeTab.transformState ?? null"
       :orientation="props.activeTab.orientation"
@@ -230,7 +237,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       @update-annotation-text="emit('updateAnnotationText', $event)"
     />
 
-    <div class="stack-slice-panel theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+    <div v-if="showSliceSlider" class="stack-slice-panel theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
       <span class="stack-slice-label grid min-h-8 w-full place-items-center break-all text-center text-[10px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ viewerCopy.slice }}</span>
       <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliderValue }}</span>
       <div class="stack-slice-star-tools mt-2 flex flex-col items-center gap-1">
@@ -293,11 +300,58 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
 </template>
 
 <style scoped>
+.viewer-layout--stack-with-slider {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.viewer-layout--stack-no-slider {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .stack-slice-slider {
-  appearance: slider-vertical;
-  writing-mode: bt-lr;
-  transform: rotate(180deg);
+  width: 14px;
+  border: 0 !important;
+  appearance: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  writing-mode: vertical-lr;
   accent-color: var(--theme-accent);
+  outline: none;
+}
+
+.stack-slice-slider::-webkit-slider-runnable-track {
+  width: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 52%, transparent);
+  box-shadow: none;
+}
+
+.stack-slice-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
+  border-radius: 999px;
+  appearance: none;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+}
+
+.stack-slice-slider::-moz-range-track {
+  width: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 52%, transparent);
+}
+
+.stack-slice-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 
 .stack-slice-star-button,

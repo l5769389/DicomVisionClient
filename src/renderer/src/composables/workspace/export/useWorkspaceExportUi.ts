@@ -2,7 +2,7 @@ import { computed, nextTick, ref, type ComputedRef, type Ref } from 'vue'
 import { openExportLocation, type ExportedFileResult } from '../../../platform/exporting'
 import { viewerRuntime } from '../../../platform/runtime'
 import type { WorkspaceExportCopy } from '../../ui/uiMessages'
-import { getViewerExportFileExtension, getViewerExportFormatLabel, type ViewerExportFormat } from './viewExport'
+import { getViewerExportFileExtension, getViewerExportFormatLabel, type ViewerExportFormat } from './viewExportFormat'
 
 export interface WorkspaceExportNoticeState {
   canOpenLocation: boolean

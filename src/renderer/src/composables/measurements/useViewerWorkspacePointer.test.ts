@@ -298,17 +298,23 @@ describe('useViewerWorkspacePointer', () => {
   it('keeps explicit drag tools ahead of the default window drag', () => {
     const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:pan' })
 
+    expect(pointer.getViewportIdleCursorClass('single')).toBe('cursor-pan')
+
     pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 11 }), 'single')
+    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-pan-drag')
     pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.28, y: 0.21 }, { pointerId: 11 }))
     pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.28, y: 0.21 }, { buttons: 0, pointerId: 11 }))
 
     const payloads = getViewportDragPayloads(emitViewportDrag)
     expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.pan)).toBe(true)
     expect(payloads.some((payload) => payload.opType === VIEW_OPERATION_TYPES.window)).toBe(false)
+    expect(pointer.viewportCursorClasses.value.single).toBeUndefined()
   })
 
   it('keeps explicit zoom ahead of the default left-button window drag', () => {
     const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:zoom' })
+
+    expect(pointer.getViewportIdleCursorClass('single')).toBe('cursor-zoom-drag')
 
     pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 12 }), 'single')
     pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.2, y: 0.28 }, { pointerId: 12 }))
@@ -322,16 +328,21 @@ describe('useViewerWorkspacePointer', () => {
   it('uses a window cursor while window-level drag is active', () => {
     const { pointer, viewport } = createPointerHarness({ activeOperation: 'stack:window' })
 
+    expect(pointer.getViewportIdleCursorClass('single')).toBe('cursor-window-level')
+
     pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 15 }), 'single')
     expect(pointer.viewportCursorClasses.value.single).toBe('cursor-window-level')
 
     pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { buttons: 0, pointerId: 15 }))
 
-    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-auto')
+    expect(pointer.viewportCursorClasses.value.single).toBeUndefined()
+    expect(pointer.getViewportIdleCursorClass('single')).toBe('cursor-window-level')
   })
 
   it('defaults right-button viewport drag to zoom and uses a zoom cursor', () => {
     const { emitViewportDrag, pointer, viewport } = createPointerHarness({ activeOperation: 'stack:scroll' })
+
+    expect(pointer.getViewportIdleCursorClass('single')).toBe('cursor-auto')
 
     pointer.handleViewportPointerDown(
       createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { button: 2, buttons: 2, pointerId: 16 }),
@@ -346,7 +357,7 @@ describe('useViewerWorkspacePointer', () => {
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.start)).toBe(true)
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.move)).toBe(true)
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.end)).toBe(true)
-    expect(pointer.viewportCursorClasses.value.single).toBe('cursor-auto')
+    expect(pointer.viewportCursorClasses.value.single).toBeUndefined()
   })
 
   it('does not apply default window drag to volume-only viewports', () => {

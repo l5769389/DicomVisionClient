@@ -131,7 +131,24 @@ describe('useUiPreferences', () => {
       ],
       topRight: ['patientName', 'patientSummary'],
       bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
-      bottomRight: ['zoom', 'coordinates']
+      bottomRight: ['zoom', 'coordinates', 'transform2dState'],
+      typographyPreset: 'comfortable',
+      colorMode: 'auto',
+      customDarkColor: '#f8fafc',
+      customLightColor: '#182334'
+    })
+    expect(preferences.drawingScopePreference.value).toEqual({
+      measurement: 'image',
+      qaWater: 'image',
+      mtf: 'image'
+    })
+    expect(preferences.workspaceDockPreference.value).toEqual({
+      leftWidth: 320,
+      leftCollapsed: false,
+      rightToolbarWidth: 260,
+      rightToolbarCollapsed: false,
+      rightResultWidth: 344,
+      rightResultCollapsed: false
     })
     expect(preferences.pacsPreference.value.enabled).toBe(true)
     expect(preferences.pacsPreference.value.localSourceEnabled).toBe(false)
@@ -166,7 +183,24 @@ describe('useUiPreferences', () => {
       topLeft: ['patientName', 'windowLevel'],
       topRight: ['seriesNumber'],
       bottomLeft: [],
-      bottomRight: ['zoom']
+      bottomRight: ['zoom'],
+      typographyPreset: 'standard',
+      colorMode: 'custom',
+      customDarkColor: '#22d3ee',
+      customLightColor: '#182334'
+    })
+    preferences.setDrawingScopePreference({
+      measurement: 'series',
+      qaWater: 'image',
+      mtf: 'series'
+    })
+    preferences.setWorkspaceDockPreference({
+      leftWidth: 420,
+      leftCollapsed: false,
+      rightToolbarWidth: 360,
+      rightToolbarCollapsed: true,
+      rightResultWidth: 480,
+      rightResultCollapsed: false
     })
     preferences.setPacsPreference({
       localSourceEnabled: true,
@@ -216,7 +250,24 @@ describe('useUiPreferences', () => {
       topLeft: ['patientName', 'windowLevel'],
       topRight: ['seriesNumber'],
       bottomLeft: [],
-      bottomRight: ['zoom']
+      bottomRight: ['zoom'],
+      typographyPreset: 'standard',
+      colorMode: 'custom',
+      customDarkColor: '#22d3ee',
+      customLightColor: '#182334'
+    })
+    expect(saved.drawingScopePreference).toEqual({
+      measurement: 'series',
+      qaWater: 'image',
+      mtf: 'series'
+    })
+    expect(saved.workspaceDockPreference).toEqual({
+      leftWidth: 420,
+      leftCollapsed: false,
+      rightToolbarWidth: 360,
+      rightToolbarCollapsed: true,
+      rightResultWidth: 480,
+      rightResultCollapsed: false
     })
     expect(saved.pacsPreference).toMatchObject({
       localSourceEnabled: true,
@@ -290,7 +341,11 @@ describe('useUiPreferences', () => {
       topLeft: ['patientName', 'windowLevel'],
       topRight: ['seriesNumber'],
       bottomLeft: [],
-      bottomRight: ['zoom']
+      bottomRight: ['zoom'],
+      typographyPreset: 'comfortable',
+      colorMode: 'auto',
+      customDarkColor: '#f8fafc',
+      customLightColor: '#182334'
     })
   })
 

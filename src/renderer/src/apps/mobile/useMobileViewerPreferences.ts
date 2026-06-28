@@ -10,6 +10,7 @@ export type MobileOrientationLock = 'unlocked' | 'portrait' | 'landscape'
 
 export interface MobileViewerPreferences {
   defaultShowCornerInfo: boolean
+  defaultShowPseudocolorBar: boolean
   defaultShowScaleBar: boolean
   gestureSensitivity: MobileGestureSensitivity
   mprDefaultTool: MobileMprDefaultTool
@@ -28,6 +29,7 @@ export const MOBILE_ORIENTATION_LOCK_OPTIONS: MobileOrientationLock[] = ['unlock
 const STORAGE_KEY = 'dicomvision-mobile-preferences'
 const DEFAULT_PREFERENCES: MobileViewerPreferences = {
   defaultShowCornerInfo: true,
+  defaultShowPseudocolorBar: true,
   defaultShowScaleBar: true,
   gestureSensitivity: 'normal',
   mprDefaultTool: 'crosshair',
@@ -91,6 +93,7 @@ function normalizePreferences(value: unknown): MobileViewerPreferences {
   const raw = value as Partial<MobileViewerPreferences>
   return {
     defaultShowCornerInfo: normalizeBoolean(raw.defaultShowCornerInfo, DEFAULT_PREFERENCES.defaultShowCornerInfo),
+    defaultShowPseudocolorBar: normalizeBoolean(raw.defaultShowPseudocolorBar, DEFAULT_PREFERENCES.defaultShowPseudocolorBar),
     defaultShowScaleBar: normalizeBoolean(raw.defaultShowScaleBar, DEFAULT_PREFERENCES.defaultShowScaleBar),
     gestureSensitivity: isGestureSensitivity(raw.gestureSensitivity)
       ? raw.gestureSensitivity
@@ -161,6 +164,13 @@ export function useMobileViewerPreferences() {
       persist()
     }
   })
+  const defaultShowPseudocolorBar = computed({
+    get: () => state.defaultShowPseudocolorBar,
+    set: (value: boolean) => {
+      state.defaultShowPseudocolorBar = Boolean(value)
+      persist()
+    }
+  })
   const gestureSensitivity = computed({
     get: () => state.gestureSensitivity,
     set: (value: MobileGestureSensitivity) => {
@@ -226,6 +236,10 @@ export function useMobileViewerPreferences() {
     defaultShowScaleBar.value = value
   }
 
+  function setDefaultShowPseudocolorBar(value: boolean): void {
+    defaultShowPseudocolorBar.value = value
+  }
+
   function setGestureSensitivity(value: MobileGestureSensitivity): void {
     gestureSensitivity.value = value
   }
@@ -260,6 +274,7 @@ export function useMobileViewerPreferences() {
 
   return {
     defaultShowCornerInfo,
+    defaultShowPseudocolorBar,
     defaultShowScaleBar,
     gestureSensitivity,
     mprDefaultTool,
@@ -270,6 +285,7 @@ export function useMobileViewerPreferences() {
     stackPlaybackFps,
     volumeDefaultTool,
     setDefaultShowCornerInfo,
+    setDefaultShowPseudocolorBar,
     setDefaultShowScaleBar,
     setGestureSensitivity,
     setMprDefaultTool,

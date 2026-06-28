@@ -1154,6 +1154,10 @@ watch(
     0 0 3px rgba(15, 23, 42, 0.22);
 }
 
+.mobile-petct-fusion-viewport__pane--pet :deep(.viewer-corner-overlay--custom-color .viewer-corner-block) {
+  color: var(--viewer-corner-custom-light-color);
+}
+
 .mobile-petct-fusion-viewport__pane--pet :deep(.viewer-orientation-label) {
   color: #b91c1c;
   text-shadow:

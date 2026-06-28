@@ -81,6 +81,8 @@ const isSingleStackLayout = computed(() => {
   const [slot] = slots.value
   return rows.value === 1 && columns.value === 1 && slots.value.length === 1 && Boolean(slot && isStackSlot(slot))
 })
+const showSliceSlider = computed(() => props.activeTab.showSliceSlider !== false)
+const layoutIdentity = computed(() => `${props.activeTab.key}:${rows.value}:${columns.value}`)
 
 const sliceInfos = computed<Record<string, SliceInfo>>(() =>
   slots.value.reduce<Record<string, SliceInfo>>((result, slot) => {
@@ -333,7 +335,7 @@ function handleSlotDoubleClick(slot: ViewerLayoutSlot): void {
 }
 
 watch(
-  () => [props.activeTab.key, props.activeTab.layoutTemplate?.rows, props.activeTab.layoutTemplate?.columns] as const,
+  layoutIdentity,
   () => {
     maximizedSlotId.value = null
   }
@@ -368,7 +370,7 @@ watch(
         @drop="handleSlotDrop($event, slot)"
       >
         <template v-if="isStackSlot(slot)">
-          <div class="layout-view__slot-body">
+          <div class="layout-view__slot-body" :class="{ 'layout-view__slot-body--no-slider': !showSliceSlider }">
             <ViewerCanvasStage
               class="min-w-0"
               :viewport-key="slot.id"
@@ -389,6 +391,11 @@ watch(
               :draft-measurement="getDraftMeasurement(slot.id)"
               :measurements="getMeasurements(slot.id)"
               :scale-bar="slot.scaleBar ?? null"
+              :pseudocolor-preset="slot.pseudocolorPreset ?? activeTab.pseudocolorPreset"
+              :pseudocolor-window-info="slot.currentWindowInfo ?? slot.initialWindowInfo ?? null"
+              :show-corner-info="activeTab.showCornerInfo !== false"
+              :show-scale-bar="activeTab.showScaleBar !== false"
+              :show-pseudocolor-bar="activeTab.showPseudocolorBar !== false"
               :orientation="slot.orientation ?? activeTab.orientation"
               :viewport-transform="slot.transformState ?? null"
               @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
@@ -411,11 +418,11 @@ watch(
             />
 
             <div
-              v-if="activeTab.showSliceSlider !== false"
+              v-if="showSliceSlider"
               class="layout-view__slider flex min-h-0 flex-col items-center rounded-xl border px-1 py-2"
               :class="isSingleStackLayout ? 'layout-view__slider--single stack-slice-panel theme-shell-panel-strong' : 'theme-card-soft'"
             >
-              <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
+              <span class="layout-view__slice-label grid min-h-8 w-full place-items-center break-all text-center text-[9px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
               <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[slot.id] ?? 1 }}</span>
               <div class="my-2 flex min-h-0 flex-1 items-center">
                 <input
@@ -555,8 +562,16 @@ watch(
   gap: 8px;
 }
 
+.layout-view__slot-body--no-slider {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .layout-view--single-stack .layout-view__slot-body {
   grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.layout-view--single-stack .layout-view__slot-body--no-slider {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .layout-view__slider {
@@ -569,10 +584,49 @@ watch(
 }
 
 .layout-view__slice-slider {
-  appearance: slider-vertical;
-  writing-mode: bt-lr;
-  transform: rotate(180deg);
+  width: 14px;
+  border: 0 !important;
+  appearance: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  writing-mode: vertical-lr;
   accent-color: var(--theme-accent);
+  outline: none;
+}
+
+.layout-view__slice-slider::-webkit-slider-runnable-track {
+  width: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 52%, transparent);
+  box-shadow: none;
+}
+
+.layout-view__slice-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
+  border-radius: 999px;
+  appearance: none;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+}
+
+.layout-view__slice-slider::-moz-range-track {
+  width: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 52%, transparent);
+}
+
+.layout-view__slice-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 
 .layout-view__image {

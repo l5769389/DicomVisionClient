@@ -1,28 +1,41 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   hasContent?: boolean
   icon: string
   title: string
+  width?: number
+  collapsed?: boolean
 }>(), {
-  hasContent: true
+  hasContent: true,
+  width: 344,
+  collapsed: false
 })
 
 const emit = defineEmits<{
   close: []
   dockResize: []
+  collapseChange: [collapsed: boolean]
 }>()
 
 const { overlayCopy } = useUiLocale()
-const isCollapsed = ref(false)
+const isCollapsed = ref(props.collapsed)
 
 function toggleCollapsed(): void {
   isCollapsed.value = !isCollapsed.value
+  emit('collapseChange', isCollapsed.value)
   emit('dockResize')
 }
+
+watch(
+  () => props.collapsed,
+  (value) => {
+    isCollapsed.value = value
+  }
+)
 </script>
 
 <template>
@@ -32,6 +45,7 @@ function toggleCollapsed(): void {
       'viewer-result-dock--collapsed': isCollapsed,
       'viewer-result-dock--empty': !hasContent
     }"
+    :style="{ '--viewer-result-dock-width': `${width}px` }"
     data-viewer-result-dock
   >
     <header v-if="!isCollapsed && hasContent" class="viewer-result-dock__header">
@@ -72,9 +86,9 @@ function toggleCollapsed(): void {
 <style scoped>
 .viewer-result-dock {
   display: flex;
-  width: 344px;
-  min-width: 344px;
-  max-width: 344px;
+  width: var(--viewer-result-dock-width, 344px);
+  min-width: var(--viewer-result-dock-width, 344px);
+  max-width: var(--viewer-result-dock-width, 344px);
   min-height: 0;
   flex-direction: column;
   align-self: stretch;

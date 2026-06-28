@@ -14,7 +14,7 @@ describe('viewportCornerInfo', () => {
         topLeft: ['SIEMENS / SOMATOM', 'CT01', 'Chest CT', 'Se: 3', 'AXIAL  I 42.5mm', 'Im: 36/128'],
         topRight: SAMPLE_VIEWPORT_CORNER_INFO.topRight,
         bottomLeft: SAMPLE_VIEWPORT_CORNER_INFO.bottomLeft,
-        bottomRight: SAMPLE_VIEWPORT_CORNER_INFO.bottomRight
+        bottomRight: ['Zoom:1.25x', 'X:12 Y:-4', 'Rot:90° / Flip:H']
       }
     )
   })
@@ -40,7 +40,67 @@ describe('viewportCornerInfo', () => {
       topLeft: ['manufacturerModel', 'stationName', 'institutionName', 'examDescription', 'seriesNumber', 'viewportLocation'],
       topRight: ['patientName', 'patientSummary'],
       bottomLeft: ['windowLevel'],
-      bottomRight: ['zoom', 'coordinates']
+      bottomRight: ['zoom', 'coordinates'],
+      typographyPreset: 'comfortable',
+      colorMode: 'auto',
+      customDarkColor: '#f8fafc',
+      customLightColor: '#182334'
+    })
+  })
+
+  it('normalizes corner typography and color settings', () => {
+    expect(
+      normalizeViewportCornerInfoPreference({
+        topLeft: ['patientName'],
+        topRight: [],
+        bottomLeft: [],
+        bottomRight: [],
+        typographyPreset: 'compact',
+        colorMode: 'custom',
+        customDarkColor: '#22D3EE',
+        customLightColor: '#182334'
+      })
+    ).toEqual({
+      topLeft: ['patientName'],
+      topRight: [],
+      bottomLeft: [],
+      bottomRight: [],
+      typographyPreset: 'compact',
+      colorMode: 'custom',
+      customDarkColor: '#22D3EE',
+      customLightColor: '#182334'
+    })
+
+    expect(
+      normalizeViewportCornerInfoPreference({
+        topLeft: ['patientName'],
+        topRight: [],
+        bottomLeft: [],
+        bottomRight: [],
+        typographyPreset: 'tiny',
+        colorMode: 'forced',
+        customColor: 'cyan'
+      })
+    ).toMatchObject({
+      typographyPreset: 'comfortable',
+      colorMode: 'auto',
+      customDarkColor: '#f8fafc',
+      customLightColor: '#182334'
+    })
+
+    expect(
+      normalizeViewportCornerInfoPreference({
+        topLeft: ['patientName'],
+        topRight: [],
+        bottomLeft: [],
+        bottomRight: [],
+        colorMode: 'custom',
+        customColor: '#22D3EE'
+      })
+    ).toMatchObject({
+      colorMode: 'custom',
+      customDarkColor: '#22D3EE',
+      customLightColor: '#182334'
     })
   })
 

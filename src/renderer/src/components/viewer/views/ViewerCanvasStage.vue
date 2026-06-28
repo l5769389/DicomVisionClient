@@ -18,7 +18,8 @@ import type {
   QaWaterAnalysis,
   ViewerImageLayer,
   ViewTransformInfo,
-  ViewerMtfItem
+  ViewerMtfItem,
+  WindowLevelInfo
 } from '../../../types/viewer'
 import {
   DEFAULT_MPR_SEGMENTATION_COLOR,
@@ -31,6 +32,7 @@ import ViewportCrosshairOverlay from '../overlays/ViewportCrosshairOverlay.vue'
 import ViewportMtfOverlay from '../overlays/ViewportMtfOverlay.vue'
 import ViewportMeasurementOverlay from '../overlays/ViewportMeasurementOverlay.vue'
 import ViewportOrientationOverlay from '../overlays/ViewportOrientationOverlay.vue'
+import ViewportPseudocolorBarOverlay from '../overlays/ViewportPseudocolorBarOverlay.vue'
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
@@ -71,9 +73,12 @@ const props = withDefaults(
     mprSegmentationOverlay?: MprSegmentationOverlay | null
     orientation: OrientationInfo
     placeholder: string
+    pseudocolorPreset?: string | null
+    pseudocolorWindowInfo?: WindowLevelInfo | null
     renderSurfaceActive?: boolean
     scaleBar?: ScaleBarInfo | null
     showCornerInfo?: boolean
+    showPseudocolorBar?: boolean
     showScaleBar?: boolean
     softImage?: boolean
     stageSurfaceClass?: string
@@ -107,9 +112,12 @@ const props = withDefaults(
     mprSegmentationConfig: null,
     mprSegmentationOverlay: null,
     qaWaterAnalysis: null,
+    pseudocolorPreset: null,
+    pseudocolorWindowInfo: null,
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
+    showPseudocolorBar: true,
     showScaleBar: true,
     softImage: false,
     stageSurfaceClass: '',
@@ -123,6 +131,7 @@ const props = withDefaults(
 
 type OverlayFocusState = 'focus' | 'context' | 'neutral'
 const LIGHT_SURFACE_SCALE_BAR_COLOR = '#132033'
+const LIGHT_SURFACE_CLASS_PATTERN = /(?:^|\s)viewer-stage-surface--white(?:\s|$)/
 
 const emit = defineEmits<{
   copyAnnotation: [payload: { viewportKey: string; annotationId: string }]
@@ -234,8 +243,11 @@ const hasImageContent = computed(() =>
 const shouldShowImageOverlays = computed(() => hasImageContent.value)
 const shouldShowCornerInfo = computed(() => props.showCornerInfo && hasImageContent.value)
 const shouldShowScaleBar = computed(() => props.showScaleBar && hasImageContent.value)
+const shouldShowPseudocolorBar = computed(() =>
+  props.showPseudocolorBar && hasImageContent.value && props.viewportKey !== 'volume' && Boolean(props.pseudocolorPreset)
+)
 const isLightSurface = computed(() =>
-  props.lightSurface || props.stageSurfaceClass.split(/\s+/).includes('viewer-stage-surface--white')
+  props.lightSurface || LIGHT_SURFACE_CLASS_PATTERN.test(props.stageSurfaceClass)
 )
 const scaleBarColorOverride = computed(() => (isLightSurface.value ? LIGHT_SURFACE_SCALE_BAR_COLOR : null))
 const lightSurfaceStyle = computed(() =>
@@ -552,6 +564,14 @@ watch(
         :stage-height="stageSize.height"
         :scale-bar="scaleBar"
         :color-override="scaleBarColorOverride"
+      />
+      <ViewportPseudocolorBarOverlay
+        v-if="shouldShowPseudocolorBar"
+        :stage-width="stageSize.width"
+        :stage-height="stageSize.height"
+        :pseudocolor-preset="pseudocolorPreset"
+        :window-info="pseudocolorWindowInfo"
+        :light-surface="isLightSurface"
       />
       <ViewportMeasurementOverlay
         v-if="shouldShowImageOverlays"

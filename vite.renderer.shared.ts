@@ -50,3 +50,36 @@ export function createRendererManualChunks(id: string): string | undefined {
   }
   return undefined
 }
+
+const DEFERRED_PRELOAD_PATTERNS = [
+  /PacsBrowserDialog/i,
+  /SidebarSettingsDialog/i,
+  /MprSegmentationPanel/i,
+  /MprMipConfigPanel/i,
+  /VolumeRenderConfigPanel/i,
+  /MtfCurvePanelContent/i,
+  /QaWaterResultPanelContent/i,
+  /ViewerResultDock/i,
+  /FusionRegistrationSaveDialog/i,
+  /WorkspaceExportNameDialog/i,
+  /WorkspaceExportNotice/i,
+  /MobileSettingsOverlay/i,
+  /MobileCompareStackViewport/i,
+  /MobileMprViewport/i,
+  /MobilePetCtFusionViewport/i,
+  /MobileStackViewport/i,
+  /MobileVolumeViewport/i,
+  /CompareStackView/i,
+  /DicomTagView/i,
+  /FourDView/i,
+  /LayoutView/i,
+  /MprView/i,
+  /PetCtFusionView/i,
+  /StackView/i,
+  /VolumeView/i,
+  /exporting/i
+]
+
+export function resolveRendererModulePreloadDependencies(_filename: string, deps: string[]): string[] {
+  return deps.filter((dep) => !DEFERRED_PRELOAD_PATTERNS.some((pattern) => pattern.test(dep)))
+}

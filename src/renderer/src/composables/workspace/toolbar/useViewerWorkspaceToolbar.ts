@@ -269,7 +269,7 @@ const mprLayoutTool: StackTool = {
 const MPR_CROSSHAIR_MODE_SELECTION_PREFIX = 'mprCrosshairMode:'
 const DISPLAY_OVERLAY_SELECTION_PREFIX = 'display:'
 export const EXPORT_TARGET_SELECTION_PREFIX = 'exportTarget:'
-type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'sliceSlider'
+type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar' | 'sliceSlider'
 
 function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
   return `${MPR_CROSSHAIR_MODE_SELECTION_PREFIX}${mode}`
@@ -286,7 +286,7 @@ function toDisplayOverlaySelectionValue(key: DisplayOverlayKey): string {
 
 function parseDisplayOverlaySelectionValue(value: string | null | undefined): DisplayOverlayKey | null {
   const key = String(value ?? '').replace(DISPLAY_OVERLAY_SELECTION_PREFIX, '')
-  return key === 'cornerInfo' || key === 'scaleBar' || key === 'sliceSlider' ? key : null
+  return key === 'cornerInfo' || key === 'scaleBar' || key === 'pseudocolorBar' || key === 'sliceSlider' ? key : null
 }
 
 function toExportTargetSelectionValue(viewportKey: string): string {
@@ -948,6 +948,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (key === 'scaleBar') {
       return tab.showScaleBar !== false
     }
+    if (key === 'pseudocolorBar') {
+      return tab.showPseudocolorBar !== false
+    }
     return tab.showSliceSlider !== false
   }
 
@@ -985,7 +988,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     const nextDraft = { ...draft }
-    for (const key of ['cornerInfo', 'scaleBar', 'sliceSlider'] as const) {
+    for (const key of ['cornerInfo', 'scaleBar', 'pseudocolorBar', 'sliceSlider'] as const) {
       if (nextDraft[key] === getTabDisplayOverlayVisible(tab, key)) {
         delete nextDraft[key]
       }
@@ -1023,6 +1026,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         icon: 'measure',
         checked: getActiveDisplayOverlayVisible('scaleBar')
       },
+      ...(options.activeTab.value?.viewType !== 'PETCTFusion'
+        ? [
+            {
+              value: toDisplayOverlaySelectionValue('pseudocolorBar'),
+              label: isZh.value ? '伪彩条' : 'Pseudocolor Bar',
+              icon: 'pseudocolor',
+              checked: getActiveDisplayOverlayVisible('pseudocolorBar')
+            }
+          ]
+        : []),
       ...(options.activeTab.value?.viewType === 'Layout'
         ? [
             {
@@ -1529,20 +1542,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function tickPlayback(): void {
-    if (!playbackTarget) {
+    const sliceInfo = getCurrentSlicePlaybackInfo()
+    if (!playbackTarget || !sliceInfo) {
       stopPlayback()
       return
     }
 
-    if (playbackTarget.current >= playbackTarget.total) {
-      stopPlayback()
-      return
-    }
-
-    playbackTarget.current += 1
+    playbackTarget = sliceInfo
+    const delta = sliceInfo.current >= sliceInfo.total ? -(sliceInfo.total - 1) : 1
+    playbackTarget.current = delta < 0 ? 1 : sliceInfo.current + 1
     options.emitViewportWheel({
       viewportKey: playbackTarget.viewportKey,
-      deltaY: 1
+      deltaY: delta,
+      exact: true
     })
   }
 
@@ -1645,7 +1657,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
     closeMenus()
-    options.stopViewportDrag()
+    options.cleanupPointerInteractions()
     setToolbarToolActive('segmentation')
     isVolumeConfigPanelOpen.value = false
     isMprMipPanelOpen.value = false
@@ -1660,7 +1672,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function activateSegmentationSelectionMode(value: 'segmentation:threshold' | 'segmentation:voi'): void {
     closeMenus()
-    options.stopViewportDrag()
+    options.cleanupPointerInteractions()
     setToolbarToolActive('segmentation')
     isVolumeConfigPanelOpen.value = false
     isMprMipPanelOpen.value = false
@@ -1674,7 +1686,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function activateModeTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
     closeMenusIfNeeded(behavior)
-    options.stopViewportDrag()
+    if (tool.key === 'measure') {
+      options.stopViewportDrag()
+    } else {
+      options.cleanupPointerInteractions()
+    }
     setToolbarToolActive(tool.key)
     if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
       activateSelectedOption(tool.key)
@@ -1728,7 +1744,11 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!selectedOption) {
       return
     }
-    options.stopViewportDrag()
+    if (tool.key === 'measure') {
+      options.stopViewportDrag()
+    } else {
+      options.cleanupPointerInteractions()
+    }
     setToolbarToolActive(tool.key)
     const nextOperation = `${STACK_OPERATION_PREFIX}${selectedOption.value}`
     if (options.activeOperation.value !== nextOperation) {
@@ -1838,7 +1858,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       closeMenusIfNeeded(behavior)
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
-      options.emitTriggerViewAction({ action: 'transformReset' })
+      options.emitTriggerViewAction({
+        action: 'transformReset',
+        transformScope: tool.key === 'pan' ? 'pan' : tool.key === 'zoom' ? 'zoom' : 'all'
+      })
       return
     }
 
@@ -2315,7 +2338,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   )
 
   watch(
-    () => [options.activeTab.value?.key, options.activeTab.value?.showCornerInfo, options.activeTab.value?.showScaleBar, options.activeTab.value?.showSliceSlider] as const,
+    () => [
+      options.activeTab.value?.key,
+      options.activeTab.value?.showCornerInfo,
+      options.activeTab.value?.showScaleBar,
+      options.activeTab.value?.showPseudocolorBar,
+      options.activeTab.value?.showSliceSlider
+    ] as const,
     () => pruneSettledDisplayOverlayDraft(options.activeTab.value)
   )
 

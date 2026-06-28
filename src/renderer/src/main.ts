@@ -35,20 +35,11 @@ function showBootError(error: unknown): void {
   root.appendChild(panel)
 }
 
-function injectStyle(id: string, cssText: string): void {
-  if (document.getElementById(id)) {
-    return
-  }
+let workspaceStylesPromise: Promise<void> | null = null
 
-  const style = document.createElement('style')
-  style.id = id
-  style.textContent = cssText
-  document.head.appendChild(style)
-}
-
-async function loadWorkspaceStyles(): Promise<void> {
-  const { default: appStyles } = await import('./style.css?inline')
-  injectStyle('dicomvision-app-styles', appStyles)
+function ensureWorkspaceStyles(): Promise<void> {
+  workspaceStylesPromise ??= import('./style.css').then(() => undefined)
+  return workspaceStylesPromise
 }
 
 function getPointerIsCoarse(): boolean {
@@ -104,7 +95,7 @@ async function mountWorkspaceApp(): Promise<void> {
     import('vue'),
     appImport,
     import('./plugins/vuetify'),
-    loadWorkspaceStyles()
+    ensureWorkspaceStyles()
   ])
 
   createApp(WorkspaceApp).use(vuetify).mount('#app')

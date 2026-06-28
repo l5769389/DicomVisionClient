@@ -1,5 +1,5 @@
 import type { FolderSeriesItem } from '../../types/viewer'
-import { resolveBackendAssetUrl } from '../../services/api'
+import { resolveBackendAssetUrl } from '../../services/apiBase'
 
 export function getSeriesThumbnailSrc(series: FolderSeriesItem): string {
   const phasePreview = series.fourDPhases?.find((phase) => phase.imageSrc || phase.viewportImages?.['mpr-ax'])

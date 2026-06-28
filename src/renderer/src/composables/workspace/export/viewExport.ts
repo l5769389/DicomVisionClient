@@ -2,6 +2,7 @@ import { api } from '../../../services/api'
 import { saveExportedFile, type ExportedFileResult } from '../../../platform/exporting'
 import type { ExportPreference } from '../../ui/useUiPreferences'
 import type { AnnotationOverlay, CornerInfo, FusionPaneKey, MeasurementOverlay, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
+import { getViewerExportFileExtension, getViewerExportFormatLabel, type ViewerExportFormat } from './viewExportFormat'
 import {
   COMPARE_STACK_TARGET_PANE_KEY,
   MPR_PRIMARY_VIEWPORT_KEY,
@@ -12,26 +13,12 @@ import {
   resolveViewIdForTabViewport
 } from '../views/viewerViewportTargets'
 
-export type ViewerExportFormat = 'png' | 'dicom' | 'dicom-sr' | 'dicom-gsps'
+export { getViewerExportFileExtension, getViewerExportFormatLabel, type ViewerExportFormat } from './viewExportFormat'
 
 export interface ViewerExportOverlays {
   annotations: AnnotationOverlay[]
   cornerInfo: CornerInfo | null
   measurements: MeasurementOverlay[]
-}
-
-export function getViewerExportFileExtension(format: ViewerExportFormat): 'png' | 'dcm' {
-  return format === 'png' ? 'png' : 'dcm'
-}
-
-export function getViewerExportFormatLabel(format: ViewerExportFormat): string {
-  if (format === 'dicom-sr') {
-    return 'DICOM SR'
-  }
-  if (format === 'dicom-gsps') {
-    return 'DICOM GSPS'
-  }
-  return format === 'png' ? 'PNG' : 'DICOM'
 }
 
 function cloneCornerInfo(cornerInfo: CornerInfo | null): CornerInfo | null {

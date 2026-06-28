@@ -4,7 +4,8 @@ import {
   createRendererPlugins,
   rendererDefine,
   rendererInput,
-  rendererResolveAlias
+  rendererResolveAlias,
+  resolveRendererModulePreloadDependencies
 } from './vite.renderer.shared'
 
 export default defineConfig({
@@ -17,7 +18,7 @@ export default defineConfig({
   renderer: {
     build: {
       modulePreload: {
-        resolveDependencies: () => []
+        resolveDependencies: resolveRendererModulePreloadDependencies
       },
       rollupOptions: {
         input: rendererInput,

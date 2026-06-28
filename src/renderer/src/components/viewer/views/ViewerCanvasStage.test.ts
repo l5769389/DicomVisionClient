@@ -39,6 +39,11 @@ const overlayStubs = {
   ViewportMtfOverlay: imageFrameOverlayStub,
   ViewportMeasurementOverlay: { template: '<div />' },
   ViewportOrientationOverlay: { template: '<div class="orientation-overlay-stub" />' },
+  ViewportPseudocolorBarOverlay: {
+    props: ['pseudocolorPreset', 'windowInfo'],
+    template:
+      '<div class="pseudocolor-bar-overlay-stub" :data-preset="pseudocolorPreset ?? \'\'" :data-ww="windowInfo?.ww ?? \'\'" :data-wl="windowInfo?.wl ?? \'\'" />'
+  },
   ViewportQaWaterOverlay: imageFrameOverlayStub,
   ViewportScaleBarOverlay: { props: ['colorOverride'], template: '<div class="scale-bar-overlay-stub" :data-color-override="colorOverride ?? \'\'" />' },
   ViewportVoiOverlay: imageFrameOverlayStub
@@ -437,6 +442,41 @@ describe('ViewerCanvasStage layout metrics', () => {
     expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(false)
     expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('renders and hides the pseudocolor bar independently', () => {
+    const wrapper = mountStage('blob:frame-1', {
+      pseudocolorPreset: 'rainbow',
+      pseudocolorWindowInfo: {
+        ww: 350,
+        wl: 40
+      }
+    })
+
+    const overlay = wrapper.get('.pseudocolor-bar-overlay-stub')
+    expect(overlay.attributes('data-preset')).toBe('rainbow')
+    expect(overlay.attributes('data-ww')).toBe('350')
+    expect(overlay.attributes('data-wl')).toBe('40')
+
+    void wrapper.setProps({ showPseudocolorBar: false })
+    return nextTick().then(() => {
+      expect(wrapper.find('.pseudocolor-bar-overlay-stub').exists()).toBe(false)
+      wrapper.unmount()
+    })
+  })
+
+  it('does not render the pseudocolor bar for volume panes', () => {
+    const wrapper = mountStage('blob:volume-frame', {
+      viewportKey: 'volume',
+      pseudocolorPreset: 'rainbow',
+      pseudocolorWindowInfo: {
+        ww: 350,
+        wl: 40
+      }
+    })
+
+    expect(wrapper.find('.pseudocolor-bar-overlay-stub').exists()).toBe(false)
     wrapper.unmount()
   })
 

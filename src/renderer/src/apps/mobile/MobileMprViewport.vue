@@ -16,8 +16,11 @@ import type {
   MprSegmentationConfig,
   MprSegmentationConfigActionType,
   MprViewportKey,
+  OrientationInfo,
+  ScaleBarInfo,
   ViewerMtfItem,
   ViewerTabItem,
+  WindowLevelInfo,
   WorkspaceReadyPayload
 } from '../../types/viewer'
 import {
@@ -120,6 +123,13 @@ const emptyCornerInfo: CornerInfo = {
   topRight: [],
   bottomLeft: [],
   bottomRight: []
+}
+const emptyOrientationInfo: OrientationInfo = {
+  top: null,
+  right: null,
+  bottom: null,
+  left: null,
+  volumeQuaternion: null
 }
 
 let activeDragOperation: ViewOperationType | null = null
@@ -413,6 +423,48 @@ function handleReferenceSwitch(event: Event, viewportKey: MprViewportKey): void 
 
 function isReferenceViewport(viewportKey: MprViewportKey): boolean {
   return viewportKey !== activeViewport.value
+}
+
+function getViewportScaleBar(viewportKey: MprViewportKey): ScaleBarInfo | null {
+  return isReferenceViewport(viewportKey) ? null : mprTab.value?.viewportScaleBars?.[viewportKey] ?? null
+}
+
+function getViewportPseudocolorPreset(viewportKey: MprViewportKey): string | null {
+  if (isReferenceViewport(viewportKey)) {
+    return null
+  }
+  const tab = mprTab.value
+  return tab?.viewportPseudocolorPresets?.[viewportKey] ?? tab?.pseudocolorPreset ?? null
+}
+
+function getViewportPseudocolorWindowInfo(viewportKey: MprViewportKey): WindowLevelInfo | null {
+  if (isReferenceViewport(viewportKey)) {
+    return null
+  }
+  const tab = mprTab.value
+  return (
+    tab?.viewportCurrentWindowInfos?.[viewportKey] ??
+    tab?.viewportInitialWindowInfos?.[viewportKey] ??
+    tab?.currentWindowInfo ??
+    tab?.initialWindowInfo ??
+    null
+  )
+}
+
+function getViewportOrientation(viewportKey: MprViewportKey): OrientationInfo {
+  return mprTab.value?.viewportOrientations?.[viewportKey] ?? mprTab.value?.orientation ?? emptyOrientationInfo
+}
+
+function shouldShowViewportCornerInfo(viewportKey: MprViewportKey): boolean {
+  return !isReferenceViewport(viewportKey) && mprTab.value?.showCornerInfo !== false
+}
+
+function shouldShowViewportScaleBar(viewportKey: MprViewportKey): boolean {
+  return !isReferenceViewport(viewportKey) && mprTab.value?.showScaleBar !== false
+}
+
+function shouldShowViewportPseudocolorBar(viewportKey: MprViewportKey): boolean {
+  return !isReferenceViewport(viewportKey) && mprTab.value?.showPseudocolorBar !== false
 }
 
 function getReferenceIndex(viewportKey: MprViewportKey): number {
@@ -827,10 +879,13 @@ watch(
         :mpr-segmentation-config="mprSegmentationConfig"
         :mpr-segmentation-overlay="mprTab?.viewportSegmentationOverlays?.[viewport.key] ?? null"
         :voi-editable="!isReferenceViewport(viewport.key)"
-        :scale-bar="isReferenceViewport(viewport.key) ? null : mprTab?.viewportScaleBars?.[viewport.key] ?? null"
-        :show-corner-info="!isReferenceViewport(viewport.key) && mprTab?.showCornerInfo !== false"
-        :show-scale-bar="!isReferenceViewport(viewport.key) && mprTab?.showScaleBar !== false"
-        :orientation="mprTab?.viewportOrientations?.[viewport.key] ?? mprTab?.orientation ?? { top: null, right: null, bottom: null, left: null, volumeQuaternion: null }"
+        :scale-bar="getViewportScaleBar(viewport.key)"
+        :pseudocolor-preset="getViewportPseudocolorPreset(viewport.key)"
+        :pseudocolor-window-info="getViewportPseudocolorWindowInfo(viewport.key)"
+        :show-corner-info="shouldShowViewportCornerInfo(viewport.key)"
+        :show-scale-bar="shouldShowViewportScaleBar(viewport.key)"
+        :show-pseudocolor-bar="shouldShowViewportPseudocolorBar(viewport.key)"
+        :orientation="getViewportOrientation(viewport.key)"
         :viewport-transform="mprTab?.viewportTransformStates?.[viewport.key] ?? mprTab?.transformState ?? null"
         :placeholder="`${viewport.label} preview`"
         @click-viewport="handleViewportClick"

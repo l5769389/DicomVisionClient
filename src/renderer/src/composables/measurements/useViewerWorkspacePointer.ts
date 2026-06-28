@@ -99,6 +99,7 @@ interface PointerComposableState {
   getMtfDraft: (viewportKey: string) => { mtfId?: string; points: MeasurementDraftPoint[] } | null
   getMtfDraftMode: (viewportKey: string) => DraftMeasurementMode | null
   getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
+  getViewportIdleCursorClass: (viewportKey: string) => string
   handleViewportPointerCancel: (event: PointerEvent) => void
   handleViewportPointerLeave: (viewportKey: string) => void
   handleViewportPointerDown: (event: PointerEvent, viewportKey: string) => void
@@ -352,7 +353,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   }
 
   function clearViewportCursor(viewportKey: string): void {
-    setViewportCursor(viewportKey, 'cursor-auto')
+    const nextCursorClasses = { ...viewportCursorClasses.value }
+    delete nextCursorClasses[viewportKey]
+    viewportCursorClasses.value = nextCursorClasses
   }
 
   function getNormalizedOperation(): ViewOperationType | string {
@@ -474,10 +477,27 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (operationType === VIEW_OPERATION_TYPES.window) {
       return 'cursor-window-level'
     }
+    if (operationType === VIEW_OPERATION_TYPES.pan) {
+      return 'cursor-pan-drag'
+    }
     if (operationType === VIEW_OPERATION_TYPES.zoom) {
       return 'cursor-zoom-drag'
     }
     return null
+  }
+
+  function getViewportIdleCursorClass(viewportKey: string): string {
+    const operationType = getNormalizedOperation()
+    if (operationType === VIEW_OPERATION_TYPES.window) {
+      return canUseDefaultWindowDrag(viewportKey) ? 'cursor-window-level' : 'cursor-auto'
+    }
+    if (operationType === VIEW_OPERATION_TYPES.pan) {
+      return 'cursor-pan'
+    }
+    if (operationType === VIEW_OPERATION_TYPES.zoom) {
+      return canUseDefaultZoomDrag(viewportKey) ? 'cursor-zoom-drag' : 'cursor-auto'
+    }
+    return 'cursor-auto'
   }
 
   function isRotate3dDragOperation(): boolean {
@@ -2377,6 +2397,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     getMtfDraft,
     getMtfDraftMode,
     getDraftMeasurementMode,
+    getViewportIdleCursorClass,
     handleViewportPointerCancel,
     handleViewportPointerLeave,
     handleViewportPointerDown,

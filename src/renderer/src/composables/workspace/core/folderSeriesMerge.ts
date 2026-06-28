@@ -35,29 +35,29 @@ export function mergeLoadedFolderSeries(
   existingSeriesList: FolderSeriesItem[],
   incomingSeriesList: FolderSeriesItem[]
 ): LoadedFolderSeriesMergeResult {
-  const incomingSeriesByKey = indexSeriesByDedupKey(incomingSeriesList)
-  const mergedSeriesKeys = new Set<string>()
-  const mergedExistingSeries = existingSeriesList.map((item) => {
-    const seriesKey = getFolderSeriesDedupKey(item)
-    const incoming = incomingSeriesByKey.get(seriesKey)
-    if (!incoming) {
-      return item
-    }
-    mergedSeriesKeys.add(seriesKey)
-    return mergeLoadedSeriesItem(item, incoming)
-  })
+  const existingSeriesByKey = indexSeriesByDedupKey(existingSeriesList)
+  const frontSeriesKeys = new Set<string>()
+  const loadedFrontSeries: FolderSeriesItem[] = []
+  const appendedSeries: FolderSeriesItem[] = []
 
-  const appendedSeries = incomingSeriesList.filter((item) => {
+  for (const item of incomingSeriesList) {
     const seriesKey = getFolderSeriesDedupKey(item)
-    if (mergedSeriesKeys.has(seriesKey)) {
-      return false
+    if (frontSeriesKeys.has(seriesKey)) {
+      continue
     }
-    mergedSeriesKeys.add(seriesKey)
-    return true
-  })
+    frontSeriesKeys.add(seriesKey)
+    const existing = existingSeriesByKey.get(seriesKey)
+    const merged = existing ? mergeLoadedSeriesItem(existing, item) : item
+    loadedFrontSeries.push(merged)
+    if (!existing) {
+      appendedSeries.push(merged)
+    }
+  }
+
+  const remainingExistingSeries = existingSeriesList.filter((item) => !frontSeriesKeys.has(getFolderSeriesDedupKey(item)))
 
   const seriesList = mergeFourDSeriesMetadataIntoSeriesList(
-    [...mergedExistingSeries, ...appendedSeries],
+    [...loadedFrontSeries, ...remainingExistingSeries],
     incomingSeriesList
   )
   const seriesByKey = indexSeriesByDedupKey(seriesList)

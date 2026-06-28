@@ -237,7 +237,15 @@ export function createEmptyMprInitialWindowInfos(): Partial<Record<MprViewportKe
   return {}
 }
 
+export function createEmptyMprCurrentWindowInfos(): Partial<Record<MprViewportKey, WindowLevelInfo>> {
+  return {}
+}
+
 export function createEmptyCompareInitialWindowInfos(): Partial<Record<CompareStackPaneKey, WindowLevelInfo>> {
+  return {}
+}
+
+export function createEmptyCompareCurrentWindowInfos(): Partial<Record<CompareStackPaneKey, WindowLevelInfo>> {
   return {}
 }
 
@@ -791,6 +799,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     sliceLabel: '',
     windowLabel: '',
     initialWindowInfo: null,
+    currentWindowInfo: null,
     compareSeriesIds: createComparePaneRecord((paneKey) =>
       paneKey === COMPARE_STACK_SOURCE_PANE_KEY ? series.seriesId : ''
     ),
@@ -802,6 +811,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     compareSliceLabels: createEmptyCompareSliceLabels(),
     compareWindowLabels: createEmptyCompareWindowLabels(),
     compareInitialWindowInfos: createEmptyCompareInitialWindowInfos(),
+    compareCurrentWindowInfos: createEmptyCompareCurrentWindowInfos(),
     compareScaleBars: createEmptyCompareScaleBars(),
     compareCornerInfos: createEmptyCompareCornerInfos(),
     compareOrientations: createEmptyCompareOrientations(),
@@ -840,6 +850,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     cornerInfo: createEmptyCornerInfo(),
     showCornerInfo: true,
     showScaleBar: true,
+    showPseudocolorBar: true,
     viewportCornerInfos: createEmptyMprCornerInfos(),
     orientation: createEmptyOrientationInfo(),
     viewportOrientations: createEmptyMprOrientations(),
@@ -849,6 +860,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     pseudocolorPreset: viewType === 'PET' ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET : DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     viewportInitialWindowInfos: createEmptyMprInitialWindowInfos(),
+    viewportCurrentWindowInfos: createEmptyMprCurrentWindowInfos(),
     mprMipConfig: createDefaultMprMipConfig(),
     mprSegmentationConfig: createDefaultMprSegmentationConfig(),
     viewportSegmentationOverlays: createEmptyMprSegmentationOverlays(),

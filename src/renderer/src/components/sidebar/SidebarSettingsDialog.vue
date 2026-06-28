@@ -6,7 +6,7 @@ import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, MAX_HANGING_PROTOCOL_RULES, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type HangingProtocolRule, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
 import type { SettingsCopy } from '../../composables/ui/uiMessages'
-import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR } from '../../types/viewer'
+import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR, type DrawingScope } from '../../types/viewer'
 import {
   MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION,
   SAMPLE_VIEWPORT_CORNER_INFO,
@@ -18,7 +18,10 @@ import {
   getViewportCornerInfoItemLabel,
   normalizeViewportCornerInfoPreference,
   type ViewportCornerInfoCatalogItem,
-  type ViewportCornerInfoItemKey
+  type ViewportCornerInfoColorMode,
+  type ViewportCornerInfoItemKey,
+  type ViewportCornerInfoPreference,
+  type ViewportCornerInfoTypographyPreset
 } from '../../composables/ui/viewportCornerInfo'
 import { canChooseCustomExportDirectory, chooseCustomExportDirectory, getDefaultExportLocationLabel, openExportLocation } from '../../platform/exporting'
 import { viewerRuntime } from '../../platform/runtime'
@@ -139,6 +142,28 @@ interface ColorPreset {
   label: string
 }
 
+interface CornerInfoTypographyOption {
+  value: ViewportCornerInfoTypographyPreset
+  zh: string
+  en: string
+  detailZh: string
+  detailEn: string
+}
+
+interface CornerInfoColorModeOption {
+  value: ViewportCornerInfoColorMode
+  zh: string
+  en: string
+  detailZh: string
+  detailEn: string
+}
+
+interface CornerInfoStylePreviewSurface {
+  kind: 'dark' | 'light'
+  zh: string
+  en: string
+}
+
 const SETTINGS_SEARCH_SEPARATOR_PATTERN = /[\s_\-./\\|:，。；;、（）()[\]{}]+/g
 
 const SETTINGS_GROUP_SEARCH_ALIASES: Record<SettingsNavGroupKey, string[]> = {
@@ -210,6 +235,31 @@ const scaleBarColorPresets: ColorPreset[] = [
   { value: '#a855f7', label: 'Violet' }
 ]
 
+const cornerInfoTypographyOptions: CornerInfoTypographyOption[] = [
+  { value: 'compact', zh: '紧凑', en: 'Compact', detailZh: '小字号，低行高', detailEn: 'Small text, tight line height' },
+  { value: 'standard', zh: '标准', en: 'Standard', detailZh: '中等字号和行高', detailEn: 'Medium text and line height' },
+  { value: 'comfortable', zh: '舒适', en: 'Comfortable', detailZh: '保持当前显示效果', detailEn: 'Keep the current appearance' }
+]
+
+const cornerInfoColorModeOptions: CornerInfoColorModeOption[] = [
+  { value: 'auto', zh: '自动', en: 'Auto', detailZh: '按视图背景自动切换', detailEn: 'Follow the viewport surface' },
+  { value: 'custom', zh: '自定义', en: 'Custom', detailZh: '所有视图使用同一颜色', detailEn: 'Use one color everywhere' }
+]
+
+const cornerInfoColorPresets: ColorPreset[] = [
+  { value: '#f8fafc', label: 'White' },
+  { value: '#182334', label: 'Dark' },
+  { value: '#22d3ee', label: 'Cyan' },
+  { value: '#facc15', label: 'Yellow' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#ff9a9a', label: 'Fusion' }
+]
+
+const cornerInfoStylePreviewSurfaces: CornerInfoStylePreviewSurface[] = [
+  { kind: 'dark', zh: '暗底 CT', en: 'Dark CT' },
+  { kind: 'light', zh: '浅底 / PET', en: 'Light / PET' }
+]
+
 const measurementColorPresets: ColorPreset[] = [
   { value: '#ffb84d', label: 'Amber' },
   { value: '#55e7ff', label: 'Cyan' },
@@ -270,6 +320,14 @@ function createDefaultMeasurementStylePreference() {
     lineWidth: 2.5,
     editingLineStyle: 'dash' as MeasurementLineStyle,
     completedLineStyle: 'solid' as MeasurementLineStyle
+  }
+}
+
+function createDefaultDrawingScopePreference() {
+  return {
+    measurement: 'image' as DrawingScope,
+    qaWater: 'image' as DrawingScope,
+    mtf: 'image' as DrawingScope
   }
 }
 
@@ -370,6 +428,7 @@ const {
   dicomTagEditSavePreference,
   getWindowPresetLabel,
   hangingProtocolRules,
+  drawingScopePreference,
   measurementStylePreference,
   mprSegmentationStylePreference,
   mprDefaultLayoutKey,
@@ -386,6 +445,7 @@ const {
   setDicomDeidentifyPreference,
   setDicomTagEditSavePreference,
   setHangingProtocolRules,
+  setDrawingScopePreference,
   updateHangingProtocolRule,
   setMeasurementStylePreference,
   setMprSegmentationStylePreference,
@@ -590,6 +650,13 @@ const cornerInfoPreviewRenderEntriesByPosition = computed<Record<ViewportCornerP
   bottomLeft: getCornerInfoPreviewRenderEntries('bottomLeft'),
   bottomRight: getCornerInfoPreviewRenderEntries('bottomRight')
 }))
+const selectedCornerInfoTypographyIndex = computed(() => Math.max(
+  0,
+  cornerInfoTypographyOptions.findIndex((option) => option.value === viewportCornerInfoPreference.value.typographyPreset)
+))
+const selectedCornerInfoTypographyOption = computed(() => (
+  cornerInfoTypographyOptions[selectedCornerInfoTypographyIndex.value] ?? cornerInfoTypographyOptions[2]!
+))
 const mprDefaultLayoutSelectionValue = computed(() => toMprLayoutSelectionValue(mprDefaultLayoutKey.value))
 const mprDefaultLayoutOptions = computed(() =>
   MPR_LAYOUT_OPTIONS.map((option) => ({
@@ -601,6 +668,23 @@ const mprDefaultLayoutOptions = computed(() =>
   }))
 )
 const enabledQaWaterMetricCount = computed(() => qaWaterMetrics.value.filter((item) => item.enabled).length)
+const drawingScopeRows = computed(() => [
+  {
+    key: 'measurement' as const,
+    title: isZh.value ? '测量' : 'Measurement',
+    detail: isZh.value ? '线段、矩形、椭圆、角度等测量绘制' : 'Line, rectangle, ellipse, angle and other measurements'
+  },
+  {
+    key: 'qaWater' as const,
+    title: isZh.value ? '水模 QA' : 'Water QA',
+    detail: isZh.value ? '水模 ROI 与质控结果' : 'Water phantom ROI and QA results'
+  },
+  {
+    key: 'mtf' as const,
+    title: 'MTF',
+    detail: isZh.value ? 'MTF ROI 与曲线分析' : 'MTF ROI and curve analysis'
+  }
+])
 const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; title: string; description: string; badge: string }>>(() => [
   {
     value: 'flat',
@@ -944,11 +1028,92 @@ function isCornerInfoPositionFull(position: ViewportCornerPosition): boolean {
 
 function cloneCurrentCornerInfoPreference() {
   return normalizeViewportCornerInfoPreference({
-    topLeft: viewportCornerInfoPreference.value.topLeft,
-    topRight: viewportCornerInfoPreference.value.topRight,
-    bottomLeft: viewportCornerInfoPreference.value.bottomLeft,
-    bottomRight: viewportCornerInfoPreference.value.bottomRight
+    ...viewportCornerInfoPreference.value,
+    topLeft: [...viewportCornerInfoPreference.value.topLeft],
+    topRight: [...viewportCornerInfoPreference.value.topRight],
+    bottomLeft: [...viewportCornerInfoPreference.value.bottomLeft],
+    bottomRight: [...viewportCornerInfoPreference.value.bottomRight]
   })
+}
+
+function updateCornerInfoStylePreference(
+  patch: Partial<Pick<ViewportCornerInfoPreference, 'colorMode' | 'customDarkColor' | 'customLightColor' | 'typographyPreset'>>
+): void {
+  setViewportCornerInfoPreference(normalizeViewportCornerInfoPreference({
+    ...viewportCornerInfoPreference.value,
+    topLeft: [...viewportCornerInfoPreference.value.topLeft],
+    topRight: [...viewportCornerInfoPreference.value.topRight],
+    bottomLeft: [...viewportCornerInfoPreference.value.bottomLeft],
+    bottomRight: [...viewportCornerInfoPreference.value.bottomRight],
+    ...patch
+  }))
+}
+
+function updateDrawingScopePreference(key: keyof ReturnType<typeof createDefaultDrawingScopePreference>, scope: DrawingScope): void {
+  setDrawingScopePreference({
+    ...drawingScopePreference.value,
+    [key]: scope
+  })
+}
+
+function applySettingsSectionChanges(): void {}
+
+function resetCornerInfoStylePreference(): void {
+  const defaultPreference = createDefaultViewportCornerInfoPreference()
+  updateCornerInfoStylePreference({
+    typographyPreset: defaultPreference.typographyPreset,
+    colorMode: defaultPreference.colorMode,
+    customDarkColor: defaultPreference.customDarkColor,
+    customLightColor: defaultPreference.customLightColor
+  })
+}
+
+function resetCornerInfoItemsPreference(): void {
+  const defaultPreference = createDefaultViewportCornerInfoPreference()
+  setViewportCornerInfoPreference(normalizeViewportCornerInfoPreference({
+    ...viewportCornerInfoPreference.value,
+    topLeft: [...defaultPreference.topLeft],
+    topRight: [...defaultPreference.topRight],
+    bottomLeft: [...defaultPreference.bottomLeft],
+    bottomRight: [...defaultPreference.bottomRight]
+  }))
+  cornerInfoSearch.value = ''
+}
+
+function handleCornerInfoCustomColorInput(event: Event, targetSurface: 'dark' | 'light'): void {
+  const target = event.target as HTMLInputElement | null
+  if (target?.value) {
+    updateCornerInfoStylePreference({
+      colorMode: 'custom',
+      [targetSurface === 'dark' ? 'customDarkColor' : 'customLightColor']: target.value
+    })
+  }
+}
+
+function handleCornerInfoTypographySliderInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null
+  const index = Math.round(Number.parseFloat(target?.value ?? ''))
+  const option = cornerInfoTypographyOptions[Math.max(0, Math.min(cornerInfoTypographyOptions.length - 1, index))]
+  if (option) {
+    updateCornerInfoStylePreference({ typographyPreset: option.value })
+  }
+}
+
+function getCornerInfoStylePreviewSurfaceStyle(surface: CornerInfoStylePreviewSurface): Record<string, string> {
+  const color = viewportCornerInfoPreference.value.colorMode === 'custom'
+    ? surface.kind === 'light'
+      ? viewportCornerInfoPreference.value.customLightColor
+      : viewportCornerInfoPreference.value.customDarkColor
+    : surface.kind === 'light'
+      ? '#182334'
+      : '#dbe5ec'
+  const shadow = surface.kind === 'light'
+    ? '0 1px 1px rgba(255,255,255,0.86), 0 0 3px rgba(15,23,42,0.22)'
+    : '0 1px 1px rgba(0,0,0,0.92), 0 0 4px rgba(0,0,0,0.72)'
+  return {
+    '--corner-info-style-preview-color': color,
+    '--corner-info-style-preview-shadow': shadow
+  }
 }
 
 function setCornerInfoItemPosition(
@@ -1705,6 +1870,7 @@ function resetDisplaySubSection(section: SettingsSection): void {
   }
   if (section === 'displayMeasurement') {
     setMeasurementStylePreference(createDefaultMeasurementStylePreference())
+    setDrawingScopePreference(createDefaultDrawingScopePreference())
     return
   }
   if (section === 'displaySegmentation') {
@@ -1984,7 +2150,7 @@ onBeforeUnmount(() => {
           </aside>
 
           <section class="flex min-h-0 flex-col overflow-hidden px-6 py-5 lg:px-7">
-            <div class="mb-5 flex shrink-0 items-end justify-between gap-4">
+            <div v-if="activeSection !== 'displayCornerInfo'" class="mb-5 flex shrink-0 items-end justify-between gap-4">
               <div class="min-w-0">
                 <div class="text-2xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ currentSectionTitle }}</div>
                 <div v-if="currentSectionSubtitle" class="mt-1 text-sm text-[var(--theme-text-muted)]">{{ currentSectionSubtitle }}</div>
@@ -2760,17 +2926,187 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div v-if="activeSection === 'displayCornerInfo'" class="theme-card-soft rounded-[24px] p-3">
-                      <div class="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div class="min-w-0">
-                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                            <AppIcon name="tag" :size="18" />
-                            <span class="text-sm font-semibold">{{ isZh ? '四角信息' : 'Corner Info' }}</span>
+                    <div v-if="activeSection === 'displayCornerInfo'" class="corner-info-settings-root">
+                      <section class="corner-info-settings-section corner-info-settings-section--style">
+                        <div class="corner-info-section-heading">
+                          <div>
+                            <div class="corner-info-section-title">{{ isZh ? '样式与预览' : 'Style & Preview' }}</div>
+                            <div class="corner-info-section-subtitle">{{ isZh ? '字体、行高和颜色会立即反映到右侧预览。' : 'Typography, line height, and color update the preview immediately.' }}</div>
+                          </div>
+                          <div class="corner-info-section-actions">
+                            <button type="button" class="theme-button-secondary rounded-2xl border px-3 py-1.5 text-xs font-medium transition hover:brightness-110" @click="resetCornerInfoStylePreference">{{ copy.reset }}</button>
+                            <button type="button" class="theme-button-primary rounded-2xl border px-3 py-1.5 text-xs font-semibold transition hover:brightness-110" @click="applySettingsSectionChanges">{{ copy.applyDraft }}</button>
                           </div>
                         </div>
-                      </div>
 
-                      <div class="grid min-w-0 gap-3 xl:grid-cols-[minmax(230px,0.32fr)_minmax(0,1fr)]">
+                        <div class="corner-info-style-panel grid min-w-0 gap-5 xl:grid-cols-[minmax(300px,0.38fr)_minmax(0,1fr)]">
+                          <div class="corner-info-style-card">
+                            <div class="corner-info-control-block">
+                              <div class="corner-info-control-head">
+                                <span>{{ isZh ? '字体密度' : 'Typography Density' }}</span>
+                                <strong>{{ isZh ? selectedCornerInfoTypographyOption.zh : selectedCornerInfoTypographyOption.en }}</strong>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                :max="cornerInfoTypographyOptions.length - 1"
+                                step="1"
+                                class="corner-info-typography-slider"
+                                :value="selectedCornerInfoTypographyIndex"
+                                data-testid="settings-corner-typography-slider"
+                                @input="handleCornerInfoTypographySliderInput"
+                              />
+                              <div class="corner-info-typography-scale" aria-hidden="true">
+                                <span
+                                  v-for="(option, index) in cornerInfoTypographyOptions"
+                                  :key="option.value"
+                                  :class="{ 'corner-info-typography-scale__label--active': index === selectedCornerInfoTypographyIndex }"
+                                >
+                                  {{ isZh ? option.zh : option.en }}
+                                </span>
+                              </div>
+                              <div class="corner-info-typography-detail">
+                                {{ isZh ? selectedCornerInfoTypographyOption.detailZh : selectedCornerInfoTypographyOption.detailEn }}
+                              </div>
+                            </div>
+
+                            <div class="corner-info-control-block">
+                              <div class="corner-info-control-head">
+                                <span>{{ isZh ? '颜色策略' : 'Color Mode' }}</span>
+                                <strong>{{ viewportCornerInfoPreference.colorMode === 'custom' ? (isZh ? '自定义' : 'Custom') : (isZh ? '自动' : 'Auto') }}</strong>
+                              </div>
+                              <div class="grid gap-3 sm:grid-cols-2">
+                                <button
+                                  v-for="option in cornerInfoColorModeOptions"
+                                  :key="option.value"
+                                  type="button"
+                                  class="corner-info-style-option"
+                                  :class="{ 'corner-info-style-option--active': viewportCornerInfoPreference.colorMode === option.value }"
+                                  :data-testid="`settings-corner-color-mode-${option.value}`"
+                                  @click="updateCornerInfoStylePreference({ colorMode: option.value })"
+                                >
+                                  <span>{{ isZh ? option.zh : option.en }}</span>
+                                  <small>{{ isZh ? option.detailZh : option.detailEn }}</small>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div class="corner-info-control-block" :class="{ 'corner-info-control-block--disabled': viewportCornerInfoPreference.colorMode !== 'custom' }">
+                              <div class="corner-info-control-head">
+                                <span>{{ isZh ? '自定义颜色' : 'Custom Colors' }}</span>
+                                <strong>{{ viewportCornerInfoPreference.customDarkColor }} / {{ viewportCornerInfoPreference.customLightColor }}</strong>
+                              </div>
+                              <div class="corner-info-color-pair">
+                                <div class="corner-info-color-surface-row">
+                                  <div class="corner-info-color-surface-head">
+                                    <span>{{ isZh ? '暗底' : 'Dark Surface' }}</span>
+                                    <strong>{{ viewportCornerInfoPreference.customDarkColor }}</strong>
+                                  </div>
+                                  <div class="corner-info-color-picker-row">
+                                    <input
+                                      :value="viewportCornerInfoPreference.customDarkColor"
+                                      type="color"
+                                      class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent"
+                                      :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                                      data-testid="settings-corner-dark-color-input"
+                                      @input="handleCornerInfoCustomColorInput($event, 'dark')"
+                                    />
+                                    <div class="corner-info-color-swatch-grid">
+                                      <button
+                                        v-for="preset in cornerInfoColorPresets"
+                                        :key="`dark-${preset.value}`"
+                                        type="button"
+                                        class="corner-info-color-swatch"
+                                        :class="viewportCornerInfoPreference.customDarkColor.toLowerCase() === preset.value.toLowerCase() && viewportCornerInfoPreference.colorMode === 'custom' ? 'corner-info-color-swatch--active' : ''"
+                                        :style="{ backgroundColor: preset.value }"
+                                        :title="preset.label"
+                                        :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                                        data-testid="settings-corner-dark-color-preset"
+                                        @click="updateCornerInfoStylePreference({ customDarkColor: preset.value, colorMode: 'custom' })"
+                                      >
+                                        <span v-if="viewportCornerInfoPreference.customDarkColor.toLowerCase() === preset.value.toLowerCase() && viewportCornerInfoPreference.colorMode === 'custom'"></span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div class="corner-info-color-surface-row">
+                                  <div class="corner-info-color-surface-head">
+                                    <span>{{ isZh ? '浅底 / PET' : 'Light Surface / PET' }}</span>
+                                    <strong>{{ viewportCornerInfoPreference.customLightColor }}</strong>
+                                  </div>
+                                  <div class="corner-info-color-picker-row">
+                                    <input
+                                      :value="viewportCornerInfoPreference.customLightColor"
+                                      type="color"
+                                      class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent"
+                                      :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                                      data-testid="settings-corner-light-color-input"
+                                      @input="handleCornerInfoCustomColorInput($event, 'light')"
+                                    />
+                                    <div class="corner-info-color-swatch-grid">
+                                      <button
+                                        v-for="preset in cornerInfoColorPresets"
+                                        :key="`light-${preset.value}`"
+                                        type="button"
+                                        class="corner-info-color-swatch"
+                                        :class="viewportCornerInfoPreference.customLightColor.toLowerCase() === preset.value.toLowerCase() && viewportCornerInfoPreference.colorMode === 'custom' ? 'corner-info-color-swatch--active' : ''"
+                                        :style="{ backgroundColor: preset.value }"
+                                        :title="preset.label"
+                                        :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                                        data-testid="settings-corner-light-color-preset"
+                                        @click="updateCornerInfoStylePreference({ customLightColor: preset.value, colorMode: 'custom' })"
+                                      >
+                                        <span v-if="viewportCornerInfoPreference.customLightColor.toLowerCase() === preset.value.toLowerCase() && viewportCornerInfoPreference.colorMode === 'custom'"></span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="corner-info-preview-card">
+                            <div class="corner-info-control-head mb-3">
+                              <span>{{ isZh ? '四角信息预览' : 'Corner Info Preview' }}</span>
+                              <strong>{{ viewportCornerInfoPreference.colorMode === 'custom' ? `${viewportCornerInfoPreference.customDarkColor} / ${viewportCornerInfoPreference.customLightColor}` : (isZh ? '自动颜色' : 'Auto color') }}</strong>
+                            </div>
+                            <div class="corner-info-style-preview-grid grid gap-4 md:grid-cols-2">
+                              <div
+                                v-for="surface in cornerInfoStylePreviewSurfaces"
+                                :key="surface.kind"
+                                class="corner-info-style-preview-surface"
+                                :class="[`corner-info-style-preview-surface--${surface.kind}`, `corner-info-style-preview-surface--${viewportCornerInfoPreference.typographyPreset}`]"
+                                :style="getCornerInfoStylePreviewSurfaceStyle(surface)"
+                              >
+                                <span class="corner-info-style-preview-label">{{ isZh ? surface.zh : surface.en }}</span>
+                                <div
+                                  v-for="position in VIEWPORT_CORNER_POSITIONS"
+                                  :key="`${surface.kind}-${position}`"
+                                  class="corner-info-style-preview-corner"
+                                  :class="`corner-info-style-preview-corner--${position}`"
+                                >
+                                  <span v-for="line in getCornerInfoPreviewLines(position).slice(0, 3)" :key="`${surface.kind}-${position}-${line}`">{{ line }}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                      </section>
+
+                      <section class="corner-info-settings-section corner-info-settings-section--items">
+                        <div class="corner-info-section-heading">
+                          <div>
+                            <div class="corner-info-section-title">{{ isZh ? '显示项配置' : 'Displayed Fields' }}</div>
+                            <div class="corner-info-section-subtitle">{{ isZh ? '拖拽左侧项目到右侧四角区域，调整显示内容和顺序。' : 'Drag items into the four corner regions to control content and order.' }}</div>
+                          </div>
+                          <div class="corner-info-section-actions">
+                            <button type="button" class="theme-button-secondary rounded-2xl border px-3 py-1.5 text-xs font-medium transition hover:brightness-110" @click="resetCornerInfoItemsPreference">{{ copy.reset }}</button>
+                            <button type="button" class="theme-button-primary rounded-2xl border px-3 py-1.5 text-xs font-semibold transition hover:brightness-110" @click="applySettingsSectionChanges">{{ copy.applyDraft }}</button>
+                          </div>
+                        </div>
+
+                        <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(260px,0.32fr)_minmax(0,1fr)]">
                         <div class="corner-info-catalog-panel min-w-0 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-2.5">
                           <div class="settings-nav-search flex min-h-10 items-center gap-2 rounded-[14px] border px-3">
                             <AppIcon name="search" :size="16" />
@@ -2880,6 +3216,7 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
                       </div>
+                      </section>
 
                       <div
                         v-if="cornerInfoContextMenu"
@@ -3231,6 +3568,43 @@ onBeforeUnmount(() => {
                             <line x1="20" y1="22" x2="260" y2="22" :stroke="measurementStylePreference.editingColor" :stroke-width="measurementStylePreference.lineWidth" stroke-linecap="round" :stroke-dasharray="measurementStylePreference.editingLineStyle === 'dash' ? '12 8' : undefined" />
                             <line x1="20" y1="52" x2="260" y2="52" :stroke="measurementStylePreference.completedColor" :stroke-width="measurementStylePreference.lineWidth" stroke-linecap="round" :stroke-dasharray="measurementStylePreference.completedLineStyle === 'dash' ? '12 8' : undefined" />
                           </svg>
+                        </div>
+                      </div>
+
+                      <div class="mt-4 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                        <div class="mb-3 flex flex-col gap-1">
+                          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '绘制作用范围' : 'Drawing Scope' }}</div>
+                          <div class="text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '控制新建测量、水模和 MTF 绘制显示在当前影像还是整个 series。' : 'Control whether new measurement, water QA and MTF drawings apply to the current image or the whole series.' }}</div>
+                        </div>
+                        <div class="grid gap-3 lg:grid-cols-3">
+                          <div
+                            v-for="row in drawingScopeRows"
+                            :key="row.key"
+                            class="rounded-[16px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-3"
+                          >
+                            <div class="mb-3">
+                              <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ row.title }}</div>
+                              <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ row.detail }}</div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
+                                :class="drawingScopePreference[row.key] === 'image' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                                @click="updateDrawingScopePreference(row.key, 'image')"
+                              >
+                                {{ isZh ? '当前影像' : 'Image' }}
+                              </button>
+                              <button
+                                type="button"
+                                class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
+                                :class="drawingScopePreference[row.key] === 'series' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                                @click="updateDrawingScopePreference(row.key, 'series')"
+                              >
+                                {{ isZh ? '整个 series' : 'Series' }}
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3943,6 +4317,375 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--theme-accent) 36%, transparent) transparent;
+}
+
+.corner-info-settings-root {
+  display: grid;
+  gap: 22px;
+}
+
+.corner-info-settings-section {
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--theme-surface-panel) 72%, transparent);
+  padding: 16px;
+}
+
+.corner-info-settings-section + .corner-info-settings-section {
+  margin-top: 0;
+}
+
+.corner-info-settings-section--items {
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 42%, transparent);
+}
+
+.corner-info-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+}
+
+.corner-info-section-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.corner-info-section-title {
+  color: var(--theme-text-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.corner-info-section-subtitle {
+  margin-top: 4px;
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.corner-info-style-card,
+.corner-info-preview-card {
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 18px;
+  background: var(--theme-surface-panel-strong);
+  padding: 16px;
+}
+
+.corner-info-style-panel {
+  align-items: start;
+}
+
+.corner-info-style-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.corner-info-preview-card {
+  align-self: start;
+}
+
+.corner-info-style-preview-grid {
+  align-items: start;
+}
+
+.corner-info-control-block {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-surface-card) 58%, transparent);
+  padding: 14px;
+}
+
+.corner-info-control-block--disabled {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.corner-info-control-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.corner-info-control-head span {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.corner-info-control-head strong {
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.corner-info-typography-slider {
+  width: 100%;
+  accent-color: var(--theme-accent);
+}
+
+.corner-info-typography-scale {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.corner-info-typography-scale span:nth-child(2) {
+  text-align: center;
+}
+
+.corner-info-typography-scale span:nth-child(3) {
+  text-align: right;
+}
+
+.corner-info-typography-scale__label--active {
+  color: var(--theme-text-primary);
+}
+
+.corner-info-typography-detail {
+  min-height: 20px;
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.corner-info-style-option {
+  display: grid;
+  min-height: 68px;
+  gap: 4px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  padding: 10px 12px;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.corner-info-style-option span {
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.corner-info-style-option small {
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.corner-info-style-option:hover {
+  border-color: var(--theme-border-strong);
+}
+
+.corner-info-style-option--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 66%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 22%, transparent);
+}
+
+.corner-info-color-pair {
+  display: grid;
+  gap: 12px;
+}
+
+.corner-info-color-surface-row {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 56%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong) 42%, transparent);
+  padding: 12px;
+}
+
+.corner-info-color-surface-head,
+.corner-info-color-picker-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.corner-info-color-surface-head {
+  justify-content: space-between;
+}
+
+.corner-info-color-surface-head span {
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.corner-info-color-surface-head strong {
+  color: var(--theme-text-primary);
+  font-family: var(--font-data);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.corner-info-color-swatch-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.corner-info-color-swatch {
+  display: grid;
+  min-height: 30px;
+  min-width: 0;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.corner-info-color-swatch:hover {
+  border-color: var(--theme-border-strong);
+}
+
+.corner-info-color-swatch--active {
+  border-color: var(--theme-border-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 38%, transparent);
+}
+
+.corner-info-color-swatch span {
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.corner-info-style-preview-surface {
+  position: relative;
+  min-height: 238px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 240, 255, 0.12);
+  border-radius: 16px;
+  background: #020409;
+  --corner-info-style-preview-font-size: 12px;
+  --corner-info-style-preview-line-height: 1.36;
+}
+
+.corner-info-style-preview-surface--standard {
+  --corner-info-style-preview-font-size: 11px;
+  --corner-info-style-preview-line-height: 1.26;
+}
+
+.corner-info-style-preview-surface--compact {
+  --corner-info-style-preview-font-size: 10px;
+  --corner-info-style-preview-line-height: 1.16;
+}
+
+.corner-info-style-preview-surface--dark {
+  background:
+    radial-gradient(circle at 28% 18%, rgba(96, 165, 250, 0.12), transparent 30%),
+    radial-gradient(circle at 70% 72%, rgba(20, 184, 166, 0.09), transparent 34%),
+    linear-gradient(180deg, #111827, #05080d 58%, #020409);
+}
+
+.corner-info-style-preview-surface--light {
+  background:
+    radial-gradient(circle at 28% 18%, rgba(96, 165, 250, 0.18), transparent 32%),
+    linear-gradient(180deg, #e9f3fb, #cddce8 58%, #b9cbd9);
+}
+
+.corner-info-style-preview-label {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.42);
+  padding: 3px 8px;
+  color: rgba(248, 250, 252, 0.78);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.corner-info-style-preview-surface--light .corner-info-style-preview-label {
+  background: rgba(255, 255, 255, 0.58);
+  color: rgba(24, 35, 52, 0.74);
+}
+
+.corner-info-style-preview-corner {
+  position: absolute;
+  display: flex;
+  max-width: 44%;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--corner-info-style-preview-color);
+  font-family: var(--font-data);
+  font-size: var(--corner-info-style-preview-font-size);
+  font-weight: 650;
+  line-height: var(--corner-info-style-preview-line-height);
+  text-shadow: var(--corner-info-style-preview-shadow);
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .corner-info-section-heading {
+    flex-direction: column;
+  }
+
+  .corner-info-section-actions {
+    justify-content: flex-start;
+  }
+}
+
+.corner-info-style-preview-corner--topLeft {
+  top: 14px;
+  left: 14px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.corner-info-style-preview-corner--topRight {
+  top: 14px;
+  right: 14px;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.corner-info-style-preview-corner--bottomLeft {
+  bottom: 14px;
+  left: 14px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.corner-info-style-preview-corner--bottomRight {
+  right: 14px;
+  bottom: 14px;
+  align-items: flex-end;
+  text-align: right;
 }
 
 .corner-info-catalog-item {

@@ -1,4 +1,3 @@
-import { postApi } from '../../services/typedApi'
 import type {
   QaWaterAnalysis,
   QaWaterMetrics,
@@ -10,6 +9,7 @@ export async function analyzeWaterPhantomView(
   viewportKey: string,
   metrics: QaWaterMetricKey[]
 ): Promise<QaWaterAnalysis> {
+  const { postApi } = await import('../../services/typedApi')
   const data = await postApi('AnalyzeQaWaterApiV1ViewQaWaterAnalyzePost', {
     viewId,
     viewportKey,

@@ -16,6 +16,7 @@ export type ViewportCornerInfoItemKey =
   | 'windowLevel'
   | 'zoom'
   | 'coordinates'
+  | 'transform2dState'
   | 'modality'
   | 'accessionNumber'
   | 'studyDate'
@@ -43,11 +44,23 @@ export type ViewportCornerInfoItemKey =
   | 'exposure'
   | 'exposureTime'
 
+export const VIEWPORT_CORNER_INFO_TYPOGRAPHY_PRESETS = ['compact', 'standard', 'comfortable'] as const
+export const VIEWPORT_CORNER_INFO_COLOR_MODES = ['auto', 'custom'] as const
+export const DEFAULT_VIEWPORT_CORNER_INFO_CUSTOM_DARK_COLOR = '#f8fafc'
+export const DEFAULT_VIEWPORT_CORNER_INFO_CUSTOM_LIGHT_COLOR = '#182334'
+
+export type ViewportCornerInfoTypographyPreset = (typeof VIEWPORT_CORNER_INFO_TYPOGRAPHY_PRESETS)[number]
+export type ViewportCornerInfoColorMode = (typeof VIEWPORT_CORNER_INFO_COLOR_MODES)[number]
+
 export interface ViewportCornerInfoPreference {
   topLeft: ViewportCornerInfoItemKey[]
   topRight: ViewportCornerInfoItemKey[]
   bottomLeft: ViewportCornerInfoItemKey[]
   bottomRight: ViewportCornerInfoItemKey[]
+  typographyPreset: ViewportCornerInfoTypographyPreset
+  colorMode: ViewportCornerInfoColorMode
+  customDarkColor: string
+  customLightColor: string
 }
 
 export interface ViewportCornerInfoCatalogItem {
@@ -155,6 +168,12 @@ export const VIEWPORT_CORNER_INFO_CATALOG: ViewportCornerInfoCatalogItem[] = [
     labels: { 'zh-CN': '坐标 / 平移', 'en-US': 'Coordinates / pan' },
     dicomKeywords: [],
     keywords: ['coordinate', 'cursor', 'pan', 'offset', '坐标', '平移']
+  },
+  {
+    key: 'transform2dState',
+    labels: { 'zh-CN': '旋转 / 镜像', 'en-US': 'Rotation / flip' },
+    dicomKeywords: [],
+    keywords: ['rotation', 'rotate', 'flip', 'mirror', 'transform', '旋转', '镜像', '翻转']
   },
   {
     key: 'modality',
@@ -332,14 +351,18 @@ const DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE: ViewportCornerInfoPreference = {
   ],
   topRight: ['patientName', 'patientSummary'],
   bottomLeft: ['technique', 'sliceThickness', 'acquisitionDateTime', 'windowLevel'],
-  bottomRight: ['zoom', 'coordinates']
+  bottomRight: ['zoom', 'coordinates', 'transform2dState'],
+  typographyPreset: 'comfortable',
+  colorMode: 'auto',
+  customDarkColor: DEFAULT_VIEWPORT_CORNER_INFO_CUSTOM_DARK_COLOR,
+  customLightColor: DEFAULT_VIEWPORT_CORNER_INFO_CUSTOM_LIGHT_COLOR
 }
 
 export const SAMPLE_VIEWPORT_CORNER_INFO: CornerInfo = {
   topLeft: ['SIEMENS / SOMATOM', 'CT01', 'Radiology', 'Chest CT', 'Se: 3', 'AXIAL  I 42.5mm', 'Im: 36/128'],
   topRight: ['ZHANG SAN', 'P000123 / M / 058Y'],
   bottomLeft: ['120kV 250mA', '1.25mm', '2026-06-05 10:24:31', 'W: 400 L: 40'],
-  bottomRight: ['Zoom:1.25x', 'X:12 Y:-4'],
+  bottomRight: ['Zoom:1.25x', 'X:12 Y:-4', 'Rot:90° / Flip:H'],
   tags: {
     modality: ['Modality: CT'],
     accessionNumber: ['Acc: A20260605001'],
@@ -375,7 +398,11 @@ function clonePreference(preference: ViewportCornerInfoPreference): ViewportCorn
     topLeft: [...preference.topLeft],
     topRight: [...preference.topRight],
     bottomLeft: [...preference.bottomLeft],
-    bottomRight: [...preference.bottomRight]
+    bottomRight: [...preference.bottomRight],
+    typographyPreset: preference.typographyPreset,
+    colorMode: preference.colorMode,
+    customDarkColor: preference.customDarkColor,
+    customLightColor: preference.customLightColor
   }
 }
 
@@ -387,6 +414,27 @@ function normalizeItemKey(value: unknown): ViewportCornerInfoItemKey | null {
   return typeof value === 'string' && VIEWPORT_CORNER_INFO_ITEM_KEY_SET.has(value as ViewportCornerInfoItemKey)
     ? (value as ViewportCornerInfoItemKey)
     : null
+}
+
+function normalizeTypographyPreset(value: unknown): ViewportCornerInfoTypographyPreset {
+  return VIEWPORT_CORNER_INFO_TYPOGRAPHY_PRESETS.includes(value as ViewportCornerInfoTypographyPreset)
+    ? (value as ViewportCornerInfoTypographyPreset)
+    : DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE.typographyPreset
+}
+
+function normalizeColorMode(value: unknown): ViewportCornerInfoColorMode {
+  return VIEWPORT_CORNER_INFO_COLOR_MODES.includes(value as ViewportCornerInfoColorMode)
+    ? (value as ViewportCornerInfoColorMode)
+    : DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE.colorMode
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  const normalized = value.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized : fallback
 }
 
 function createViewportCornerInfoSearchIndex(locale: 'zh-CN' | 'en-US'): Map<ViewportCornerInfoItemKey, string> {
@@ -414,31 +462,37 @@ export function normalizeViewportCornerInfoPreference(value: unknown): ViewportC
 
   const record = value as Partial<Record<CornerPosition, unknown>>
   const usedKeys = new Set<ViewportCornerInfoItemKey>()
-  const normalized = VIEWPORT_CORNER_POSITIONS.reduce(
-    (accumulator, position) => {
-      const source = Array.isArray(record[position]) ? record[position] : []
-      for (const item of source) {
-        if (accumulator[position].length >= MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION) {
-          break
-        }
+  const styleRecord = value as Partial<
+    Pick<ViewportCornerInfoPreference, 'colorMode' | 'customDarkColor' | 'customLightColor' | 'typographyPreset'>
+  > & { customColor?: unknown }
+  const legacyCustomColor = normalizeHexColor(styleRecord.customColor, DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE.customDarkColor)
+  const normalized: ViewportCornerInfoPreference = {
+    topLeft: [],
+    topRight: [],
+    bottomLeft: [],
+    bottomRight: [],
+    typographyPreset: normalizeTypographyPreset(styleRecord.typographyPreset),
+    colorMode: normalizeColorMode(styleRecord.colorMode),
+    customDarkColor: normalizeHexColor(styleRecord.customDarkColor, legacyCustomColor),
+    customLightColor: normalizeHexColor(styleRecord.customLightColor, DEFAULT_VIEWPORT_CORNER_INFO_PREFERENCE.customLightColor)
+  }
 
-        const key = normalizeItemKey(item)
-        if (!key || usedKeys.has(key)) {
-          continue
-        }
-
-        usedKeys.add(key)
-        accumulator[position].push(key)
+  for (const position of VIEWPORT_CORNER_POSITIONS) {
+    const source = Array.isArray(record[position]) ? record[position] : []
+    for (const item of source) {
+      if (normalized[position].length >= MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION) {
+        break
       }
-      return accumulator
-    },
-    {
-      topLeft: [],
-      topRight: [],
-      bottomLeft: [],
-      bottomRight: []
-    } as ViewportCornerInfoPreference
-  )
+
+      const key = normalizeItemKey(item)
+      if (!key || usedKeys.has(key)) {
+        continue
+      }
+
+      usedKeys.add(key)
+      normalized[position].push(key)
+    }
+  }
 
   return normalized
 }
@@ -488,6 +542,10 @@ function isCoordinateLine(line: string): boolean {
   return /^(?:Cursor\s+)?X:\s*-?\d+\s+Y:\s*-?\d+$/i.test(line)
 }
 
+function isTransform2dStateLine(line: string): boolean {
+  return /^Rot:\s*-?\d+(?:\.\d+)?°?\s*\/\s*Flip:/i.test(line)
+}
+
 function isTechniqueLine(line: string): boolean {
   return /\b(?:kV|mA)\b/i.test(line)
 }
@@ -528,6 +586,7 @@ export function resolveViewportCornerInfoLineMap(cornerInfo: CornerInfo): Corner
 
   const zoomLine = firstMatchingLine(bottomRight, isZoomLine)
   const coordinateLine = firstMatchingLine(bottomRight, isCoordinateLine)
+  const transform2dStateLine = firstMatchingLine(bottomRight, isTransform2dStateLine)
 
   const inferredLineMap: CornerInfoLineMap = {
     manufacturerModel: metadataTopLeft[0] ? [metadataTopLeft[0]] : [],
@@ -545,6 +604,7 @@ export function resolveViewportCornerInfoLineMap(cornerInfo: CornerInfo): Corner
     windowLevel: windowLine ? [windowLine] : [],
     zoom: zoomLine ? [zoomLine] : [],
     coordinates: coordinateLine ? [coordinateLine] : [],
+    transform2dState: transform2dStateLine ? [transform2dStateLine] : [],
     modality: [],
     accessionNumber: [],
     studyDate: [],

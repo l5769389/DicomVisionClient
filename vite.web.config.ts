@@ -5,7 +5,8 @@ import {
   createRendererPlugins,
   rendererDefine,
   rendererInput,
-  rendererResolveAlias
+  rendererResolveAlias,
+  resolveRendererModulePreloadDependencies
 } from './vite.renderer.shared'
 
 export default defineConfig({
@@ -15,7 +16,7 @@ export default defineConfig({
     outDir: '../../dist-web',
     emptyOutDir: true,
     modulePreload: {
-      resolveDependencies: () => []
+      resolveDependencies: resolveRendererModulePreloadDependencies
     },
     rollupOptions: {
       input: rendererInput,

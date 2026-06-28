@@ -9,6 +9,7 @@ import {
   resolvePrimaryTwoDimensionalViewType
 } from '../../composables/workspace/views/seriesViewSupport'
 import type { WebUploadPickMode } from '../../platform/runtime'
+import { canInstall as pwaCanInstall, isInstalled as pwaIsInstalled, promptInstall } from '../../platform/pwaInstall'
 import { normalizeInlineSvg } from '../../utils/svg'
 import AppIcon from '../AppIcon.vue'
 import fileIcon from '../../assets/dicom-action-icons/dicom-file.svg?raw'
@@ -46,6 +47,12 @@ const isZh = computed(() => locale.value === 'zh-CN')
 
 const normalizedFileIcon = computed(() => normalizeInlineSvg(fileIcon))
 const isServerSampleMode = computed(() => props.viewerFolderSourceMode === 'server-sample')
+const installAppLabel = computed(() => (isZh.value ? '安装应用' : 'Install app'))
+const shouldShowInstallAppAction = computed(() => (
+  props.viewerPlatform === 'web' &&
+  pwaCanInstall.value &&
+  !pwaIsInstalled.value
+))
 const pickerActionLabel = computed(() => {
   if (props.viewerPlatform === 'web') {
     return t('uploadDicom')
@@ -133,6 +140,10 @@ function handleUploadClick(mode: WebUploadPickMode): void {
   emit('chooseFolder', mode)
 }
 
+async function handleInstallAppClick(): Promise<void> {
+  await promptInstall()
+}
+
 </script>
 
 <template>
@@ -150,6 +161,23 @@ function handleUploadClick(mode: WebUploadPickMode): void {
           <AppIcon name="play" :size="18" />
         </span>
         <span class="sample-action-button__title">{{ folderActionLabel }}</span>
+      </span>
+    </VBtn>
+
+    <VBtn
+      v-if="shouldShowInstallAppAction"
+      variant="flat"
+      class="install-action-button mb-2 w-full! min-w-0! rounded-2xl! border! px-3! py-0!"
+      data-testid="quick-actions-install-app"
+      :aria-label="installAppLabel"
+      :title="installAppLabel"
+      @click="handleInstallAppClick"
+    >
+      <span class="install-action-button__content">
+        <span class="install-action-button__icon" aria-hidden="true">
+          <AppIcon name="install-app" :size="17" />
+        </span>
+        <span class="install-action-button__title">{{ installAppLabel }}</span>
       </span>
     </VBtn>
 
@@ -267,6 +295,52 @@ function handleUploadClick(mode: WebUploadPickMode): void {
   background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
   color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text-primary));
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 10%, transparent);
+}
+
+.install-action-button {
+  height: 42px !important;
+  min-height: 42px !important;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card)) !important;
+  color: var(--theme-text-primary) !important;
+  text-transform: none !important;
+}
+
+.install-action-button:hover:not(.v-btn--disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface-card)) !important;
+}
+
+.install-action-button__content {
+  display: inline-grid;
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: 28px minmax(0, auto);
+  align-items: center;
+  gap: 10px;
+}
+
+.install-action-button__icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 26%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-accent) 13%, transparent);
+  color: var(--theme-accent);
+}
+
+.install-action-button__title {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quick-action-button {

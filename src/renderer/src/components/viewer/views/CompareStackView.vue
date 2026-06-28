@@ -256,6 +256,11 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           :draft-measurement="getDraftMeasurement(pane.key)"
           :measurements="getMeasurements(pane.key)"
           :scale-bar="activeTab.compareScaleBars?.[pane.key] ?? null"
+          :pseudocolor-preset="activeTab.comparePseudocolorPresets?.[pane.key] ?? activeTab.pseudocolorPreset"
+          :pseudocolor-window-info="activeTab.compareCurrentWindowInfos?.[pane.key] ?? activeTab.compareInitialWindowInfos?.[pane.key] ?? null"
+          :show-corner-info="activeTab.showCornerInfo !== false"
+          :show-scale-bar="activeTab.showScaleBar !== false"
+          :show-pseudocolor-bar="activeTab.showPseudocolorBar !== false"
           :orientation="activeTab.compareOrientations?.[pane.key] ?? activeTab.orientation"
           :viewport-transform="activeTab.compareTransformStates?.[pane.key] ?? activeTab.transformState ?? null"
           @copy-selected-measurement="emit('copySelectedMeasurement', $event)"
@@ -277,7 +282,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
         />
 
         <div v-if="!isScrollSynced" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
-          <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
+          <span class="compare-stack-slice-label grid min-h-8 w-full place-items-center break-all text-center text-[9px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
           <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[pane.key] }}</span>
           <div class="my-2 flex min-h-0 flex-1 items-center">
             <input
@@ -302,7 +307,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
       </div>
 
       <div v-if="isScrollSynced && syncedSliderPane" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
-        <span class="text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
+        <span class="compare-stack-slice-label grid min-h-8 w-full place-items-center break-all text-center text-[9px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
         <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[COMPARE_STACK_SOURCE_PANE_KEY] }}</span>
         <div class="my-2 flex min-h-0 flex-1 items-center">
           <input
@@ -417,10 +422,49 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
 }
 
 .compare-stack-slider {
-  appearance: slider-vertical;
-  writing-mode: bt-lr;
-  transform: rotate(180deg);
+  width: 14px;
+  border: 0 !important;
+  appearance: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  writing-mode: vertical-lr;
   accent-color: var(--theme-accent);
+  outline: none;
+}
+
+.compare-stack-slider::-webkit-slider-runnable-track {
+  width: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 52%, transparent);
+  box-shadow: none;
+}
+
+.compare-stack-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
+  border-radius: 999px;
+  appearance: none;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+}
+
+.compare-stack-slider::-moz-range-track {
+  width: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-border-strong) 52%, transparent);
+}
+
+.compare-stack-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 
 @media (max-width: 1100px) {

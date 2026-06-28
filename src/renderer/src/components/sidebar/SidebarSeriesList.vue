@@ -14,13 +14,7 @@ import {
   resolvePrimaryTwoDimensionalViewType
 } from '../../composables/workspace/views/seriesViewSupport'
 import { saveBinaryFile, type SaveFilePreference } from '../../platform/exporting'
-import {
-  getDicomDeidentifyJob,
-  getDicomDeidentifyJobArtifact,
-  postApi,
-  postDicomDeidentifyJob,
-  type DicomTagModifyJob
-} from '../../services/typedApi'
+import type { DicomTagModifyJob } from '../../services/typedApi'
 import {
   getDicomJobProgress,
   showDicomJobProgressToast,
@@ -86,6 +80,13 @@ interface SeriesContextMenuActionItem {
 const { locale, t, viewerCopy } = useUiLocale()
 const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
 const { clearSeriesStars, getStarredSliceIndexes, getStarredSliceCount } = useKeySliceStars()
+let typedApiModulePromise: Promise<typeof import('../../services/typedApi')> | null = null
+
+function loadTypedApi(): Promise<typeof import('../../services/typedApi')> {
+  typedApiModulePromise ??= import('../../services/typedApi')
+  return typedApiModulePromise
+}
+
 const isContextMenuOpen = ref(false)
 const isCompareDialogOpen = ref(false)
 const isFusionDialogOpen = ref(false)
@@ -478,6 +479,7 @@ function showDeidentifyJobProgress(job: DicomTagModifyJob, message = deidentifyC
 }
 
 async function waitForDicomDeidentifyJob(initialJob: DicomTagModifyJob): Promise<DicomTagModifyJob> {
+  const { getDicomDeidentifyJob } = await loadTypedApi()
   return waitForDicomJob(initialJob, getDicomDeidentifyJob, {
     onProgress: showDeidentifyJobProgress,
     timeoutMessage: deidentifyCopy.value.exportJobTimeout
@@ -665,6 +667,7 @@ async function openCompatibilityCheck(series: FolderSeriesItem): Promise<void> {
   isCheckingCompatibility.value = true
 
   try {
+    const { postApi } = await loadTypedApi()
     const result = await postApi('CheckDicomCompatibilityApiV1DicomCompatibilityPost', {
       seriesId: series.seriesId
     })
@@ -729,6 +732,7 @@ async function exportDeidentifiedSeries(series: FolderSeriesItem): Promise<void>
 
   isDeidentifyingSeriesId.value = series.seriesId
   try {
+    const { postDicomDeidentifyJob } = await loadTypedApi()
     const job = await postDicomDeidentifyJob({
       seriesId: series.seriesId,
       fieldKeys: dicomDeidentifyPreference.value.selectedFieldKeys,
@@ -771,6 +775,7 @@ async function finishDeidentifyExportJob(initialJob: DicomTagModifyJob, series: 
       progressLabel: progress.label,
       progressPercent: 100
     })
+    const { getDicomDeidentifyJobArtifact } = await loadTypedApi()
     const artifact = await getDicomDeidentifyJobArtifact(completedJob.jobId)
     const savedFile = await saveBinaryFile({
       data: artifact.data,

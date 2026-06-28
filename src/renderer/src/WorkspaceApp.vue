@@ -4,11 +4,13 @@ import { VApp, VMain } from 'vuetify/components'
 import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
 import { useUiLocale } from './composables/ui/useUiLocale'
+import { useUiPreferences } from './composables/ui/useUiPreferences'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
 import { resolvePrimaryTwoDimensionalViewType } from './composables/workspace/views/seriesViewSupport'
 import { normalizeInlineSvg } from './utils/svg'
+import { initializePwaInstall } from './platform/pwaInstall'
 
 const SidebarBootFallback = defineComponent({
   name: 'SidebarBootFallback',
@@ -103,8 +105,12 @@ const ViewerWorkspace = defineAsyncComponent({
 
 const viewer = useViewerWorkspace()
 const { locale } = useUiLocale()
+const { workspaceDockPreference, setWorkspaceDockPreference } = useUiPreferences()
 type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
 type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
+const SIDEBAR_MIN_WIDTH = 280
+const SIDEBAR_MAX_WIDTH = 480
+const SIDEBAR_COLLAPSE_THRESHOLD = 220
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const isWebPlatform = computed(() => viewer.viewerPlatform === 'web')
@@ -126,9 +132,84 @@ const closeWindowLabel = computed(() => (isZh.value ? '关闭' : 'Close'))
 const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Close notification'))
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
+const sidebarResizePreviewWidth = ref<number | null>(null)
+const isSidebarResizing = ref(false)
+let activeSidebarResizeLayout: HTMLElement | null = null
 const dicomDropPreviewIcon = computed(() =>
   normalizeInlineSvg(dicomDropPreviewKind.value === 'folder' ? folderIcon : dicomFileIcon)
 )
+const appMainLayoutStyle = computed(() => ({
+  '--app-sidebar-width': `${workspaceDockPreference.value.leftWidth}px`,
+  '--app-sidebar-preview-width': `${sidebarResizePreviewWidth.value ?? workspaceDockPreference.value.leftWidth}px`
+}))
+
+function clampSidebarWidth(width: number): number {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(width)))
+}
+
+function resolveSidebarResizeWidth(event: PointerEvent): number {
+  const layoutRect = activeSidebarResizeLayout?.getBoundingClientRect()
+  if (!layoutRect) {
+    return workspaceDockPreference.value.leftWidth
+  }
+  return Math.round(event.clientX - layoutRect.left - 8)
+}
+
+function cleanupSidebarResizeListeners(): void {
+  window.removeEventListener('pointermove', handleSidebarResizeMove)
+  window.removeEventListener('pointerup', handleSidebarResizeEnd)
+  window.removeEventListener('pointercancel', handleSidebarResizeCancel)
+}
+
+function handleSidebarResizeMove(event: PointerEvent): void {
+  if (!isSidebarResizing.value) {
+    return
+  }
+  const width = resolveSidebarResizeWidth(event)
+  sidebarResizePreviewWidth.value = width < SIDEBAR_COLLAPSE_THRESHOLD ? 72 : clampSidebarWidth(width)
+}
+
+function handleSidebarResizeCancel(): void {
+  isSidebarResizing.value = false
+  sidebarResizePreviewWidth.value = null
+  activeSidebarResizeLayout = null
+  cleanupSidebarResizeListeners()
+}
+
+function handleSidebarResizeEnd(event: PointerEvent): void {
+  if (!isSidebarResizing.value) {
+    return
+  }
+  const width = resolveSidebarResizeWidth(event)
+  const shouldCollapse = width < SIDEBAR_COLLAPSE_THRESHOLD
+  const nextWidth = shouldCollapse ? workspaceDockPreference.value.leftWidth : clampSidebarWidth(width)
+  setWorkspaceDockPreference({
+    ...workspaceDockPreference.value,
+    leftWidth: nextWidth,
+    leftCollapsed: shouldCollapse
+  })
+  if (viewer.isSidebarCollapsed.value !== shouldCollapse) {
+    viewer.toggleSidebar()
+  }
+  handleSidebarResizeCancel()
+}
+
+function startSidebarResize(event: PointerEvent): void {
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    return
+  }
+  const layout = (event.currentTarget as HTMLElement | null)?.closest<HTMLElement>('.app-main-layout') ?? null
+  if (!layout) {
+    return
+  }
+  event.preventDefault()
+  activeSidebarResizeLayout = layout
+  isSidebarResizing.value = true
+  sidebarResizePreviewWidth.value = viewer.isSidebarCollapsed.value ? 72 : workspaceDockPreference.value.leftWidth
+  window.addEventListener('pointermove', handleSidebarResizeMove)
+  window.addEventListener('pointerup', handleSidebarResizeEnd)
+  window.addEventListener('pointercancel', handleSidebarResizeCancel)
+}
 const dicomDropPreviewEyebrow = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
     return isZh.value ? 'DICOM 文件夹' : 'DICOM Folder'
@@ -277,6 +358,9 @@ async function handleOpenStatusToastLocation(): Promise<void> {
 }
 
 onMounted(() => {
+  if (isWebPlatform.value) {
+    initializePwaInstall()
+  }
   document.addEventListener('selectstart', preventSelection)
   window.addEventListener('keydown', preventSelectAll)
   window.addEventListener('dicomvision:status-toast', handleStatusToastEvent)
@@ -287,6 +371,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  handleSidebarResizeCancel()
   document.removeEventListener('selectstart', preventSelection)
   window.removeEventListener('keydown', preventSelectAll)
   window.removeEventListener('dicomvision:status-toast', handleStatusToastEvent)
@@ -447,6 +532,8 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       <div
         class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent pt-2 pr-4 pb-4 pl-2"
         :data-sidebar-collapsed="viewer.isSidebarCollapsed.value ? 'true' : 'false'"
+        :data-sidebar-resizing="isSidebarResizing ? 'true' : 'false'"
+        :style="appMainLayoutStyle"
       >
         <SidebarPanel
           :viewer-folder-source-mode="viewer.viewerFolderSourceMode"
@@ -469,6 +556,13 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @select-series="viewer.selectSeries"
           @toggle-sidebar="viewer.toggleSidebar"
         />
+        <div
+          v-if="!viewer.isSidebarCollapsed.value"
+          class="app-sidebar-resize-handle"
+          aria-hidden="true"
+          @pointerdown="startSidebarResize"
+        ></div>
+        <div v-if="isSidebarResizing" class="app-sidebar-resize-preview" aria-hidden="true"></div>
 
         <ViewerWorkspace
           :active-operation="viewer.activeOperation.value"
@@ -575,12 +669,52 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 
 <style scoped>
 .app-main-layout {
+  position: relative;
   gap: 8px;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: var(--app-sidebar-width, 320px) minmax(0, 1fr);
 }
 
 .app-main-layout[data-sidebar-collapsed="true"] {
   grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.app-sidebar-resize-handle {
+  position: absolute;
+  top: 8px;
+  bottom: 16px;
+  left: calc(var(--app-sidebar-width, 320px) + 8px);
+  z-index: 80;
+  width: 9px;
+  cursor: col-resize;
+  transform: translateX(-1px);
+  -webkit-app-region: no-drag;
+}
+
+.app-sidebar-resize-handle::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 4px;
+  width: 1px;
+  border-left: 1px solid transparent;
+  content: "";
+  transition: border-color 150ms ease;
+}
+
+.app-sidebar-resize-handle:hover::before,
+.app-main-layout[data-sidebar-resizing="true"] .app-sidebar-resize-handle::before {
+  border-left-color: color-mix(in srgb, var(--theme-accent) 50%, transparent);
+}
+
+.app-sidebar-resize-preview {
+  position: absolute;
+  top: 10px;
+  bottom: 18px;
+  left: calc(var(--app-sidebar-preview-width, var(--app-sidebar-width, 320px)) + 8px);
+  z-index: 120;
+  width: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--theme-accent) 78%, transparent);
+  pointer-events: none;
 }
 
 .app-shell-icon-svg {
@@ -631,7 +765,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 
 @media (max-width: 1280px) {
   .app-main-layout:not([data-sidebar-collapsed="true"]) {
-    grid-template-columns: 288px minmax(0, 1fr);
+    grid-template-columns: minmax(280px, var(--app-sidebar-width, 288px)) minmax(0, 1fr);
   }
 }
 
@@ -641,6 +775,11 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   .app-main-layout[data-sidebar-collapsed="true"] {
     gap: 12px;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-sidebar-resize-handle,
+  .app-sidebar-resize-preview {
+    display: none;
   }
 }
 

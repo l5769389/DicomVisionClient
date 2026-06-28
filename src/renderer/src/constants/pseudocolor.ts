@@ -46,6 +46,9 @@ export const PSEUDOCOLOR_PRESET_OPTIONS = [
 ] as const
 
 export type PseudocolorPresetKey = (typeof PSEUDOCOLOR_PRESET_OPTIONS)[number]['key']
+const PSEUDOCOLOR_VERTICAL_GRADIENTS = new Map<PseudocolorPresetKey, string>(
+  PSEUDOCOLOR_PRESET_OPTIONS.map((option) => [option.key, option.gradient.replace('90deg', '0deg')])
+)
 
 export const FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS = [
   {
@@ -57,6 +60,9 @@ export const FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS = [
 ] as const
 
 export type FusionPetPseudocolorPresetKey = (typeof FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS)[number]['key']
+const FUSION_PET_VERTICAL_GRADIENTS = new Map<FusionPetPseudocolorPresetKey, string>(
+  FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.map((option) => [option.key, option.gradient.replace('90deg', '0deg')])
+)
 
 export function normalizePseudocolorPresetKey(value: string | null | undefined): PseudocolorPresetKey {
   const normalized = String(value ?? '')
@@ -81,6 +87,11 @@ export function getPseudocolorGradient(value: string | null | undefined): string
   )
 }
 
+export function getVerticalPseudocolorGradient(value: string | null | undefined): string {
+  const key = normalizePseudocolorPresetKey(value)
+  return PSEUDOCOLOR_VERTICAL_GRADIENTS.get(key) ?? PSEUDOCOLOR_VERTICAL_GRADIENTS.get(DEFAULT_PSEUDOCOLOR_PRESET) ?? getPseudocolorGradient(key)
+}
+
 export function normalizeFusionPetPseudocolorPresetKey(
   value: string | null | undefined
 ): FusionPetPseudocolorPresetKey {
@@ -101,6 +112,11 @@ export function getFusionPetPseudocolorGradient(value: string | null | undefined
     FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === key)?.gradient ??
     FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS[0].gradient
   )
+}
+
+export function getVerticalFusionPetPseudocolorGradient(value: string | null | undefined): string {
+  const key = normalizeFusionPetPseudocolorPresetKey(value)
+  return FUSION_PET_VERTICAL_GRADIENTS.get(key) ?? FUSION_PET_VERTICAL_GRADIENTS.get(DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET) ?? getFusionPetPseudocolorGradient(key)
 }
 
 export function normalizePetRangeUpperLimit(value: string | number | null | undefined): number {

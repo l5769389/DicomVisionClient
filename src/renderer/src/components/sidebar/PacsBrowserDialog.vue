@@ -24,7 +24,6 @@ import {
   cancelPacsWadoSeriesDownloadJob,
   getPacsDimseSeriesDownloadJob,
   getPacsWadoSeriesDownloadJob,
-  postApi,
   postPacsDimseSeriesDownloadJob,
   postPacsSeriesPreview,
   postPacsWadoSeriesDownloadJob,
@@ -47,6 +46,12 @@ const emit = defineEmits<{
 
 const { locale } = useUiLocale()
 const { pacsPreference } = useUiPreferences()
+let typedApiModulePromise: Promise<typeof import('../../services/typedApi')> | null = null
+
+function loadTypedApi(): Promise<typeof import('../../services/typedApi')> {
+  typedApiModulePromise ??= import('../../services/typedApi')
+  return typedApiModulePromise
+}
 
 const isQueryingStudies = ref(false)
 const isQueryingSeries = ref(false)
@@ -404,6 +409,7 @@ async function queryStudies(offset = 0): Promise<void> {
       limit: normalizedLimit,
       offset: normalizedOffset
     }
+    const { postApi } = await loadTypedApi()
     const response = profile.protocol === 'dimse'
       ? await postApi('QueryDimseStudiesApiV1PacsDimseStudiesPost', {
           profile: toApiPacsDimseProfile(profile),
@@ -444,6 +450,7 @@ async function querySeries(study: PacsStudyItem, offset = 0): Promise<void> {
       limit: PACS_SERIES_LIMIT,
       offset: normalizedOffset
     }
+    const { postApi } = await loadTypedApi()
     const response = profile.protocol === 'dimse'
       ? await postApi('QueryDimseSeriesApiV1PacsDimseSeriesPost', {
           profile: toApiPacsDimseProfile(profile),

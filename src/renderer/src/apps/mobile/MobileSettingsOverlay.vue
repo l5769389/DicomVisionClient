@@ -24,8 +24,14 @@ import {
   type RoiStatPreference,
   type ScaleBarPreference
 } from '../../composables/ui/useUiPreferences'
-import { postApi } from '../../services/typedApi'
-import type { MprViewportKey } from '../../types/viewer'
+import {
+  createDefaultViewportCornerInfoPreference,
+  normalizeViewportCornerInfoPreference,
+  type ViewportCornerInfoColorMode,
+  type ViewportCornerInfoPreference,
+  type ViewportCornerInfoTypographyPreset
+} from '../../composables/ui/viewportCornerInfo'
+import type { DrawingScope, MprViewportKey } from '../../types/viewer'
 import {
   MOBILE_GESTURE_SENSITIVITY_OPTIONS,
   MOBILE_ORIENTATION_LOCK_OPTIONS,
@@ -50,6 +56,7 @@ const {
   crosshairConfigs,
   exportPreference,
   getWindowPresetLabel,
+  drawingScopePreference,
   locale,
   measurementStylePreference,
   pacsPreference,
@@ -57,18 +64,22 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
+  viewportCornerInfoPreference,
   setCrosshairConfigs,
   setExportPreference,
+  setDrawingScopePreference,
   setLocale,
   setMeasurementStylePreference,
   setPacsPreference,
   setRoiStatOptions,
   setScaleBarPreference,
+  setViewportCornerInfoPreference,
   themeId,
   windowPresets
 } = useUiPreferences()
 const {
   defaultShowCornerInfo,
+  defaultShowPseudocolorBar,
   defaultShowScaleBar,
   gestureSensitivity,
   mprDefaultTool,
@@ -78,6 +89,7 @@ const {
   stackDefaultTool,
   volumeDefaultTool,
   setDefaultShowCornerInfo,
+  setDefaultShowPseudocolorBar,
   setDefaultShowScaleBar,
   setGestureSensitivity,
   setMprDefaultTool,
@@ -87,6 +99,12 @@ const {
   setStackDefaultTool,
   setVolumeDefaultTool
 } = useMobileViewerPreferences()
+let typedApiModulePromise: Promise<typeof import('../../services/typedApi')> | null = null
+
+function loadTypedApi(): Promise<typeof import('../../services/typedApi')> {
+  typedApiModulePromise ??= import('../../services/typedApi')
+  return typedApiModulePromise
+}
 
 type MobileSettingsPanelKey =
   | 'interface'
@@ -114,6 +132,18 @@ interface ThemeOption {
 interface ColorPreset {
   value: string
   label: string
+}
+
+interface MobileCornerInfoTypographyOption {
+  value: ViewportCornerInfoTypographyPreset
+  zh: string
+  en: string
+}
+
+interface MobileCornerInfoColorModeOption {
+  value: ViewportCornerInfoColorMode
+  zh: string
+  en: string
 }
 
 interface MobileDefaultToolOption<T extends string> {
@@ -214,6 +244,26 @@ const scaleBarColorPresets: ColorPreset[] = [
   { value: '#a855f7', label: 'Violet' }
 ]
 
+const cornerInfoTypographyOptions: MobileCornerInfoTypographyOption[] = [
+  { value: 'compact', zh: '紧凑', en: 'Compact' },
+  { value: 'standard', zh: '标准', en: 'Standard' },
+  { value: 'comfortable', zh: '舒适', en: 'Comfortable' }
+]
+
+const cornerInfoColorModeOptions: MobileCornerInfoColorModeOption[] = [
+  { value: 'auto', zh: '自动', en: 'Auto' },
+  { value: 'custom', zh: '自定义', en: 'Custom' }
+]
+
+const cornerInfoColorPresets: ColorPreset[] = [
+  { value: '#f8fafc', label: 'White' },
+  { value: '#182334', label: 'Dark' },
+  { value: '#22d3ee', label: 'Cyan' },
+  { value: '#facc15', label: 'Yellow' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#ff9a9a', label: 'Fusion' }
+]
+
 const DEFAULT_MOBILE_SCALE_BAR_PREFERENCE: ScaleBarPreference = {
   enabled: true,
   color: '#f8fafc'
@@ -264,8 +314,18 @@ const selectedMprToolLabel = computed(() =>
 const selectedVolumeToolLabel = computed(() =>
   volumeToolOptions.find((tool) => tool.key === volumeDefaultTool.value)?.[isZh.value ? 'zh' : 'en'] ?? volumeDefaultTool.value
 )
+const selectedCornerInfoTypographyIndex = computed(() => Math.max(
+  0,
+  cornerInfoTypographyOptions.findIndex((option) => option.value === viewportCornerInfoPreference.value.typographyPreset)
+))
+const selectedCornerInfoTypographyOption = computed(() => (
+  cornerInfoTypographyOptions[selectedCornerInfoTypographyIndex.value] ?? cornerInfoTypographyOptions[2]!
+))
+const selectedCornerInfoTypographyLabel = computed(() =>
+  selectedCornerInfoTypographyOption.value[isZh.value ? 'zh' : 'en']
+)
 const displayDefaultsLabel = computed(() => {
-  const enabledCount = [defaultShowCornerInfo.value, defaultShowScaleBar.value].filter(Boolean).length
+  const enabledCount = [defaultShowCornerInfo.value, defaultShowPseudocolorBar.value, defaultShowScaleBar.value].filter(Boolean).length
   return isZh.value ? `${enabledCount} 项开启` : `${enabledCount} on`
 })
 const crosshairThickness = computed(() => {
@@ -277,12 +337,28 @@ const crosshairThickness = computed(() => {
 })
 const overlayStyleLabel = computed(() => {
   const scaleBarLabel = scaleBarPreference.value.enabled ? (isZh.value ? '比例尺开' : 'Scale on') : (isZh.value ? '比例尺关' : 'Scale off')
-  return isZh.value ? `${scaleBarLabel} · 十字线 ${crosshairThickness.value}px` : `${scaleBarLabel} · Crosshair ${crosshairThickness.value}px`
+  return isZh.value
+    ? `${scaleBarLabel} · 四角${selectedCornerInfoTypographyLabel.value} · 十字线 ${crosshairThickness.value}px`
+    : `${scaleBarLabel} · Corner ${selectedCornerInfoTypographyLabel.value} · Crosshair ${crosshairThickness.value}px`
 })
 const measurementStyleLabel = computed(() => {
   const enabledCount = roiStatOptions.value.filter((item) => item.enabled).length
   return isZh.value ? `${measurementStylePreference.value.lineWidth}px · ROI ${enabledCount} 项` : `${measurementStylePreference.value.lineWidth}px · ${enabledCount} ROI`
 })
+const drawingScopeRows = computed(() => [
+  {
+    key: 'measurement' as const,
+    title: isZh.value ? '测量' : 'Measurement'
+  },
+  {
+    key: 'qaWater' as const,
+    title: isZh.value ? '水模 QA' : 'Water QA'
+  },
+  {
+    key: 'mtf' as const,
+    title: 'MTF'
+  }
+])
 const dicomExportLabel = computed(() => {
   const enabledExportCount = [
     exportPreference.value.includePngMeasurements,
@@ -369,16 +445,75 @@ function handleCrosshairThicknessInput(event: Event): void {
 }
 
 function resetOverlayStylePreferences(): void {
+  const defaultCornerInfoPreference = createDefaultViewportCornerInfoPreference()
   setScaleBarPreference({ ...DEFAULT_MOBILE_SCALE_BAR_PREFERENCE })
   setCrosshairConfigs(createDefaultMobileCrosshairConfigs())
+  updateCornerInfoStylePreference({
+    colorMode: defaultCornerInfoPreference.colorMode,
+    customDarkColor: defaultCornerInfoPreference.customDarkColor,
+    customLightColor: defaultCornerInfoPreference.customLightColor,
+    typographyPreset: defaultCornerInfoPreference.typographyPreset
+  })
 }
 
 function updateScaleBarPreference(patch: Partial<ScaleBarPreference>): void {
   setScaleBarPreference({ ...scaleBarPreference.value, ...patch })
 }
 
+function updateCornerInfoStylePreference(
+  patch: Partial<Pick<ViewportCornerInfoPreference, 'colorMode' | 'customDarkColor' | 'customLightColor' | 'typographyPreset'>>
+): void {
+  setViewportCornerInfoPreference(normalizeViewportCornerInfoPreference({
+    ...viewportCornerInfoPreference.value,
+    topLeft: [...viewportCornerInfoPreference.value.topLeft],
+    topRight: [...viewportCornerInfoPreference.value.topRight],
+    bottomLeft: [...viewportCornerInfoPreference.value.bottomLeft],
+    bottomRight: [...viewportCornerInfoPreference.value.bottomRight],
+    ...patch
+  }))
+}
+
+function handleCornerInfoCustomColorInput(event: Event, targetSurface: 'dark' | 'light'): void {
+  const target = event.target as HTMLInputElement | null
+  if (target?.value) {
+    updateCornerInfoStylePreference({
+      colorMode: 'custom',
+      [targetSurface === 'dark' ? 'customDarkColor' : 'customLightColor']: target.value
+    })
+  }
+}
+
+function handleCornerInfoTypographySliderInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null
+  const index = Math.round(Number.parseFloat(target?.value ?? ''))
+  const option = cornerInfoTypographyOptions[Math.max(0, Math.min(cornerInfoTypographyOptions.length - 1, index))]
+  if (option) {
+    updateCornerInfoStylePreference({ typographyPreset: option.value })
+  }
+}
+
+function getMobileCornerInfoPreviewStyle(kind: 'dark' | 'light'): Record<string, string> {
+  const color = viewportCornerInfoPreference.value.colorMode === 'custom'
+    ? kind === 'light'
+      ? viewportCornerInfoPreference.value.customLightColor
+      : viewportCornerInfoPreference.value.customDarkColor
+    : kind === 'light'
+      ? '#182334'
+      : '#dbe5ec'
+  return {
+    '--mobile-corner-info-preview-color': color
+  }
+}
+
 function updateMeasurementStylePreference(patch: Partial<MeasurementStylePreference>): void {
   setMeasurementStylePreference({ ...measurementStylePreference.value, ...patch })
+}
+
+function updateDrawingScopePreference(key: keyof typeof drawingScopePreference.value, scope: DrawingScope): void {
+  setDrawingScopePreference({
+    ...drawingScopePreference.value,
+    [key]: scope
+  })
 }
 
 function handleMeasurementLineWidthInput(event: Event): void {
@@ -519,6 +654,7 @@ async function testPacsProfile(profile: PacsDicomwebProfile): Promise<void> {
   testingPacsProfileIds.value = [...new Set([...testingPacsProfileIds.value, profile.id])]
   removePacsTestResults([profile.id])
   try {
+    const { postApi } = await loadTypedApi()
     const response = profile.protocol === 'dimse'
       ? await postApi('TestDimseConnectionApiV1PacsDimseTestPost', {
           profile: toApiPacsDimseProfile(profile)
@@ -867,6 +1003,20 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               <span></span>
             </span>
           </button>
+          <button
+            type="button"
+            class="mobile-settings__switch-row"
+            data-testid="mobile-settings-pseudocolor-bar"
+            @click="setDefaultShowPseudocolorBar(!defaultShowPseudocolorBar)"
+          >
+            <span>
+              <strong>{{ isZh ? '伪彩条' : 'Pseudocolor Bar' }}</strong>
+              <small>{{ isZh ? '新打开视图默认显示当前伪彩的颜色范围条' : 'Show the active pseudocolor range bar by default' }}</small>
+            </span>
+            <span class="mobile-settings__switch" :class="{ 'mobile-settings__switch--on': defaultShowPseudocolorBar }" aria-hidden="true">
+              <span></span>
+            </span>
+          </button>
         </section>
 
         <section v-else-if="activePanel === 'overlays'" class="mobile-settings__section">
@@ -913,6 +1063,130 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               >
                 <span></span>
               </button>
+            </div>
+          </div>
+
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__subhead">{{ isZh ? '四角信息' : 'Corner Info' }}</div>
+            <div class="mobile-settings__corner-typography-control">
+              <div class="mobile-settings__range-head">
+                <span>{{ isZh ? '字体密度' : 'Typography Density' }}</span>
+                <strong>{{ selectedCornerInfoTypographyLabel }}</strong>
+              </div>
+              <input
+                class="mobile-settings__range"
+                data-testid="mobile-settings-corner-typography-slider"
+                type="range"
+                min="0"
+                :max="cornerInfoTypographyOptions.length - 1"
+                step="1"
+                :value="selectedCornerInfoTypographyIndex"
+                @input="handleCornerInfoTypographySliderInput"
+              />
+              <div class="mobile-settings__range-ticks mobile-settings__corner-typography-ticks" aria-hidden="true">
+                <span
+                  v-for="(option, index) in cornerInfoTypographyOptions"
+                  :key="option.value"
+                  :class="{ 'mobile-settings__corner-typography-tick--active': index === selectedCornerInfoTypographyIndex }"
+                >
+                  {{ isZh ? option.zh : option.en }}
+                </span>
+              </div>
+            </div>
+
+            <div class="mobile-settings__segmented mobile-settings__corner-color-mode" data-testid="mobile-settings-corner-color-mode">
+              <button
+                v-for="option in cornerInfoColorModeOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: viewportCornerInfoPreference.colorMode === option.value }"
+                @click="updateCornerInfoStylePreference({ colorMode: option.value })"
+              >
+                {{ isZh ? option.zh : option.en }}
+              </button>
+            </div>
+
+            <div class="mobile-settings__corner-color-stack" :class="{ 'mobile-settings__corner-color-stack--disabled': viewportCornerInfoPreference.colorMode !== 'custom' }">
+              <div class="mobile-settings__corner-color-row">
+                <span class="mobile-settings__corner-color-label">{{ isZh ? '暗底' : 'Dark' }}</span>
+                <input
+                  :value="viewportCornerInfoPreference.customDarkColor"
+                  type="color"
+                  class="mobile-settings__corner-color-input"
+                  :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                  data-testid="mobile-settings-corner-dark-color-input"
+                  @input="handleCornerInfoCustomColorInput($event, 'dark')"
+                />
+                <strong>{{ viewportCornerInfoPreference.customDarkColor }}</strong>
+              </div>
+              <div class="mobile-settings__color-grid mobile-settings__color-grid--corner">
+                <button
+                  v-for="preset in cornerInfoColorPresets"
+                  :key="`corner-dark-${preset.value}`"
+                  type="button"
+                  class="mobile-settings__color-swatch-button"
+                  :class="{ active: viewportCornerInfoPreference.colorMode === 'custom' && isSameColor(viewportCornerInfoPreference.customDarkColor, preset.value) }"
+                  :style="{ '--mobile-settings-color': preset.value }"
+                  :title="preset.label"
+                  :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                  data-testid="mobile-settings-corner-dark-color"
+                  @click="updateCornerInfoStylePreference({ customDarkColor: preset.value, colorMode: 'custom' })"
+                >
+                  <span></span>
+                </button>
+              </div>
+
+              <div class="mobile-settings__corner-color-row">
+                <span class="mobile-settings__corner-color-label">{{ isZh ? '浅底' : 'Light' }}</span>
+                <input
+                  :value="viewportCornerInfoPreference.customLightColor"
+                  type="color"
+                  class="mobile-settings__corner-color-input"
+                  :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                  data-testid="mobile-settings-corner-light-color-input"
+                  @input="handleCornerInfoCustomColorInput($event, 'light')"
+                />
+                <strong>{{ viewportCornerInfoPreference.customLightColor }}</strong>
+              </div>
+              <div class="mobile-settings__color-grid mobile-settings__color-grid--corner">
+                <button
+                  v-for="preset in cornerInfoColorPresets"
+                  :key="`corner-light-${preset.value}`"
+                  type="button"
+                  class="mobile-settings__color-swatch-button"
+                  :class="{ active: viewportCornerInfoPreference.colorMode === 'custom' && isSameColor(viewportCornerInfoPreference.customLightColor, preset.value) }"
+                  :style="{ '--mobile-settings-color': preset.value }"
+                  :title="preset.label"
+                  :disabled="viewportCornerInfoPreference.colorMode !== 'custom'"
+                  data-testid="mobile-settings-corner-light-color"
+                  @click="updateCornerInfoStylePreference({ customLightColor: preset.value, colorMode: 'custom' })"
+                >
+                  <span></span>
+                </button>
+              </div>
+            </div>
+
+            <div class="mobile-settings__corner-preview-grid">
+              <div
+                class="mobile-settings__corner-preview mobile-settings__corner-preview--dark"
+                :class="`mobile-settings__corner-preview--${viewportCornerInfoPreference.typographyPreset}`"
+                :style="getMobileCornerInfoPreviewStyle('dark')"
+              >
+                <span class="mobile-settings__corner-preview-label">CT</span>
+                <span class="mobile-settings__corner-preview-line mobile-settings__corner-preview-line--top-left">SIEMENS<br />Im: 36/128</span>
+                <span class="mobile-settings__corner-preview-line mobile-settings__corner-preview-line--top-right">ZHANG SAN<br />P000123</span>
+                <span class="mobile-settings__corner-preview-line mobile-settings__corner-preview-line--bottom-left">W: 400 L: 40</span>
+              </div>
+              <div
+                class="mobile-settings__corner-preview mobile-settings__corner-preview--light"
+                :class="`mobile-settings__corner-preview--${viewportCornerInfoPreference.typographyPreset}`"
+                :style="getMobileCornerInfoPreviewStyle('light')"
+              >
+                <span class="mobile-settings__corner-preview-label">PET</span>
+                <span class="mobile-settings__corner-preview-line mobile-settings__corner-preview-line--top-left">PT<br />SUV</span>
+                <span class="mobile-settings__corner-preview-line mobile-settings__corner-preview-line--top-right">PET/CT</span>
+                <span class="mobile-settings__corner-preview-line mobile-settings__corner-preview-line--bottom-left">Zoom 1.25x</span>
+              </div>
             </div>
           </div>
 
@@ -1039,6 +1313,37 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
                 >
                   {{ isZh ? option.zh : option.en }}
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mobile-settings__control-block">
+            <div class="mobile-settings__subhead">{{ isZh ? '绘制作用范围' : 'Drawing Scope' }}</div>
+            <div class="mobile-settings__scope-list">
+              <div
+                v-for="row in drawingScopeRows"
+                :key="row.key"
+                class="mobile-settings__scope-row"
+              >
+                <span>{{ row.title }}</span>
+                <div class="mobile-settings__mini-segmented">
+                  <button
+                    type="button"
+                    :class="{ active: drawingScopePreference[row.key] === 'image' }"
+                    data-testid="mobile-settings-drawing-scope-image"
+                    @click="updateDrawingScopePreference(row.key, 'image')"
+                  >
+                    {{ isZh ? '当前影像' : 'Image' }}
+                  </button>
+                  <button
+                    type="button"
+                    :class="{ active: drawingScopePreference[row.key] === 'series' }"
+                    data-testid="mobile-settings-drawing-scope-series"
+                    @click="updateDrawingScopePreference(row.key, 'series')"
+                  >
+                    {{ isZh ? '整个 series' : 'Series' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1948,6 +2253,168 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22);
 }
 
+.mobile-settings__color-swatch-button:disabled,
+.mobile-settings__corner-color-input:disabled {
+  cursor: not-allowed;
+}
+
+.mobile-settings__corner-style-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mobile-settings__corner-style-grid .mobile-settings__option {
+  justify-content: center;
+  min-height: 40px;
+  text-align: center;
+}
+
+.mobile-settings__corner-typography-control {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 56%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 44%, transparent);
+  padding: 10px;
+}
+
+.mobile-settings__corner-typography-ticks span {
+  font-weight: 900;
+}
+
+.mobile-settings__corner-typography-tick--active {
+  color: var(--theme-text-primary);
+}
+
+.mobile-settings__corner-color-mode {
+  margin-top: 2px;
+}
+
+.mobile-settings__corner-color-stack {
+  display: grid;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 56%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 42%, transparent);
+  padding: 8px;
+}
+
+.mobile-settings__corner-color-stack--disabled {
+  opacity: 0.46;
+  filter: grayscale(1);
+}
+
+.mobile-settings__corner-color-row {
+  display: grid;
+  grid-template-columns: 40px 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--theme-text-primary);
+}
+
+.mobile-settings__corner-color-label {
+  overflow: hidden;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-settings__color-grid--corner {
+  padding-left: 50px;
+}
+
+.mobile-settings__corner-color-input {
+  width: 44px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.mobile-settings__corner-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.mobile-settings__corner-preview {
+  position: relative;
+  min-height: 116px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 68%, transparent);
+  border-radius: 8px;
+  --mobile-corner-info-preview-font-size: 12px;
+  --mobile-corner-info-preview-line-height: 1.36;
+}
+
+.mobile-settings__corner-preview--standard {
+  --mobile-corner-info-preview-font-size: 11px;
+  --mobile-corner-info-preview-line-height: 1.26;
+}
+
+.mobile-settings__corner-preview--compact {
+  --mobile-corner-info-preview-font-size: 10px;
+  --mobile-corner-info-preview-line-height: 1.16;
+}
+
+.mobile-settings__corner-preview--dark {
+  background:
+    radial-gradient(circle at 28% 22%, rgba(96, 165, 250, 0.13), transparent 34%),
+    linear-gradient(180deg, #111827, #020409);
+}
+
+.mobile-settings__corner-preview--light {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(96, 165, 250, 0.18), transparent 34%),
+    linear-gradient(180deg, #e9f3fb, #b9cbd9);
+}
+
+.mobile-settings__corner-preview-label {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: color-mix(in srgb, var(--mobile-corner-info-preview-color) 72%, transparent);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.mobile-settings__corner-preview-line {
+  position: absolute;
+  max-width: 48%;
+  color: var(--mobile-corner-info-preview-color);
+  font-family: var(--font-data);
+  font-size: var(--mobile-corner-info-preview-font-size);
+  font-weight: 700;
+  line-height: var(--mobile-corner-info-preview-line-height);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.34);
+  word-break: break-word;
+}
+
+.mobile-settings__corner-preview--light .mobile-settings__corner-preview-line {
+  text-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.78),
+    0 0 3px rgba(15, 23, 42, 0.2);
+}
+
+.mobile-settings__corner-preview-line--top-left {
+  top: 10px;
+  left: 10px;
+}
+
+.mobile-settings__corner-preview-line--top-right {
+  top: 10px;
+  right: 10px;
+  text-align: right;
+}
+
+.mobile-settings__corner-preview-line--bottom-left {
+  bottom: 10px;
+  left: 10px;
+}
+
 .mobile-settings__crosshair-list {
   display: grid;
   gap: 10px;
@@ -2040,6 +2507,28 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
   color: var(--theme-text-muted);
   font-size: 12px;
   font-weight: 900;
+}
+
+.mobile-settings__scope-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-settings__scope-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.8fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-settings__scope-row > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mobile-settings__pacs-summary,

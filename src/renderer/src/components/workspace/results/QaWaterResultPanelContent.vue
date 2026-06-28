@@ -219,9 +219,9 @@ const uniformityRoiRows = computed(() => {
   flex: 1 1 auto;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 84%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 74%, transparent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .qa-water-result-panel-content__header {

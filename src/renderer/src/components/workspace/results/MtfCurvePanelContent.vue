@@ -284,11 +284,10 @@ const guideRows = computed(() => [
 
 .mtf-curve-panel-content__card,
 .mtf-curve-panel-content__guide {
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 74%, transparent), color-mix(in srgb, var(--theme-surface-panel-solid) 74%, transparent));
-  padding: 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 6px 2px;
 }
 
 .mtf-curve-panel-content__section-header {
@@ -335,8 +334,8 @@ const guideRows = computed(() => [
 .mtf-curve-panel-content__chart {
   margin-top: 10px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 62%, transparent);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 0;
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 58%),
     color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, transparent);

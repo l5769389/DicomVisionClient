@@ -1,5 +1,5 @@
 import type { CornerInfo, FourDPhaseCacheItem, FourDPhaseItem, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
-import { resolveBackendAssetUrl } from '../../../services/api'
+import { resolveBackendAssetUrl } from '../../../services/apiBase'
 import {
   createDefaultFourDPhaseItems,
   createEmptyCornerInfo,
@@ -324,11 +324,16 @@ export function getFourDPhaseDisplayState(
       ...createEmptyMprInitialWindowInfos(),
       ...(cache?.viewportInitialWindowInfos ?? {})
     },
+    viewportCurrentWindowInfos: {
+      ...createEmptyMprInitialWindowInfos(),
+      ...(cache?.viewportCurrentWindowInfos ?? {})
+    },
     mprCursor: cache?.mprCursor ?? null,
     mprFrame: cache?.mprFrame ?? null,
     mprRevision: cache?.mprRevision ?? null,
     windowLabel: cache?.windowLabel ?? '',
-    initialWindowInfo: cache?.initialWindowInfo ?? null
+    initialWindowInfo: cache?.initialWindowInfo ?? null,
+    currentWindowInfo: cache?.currentWindowInfo ?? cache?.initialWindowInfo ?? null
   }
 }
 

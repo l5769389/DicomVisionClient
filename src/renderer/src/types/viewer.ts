@@ -77,6 +77,7 @@ export type ViewProgressPhase = 'queued' | 'waiting' | 'volume' | 'normalize' | 
 export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
 export type MprCrosshairInteractionMode = 'move' | 'rotate'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
+export type DrawingScope = 'image' | 'series'
 export type AnnotationToolType = 'arrow'
 export type AnnotationSize = 'sm' | 'md' | 'lg'
 export type MprMipAlgorithm = 'maximum' | 'minimum' | 'average' | 'sum'
@@ -111,6 +112,8 @@ export interface MeasurementDraft {
   toolType: MeasurementToolType
   points: MeasurementDraftPoint[]
   labelLines?: string[]
+  scope?: DrawingScope
+  sliceIndex?: number | null
 }
 
 export type DraftMeasurementMode = 'draft' | 'selected' | 'moving'
@@ -128,6 +131,8 @@ export interface MeasurementOverlay {
   toolType: MeasurementToolType
   points: MeasurementDraftPoint[]
   labelLines: string[]
+  scope?: DrawingScope
+  sliceIndex?: number | null
 }
 
 export interface AnnotationDraft {
@@ -803,6 +808,8 @@ export interface ViewerMtfItem {
   viewportKey: string
   points: MeasurementDraftPoint[]
   status: 'calculating' | 'ready' | 'error'
+  scope?: DrawingScope
+  sliceIndex?: number | null
   metrics?: MtfMetrics | null
   curve?: MtfCurvePoint[]
   errorMessage?: string | null
@@ -838,11 +845,13 @@ export interface FourDPhaseCacheItem {
   viewportTransformStates?: Partial<Record<MprViewportKey, ViewTransformInfo>>
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   viewportInitialWindowInfos?: Partial<Record<MprViewportKey, WindowLevelInfo>>
+  viewportCurrentWindowInfos?: Partial<Record<MprViewportKey, WindowLevelInfo>>
   mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
   mprRevision?: number | null
   windowLabel?: string
   initialWindowInfo?: WindowLevelInfo | null
+  currentWindowInfo?: WindowLevelInfo | null
 }
 
 export interface FourDPhasesResponse {
@@ -1113,6 +1122,7 @@ export interface ViewerTabItem {
   sliceLabel: string
   windowLabel: string
   initialWindowInfo?: WindowLevelInfo | null
+  currentWindowInfo?: WindowLevelInfo | null
   compareSeriesIds?: Record<CompareStackPaneKey, string>
   compareSeriesTitles?: Record<CompareStackPaneKey, string>
   compareViewIds?: Partial<Record<CompareStackPaneKey, string>>
@@ -1120,6 +1130,7 @@ export interface ViewerTabItem {
   compareSliceLabels?: Partial<Record<CompareStackPaneKey, string>>
   compareWindowLabels?: Partial<Record<CompareStackPaneKey, string>>
   compareInitialWindowInfos?: Partial<Record<CompareStackPaneKey, WindowLevelInfo>>
+  compareCurrentWindowInfos?: Partial<Record<CompareStackPaneKey, WindowLevelInfo>>
   compareScaleBars?: Partial<Record<CompareStackPaneKey, ScaleBarInfo | null>>
   compareCornerInfos?: Partial<Record<CompareStackPaneKey, CornerInfo>>
   compareOrientations?: Partial<Record<CompareStackPaneKey, OrientationInfo>>
@@ -1174,6 +1185,7 @@ export interface ViewerTabItem {
   cornerInfo: CornerInfo
   showCornerInfo?: boolean
   showScaleBar?: boolean
+  showPseudocolorBar?: boolean
   showSliceSlider?: boolean
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>
   viewportMeasurements?: Partial<Record<string, MeasurementOverlay[]>>
@@ -1185,6 +1197,7 @@ export interface ViewerTabItem {
   pseudocolorPreset: string
   viewportPseudocolorPresets?: Partial<Record<MprViewportKey, string>>
   viewportInitialWindowInfos?: Partial<Record<MprViewportKey, WindowLevelInfo>>
+  viewportCurrentWindowInfos?: Partial<Record<MprViewportKey, WindowLevelInfo>>
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
   viewportSegmentationOverlays?: Partial<Record<MprViewportKey, MprSegmentationOverlay | null>>
@@ -1276,6 +1289,7 @@ export interface ViewerLayoutSlot {
   sliceLabel?: string | null
   windowLabel?: string | null
   initialWindowInfo?: WindowLevelInfo | null
+  currentWindowInfo?: WindowLevelInfo | null
   cornerInfo?: CornerInfo | null
   orientation?: OrientationInfo | null
   scaleBar?: ScaleBarInfo | null

@@ -95,7 +95,8 @@ async function createStackLayoutSeedSlot(
       viewId: tab.viewId,
       sliceLabel: tab.sliceLabel,
       windowLabel: tab.windowLabel,
-      initialWindowInfo: tab.initialWindowInfo ?? null
+      initialWindowInfo: tab.initialWindowInfo ?? null,
+      currentWindowInfo: tab.currentWindowInfo ?? tab.initialWindowInfo ?? null
     }),
     tab.imageSrc,
     cloneImageSrc
@@ -119,7 +120,11 @@ async function createMprLayoutSeedSlots(
           viewId: tab.viewportViewIds?.[viewportKey] ?? null,
           sliceLabel: tab.viewportSliceLabels?.[viewportKey] ?? '',
           windowLabel: tab.windowLabel,
-          initialWindowInfo: tab.viewportInitialWindowInfos?.[viewportKey] ?? null
+          initialWindowInfo: tab.viewportInitialWindowInfos?.[viewportKey] ?? null,
+          currentWindowInfo:
+            tab.viewportCurrentWindowInfos?.[viewportKey] ??
+            tab.viewportInitialWindowInfos?.[viewportKey] ??
+            null
         }),
         tab.viewportImages?.[viewportKey],
         cloneImageSrc
@@ -145,7 +150,11 @@ async function createCompareLayoutSeedSlots(
           viewId: tab.compareViewIds?.[paneKey] ?? null,
           sliceLabel: tab.compareSliceLabels?.[paneKey] ?? '',
           windowLabel: tab.compareWindowLabels?.[paneKey] ?? '',
-          initialWindowInfo: tab.compareInitialWindowInfos?.[paneKey] ?? null
+          initialWindowInfo: tab.compareInitialWindowInfos?.[paneKey] ?? null,
+          currentWindowInfo:
+            tab.compareCurrentWindowInfos?.[paneKey] ??
+            tab.compareInitialWindowInfos?.[paneKey] ??
+            null
         }),
         tab.compareImages?.[paneKey],
         cloneImageSrc

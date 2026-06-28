@@ -14,6 +14,18 @@ const cornerPositions: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 
 const displayCornerInfo = computed(() =>
   applyViewportCornerInfoPreference(props.cornerInfo, viewportCornerInfoPreference.value)
 )
+const cornerOverlayClass = computed(() => [
+  `viewer-corner-overlay--${viewportCornerInfoPreference.value.typographyPreset}`,
+  { 'viewer-corner-overlay--custom-color': viewportCornerInfoPreference.value.colorMode === 'custom' }
+])
+const cornerOverlayStyle = computed(() =>
+  viewportCornerInfoPreference.value.colorMode === 'custom'
+    ? {
+      '--viewer-corner-custom-dark-color': viewportCornerInfoPreference.value.customDarkColor,
+      '--viewer-corner-custom-light-color': viewportCornerInfoPreference.value.customLightColor
+    }
+    : undefined
+)
 
 function getCornerLines(cornerInfo: CornerInfo, position: CornerPosition): string[] {
   return cornerInfo[position] ?? []
@@ -21,7 +33,7 @@ function getCornerLines(cornerInfo: CornerInfo, position: CornerPosition): strin
 </script>
 
 <template>
-  <div class="viewer-corner-overlay pointer-events-none absolute inset-0 z-[2]">
+  <div class="viewer-corner-overlay pointer-events-none absolute inset-0 z-[2]" :class="cornerOverlayClass" :style="cornerOverlayStyle">
     <div
       v-for="position in cornerPositions"
       :key="`${viewportKey}-${position}`"

@@ -8,7 +8,6 @@ import SidebarPacsEntry from './sidebar/SidebarPacsEntry.vue'
 import SidebarQuickActions from './sidebar/SidebarQuickActions.vue'
 import SidebarSeriesList from './sidebar/SidebarSeriesList.vue'
 import SidebarStatusFooter from './sidebar/SidebarStatusFooter.vue'
-import PacsBrowserDialog from './sidebar/PacsBrowserDialog.vue'
 import { useUiPreferences } from '../composables/ui/useUiPreferences'
 import { useUiLocale } from '../composables/ui/useUiLocale'
 import { resolveInitialSeriesViewType } from '../composables/workspace/views/seriesViewSupport'
@@ -17,6 +16,7 @@ import { getSeriesFallbackLabel, getSeriesThumbnailSrc } from './sidebar/seriesT
 import type { WebUploadPickMode } from '../platform/runtime'
 
 const SidebarSettingsDialog = defineAsyncComponent(() => import('./sidebar/SidebarSettingsDialog.vue'))
+const PacsBrowserDialog = defineAsyncComponent(() => import('./sidebar/PacsBrowserDialog.vue'))
 
 const props = defineProps<{
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'

@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MobileSettingsOverlay from './MobileSettingsOverlay.vue'
@@ -11,6 +11,7 @@ const settingsState = vi.hoisted(() => ({
     { key: 'mpr-sag', label: 'SAG', color: '#3b82f6', thickness: 2 }
   ],
   defaultShowCornerInfo: true,
+  defaultShowPseudocolorBar: true,
   defaultShowScaleBar: true,
   dicomTagDisplayMode: 'tree',
   exportPreference: {
@@ -79,8 +80,19 @@ const settingsState = vi.hoisted(() => ({
   },
   selectedPseudocolorKey: 'bw',
   selectedWindowPresetId: 'lung',
+  viewportCornerInfoPreference: {
+    topLeft: ['patientName'],
+    topRight: ['patientSummary'],
+    bottomLeft: ['windowLevel'],
+    bottomRight: ['zoom'],
+    typographyPreset: 'comfortable',
+    colorMode: 'auto',
+    customDarkColor: '#f8fafc',
+    customLightColor: '#182334'
+  },
   setCrosshairConfigsMock: vi.fn(),
   setDefaultShowCornerInfoMock: vi.fn(),
+  setDefaultShowPseudocolorBarMock: vi.fn(),
   setDefaultShowScaleBarMock: vi.fn(),
   setExportPreferenceMock: vi.fn(),
   setGestureSensitivityMock: vi.fn(),
@@ -93,6 +105,7 @@ const settingsState = vi.hoisted(() => ({
   setPacsPreferenceMock: vi.fn(),
   setRoiStatOptionsMock: vi.fn(),
   setScaleBarPreferenceMock: vi.fn(),
+  setViewportCornerInfoPreferenceMock: vi.fn(),
   setStackDefaultToolMock: vi.fn(),
   setStackPlaybackFpsMock: vi.fn(),
   setVolumeDefaultToolMock: vi.fn(),
@@ -127,6 +140,7 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
     pacsPreference: computed(() => settingsState.pacsPreference),
     roiStatOptions: computed(() => settingsState.roiStatOptions),
     scaleBarPreference: computed(() => settingsState.scaleBarPreference),
+    viewportCornerInfoPreference: computed(() => settingsState.viewportCornerInfoPreference),
     selectedPseudocolorKey: computed({
       get: () => settingsState.selectedPseudocolorKey,
       set: (value: string) => {
@@ -167,6 +181,10 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
       Object.assign(settingsState.scaleBarPreference, value)
       settingsState.setScaleBarPreferenceMock(value)
     },
+    setViewportCornerInfoPreference: (value: typeof settingsState.viewportCornerInfoPreference) => {
+      Object.assign(settingsState.viewportCornerInfoPreference, value)
+      settingsState.setViewportCornerInfoPreferenceMock(value)
+    },
     themeId: computed({
       get: () => settingsState.themeId,
       set: (value: string) => {
@@ -200,6 +218,7 @@ vi.mock('./useMobileViewerPreferences', () => ({
   MOBILE_STACK_PLAYBACK_FPS_OPTIONS: [1, 2, 5, 10, 15, 30],
   useMobileViewerPreferences: () => ({
     defaultShowCornerInfo: computed(() => settingsState.defaultShowCornerInfo),
+    defaultShowPseudocolorBar: computed(() => settingsState.defaultShowPseudocolorBar),
     defaultShowScaleBar: computed(() => settingsState.defaultShowScaleBar),
     gestureSensitivity: computed(() => settingsState.gestureSensitivity),
     mprDefaultTool: computed(() => settingsState.mprDefaultTool),
@@ -212,6 +231,10 @@ vi.mock('./useMobileViewerPreferences', () => ({
     setDefaultShowCornerInfo: (value: boolean) => {
       settingsState.defaultShowCornerInfo = value
       settingsState.setDefaultShowCornerInfoMock(value)
+    },
+    setDefaultShowPseudocolorBar: (value: boolean) => {
+      settingsState.defaultShowPseudocolorBar = value
+      settingsState.setDefaultShowPseudocolorBarMock(value)
     },
     setDefaultShowScaleBar: (value: boolean) => {
       settingsState.defaultShowScaleBar = value
@@ -271,6 +294,7 @@ beforeEach(() => {
     { key: 'mpr-sag', label: 'SAG', color: '#3b82f6', thickness: 2 }
   ]
   settingsState.defaultShowCornerInfo = true
+  settingsState.defaultShowPseudocolorBar = true
   settingsState.defaultShowScaleBar = true
   settingsState.dicomTagDisplayMode = 'tree'
   settingsState.exportPreference = {
@@ -336,12 +360,23 @@ beforeEach(() => {
   settingsState.scaleBarPreference = { color: '#f8fafc', enabled: true }
   settingsState.selectedPseudocolorKey = 'bw'
   settingsState.selectedWindowPresetId = 'lung'
+  settingsState.viewportCornerInfoPreference = {
+    topLeft: ['patientName'],
+    topRight: ['patientSummary'],
+    bottomLeft: ['windowLevel'],
+    bottomRight: ['zoom'],
+    typographyPreset: 'comfortable',
+    colorMode: 'auto',
+    customDarkColor: '#f8fafc',
+    customLightColor: '#182334'
+  }
   settingsState.stackDefaultTool = 'scroll'
   settingsState.stackPlaybackFps = 5
   settingsState.themeId = 'industrial-utility'
   settingsState.volumeDefaultTool = 'rotate3d'
   settingsState.setCrosshairConfigsMock.mockClear()
   settingsState.setDefaultShowCornerInfoMock.mockClear()
+  settingsState.setDefaultShowPseudocolorBarMock.mockClear()
   settingsState.setDefaultShowScaleBarMock.mockClear()
   settingsState.setExportPreferenceMock.mockClear()
   settingsState.setGestureSensitivityMock.mockClear()
@@ -354,6 +389,7 @@ beforeEach(() => {
   settingsState.setPacsPreferenceMock.mockClear()
   settingsState.setRoiStatOptionsMock.mockClear()
   settingsState.setScaleBarPreferenceMock.mockClear()
+  settingsState.setViewportCornerInfoPreferenceMock.mockClear()
   settingsState.setStackDefaultToolMock.mockClear()
   settingsState.setStackPlaybackFpsMock.mockClear()
   settingsState.setVolumeDefaultToolMock.mockClear()
@@ -397,12 +433,19 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-nav-display"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-corner-info"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-scale-bar"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-pseudocolor-bar"]').trigger('click')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-overlays"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-overlay-reset"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-overlay-scale-enabled"]').trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-scale-color"]')[2].trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-corner-typography-slider"]').setValue('1')
+    await wrapper.findAll('[data-testid="mobile-settings-corner-color-mode"] button')[1].trigger('click')
+    wrapper.vm.$forceUpdate()
+    await nextTick()
+    await wrapper.findAll('[data-testid="mobile-settings-corner-dark-color"]')[2].trigger('click')
+    await wrapper.findAll('[data-testid="mobile-settings-corner-light-color"]')[3].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-crosshair-color"]')[1].trigger('click')
     await wrapper.get('[data-testid="mobile-settings-crosshair-thickness"]').setValue('3')
 
@@ -456,8 +499,15 @@ describe('MobileSettingsOverlay', () => {
     expect(settingsState.setMprDefaultViewportMock).toHaveBeenCalledWith('mpr-sag')
     expect(settingsState.setMprShowReferenceThumbnailsMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowCornerInfoMock).toHaveBeenCalledWith(false)
+    expect(settingsState.setDefaultShowPseudocolorBarMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowScaleBarMock).toHaveBeenCalledWith(false)
     expect(settingsState.scaleBarPreference).toEqual({ color: '#3b82f6', enabled: false })
+    expect(settingsState.viewportCornerInfoPreference).toMatchObject({
+      typographyPreset: 'standard',
+      colorMode: 'custom',
+      customDarkColor: '#22d3ee',
+      customLightColor: '#facc15'
+    })
     expect(settingsState.crosshairConfigs[0]).toEqual({ key: 'mpr-ax', label: 'AX', color: '#22c55e', thickness: 3 })
     expect(settingsState.measurementStylePreference).toEqual({
       completedColor: '#ef4444',

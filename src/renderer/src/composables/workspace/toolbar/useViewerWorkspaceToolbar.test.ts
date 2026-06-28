@@ -62,6 +62,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
   const emitTriggerViewAction = vi.fn()
   const emitViewportWheel = vi.fn()
   const exportCurrentView = vi.fn()
+  const cleanupPointerInteractions = vi.fn()
   const stopViewportDrag = vi.fn()
   let toolbar!: ReturnType<typeof useViewerWorkspaceToolbar>
 
@@ -72,7 +73,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
           activeOperation: computed(() => activeOperation.value),
           activeTab: computed(() => activeTab.value),
           activeViewportKey,
-          cleanupPointerInteractions: vi.fn(),
+          cleanupPointerInteractions,
           emitCompareSyncChange: vi.fn(),
           emitOpenLayoutView,
           emitOpenSeriesView: vi.fn(),
@@ -94,6 +95,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     activeOperation,
     activeTab,
     activeViewportKey,
+    cleanupPointerInteractions,
     emitOpenLayoutView,
     emitSetActiveOperation,
     emitTriggerViewAction,
@@ -124,6 +126,25 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: 5, exact: true })
     expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 5 })
 
+    harness.wrapper.unmount()
+  })
+
+  it('cleans stale pointer interactions before activating annotation mode', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    const annotateTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'annotate')!
+    harness.activeOperation.value = 'stack:window'
+    harness.cleanupPointerInteractions.mockClear()
+    harness.toolbar.applyTool(annotateTool)
+
+    expect(harness.cleanupPointerInteractions).toHaveBeenCalled()
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:annotate:arrow')
     harness.wrapper.unmount()
   })
 
@@ -295,8 +316,38 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       expect(harness.emitViewportWheel).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(210)
-      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-cor', deltaY: 1 })
+      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-cor', deltaY: 1, exact: true })
 
+      harness.wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('loops slice playback from the last slice back to the first slice', async () => {
+    vi.useFakeTimers()
+    try {
+      const harness = mountToolbarHarness({
+        ...create3dTab(),
+        viewType: 'MPR',
+        viewportViewIds: {
+          'mpr-ax': 'view-ax',
+          'mpr-cor': 'view-cor',
+          'mpr-sag': 'view-sag'
+        },
+        viewportSliceLabels: {
+          'mpr-ax': '10 / 10',
+          'mpr-cor': '4 / 12',
+          'mpr-sag': '1 / 10'
+        }
+      })
+      harness.activeViewportKey.value = 'mpr-ax'
+      await nextTick()
+
+      harness.toolbar.applyTool(harness.toolbar.activeTools.value.find((tool) => tool.key === 'play')!)
+      vi.advanceTimersByTime(210)
+
+      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-ax', deltaY: -9, exact: true })
       harness.wrapper.unmount()
     } finally {
       vi.useRealTimers()
@@ -330,7 +381,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       expect(harness.emitViewportWheel).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(210)
-      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-sag', deltaY: 1 })
+      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'mpr-sag', deltaY: 1, exact: true })
 
       harness.activeTab.value = {
         ...harness.activeTab.value!,
@@ -358,8 +409,12 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     const getDisplayTool = () => harness.toolbar.activeTools.value.find((tool) => tool.key === 'display')
 
-    expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual(['display:cornerInfo', 'display:scaleBar'])
-    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([true, true])
+    expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual([
+      'display:cornerInfo',
+      'display:scaleBar',
+      'display:pseudocolorBar'
+    ])
+    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([true, true, true])
     const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
     expect(toolKeys.indexOf('display')).toBe(toolKeys.indexOf('export') + 1)
     expect(toolKeys.indexOf('tag')).toBe(toolKeys.indexOf('display') + 1)
@@ -371,14 +426,14 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       enabled: false
     })
     await nextTick()
-    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([false, true])
+    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([false, true, true])
 
     harness.activeTab.value = {
       ...harness.activeTab.value!,
       showCornerInfo: false
     }
     await nextTick()
-    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([false, true])
+    expect(getDisplayTool()?.options?.map((option) => option.checked)).toEqual([false, true, true])
 
     harness.activeTab.value = {
       ...harness.activeTab.value!,
@@ -388,6 +443,11 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     }
     await nextTick()
     expect(getDisplayTool()).toBeTruthy()
+    expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual([
+      'display:cornerInfo',
+      'display:scaleBar',
+      'display:pseudocolorBar'
+    ])
 
     harness.activeTab.value = {
       ...harness.activeTab.value!,
@@ -406,6 +466,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     }
     await nextTick()
     expect(getDisplayTool()).toBeTruthy()
+    expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual(['display:cornerInfo', 'display:scaleBar'])
 
     harness.activeTab.value = create3dTab()
     await nextTick()
@@ -785,8 +846,16 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.activeOperation.value = 'stack:pan'
     harness.toolbar.selectToolOption(panTool, 'transform:reset', { keepMenuOpen: true })
 
-    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'transformReset' })
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'transformReset', transformScope: 'pan' })
     expect(harness.activeOperation.value).toBe('stack:pan')
+    harness.emitTriggerViewAction.mockClear()
+
+    const zoomTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'zoom')!
+    harness.activeOperation.value = 'stack:zoom'
+    harness.toolbar.selectToolOption(zoomTool, 'transform:reset', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'transformReset', transformScope: 'zoom' })
+    expect(harness.activeOperation.value).toBe('stack:zoom')
     harness.wrapper.unmount()
   })
 

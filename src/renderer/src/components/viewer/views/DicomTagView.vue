@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { VBtn, VCard, VChip, VDialog, VDivider, VList, VListItem, VLocaleProvider, VMenu, VPagination, VTextarea, VTextField } from 'vuetify/components'
+import { VBtn, VCard, VChip, VDialog, VDivider, VList, VListItem, VLocaleProvider, VMenu, VTextarea, VTextField } from 'vuetify/components'
 import { VDateInput } from 'vuetify/labs/VDateInput'
 import { zhHans } from 'vuetify/locale'
 import AppIcon from '../../AppIcon.vue'
@@ -31,6 +31,7 @@ import {
   serializeDicomTagEditValue,
   validateDicomTagEditValue
 } from '../../../composables/dicom/dicomTagVrEdit'
+import { createDicomTagPaginationItems } from './dicomTagPagination'
 
 const props = withDefaults(defineProps<{
   activeTab: ViewerTabItem
@@ -83,6 +84,7 @@ const { dicomTagDisplayMode, dicomTagEditSavePreference } = useUiPreferences()
 const isZh = computed(() => locale.value === 'zh-CN')
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
+const isTagPaginationExpanded = ref(false)
 const isTreeTagDisplayMode = computed(() => dicomTagDisplayMode.value === 'tree')
 const searchQuery = ref('')
 const pageInput = ref('1')
@@ -137,6 +139,10 @@ const tagTreeSummaryText = computed(() =>
     : `${tagTreeItemCount.value} ${tagCountLabel.value}`
 )
 const shouldShowTagFilePath = computed(() => props.viewerPlatform !== 'web' && Boolean(props.activeTab.tagFilePath))
+
+const tagPaginationItems = computed(() =>
+  createDicomTagPaginationItems(totalDisplayCount.value, currentDisplayIndex.value, isTagPaginationExpanded.value)
+)
 
 const virtualTagStartIndex = computed(() =>
   Math.max(0, Math.floor(tagListScrollTop.value / TAG_ROW_HEIGHT) - TAG_OVERSCAN_ROWS)
@@ -288,6 +294,7 @@ watch(
   () => [props.activeTab.key, props.activeTab.tagIndex, props.activeTab.tagTotal] as const,
   () => {
     pageInput.value = String(currentDisplayIndex.value)
+    isTagPaginationExpanded.value = false
   },
   { immediate: true }
 )
@@ -787,6 +794,10 @@ function goToPage(page: number): void {
   })
 }
 
+function expandTagPagination(): void {
+  isTagPaginationExpanded.value = true
+}
+
 function submitPageInput(): void {
   const parsed = Number.parseInt(pageInput.value.trim(), 10)
   if (!Number.isFinite(parsed)) {
@@ -868,7 +879,7 @@ async function handleContextAction(action: ContextAction): Promise<void> {
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-2">
           <h2 class="tag-view-title truncate text-[20px] font-semibold tracking-[0.01em]">{{ activeTab.seriesTitle }}</h2>
-          <VChip size="x-small" variant="flat" class="tag-view-chip rounded-full! border! border-sky-300/18! bg-sky-300/10! px-2.5! text-[10px]! font-semibold! uppercase! tracking-[0.16em]! text-sky-100!">
+          <VChip size="x-small" variant="flat" class="tag-view-chip rounded-full! border! px-2.5! text-[10px]! font-semibold! uppercase! tracking-[0.16em]!">
             {{ isZh ? 'DICOM 标签' : 'DICOM Tags' }}
           </VChip>
         </div>
@@ -891,15 +902,23 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         <div class="tag-control-panel rounded-[14px] border p-2">
           <div class="tag-control-label mb-1 text-[10px] font-semibold uppercase tracking-[0.16em]">{{ copy.instanceNavigation }}</div>
           <div class="flex flex-wrap items-center gap-2">
-            <VPagination
-              :model-value="currentDisplayIndex"
-              :length="totalDisplayCount"
-              :total-visible="7"
-              class="tag-view-pagination min-w-0 flex-1"
-              density="compact"
-              :disabled="activeTab.tagIsLoading"
-              @update:model-value="goToPage"
-            />
+            <div class="tag-view-pagination min-w-0 flex-1" role="navigation" :aria-label="copy.instanceNavigation">
+              <button
+                v-for="item in tagPaginationItems"
+                :key="item.type === 'page' ? `page-${item.page}` : `ellipsis-${item.key}`"
+                type="button"
+                class="tag-view-pagination-button"
+                :class="{
+                  'tag-view-pagination-button--active': item.type === 'page' && item.page === currentDisplayIndex,
+                  'tag-view-pagination-button--ellipsis': item.type === 'ellipsis'
+                }"
+                :disabled="activeTab.tagIsLoading"
+                :aria-current="item.type === 'page' && item.page === currentDisplayIndex ? 'page' : undefined"
+                @click="item.type === 'page' ? goToPage(item.page) : expandTagPagination()"
+              >
+                {{ item.type === 'page' ? item.page : '...' }}
+              </button>
+            </div>
             <div class="flex items-center gap-2">
               <VTextField
                 v-model="pageInput"
@@ -1092,12 +1111,13 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
                 <VDivider class="my-2.5 border-[var(--theme-border-soft)] opacity-100" />
 
-                <VList class="bg-transparent! py-0!">
-                  <VListItem
+                <div class="tag-context-menu__list">
+                  <button
                     v-for="action in contextMenuActions"
                     :key="action.key"
+                    type="button"
                     :disabled="action.disabled"
-                    class="tag-context-menu__item rounded-[16px]! px-2.5! py-1.5!"
+                    class="tag-context-menu__item rounded-[16px] px-2.5 py-1.5"
                     :class="{ 'tag-context-menu__item--disabled': action.disabled }"
                     @click="!action.disabled && handleContextAction(action.key)"
                   >
@@ -1108,8 +1128,8 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                         <div class="truncate text-[11px]" :class="action.disabled ? 'text-[var(--theme-text-muted)]' : 'text-[var(--theme-text-secondary)]'">{{ action.subtitle }}</div>
                       </div>
                     </div>
-                  </VListItem>
-                </VList>
+                  </button>
+                </div>
               </div>
             </VCard>
           </VMenu>
@@ -1305,9 +1325,13 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
 :deep(.tag-view-chip) {
   border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong)) !important;
-  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card)) !important;
-  color: color-mix(in srgb, var(--theme-text-primary) 86%, var(--theme-accent)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card)) !important;
+  color: color-mix(in srgb, var(--theme-text-primary) 92%, var(--theme-accent-strong)) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent) !important;
+}
+
+:deep(.tag-view-chip .v-chip__content) {
+  color: inherit !important;
 }
 
 .tag-view-meta-list {
@@ -1333,6 +1357,52 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 
 .tag-control-label {
   color: var(--theme-text-muted);
+}
+
+.tag-view-pagination {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-view-pagination-button {
+  display: inline-grid;
+  min-width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.tag-view-pagination-button:hover:not(:disabled) {
+  border-color: var(--theme-hover-border);
+  color: var(--theme-text-primary);
+}
+
+.tag-view-pagination-button--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+}
+
+.tag-view-pagination-button--ellipsis {
+  color: var(--theme-text-muted);
+}
+
+.tag-view-pagination-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
 }
 
 :deep(.tag-field .v-field) {
@@ -1422,16 +1492,18 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 :deep(.tag-view-pagination .v-btn) {
   min-width: 34px;
   height: 34px;
+  border: 1px solid transparent;
   color: var(--theme-text-secondary);
 }
 
 :deep(.tag-view-pagination .v-btn--active),
 :deep(.tag-view-pagination .v-pagination__item--is-active .v-btn) {
-  background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-surface-card)) !important;
-  color: var(--theme-accent-contrast) !important;
+  border-color: color-mix(in srgb, var(--theme-accent-strong) 78%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card)) !important;
+  color: var(--theme-text-primary) !important;
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent-contrast) 42%, transparent),
-    0 2px 0 color-mix(in srgb, var(--theme-accent) 78%, var(--theme-border-strong)) !important;
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 36%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 14%, transparent) !important;
 }
 
 .tag-state {
@@ -2065,16 +2137,27 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   pointer-events: none;
 }
 
+.tag-context-menu__list {
+  display: grid;
+  gap: 2px;
+}
+
 .tag-context-menu__item {
+  display: flex;
+  width: 100%;
   min-height: 50px;
+  align-items: center;
+  border: 0;
+  background: transparent;
   color: var(--theme-text-primary);
+  text-align: left;
   transition:
-    background-color 160ms ease,
+    background 160ms ease,
     transform 160ms ease,
     box-shadow 160ms ease;
 }
 
-.tag-context-menu__item:hover {
+.tag-context-menu__item:hover:not(:disabled) {
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--theme-accent) 14%, transparent),
@@ -2091,7 +2174,8 @@ async function handleContextAction(action: ContextAction): Promise<void> {
   opacity: 0.58;
 }
 
-.tag-context-menu__item--disabled:hover {
+.tag-context-menu__item--disabled:hover,
+.tag-context-menu__item:disabled:hover {
   background: transparent;
   box-shadow: none;
   transform: none;

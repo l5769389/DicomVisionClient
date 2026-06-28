@@ -17,7 +17,8 @@ import type {
   ScaleBarInfo,
   ViewProgressInfo,
   ViewerMtfItem,
-  ViewerTabItem
+  ViewerTabItem,
+  WindowLevelInfo
 } from '../../../types/viewer'
 import {
   DEFAULT_MPR_SEGMENTATION_COLOR,
@@ -234,6 +235,20 @@ function getViewportScaleBar(viewportKey: MprViewportKey): ScaleBarInfo | null {
   return props.activeTab.viewportScaleBars?.[viewportKey] ?? null
 }
 
+function getViewportPseudocolorPreset(viewportKey: MprViewportKey): string {
+  return props.activeTab.viewportPseudocolorPresets?.[viewportKey] ?? props.activeTab.pseudocolorPreset
+}
+
+function getViewportPseudocolorWindowInfo(viewportKey: MprViewportKey): WindowLevelInfo | null {
+  return (
+    props.activeTab.viewportCurrentWindowInfos?.[viewportKey] ??
+    props.activeTab.viewportInitialWindowInfos?.[viewportKey] ??
+    props.activeTab.currentWindowInfo ??
+    props.activeTab.initialWindowInfo ??
+    null
+  )
+}
+
 function getViewportSegmentationOverlay(viewportKey: MprViewportKey): MprSegmentationOverlay | null {
   return props.activeTab.viewportSegmentationOverlays?.[viewportKey] ?? null
 }
@@ -371,6 +386,16 @@ function getItemPlane(item: MprViewportLayoutItem) {
 function getItemScaleBar(item: MprViewportLayoutItem): ScaleBarInfo | null {
   const viewportKey = asMprViewportKey(item)
   return viewportKey ? getViewportScaleBar(viewportKey) : null
+}
+
+function getItemPseudocolorPreset(item: MprViewportLayoutItem): string | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportPseudocolorPreset(viewportKey) : null
+}
+
+function getItemPseudocolorWindowInfo(item: MprViewportLayoutItem): WindowLevelInfo | null {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? getViewportPseudocolorWindowInfo(viewportKey) : null
 }
 
 function getItemTransform(item: MprViewportLayoutItem) {
@@ -532,8 +557,11 @@ watch(
       :voi-editable="isItemSegmentationEditable(item)"
       :voi-oblique="isItemVoiOblique(item)"
       :scale-bar="getItemScaleBar(item)"
+      :pseudocolor-preset="getItemPseudocolorPreset(item)"
+      :pseudocolor-window-info="getItemPseudocolorWindowInfo(item)"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-scale-bar="props.activeTab.showScaleBar !== false"
+      :show-pseudocolor-bar="props.activeTab.showPseudocolorBar !== false"
       :viewport-transform="getItemTransform(item)"
       :orientation="getItemOrientation(item)"
       :soft-image="item.kind === 'volume'"

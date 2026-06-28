@@ -6,9 +6,9 @@ import StackView from './StackView.vue'
 vi.mock('./ViewerCanvasStage.vue', () => ({
   default: {
     name: 'ViewerCanvasStage',
-    props: ['alt', 'lightSurface', 'stageSurfaceClass', 'viewportKey'],
+    props: ['alt', 'lightSurface', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showPseudocolorBar', 'stageSurfaceClass', 'viewportKey'],
     template:
-      '<div class="viewer-canvas-stage-stub" :data-alt="alt" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" :data-viewport-key="viewportKey"></div>'
+      '<div class="viewer-canvas-stage-stub" :data-alt="alt" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" :data-viewport-key="viewportKey"></div>'
   }
 }))
 
@@ -87,6 +87,37 @@ describe('StackView PET surface', () => {
     expect(stage.attributes('data-alt')).toBe('Stack')
     expect(stage.attributes('data-light-surface')).toBe('false')
     expect(stage.attributes('data-stage-surface-class')).toBe('')
+    wrapper.unmount()
+  })
+
+  it('lets the viewport occupy the full width when the slice slider is hidden', () => {
+    const wrapper = mountStackView(
+      createStackTab({
+        showSliceSlider: false
+      })
+    )
+
+    expect(wrapper.find('.stack-slice-panel').exists()).toBe(false)
+    expect(wrapper.find('.viewer-layout--stack-no-slider').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('passes pseudocolor bar props to the canvas stage', () => {
+    const wrapper = mountStackView(
+      createStackTab({
+        currentWindowInfo: {
+          ww: 350,
+          wl: 40
+        },
+        pseudocolorPreset: 'rainbow',
+        showPseudocolorBar: false
+      })
+    )
+
+    const stage = wrapper.find('.viewer-canvas-stage-stub')
+    expect(stage.attributes('data-pseudocolor-preset')).toBe('rainbow')
+    expect(stage.attributes('data-pseudocolor-ww')).toBe('350')
+    expect(stage.attributes('data-show-pseudocolor-bar')).toBe('false')
     wrapper.unmount()
   })
 })

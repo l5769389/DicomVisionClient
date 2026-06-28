@@ -7,7 +7,7 @@ import {
   VIEW_OPERATION_TYPES
 } from '@shared/viewerConstants'
 import { DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfig'
-import { postApi, postDicomUpload, type DicomUploadProgress, type LoadFolderResponse } from '../../../services/typedApi'
+import type { DicomUploadProgress, LoadFolderResponse } from '../../../services/typedApi'
 import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
@@ -43,10 +43,11 @@ import {
 import { withViewSyncValue } from '../sync/viewSyncConfig'
 import {
   applyPseudocolorToTabTargets,
+  applyTransformPatchToTabTargets,
   applyTransformToTabTargets,
   resetTabViewStateTargets
 } from '../operations/viewTabPatches'
-import type { ViewerToolbarActionPayload } from '../operations/viewActionTypes'
+import type { ViewerToolbarActionPayload, ViewerTransformResetScope } from '../operations/viewActionTypes'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
 import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
@@ -113,6 +114,7 @@ import type {
   ConnectionState,
   CompareStackPaneKey,
   CompareSyncSettingKey,
+  DrawingScope,
   FolderSeriesItem,
   FourDPlaybackPhaseEvent,
   FourDPlaybackStateEvent,
@@ -138,6 +140,13 @@ import type {
   VolumeRenderConfig,
   WorkspaceReadyPayload
 } from '../../../types/viewer'
+
+let typedApiModulePromise: Promise<typeof import('../../../services/typedApi')> | null = null
+
+function loadTypedApi() {
+  typedApiModulePromise ??= import('../../../services/typedApi')
+  return typedApiModulePromise
+}
 
 export function normalizeViewportWheelScrollDelta(deltaY: number, exact = false): number {
   if (!Number.isFinite(deltaY)) {
@@ -196,6 +205,7 @@ interface ViewerWorkspaceState {
     toolType: MeasurementToolType
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
+    scope?: DrawingScope
   }) => void
   handleMprCrosshair: (payload: MprCrosshairInteractionPayload) => void
   handleMeasurementCreate: (payload: {
@@ -204,6 +214,7 @@ interface ViewerWorkspaceState {
     points: MeasurementDraftPoint[]
     measurementId?: string
     labelLines?: string[]
+    scope?: DrawingScope
   }) => void
   handleMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
   handleAnnotationOperation: (payload: {
@@ -218,7 +229,7 @@ interface ViewerWorkspaceState {
   }) => void
   handleTagIndexChange: (payload: { tabKey: string; index: number }) => Promise<void>
   handleMtfClear: (payload?: { mtfId?: string | null }) => void
-  handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => Promise<void>
+  handleMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string; scope?: DrawingScope }) => Promise<void>
   handleMtfCopy: (payload?: { mtfId?: string | null }) => Promise<boolean>
   handleMtfSelect: (payload: { mtfId: string | null }) => void
   handleFourDPhaseChange: (payload: { tabKey: string; phaseIndex: number }) => void
@@ -347,7 +358,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     offsetX: 0,
     offsetY: 0
   }
-  const { hangingProtocolRules, mprSegmentationStylePreference, selectedPseudocolorKey } = useUiPreferences()
+  const {
+    hangingProtocolRules,
+    mprSegmentationStylePreference,
+    selectedPseudocolorKey,
+    setWorkspaceDockPreference,
+    workspaceDockPreference
+  } = useUiPreferences()
+  isSidebarCollapsed.value = workspaceDockPreference.value.leftCollapsed
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
   let statusToastTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -850,7 +868,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function toggleSidebar(): void {
-    isSidebarCollapsed.value = !isSidebarCollapsed.value
+    const nextCollapsed = !isSidebarCollapsed.value
+    isSidebarCollapsed.value = nextCollapsed
+    setWorkspaceDockPreference({
+      ...workspaceDockPreference.value,
+      leftCollapsed: nextCollapsed
+    })
   }
 
   function setActiveOperation(value: string): void {
@@ -887,6 +910,63 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return tab.layoutSlots?.find((slot) => slot.id === viewportKey)?.transformState ?? DEFAULT_VIEW_TRANSFORM
     }
     return tab.transformState ?? DEFAULT_VIEW_TRANSFORM
+  }
+
+  function normalizeViewTransform(transform: ViewTransformInfo | null | undefined): ViewTransformInfo {
+    return {
+      rotationDegrees: transform?.rotationDegrees ?? DEFAULT_VIEW_TRANSFORM.rotationDegrees,
+      horFlip: transform?.horFlip ?? DEFAULT_VIEW_TRANSFORM.horFlip,
+      verFlip: transform?.verFlip ?? DEFAULT_VIEW_TRANSFORM.verFlip,
+      zoom: transform?.zoom ?? DEFAULT_VIEW_TRANSFORM.zoom,
+      offsetX: transform?.offsetX ?? DEFAULT_VIEW_TRANSFORM.offsetX,
+      offsetY: transform?.offsetY ?? DEFAULT_VIEW_TRANSFORM.offsetY
+    }
+  }
+
+  function resetViewTransformByScope(transform: ViewTransformInfo, scope: ViewerTransformResetScope): ViewTransformInfo {
+    const normalized = normalizeViewTransform(transform)
+    if (scope === 'pan') {
+      return {
+        ...normalized,
+        offsetX: DEFAULT_VIEW_TRANSFORM.offsetX,
+        offsetY: DEFAULT_VIEW_TRANSFORM.offsetY
+      }
+    }
+    if (scope === 'zoom') {
+      return {
+        ...normalized,
+        zoom: DEFAULT_VIEW_TRANSFORM.zoom
+      }
+    }
+    return DEFAULT_VIEW_TRANSFORM
+  }
+
+  function buildTransformResetPayload(transform: ViewTransformInfo, scope: ViewerTransformResetScope): ViewOperationInput {
+    const payload: ViewOperationInput = {
+      opType: VIEW_OPERATION_TYPES.transform2d
+    }
+    if (scope === 'all') {
+      return {
+        ...payload,
+        rotationDegrees: transform.rotationDegrees ?? 0,
+        zoom: transform.zoom ?? 1,
+        x: transform.offsetX ?? 0,
+        y: transform.offsetY ?? 0,
+        hor_flip: transform.horFlip ?? false,
+        ver_flip: transform.verFlip ?? false
+      }
+    }
+    if (scope === 'pan') {
+      return {
+        ...payload,
+        x: transform.offsetX ?? 0,
+        y: transform.offsetY ?? 0
+      }
+    }
+    return {
+      ...payload,
+      zoom: transform.zoom ?? 1
+    }
   }
 
   function createMprMipOperationConfig(config: MprMipConfig): MprMipOperationConfig {
@@ -988,7 +1068,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'displayOverlay') {
       const overlay = payload.overlay
-      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'sliceSlider') {
+      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'pseudocolorBar' && overlay !== 'sliceSlider') {
+        return
+      }
+      if (overlay === 'pseudocolorBar' && tab.viewType === 'PETCTFusion') {
         return
       }
 
@@ -1000,7 +1083,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                 ? { showCornerInfo: payload.enabled ?? item.showCornerInfo === false }
                 : overlay === 'scaleBar'
                   ? { showScaleBar: payload.enabled ?? item.showScaleBar === false }
-                  : { showSliceSlider: payload.enabled ?? item.showSliceSlider === false })
+                  : overlay === 'pseudocolorBar'
+                    ? { showPseudocolorBar: payload.enabled ?? item.showPseudocolorBar === false }
+                    : { showSliceSlider: payload.enabled ?? item.showSliceSlider === false })
             }
           : item
       )
@@ -1162,27 +1247,39 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'transformReset') {
+      const transformScope = payload.transformScope ?? 'all'
       const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
       if (!targets.length) {
         return
       }
 
+      const nextTransformsByViewportKey = new Map<string, ViewTransformInfo>()
+      targets.forEach((target) => {
+        nextTransformsByViewportKey.set(
+          target.viewportKey,
+          resetViewTransformByScope(getCurrentViewportTransform(tab, target.viewportKey), transformScope)
+        )
+      })
+
       viewInteractionOperationScheduler.cancel()
       clearActiveMprCrosshairDragLock()
       viewerTabs.value = viewerTabs.value.map((item) =>
-        item.key === tab.key ? applyTransformToTabTargets(item, targets, DEFAULT_VIEW_TRANSFORM) : item
+        item.key === tab.key
+          ? applyTransformPatchToTabTargets(
+              item,
+              targets,
+              DEFAULT_VIEW_TRANSFORM,
+              (currentTransform, viewportKey) =>
+                nextTransformsByViewportKey.get(viewportKey) ?? resetViewTransformByScope(currentTransform, transformScope)
+            )
+          : item
       )
 
       targets.forEach((target) => {
+        const nextTransform = nextTransformsByViewportKey.get(target.viewportKey) ?? DEFAULT_VIEW_TRANSFORM
         emitViewOperation({
           viewId: target.viewId,
-          opType: VIEW_OPERATION_TYPES.transform2d,
-          rotationDegrees: DEFAULT_VIEW_TRANSFORM.rotationDegrees ?? 0,
-          zoom: DEFAULT_VIEW_TRANSFORM.zoom ?? 1,
-          x: DEFAULT_VIEW_TRANSFORM.offsetX ?? 0,
-          y: DEFAULT_VIEW_TRANSFORM.offsetY ?? 0,
-          hor_flip: DEFAULT_VIEW_TRANSFORM.horFlip ?? false,
-          ver_flip: DEFAULT_VIEW_TRANSFORM.verFlip ?? false
+          ...buildTransformResetPayload(nextTransform, transformScope)
         })
       })
       if (tab.viewType === '4D') {
@@ -1880,6 +1977,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     viewportKey: string
     points: MeasurementDraftPoint[]
     mtfId?: string
+    scope?: DrawingScope
   }): Promise<void> {
     const tab = activeTab.value
     if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
@@ -1894,6 +1992,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await ensureBackendConnection()
     const mtfId = payload.mtfId ?? generateMtfId()
     const nextSelectedMtfId = payload.mtfId ? mtfId : null
+    const scope = payload.scope ?? 'image'
+    const sliceIndex = resolveCurrentSliceIndex(tab, payload.viewportKey)
     updateActiveTabMtfState((item) =>
       updateMtfItemCollection(
         item,
@@ -1904,7 +2004,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           status: 'calculating',
           metrics: null,
           curve: [],
-          errorMessage: null
+          errorMessage: null,
+          scope,
+          sliceIndex
         },
         {
           selectMtfId: nextSelectedMtfId
@@ -1913,6 +2015,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     try {
+      const { postApi } = await loadTypedApi()
       const data = await postApi('AnalyzeMtfApiV1ViewMtfAnalyzePost', {
         viewId,
         viewportKey: payload.viewportKey,
@@ -1930,7 +2033,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             metrics: data.metrics as MtfMetrics,
             curve: data.curve as MtfCurvePoint[],
             errorMessage: null,
-            isPlaceholder: data.isPlaceholder ?? false
+            isPlaceholder: data.isPlaceholder ?? false,
+            scope,
+            sliceIndex
           },
           {
             selectMtfId: nextSelectedMtfId
@@ -1953,7 +2058,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             status: 'error',
             metrics: null,
             curve: [],
-            errorMessage: fallbackMessage
+            errorMessage: fallbackMessage,
+            scope,
+            sliceIndex
           },
           {
             selectMtfId: nextSelectedMtfId
@@ -2138,7 +2245,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await handleMtfCommit({
       viewportKey: sourceItem.viewportKey,
       points: copiedPoints,
-      mtfId: generateMtfId()
+      mtfId: generateMtfId(),
+      scope: sourceItem.scope ?? 'image'
     })
 
     return true
@@ -2219,7 +2327,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return pending
     }
 
-    const request = postApi('GetCornerInfoApiV1DicomCornerInfoPost', { seriesId })
+    const request = loadTypedApi()
+      .then(({ postApi }) => postApi('GetCornerInfoApiV1DicomCornerInfoPost', { seriesId }))
       .then((data) => {
         const normalized = normalizeCornerInfo(data)
         seriesCornerInfoMap.value = {
@@ -3296,6 +3405,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
+  function resolveCurrentSliceIndex(tab: ViewerTabItem, viewportKey: string): number | null {
+    if (isMprLikeViewType(tab.viewType)) {
+      return parseSliceLabel(tab.viewportSliceLabels?.[viewportKey as MprViewportKey])?.index ?? null
+    }
+    if (tab.viewType === 'CompareStack') {
+      return parseSliceLabel(tab.compareSliceLabels?.[resolveComparePaneKey(viewportKey)])?.index ?? null
+    }
+    if (tab.viewType === 'Layout') {
+      const slot = (tab.layoutSlots ?? []).find((candidate) => candidate.id === viewportKey)
+      return parseSliceLabel(slot?.sliceLabel)?.index ?? null
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      return parseSliceLabel(tab.fusionSliceLabels?.[resolveFusionPaneKey(viewportKey)])?.index ?? null
+    }
+    return parseSliceLabel(tab.sliceLabel)?.index ?? null
+  }
+
   function upsertMeasurementOverlay(
     list: MeasurementOverlay[],
     payload: {
@@ -3303,6 +3429,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       points: MeasurementDraftPoint[]
       measurementId?: string
       labelLines?: string[]
+      scope?: DrawingScope
+      sliceIndex?: number | null
     }
   ): MeasurementOverlay[] {
     const nextMeasurementId = payload.measurementId?.trim()
@@ -3314,7 +3442,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       measurementId: nextMeasurementId,
       toolType: payload.toolType,
       points: payload.points,
-      labelLines: payload.labelLines ?? []
+      labelLines: payload.labelLines ?? [],
+      scope: payload.scope ?? 'image',
+      sliceIndex: payload.sliceIndex ?? null
     }
 
     const index = list.findIndex((measurement) => measurement.measurementId === nextMeasurementId)
@@ -3338,9 +3468,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     points: MeasurementDraftPoint[]
     measurementId?: string
     labelLines?: string[]
+    scope?: DrawingScope
   }): void {
     const tab = activeTab.value
     if (tab && !isFourDPlaybackLocked(tab) && (isStackLikeViewType(tab.viewType) || isMprLikeViewType(tab.viewType)) && payload.measurementId?.trim()) {
+      const overlayPayload = {
+        ...payload,
+        scope: payload.scope ?? 'image',
+        sliceIndex: resolveCurrentSliceIndex(tab, payload.viewportKey)
+      }
       viewerTabs.value = viewerTabs.value.map((item) => {
         if (item.key !== tab.key) {
           return item
@@ -3353,7 +3489,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
               ...(item.viewportMeasurements ?? {}),
               [payload.viewportKey]: upsertMeasurementOverlay(
                 item.viewportMeasurements?.[payload.viewportKey as MprViewportKey] ?? [],
-                payload
+                overlayPayload
               )
             }
           }
@@ -3361,7 +3497,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
         return {
           ...item,
-          measurements: upsertMeasurementOverlay(item.measurements ?? [], payload)
+          measurements: upsertMeasurementOverlay(item.measurements ?? [], overlayPayload)
         }
       })
     }
@@ -3429,6 +3565,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     toolType: MeasurementToolType
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
+    scope?: DrawingScope
   }): void {
     emitMeasurementOperation(payload)
   }
@@ -3749,6 +3886,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     signal: AbortSignal,
     onUploadProgress?: (progress: DicomUploadProgress) => void
   ) {
+    const { postApi, postDicomUpload } = await loadTypedApi()
     if (source.kind === 'server-sample') {
       return postApi('LoadSampleFolderApiV1DicomLoadSamplePost', undefined, { signal })
     }

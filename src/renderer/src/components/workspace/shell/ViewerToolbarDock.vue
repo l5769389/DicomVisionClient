@@ -20,6 +20,8 @@ const props = defineProps<{
   resultPanelOpen?: boolean
   resultPanelTitle?: string
   resultPanelToolKey?: string | null
+  width?: number
+  collapsed?: boolean
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
   utilityPanelIcon?: string
@@ -35,12 +37,13 @@ const emit = defineEmits<{
   closeUtilityPanel: []
   closeResultPanel: []
   dockResize: []
+  collapseChange: [collapsed: boolean]
   selectToolOption: [tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior]
   setMenuOpen: [toolKey: string | null]
 }>()
 
 const { locale, toolbarCopy: copy } = useUiLocale()
-const isDockCollapsed = ref(false)
+const isDockCollapsed = ref(props.collapsed ?? false)
 const lastActivatedToolKey = ref<string | null>(null)
 const lastDetaillessToolKey = ref<string | null>(null)
 const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'segmentation'])
@@ -216,8 +219,18 @@ function handleToolClick(tool: StackTool): void {
 
 function toggleDockCollapsed(): void {
   isDockCollapsed.value = !isDockCollapsed.value
+  emit('collapseChange', isDockCollapsed.value)
   emit('dockResize')
 }
+
+watch(
+  () => props.collapsed,
+  (value) => {
+    if (typeof value === 'boolean') {
+      isDockCollapsed.value = value
+    }
+  }
+)
 
 watch(
   () => props.activeTab.key,
@@ -232,6 +245,7 @@ watch(
   <aside
     class="viewer-toolbar-dock"
     :class="{ 'viewer-toolbar-dock--collapsed': isDockCollapsed }"
+    :style="{ '--viewer-toolbar-dock-width': `${width ?? 260}px` }"
     data-tool-menu-root
   >
     <div class="viewer-toolbar-dock__body">
@@ -411,9 +425,9 @@ watch(
 .viewer-toolbar-dock {
   display: flex;
   flex-direction: column;
-  width: 260px;
-  min-width: 260px;
-  max-width: 260px;
+  width: var(--viewer-toolbar-dock-width, 260px);
+  min-width: var(--viewer-toolbar-dock-width, 260px);
+  max-width: var(--viewer-toolbar-dock-width, 260px);
   min-height: 0;
   align-self: stretch;
   overflow: hidden;

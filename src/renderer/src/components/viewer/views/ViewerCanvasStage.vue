@@ -330,28 +330,44 @@ function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
     return
   }
 
-  const rect = getHoverImageRect()
-  if (!rect || !rect.width || !rect.height) {
+  const imageRect = getHoverImageRect()
+  const stage = stageRef.value
+  if (!imageRect || !imageRect.width || !imageRect.height || !stage) {
     emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
     return
   }
 
-  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+  if (event.clientX < imageRect.left || event.clientX > imageRect.right || event.clientY < imageRect.top || event.clientY > imageRect.bottom) {
     emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
     return
   }
 
-  const normalizedX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-  const normalizedY = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
-  const naturalWidth = imageRef.value?.naturalWidth || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalWidth : 0)
-  const naturalHeight = imageRef.value?.naturalHeight || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalHeight : 0)
+  const stageRect = stage.getBoundingClientRect()
+  if (!stageRect.width || !stageRect.height) {
+    emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
+    return
+  }
+
+  const canvasNormalizedX = Math.max(0, Math.min(1, (event.clientX - stageRect.left) / stageRect.width))
+  const canvasNormalizedY = Math.max(0, Math.min(1, (event.clientY - stageRect.top) / stageRect.height))
+  const imageNormalizedX = Math.max(0, Math.min(1, (event.clientX - imageRect.left) / imageRect.width))
+  const imageNormalizedY = Math.max(0, Math.min(1, (event.clientY - imageRect.top) / imageRect.height))
+  const naturalWidth = imageRef.value?.naturalWidth || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalWidth ?? 0 : 0)
+  const naturalHeight = imageRef.value?.naturalHeight || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalHeight ?? 0 : 0)
   emit('hoverViewportChange', {
     viewportKey: props.viewportKey,
-    x: normalizedX,
-    y: normalizedY,
-    row: naturalHeight > 0 ? Math.round(normalizedY * Math.max(0, naturalHeight - 1)) : null,
-    col: naturalWidth > 0 ? Math.round(normalizedX * Math.max(0, naturalWidth - 1)) : null
+    x: canvasNormalizedX,
+    y: canvasNormalizedY,
+    row: normalizedPixelIndexToOneBased(imageNormalizedY, naturalHeight),
+    col: normalizedPixelIndexToOneBased(imageNormalizedX, naturalWidth)
   })
+}
+
+function normalizedPixelIndexToOneBased(normalizedValue: number, size: number): number | null {
+  if (size <= 0) {
+    return null
+  }
+  return Math.min(size, Math.max(1, Math.floor(normalizedValue * size) + 1))
 }
 
 function handlePointerDown(event: PointerEvent): void {

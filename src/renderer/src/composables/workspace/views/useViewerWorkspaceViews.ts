@@ -237,6 +237,34 @@ function getMprSegmentationConfigPayload(payload: Partial<ViewImageResponse>) {
   return payload.mprSegmentationConfig ?? (payload as { mpr_segmentation_config?: ViewImageResponse['mprSegmentationConfig'] | null }).mpr_segmentation_config
 }
 
+function normalizeMprRevision(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function maxMprRevision(...values: Array<number | null | undefined>): number | null {
+  return values.reduce<number | null>((maxValue, value) => {
+    const revision = normalizeMprRevision(value)
+    if (revision == null) {
+      return maxValue
+    }
+    return maxValue == null ? revision : Math.max(maxValue, revision)
+  }, null)
+}
+
+function mergeViewportMprRevision(
+  revisions: Partial<Record<MprViewportKey, number>> | undefined,
+  viewportKey: MprViewportKey,
+  revision: number | null
+): Partial<Record<MprViewportKey, number>> | undefined {
+  if (revision == null) {
+    return revisions
+  }
+  return {
+    ...(revisions ?? {}),
+    [viewportKey]: Math.max(revisions?.[viewportKey] ?? revision, revision)
+  }
+}
+
 function getMprSegmentationOverlayPayload(payload: Partial<ViewImageResponse>) {
   return payload.mprSegmentationOverlay ?? (payload as { mpr_segmentation_overlay?: ViewImageResponse['mprSegmentationOverlay'] | null }).mpr_segmentation_overlay
 }
@@ -355,6 +383,40 @@ function mergeTransformCornerInfoTag(cornerInfo: CornerInfo, transform: ViewTran
   }
 }
 
+function preserveMeasurementScopeMetadata(
+  incoming: MeasurementOverlay[],
+  current: MeasurementOverlay[] | null | undefined
+): MeasurementOverlay[] {
+  const currentById = new Map((current ?? []).map((item) => [item.measurementId, item]))
+  return incoming.map((item) => {
+    const previous = currentById.get(item.measurementId)
+    const scope = item.scope ?? previous?.scope
+    const sliceIndex = item.sliceIndex ?? previous?.sliceIndex
+    return {
+      ...item,
+      ...(scope != null ? { scope } : {}),
+      ...(sliceIndex !== undefined ? { sliceIndex } : {})
+    }
+  })
+}
+
+function preserveAnnotationScopeMetadata(
+  incoming: AnnotationOverlay[],
+  current: AnnotationOverlay[] | null | undefined
+): AnnotationOverlay[] {
+  const currentById = new Map((current ?? []).map((item) => [item.annotationId, item]))
+  return incoming.map((item) => {
+    const previous = currentById.get(item.annotationId)
+    const scope = item.scope ?? previous?.scope
+    const sliceIndex = item.sliceIndex ?? previous?.sliceIndex
+    return {
+      ...item,
+      ...(scope != null ? { scope } : {}),
+      ...(sliceIndex !== undefined ? { sliceIndex } : {})
+    }
+  })
+}
+
 function normalizeWindowLevelInfo(ww: number | null | undefined, wl: number | null | undefined): WindowLevelInfo | null {
   const width = Number(ww)
   const level = Number(wl)
@@ -388,6 +450,16 @@ function getImageUpdateMetadataMode(payload: Partial<ViewImageResponse>): string
   return typeof raw === 'string' ? raw : ''
 }
 
+function getImageMimeType(imageFormat: string | null | undefined): string {
+  if (imageFormat === 'jpeg') {
+    return 'image/jpeg'
+  }
+  if (imageFormat === 'webp') {
+    return 'image/webp'
+  }
+  return 'image/png'
+}
+
 function normalizeImageUpdateRenderIntent(payload: Partial<ViewImageResponse>): ImageUpdateRenderIntent {
   const rawIntent = payload.renderIntent ?? (payload as { render_intent?: unknown }).render_intent
   if (
@@ -403,7 +475,12 @@ function normalizeImageUpdateRenderIntent(payload: Partial<ViewImageResponse>): 
   if (metadataMode === 'stack-pixel-preview' || metadataMode === 'mpr-pixel-preview') {
     return 'pixel-only'
   }
-  if (metadataMode === 'stack-geometry-preview' || metadataMode === 'mpr-pan-zoom-preview' || metadataMode === 'stack-preview-lite') {
+  if (
+    metadataMode === 'stack-geometry-preview' ||
+    metadataMode === 'mpr-pan-zoom-preview' ||
+    metadataMode === 'mpr-crosshair-preview' ||
+    metadataMode === 'stack-preview-lite'
+  ) {
     return 'geometry-preview'
   }
   if (metadataMode === 'mpr-segmentation-preview' || metadataMode === 'fusion-registration-layer-preview') {
@@ -509,7 +586,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const renderTabScheduler = createRenderTabScheduler({
     renderNow: renderTabNow
   })
-  const { locale, selectedPseudocolorKey } = useUiPreferences()
+  const { locale, selectedPseudocolorKey, viewerImageFormatPreference } = useUiPreferences()
   let tabActivationHistory: string[] = []
 
   function withRuntimeCornerInfo(
@@ -1788,7 +1865,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
       const ww = payload.window_info?.ww
       const wl = payload.window_info?.wl
-      const mimeType = payload.imageFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
+      const mimeType = getImageMimeType(payload.imageFormat)
       const currentMprSegmentationConfig = normalizeMprSegmentationConfig(
         item.mprSegmentationConfig,
         createDefaultMprSegmentationConfig()
@@ -1867,7 +1944,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const hasMprCrosshairUpdate = allowGeometryUpdate && hasMprCrosshairPayload(payload)
       const mprCrosshair = hasMprCrosshairUpdate ? getMprCrosshairPayload(payload) : null
       const rawMprRevision = allowGeometryUpdate ? payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null) : null
-      const mprRevision = typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
+      const mprRevision = normalizeMprRevision(rawMprRevision)
       const scaleBar = normalizeScaleBarInfo(rawScaleBar)
       const volumePreset = payload.volumePreset ? `volumePreset:${normalizeVolumePresetKey(payload.volumePreset)}` : item.volumePreset
       const volumeRenderConfig = payload.volumeConfig
@@ -1904,13 +1981,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [layoutSlot.id]: hasMeasurementsPayload
-              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              ? preserveMeasurementScopeMetadata((payload.measurements ?? []) as MeasurementOverlay[], item.viewportMeasurements?.[layoutSlot.id] ?? [])
               : item.viewportMeasurements?.[layoutSlot.id] ?? []
           },
           viewportAnnotations: {
             ...(item.viewportAnnotations ?? {}),
             [layoutSlot.id]: hasAnnotationsPayload
-              ? payloadAnnotations
+              ? preserveAnnotationScopeMetadata(payloadAnnotations, item.viewportAnnotations?.[layoutSlot.id] ?? [])
               : item.viewportAnnotations?.[layoutSlot.id] ?? []
           },
           layoutSlots: (item.layoutSlots ?? []).map((slot) => {
@@ -2035,13 +2112,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [compareViewportKey]: hasMeasurementsPayload
-              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              ? preserveMeasurementScopeMetadata((payload.measurements ?? []) as MeasurementOverlay[], item.viewportMeasurements?.[compareViewportKey] ?? [])
               : item.viewportMeasurements?.[compareViewportKey] ?? []
           },
           viewportAnnotations: {
             ...(item.viewportAnnotations ?? {}),
             [compareViewportKey]: hasAnnotationsPayload
-              ? payloadAnnotations
+              ? preserveAnnotationScopeMetadata(payloadAnnotations, item.viewportAnnotations?.[compareViewportKey] ?? [])
               : item.viewportAnnotations?.[compareViewportKey] ?? []
           }
         })
@@ -2204,13 +2281,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [fusionViewportKey]: hasMeasurementsPayload
-              ? (payload.measurements ?? []) as MeasurementOverlay[]
+              ? preserveMeasurementScopeMetadata((payload.measurements ?? []) as MeasurementOverlay[], item.viewportMeasurements?.[fusionViewportKey] ?? [])
               : item.viewportMeasurements?.[fusionViewportKey] ?? []
           },
           viewportAnnotations: {
             ...(item.viewportAnnotations ?? {}),
             [fusionViewportKey]: hasAnnotationsPayload
-              ? payloadAnnotations
+              ? preserveAnnotationScopeMetadata(payloadAnnotations, item.viewportAnnotations?.[fusionViewportKey] ?? [])
               : item.viewportAnnotations?.[fusionViewportKey] ?? []
           }
         })
@@ -2230,26 +2307,38 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           phaseKey: item.viewType === '4D' ? fourDViewportMatch?.phaseKey ?? activeFourDPhaseKey : null,
           mprRevision
         }
-        const acceptedMprRevision =
+        const acceptedMprImageRevision =
           item.viewType === '4D' && fourDViewportMatch
-            ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.mprRevision ?? null
-            : item.mprRevision ?? null
+            ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.viewportMprImageRevisions?.[viewportKey] ?? null
+            : item.viewportMprImageRevisions?.[viewportKey] ?? null
+        const acceptedMprStateRevision =
+          item.viewType === '4D' && fourDViewportMatch
+            ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.viewportMprStateRevisions?.[viewportKey] ?? null
+            : item.viewportMprStateRevisions?.[viewportKey] ?? null
+        const currentViewportImageBeforeUpdate =
+          item.viewType === '4D' && fourDViewportMatch
+            ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.viewportImages?.[viewportKey] ?? null
+            : item.viewportImages?.[viewportKey] ?? null
         if (
+          currentViewportImageBeforeUpdate &&
           shouldSuppressMprCrosshairPreviewImageUpdate({
-            acceptedMprRevision,
+            acceptedMprRevision: acceptedMprImageRevision,
             lock: options.activeMprCrosshairDragLock.value,
             update: mprViewportUpdate,
-            imageFormat: payload.imageFormat
+            imageFormat: payload.imageFormat,
+            metadataMode: getImageUpdateMetadataMode(payload)
           })
         ) {
           revokeIncomingImageSrcIfNeeded()
           return item
         }
+        const shouldApplyMprMetadataFromImage =
+          mprRevision == null || acceptedMprStateRevision == null || mprRevision >= acceptedMprStateRevision
         const shouldCompleteSettling = shouldCompleteMprCrosshairSettling({
           lock: options.activeMprCrosshairDragLock.value,
           update: mprViewportUpdate,
           imageFormat: payload.imageFormat,
-          acceptedMprRevision,
+          acceptedMprRevision: maxMprRevision(acceptedMprImageRevision, acceptedMprStateRevision),
           currentCrosshair: item.viewportCrosshairs?.[viewportKey] ?? null,
           incomingCrosshair: mprCrosshair
         })
@@ -2287,7 +2376,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             [viewportKey]: getIncomingImageSrc()
           }
           const currentPhaseCrosshair = phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null
-          const nextViewportCrosshair = hasMprCrosshairUpdate
+          const nextViewportCrosshair = hasMprCrosshairUpdate && shouldApplyMprMetadataFromImage
             ? resolveMprCrosshairForImageUpdate({
                 incomingCrosshair: mprCrosshair,
                 currentCrosshair: currentPhaseCrosshair,
@@ -2328,17 +2417,25 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                   wl
                 )
               },
-              mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
-              mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
-              mprRevision: mprRevision ?? phaseCacheSeed.mprRevision ?? null,
+              mprCursor: shouldApplyMprMetadataFromImage ? mprCursor ?? phaseCacheSeed.mprCursor ?? null : phaseCacheSeed.mprCursor ?? null,
+              mprFrame: shouldApplyMprMetadataFromImage ? mprFrame ?? phaseCacheSeed.mprFrame ?? null : phaseCacheSeed.mprFrame ?? null,
+              mprRevision: maxMprRevision(phaseCacheSeed.mprRevision, mprRevision),
+              viewportMprImageRevisions: mergeViewportMprRevision(
+                phaseCacheSeed.viewportMprImageRevisions,
+                viewportKey,
+                mprRevision
+              ),
+              viewportMprStateRevisions: shouldApplyMprMetadataFromImage
+                ? mergeViewportMprRevision(phaseCacheSeed.viewportMprStateRevisions, viewportKey, mprRevision)
+                : phaseCacheSeed.viewportMprStateRevisions,
               viewportImages: nextViewportImages,
               viewportSliceLabels: {
                 ...(phaseCacheSeed.viewportSliceLabels ?? createEmptyMprSliceLabels()),
-                [viewportKey]: sliceLabel
+                [viewportKey]: shouldApplyMprMetadataFromImage ? sliceLabel : phaseCacheSeed.viewportSliceLabels?.[viewportKey] ?? ''
               },
               viewportPlanes: {
                 ...(phaseCacheSeed.viewportPlanes ?? createEmptyMprPlanes()),
-                [viewportKey]: mprPlane ?? phaseCacheSeed.viewportPlanes?.[viewportKey] ?? null
+                [viewportKey]: shouldApplyMprMetadataFromImage ? mprPlane ?? phaseCacheSeed.viewportPlanes?.[viewportKey] ?? null : phaseCacheSeed.viewportPlanes?.[viewportKey] ?? null
               },
               viewportCrosshairs: {
                 ...(phaseCacheSeed.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -2352,7 +2449,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                 ...(phaseCacheSeed.viewportMeasurements ?? {}),
                 [viewportKey]: !hasMeasurementsPayload || (isMprPreview && !payload.measurements?.length)
                   ? phaseCacheSeed.viewportMeasurements?.[viewportKey] ?? []
-                  : (payload.measurements ?? []) as MeasurementOverlay[]
+                  : preserveMeasurementScopeMetadata(
+                      (payload.measurements ?? []) as MeasurementOverlay[],
+                      phaseCacheSeed.viewportMeasurements?.[viewportKey] ?? []
+                    )
               },
               viewportCornerInfos: {
                 ...(phaseCacheSeed.viewportCornerInfos ?? createEmptyMprCornerInfos()),
@@ -2405,7 +2505,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
 
         const currentViewportCrosshair = item.viewportCrosshairs?.[viewportKey] ?? null
-        const nextViewportCrosshair = hasMprCrosshairUpdate
+        const nextViewportCrosshair = hasMprCrosshairUpdate && shouldApplyMprMetadataFromImage
           ? resolveMprCrosshairForImageUpdate({
               incomingCrosshair: mprCrosshair,
               currentCrosshair: currentViewportCrosshair,
@@ -2426,9 +2526,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           windowLabel,
           initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
           currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
-          mprCursor: mprCursor ?? item.mprCursor ?? null,
-          mprFrame: mprFrame ?? item.mprFrame ?? null,
-          mprRevision: mprRevision ?? item.mprRevision ?? null,
+          mprCursor: shouldApplyMprMetadataFromImage ? mprCursor ?? item.mprCursor ?? null : item.mprCursor ?? null,
+          mprFrame: shouldApplyMprMetadataFromImage ? mprFrame ?? item.mprFrame ?? null : item.mprFrame ?? null,
+          mprRevision: maxMprRevision(item.mprRevision, mprRevision),
+          viewportMprImageRevisions: mergeViewportMprRevision(item.viewportMprImageRevisions, viewportKey, mprRevision),
+          viewportMprStateRevisions: shouldApplyMprMetadataFromImage
+            ? mergeViewportMprRevision(item.viewportMprStateRevisions, viewportKey, mprRevision)
+            : item.viewportMprStateRevisions,
           viewportImages: shouldPreserveImageForMprSegmentationUpdate
             ? item.viewportImages ?? createEmptyMprImages()
             : {
@@ -2437,11 +2541,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               },
           viewportSliceLabels: {
             ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
-            [viewportKey]: sliceLabel
+            [viewportKey]: shouldApplyMprMetadataFromImage ? sliceLabel : item.viewportSliceLabels?.[viewportKey] ?? ''
           },
           viewportPlanes: {
             ...(item.viewportPlanes ?? createEmptyMprPlanes()),
-            [viewportKey]: mprPlane ?? item.viewportPlanes?.[viewportKey] ?? null
+            [viewportKey]: shouldApplyMprMetadataFromImage ? mprPlane ?? item.viewportPlanes?.[viewportKey] ?? null : item.viewportPlanes?.[viewportKey] ?? null
           },
           viewportCrosshairs: {
             ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
@@ -2468,7 +2572,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ...(item.viewportMeasurements ?? {}),
             [viewportKey]: !hasMeasurementsPayload || (isMprPreview && !payload.measurements?.length)
               ? item.viewportMeasurements?.[viewportKey] ?? []
-              : (payload.measurements ?? []) as MeasurementOverlay[]
+              : preserveMeasurementScopeMetadata(
+                  (payload.measurements ?? []) as MeasurementOverlay[],
+                  item.viewportMeasurements?.[viewportKey] ?? []
+                )
           },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
@@ -2514,7 +2621,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           mprMipConfig,
           mprSegmentationConfig,
-          mprCrosshairMode,
+          mprCrosshairMode: shouldApplyMprMetadataFromImage ? mprCrosshairMode : item.mprCrosshairMode,
           volumePreset,
           volumeRenderConfig,
           render3dMode,
@@ -2566,8 +2673,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         windowLabel,
         initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
         currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
-        measurements: hasMeasurementsPayload ? (payload.measurements ?? []) as MeasurementOverlay[] : item.measurements ?? [],
-        annotations: hasAnnotationsPayload ? payloadAnnotations : item.annotations ?? [],
+        measurements: hasMeasurementsPayload
+          ? preserveMeasurementScopeMetadata((payload.measurements ?? []) as MeasurementOverlay[], item.measurements ?? [])
+          : item.measurements ?? [],
+        annotations: hasAnnotationsPayload ? preserveAnnotationScopeMetadata(payloadAnnotations, item.annotations ?? []) : item.annotations ?? [],
         scaleBar: hasScaleBarPayload ? scaleBar : item.scaleBar ?? null,
         cornerInfo: singleCornerInfo,
         orientation: hasOrientationPayload ? orientationInfo : item.orientation ?? orientationInfo,
@@ -2608,12 +2717,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         item.viewType === '4D' ? getFourDPhaseKey(clampFourDPhaseIndex(item, item.fourDPhaseIndex ?? 0)) : null
 
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
-      const mprRevision = typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null
-      const acceptedMprRevision =
+      const mprRevision = normalizeMprRevision(rawMprRevision)
+      const acceptedMprStateRevision =
         item.viewType === '4D' && fourDViewportMatch
-          ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.mprRevision ?? null
-          : item.mprRevision ?? null
-      if (mprRevision != null && acceptedMprRevision != null && mprRevision < acceptedMprRevision) {
+          ? item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]?.viewportMprStateRevisions?.[viewportKey] ?? null
+          : item.viewportMprStateRevisions?.[viewportKey] ?? null
+      if (mprRevision != null && acceptedMprStateRevision != null && mprRevision < acceptedMprStateRevision) {
         return item
       }
       mprStateCompletionUpdate = {
@@ -2715,7 +2824,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             },
             mprCursor: mprCursor ?? phaseCacheSeed.mprCursor ?? null,
             mprFrame: mprFrame ?? phaseCacheSeed.mprFrame ?? null,
-            mprRevision: mprRevision ?? phaseCacheSeed.mprRevision ?? null,
+            mprRevision: maxMprRevision(phaseCacheSeed.mprRevision, mprRevision),
+            viewportMprStateRevisions: mergeViewportMprRevision(
+              phaseCacheSeed.viewportMprStateRevisions,
+              viewportKey,
+              mprRevision
+            ),
             viewportSliceLabels: {
               ...(phaseCacheSeed.viewportSliceLabels ?? createEmptyMprSliceLabels()),
               [viewportKey]: sliceLabel
@@ -2792,7 +2906,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
         mprCursor: mprCursor ?? item.mprCursor ?? null,
         mprFrame: mprFrame ?? item.mprFrame ?? null,
-        mprRevision: mprRevision ?? item.mprRevision ?? null,
+        mprRevision: maxMprRevision(item.mprRevision, mprRevision),
+        viewportMprStateRevisions: mergeViewportMprRevision(item.viewportMprStateRevisions, viewportKey, mprRevision),
         viewportSliceLabels: {
           ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
           [viewportKey]: sliceLabel
@@ -3411,7 +3526,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await postApi('SetViewSizeApiV1ViewSetSizePost', {
           opType: VIEW_OPERATION_TYPES.setSize,
           size: update.size,
-          viewId: update.viewId
+          viewId: update.viewId,
+          imageFormat: viewerImageFormatPreference.value
         })
         bindView(update.viewId)
         return
@@ -3421,7 +3537,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       await postApi('SetViewSizeApiV1ViewSetSizePost', {
         opType: VIEW_OPERATION_TYPES.setSize,
         size: update.size,
-        viewId: update.viewId
+        viewId: update.viewId,
+        imageFormat: viewerImageFormatPreference.value
       })
     })
   }

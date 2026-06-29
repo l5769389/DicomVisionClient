@@ -170,7 +170,7 @@ describe('mprInteractionGuard', () => {
     ).toEqual(incomingCrosshair)
   })
 
-  it('suppresses active JPEG previews and stale MPR image updates', () => {
+  it('suppresses active crosshair previews and stale MPR image updates', () => {
     const update = {
       tabKey: 'series-1::MPR',
       viewportKey: 'mpr-ax' as const,
@@ -182,7 +182,8 @@ describe('mprInteractionGuard', () => {
       shouldSuppressMprCrosshairPreviewImageUpdate({
         lock: createLock({ status: 'dragging' }),
         update,
-        imageFormat: 'jpeg'
+        imageFormat: 'png',
+        metadataMode: 'mpr-crosshair-preview'
       })
     ).toBe(true)
     expect(
@@ -194,7 +195,8 @@ describe('mprInteractionGuard', () => {
           viewportKey: 'mpr-cor',
           mprRevision: 5
         },
-        imageFormat: 'jpeg'
+        imageFormat: 'png',
+        metadataMode: 'mpr-crosshair-preview'
       })
     ).toBe(true)
     expect(
@@ -206,7 +208,8 @@ describe('mprInteractionGuard', () => {
           viewportKey: 'mpr-cor',
           mprRevision: 5
         },
-        imageFormat: 'jpeg'
+        imageFormat: 'png',
+        metadataMode: 'mpr-crosshair-preview'
       })
     ).toBe(false)
     expect(
@@ -230,7 +233,7 @@ describe('mprInteractionGuard', () => {
     ).toBe(true)
   })
 
-  it('only completes settling on a backend final PNG for the active 4D phase', () => {
+  it('only completes settling on a backend final image for the active 4D phase', () => {
     const lock = createLock({
       tabKey: 'series-1::4D',
       phaseKey: '3',
@@ -246,6 +249,20 @@ describe('mprInteractionGuard', () => {
           phaseKey: '3'
         },
         imageFormat: 'png',
+        currentCrosshair: incomingCrosshair,
+        incomingCrosshair: incomingCrosshair,
+        acceptedMprRevision: 4
+      })
+    ).toBe(true)
+    expect(
+      shouldCompleteMprCrosshairSettling({
+        lock,
+        update: {
+          tabKey: 'series-1::4D',
+          viewportKey: 'mpr-ax',
+          phaseKey: '3'
+        },
+        imageFormat: 'webp',
         currentCrosshair: incomingCrosshair,
         incomingCrosshair: incomingCrosshair,
         acceptedMprRevision: 4

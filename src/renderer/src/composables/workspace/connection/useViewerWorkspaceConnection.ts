@@ -9,6 +9,7 @@ interface ViewerWorkspaceConnectionOptions {
   onDisconnected: () => void
   onReconnecting: () => void
   onImageUpdate: ServerToClientEvents['image_update']
+  onMprStateUpdate: ServerToClientEvents['mpr_state_update']
   onViewProgress: (payload: ViewProgressInfo | undefined) => void
   onHoverInfo: (payload: ViewHoverResponse | undefined) => void
   onImageError: (error: { message?: string } | undefined) => void
@@ -70,6 +71,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
     socket.io.off('reconnect_error', handleSocketReconnectError)
     socket.io.off('reconnect_failed', handleSocketReconnectFailed)
     socket.off('image_update', options.onImageUpdate)
+    socket.off('mpr_state_update', options.onMprStateUpdate)
     socket.off('view_progress', options.onViewProgress)
     socket.off('hover_info', options.onHoverInfo)
     socket.off('image_error', options.onImageError)
@@ -91,6 +93,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
     socket.io.on('reconnect_error', handleSocketReconnectError)
     socket.io.on('reconnect_failed', handleSocketReconnectFailed)
     socket.on('image_update', options.onImageUpdate)
+    socket.on('mpr_state_update', options.onMprStateUpdate)
     socket.on('view_progress', options.onViewProgress)
     socket.on('hover_info', options.onHoverInfo)
     socket.on('image_error', options.onImageError)

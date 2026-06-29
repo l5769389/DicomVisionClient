@@ -311,18 +311,19 @@ describe('ViewerCanvasStage layout metrics', () => {
 
   it('only emits hover coordinates while no pointer button is pressed', async () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-      () =>
-        ({
+      function (this: HTMLElement) {
+        return {
           left: 0,
           top: 0,
-          right: 200,
+          right: 300,
           bottom: 200,
-          width: 200,
+          width: 300,
           height: 200,
           x: 0,
           y: 0,
           toJSON: () => ({})
-        }) as DOMRect
+        } as DOMRect
+      }
     )
     vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(200)
     vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(200)
@@ -331,19 +332,61 @@ describe('ViewerCanvasStage layout metrics', () => {
     await nextTick()
     const viewport = wrapper.find('.viewer-viewport')
 
-    viewport.element.dispatchEvent(createPointerMoveEvent({ buttons: 1, clientX: 80, clientY: 90 }))
+    viewport.element.dispatchEvent(createPointerMoveEvent({ buttons: 1, clientX: 100, clientY: 50 }))
     await nextTick()
     expect(wrapper.emitted('hoverViewportChange')).toBeUndefined()
 
-    viewport.element.dispatchEvent(createPointerMoveEvent({ buttons: 0, clientX: 80, clientY: 90 }))
+    viewport.element.dispatchEvent(createPointerMoveEvent({ buttons: 0, clientX: 100, clientY: 50 }))
     await nextTick()
 
     expect(wrapper.emitted('hoverViewportChange')).toEqual([
       [
         {
           viewportKey: 'single',
-          x: 0.4,
-          y: 0.45
+          x: 100 / 300,
+          y: 0.25,
+          row: 51,
+          col: 51
+        }
+      ]
+    ])
+
+    wrapper.unmount()
+  })
+
+  it('clamps hover pixel coordinates to the DICOM image bounds', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: HTMLElement) {
+        return {
+          left: 0,
+          top: 0,
+          right: 300,
+          bottom: 200,
+          width: 300,
+          height: 200,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        } as DOMRect
+      }
+    )
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(200)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(200)
+
+    const wrapper = mountStage()
+    await nextTick()
+
+    wrapper.find('.viewer-viewport').element.dispatchEvent(createPointerMoveEvent({ buttons: 0, clientX: 250, clientY: 200 }))
+    await nextTick()
+
+    expect(wrapper.emitted('hoverViewportChange')).toEqual([
+      [
+        {
+          viewportKey: 'single',
+          x: 250 / 300,
+          y: 1,
+          row: 200,
+          col: 200
         }
       ]
     ])

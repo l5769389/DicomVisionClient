@@ -84,7 +84,6 @@ const { dicomTagDisplayMode, dicomTagEditSavePreference } = useUiPreferences()
 const isZh = computed(() => locale.value === 'zh-CN')
 const currentDisplayIndex = computed(() => (props.activeTab.tagIndex ?? 0) + 1)
 const totalDisplayCount = computed(() => Math.max(1, props.activeTab.tagTotal ?? 1))
-const isTagPaginationExpanded = ref(false)
 const isTreeTagDisplayMode = computed(() => dicomTagDisplayMode.value === 'tree')
 const searchQuery = ref('')
 const pageInput = ref('1')
@@ -141,7 +140,7 @@ const tagTreeSummaryText = computed(() =>
 const shouldShowTagFilePath = computed(() => props.viewerPlatform !== 'web' && Boolean(props.activeTab.tagFilePath))
 
 const tagPaginationItems = computed(() =>
-  createDicomTagPaginationItems(totalDisplayCount.value, currentDisplayIndex.value, isTagPaginationExpanded.value)
+  createDicomTagPaginationItems(totalDisplayCount.value, currentDisplayIndex.value)
 )
 
 const virtualTagStartIndex = computed(() =>
@@ -294,7 +293,6 @@ watch(
   () => [props.activeTab.key, props.activeTab.tagIndex, props.activeTab.tagTotal] as const,
   () => {
     pageInput.value = String(currentDisplayIndex.value)
-    isTagPaginationExpanded.value = false
   },
   { immediate: true }
 )

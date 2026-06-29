@@ -1825,13 +1825,13 @@ function handleAnnotationPointerUp(event: PointerEvent): boolean {
       const annotation: AnnotationOverlay = {
         annotationId: createAnnotationId(),
         toolType: 'arrow',
-          points: draft.points,
-          text: draft.text,
-          color: draft.color,
-          size: draft.size,
-          scope: draft.scope ?? drawingScopePreference.value.annotation,
-          sliceIndex: draft.sliceIndex ?? resolveCurrentSliceIndex(interaction.viewportKey)
-        }
+        points: draft.points,
+        text: draft.text,
+        color: draft.color,
+        size: draft.size,
+        scope: draft.scope ?? drawingScopePreference.value.annotation,
+        sliceIndex: draft.sliceIndex ?? resolveCurrentSliceIndex(interaction.viewportKey)
+      }
       selectAnnotation(interaction.viewportKey, annotation)
       commitAnnotation(interaction.viewportKey, annotation)
     } else {

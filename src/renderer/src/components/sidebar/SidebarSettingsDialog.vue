@@ -56,6 +56,7 @@ type SettingsSection =
   | 'deidentifyExport'
   | 'displayCrosshair'
   | 'displayCornerInfo'
+  | 'displayImageFormat'
   | 'displayMprLayout'
   | 'displayToolbarLayout'
   | 'displayScaleBar'
@@ -194,6 +195,7 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
   displaySegmentation: ['分割', 'voi', '阈值', '默认颜色', 'segmentation', 'threshold', 'default color'],
   displayPseudocolor: ['伪彩', '色图', '色带', '默认伪彩', 'pseudocolor', 'colormap', 'color', 'palette', 'bw', 'rainbow', 'pet', 'cardiac'],
+  displayImageFormat: ['影像格式', '传输格式', 'png', 'webp', 'image format', 'transport', 'socket'],
   displayRoi: ['roi', '统计', '均值', '面积', '最大值', '最小值', 'stats', 'mean', 'area', 'min', 'max']
 }
 
@@ -443,6 +445,7 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
+  viewerImageFormatPreference,
   viewerToolbarPlacement,
   viewportCornerInfoPreference,
   setCrosshairConfigs,
@@ -522,6 +525,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
   { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb / DIMSE 配置' : 'DICOMweb / DIMSE profiles', icon: 'pacs' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
+  { key: 'displayImageFormat' as const, title: isZh.value ? '影像格式' : 'Image Format', subtitle: isZh.value ? 'PNG / WebP 传输' : 'PNG / WebP transport', icon: 'display' },
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
   { key: 'displayToolbarLayout' as const, title: toolbarLayoutCopy.value.navTitle, subtitle: toolbarLayoutCopy.value.navSubtitle, icon: 'settings' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
@@ -579,6 +583,7 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
       icon: 'crosshair',
       items: [
         getSection('displayPseudocolor'),
+        getSection('displayImageFormat'),
         getSection('displayMprLayout'),
         getSection('displayToolbarLayout'),
         getSection('windowPresets'),
@@ -1870,6 +1875,10 @@ function resetDisplaySubSection(section: SettingsSection): void {
     selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
     return
   }
+  if (section === 'displayImageFormat') {
+    viewerImageFormatPreference.value = 'png'
+    return
+  }
   if (section === 'displayRoi') {
     setRoiStatOptions(createDefaultRoiStatOptions())
     return
@@ -2871,6 +2880,7 @@ onBeforeUnmount(() => {
                     activeSection === 'displayMeasurement' ||
                     activeSection === 'displaySegmentation' ||
                     activeSection === 'displayPseudocolor' ||
+                    activeSection === 'displayImageFormat' ||
                     activeSection === 'displayRoi'
                   "
                 >
@@ -3274,6 +3284,60 @@ onBeforeUnmount(() => {
                         >
                           <span>{{ isZh ? '移除' : 'Remove' }}</span>
                           <AppIcon name="close" :size="13" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div v-if="activeSection === 'displayImageFormat'" class="theme-card-soft rounded-[24px] p-4">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="display" :size="18" />
+                            <span class="text-sm font-semibold">{{ isZh ? '影像传输格式' : 'Image Transport Format' }}</span>
+                          </div>
+                          <div class="mt-2 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '控制后端通过 socket 发送给前端的视口影像格式。WebP 使用无损编码，不影响导出和缩略图。' : 'Controls the socket image format used for viewport rendering. WebP is encoded losslessly and does not affect exports or thumbnails.' }}
+                          </div>
+                        </div>
+                        <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-xs font-semibold uppercase text-[var(--theme-text-secondary)]">
+                          {{ viewerImageFormatPreference }}
+                        </div>
+                      </div>
+
+                      <div class="grid gap-4 md:grid-cols-2">
+                        <button
+                          type="button"
+                          class="settings-toolbar-layout-choice"
+                          :class="{ 'settings-toolbar-layout-choice--active': viewerImageFormatPreference === 'png' }"
+                          data-testid="settings-image-format-png"
+                          @click="viewerImageFormatPreference = 'png'"
+                        >
+                          <span class="settings-toolbar-layout-choice__header">
+                            <span class="settings-toolbar-layout-choice__title">PNG</span>
+                            <span class="settings-toolbar-layout-choice__check">
+                              <AppIcon v-if="viewerImageFormatPreference === 'png'" name="check" :size="13" />
+                            </span>
+                          </span>
+                          <span class="mt-3 block text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '默认无损格式，兼容性最好。' : 'Default lossless format with the broadest compatibility.' }}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          class="settings-toolbar-layout-choice"
+                          :class="{ 'settings-toolbar-layout-choice--active': viewerImageFormatPreference === 'webp' }"
+                          data-testid="settings-image-format-webp"
+                          @click="viewerImageFormatPreference = 'webp'"
+                        >
+                          <span class="settings-toolbar-layout-choice__header">
+                            <span class="settings-toolbar-layout-choice__title">WebP</span>
+                            <span class="settings-toolbar-layout-choice__check">
+                              <AppIcon v-if="viewerImageFormatPreference === 'webp'" name="check" :size="13" />
+                            </span>
+                          </span>
+                          <span class="mt-3 block text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{ isZh ? '无损 WebP，可减少部分传输体积。' : 'Lossless WebP can reduce transfer size for some images.' }}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -3683,6 +3747,7 @@ onBeforeUnmount(() => {
                               <button
                                 type="button"
                                 class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
+                                :data-testid="`settings-drawing-scope-${row.key}-image`"
                                 :class="drawingScopePreference[row.key] === 'image' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
                                 @click="updateDrawingScopePreference(row.key, 'image')"
                               >
@@ -3691,6 +3756,7 @@ onBeforeUnmount(() => {
                               <button
                                 type="button"
                                 class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
+                                :data-testid="`settings-drawing-scope-${row.key}-series`"
                                 :class="drawingScopePreference[row.key] === 'series' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
                                 @click="updateDrawingScopePreference(row.key, 'series')"
                               >

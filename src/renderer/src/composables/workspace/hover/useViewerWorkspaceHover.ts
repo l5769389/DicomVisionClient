@@ -46,33 +46,52 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   }
 
   function withHoverCornerInfo(cornerInfo: CornerInfo, row: number | null = null, col: number | null = null): CornerInfo {
-    const coordinateLine = cornerInfo.bottomRight.find((line) => COORDINATE_CORNER_PATTERN.test(line.trim())) ?? null
+    const coordinateLine =
+      cornerInfo.bottomRight.find((line) => COORDINATE_CORNER_PATTERN.test(line.trim())) ??
+      cornerInfo.tags?.coordinates?.find((line) => COORDINATE_CORNER_PATTERN.test(line.trim())) ??
+      null
     const bottomRight = cornerInfo.bottomRight.filter((line) => !COORDINATE_CORNER_PATTERN.test(line.trim()))
+    let nextCoordinateLine: string | null = null
     if (row != null && col != null) {
-      bottomRight.push(`X:${col} Y:${row}`)
+      nextCoordinateLine = `X:${col} Y:${row}`
     } else {
-      const normalizedCoordinateLine = normalizeCoordinateCornerLine(coordinateLine)
-      if (normalizedCoordinateLine) {
-        bottomRight.push(normalizedCoordinateLine)
-      }
+      nextCoordinateLine = normalizeCoordinateCornerLine(coordinateLine)
+    }
+    if (nextCoordinateLine) {
+      bottomRight.push(nextCoordinateLine)
     }
     return {
       ...cornerInfo,
-      bottomRight
+      bottomRight,
+      tags: {
+        ...(cornerInfo.tags ?? {}),
+        coordinates: nextCoordinateLine ? [nextCoordinateLine] : []
+      }
     }
+  }
+
+  function normalizeHoverPixel(row: number | null | undefined, col: number | null | undefined): { row: number; col: number } | null {
+    if (!Number.isFinite(row) || !Number.isFinite(col) || Number(row) < 1 || Number(col) < 1) {
+      return null
+    }
+    return { row: Number(row), col: Number(col) }
   }
 
   function handleHoverInfo(payload: ViewHoverResponse | undefined): void {
     if (!payload?.viewId || !hoveredViewIds.has(payload.viewId)) {
       return
     }
-    if (payload.row != null && payload.col != null) {
+    const pixel = normalizeHoverPixel(payload.row, payload.col)
+    if (pixel) {
       lastHoverPixelsByViewId.set(payload.viewId, {
-        row: payload.row,
-        col: payload.col
+        row: pixel.row,
+        col: pixel.col
       })
+      options.updateHoverCornerInfoByViewId(payload.viewId, pixel.row, pixel.col)
+      return
     }
-    options.updateHoverCornerInfoByViewId(payload.viewId, payload.row, payload.col)
+    const lastHover = lastHoverPixelsByViewId.get(payload.viewId)
+    options.updateHoverCornerInfoByViewId(payload.viewId, lastHover?.row ?? null, lastHover?.col ?? null)
   }
 
   function resolveHoverViewId(tab: ViewerTabItem, viewportKey: string): string {
@@ -100,12 +119,13 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     }
 
     hoveredViewIds.add(viewId)
-    if (payload.row != null && payload.col != null) {
+    const pixel = normalizeHoverPixel(payload.row, payload.col)
+    if (pixel) {
       lastHoverPixelsByViewId.set(viewId, {
-        row: payload.row,
-        col: payload.col
+        row: pixel.row,
+        col: pixel.col
       })
-      options.updateHoverCornerInfoByViewId(viewId, payload.row, payload.col)
+      options.updateHoverCornerInfoByViewId(viewId, pixel.row, pixel.col)
     }
     emitThrottledViewHover({
       viewId,

@@ -92,18 +92,20 @@ const annotationActionCopy = computed(() => ({
   clearAnnotations: isZh.value ? '清除标注' : 'Clear Annotations',
   clearAnnotationsDesc: isZh.value ? '移除当前目标视图中的标注结果。' : 'Remove annotations from the current target view.'
 }))
-const dockSettingsJumpCopy = computed(() => ({
-  measurement: isZh.value ? '测量及标注设置' : 'Measurement & Annotation Settings'
-}))
 const dockDrawingScopeCopy = computed(() => ({
   ...drawingScopeCopy.value,
   title: isZh.value ? '作用范围' : 'Scope',
-  measurement: isZh.value ? '新建测量结果显示在当前影像或整个 series。' : 'Default visibility for new measurements.',
-  annotation: isZh.value ? '新建标注显示在当前影像或整个 series。' : 'Default visibility for new annotations.',
-  qaWater: isZh.value ? '水模 QA 结果基于当前影像或整个 series。' : 'Default scope for water phantom QA.',
-  mtf: isZh.value ? 'MTF ROI 显示在当前影像或整个 series。' : 'Default visibility for MTF ROIs.',
+  measurement: isZh.value ? '新建测量结果显示在当前影像或整个 series；切换会清空已有测量。' : 'New measurements are shown on the current image or the whole series. Switching clears existing measurements.',
+  annotation: isZh.value ? '新建标注显示在当前影像或整个 series；切换会清空已有标注。' : 'New annotations are shown on the current image or the whole series. Switching clears existing annotations.',
+  qaWater: isZh.value ? '新建水模 QA 结果基于当前影像或整个 series；切换会清空已有 QA 结果。' : 'New water phantom QA results use the current image or the whole series. Switching clears existing QA results.',
+  mtf: isZh.value ? '新建 MTF 绘制显示在当前影像或整个 series；切换会清空已有 MTF 结果。' : 'New MTF drawings are shown on the current image or the whole series. Switching clears existing MTF results.',
   image: isZh.value ? '当前影像' : 'Image',
   series: isZh.value ? '整个 series' : 'Series'
+}))
+const toolGuideCopy = computed<Record<string, string>>(() => ({
+  pan: isZh.value ? '拖动影像调整位置；可使用底部按钮单独重置平移。' : 'Drag the image to adjust position. Use the bottom action to reset pan only.',
+  zoom: isZh.value ? '拖动调整缩放；可使用底部按钮单独重置缩放。' : 'Drag to adjust zoom. Use the bottom action to reset zoom only.',
+  window: isZh.value ? '拖动调整窗宽窗位；也可选择预设或重置窗值。' : 'Drag to adjust window width and level, or choose a preset/reset window.'
 }))
 
 const petDisplayCopy = computed(() => ({
@@ -358,6 +360,7 @@ function isFooterActionOption(option: StackToolOption): boolean {
 }
 
 const regularOptions = computed(() => (props.tool.options ?? []).filter((option) => !isFooterActionOption(option)))
+const toolGuideDescription = computed(() => toolGuideCopy.value[props.tool.key] ?? '')
 const drawingScopeToolKey = computed<keyof DrawingScopePreference | null>(() => {
   if (props.tool.key === 'measure') {
     return 'measurement'
@@ -723,6 +726,12 @@ watch(
 
     <template v-else>
       <div class="viewer-toolbar-dock-panel-content__options">
+        <section
+          v-if="toolGuideDescription"
+          class="viewer-toolbar-dock-panel-content__tool-guide"
+        >
+          {{ toolGuideDescription }}
+        </section>
         <form
           v-if="tool.key === 'window'"
           class="viewer-toolbar-dock-panel-content__custom-window"
@@ -791,15 +800,6 @@ watch(
               <div class="viewer-toolbar-dock-panel-content__scope-title">{{ dockDrawingScopeCopy.title }}</div>
               <p class="viewer-toolbar-dock-panel-content__scope-description">{{ drawingScopeDescription }}</p>
             </div>
-            <button
-              type="button"
-              class="viewer-toolbar-dock-panel-content__settings-link viewer-toolbar-dock-panel-content__scope-settings"
-              :title="dockSettingsJumpCopy.measurement"
-              @click="emit('openSettings', 'displayMeasurement')"
-            >
-              <AppIcon name="settings" :size="14" />
-              <span>{{ dockSettingsJumpCopy.measurement }}</span>
-            </button>
           </div>
           <div class="viewer-toolbar-dock-panel-content__scope-actions">
             <button
@@ -822,7 +822,10 @@ watch(
         </section>
         <div
           class="viewer-toolbar-dock-panel-content__options-scroll"
-          :class="{ 'viewer-toolbar-dock-panel-content__options-scroll--window': tool.key === 'window' }"
+          :class="{
+            'viewer-toolbar-dock-panel-content__options-scroll--window': tool.key === 'window',
+            'viewer-toolbar-dock-panel-content__options-scroll--measure': tool.key === 'measure'
+          }"
         >
           <section v-if="tool.key === 'measure'" class="viewer-toolbar-dock-panel-content__measure-guide">
             <div class="viewer-toolbar-dock-panel-content__measure-guide-title">{{ measureGuideCopy.title }}</div>
@@ -943,6 +946,22 @@ watch(
   gap: 8px;
 }
 
+.viewer-toolbar-dock-panel-content--measure .viewer-toolbar-dock-panel-content__options {
+  overflow: hidden;
+}
+
+.viewer-toolbar-dock-panel-content__tool-guide {
+  flex: 0 0 auto;
+  border: 1px dashed color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card) 46%, transparent);
+  padding: 9px 10px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
 .viewer-toolbar-dock-panel-content__options-scroll {
   display: grid;
   align-content: start;
@@ -953,6 +972,14 @@ watch(
 .viewer-toolbar-dock-panel-content__options-scroll--window {
   flex: 1 1 auto;
   max-height: none;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.viewer-toolbar-dock-panel-content__options-scroll--measure {
+  flex: 1 1 auto;
+  max-height: min(420px, 48vh);
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
@@ -1307,7 +1334,7 @@ watch(
 .viewer-toolbar-dock-panel-content__scope-header {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 8px;
 }

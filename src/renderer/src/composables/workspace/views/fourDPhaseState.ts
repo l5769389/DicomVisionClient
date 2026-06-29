@@ -331,6 +331,8 @@ export function getFourDPhaseDisplayState(
     mprCursor: cache?.mprCursor ?? null,
     mprFrame: cache?.mprFrame ?? null,
     mprRevision: cache?.mprRevision ?? null,
+    viewportMprStateRevisions: cache?.viewportMprStateRevisions ?? {},
+    viewportMprImageRevisions: cache?.viewportMprImageRevisions ?? {},
     windowLabel: cache?.windowLabel ?? '',
     initialWindowInfo: cache?.initialWindowInfo ?? null,
     currentWindowInfo: cache?.currentWindowInfo ?? cache?.initialWindowInfo ?? null

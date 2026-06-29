@@ -68,13 +68,23 @@ function normalizeImageFormat(value: string | null | undefined): string {
   return String(value ?? '').toLowerCase()
 }
 
+function isFinalImageFormat(value: string | null | undefined): boolean {
+  const imageFormat = normalizeImageFormat(value)
+  return imageFormat === 'png' || imageFormat === 'webp'
+}
+
+function normalizeMetadataMode(value: string | null | undefined): string {
+  return String(value ?? '').toLowerCase()
+}
+
 export function shouldSuppressMprCrosshairPreviewImageUpdate(params: {
   acceptedMprRevision?: number | null
   lock: ActiveMprCrosshairDragLock | null | undefined
   update: IncomingMprViewportUpdate
   imageFormat: string | null | undefined
+  metadataMode?: string | null | undefined
 }): boolean {
-  const isPreview = normalizeImageFormat(params.imageFormat) === 'jpeg'
+  const isPreview = normalizeMetadataMode(params.metadataMode) === 'mpr-crosshair-preview'
   if (isPreview && shouldPreserveLocalMprCrosshair(params.lock, params.update)) {
     return true
   }
@@ -94,7 +104,7 @@ export function shouldCompleteMprCrosshairSettling(params: {
   if (
     !(
       params.lock?.status === 'settling' &&
-      normalizeImageFormat(params.imageFormat) === 'png' &&
+      isFinalImageFormat(params.imageFormat) &&
       shouldPreserveLocalMprCrosshair(params.lock, params.update)
     )
   ) {

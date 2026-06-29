@@ -14,6 +14,12 @@ const settingsState = vi.hoisted(() => ({
   defaultShowPseudocolorBar: true,
   defaultShowScaleBar: true,
   dicomTagDisplayMode: 'tree',
+  drawingScopePreference: {
+    measurement: 'image',
+    annotation: 'image',
+    qaWater: 'image',
+    mtf: 'image'
+  },
   exportPreference: {
     desktopDirectory: null,
     includeDicomAnnotations: true,
@@ -82,6 +88,7 @@ const settingsState = vi.hoisted(() => ({
   },
   selectedPseudocolorKey: 'bw',
   selectedWindowPresetId: 'lung',
+  viewerImageFormatPreference: 'png',
   viewportCornerInfoPreference: {
     topLeft: ['patientName'],
     topRight: ['patientSummary'],
@@ -96,6 +103,7 @@ const settingsState = vi.hoisted(() => ({
   setDefaultShowCornerInfoMock: vi.fn(),
   setDefaultShowPseudocolorBarMock: vi.fn(),
   setDefaultShowScaleBarMock: vi.fn(),
+  setDrawingScopePreferenceMock: vi.fn(),
   setExportPreferenceMock: vi.fn(),
   setGestureSensitivityMock: vi.fn(),
   setLocaleMock: vi.fn(),
@@ -131,6 +139,7 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
       }
     }),
     exportPreference: computed(() => settingsState.exportPreference),
+    drawingScopePreference: computed(() => settingsState.drawingScopePreference),
     getWindowPresetLabel: (preset: { labels: Record<string, string> }) => preset.labels['zh-CN'],
     locale: computed({
       get: () => settingsState.locale,
@@ -155,9 +164,19 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
         settingsState.selectedWindowPresetId = value
       }
     }),
+    viewerImageFormatPreference: computed({
+      get: () => settingsState.viewerImageFormatPreference,
+      set: (value: string) => {
+        settingsState.viewerImageFormatPreference = value
+      }
+    }),
     setCrosshairConfigs: (value: typeof settingsState.crosshairConfigs) => {
       settingsState.crosshairConfigs.splice(0, settingsState.crosshairConfigs.length, ...value)
       settingsState.setCrosshairConfigsMock(value)
+    },
+    setDrawingScopePreference: (value: typeof settingsState.drawingScopePreference) => {
+      Object.assign(settingsState.drawingScopePreference, value)
+      settingsState.setDrawingScopePreferenceMock(value)
     },
     setExportPreference: (value: typeof settingsState.exportPreference) => {
       Object.assign(settingsState.exportPreference, value)
@@ -299,6 +318,12 @@ beforeEach(() => {
   settingsState.defaultShowPseudocolorBar = true
   settingsState.defaultShowScaleBar = true
   settingsState.dicomTagDisplayMode = 'tree'
+  settingsState.drawingScopePreference = {
+    measurement: 'image',
+    annotation: 'image',
+    qaWater: 'image',
+    mtf: 'image'
+  }
   settingsState.exportPreference = {
     desktopDirectory: null,
     includeDicomAnnotations: true,
@@ -364,6 +389,7 @@ beforeEach(() => {
   settingsState.scaleBarPreference = { color: '#f8fafc', enabled: true }
   settingsState.selectedPseudocolorKey = 'bw'
   settingsState.selectedWindowPresetId = 'lung'
+  settingsState.viewerImageFormatPreference = 'png'
   settingsState.viewportCornerInfoPreference = {
     topLeft: ['patientName'],
     topRight: ['patientSummary'],
@@ -382,6 +408,7 @@ beforeEach(() => {
   settingsState.setDefaultShowCornerInfoMock.mockClear()
   settingsState.setDefaultShowPseudocolorBarMock.mockClear()
   settingsState.setDefaultShowScaleBarMock.mockClear()
+  settingsState.setDrawingScopePreferenceMock.mockClear()
   settingsState.setExportPreferenceMock.mockClear()
   settingsState.setGestureSensitivityMock.mockClear()
   settingsState.setLocaleMock.mockClear()
@@ -438,6 +465,7 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-corner-info"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-scale-bar"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-pseudocolor-bar"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-settings-image-format-webp"]').trigger('click')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-overlays"]').trigger('click')
@@ -460,6 +488,8 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-measure-line-width"]').setValue('4')
     await wrapper.findAll('[data-testid="mobile-settings-measure-editing-line"]')[0].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-measure-completed-line"]')[1].trigger('click')
+    expect(wrapper.findAll('[data-testid="mobile-settings-drawing-scope-series"]')).toHaveLength(4)
+    await wrapper.findAll('[data-testid="mobile-settings-drawing-scope-series"]')[1].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-roi-stat"]')[0].trigger('click')
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
@@ -505,6 +535,7 @@ describe('MobileSettingsOverlay', () => {
     expect(settingsState.setDefaultShowCornerInfoMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowPseudocolorBarMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowScaleBarMock).toHaveBeenCalledWith(false)
+    expect(settingsState.viewerImageFormatPreference).toBe('webp')
     expect(settingsState.scaleBarPreference).toEqual({ color: '#3b82f6', enabled: false })
     expect(settingsState.viewportCornerInfoPreference).toMatchObject({
       typographyPreset: 'standard',
@@ -521,6 +552,18 @@ describe('MobileSettingsOverlay', () => {
       editingColor: '#55e7ff',
       editingLineStyle: 'solid',
       lineWidth: 4
+    })
+    expect(settingsState.drawingScopePreference).toEqual({
+      measurement: 'image',
+      annotation: 'series',
+      qaWater: 'image',
+      mtf: 'image'
+    })
+    expect(settingsState.setDrawingScopePreferenceMock).toHaveBeenCalledWith({
+      measurement: 'image',
+      annotation: 'series',
+      qaWater: 'image',
+      mtf: 'image'
     })
     expect(settingsState.roiStatOptions[0]).toEqual({ key: 'mean', label: 'Mean', enabled: false })
     expect(settingsState.dicomTagDisplayMode).toBe('tree')

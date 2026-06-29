@@ -8,26 +8,11 @@ function createPageRange(start: number, end: number): number[] {
   return Array.from({ length: safeEnd - safeStart + 1 }, (_, index) => safeStart + index)
 }
 
-export function createDicomTagPaginationItems(totalCount: number, currentPage: number, expanded: boolean): DicomTagPaginationItem[] {
+export function createDicomTagPaginationItems(totalCount: number, currentPage: number): DicomTagPaginationItem[] {
   const total = Math.max(1, Math.trunc(totalCount))
   const current = Math.max(1, Math.min(total, Math.trunc(currentPage)))
   if (total <= 7) {
     return createPageRange(1, total).map((page) => ({ type: 'page', page }))
-  }
-
-  if (expanded) {
-    const windowSize = 9
-    let start = Math.max(2, current - Math.floor(windowSize / 2))
-    let end = Math.min(total - 1, start + windowSize - 1)
-    start = Math.max(2, end - windowSize + 1)
-
-    return [
-      { type: 'page', page: 1 },
-      ...(start > 2 ? [{ type: 'ellipsis' as const, key: 'left' }] : []),
-      ...createPageRange(start, end).map((page) => ({ type: 'page' as const, page })),
-      ...(end < total - 1 ? [{ type: 'ellipsis' as const, key: 'right' }] : []),
-      { type: 'page', page: total }
-    ]
   }
 
   if (current <= 4) {

@@ -844,6 +844,8 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     mprCursor: null,
     mprFrame: null,
     mprRevision: null,
+    viewportMprStateRevisions: {},
+    viewportMprImageRevisions: {},
     viewportPlanes: createEmptyMprPlanes(),
     viewportCrosshairs: createEmptyMprCrosshairs(),
     viewportScaleBars: createEmptyMprScaleBars(),

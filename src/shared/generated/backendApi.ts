@@ -824,7 +824,7 @@ export interface ViewHoverResponse {
 export interface ViewImageResponse {
   slice_info: SliceInfo
   window_info: WindowInfo
-  imageFormat: 'png' | 'jpeg'
+  imageFormat: 'png' | 'jpeg' | 'webp'
   viewId: string
   mpr_crosshair?: MprCrosshairInfo | null
   mprCursor?: MprCursorInfo | null
@@ -870,6 +870,7 @@ export interface ViewMtfAnalyzeResponse {
 export interface ViewOperationRequest {
   viewId: string
   opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'annotation' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
+  imageFormat?: 'png' | 'jpeg' | 'webp'
   measurementId?: string | null
   annotationId?: string | null
   viewportKey?: string | null
@@ -937,6 +938,7 @@ export interface ViewSetSizeRequest {
   opType: 'setSize'
   size: ViewSize
   viewId: string
+  imageFormat?: 'png' | 'jpeg' | 'webp'
 }
 
 export interface ViewSize {

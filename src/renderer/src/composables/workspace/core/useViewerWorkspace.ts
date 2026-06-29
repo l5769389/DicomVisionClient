@@ -12,8 +12,10 @@ import {
   emitFourDPlaybackFps,
   emitFourDPlaybackStart,
   emitFourDPlaybackStop,
+  emitMprCrosshairState,
   emitViewOperation as emitSocketViewOperation,
   emitViewOperationWithAck,
+  setSocketViewerImageFormatPreference,
   type ViewOperationInput,
   type ViewOperationPayload
 } from '../../../services/socket'
@@ -365,8 +367,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     mprSegmentationStylePreference,
     selectedPseudocolorKey,
     setWorkspaceDockPreference,
+    viewerImageFormatPreference,
     workspaceDockPreference
   } = useUiPreferences()
+  setSocketViewerImageFormatPreference(viewerImageFormatPreference.value)
   isSidebarCollapsed.value = workspaceDockPreference.value.leftCollapsed
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
@@ -1014,6 +1018,38 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return tab.viewType === 'MPR' && viewportKey === 'volume' && Boolean(tab.viewId)
   }
 
+  function clearActiveTabMeasurementOverlays(): void {
+    const tab = activeTab.value
+    if (!tab) {
+      return
+    }
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            measurements: [],
+            viewportMeasurements: {}
+          }
+        : item
+    )
+  }
+
+  function clearActiveTabAnnotationOverlays(): void {
+    const tab = activeTab.value
+    if (!tab) {
+      return
+    }
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            annotations: [],
+            viewportAnnotations: {}
+          }
+        : item
+    )
+  }
+
   function triggerViewAction(payload: ViewerToolbarActionPayload): void {
     const tab = activeTab.value
     if (!tab) {
@@ -1222,6 +1258,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'clearAnnotations') {
+      clearActiveTabAnnotationOverlays()
       const viewId = getActiveViewIdForTab(tab)
       if (!viewId) {
         return
@@ -1235,6 +1272,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'clearMeasurements') {
+      clearActiveTabMeasurementOverlays()
       const viewId = getActiveViewIdForTab(tab)
       if (!viewId) {
         return
@@ -1795,6 +1833,21 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...payload,
         viewId
       })
+    })
+  }
+
+  function emitMprCrosshairStateOperation(
+    viewportKey: string,
+    payload: ViewOperationInput
+  ): void {
+    const context = getMprOperationContext(viewportKey)
+    if (!context) {
+      return
+    }
+
+    emitMprCrosshairState({
+      ...payload,
+      viewId: context.viewId
     })
   }
 
@@ -2397,6 +2450,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     emit: (_operationKey, payload) => emitViewOperation(payload)
   })
   const pendingPseudocolorOverlayPreservationViewIds = new Set<string>()
+  const pendingMissingMprImageRecoveryKeys = new Set<string>()
+
+  watch(viewerImageFormatPreference, (nextFormat, previousFormat) => {
+    setSocketViewerImageFormatPreference(nextFormat)
+    if (!previousFormat || nextFormat === previousFormat) {
+      return
+    }
+    viewerTabs.value.forEach((tab) => {
+      if (tab.viewType !== 'Tag') {
+        void views.renderTab(tab.key, true)
+      }
+    })
+  })
 
   function emitViewOperation(payload: ViewOperationPayload): void {
     if (payload.opType === VIEW_OPERATION_TYPES.pseudocolor && payload.viewId) {
@@ -2460,6 +2526,29 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       : null
   }
 
+  function hasMissingDisplayedMprImage(tab: ViewerTabItem | undefined): boolean {
+    if (!tab || (tab.viewType !== 'MPR' && tab.viewType !== '4D')) {
+      return false
+    }
+    return MPR_VIEWPORT_KEYS.some((viewportKey) => Boolean(tab.viewportViewIds?.[viewportKey]) && !tab.viewportImages?.[viewportKey])
+  }
+
+  function scheduleMissingMprImageRecovery(tabKey: string): void {
+    if (pendingMissingMprImageRecoveryKeys.has(tabKey)) {
+      return
+    }
+
+    pendingMissingMprImageRecoveryKeys.add(tabKey)
+    window.setTimeout(() => {
+      pendingMissingMprImageRecoveryKeys.delete(tabKey)
+      const tab = viewerTabs.value.find((item) => item.key === tabKey)
+      if (!hasMissingDisplayedMprImage(tab) || isViewLoading.value) {
+        return
+      }
+      void views.renderTab(tabKey, true)
+    }, 0)
+  }
+
   function handleImageUpdate(...args: unknown[]): void {
     const normalized = normalizeImageUpdateArgs(args)
     if (!normalized) {
@@ -2503,6 +2592,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       imageBinary,
       extraImageBinaries
     )
+    scheduleMissingMprImageRecovery(tab.key)
+  }
+
+  function handleMprStateUpdate(payload: Partial<ViewImageResponse> | undefined): void {
+    const viewId = payload?.viewId
+    if (!viewId) {
+      return
+    }
+
+    const tab = views.findTabByViewId(viewId)
+    if (!tab) {
+      return
+    }
+
+    views.updateMprState(tab.key, payload)
+    scheduleMissingMprImageRecovery(tab.key)
   }
 
   const interactivePreviewTimingByView = new Map<string, number>()
@@ -2714,6 +2819,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     onHoverInfo: handleHoverInfo,
     onImageError: handleImageError,
     onImageUpdate: handleImageUpdate,
+    onMprStateUpdate: handleMprStateUpdate,
     onViewProgress: handleViewProgress
   })
 
@@ -3403,7 +3509,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const tab = activeTab.value
     refreshActiveMprCrosshairDragLock(payload)
     applyOptimisticMprCrosshair(payload)
-    emitMprViewOperation(payload.viewportKey, {
+    emitMprCrosshairStateOperation(payload.viewportKey, {
       opType: payload.mode === 'rotate' ? VIEW_OPERATION_TYPES.mprOblique : VIEW_OPERATION_TYPES.crosshair,
       actionType: payload.phase,
       x: payload.x,

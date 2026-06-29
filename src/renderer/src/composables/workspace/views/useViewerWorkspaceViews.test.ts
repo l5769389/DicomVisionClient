@@ -420,6 +420,31 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     vi.unstubAllGlobals()
   })
 
+  it('creates WebP object URLs when the image update uses WebP transport', () => {
+    const blobs: Blob[] = []
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn((blob: Blob) => {
+        blobs.push(blob)
+        return 'blob:stack-webp'
+      }),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createStackHarness()
+
+    views.updateTabImage(
+      'stack-tab',
+      {
+        viewId: 'stack-view',
+        imageFormat: 'webp'
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    expect(viewerTabs.value[0].imageSrc).toBe('blob:stack-webp')
+    expect(blobs).toHaveLength(1)
+    expect(blobs[0].type).toBe('image/webp')
+  })
+
   it('preserves stack measurements and annotations when a preview image update omits overlay fields', () => {
     let urlIndex = 0
     vi.stubGlobal('URL', {
@@ -548,6 +573,16 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
       revokeObjectURL: vi.fn()
     })
     const { viewerTabs, views } = createStackHarness()
+    viewerTabs.value[0].measurements = (viewerTabs.value[0].measurements ?? []).map((item) => ({
+      ...item,
+      scope: 'series' as const,
+      sliceIndex: 7
+    }))
+    viewerTabs.value[0].annotations = (viewerTabs.value[0].annotations ?? []).map((item) => ({
+      ...item,
+      scope: 'series' as const,
+      sliceIndex: 7
+    }))
     const nextTransform = {
       ...createDefaultTransformInfo(),
       zoom: 2.4,
@@ -587,8 +622,20 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     )
 
     const tab = viewerTabs.value[0]
-    expect(tab.measurements).toEqual(nextMeasurements)
-    expect(tab.annotations).toEqual(nextAnnotations)
+    expect(tab.measurements).toEqual(
+      nextMeasurements.map((item) => ({
+        ...item,
+        scope: 'series',
+        sliceIndex: 7
+      }))
+    )
+    expect(tab.annotations).toEqual(
+      nextAnnotations.map((item) => ({
+        ...item,
+        scope: 'series',
+        sliceIndex: 7
+      }))
+    )
     expect(tab.transformState).toEqual(nextTransform)
   })
 
@@ -744,6 +791,141 @@ describe('useViewerWorkspaceViews PET-only corner info', () => {
     expect(tab.fusionCornerInfos?.[FUSION_PET_AXIAL_PANE_KEY]?.bottomLeft).toEqual(['SUV:0.00--4.49g/ml', '3.3mm'])
     expect(tab.fusionCornerInfos?.[FUSION_PET_AXIAL_PANE_KEY]?.bottomRight).toEqual(['Zoom:1x'])
     expect(tab.fusionCornerInfos?.[FUSION_PET_AXIAL_PANE_KEY]?.tags?.windowLevel).toEqual(['SUV:0.00--4.49g/ml'])
+  })
+})
+
+describe('useViewerWorkspaceViews MPR state updates', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('updates MPR crosshair metadata without replacing the viewport image', () => {
+    const { viewerTabs, views } = createMprHarness()
+    const previousImage = 'blob:mpr-cor-old'
+    const previousCrosshair = createMprCrosshair(0.2, 0.3)
+    const nextCrosshair = createMprCrosshair(0.55, 0.62)
+
+    viewerTabs.value = viewerTabs.value.map((item) => ({
+      ...item,
+      mprRevision: 3,
+      viewportViewIds: {
+        ...(item.viewportViewIds ?? {}),
+        'mpr-cor': 'mpr-cor-view'
+      },
+      viewportImages: {
+        ...(item.viewportImages ?? {}),
+        'mpr-cor': previousImage
+      },
+      viewportCrosshairs: {
+        ...(item.viewportCrosshairs ?? {}),
+        'mpr-cor': previousCrosshair
+      }
+    }))
+
+    views.updateMprState('mpr-tab', {
+      viewId: 'mpr-cor-view',
+      mprRevision: 4,
+      slice_info: { current: 2, total: 12 },
+      mprCrosshairMode: 'double-oblique',
+      mpr_crosshair: nextCrosshair
+    })
+
+    const tab = viewerTabs.value[0]
+    expect(tab.viewportImages?.['mpr-cor']).toBe(previousImage)
+    expect(tab.viewportSliceLabels?.['mpr-cor']).toBe('3 / 12')
+    expect(tab.viewportCrosshairs?.['mpr-cor']).toEqual(nextCrosshair)
+    expect(tab.mprCrosshairMode).toBe('double-oblique')
+    expect(tab.mprRevision).toBe(4)
+    expect(tab.viewportMprStateRevisions?.['mpr-cor']).toBe(4)
+  })
+
+  it('ignores stale MPR state revisions', () => {
+    const { viewerTabs, views } = createMprHarness()
+    const previousCrosshair = createMprCrosshair(0.2, 0.3)
+
+    viewerTabs.value = viewerTabs.value.map((item) => ({
+      ...item,
+      mprRevision: 5,
+      viewportMprStateRevisions: {
+        ...(item.viewportMprStateRevisions ?? {}),
+        'mpr-cor': 5
+      },
+      viewportViewIds: {
+        ...(item.viewportViewIds ?? {}),
+        'mpr-cor': 'mpr-cor-view'
+      },
+      viewportCrosshairs: {
+        ...(item.viewportCrosshairs ?? {}),
+        'mpr-cor': previousCrosshair
+      }
+    }))
+
+    views.updateMprState('mpr-tab', {
+      viewId: 'mpr-cor-view',
+      mprRevision: 4,
+      slice_info: { current: 7, total: 12 },
+      mpr_crosshair: createMprCrosshair(0.55, 0.62)
+    })
+
+    const tab = viewerTabs.value[0]
+    expect(tab.viewportCrosshairs?.['mpr-cor']).toEqual(previousCrosshair)
+    expect(tab.viewportSliceLabels?.['mpr-cor']).toBeUndefined()
+    expect(tab.mprRevision).toBe(5)
+  })
+
+  it('fills a missing MPR image without rolling back newer state-only metadata', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:mpr-cor-new'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createMprHarness()
+    const newerCrosshair = createMprCrosshair(0.64, 0.61)
+    const staleCrosshair = createMprCrosshair(0.22, 0.25)
+
+    viewerTabs.value = viewerTabs.value.map((item) => ({
+      ...item,
+      mprRevision: 5,
+      viewportViewIds: {
+        ...(item.viewportViewIds ?? {}),
+        'mpr-cor': 'mpr-cor-view'
+      },
+      viewportImages: {
+        ...(item.viewportImages ?? {}),
+        'mpr-cor': ''
+      },
+      viewportMprStateRevisions: {
+        ...(item.viewportMprStateRevisions ?? {}),
+        'mpr-cor': 5
+      },
+      viewportCrosshairs: {
+        ...(item.viewportCrosshairs ?? {}),
+        'mpr-cor': newerCrosshair
+      },
+      viewportSliceLabels: {
+        ...(item.viewportSliceLabels ?? {}),
+        'mpr-cor': '8 / 12'
+      }
+    }))
+
+    views.updateTabImage(
+      'mpr-tab',
+      {
+        viewId: 'mpr-cor-view',
+        imageFormat: 'png',
+        mprRevision: 4,
+        slice_info: { current: 1, total: 12 },
+        mpr_crosshair: staleCrosshair
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.viewportImages?.['mpr-cor']).toBe('blob:mpr-cor-new')
+    expect(tab.viewportCrosshairs?.['mpr-cor']).toEqual(newerCrosshair)
+    expect(tab.viewportSliceLabels?.['mpr-cor']).toBe('8 / 12')
+    expect(tab.viewportMprImageRevisions?.['mpr-cor']).toBe(4)
+    expect(tab.viewportMprStateRevisions?.['mpr-cor']).toBe(5)
+    expect(tab.mprRevision).toBe(5)
   })
 })
 
@@ -984,7 +1166,7 @@ describe('useViewerWorkspaceViews MPR segmentation preview updates', () => {
     expect(tab.viewportSegmentationOverlays?.['mpr-ax']).toEqual(existingOverlay)
   })
 
-  it.each(['png', 'jpeg'] as const)('preserves MPR measurements when a %s image update omits overlay fields', (imageFormat) => {
+  it.each(['png', 'jpeg', 'webp'] as const)('preserves MPR measurements when a %s image update omits overlay fields', (imageFormat) => {
     let urlIndex = 0
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => `blob:mpr-${++urlIndex}`),

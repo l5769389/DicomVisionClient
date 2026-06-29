@@ -58,6 +58,7 @@ describe('useUiPreferences', () => {
       locale: 'en-US',
       themeId: 'clinical-light',
       viewerToolbarPlacement: 'right',
+      viewerImageFormatPreference: 'webp',
       selectedPseudocolorKey: 'rainbow',
       mprDefaultLayoutKey: 'quad',
       dicomTagDisplayMode: 'flat',
@@ -104,6 +105,7 @@ describe('useUiPreferences', () => {
     expect(document.documentElement.dataset.theme).toBe('clinical-light')
     expect(document.documentElement.style.colorScheme).toBe('light')
     expect(preferences.viewerToolbarPlacement.value).toBe('right')
+    expect(preferences.viewerImageFormatPreference.value).toBe('webp')
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
     expect(preferences.mprDefaultLayoutKey.value).toBe('quad')
     expect(preferences.dicomTagDisplayMode.value).toBe('flat')
@@ -167,6 +169,7 @@ describe('useUiPreferences', () => {
     const preferences = await loadPreferences()
 
     preferences.viewerToolbarPlacement.value = 'right'
+    preferences.viewerImageFormatPreference.value = 'webp'
     preferences.setMprDefaultLayoutKey('mpr-3d')
     preferences.dicomTagDisplayMode.value = 'flat'
     preferences.setHangingProtocolRules([
@@ -235,6 +238,7 @@ describe('useUiPreferences', () => {
 
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
     expect(saved.viewerToolbarPlacement).toBe('right')
+    expect(saved.viewerImageFormatPreference).toBe('webp')
     expect(saved.mprDefaultLayoutKey).toBe('mpr-3d')
     expect(saved.dicomTagDisplayMode).toBe('flat')
     expect(saved.hangingProtocolRules).toEqual([
@@ -276,6 +280,24 @@ describe('useUiPreferences', () => {
       localSourceEnabled: true,
       enabled: true,
       activeProfileId: 'pacs-2'
+    })
+  })
+
+  it('migrates old drawing scope preferences with an annotation default', async () => {
+    const preferences = await loadPreferences({
+      version: 19,
+      drawingScopePreference: {
+        measurement: 'series',
+        qaWater: 'series',
+        mtf: 'image'
+      }
+    })
+
+    expect(preferences.drawingScopePreference.value).toEqual({
+      measurement: 'series',
+      annotation: 'image',
+      qaWater: 'series',
+      mtf: 'image'
     })
   })
 
@@ -361,6 +383,24 @@ describe('useUiPreferences', () => {
     })
 
     expect(preferences.viewerToolbarPlacement.value).toBe('right')
+  })
+
+  it('defaults viewer image format to PNG and normalizes unsupported values', async () => {
+    const defaultPreferences = await loadPreferences()
+    expect(defaultPreferences.viewerImageFormatPreference.value).toBe('png')
+
+    const preferences = await loadPreferences({
+      viewerImageFormatPreference: 'avif'
+    })
+
+    expect(preferences.viewerImageFormatPreference.value).toBe('png')
+
+    preferences.viewerImageFormatPreference.value = 'webp'
+    await flushPreferences()
+
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
+      viewerImageFormatPreference: 'webp'
+    })
   })
 
   it('creates PACS profiles with preset-specific DIMSE ports', async () => {

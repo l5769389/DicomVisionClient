@@ -64,7 +64,14 @@ describe('ViewerToolbarDock', () => {
   beforeEach(() => {
     ensureLocalStorage()
     window.localStorage.clear()
-    useUiPreferences().setLocale('en-US')
+    const preferences = useUiPreferences()
+    preferences.setLocale('en-US')
+    preferences.setDrawingScopePreference({
+      measurement: 'image',
+      annotation: 'image',
+      qaWater: 'image',
+      mtf: 'image'
+    })
   })
 
   it('renders a fixed dock shell with reserved panel space', () => {
@@ -106,6 +113,7 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Window')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag to adjust window width and level')
     expect(wrapper.find('.viewer-toolbar-dock__panel-close').exists()).toBe(false)
     expect(wrapper.find('.toolbar-menu-option').exists()).toBe(false)
   })
@@ -227,6 +235,7 @@ describe('ViewerToolbarDock', () => {
 
     expect(wrapper.emitted('setMenuOpen')).toEqual([['pan']])
     expect(wrapper.emitted('applyTool')?.[0]).toEqual([panTool, { keepMenuOpen: true }])
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag the image to adjust position')
 
     await wrapper.find('[data-testid="viewer-toolbar-dock-pan-transform-reset"]').trigger('click')
 
@@ -234,6 +243,24 @@ describe('ViewerToolbarDock', () => {
     expect(selectEvent?.[0]).toMatchObject({ key: 'pan', options: [{ value: 'transform:reset' }] })
     expect(selectEvent?.[1]).toBe('transform:reset')
     expect(selectEvent?.[2]).toEqual({ keepMenuOpen: true })
+  })
+
+  it('shows zoom tool guidance in the right dock panel', async () => {
+    const zoomTool: StackTool = {
+      key: 'zoom',
+      label: 'Zoom',
+      icon: 'zoom',
+      kind: 'mode',
+      dockOptions: [{ value: 'transform:reset', label: 'Reset Transform', icon: 'reset' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [zoomTool],
+      isToolSelected: vi.fn(() => false)
+    })
+
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag to adjust zoom')
   })
 
   it('applies the selected measurement mode when opening the right dock measure panel', async () => {
@@ -282,6 +309,7 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('setMenuOpen')).toEqual([['qa']])
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([qaTool, 'qa:water-phantom', { keepMenuOpen: true }])
     expect(wrapper.emitted('applyTool')).toBeUndefined()
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).toContain('Switching clears existing QA results')
   })
 
   it('opens segmentation and selects threshold by default from the right dock button', async () => {
@@ -477,9 +505,33 @@ describe('ViewerToolbarDock', () => {
     })
 
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__options-scroll--measure').exists()).toBe(true)
     await wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').trigger('click')
 
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([measureTool, 'reset:measurements', { keepMenuOpen: true }])
+  })
+
+  it('renders scope copy without the settings jump button and clears measurements when scope changes', async () => {
+    const measureTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      kind: 'mode',
+      options: [{ value: 'measure:line', label: 'Line', icon: 'measure-line' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [measureTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'measure',
+      stackToolSelections: { measure: 'measure:line' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).toContain('Switching clears existing measurements')
+    expect(wrapper.text()).not.toContain('Measurement & Annotation Settings')
+
+    await wrapper.findAll('.viewer-toolbar-dock-panel-content__scope-choice')[1]!.trigger('click')
+
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([measureTool, 'reset:measurements', { keepMenuOpen: true }])
   })
 
   it('renders annotation clear as a right dock detail action', async () => {

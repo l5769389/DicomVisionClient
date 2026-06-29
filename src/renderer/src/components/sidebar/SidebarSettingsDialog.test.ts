@@ -81,6 +81,17 @@ async function openToolbarLayoutSection(
   await nextTick()
 }
 
+async function openImageFormatSection(wrapper: ReturnType<typeof mountSettingsDialog>): Promise<void> {
+  const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes('Display'))
+  expect(displayGroupButton).toBeTruthy()
+  await displayGroupButton!.trigger('click')
+
+  const imageFormatButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes('Image Format'))
+  expect(imageFormatButton).toBeTruthy()
+  await imageFormatButton!.trigger('click')
+  await nextTick()
+}
+
 async function openCornerInfoSection(wrapper: ReturnType<typeof mountSettingsDialog>): Promise<void> {
   const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes('Display'))
   expect(displayGroupButton).toBeTruthy()
@@ -89,6 +100,17 @@ async function openCornerInfoSection(wrapper: ReturnType<typeof mountSettingsDia
   const cornerInfoButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes('Corner Info'))
   expect(cornerInfoButton).toBeTruthy()
   await cornerInfoButton!.trigger('click')
+  await nextTick()
+}
+
+async function openMeasurementStyleSection(wrapper: ReturnType<typeof mountSettingsDialog>): Promise<void> {
+  const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes('Display'))
+  expect(displayGroupButton).toBeTruthy()
+  await displayGroupButton!.trigger('click')
+
+  const measurementButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes('Measurement & Annotation'))
+  expect(measurementButton).toBeTruthy()
+  await measurementButton!.trigger('click')
   await nextTick()
 }
 
@@ -192,6 +214,68 @@ describe('SidebarSettingsDialog corner info style settings', () => {
       colorMode: 'custom',
       customDarkColor: '#22d3ee',
       customLightColor: '#facc15'
+    })
+
+    wrapper.unmount()
+  })
+})
+
+describe('SidebarSettingsDialog image format settings', () => {
+  beforeEach(() => {
+    preferenceStorage.value = null
+    const preferences = useUiPreferences()
+    preferences.setLocale('en-US')
+    preferences.viewerImageFormatPreference.value = 'png'
+  })
+
+  it('switches the viewer image transport format', async () => {
+    const preferences = useUiPreferences()
+    const wrapper = mountSettingsDialog()
+
+    await openImageFormatSection(wrapper)
+
+    expect(wrapper.find('[data-testid="settings-image-format-png"]').classes()).toContain('settings-toolbar-layout-choice--active')
+
+    await wrapper.get('[data-testid="settings-image-format-webp"]').trigger('click')
+
+    expect(preferences.viewerImageFormatPreference.value).toBe('webp')
+    expect(wrapper.find('[data-testid="settings-image-format-webp"]').classes()).toContain('settings-toolbar-layout-choice--active')
+
+    wrapper.unmount()
+  })
+})
+
+describe('SidebarSettingsDialog measurement and annotation settings', () => {
+  beforeEach(() => {
+    preferenceStorage.value = null
+    const preferences = useUiPreferences()
+    preferences.setLocale('en-US')
+    preferences.setDrawingScopePreference({
+      measurement: 'image',
+      annotation: 'image',
+      qaWater: 'image',
+      mtf: 'image'
+    })
+  })
+
+  it('shows independent drawing scope controls for measurements, annotations, water QA, and MTF', async () => {
+    const preferences = useUiPreferences()
+    const wrapper = mountSettingsDialog()
+
+    await openMeasurementStyleSection(wrapper)
+
+    expect(wrapper.find('[data-testid="settings-drawing-scope-measurement-series"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-drawing-scope-annotation-series"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-drawing-scope-qaWater-series"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-drawing-scope-mtf-series"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="settings-drawing-scope-annotation-series"]').trigger('click')
+
+    expect(preferences.drawingScopePreference.value).toEqual({
+      measurement: 'image',
+      annotation: 'series',
+      qaWater: 'image',
+      mtf: 'image'
     })
 
     wrapper.unmount()

@@ -188,6 +188,8 @@ export interface FusionInfo {
   registration: FusionRegistrationInfo
 }
 
+export type ViewerImageTransportFormat = 'png' | 'jpeg' | 'webp'
+
 export interface FusionCompositeLayerInfo {
   key: string
   role: 'ct' | 'pet' | string
@@ -853,6 +855,8 @@ export interface FourDPhaseCacheItem {
   mprCursor?: MprCursorInfo | null
   mprFrame?: MprFrameInfo | null
   mprRevision?: number | null
+  viewportMprStateRevisions?: Partial<Record<MprViewportKey, number>>
+  viewportMprImageRevisions?: Partial<Record<MprViewportKey, number>>
   windowLabel?: string
   initialWindowInfo?: WindowLevelInfo | null
   currentWindowInfo?: WindowLevelInfo | null
@@ -1052,7 +1056,7 @@ export interface ViewColorInfo {
 }
 
 export interface ViewImageResponse {
-  imageFormat?: 'png' | 'jpeg'
+  imageFormat?: ViewerImageTransportFormat
   fastPreview?: boolean
   fastPreviewFullResolution?: boolean
   metadataMode?: string
@@ -1182,6 +1186,8 @@ export interface ViewerTabItem {
   viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
   mprRevision?: number | null
+  viewportMprStateRevisions?: Partial<Record<MprViewportKey, number>>
+  viewportMprImageRevisions?: Partial<Record<MprViewportKey, number>>
   viewportScaleBars?: Partial<Record<MprViewportKey, ScaleBarInfo | null>>
   measurements?: MeasurementOverlay[]
   scaleBar?: ScaleBarInfo | null

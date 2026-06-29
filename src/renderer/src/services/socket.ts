@@ -73,6 +73,8 @@ export interface ViewOperationPayload {
   text?: string
   color?: string
   size?: string
+  scope?: 'image' | 'series'
+  sliceIndex?: number | null
   zoom?: number
   delta?: number
   rotationDegrees?: number

@@ -142,7 +142,7 @@ const emit = defineEmits<{
   clearMtf: []
   clickViewport: [viewportKey: string]
   doubleClickViewport: [viewportKey: string]
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   imageLoaded: [viewportKey: string]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
@@ -300,15 +300,38 @@ function getOverlayFocusState(kind: 'measurement' | 'annotation' | 'mtf'): Overl
   return activeOverlayKind.value === kind ? 'focus' : 'context'
 }
 
-function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
+function getHoverImageRect(): DOMRect | null {
   const image = imageRef.value
-  if (!image || !event || !props.imageSrc) {
+  if (image && props.imageSrc) {
+    return getRenderedImageRect(image)
+  }
+
+  const stage = stageRef.value
+  if (!stage) {
+    return null
+  }
+
+  const stageRect = stage.getBoundingClientRect()
+  if (isValidImageFrame(imageFrame.value)) {
+    return new DOMRect(
+      stageRect.left + imageFrame.value.left,
+      stageRect.top + imageFrame.value.top,
+      imageFrame.value.width,
+      imageFrame.value.height
+    )
+  }
+
+  return hasImageContent.value ? stageRect : null
+}
+
+function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
+  if (!event || !hasImageContent.value) {
     emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
     return
   }
 
-  const rect = getRenderedImageRect(image)
-  if (!rect.width || !rect.height) {
+  const rect = getHoverImageRect()
+  if (!rect || !rect.width || !rect.height) {
     emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
     return
   }
@@ -318,12 +341,16 @@ function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
     return
   }
 
-  const normalizedX = (event.clientX - rect.left) / rect.width
-  const normalizedY = (event.clientY - rect.top) / rect.height
+  const normalizedX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  const normalizedY = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+  const naturalWidth = imageRef.value?.naturalWidth || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalWidth : 0)
+  const naturalHeight = imageRef.value?.naturalHeight || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalHeight : 0)
   emit('hoverViewportChange', {
     viewportKey: props.viewportKey,
-    x: Math.max(0, Math.min(1, normalizedX)),
-    y: Math.max(0, Math.min(1, normalizedY))
+    x: normalizedX,
+    y: normalizedY,
+    row: naturalHeight > 0 ? Math.round(normalizedY * Math.max(0, naturalHeight - 1)) : null,
+    col: naturalWidth > 0 ? Math.round(normalizedX * Math.max(0, naturalWidth - 1)) : null
   })
 }
 
@@ -380,6 +407,25 @@ function updateStageMetricsNow(): void {
   }
 
   if (!image || !props.imageSrc) {
+    const fallbackFrame = getFallbackImageFrame(stageRect)
+    if (hasImageContent.value && isValidImageFrame(fallbackFrame)) {
+      imageFrame.value = fallbackFrame
+      lastValidImageFrame = fallbackFrame
+      return
+    }
+    if (hasImageContent.value && stageRect.width > 0 && stageRect.height > 0) {
+      const nextFrame = {
+        left: 0,
+        top: 0,
+        width: toStablePixel(stageRect.width),
+        height: toStablePixel(stageRect.height),
+        naturalWidth: toStablePixel(stageRect.width),
+        naturalHeight: toStablePixel(stageRect.height)
+      }
+      imageFrame.value = nextFrame
+      lastValidImageFrame = nextFrame
+      return
+    }
     lastValidImageFrame = null
     imageFrame.value = createEmptyImageFrame()
     return
@@ -463,7 +509,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.imageSrc, props.isActive, props.viewportKey] as const,
+  () => [props.imageSrc, props.imageLayers.map((layer) => layer.src).join('|'), props.isActive, props.viewportKey] as const,
   async () => {
     await nextTick()
     observeLayout()
@@ -492,7 +538,7 @@ watch(
     @dblclick.stop="emit('doubleClickViewport', viewportKey)"
     @wheel.prevent="emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
     @pointerdown="handlePointerDown"
-    @pointermove="handlePointerMove"
+    @pointermove.capture="handlePointerMove"
     @pointerup="emit('pointerUp', $event)"
     @pointercancel="emit('pointerCancel', $event)"
     @pointerleave="handlePointerLeave"
@@ -588,7 +634,7 @@ watch(
         :focus-state="getOverlayFocusState('annotation')"
         :annotations="annotations"
         :selected-annotation-id="draftAnnotation?.annotationId ?? null"
-        :draft-annotation="draftAnnotation && !draftAnnotation.annotationId ? draftAnnotation : null"
+        :draft-annotation="draftAnnotation"
         :image-frame="imageFrame"
         @copy-annotation="emit('copyAnnotation', { viewportKey: props.viewportKey, annotationId: $event })"
         @delete-annotation="emit('deleteAnnotation', { viewportKey: props.viewportKey, annotationId: $event })"

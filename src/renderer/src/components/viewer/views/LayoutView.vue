@@ -31,7 +31,7 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   imageLoaded: [viewportKey: string]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]
@@ -606,6 +606,7 @@ watch(
 .layout-view__slice-slider::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
+  margin-left: -6px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
   border-radius: 999px;
   appearance: none;

@@ -226,6 +226,8 @@ interface ViewerWorkspaceState {
     text?: string
     color?: string
     size?: string
+    scope?: DrawingScope
+    sliceIndex?: number | null
   }) => void
   handleTagIndexChange: (payload: { tabKey: string; index: number }) => Promise<void>
   handleMtfClear: (payload?: { mtfId?: string | null }) => void
@@ -1802,6 +1804,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     phase: 'start' | 'move' | 'end'
     points: MeasurementDraftPoint[]
     measurementId?: string
+    scope?: DrawingScope
+    sliceIndex?: number | null
   }): void {
     const tab = activeTab.value
     if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType)) || !payload.points.length) {
@@ -1814,7 +1818,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       subOpType: payload.toolType,
       actionType: payload.phase,
       viewportKey: payload.viewportKey,
-      points: payload.points
+      points: payload.points,
+      scope: payload.scope ?? 'image',
+      sliceIndex: payload.sliceIndex ?? resolveCurrentSliceIndex(tab, payload.viewportKey)
     }
 
     if (isMprLikeViewType(tab.viewType)) {
@@ -1842,6 +1848,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     text?: string
     color?: string
     size?: string
+    scope?: DrawingScope
+    sliceIndex?: number | null
   }): void {
     const tab = activeTab.value
     if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
@@ -1862,7 +1870,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       points: payload.points,
       text: payload.text,
       color: payload.color,
-      size: payload.size
+      size: payload.size,
+      scope: payload.scope ?? 'image',
+      sliceIndex: payload.sliceIndex ?? resolveCurrentSliceIndex(tab, payload.viewportKey)
     }
 
     if (isMprLikeViewType(tab.viewType)) {
@@ -3579,6 +3589,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     text?: string
     color?: string
     size?: string
+    scope?: DrawingScope
+    sliceIndex?: number | null
   }): void {
     emitAnnotationOperation(payload)
   }

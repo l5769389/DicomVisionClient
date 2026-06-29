@@ -794,10 +794,6 @@ function goToPage(page: number): void {
   })
 }
 
-function expandTagPagination(): void {
-  isTagPaginationExpanded.value = true
-}
-
 function submitPageInput(): void {
   const parsed = Number.parseInt(pageInput.value.trim(), 10)
   if (!Number.isFinite(parsed)) {
@@ -912,9 +908,9 @@ async function handleContextAction(action: ContextAction): Promise<void> {
                   'tag-view-pagination-button--active': item.type === 'page' && item.page === currentDisplayIndex,
                   'tag-view-pagination-button--ellipsis': item.type === 'ellipsis'
                 }"
-                :disabled="activeTab.tagIsLoading"
+                :disabled="item.type === 'ellipsis' || (item.type === 'page' && activeTab.tagIsLoading)"
                 :aria-current="item.type === 'page' && item.page === currentDisplayIndex ? 'page' : undefined"
-                @click="item.type === 'page' ? goToPage(item.page) : expandTagPagination()"
+                @click="item.type === 'page' ? goToPage(item.page) : undefined"
               >
                 {{ item.type === 'page' ? item.page : '...' }}
               </button>
@@ -1397,7 +1393,13 @@ async function handleContextAction(action: ContextAction): Promise<void> {
 }
 
 .tag-view-pagination-button--ellipsis {
+  cursor: default;
   color: var(--theme-text-muted);
+  pointer-events: none;
+}
+
+.tag-view-pagination-button--ellipsis:hover {
+  background: transparent;
 }
 
 .tag-view-pagination-button:disabled {

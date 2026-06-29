@@ -125,6 +125,8 @@ const emit = defineEmits<{
     text?: string
     color?: string
     size?: AnnotationSize
+    scope?: DrawingScope
+    sliceIndex?: number | null
   }]
   tagIndexChange: [payload: { tabKey: string; index: number }]
   mtfClear: []
@@ -138,7 +140,7 @@ const emit = defineEmits<{
   fourDPlaybackChange: [payload: { tabKey: string; isPlaying: boolean }]
   compareSyncChange: [payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }]
   setActiveOperation: [value: string]
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   triggerViewAction: [payload: ViewerToolbarActionPayload]
   volumeConfigChange: [config: VolumeRenderConfig]
   viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
@@ -163,6 +165,7 @@ const emit = defineEmits<{
   quickPreviewSelectedSeries: []
   openSeriesView: [seriesId: string, viewType: ViewType]
   openLayoutView: [template: ViewerLayoutTemplate]
+  openSettings: [sectionKey?: string]
   layoutSlotDicomDrop: [payload: { tabKey: string; slotId: string; drop: DicomDropInput }]
   layoutSlotSeriesDrop: [payload: { tabKey: string; slotId: string; seriesId: string; folderPath?: string; seriesInstanceUid?: string | null }]
   toggleSidebar: []
@@ -182,6 +185,7 @@ const { locale, t, overlayCopy, workspaceExportCopy } = useUiLocale()
 const {
   exportPreference,
   drawingScopePreference,
+  measurementStylePreference,
   mprDefaultLayoutKey,
   mprSegmentationStylePreference,
   qaWaterMetrics,
@@ -200,19 +204,18 @@ const {
   toggleSliceStar
 } = useKeySliceStars()
 const DEFAULT_ANNOTATION_TEXT = ''
-const DEFAULT_ANNOTATION_COLOR = '#ffd166'
-const DEFAULT_ANNOTATION_SIZE: AnnotationSize = 'md'
 const ANNOTATION_DRAG_START_THRESHOLD = 3
 const ANNOTATION_POINT_CLOSE_EPSILON = 0.0005
 const EXPORT_LABEL_LINE_HEIGHT_PX = 18
 const TOP_RESULT_DOCK_MIN_CONTENT_WIDTH = 1280
-const RIGHT_TOOLBAR_DOCK_MIN_WIDTH = 240
-const RIGHT_TOOLBAR_DOCK_MAX_WIDTH = 420
-const RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD = 210
+const RIGHT_TOOLBAR_DOCK_MIN_WIDTH = 196
+const RIGHT_TOOLBAR_DOCK_MAX_WIDTH = 360
+const RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD = 170
 const RIGHT_RESULT_DOCK_MIN_WIDTH = 300
 const RIGHT_RESULT_DOCK_MAX_WIDTH = 520
 const RIGHT_RESULT_DOCK_COLLAPSE_THRESHOLD = 260
 const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
+const previousDrawingScopePreference = ref({ ...drawingScopePreference.value })
 type WorkspaceResultPanel = 'measurement' | 'mtfCurve' | 'qaWater'
 
 type AnnotationInteractionState =
@@ -1048,7 +1051,10 @@ function getAnnotations(viewportKey: string): AnnotationOverlay[] {
       : (activeTab.viewportAnnotations?.[viewportKey] ?? [])
 
   const pendingDeletedIds = new Set(pendingDeletedAnnotationIds.value[viewportKey] ?? [])
-  return committedAnnotations.filter((annotation) => !pendingDeletedIds.has(annotation.annotationId))
+  const currentSliceIndex = resolveCurrentSliceIndex(viewportKey)
+  return committedAnnotations
+    .filter((annotation) => !pendingDeletedIds.has(annotation.annotationId))
+    .filter((annotation) => isScopedDrawingVisible(annotation.scope, annotation.sliceIndex, currentSliceIndex))
 }
 
 function clearAllAnnotationsForActiveTab(): void {
@@ -1284,7 +1290,9 @@ function commitAnnotation(viewportKey: string, annotation: AnnotationOverlay | A
     points: annotation.points,
     text: annotation.text,
     color: annotation.color,
-    size: annotation.size
+    size: annotation.size,
+    scope: annotation.scope ?? drawingScopePreference.value.annotation,
+    sliceIndex: annotation.sliceIndex ?? resolveCurrentSliceIndex(viewportKey)
   })
 }
 
@@ -1328,7 +1336,9 @@ function selectAnnotation(viewportKey: string, annotation: AnnotationOverlay): v
     points: annotation.points,
     text: annotation.text,
     color: annotation.color,
-    size: annotation.size
+    size: annotation.size,
+    scope: annotation.scope ?? 'image',
+    sliceIndex: annotation.sliceIndex ?? null
   })
 }
 
@@ -1719,8 +1729,10 @@ function handleAnnotationPointerDown(event: PointerEvent, viewportKey: string): 
     toolType: 'arrow',
     points: [point, point],
     text: DEFAULT_ANNOTATION_TEXT,
-    color: DEFAULT_ANNOTATION_COLOR,
-    size: DEFAULT_ANNOTATION_SIZE
+    color: measurementStylePreference.value.annotationColor,
+    size: measurementStylePreference.value.annotationSize,
+    scope: drawingScopePreference.value.annotation,
+    sliceIndex: resolveCurrentSliceIndex(viewportKey)
   }
   setDraftAnnotation(viewportKey, nextDraft)
   setAnnotationPointerCapture(pointerTarget, event.pointerId)
@@ -1813,11 +1825,13 @@ function handleAnnotationPointerUp(event: PointerEvent): boolean {
       const annotation: AnnotationOverlay = {
         annotationId: createAnnotationId(),
         toolType: 'arrow',
-        points: draft.points,
-        text: draft.text,
-        color: draft.color,
-        size: draft.size
-      }
+          points: draft.points,
+          text: draft.text,
+          color: draft.color,
+          size: draft.size,
+          scope: draft.scope ?? drawingScopePreference.value.annotation,
+          sliceIndex: draft.sliceIndex ?? resolveCurrentSliceIndex(interaction.viewportKey)
+        }
       selectAnnotation(interaction.viewportKey, annotation)
       commitAnnotation(interaction.viewportKey, annotation)
     } else {
@@ -2296,6 +2310,33 @@ watch(
       annotationInteraction.value = { kind: 'idle' }
     }
   }
+)
+
+watch(
+  drawingScopePreference,
+  (value) => {
+    const previousValue = previousDrawingScopePreference.value
+    if (value.measurement !== previousValue.measurement) {
+      pendingDeletedMeasurementIds.value = {}
+      handleToolbarViewAction({ action: 'clearMeasurements' })
+    }
+    if (value.annotation !== previousValue.annotation) {
+      handleToolbarViewAction({ action: 'clearAnnotations' })
+    }
+    if (value.mtf !== previousValue.mtf) {
+      handleToolbarViewAction({ action: 'clearMtf' })
+    }
+    if (value.qaWater !== previousValue.qaWater) {
+      qaWaterAnalysisRequestId += 1
+      qaWaterAnalysisCache.value = {}
+      qaWaterAnalysis.value = null
+      if (activeResultPanel.value === 'qaWater') {
+        closeResultPanel()
+      }
+    }
+    previousDrawingScopePreference.value = { ...value }
+  },
+  { deep: true }
 )
 
 watch(
@@ -2803,6 +2844,7 @@ onBeforeUnmount(() => {
           @end-playback="endPlayback"
           @hover-viewport-change="emit('hoverViewportChange', $event)"
           @open-mtf-curve="handleOpenMtfCurve"
+          @open-settings="emit('openSettings', $event)"
           @pause-playback="pausePlayback"
           @select-mtf="handleSelectMtf"
           @viewport-click="handleViewportClick"
@@ -2849,7 +2891,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="shouldShowTopResultDock && !workspaceDockPreference.rightResultCollapsed"
+          v-if="shouldShowTopResultDock"
           class="viewer-workspace-right-dock-resize-handle"
           aria-hidden="true"
           @pointerdown="startRightDockResize('result', $event)"
@@ -2884,7 +2926,7 @@ onBeforeUnmount(() => {
         </ViewerResultDock>
 
         <div
-          v-if="shouldShowRightToolbarDock && activeTab && !workspaceDockPreference.rightToolbarCollapsed"
+          v-if="shouldShowRightToolbarDock && activeTab"
           class="viewer-workspace-right-dock-resize-handle"
           aria-hidden="true"
           @pointerdown="startRightDockResize('toolbar', $event)"
@@ -2917,6 +2959,7 @@ onBeforeUnmount(() => {
           @close-utility-panel="closeRightToolbarUtilityPanel"
           @end-playback="endPlayback"
           @pause-playback="pausePlayback"
+          @open-settings="emit('openSettings', $event)"
           @select-tool-option="handleToolbarSelectToolOption"
           @set-menu-open="handleToolbarSetMenuOpen"
           @collapse-change="handleRightDockCollapseChange('toolbar', $event)"
@@ -3058,11 +3101,12 @@ onBeforeUnmount(() => {
 
 .viewer-workspace-content--right-toolbar {
   align-items: stretch;
+  gap: 4px;
 }
 
 .viewer-workspace-right-dock-resize-handle {
   position: relative;
-  flex: 0 0 6px;
+  flex: 0 0 5px;
   align-self: stretch;
   cursor: col-resize;
   -webkit-app-region: no-drag;
@@ -3073,15 +3117,20 @@ onBeforeUnmount(() => {
   top: 10px;
   bottom: 10px;
   left: 50%;
-  border-left: 1px solid transparent;
+  border-left: 2px solid color-mix(in srgb, var(--theme-accent) 46%, var(--theme-border-strong));
   content: "";
+  opacity: 0.86;
   transform: translateX(-50%);
-  transition: border-color 150ms ease;
+  transition:
+    border-color 150ms ease,
+    opacity 150ms ease;
 }
 
 .viewer-workspace-right-dock-resize-handle:hover::before,
 .viewer-workspace-content[data-right-dock-resizing="true"] .viewer-workspace-right-dock-resize-handle::before {
-  border-left-color: color-mix(in srgb, var(--theme-accent) 52%, transparent);
+  border-left-style: dashed;
+  border-left-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
+  opacity: 1;
 }
 
 .viewer-workspace-right-dock-resize-preview {

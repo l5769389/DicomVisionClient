@@ -38,6 +38,7 @@ const emit = defineEmits<{
   closeResultPanel: []
   dockResize: []
   collapseChange: [collapsed: boolean]
+  openSettings: [sectionKey?: string]
   selectToolOption: [tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior]
   setMenuOpen: [toolKey: string | null]
 }>()
@@ -50,7 +51,7 @@ const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'segmentation']
 const actionDetailToolKeys = new Set(['annotate'])
 const unselectedActionMenuToolKeys = new Set(['rotate', 'export', 'reset'])
 const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
-const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'measure', 'qa'])
+const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'measure', 'qa', 'annotate'])
 
 function getDockToolOptions(tool: StackTool): StackToolOption[] {
   return tool.options ?? tool.dockOptions ?? []
@@ -158,6 +159,7 @@ function expandDockForDetailTool(): void {
     return
   }
   isDockCollapsed.value = false
+  emit('collapseChange', false)
   emit('dockResize')
 }
 
@@ -245,7 +247,7 @@ watch(
   <aside
     class="viewer-toolbar-dock"
     :class="{ 'viewer-toolbar-dock--collapsed': isDockCollapsed }"
-    :style="{ '--viewer-toolbar-dock-width': `${width ?? 260}px` }"
+    :style="{ '--viewer-toolbar-dock-width': `${width ?? 224}px` }"
     data-tool-menu-root
   >
     <div class="viewer-toolbar-dock__body">
@@ -354,6 +356,7 @@ watch(
                 @end-playback="(behavior) => emit('endPlayback', behavior)"
                 @pause-playback="(behavior) => emit('pausePlayback', behavior)"
                 @select="emit('selectToolOption', activePanelTool, $event, { keepMenuOpen: true })"
+                @open-settings="emit('openSettings', $event)"
               />
               <div
                 v-if="shouldEmbedResultInActiveTool"
@@ -425,9 +428,10 @@ watch(
 .viewer-toolbar-dock {
   display: flex;
   flex-direction: column;
-  width: var(--viewer-toolbar-dock-width, 260px);
-  min-width: var(--viewer-toolbar-dock-width, 260px);
-  max-width: var(--viewer-toolbar-dock-width, 260px);
+  width: var(--viewer-toolbar-dock-width, 224px);
+  min-width: var(--viewer-toolbar-dock-width, 224px);
+  max-width: var(--viewer-toolbar-dock-width, 224px);
+  height: 100%;
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
@@ -461,7 +465,7 @@ watch(
   display: flex;
   flex: 0 0 auto;
   min-height: 0;
-  max-height: 188px;
+  max-height: min(248px, 38vh);
   align-items: flex-start;
   gap: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
@@ -479,10 +483,11 @@ watch(
 
 .viewer-toolbar-dock__tools {
   display: grid;
+  width: 100%;
   min-width: 0;
-  flex: 0 1 auto;
-  grid-template-columns: repeat(5, 42px);
-  justify-content: center;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
+  justify-content: stretch;
   align-content: flex-start;
   gap: 5px;
   overflow-x: hidden;
@@ -505,7 +510,8 @@ watch(
 
 .viewer-toolbar-dock__tool-group {
   display: grid;
-  width: 42px;
+  width: clamp(36px, 100%, 42px);
+  justify-self: center;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   border-radius: 12px;
@@ -533,7 +539,8 @@ watch(
 
 .viewer-toolbar-dock__button {
   display: grid;
-  width: 42px;
+  width: 100%;
+  min-width: 34px;
   height: 38px;
   place-items: center;
   border-radius: 12px;

@@ -68,7 +68,7 @@ const emit = defineEmits<{
   copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
   mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]

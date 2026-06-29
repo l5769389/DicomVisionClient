@@ -17,9 +17,10 @@ import {
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
 } from '../../../constants/pseudocolor'
-import type { ViewerTabItem } from '../../../types/viewer'
+import type { DrawingScope, ViewerTabItem } from '../../../types/viewer'
 import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import { useUiPreferences, type DrawingScopePreference } from '../../../composables/ui/useUiPreferences'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -34,10 +35,12 @@ const emit = defineEmits<{
   applyTool: [tool: StackTool, behavior?: StackToolOptionSelectBehavior]
   endPlayback: [behavior?: StackToolOptionSelectBehavior]
   pausePlayback: [behavior?: StackToolOptionSelectBehavior]
+  openSettings: [sectionKey?: string]
   select: [optionValue: string]
 }>()
 
 const { locale, toolbarCopy: copy } = useUiLocale()
+const { drawingScopePreference, setDrawingScopePreference } = useUiPreferences()
 const UNSELECTED_ACTION_MENU_TOOL_KEYS = new Set(['rotate', 'export', 'reset'])
 const customWindowWidth = ref('')
 const customWindowLevel = ref('')
@@ -67,6 +70,17 @@ const windowActionCopy = computed(() => ({
   resetWindow: isZh.value ? '重置窗值' : 'Reset Window',
   resetWindowDesc: isZh.value ? '恢复已选择窗值；未选择时回到影像内置窗值。' : 'Restore the selected window, or fall back to the image window.'
 }))
+const settingsJumpCopy = computed(() => ({
+  windowPresets: isZh.value ? '窗模板设置' : 'Window Settings',
+  measurement: isZh.value ? '测量及标注设置' : 'Measurement & Annotation Settings'
+}))
+const drawingScopeCopy = computed(() => ({
+  title: isZh.value ? '应用范围' : 'Scope',
+  measurement: isZh.value ? '新建测量的显示范围。' : 'Default visibility for new measurements.',
+  annotation: isZh.value ? '新建标注的显示范围。' : 'Default visibility for new annotations.',
+  image: isZh.value ? '当前影像' : 'Image',
+  series: isZh.value ? '整个 series' : 'Series'
+}))
 const transformActionCopy = computed(() => ({
   resetTransform: isZh.value ? '重置' : 'Reset'
 }))
@@ -78,6 +92,20 @@ const annotationActionCopy = computed(() => ({
   clearAnnotations: isZh.value ? '清除标注' : 'Clear Annotations',
   clearAnnotationsDesc: isZh.value ? '移除当前目标视图中的标注结果。' : 'Remove annotations from the current target view.'
 }))
+const dockSettingsJumpCopy = computed(() => ({
+  measurement: isZh.value ? '测量及标注设置' : 'Measurement & Annotation Settings'
+}))
+const dockDrawingScopeCopy = computed(() => ({
+  ...drawingScopeCopy.value,
+  title: isZh.value ? '作用范围' : 'Scope',
+  measurement: isZh.value ? '新建测量结果显示在当前影像或整个 series。' : 'Default visibility for new measurements.',
+  annotation: isZh.value ? '新建标注显示在当前影像或整个 series。' : 'Default visibility for new annotations.',
+  qaWater: isZh.value ? '水模 QA 结果基于当前影像或整个 series。' : 'Default scope for water phantom QA.',
+  mtf: isZh.value ? 'MTF ROI 显示在当前影像或整个 series。' : 'Default visibility for MTF ROIs.',
+  image: isZh.value ? '当前影像' : 'Image',
+  series: isZh.value ? '整个 series' : 'Series'
+}))
+
 const petDisplayCopy = computed(() => ({
   pseudocolor: isZh.value ? '伪彩' : 'Pseudocolor',
   range: isZh.value ? '强度范围' : 'Intensity Range',
@@ -330,6 +358,53 @@ function isFooterActionOption(option: StackToolOption): boolean {
 }
 
 const regularOptions = computed(() => (props.tool.options ?? []).filter((option) => !isFooterActionOption(option)))
+const drawingScopeToolKey = computed<keyof DrawingScopePreference | null>(() => {
+  if (props.tool.key === 'measure') {
+    return 'measurement'
+  }
+  if (props.tool.key === 'annotate') {
+    return 'annotation'
+  }
+  if (props.tool.key === 'qa') {
+    const selectedQaOption = props.stackToolSelections.qa ?? props.tool.options?.find((option) => !option.disabled)?.value ?? 'qa:mtf'
+    return selectedQaOption === 'qa:water-phantom' ? 'qaWater' : 'mtf'
+  }
+  return null
+})
+const drawingScopeDescription = computed(() => {
+  if (drawingScopeToolKey.value === 'measurement') {
+    return dockDrawingScopeCopy.value.measurement
+  }
+  if (drawingScopeToolKey.value === 'annotation') {
+    return dockDrawingScopeCopy.value.annotation
+  }
+  if (drawingScopeToolKey.value === 'qaWater') {
+    return dockDrawingScopeCopy.value.qaWater
+  }
+  if (drawingScopeToolKey.value === 'mtf') {
+    return dockDrawingScopeCopy.value.mtf
+  }
+  return ''
+})
+
+function updateDockDrawingScope(scope: DrawingScope): void {
+  const key = drawingScopeToolKey.value
+  if (!key) {
+    return
+  }
+  if (drawingScopePreference.value[key] === scope) {
+    return
+  }
+  setDrawingScopePreference({
+    ...drawingScopePreference.value,
+    [key]: scope
+  })
+  if (key === 'measurement') {
+    emit('select', 'reset:measurements')
+  } else if (key === 'annotation') {
+    emit('select', 'reset:annotations')
+  }
+}
 
 const footerActions = computed(() => {
   const actions: StackToolOption[] = []
@@ -658,6 +733,15 @@ watch(
               <div class="viewer-toolbar-dock-panel-content__custom-window-title">{{ customWindowCopy.title }}</div>
               <p class="viewer-toolbar-dock-panel-content__custom-window-description">{{ customWindowCopy.description }}</p>
             </div>
+            <button
+              type="button"
+              class="viewer-toolbar-dock-panel-content__settings-link"
+              :title="settingsJumpCopy.windowPresets"
+              @click="emit('openSettings', 'windowPresets')"
+            >
+              <AppIcon name="settings" :size="14" />
+              <span>{{ settingsJumpCopy.windowPresets }}</span>
+            </button>
           </div>
           <div class="viewer-toolbar-dock-panel-content__custom-window-grid">
             <label class="viewer-toolbar-dock-panel-content__custom-window-field">
@@ -698,6 +782,44 @@ watch(
             {{ canApplyCustomWindow ? `WW ${customWindowWidthValue} / WL ${customWindowLevelValue}` : customWindowCopy.invalid }}
           </p>
         </form>
+        <section
+          v-if="drawingScopeToolKey"
+          class="viewer-toolbar-dock-panel-content__scope-card"
+        >
+          <div class="viewer-toolbar-dock-panel-content__scope-header">
+            <div>
+              <div class="viewer-toolbar-dock-panel-content__scope-title">{{ dockDrawingScopeCopy.title }}</div>
+              <p class="viewer-toolbar-dock-panel-content__scope-description">{{ drawingScopeDescription }}</p>
+            </div>
+            <button
+              type="button"
+              class="viewer-toolbar-dock-panel-content__settings-link viewer-toolbar-dock-panel-content__scope-settings"
+              :title="dockSettingsJumpCopy.measurement"
+              @click="emit('openSettings', 'displayMeasurement')"
+            >
+              <AppIcon name="settings" :size="14" />
+              <span>{{ dockSettingsJumpCopy.measurement }}</span>
+            </button>
+          </div>
+          <div class="viewer-toolbar-dock-panel-content__scope-actions">
+            <button
+              type="button"
+              class="viewer-toolbar-dock-panel-content__scope-choice"
+              :class="{ 'viewer-toolbar-dock-panel-content__scope-choice--active': drawingScopePreference[drawingScopeToolKey] === 'image' }"
+              @click="updateDockDrawingScope('image')"
+            >
+              {{ dockDrawingScopeCopy.image }}
+            </button>
+            <button
+              type="button"
+              class="viewer-toolbar-dock-panel-content__scope-choice"
+              :class="{ 'viewer-toolbar-dock-panel-content__scope-choice--active': drawingScopePreference[drawingScopeToolKey] === 'series' }"
+              @click="updateDockDrawingScope('series')"
+            >
+              {{ dockDrawingScopeCopy.series }}
+            </button>
+          </div>
+        </section>
         <div
           class="viewer-toolbar-dock-panel-content__options-scroll"
           :class="{ 'viewer-toolbar-dock-panel-content__options-scroll--window': tool.key === 'window' }"
@@ -1138,6 +1260,115 @@ watch(
   color: var(--theme-text-primary);
   font-size: 13px;
   font-weight: 850;
+}
+
+.viewer-toolbar-dock-panel-content__custom-window-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__settings-link {
+  display: inline-flex;
+  min-height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card));
+  padding: 4px 8px;
+  color: var(--theme-text-primary);
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.viewer-toolbar-dock-panel-content__settings-link:hover,
+.viewer-toolbar-dock-panel-content__settings-link:focus-visible {
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__scope-card {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 56%, transparent);
+  padding: 12px;
+}
+
+.viewer-toolbar-dock-panel-content__scope-header {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__scope-title {
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.viewer-toolbar-dock-panel-content__scope-description {
+  margin: 3px 0 0;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.viewer-toolbar-dock-panel-content__scope-settings {
+  max-width: 116px;
+}
+
+.viewer-toolbar-dock-panel-content__scope-settings span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-toolbar-dock-panel-content__scope-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__scope-choice {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 64%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__scope-choice:hover,
+.viewer-toolbar-dock-panel-content__scope-choice:focus-visible {
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
+  color: var(--theme-text-primary);
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__scope-choice--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent);
 }
 
 .viewer-toolbar-dock-panel-content__custom-window-description {
@@ -1593,7 +1824,43 @@ watch(
 
 .viewer-toolbar-dock-panel-content__fps-slider input[type='range'] {
   width: 100%;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
   accent-color: var(--theme-accent);
+}
+
+.viewer-toolbar-dock-panel-content__fps-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 24%, var(--theme-surface-panel-strong-solid));
+}
+
+.viewer-toolbar-dock-panel-content__fps-slider input[type='range']::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -6.5px;
+  appearance: none;
+  border: 2px solid color-mix(in srgb, var(--theme-accent) 32%, var(--theme-surface-card));
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-accent) 32%, transparent);
+}
+
+.viewer-toolbar-dock-panel-content__fps-slider input[type='range']::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-text-primary) 24%, var(--theme-surface-panel-strong-solid));
+}
+
+.viewer-toolbar-dock-panel-content__fps-slider input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--theme-accent) 32%, var(--theme-surface-card));
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-accent) 32%, transparent);
 }
 
 .viewer-toolbar-dock-panel-content__fps-ticks {

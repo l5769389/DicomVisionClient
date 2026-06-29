@@ -9,6 +9,7 @@ import {
 import {
   DEFAULT_MPR_SEGMENTATION_COLOR,
   DEFAULT_MPR_VOI_COLOR,
+  type AnnotationSize,
   type DrawingScope
 } from '../../types/viewer'
 import { VIEWER_LAYOUT_CUSTOM_GRID_SIZE } from '../workspace/layout/viewerLayoutTemplates'
@@ -80,10 +81,13 @@ export interface MeasurementStylePreference {
   lineWidth: number
   editingLineStyle: MeasurementLineStyle
   completedLineStyle: MeasurementLineStyle
+  annotationColor: string
+  annotationSize: AnnotationSize
 }
 
 export interface DrawingScopePreference {
   measurement: DrawingScope
+  annotation: DrawingScope
   qaWater: DrawingScope
   mtf: DrawingScope
 }
@@ -392,13 +396,16 @@ function createDefaultMeasurementStylePreference(): MeasurementStylePreference {
     completedColor: '#55e7ff',
     lineWidth: 2.5,
     editingLineStyle: 'dash',
-    completedLineStyle: 'solid'
+    completedLineStyle: 'solid',
+    annotationColor: '#ffd166',
+    annotationSize: 'md'
   }
 }
 
 function createDefaultDrawingScopePreference(): DrawingScopePreference {
   return {
     measurement: 'image',
+    annotation: 'image',
     qaWater: 'image',
     mtf: 'image'
   }
@@ -408,7 +415,7 @@ function createDefaultWorkspaceDockPreference(): WorkspaceDockPreference {
   return {
     leftWidth: 320,
     leftCollapsed: false,
-    rightToolbarWidth: 260,
+    rightToolbarWidth: 224,
     rightToolbarCollapsed: false,
     rightResultWidth: 344,
     rightResultCollapsed: false
@@ -802,6 +809,10 @@ function normalizeMeasurementLineStyle(value: unknown, fallback: MeasurementLine
   return value === 'dash' || value === 'solid' ? value : fallback
 }
 
+function normalizeAnnotationSize(value: unknown, fallback: AnnotationSize): AnnotationSize {
+  return value === 'sm' || value === 'md' || value === 'lg' ? value : fallback
+}
+
 function normalizeMeasurementStylePreference(value: unknown): MeasurementStylePreference {
   const defaults = createDefaultMeasurementStylePreference()
   const record = value && typeof value === 'object' ? (value as Partial<MeasurementStylePreference>) : null
@@ -811,7 +822,9 @@ function normalizeMeasurementStylePreference(value: unknown): MeasurementStylePr
     completedColor: normalizeHexColor(record?.completedColor, defaults.completedColor),
     lineWidth: Math.min(6, Math.max(1.5, normalizeNumber(record?.lineWidth, defaults.lineWidth))),
     editingLineStyle: normalizeMeasurementLineStyle(record?.editingLineStyle, defaults.editingLineStyle),
-    completedLineStyle: normalizeMeasurementLineStyle(record?.completedLineStyle, defaults.completedLineStyle)
+    completedLineStyle: normalizeMeasurementLineStyle(record?.completedLineStyle, defaults.completedLineStyle),
+    annotationColor: normalizeHexColor(record?.annotationColor, defaults.annotationColor),
+    annotationSize: normalizeAnnotationSize(record?.annotationSize, defaults.annotationSize)
   }
 }
 
@@ -824,6 +837,7 @@ function normalizeDrawingScopePreference(value: unknown): DrawingScopePreference
   const record = value && typeof value === 'object' ? (value as Partial<DrawingScopePreference>) : null
   return {
     measurement: normalizeDrawingScope(record?.measurement, defaults.measurement),
+    annotation: normalizeDrawingScope(record?.annotation, defaults.annotation),
     qaWater: normalizeDrawingScope(record?.qaWater, defaults.qaWater),
     mtf: normalizeDrawingScope(record?.mtf, defaults.mtf)
   }
@@ -839,7 +853,7 @@ function normalizeWorkspaceDockPreference(value: unknown): WorkspaceDockPreferen
   return {
     leftWidth: normalizeWorkspaceDockWidth(record?.leftWidth, defaults.leftWidth, 280, 480),
     leftCollapsed: typeof record?.leftCollapsed === 'boolean' ? record.leftCollapsed : defaults.leftCollapsed,
-    rightToolbarWidth: normalizeWorkspaceDockWidth(record?.rightToolbarWidth, defaults.rightToolbarWidth, 240, 420),
+    rightToolbarWidth: normalizeWorkspaceDockWidth(record?.rightToolbarWidth, defaults.rightToolbarWidth, 196, 360),
     rightToolbarCollapsed:
       typeof record?.rightToolbarCollapsed === 'boolean' ? record.rightToolbarCollapsed : defaults.rightToolbarCollapsed,
     rightResultWidth: normalizeWorkspaceDockWidth(record?.rightResultWidth, defaults.rightResultWidth, 300, 520),
@@ -1061,10 +1075,13 @@ function serializeState(): UiPreferencesState {
       completedColor: state.measurementStylePreference.completedColor,
       lineWidth: state.measurementStylePreference.lineWidth,
       editingLineStyle: state.measurementStylePreference.editingLineStyle,
-      completedLineStyle: state.measurementStylePreference.completedLineStyle
+      completedLineStyle: state.measurementStylePreference.completedLineStyle,
+      annotationColor: state.measurementStylePreference.annotationColor,
+      annotationSize: state.measurementStylePreference.annotationSize
     },
     drawingScopePreference: {
       measurement: state.drawingScopePreference.measurement,
+      annotation: state.drawingScopePreference.annotation,
       qaWater: state.drawingScopePreference.qaWater,
       mtf: state.drawingScopePreference.mtf
     },

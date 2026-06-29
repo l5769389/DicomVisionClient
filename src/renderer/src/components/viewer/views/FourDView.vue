@@ -69,7 +69,8 @@ const emit = defineEmits<{
   copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
+  openSettings: [sectionKey?: string]
   openMtfCurve: []
   phaseChange: [phaseIndex: number]
   fpsChange: [fps: number]
@@ -503,6 +504,7 @@ watch(
         @close-utility-panel="emit('closeMprMipPanel')"
         @end-playback="emit('endPlayback')"
         @pause-playback="emit('pausePlayback')"
+        @open-settings="emit('openSettings', $event)"
         @select-tool-option="emitToolbarOption"
         @set-menu-open="emit('setMenuOpen', $event)"
         @dock-resize="emit('dockResize')"

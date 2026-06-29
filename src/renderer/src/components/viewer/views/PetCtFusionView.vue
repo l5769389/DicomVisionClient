@@ -54,7 +54,7 @@ const emit = defineEmits<{
     pivotY?: number
     rotationDeltaDegrees?: number
   }]
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   imageLoaded: [viewportKey: string]
   pointerCancel: [event: PointerEvent]
   pointerDown: [event: PointerEvent, viewportKey: string]

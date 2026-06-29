@@ -10,6 +10,8 @@ export interface AnnotationOverlayPayload {
   text?: string
   color?: string
   size?: string
+  scope?: 'image' | 'series'
+  sliceIndex?: number | null
 }
 
 export interface Body_upload_dicom_files_api_v1_dicom_upload_post {
@@ -254,6 +256,8 @@ export interface MeasurementOverlayPayload {
   toolType: string
   points: MeasurementPointPayload[]
   labelLines?: string[]
+  scope?: 'image' | 'series'
+  sliceIndex?: number | null
 }
 
 export interface MeasurementPointPayload {
@@ -903,6 +907,8 @@ export interface ViewOperationRequest {
   text?: string | null
   color?: string | null
   size?: string | null
+  scope?: 'image' | 'series' | null
+  sliceIndex?: number | null
   sourceViewId?: string | null
   rotationDegrees?: number | null
   hor_flip?: boolean | null

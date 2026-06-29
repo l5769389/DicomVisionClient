@@ -44,6 +44,7 @@ const emit = defineEmits<{
 }>()
 
 const isMenuOpen = ref(false)
+const settingsInitialSection = ref<string | null>(null)
 const isPacsBrowserOpen = ref(false)
 const hoveredSeries = ref<(FolderSeriesItem & { index: number }) | null>(null)
 const hoveredSeriesCardStyle = ref<Record<string, string>>({})
@@ -110,12 +111,22 @@ function handleOpenPetCtFusion(ctSeriesId: string, petSeriesId: string): void {
 }
 
 function openMenu(): void {
+  settingsInitialSection.value = null
+  isMenuOpen.value = true
+}
+
+function openSettings(sectionKey?: string | null): void {
+  settingsInitialSection.value = sectionKey ?? null
   isMenuOpen.value = true
 }
 
 function closeMenu(): void {
   isMenuOpen.value = false
 }
+
+defineExpose({
+  openSettings
+})
 
 function openPacsBrowser(): void {
   isPacsBrowserOpen.value = true
@@ -191,7 +202,7 @@ function hideSeriesHoverCard(): void {
     </div>
   </Teleport>
 
-  <SidebarSettingsDialog :is-open="isMenuOpen" @close="closeMenu" />
+  <SidebarSettingsDialog :is-open="isMenuOpen" :initial-section="settingsInitialSection" @close="closeMenu" />
   <PacsBrowserDialog :is-open="isPacsBrowserOpen" :loaded-series-list="seriesList" @close="closePacsBrowser" @series-loaded="emit('pacsSeriesLoaded', $event)" />
 </template>
 

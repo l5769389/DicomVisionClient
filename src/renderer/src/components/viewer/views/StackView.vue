@@ -44,7 +44,7 @@ const emit = defineEmits<{
   copySelectedMtf: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
   clearMtf: []
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   imageLoaded: [viewportKey: string]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
@@ -331,6 +331,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
 .stack-slice-slider::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
+  margin-left: -6px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, white 12%);
   border-radius: 999px;
   appearance: none;

@@ -36,8 +36,9 @@ import {
   type MprDefaultLayoutKey
 } from '../../composables/workspace/layout/mprLayoutOptions'
 
-defineProps<{
+const props = defineProps<{
   isOpen: boolean
+  initialSection?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -319,13 +320,16 @@ function createDefaultMeasurementStylePreference() {
     completedColor: '#55e7ff',
     lineWidth: 2.5,
     editingLineStyle: 'dash' as MeasurementLineStyle,
-    completedLineStyle: 'solid' as MeasurementLineStyle
+    completedLineStyle: 'solid' as MeasurementLineStyle,
+    annotationColor: '#ffd166',
+    annotationSize: 'md' as const
   }
 }
 
 function createDefaultDrawingScopePreference() {
   return {
     measurement: 'image' as DrawingScope,
+    annotation: 'image' as DrawingScope,
     qaWater: 'image' as DrawingScope,
     mtf: 'image' as DrawingScope
   }
@@ -524,7 +528,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'displayCrosshair' as const, title: copy.value.crosshairTitle, subtitle: isZh.value ? 'MPR 十字线' : 'MPR crosshair', icon: 'crosshair' },
   { key: 'displayCornerInfo' as const, title: isZh.value ? '四角信息' : 'Corner Info', subtitle: isZh.value ? '视口角标内容' : 'Viewport corner tags', icon: 'tag' },
   { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
-  { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '测量线样式' : 'Measurement style', icon: 'measure-line' },
+  { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '线条、标注、范围' : 'Lines, labels, scope', icon: 'measure-line' },
   { key: 'displaySegmentation' as const, title: isZh.value ? '分割样式' : 'Segmentation Style', subtitle: isZh.value ? '默认分割与 VOI 颜色' : 'Default segmentation and VOI colors', icon: 'segmentation-threshold' },
   { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
   { key: 'hangingProtocol' as const, title: isZh.value ? '挂片协议' : 'Hanging Protocol', subtitle: isZh.value ? '自动布局规则' : 'Layout rules', icon: 'layout' },
@@ -533,6 +537,21 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'deidentifyExport' as const, title: isZh.value ? '脱敏导出' : 'De-identify Export', subtitle: isZh.value ? '匿名字段规则' : 'Anonymization rules', icon: 'shield' },
   { key: 'qa' as const, title: copy.value.qaSection, subtitle: isZh.value ? '质控指标' : 'Quality metrics', icon: 'qa' }
 ])
+
+function isSettingsSection(value: string | null | undefined): value is SettingsSection {
+  return Boolean(value && sections.value.some((section) => section.key === value))
+}
+
+watch(
+  () => [props.isOpen, props.initialSection] as const,
+  ([isOpen, initialSection]) => {
+    if (isOpen && isSettingsSection(initialSection)) {
+      activeSection.value = initialSection
+    }
+  },
+  { immediate: true }
+)
+
 const navigationGroups = computed<SettingsNavGroup[]>(() => {
   const getSection = (key: SettingsSection): SettingsNavItem => (
     sections.value.find((section) => section.key === key) ?? sections.value[0]!
@@ -675,6 +694,11 @@ const drawingScopeRows = computed(() => [
     detail: isZh.value ? '线段、矩形、椭圆、角度等测量绘制' : 'Line, rectangle, ellipse, angle and other measurements'
   },
   {
+    key: 'annotation' as const,
+    title: isZh.value ? '标注' : 'Annotation',
+    detail: isZh.value ? '箭头和文字标注' : 'Arrow and text annotations'
+  },
+  {
     key: 'qaWater' as const,
     title: isZh.value ? '水模 QA' : 'Water QA',
     detail: isZh.value ? '水模 ROI 与质控结果' : 'Water phantom ROI and QA results'
@@ -684,6 +708,11 @@ const drawingScopeRows = computed(() => [
     title: 'MTF',
     detail: isZh.value ? 'MTF ROI 与曲线分析' : 'MTF ROI and curve analysis'
   }
+])
+const annotationSizeOptions = computed(() => [
+  { value: 'sm' as const, label: isZh.value ? '小' : 'Small' },
+  { value: 'md' as const, label: isZh.value ? '中' : 'Medium' },
+  { value: 'lg' as const, label: isZh.value ? '大' : 'Large' }
 ])
 const dicomTagDisplayModeOptions = computed<Array<{ value: DicomTagDisplayMode; title: string; description: string; badge: string }>>(() => [
   {
@@ -1055,8 +1084,6 @@ function updateDrawingScopePreference(key: keyof ReturnType<typeof createDefault
     [key]: scope
   })
 }
-
-function applySettingsSectionChanges(): void {}
 
 function resetCornerInfoStylePreference(): void {
   const defaultPreference = createDefaultViewportCornerInfoPreference()
@@ -2157,7 +2184,6 @@ onBeforeUnmount(() => {
               </div>
               <div class="hidden items-center gap-2 md:flex">
                 <button type="button" class="theme-button-secondary rounded-2xl border px-4 py-2 text-sm font-medium transition hover:brightness-110" @click="resetCurrentSection">{{ copy.reset }}</button>
-                <button type="button" class="theme-button-primary rounded-2xl border px-4 py-2 text-sm font-semibold transition hover:brightness-110">{{ copy.applyDraft }}</button>
               </div>
             </div>
 
@@ -2935,7 +2961,6 @@ onBeforeUnmount(() => {
                           </div>
                           <div class="corner-info-section-actions">
                             <button type="button" class="theme-button-secondary rounded-2xl border px-3 py-1.5 text-xs font-medium transition hover:brightness-110" @click="resetCornerInfoStylePreference">{{ copy.reset }}</button>
-                            <button type="button" class="theme-button-primary rounded-2xl border px-3 py-1.5 text-xs font-semibold transition hover:brightness-110" @click="applySettingsSectionChanges">{{ copy.applyDraft }}</button>
                           </div>
                         </div>
 
@@ -3102,7 +3127,6 @@ onBeforeUnmount(() => {
                           </div>
                           <div class="corner-info-section-actions">
                             <button type="button" class="theme-button-secondary rounded-2xl border px-3 py-1.5 text-xs font-medium transition hover:brightness-110" @click="resetCornerInfoItemsPreference">{{ copy.reset }}</button>
-                            <button type="button" class="theme-button-primary rounded-2xl border px-3 py-1.5 text-xs font-semibold transition hover:brightness-110" @click="applySettingsSectionChanges">{{ copy.applyDraft }}</button>
                           </div>
                         </div>
 
@@ -3456,6 +3480,15 @@ onBeforeUnmount(() => {
                         </div>
                       </div>
 
+                      <section class="rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                        <div class="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '测量' : 'Measurement' }}</div>
+                            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '设置测量线条颜色、线宽、线型和预览。' : 'Configure measurement colors, line width, line style, and preview.' }}</div>
+                          </div>
+                          <AppIcon name="measure-line" :size="18" class="text-[var(--theme-text-muted)]" />
+                        </div>
+
                       <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.75fr)]">
                         <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
                           <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ copy.measurementEditingColor }}</div>
@@ -3570,13 +3603,73 @@ onBeforeUnmount(() => {
                           </svg>
                         </div>
                       </div>
+                      </section>
 
-                      <div class="mt-4 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                      <section class="mt-4 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
+                        <div class="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '标注' : 'Annotation' }}</div>
+                            <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '设置箭头标注的颜色、尺寸和预览。' : 'Configure arrow annotation color, size, and preview.' }}</div>
+                          </div>
+                          <AppIcon name="annotate" :size="18" class="text-[var(--theme-text-muted)]" />
+                        </div>
+
+                      <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.75fr)]">
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '标注颜色' : 'Annotation Color' }}</div>
+                          <div class="flex items-center gap-3">
+                            <input v-model="measurementStylePreference.annotationColor" type="color" class="h-10 w-12 cursor-pointer rounded-xl border border-[var(--theme-border-soft)] bg-transparent" />
+                            <div class="min-w-0 text-sm font-medium text-[var(--theme-text-primary)]">{{ measurementStylePreference.annotationColor }}</div>
+                          </div>
+                          <div class="mt-3 grid grid-cols-6 gap-2">
+                            <button
+                              v-for="preset in measurementColorPresets"
+                              :key="`annotation-${preset.value}`"
+                              type="button"
+                              class="flex aspect-square min-h-8 items-center justify-center rounded-full border transition duration-150"
+                              :class="measurementStylePreference.annotationColor.toLowerCase() === preset.value.toLowerCase() ? 'border-[var(--theme-border-strong)] ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] hover:border-[var(--theme-border-strong)]'"
+                              :style="{ backgroundColor: preset.value }"
+                              :title="preset.label"
+                              @click="measurementStylePreference.annotationColor = preset.value"
+                            >
+                              <span
+                                v-if="measurementStylePreference.annotationColor.toLowerCase() === preset.value.toLowerCase()"
+                                class="h-2.5 w-2.5 rounded-full border border-black/20 bg-white/80"
+                              ></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] p-4">
+                          <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '标注尺寸' : 'Annotation Size' }}</div>
+                          <div class="grid grid-cols-3 gap-2">
+                            <button
+                              v-for="option in annotationSizeOptions"
+                              :key="option.value"
+                              type="button"
+                              class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
+                              :class="measurementStylePreference.annotationSize === option.value ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                              @click="measurementStylePreference.annotationSize = option.value"
+                            >
+                              {{ option.label }}
+                            </button>
+                          </div>
+                          <div class="mt-4 rounded-[14px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-3">
+                            <svg class="h-16 w-full" viewBox="0 0 260 60" aria-hidden="true">
+                              <line x1="24" y1="42" x2="210" y2="16" :stroke="measurementStylePreference.annotationColor" :stroke-width="measurementStylePreference.annotationSize === 'lg' ? 4 : measurementStylePreference.annotationSize === 'sm' ? 2 : 3" stroke-linecap="round" />
+                              <polygon :points="'210,16 196,12 200,26'" :fill="measurementStylePreference.annotationColor" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      </section>
+
+                      <section class="mt-4 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
                         <div class="mb-3 flex flex-col gap-1">
                           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '绘制作用范围' : 'Drawing Scope' }}</div>
-                          <div class="text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '控制新建测量、水模和 MTF 绘制显示在当前影像还是整个 series。' : 'Control whether new measurement, water QA and MTF drawings apply to the current image or the whole series.' }}</div>
+                          <div class="text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '控制新建测量、标注、水模和 MTF 绘制显示在当前影像还是整个 series。' : 'Control whether new measurement, annotation, water QA and MTF drawings apply to the current image or the whole series.' }}</div>
                         </div>
-                        <div class="grid gap-3 lg:grid-cols-3">
+                        <div class="grid gap-3 lg:grid-cols-4">
                           <div
                             v-for="row in drawingScopeRows"
                             :key="row.key"
@@ -3606,7 +3699,7 @@ onBeforeUnmount(() => {
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </section>
                     </div>
 
                     <div v-if="activeSection === 'displaySegmentation'" class="theme-card-soft rounded-[24px] p-4">
@@ -3749,7 +3842,6 @@ onBeforeUnmount(() => {
         <div class="relative flex justify-end border-t border-[var(--theme-border-soft)] px-6 py-4 md:hidden">
           <div class="flex items-center gap-2">
             <button type="button" class="theme-button-secondary rounded-2xl px-4 py-2 text-sm font-medium" @click="resetCurrentSection">{{ copy.reset }}</button>
-            <button type="button" class="theme-button-primary rounded-2xl px-4 py-2 text-sm font-semibold">{{ copy.applyDraft }}</button>
           </div>
         </div>
       </div>

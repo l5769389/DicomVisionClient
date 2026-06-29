@@ -30,6 +30,8 @@ const settingsState = vi.hoisted(() => ({
   measurementStylePreference: {
     completedColor: '#55e7ff',
     completedLineStyle: 'solid',
+    annotationColor: '#ffd166',
+    annotationSize: 'md',
     editingColor: '#ffb84d',
     editingLineStyle: 'dash',
     lineWidth: 2.5
@@ -313,6 +315,8 @@ beforeEach(() => {
   settingsState.measurementStylePreference = {
     completedColor: '#55e7ff',
     completedLineStyle: 'solid',
+    annotationColor: '#ffd166',
+    annotationSize: 'md',
     editingColor: '#ffb84d',
     editingLineStyle: 'dash',
     lineWidth: 2.5
@@ -512,6 +516,8 @@ describe('MobileSettingsOverlay', () => {
     expect(settingsState.measurementStylePreference).toEqual({
       completedColor: '#ef4444',
       completedLineStyle: 'dash',
+      annotationColor: '#ffd166',
+      annotationSize: 'md',
       editingColor: '#55e7ff',
       editingLineStyle: 'solid',
       lineWidth: 4

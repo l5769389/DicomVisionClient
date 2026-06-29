@@ -132,6 +132,7 @@ const closeWindowLabel = computed(() => (isZh.value ? '关闭' : 'Close'))
 const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Close notification'))
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
+const sidebarPanelRef = ref<{ openSettings?: (sectionKey?: string | null) => void } | null>(null)
 const sidebarResizePreviewWidth = ref<number | null>(null)
 const isSidebarResizing = ref(false)
 let activeSidebarResizeLayout: HTMLElement | null = null
@@ -209,6 +210,10 @@ function startSidebarResize(event: PointerEvent): void {
   window.addEventListener('pointermove', handleSidebarResizeMove)
   window.addEventListener('pointerup', handleSidebarResizeEnd)
   window.addEventListener('pointercancel', handleSidebarResizeCancel)
+}
+
+function openSidebarSettings(sectionKey?: string): void {
+  sidebarPanelRef.value?.openSettings?.(sectionKey ?? null)
 }
 const dicomDropPreviewEyebrow = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
@@ -536,6 +541,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
         :style="appMainLayoutStyle"
       >
         <SidebarPanel
+          ref="sidebarPanelRef"
           :viewer-folder-source-mode="viewer.viewerFolderSourceMode"
           :viewer-platform="viewer.viewerPlatform"
           :connection-state="viewer.connectionState.value"
@@ -557,7 +563,6 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @toggle-sidebar="viewer.toggleSidebar"
         />
         <div
-          v-if="!viewer.isSidebarCollapsed.value"
           class="app-sidebar-resize-handle"
           aria-hidden="true"
           @pointerdown="startSidebarResize"
@@ -610,6 +615,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @viewport-layout-change="viewer.handleViewportLayoutChange"
           @viewport-wheel="viewer.handleViewportWheel"
           @workspace-ready="viewer.setViewerStage"
+          @open-settings="openSidebarSettings"
         />
       </div>
       <footer v-if="shouldShowIcpFooter" class="app-icp-footer">
@@ -690,20 +696,29 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   -webkit-app-region: no-drag;
 }
 
+.app-main-layout[data-sidebar-collapsed="true"] .app-sidebar-resize-handle {
+  left: 80px;
+}
+
 .app-sidebar-resize-handle::before {
   position: absolute;
   top: 10px;
   bottom: 10px;
   left: 4px;
   width: 1px;
-  border-left: 1px solid transparent;
+  border-left: 2px solid color-mix(in srgb, var(--theme-accent) 44%, var(--theme-border-strong));
   content: "";
-  transition: border-color 150ms ease;
+  opacity: 0.86;
+  transition:
+    border-color 150ms ease,
+    opacity 150ms ease;
 }
 
 .app-sidebar-resize-handle:hover::before,
 .app-main-layout[data-sidebar-resizing="true"] .app-sidebar-resize-handle::before {
-  border-left-color: color-mix(in srgb, var(--theme-accent) 50%, transparent);
+  border-left-style: dashed;
+  border-left-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
+  opacity: 1;
 }
 
 .app-sidebar-resize-preview {

@@ -64,7 +64,7 @@ const emit = defineEmits<{
   copySelectedMtf: [viewportKey: string]
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   deleteSelectedAnnotation: [viewportKey: string]
-  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null }]
+  hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   measurementCreate: [payload: { viewportKey: string; toolType: MeasurementToolType; points: MeasurementDraftPoint[]; measurementId?: string; labelLines?: string[] }]
   measurementDelete: [payload: { viewportKey: string; measurementId: string }]
   mtfCommit: [payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }]

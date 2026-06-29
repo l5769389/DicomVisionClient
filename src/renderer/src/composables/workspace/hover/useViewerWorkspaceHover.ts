@@ -79,7 +79,7 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     return resolveViewIdForTabViewport(tab, viewportKey)
   }
 
-  function handleHoverViewportChange(payload: { viewportKey: string; x: number | null; y: number | null }): void {
+  function handleHoverViewportChange(payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }): void {
     const tab = options.activeTab.value
     if (!tab || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
       return
@@ -100,6 +100,13 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     }
 
     hoveredViewIds.add(viewId)
+    if (payload.row != null && payload.col != null) {
+      lastHoverPixelsByViewId.set(viewId, {
+        row: payload.row,
+        col: payload.col
+      })
+      options.updateHoverCornerInfoByViewId(viewId, payload.row, payload.col)
+    }
     emitThrottledViewHover({
       viewId,
       x: payload.x,

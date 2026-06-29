@@ -152,6 +152,7 @@ function buildRenderedAnnotation(
 
 const renderedAnnotations = computed(() =>
   props.annotations
+    .filter((annotation) => annotation.annotationId !== props.draftAnnotation?.annotationId)
     .map((annotation) => buildRenderedAnnotation(annotation, annotation.annotationId, false))
     .filter((annotation): annotation is RenderedAnnotation => annotation != null)
 )
@@ -162,9 +163,12 @@ const renderedDraftAnnotation = computed(() =>
     : null
 )
 
-const selectedAnnotation = computed(
-  () => renderedAnnotations.value.find((annotation) => annotation.annotationId === props.selectedAnnotationId) ?? null
-)
+const selectedAnnotation = computed(() => {
+  if (renderedDraftAnnotation.value?.annotationId === props.selectedAnnotationId) {
+    return renderedDraftAnnotation.value
+  }
+  return renderedAnnotations.value.find((annotation) => annotation.annotationId === props.selectedAnnotationId) ?? null
+})
 
 watch(
   () => props.selectedAnnotationId,

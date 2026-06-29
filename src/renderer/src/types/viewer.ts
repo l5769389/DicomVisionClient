@@ -142,6 +142,8 @@ export interface AnnotationDraft {
   text: string
   color: string
   size: AnnotationSize
+  scope?: DrawingScope
+  sliceIndex?: number | null
 }
 
 export interface AnnotationOverlay {
@@ -151,6 +153,8 @@ export interface AnnotationOverlay {
   text: string
   color: string
   size: AnnotationSize
+  scope?: DrawingScope
+  sliceIndex?: number | null
 }
 
 export interface MprMipViewportConfig {

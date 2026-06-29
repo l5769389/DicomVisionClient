@@ -14,6 +14,7 @@ import {
   useUiPreferences,
   type AppLocale,
   type CrosshairViewportPreference,
+  type DrawingScopePreference,
   type ExportPreference,
   type MeasurementLineStyle,
   type MeasurementStylePreference,
@@ -156,6 +157,16 @@ interface MobileDefaultToolOption<T extends string> {
 type PacsTestResult = { ok: boolean; message: string }
 
 const isZh = computed(() => locale.value === 'zh-CN')
+const defaultDrawingScopePreference: DrawingScopePreference = {
+  measurement: 'image',
+  annotation: 'image',
+  qaWater: 'image',
+  mtf: 'image'
+}
+const safeDrawingScopePreference = computed<DrawingScopePreference>(() => ({
+  ...defaultDrawingScopePreference,
+  ...(drawingScopePreference?.value ?? {})
+}))
 const activePanel = ref<MobileSettingsPanelKey | null>(null)
 const draftPacsProfile = ref<PacsDicomwebProfile | null>(null)
 const editingPacsProfileId = ref<string | null>(null)
@@ -509,9 +520,9 @@ function updateMeasurementStylePreference(patch: Partial<MeasurementStylePrefere
   setMeasurementStylePreference({ ...measurementStylePreference.value, ...patch })
 }
 
-function updateDrawingScopePreference(key: keyof typeof drawingScopePreference.value, scope: DrawingScope): void {
+function updateDrawingScopePreference(key: keyof DrawingScopePreference, scope: DrawingScope): void {
   setDrawingScopePreference({
-    ...drawingScopePreference.value,
+    ...safeDrawingScopePreference.value,
     [key]: scope
   })
 }
@@ -1329,7 +1340,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
                 <div class="mobile-settings__mini-segmented">
                   <button
                     type="button"
-                    :class="{ active: drawingScopePreference[row.key] === 'image' }"
+                    :class="{ active: safeDrawingScopePreference[row.key] === 'image' }"
                     data-testid="mobile-settings-drawing-scope-image"
                     @click="updateDrawingScopePreference(row.key, 'image')"
                   >
@@ -1337,7 +1348,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
                   </button>
                   <button
                     type="button"
-                    :class="{ active: drawingScopePreference[row.key] === 'series' }"
+                    :class="{ active: safeDrawingScopePreference[row.key] === 'series' }"
                     data-testid="mobile-settings-drawing-scope-series"
                     @click="updateDrawingScopePreference(row.key, 'series')"
                   >

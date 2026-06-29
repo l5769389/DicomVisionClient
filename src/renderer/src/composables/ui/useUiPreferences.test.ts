@@ -139,13 +139,14 @@ describe('useUiPreferences', () => {
     })
     expect(preferences.drawingScopePreference.value).toEqual({
       measurement: 'image',
+      annotation: 'image',
       qaWater: 'image',
       mtf: 'image'
     })
     expect(preferences.workspaceDockPreference.value).toEqual({
       leftWidth: 320,
       leftCollapsed: false,
-      rightToolbarWidth: 260,
+      rightToolbarWidth: 224,
       rightToolbarCollapsed: false,
       rightResultWidth: 344,
       rightResultCollapsed: false
@@ -191,6 +192,7 @@ describe('useUiPreferences', () => {
     })
     preferences.setDrawingScopePreference({
       measurement: 'series',
+      annotation: 'series',
       qaWater: 'image',
       mtf: 'series'
     })
@@ -258,6 +260,7 @@ describe('useUiPreferences', () => {
     })
     expect(saved.drawingScopePreference).toEqual({
       measurement: 'series',
+      annotation: 'series',
       qaWater: 'image',
       mtf: 'series'
     })

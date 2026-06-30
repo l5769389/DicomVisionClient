@@ -613,7 +613,7 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
       {
         viewId: 'stack-view',
         imageFormat: 'png',
-        renderIntent: 'geometry-preview',
+        metadataMode: 'stack-zoom-preview',
         measurements: nextMeasurements,
         annotations: nextAnnotations,
         transform: nextTransform

@@ -519,7 +519,7 @@ const qaWaterAnalysisKey = computed(() => {
     drawingScopePreference.value.qaWater,
     tab.key,
     tab.viewId,
-    drawingScopePreference.value.qaWater === 'image' ? tab.imageSrc : 'series',
+    tab.imageSrc,
     qaWaterMetrics.value.map((metric) => `${metric.key}:${metric.enabled ? '1' : '0'}`).join(',')
   ].join('|')
 })
@@ -2321,6 +2321,9 @@ watch(
       handleToolbarViewAction({ action: 'clearMeasurements' })
     }
     if (value.annotation !== previousValue.annotation) {
+      pendingDeletedAnnotationIds.value = {}
+      clearDraftAnnotations()
+      annotationInteraction.value = { kind: 'idle' }
       handleToolbarViewAction({ action: 'clearAnnotations' })
     }
     if (value.mtf !== previousValue.mtf) {

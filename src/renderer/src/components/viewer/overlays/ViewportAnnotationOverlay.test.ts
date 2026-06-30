@@ -24,12 +24,13 @@ const imageFrame = {
   naturalHeight: 100
 }
 
-function mountOverlay() {
+function mountOverlay(props: Partial<InstanceType<typeof ViewportAnnotationOverlay>['$props']> = {}) {
   return mount(ViewportAnnotationOverlay, {
     props: {
       annotations: [annotation],
       selectedAnnotationId: annotation.annotationId,
-      imageFrame
+      imageFrame,
+      ...props
     },
     global: {
       stubs: {
@@ -57,6 +58,41 @@ describe('ViewportAnnotationOverlay', () => {
 
     expect(line.attributes('stroke-width')).toBe('2.5')
     expect(wrapper.find('circle').attributes('r')).toBe('4')
+    wrapper.unmount()
+  })
+
+  it('shows the annotation editor while a new annotation is active', async () => {
+    const draftAnnotation: AnnotationOverlay = {
+      ...annotation,
+      annotationId: 'draft-annotation',
+      text: ''
+    }
+    const wrapper = mountOverlay({
+      annotations: [],
+      selectedAnnotationId: draftAnnotation.annotationId,
+      draftAnnotation
+    })
+
+    const input = wrapper.find('input')
+    expect(input.exists()).toBe(true)
+    expect(wrapper.find('[data-annotation-ui-root]').exists()).toBe(true)
+    expect(wrapper.findAll('button')).toHaveLength(1)
+
+    await input.setValue('Finding')
+
+    expect(wrapper.emitted('updateAnnotationText')?.[0]).toEqual([
+      { annotationId: draftAnnotation.annotationId, text: 'Finding' }
+    ])
+    wrapper.unmount()
+  })
+
+  it('keeps actions available when editing an existing annotation through the draft layer', () => {
+    const wrapper = mountOverlay({
+      draftAnnotation: annotation
+    })
+
+    expect(wrapper.find('input').exists()).toBe(true)
+    expect(wrapper.findAll('button')).toHaveLength(3)
     wrapper.unmount()
   })
 })

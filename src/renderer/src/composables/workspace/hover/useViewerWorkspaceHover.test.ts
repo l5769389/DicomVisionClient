@@ -100,10 +100,23 @@ describe('useViewerWorkspaceHover corner info', () => {
     expect(emitHover).toHaveBeenCalledWith({ viewId: 'view-1', x: 0.1, y: 0.2 })
   })
 
-  it('keeps the last in-range hover coordinate when the backend returns an out-of-range pixel', () => {
+  it('ignores locally estimated hover pixels and waits for backend mapped coordinates', () => {
     const { hover, updateHoverCornerInfoByViewId } = createInteractiveHoverHelpers()
 
-    hover.handleHoverViewportChange({ viewportKey: 'single', x: 0.1, y: 0.2, row: 12, col: 34 })
+    hover.handleHoverViewportChange({ viewportKey: 'single', x: 0.1, y: 0.2, row: 999, col: 999 })
+
+    expect(updateHoverCornerInfoByViewId).not.toHaveBeenCalled()
+
+    hover.handleHoverInfo({ viewId: 'view-1', row: 12, col: 34 })
+
+    expect(updateHoverCornerInfoByViewId).toHaveBeenLastCalledWith('view-1', 12, 34)
+  })
+
+  it('keeps the last backend in-range hover coordinate when the backend returns out of range', () => {
+    const { hover, updateHoverCornerInfoByViewId } = createInteractiveHoverHelpers()
+
+    hover.handleHoverViewportChange({ viewportKey: 'single', x: 0.1, y: 0.2 })
+    hover.handleHoverInfo({ viewId: 'view-1', row: 12, col: 34 })
     hover.handleHoverInfo({ viewId: 'view-1', row: 0, col: 0 })
 
     expect(updateHoverCornerInfoByViewId).toHaveBeenLastCalledWith('view-1', 12, 34)
@@ -112,7 +125,8 @@ describe('useViewerWorkspaceHover corner info', () => {
   it('keeps the last in-range hover coordinate after the pointer leaves the image area', () => {
     const { hover, updateHoverCornerInfoByViewId } = createInteractiveHoverHelpers()
 
-    hover.handleHoverViewportChange({ viewportKey: 'single', x: 0.1, y: 0.2, row: 7, col: 9 })
+    hover.handleHoverViewportChange({ viewportKey: 'single', x: 0.1, y: 0.2 })
+    hover.handleHoverInfo({ viewId: 'view-1', row: 7, col: 9 })
     hover.handleHoverViewportChange({ viewportKey: 'single', x: null, y: null })
 
     expect(updateHoverCornerInfoByViewId).toHaveBeenLastCalledWith('view-1', 7, 9)

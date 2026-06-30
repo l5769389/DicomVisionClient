@@ -114,6 +114,25 @@ describe('QaWaterResultPanelContent', () => {
     wrapper.unmount()
   })
 
+  it('localizes generic automatic QA failure messages', () => {
+    useUiPreferences().setLocale('zh-CN')
+    const wrapper = mount(QaWaterResultPanelContent, {
+      props: {
+        analysis: {
+          viewId: 'view-1',
+          viewportKey: 'single',
+          status: 'error',
+          rois: [],
+          message: 'Water phantom QA analysis failed.'
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('水模 QA 分析失败')
+    expect(wrapper.text()).not.toContain('Water phantom QA analysis failed.')
+    wrapper.unmount()
+  })
+
   it('keeps the same report container mounted while analysis state updates', async () => {
     const wrapper = mount(QaWaterResultPanelContent, {
       props: { analysis: readyAnalysis }

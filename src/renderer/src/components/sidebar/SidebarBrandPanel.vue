@@ -57,15 +57,62 @@ const { t } = useUiLocale()
 
 .sidebar-brand-card--compact {
   display: flex;
-  width: 62px;
+  width: 52px;
   justify-content: center;
-  border-radius: 20px;
-  padding: 4px;
+  border-radius: 18px;
+  padding: 3px;
 }
 
 .sidebar-brand-card--compact .sidebar-brand-content {
   justify-content: center;
   gap: 0;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px 9px 14px 9px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark::before {
+  inset: 7px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark::after {
+  width: 25px;
+  height: 25px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark__frame {
+  inset: 4px;
+  background:
+    linear-gradient(currentColor, currentColor) left 7px top 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) left 7px top 7px / 1.5px 9px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px top 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px top 7px / 1.5px 9px no-repeat,
+    linear-gradient(currentColor, currentColor) left 7px bottom 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) left 7px bottom 7px / 1.5px 9px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px bottom 7px / 9px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) right 7px bottom 7px / 1.5px 9px no-repeat;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark__slice {
+  left: 10px;
+  right: 10px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark__slice--top {
+  top: 17px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark__slice--bottom {
+  bottom: 17px;
+}
+
+.sidebar-brand-card--compact .sidebar-brand-mark__letters {
+  width: 26px;
+  height: 19px;
+  font-size: 14px;
 }
 
 .sidebar-brand-card__shine {

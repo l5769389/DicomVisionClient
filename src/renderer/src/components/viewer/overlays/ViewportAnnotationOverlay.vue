@@ -163,12 +163,19 @@ const renderedDraftAnnotation = computed(() =>
     : null
 )
 
-const selectedAnnotation = computed(() => {
-  if (renderedDraftAnnotation.value?.annotationId === props.selectedAnnotationId) {
-    return renderedDraftAnnotation.value
+const committedAnnotationIds = computed(() => new Set(props.annotations.map((annotation) => annotation.annotationId)))
+
+const renderedEditableAnnotations = computed(() => {
+  const annotations = [...renderedAnnotations.value]
+  if (renderedDraftAnnotation.value) {
+    annotations.push(renderedDraftAnnotation.value)
   }
-  return renderedAnnotations.value.find((annotation) => annotation.annotationId === props.selectedAnnotationId) ?? null
+  return annotations
 })
+
+function hasCommittedAnnotation(annotation: RenderedAnnotation): boolean {
+  return !annotation.isDraft || committedAnnotationIds.value.has(annotation.annotationId)
+}
 
 watch(
   () => props.selectedAnnotationId,
@@ -237,7 +244,7 @@ watch(
     </svg>
 
     <div
-      v-for="annotation in renderedAnnotations"
+      v-for="annotation in renderedEditableAnnotations"
       :key="`${annotation.annotationId}-label`"
       v-show="annotation.labelStyle && (props.selectedAnnotationId === annotation.annotationId || annotation.text.trim())"
       class="absolute z-[5] max-w-[240px]"
@@ -266,6 +273,7 @@ watch(
           <AppIcon name="chevron-down" :size="14" />
         </button>
         <button
+          v-if="hasCommittedAnnotation(annotation)"
           type="button"
           class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12"
           @click.stop="emit('copyAnnotation', annotation.annotationId)"
@@ -273,6 +281,7 @@ watch(
           <AppIcon name="copy" :size="14" />
         </button>
         <button
+          v-if="hasCommittedAnnotation(annotation)"
           type="button"
           class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/18 bg-red-400/10 text-red-100 transition hover:bg-red-400/18"
           @click.stop="emit('deleteAnnotation', annotation.annotationId)"
@@ -322,15 +331,5 @@ watch(
       </div>
     </div>
 
-    <div
-      v-if="renderedDraftAnnotation?.labelStyle && renderedDraftAnnotation.text.trim()"
-      class="absolute z-[5] rounded-lg border border-white/10 bg-[rgba(7,14,24,0.82)] px-2 py-1 text-slate-400 shadow-[0_10px_24px_rgba(0,0,0,0.22)]"
-      :style="{
-        ...(renderedDraftAnnotation.labelStyle ?? {}),
-        fontSize: `${renderedDraftAnnotation.fontSize}px`
-      }"
-    >
-      {{ renderedDraftAnnotation.text }}
-    </div>
   </div>
 </template>

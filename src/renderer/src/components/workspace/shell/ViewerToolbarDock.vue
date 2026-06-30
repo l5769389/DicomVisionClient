@@ -559,23 +559,23 @@ watch(
 
 @container (max-width: 220px) {
   .viewer-toolbar-dock__tools-region {
-    max-height: min(420px, 58vh);
-    padding: 6px;
+    max-height: min(480px, 64vh);
+    padding: 5px;
   }
 
   .viewer-toolbar-dock__tools {
-    grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(30px, 1fr));
     gap: 4px;
   }
 
   .viewer-toolbar-dock__tool-group {
-    width: clamp(34px, 100%, 38px);
+    width: clamp(30px, 100%, 36px);
     border-radius: 10px;
   }
 
   .viewer-toolbar-dock__button {
-    min-width: 32px;
-    height: 34px;
+    min-width: 30px;
+    height: 32px;
     border-radius: 10px;
   }
 }

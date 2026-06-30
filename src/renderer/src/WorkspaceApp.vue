@@ -206,7 +206,7 @@ function startSidebarResize(event: PointerEvent): void {
   event.preventDefault()
   activeSidebarResizeLayout = layout
   isSidebarResizing.value = true
-  sidebarResizePreviewWidth.value = viewer.isSidebarCollapsed.value ? 72 : workspaceDockPreference.value.leftWidth
+  sidebarResizePreviewWidth.value = viewer.isSidebarCollapsed.value ? 64 : workspaceDockPreference.value.leftWidth
   window.addEventListener('pointermove', handleSidebarResizeMove)
   window.addEventListener('pointerup', handleSidebarResizeEnd)
   window.addEventListener('pointercancel', handleSidebarResizeCancel)
@@ -681,7 +681,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 }
 
 .app-main-layout[data-sidebar-collapsed="true"] {
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .app-sidebar-resize-handle {
@@ -697,7 +697,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 }
 
 .app-main-layout[data-sidebar-collapsed="true"] .app-sidebar-resize-handle {
-  left: 80px;
+  left: 72px;
 }
 
 .app-sidebar-resize-handle::before {

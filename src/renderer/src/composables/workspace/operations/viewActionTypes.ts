@@ -1,12 +1,13 @@
 import type { DragActionType } from '@shared/viewerConstants'
 import type { MprCrosshairMode, MprMipConfig, MprSegmentationConfig, MprSegmentationConfigActionType } from '../../../types/viewer'
 
-export type ViewerDisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar' | 'sliceSlider'
+export type ViewerDisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar' | 'sliceSlider' | 'crosshair'
 export type ViewerTransformResetScope = 'all' | 'pan' | 'zoom'
 
 export type ViewerToolbarAction =
   | 'reset'
   | 'transformReset'
+  | 'transformZoomPreset'
   | 'clearMeasurements'
   | 'clearMtf'
   | 'clearAnnotations'
@@ -30,6 +31,8 @@ export type ViewerToolbarAction =
   | 'petUnit'
   | 'petWindow'
   | 'petDisplayReset'
+  | 'mprCrosshairReset'
+  | 'rotate3dReset'
   | 'displayOverlay'
 
 export interface ViewerToolbarActionPayload {
@@ -38,6 +41,7 @@ export interface ViewerToolbarActionPayload {
   enabled?: boolean
   overlay?: ViewerDisplayOverlayKey
   transformScope?: ViewerTransformResetScope
+  transformZoom?: number
   value?: string
   config?: MprMipConfig
   segmentationConfig?: MprSegmentationConfig

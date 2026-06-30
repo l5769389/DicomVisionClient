@@ -1053,9 +1053,6 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
                 WebP
               </button>
             </div>
-            <p class="mobile-settings__hint">
-              {{ isZh ? 'WebP 使用无损编码，仅影响视口影像传输。' : 'WebP is lossless and only affects viewport image transport.' }}
-            </p>
           </div>
         </section>
 

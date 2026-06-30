@@ -344,9 +344,7 @@ describe('ViewerCanvasStage layout metrics', () => {
         {
           viewportKey: 'single',
           x: 100 / 300,
-          y: 0.25,
-          row: 51,
-          col: 51
+          y: 0.25
         }
       ]
     ])
@@ -354,7 +352,7 @@ describe('ViewerCanvasStage layout metrics', () => {
     wrapper.unmount()
   })
 
-  it('clamps hover pixel coordinates to the DICOM image bounds', async () => {
+  it('emits only canvas-normalized hover coordinates near the image edge', async () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
       function (this: HTMLElement) {
         return {
@@ -384,9 +382,7 @@ describe('ViewerCanvasStage layout metrics', () => {
         {
           viewportKey: 'single',
           x: 250 / 300,
-          y: 1,
-          row: 200,
-          col: 200
+          y: 1
         }
       ]
     ])

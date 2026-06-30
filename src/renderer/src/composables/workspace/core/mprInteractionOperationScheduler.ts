@@ -44,6 +44,8 @@ const BACKEND_PREVIEW_EWMA_ALPHA = 0.25
 const DUPLICATE_PREVIEW_FEEDBACK_WINDOW_MS = 2
 const BACKEND_FEEDBACK_IDLE_GAP_MS = 5000
 const FASTEST_VIEW_MOVE_INTERVAL_MS = 16
+const MIN_ZOOM_MOVE_INTERVAL_MS = 24
+const MAX_ZOOM_MOVE_INTERVAL_MS = 48
 const MIN_MPR_SEGMENTATION_MOVE_INTERVAL_MS = 80
 const MAX_MPR_SEGMENTATION_MOVE_INTERVAL_MS = 160
 const FRONTEND_RENDER_MARGIN_MS = 4
@@ -62,6 +64,9 @@ function getOperationQueueKey(operationKey: string, payload: SchedulableViewOper
 }
 
 function getMoveIntervalBounds(opType?: ViewOperationType | null): { min: number; max: number } {
+  if (opType === VIEW_OPERATION_TYPES.zoom) {
+    return { min: MIN_ZOOM_MOVE_INTERVAL_MS, max: MAX_ZOOM_MOVE_INTERVAL_MS }
+  }
   return opType === VIEW_OPERATION_TYPES.mprSegmentation
     ? { min: MIN_MPR_SEGMENTATION_MOVE_INTERVAL_MS, max: MAX_MPR_SEGMENTATION_MOVE_INTERVAL_MS }
     : { min: FASTEST_VIEW_MOVE_INTERVAL_MS, max: Number.POSITIVE_INFINITY }
@@ -80,7 +85,7 @@ function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
 }
 
 function shouldWaitForMatchingFeedback(payload: SchedulableViewOperation): boolean {
-  return MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
+  return payload.opType !== VIEW_OPERATION_TYPES.zoom && MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
 }
 
 function shouldFlushPendingBeforeEnd(payload: SchedulableViewOperation): boolean {

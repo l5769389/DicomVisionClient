@@ -78,6 +78,7 @@ const props = withDefaults(
     renderSurfaceActive?: boolean
     scaleBar?: ScaleBarInfo | null
     showCornerInfo?: boolean
+    showCrosshair?: boolean
     showPseudocolorBar?: boolean
     showScaleBar?: boolean
     softImage?: boolean
@@ -117,6 +118,7 @@ const props = withDefaults(
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
+    showCrosshair: true,
     showPseudocolorBar: true,
     showScaleBar: true,
     softImage: false,
@@ -242,6 +244,7 @@ const hasImageContent = computed(() =>
 
 const shouldShowImageOverlays = computed(() => hasImageContent.value)
 const shouldShowCornerInfo = computed(() => props.showCornerInfo && hasImageContent.value)
+const shouldShowCrosshair = computed(() => props.showCrosshair && hasImageContent.value)
 const shouldShowScaleBar = computed(() => props.showScaleBar && hasImageContent.value)
 const shouldShowPseudocolorBar = computed(() =>
   props.showPseudocolorBar && hasImageContent.value && props.viewportKey !== 'volume' && Boolean(props.pseudocolorPreset)
@@ -325,6 +328,10 @@ function getHoverImageRect(): DOMRect | null {
 }
 
 function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
+  if (event && 'buttons' in event && event.buttons !== 0) {
+    return
+  }
+
   if (!event || !hasImageContent.value) {
     emit('hoverViewportChange', { viewportKey: props.viewportKey, x: null, y: null })
     return
@@ -350,24 +357,11 @@ function emitHoverViewportPoint(event: PointerEvent | MouseEvent | null): void {
 
   const canvasNormalizedX = Math.max(0, Math.min(1, (event.clientX - stageRect.left) / stageRect.width))
   const canvasNormalizedY = Math.max(0, Math.min(1, (event.clientY - stageRect.top) / stageRect.height))
-  const imageNormalizedX = Math.max(0, Math.min(1, (event.clientX - imageRect.left) / imageRect.width))
-  const imageNormalizedY = Math.max(0, Math.min(1, (event.clientY - imageRect.top) / imageRect.height))
-  const naturalWidth = imageRef.value?.naturalWidth || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalWidth ?? 0 : 0)
-  const naturalHeight = imageRef.value?.naturalHeight || (isValidImageFrame(imageFrame.value) ? imageFrame.value.naturalHeight ?? 0 : 0)
   emit('hoverViewportChange', {
     viewportKey: props.viewportKey,
     x: canvasNormalizedX,
-    y: canvasNormalizedY,
-    row: normalizedPixelIndexToOneBased(imageNormalizedY, naturalHeight),
-    col: normalizedPixelIndexToOneBased(imageNormalizedX, naturalWidth)
+    y: canvasNormalizedY
   })
-}
-
-function normalizedPixelIndexToOneBased(normalizedValue: number, size: number): number | null {
-  if (size <= 0) {
-    return null
-  }
-  return Math.min(size, Math.max(1, Math.floor(normalizedValue * size) + 1))
 }
 
 function handlePointerDown(event: PointerEvent): void {
@@ -592,7 +586,7 @@ watch(
         @dragstart.prevent
       />
       <ViewportCrosshairOverlay
-        v-if="shouldShowImageOverlays"
+        v-if="shouldShowCrosshair"
         :corner-info="cornerInfo"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"

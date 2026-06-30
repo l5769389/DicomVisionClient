@@ -560,6 +560,7 @@ watch(
       :pseudocolor-preset="getItemPseudocolorPreset(item)"
       :pseudocolor-window-info="getItemPseudocolorWindowInfo(item)"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
+      :show-crosshair="props.activeTab.showCrosshair !== false"
       :show-scale-bar="props.activeTab.showScaleBar !== false"
       :show-pseudocolor-bar="props.activeTab.showPseudocolorBar !== false"
       :viewport-transform="getItemTransform(item)"

@@ -477,9 +477,12 @@ function normalizeImageUpdateRenderIntent(payload: Partial<ViewImageResponse>): 
   }
   if (
     metadataMode === 'stack-geometry-preview' ||
+    metadataMode === 'stack-zoom-preview' ||
     metadataMode === 'mpr-pan-zoom-preview' ||
+    metadataMode === 'mpr-zoom-preview' ||
     metadataMode === 'mpr-crosshair-preview' ||
-    metadataMode === 'stack-preview-lite'
+    metadataMode === 'stack-preview-lite' ||
+    metadataMode === 'fusion-zoom-preview'
   ) {
     return 'geometry-preview'
   }

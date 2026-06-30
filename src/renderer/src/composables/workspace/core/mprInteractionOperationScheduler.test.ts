@@ -604,6 +604,89 @@ describe('view interaction operation scheduler', () => {
     expect(timers[0].delay).toBe(11)
   })
 
+  it('throttles zoom at a stable cadence without waiting for matching feedback', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.zoom,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 0,
+      y: -4
+    })
+    now = 5
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.zoom,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 0,
+      y: -10
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(19)
+
+    now = 24
+    timers[0].callback()
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit.mock.calls[1]).toEqual([
+      'mpr-ax',
+      {
+        opType: VIEW_OPERATION_TYPES.zoom,
+        actionType: DRAG_ACTION_TYPES.move,
+        x: 0,
+        y: -10
+      }
+    ])
+  })
+
+  it('caps slow backend feedback fallback for zoom moves at 48ms', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.recordBackendPreview('mpr-ax', null)
+    now = 120
+    scheduler.recordBackendPreview('mpr-ax', null)
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.zoom,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 0,
+      y: -1
+    })
+    now = 130
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.zoom,
+      actionType: DRAG_ACTION_TYPES.move,
+      x: 0,
+      y: -2
+    })
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(timers).toHaveLength(1)
+    expect(timers[0].delay).toBe(38)
+  })
+
   it('does not cap slow matching backend preview cadence', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []

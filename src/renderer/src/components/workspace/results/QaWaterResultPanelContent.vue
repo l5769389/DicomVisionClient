@@ -31,6 +31,26 @@ const resultState = computed<'empty' | 'loading' | 'error' | 'ready'>(() => {
   return 'ready'
 })
 
+function getQaErrorMessage(message: string | undefined): string {
+  const fallback = overlayCopy.value.qaWaterFailed
+  const trimmedMessage = message?.trim()
+  if (!trimmedMessage) {
+    return fallback
+  }
+
+  const normalizedMessage = trimmedMessage.toLowerCase()
+  const isGenericQaFailure =
+    normalizedMessage === 'water phantom qa analysis failed.' ||
+    normalizedMessage === 'qa analysis failed.' ||
+    normalizedMessage.includes('phantom') ||
+    normalizedMessage.includes('roi') ||
+    trimmedMessage.includes('水模') ||
+    trimmedMessage.includes('自动识别') ||
+    trimmedMessage.includes('检测失败')
+
+  return isGenericQaFailure ? fallback : trimmedMessage
+}
+
 const stateLabel = computed(() => {
   switch (resultState.value) {
     case 'loading':
@@ -49,7 +69,7 @@ const stateMessage = computed(() => {
     return isZh.value ? '正在分析 QA...' : 'Analyzing QA...'
   }
   if (resultState.value === 'error') {
-    return props.analysis?.message || (isZh.value ? 'QA 分析失败，请确认图像包含完整 ROI 后重试。' : 'QA analysis failed. Confirm the image contains the complete ROI and try again.')
+    return getQaErrorMessage(props.analysis?.message)
   }
   if (resultState.value === 'empty') {
     return isZh.value ? '暂无 QA 结果。' : 'No QA result yet.'

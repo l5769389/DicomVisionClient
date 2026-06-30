@@ -3289,14 +3289,11 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div v-if="activeSection === 'displayImageFormat'" class="theme-card-soft rounded-[24px] p-4">
-                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                             <AppIcon name="display" :size="18" />
                             <span class="text-sm font-semibold">{{ isZh ? '影像传输格式' : 'Image Transport Format' }}</span>
-                          </div>
-                          <div class="mt-2 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">
-                            {{ isZh ? '控制后端通过 socket 发送给前端的视口影像格式。WebP 使用无损编码，不影响导出和缩略图。' : 'Controls the socket image format used for viewport rendering. WebP is encoded losslessly and does not affect exports or thumbnails.' }}
                           </div>
                         </div>
                         <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-xs font-semibold uppercase text-[var(--theme-text-secondary)]">
@@ -3307,7 +3304,7 @@ onBeforeUnmount(() => {
                       <div class="grid gap-4 md:grid-cols-2">
                         <button
                           type="button"
-                          class="settings-toolbar-layout-choice"
+                          class="settings-toolbar-layout-choice settings-image-format-choice"
                           :class="{ 'settings-toolbar-layout-choice--active': viewerImageFormatPreference === 'png' }"
                           data-testid="settings-image-format-png"
                           @click="viewerImageFormatPreference = 'png'"
@@ -3318,13 +3315,10 @@ onBeforeUnmount(() => {
                               <AppIcon v-if="viewerImageFormatPreference === 'png'" name="check" :size="13" />
                             </span>
                           </span>
-                          <span class="mt-3 block text-xs leading-5 text-[var(--theme-text-secondary)]">
-                            {{ isZh ? '默认无损格式，兼容性最好。' : 'Default lossless format with the broadest compatibility.' }}
-                          </span>
                         </button>
                         <button
                           type="button"
-                          class="settings-toolbar-layout-choice"
+                          class="settings-toolbar-layout-choice settings-image-format-choice"
                           :class="{ 'settings-toolbar-layout-choice--active': viewerImageFormatPreference === 'webp' }"
                           data-testid="settings-image-format-webp"
                           @click="viewerImageFormatPreference = 'webp'"
@@ -3336,7 +3330,7 @@ onBeforeUnmount(() => {
                             </span>
                           </span>
                           <span class="mt-3 block text-xs leading-5 text-[var(--theme-text-secondary)]">
-                            {{ isZh ? '无损 WebP，可减少部分传输体积。' : 'Lossless WebP can reduce transfer size for some images.' }}
+                            {{ isZh ? '传输体积更小' : 'Smaller transfer size' }}
                           </span>
                         </button>
                       </div>
@@ -4224,6 +4218,12 @@ onBeforeUnmount(() => {
 .settings-toolbar-layout-choice--active .settings-toolbar-layout-choice__check {
   border-color: color-mix(in srgb, var(--theme-accent) 84%, white 8%);
   background: var(--theme-accent);
+}
+
+.settings-image-format-choice {
+  min-height: 92px;
+  align-content: center;
+  padding: 18px 20px;
 }
 
 .settings-toolbar-layout-skeleton {

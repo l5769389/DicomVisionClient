@@ -119,14 +119,6 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     }
 
     hoveredViewIds.add(viewId)
-    const pixel = normalizeHoverPixel(payload.row, payload.col)
-    if (pixel) {
-      lastHoverPixelsByViewId.set(viewId, {
-        row: pixel.row,
-        col: pixel.col
-      })
-      options.updateHoverCornerInfoByViewId(viewId, pixel.row, pixel.col)
-    }
     emitThrottledViewHover({
       viewId,
       x: payload.x,

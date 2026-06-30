@@ -30,19 +30,19 @@ const { t } = useUiLocale()
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-visible">
-    <div class="flex items-start justify-center pt-1">
+  <div class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-visible">
+    <div class="flex items-start justify-center">
       <SidebarBrandPanel compact :viewer-platform="viewerPlatform" />
     </div>
 
-    <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-visible rounded-[22px] px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div class="mb-2 flex items-center justify-center">
+    <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-visible rounded-[18px] px-1 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div class="mb-1.5 flex items-center justify-center">
         <VChip size="x-small" class="rounded-full! border! border-[var(--theme-border-strong)]! bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)]! px-1.5! py-0.5! text-[9px]! font-semibold! uppercase! tracking-[0.12em]! text-[color:color-mix(in_srgb,var(--theme-text-primary)_72%,var(--theme-accent))]!" variant="flat">
           {{ seriesList.length || 0 }}
         </VChip>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto overflow-x-visible">
-        <div v-if="seriesList.length" class="flex flex-col items-center gap-2 pb-1">
+        <div v-if="seriesList.length" class="flex flex-col items-center gap-1.5 pb-1">
           <button
             v-for="(series, index) in seriesList"
             :key="series.seriesId"
@@ -71,14 +71,14 @@ const { t } = useUiLocale()
     </div>
   </div>
 
-  <div class="mt-auto pt-2">
-    <div class="theme-shell-panel flex flex-col items-center gap-2 rounded-[22px] px-1.5 py-2">
+  <div class="mt-auto pt-1.5">
+    <div class="theme-shell-panel flex flex-col items-center gap-1.5 rounded-[18px] px-1 py-1.5">
       <div class="rail-connection-indicator" :class="connectionToneClass" :title="connectionIcon">
         <AppIcon :name="connectionIcon" :size="17" />
         <span class="rail-connection-indicator__dot" :class="connectionDotClass"></span>
       </div>
-      <VBtn variant="flat" class="theme-button-secondary h-9! w-9! min-w-0! rounded-2xl!" :aria-label="t('openSettings')" @click="emit('openMenu')"><AppIcon name="menu" :size="17" /></VBtn>
-      <VBtn variant="flat" class="theme-button-secondary h-9! w-9! min-w-0! rounded-2xl!" :aria-label="t('expandSidebar')" @click="emit('toggleSidebar')"><AppIcon name="chevron-right" :size="18" /></VBtn>
+      <VBtn variant="flat" class="theme-button-secondary h-8! w-8! min-w-0! rounded-xl!" :aria-label="t('openSettings')" @click="emit('openMenu')"><AppIcon name="menu" :size="16" /></VBtn>
+      <VBtn variant="flat" class="theme-button-secondary h-8! w-8! min-w-0! rounded-xl!" :aria-label="t('expandSidebar')" @click="emit('toggleSidebar')"><AppIcon name="chevron-right" :size="17" /></VBtn>
     </div>
   </div>
 </template>
@@ -87,32 +87,32 @@ const { t } = useUiLocale()
 .rail-connection-indicator {
   position: relative;
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   border: 1px solid currentColor;
-  border-radius: 16px;
+  border-radius: 13px;
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
 
 .rail-connection-indicator__dot {
   position: absolute;
-  right: 5px;
-  bottom: 5px;
-  width: 8px;
-  height: 8px;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
 }
 
 .rail-series-thumbnail {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--theme-border-soft);
-  border-radius: 14px;
+  border-radius: 12px;
   background:
     radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--theme-accent) 15%, transparent), transparent 46%),
     linear-gradient(180deg, rgba(2, 6, 12, 0.98), rgba(0, 0, 0, 1));

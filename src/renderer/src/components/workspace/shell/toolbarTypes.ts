@@ -16,6 +16,21 @@ export interface StackToolOption {
   syncKey?: CompareSyncSettingKey
 }
 
+export interface StackToolRangeTick {
+  value: number
+  label: string
+}
+
+export interface StackToolRangeControl {
+  kind: 'zoom'
+  value: number
+  min: number
+  max: number
+  step: number
+  ticks: StackToolRangeTick[]
+  resetValue: number
+}
+
 export interface StackTool {
   key: string
   label: string
@@ -26,6 +41,7 @@ export interface StackTool {
   inlineKind?: 'fusionPetDisplay' | 'fusionRegistration'
   options?: StackToolOption[]
   dockOptions?: StackToolOption[]
+  rangeControl?: StackToolRangeControl
   showSelectedOptionIcon?: boolean
 }
 

@@ -45,7 +45,7 @@ describe('seriesGrouping', () => {
     expect(groups[0].title).toBe('Tag Tester')
     expect(groups[0].subtitle).toBe('')
     expect(groups[0].studies[0].title).toBe('2026-05-19')
-    expect(groups[0].studies[0].subtitle).toBe('Chest CT \u00b7 ACC ACC-1')
+    expect(groups[0].studies[0].subtitle).toBe('Chest CT \u00b7 Accession ACC-1')
     expect(groups[0].studies[0].title).not.toContain('1.2.3')
     expect(groups[0].studies[0].subtitle).not.toContain('1.2.3')
   })
@@ -118,5 +118,30 @@ describe('seriesGrouping', () => {
     expect(groups[0].title).toBe('\u672a\u77e5\u60a3\u8005')
     expect(groups[0].studies[0].title).toBe('\u672a\u77e5\u68c0\u67e5')
     expect(groups[0].studies[0].subtitle).toBe('')
+  })
+
+  it('uses a localized accession label and omits empty accession values', () => {
+    const groups = buildSeriesTreeGroups(
+      [
+        createSeries({
+          accessionNumber: '0',
+          patientName: 'Tester',
+          seriesId: 'with-accession',
+          studyDate: '20260724',
+          studyDescription: ''
+        }),
+        createSeries({
+          accessionNumber: '',
+          patientName: 'Tester',
+          seriesId: 'without-accession',
+          studyDate: '20260723',
+          studyDescription: ''
+        })
+      ],
+      'zh-CN'
+    )
+
+    expect(groups[0].studies[0].subtitle).toBe('\u68c0\u67e5\u53f7 0')
+    expect(groups[0].studies[1].subtitle).toBe('')
   })
 })

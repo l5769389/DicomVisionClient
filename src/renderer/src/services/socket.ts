@@ -102,6 +102,7 @@ export interface ViewOperationPayload {
   volumeConfig?: VolumeRenderConfig
   render3dMode?: Render3DMode
   surfaceConfig?: SurfaceRenderConfig
+  previewFeedbackMode?: 'matched' | 'cadence'
 }
 
 export type ViewOperationInput = Omit<ViewOperationPayload, 'viewId'>

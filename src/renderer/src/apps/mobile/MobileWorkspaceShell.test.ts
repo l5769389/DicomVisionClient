@@ -1899,7 +1899,7 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('[data-testid="mobile-toggle-star"]').trigger('click')
 
     expect(JSON.parse(window.localStorage.getItem('dicomvision-key-slice-stars') ?? '{}')).toEqual({
-      'series-1': [2]
+      'series-1': [{ sliceIndex: 2 }]
     })
   })
 

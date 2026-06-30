@@ -1064,7 +1064,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'transformReset' && !isStackLikeViewType(tab.viewType) && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+    if ((payload.action === 'transformReset' || payload.action === 'transformZoomPreset') && !isStackLikeViewType(tab.viewType) && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -1096,6 +1096,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'mprCrosshairReset' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
+    if (payload.action === 'rotate3dReset' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+      return
+    }
+
     if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && tab.viewType !== 'Layout' && !isMprLikeViewType(tab.viewType)) {
       return
     }
@@ -1106,10 +1114,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'displayOverlay') {
       const overlay = payload.overlay
-      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'pseudocolorBar' && overlay !== 'sliceSlider') {
+      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'pseudocolorBar' && overlay !== 'sliceSlider' && overlay !== 'crosshair') {
         return
       }
       if (overlay === 'pseudocolorBar' && tab.viewType === 'PETCTFusion') {
+        return
+      }
+      if (overlay === 'crosshair' && !isMprLikeViewType(tab.viewType)) {
         return
       }
 
@@ -1123,7 +1134,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                   ? { showScaleBar: payload.enabled ?? item.showScaleBar === false }
                   : overlay === 'pseudocolorBar'
                     ? { showPseudocolorBar: payload.enabled ?? item.showPseudocolorBar === false }
-                    : { showSliceSlider: payload.enabled ?? item.showSliceSlider === false })
+                    : overlay === 'sliceSlider'
+                      ? { showSliceSlider: payload.enabled ?? item.showSliceSlider === false }
+                      : { showCrosshair: payload.enabled ?? item.showCrosshair === false })
             }
           : item
       )
@@ -1328,6 +1341,42 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'transformZoomPreset') {
+      const nextZoom = Math.max(0.1, Math.min(10, Number(payload.transformZoom ?? 1)))
+      const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
+      if (!targets.length) {
+        return
+      }
+
+      viewInteractionOperationScheduler.cancel()
+      clearActiveMprCrosshairDragLock()
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? applyTransformPatchToTabTargets(
+              item,
+              targets,
+              DEFAULT_VIEW_TRANSFORM,
+              (currentTransform) => ({
+                ...normalizeViewTransform(currentTransform),
+                zoom: nextZoom
+              })
+            )
+          : item
+      )
+
+      targets.forEach((target) => {
+        emitViewOperation({
+          viewId: target.viewId,
+          opType: VIEW_OPERATION_TYPES.transform2d,
+          zoom: nextZoom
+        })
+      })
+      if (tab.viewType === '4D') {
+        views.invalidateFourDMprState(tab.key)
+      }
+      return
+    }
+
     if (payload.action === 'mprCrosshairMode') {
       const mode = normalizeMprCrosshairMode(payload.mode ?? payload.value)
       const viewId = getActiveMprOperationViewId(tab)
@@ -1346,6 +1395,49 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       )
       targetViewIds.forEach((targetViewId) => {
         emitMprCrosshairMode(targetViewId, mode)
+      })
+      if (tab.viewType === '4D') {
+        views.invalidateFourDMprState(tab.key)
+      }
+      return
+    }
+
+    if (payload.action === 'mprCrosshairReset') {
+      const viewId = getActiveMprOperationViewId(tab)
+      if (!viewId) {
+        return
+      }
+      clearActiveMprCrosshairDragLock()
+      viewInteractionOperationScheduler.cancel()
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              mprCrosshairMode: 'orthogonal'
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.reset,
+        subOpType: 'mprCrosshair'
+      })
+      if (tab.viewType === '4D') {
+        views.invalidateFourDMprState(tab.key)
+      }
+      return
+    }
+
+    if (payload.action === 'rotate3dReset') {
+      const viewId = isMprLikeViewType(tab.viewType) ? getActiveMprOperationViewId(tab) : tab.viewId
+      if (!viewId) {
+        return
+      }
+      viewInteractionOperationScheduler.cancel()
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.reset,
+        subOpType: 'rotate3d'
       })
       if (tab.viewType === '4D') {
         views.invalidateFourDMprState(tab.key)
@@ -2468,7 +2560,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (payload.opType === VIEW_OPERATION_TYPES.pseudocolor && payload.viewId) {
       pendingPseudocolorOverlayPreservationViewIds.add(payload.viewId)
     }
-    emitSocketViewOperation(payload)
+    const { previewFeedbackMode: _previewFeedbackMode, ...socketPayload } = payload
+    emitSocketViewOperation(socketPayload)
   }
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
@@ -3079,7 +3172,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         opType: payload.opType,
         actionType: payload.phase,
         x: payload.deltaX,
-        y: payload.deltaY
+        y: payload.deltaY,
+        previewFeedbackMode:
+          payload.opType === VIEW_OPERATION_TYPES.pan || payload.opType === VIEW_OPERATION_TYPES.zoom
+            ? 'cadence'
+            : undefined
       })
       return
     }

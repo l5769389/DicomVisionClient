@@ -36,7 +36,7 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim()
 }
 
-function formatPatientName(value: string | null | undefined): string {
+export function formatPatientName(value: string | null | undefined): string {
   const text = cleanText(value)
   const formatted = text
     .split('^')
@@ -96,14 +96,18 @@ function getStudyTitle(series: GroupableSeriesItem, locale: SeriesGroupLocale): 
   return formatDicomDate(series.studyDate) || cleanText(series.studyDescription) || unknownStudyLabel(locale)
 }
 
-function getStudySubtitle(series: GroupableSeriesItem): string {
+function formatAccessionLabel(accessionNumber: string, locale: SeriesGroupLocale): string {
+  return isZh(locale) ? `\u68c0\u67e5\u53f7 ${accessionNumber}` : `Accession ${accessionNumber}`
+}
+
+function getStudySubtitle(series: GroupableSeriesItem, locale: SeriesGroupLocale): string {
   const hasStudyDate = Boolean(cleanText(series.studyDate))
   const studyDescription = cleanText(series.studyDescription)
   const accessionNumber = cleanText(series.accessionNumber)
 
   return [
     hasStudyDate ? studyDescription : '',
-    accessionNumber ? `ACC ${accessionNumber}` : ''
+    accessionNumber ? formatAccessionLabel(accessionNumber, locale) : ''
   ].filter(Boolean).join(SUBTITLE_SEPARATOR)
 }
 
@@ -148,7 +152,7 @@ export function buildSeriesTreeGroups(seriesList: FolderSeriesItem[], locale: Se
       studyGroup = {
         key: `${patientKey}:${studyKey}`,
         title: getStudyTitle(groupableSeries, locale),
-        subtitle: getStudySubtitle(groupableSeries),
+        subtitle: getStudySubtitle(groupableSeries, locale),
         count: 0,
         order: index,
         sortDate: cleanText(groupableSeries.studyDate),

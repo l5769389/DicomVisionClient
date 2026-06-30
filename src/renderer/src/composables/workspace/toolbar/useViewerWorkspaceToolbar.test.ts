@@ -287,6 +287,32 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.wrapper.unmount()
   })
 
+  it('places the MPR layout between 2D tools and MPR tools, and maps MPR reset actions', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR',
+      mprCrosshairMode: 'orthogonal'
+    })
+    await nextTick()
+
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(toolKeys.slice(0, 6)).toEqual(['pan', 'zoom', 'window', 'mprLayout', 'crosshair', 'rotate3d'])
+
+    const crosshairTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'crosshair')!
+    harness.toolbar.selectToolOption(crosshairTool, 'mprCrosshair:reset', { keepMenuOpen: true })
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'mprCrosshairReset' })
+
+    harness.emitTriggerViewAction.mockClear()
+    const rotate3dTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'rotate3d')!
+    expect(rotate3dTool.dockOptions?.map((option) => option.value)).toEqual(['rotate3d:reset'])
+    harness.toolbar.selectToolOption(rotate3dTool, 'rotate3d:reset', { keepMenuOpen: true })
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'rotate3dReset' })
+
+    harness.wrapper.unmount()
+  })
+
   it('plays MPR slices from the current slice in the active viewport', async () => {
     vi.useFakeTimers()
     try {
@@ -446,8 +472,18 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual([
       'display:cornerInfo',
       'display:scaleBar',
-      'display:pseudocolorBar'
+      'display:pseudocolorBar',
+      'display:crosshair'
     ])
+    expect(getDisplayTool()?.options?.find((option) => option.value === 'display:crosshair')?.checked).toBe(true)
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(getDisplayTool()!, 'display:crosshair')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'displayOverlay',
+      overlay: 'crosshair',
+      enabled: false
+    })
 
     harness.activeTab.value = {
       ...harness.activeTab.value!,
@@ -855,6 +891,56 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.toolbar.selectToolOption(zoomTool, 'transform:reset', { keepMenuOpen: true })
 
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'transformReset', transformScope: 'zoom' })
+    expect(harness.activeOperation.value).toBe('stack:zoom')
+    harness.wrapper.unmount()
+  })
+
+  it('maps right-dock zoom range actions to absolute zoom transforms', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+
+    let zoomTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'zoom')!
+    expect(zoomTool.dockOptions?.map((option) => option.value)).toEqual(['transform:reset'])
+    expect(zoomTool.rangeControl).toMatchObject({
+      kind: 'zoom',
+      value: 1,
+      min: 0.25,
+      max: 10,
+      resetValue: 1
+    })
+    expect(zoomTool.rangeControl?.ticks.map((tick) => tick.value)).toEqual([1, 2, 5, 10])
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      transformState: {
+        ...harness.activeTab.value!.transformState,
+        zoom: 5
+      }
+    }
+    await nextTick()
+    zoomTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'zoom')!
+    expect(zoomTool.rangeControl?.value).toBe(5)
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      transformState: {
+        ...harness.activeTab.value!.transformState,
+        zoom: 1
+      }
+    }
+    await nextTick()
+    zoomTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'zoom')!
+    expect(zoomTool.rangeControl?.value).toBe(1)
+
+    harness.activeOperation.value = 'stack:zoom'
+    harness.toolbar.selectToolOption(zoomTool, 'transform:zoom:5', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'transformZoomPreset', transformZoom: 5 })
     expect(harness.activeOperation.value).toBe('stack:zoom')
     harness.wrapper.unmount()
   })

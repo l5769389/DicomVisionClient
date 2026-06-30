@@ -251,7 +251,23 @@ describe('ViewerToolbarDock', () => {
       label: 'Zoom',
       icon: 'zoom',
       kind: 'mode',
-      dockOptions: [{ value: 'transform:reset', label: 'Reset Transform', icon: 'reset' }]
+      rangeControl: {
+        kind: 'zoom',
+        value: 5,
+        min: 0.25,
+        max: 10,
+        step: 0.05,
+        resetValue: 1,
+        ticks: [
+          { value: 1, label: '1x' },
+          { value: 2, label: '2x' },
+          { value: 5, label: '5x' },
+          { value: 10, label: '10x' }
+        ]
+      },
+      dockOptions: [
+        { value: 'transform:reset', label: 'Reset Transform', icon: 'reset' }
+      ]
     }
     const wrapper = mountDock({
       activeTools: [zoomTool],
@@ -261,6 +277,53 @@ describe('ViewerToolbarDock', () => {
     await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
 
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag to adjust zoom')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').text()).toContain('1x')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').text()).toContain('10x')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__zoom-header').text()).toContain('5x')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__zoom-tick--active').text()).toContain('5x')
+
+    await wrapper.findAll('.viewer-toolbar-dock-panel-content__zoom-tick')[2]!.trigger('click')
+    const selectEvent = wrapper.emitted('selectToolOption')?.[0]
+    expect(selectEvent?.[0]).toMatchObject({ key: 'zoom', options: zoomTool.dockOptions })
+    expect(selectEvent?.[1]).toBe('transform:zoom:5')
+    expect(selectEvent?.[2]).toEqual({ keepMenuOpen: true })
+  })
+
+  it('shows reset footer actions for MPR crosshair and 3D rotate tools', async () => {
+    const crosshairTool: StackTool = {
+      key: 'crosshair',
+      label: 'Crosshair',
+      icon: 'crosshair',
+      kind: 'mode',
+      options: [{ value: 'mprCrosshairMode:orthogonal', label: 'Orthogonal', icon: 'crosshair' }]
+    }
+    const rotate3dTool: StackTool = {
+      key: 'rotate3d',
+      label: '3D Rotate',
+      icon: 'rotate3d',
+      kind: 'mode',
+      dockOptions: [{ value: 'rotate3d:reset', label: 'Reset 3D Rotation', icon: 'reset' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [crosshairTool, rotate3dTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'crosshair')
+    })
+
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-crosshair-mprCrosshair-reset"]').exists()).toBe(true)
+    await wrapper.find('[data-testid="viewer-toolbar-dock-crosshair-mprCrosshair-reset"]').trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([crosshairTool, 'mprCrosshair:reset', { keepMenuOpen: true }])
+
+    await wrapper.setProps({
+      isToolSelected: (tool: StackTool) => tool.key === 'rotate3d'
+    })
+    await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
+    expect(wrapper.emitted('applyTool')?.at(-1)).toEqual([rotate3dTool, { keepMenuOpen: true }])
+
+    await wrapper.find('[data-testid="viewer-toolbar-dock-rotate3d-rotate3d-reset"]').trigger('click')
+    const rotateEvent = wrapper.emitted('selectToolOption')?.[1]
+    expect(rotateEvent?.[0]).toMatchObject({ key: 'rotate3d', options: rotate3dTool.dockOptions })
+    expect(rotateEvent?.[1]).toBe('rotate3d:reset')
+    expect(rotateEvent?.[2]).toEqual({ keepMenuOpen: true })
   })
 
   it('applies the selected measurement mode when opening the right dock measure panel', async () => {
@@ -786,6 +849,31 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MIP Params')
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__panel-close').exists()).toBe(false)
+  })
+
+  it('shows the MIP utility panel over the selected rotate3d mode panel', () => {
+    const rotate3dTool: StackTool = {
+      key: 'rotate3d',
+      label: '3D Rotate',
+      icon: 'rotate3d',
+      kind: 'mode',
+      dockOptions: [{ value: 'rotate3d:reset', label: 'Reset 3D Rotation', icon: 'reset' }]
+    }
+    const mprMipTool: StackTool = { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' }
+    const wrapper = mountDock({
+      activeTools: [rotate3dTool, mprMipTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'rotate3d'),
+      utilityPanelOpen: true,
+      utilityPanelTitle: 'MIP Params',
+      utilityPanelToolKey: 'mprMip'
+    })
+
+    const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(false)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+    expect(buttons[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
   it('uses the segmentation utility panel as the single active button', () => {

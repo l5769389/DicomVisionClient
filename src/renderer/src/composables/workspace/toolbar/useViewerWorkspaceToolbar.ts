@@ -31,7 +31,7 @@ import {
   isFusionPaneKey
 } from '../views/viewerWorkspaceTabs'
 import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../sync/viewSyncConfig'
-import type { ViewerToolbarActionPayload } from '../operations/viewActionTypes'
+import type { ViewerDisplayOverlayKey, ViewerToolbarActionPayload } from '../operations/viewActionTypes'
 import {
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
@@ -44,6 +44,7 @@ import {
   type MprMipConfig,
   type MprSegmentationConfigActionType,
   type MprSegmentationConfig,
+  type ViewTransformInfo,
   type ViewerLayoutTemplate,
   type ViewerTabItem,
   type VolumeRenderConfig
@@ -269,7 +270,7 @@ const mprLayoutTool: StackTool = {
 const MPR_CROSSHAIR_MODE_SELECTION_PREFIX = 'mprCrosshairMode:'
 const DISPLAY_OVERLAY_SELECTION_PREFIX = 'display:'
 export const EXPORT_TARGET_SELECTION_PREFIX = 'exportTarget:'
-type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar' | 'sliceSlider'
+type DisplayOverlayKey = ViewerDisplayOverlayKey
 
 function toMprCrosshairModeSelectionValue(mode: MprCrosshairMode): string {
   return `${MPR_CROSSHAIR_MODE_SELECTION_PREFIX}${mode}`
@@ -286,7 +287,7 @@ function toDisplayOverlaySelectionValue(key: DisplayOverlayKey): string {
 
 function parseDisplayOverlaySelectionValue(value: string | null | undefined): DisplayOverlayKey | null {
   const key = String(value ?? '').replace(DISPLAY_OVERLAY_SELECTION_PREFIX, '')
-  return key === 'cornerInfo' || key === 'scaleBar' || key === 'pseudocolorBar' || key === 'sliceSlider' ? key : null
+  return key === 'cornerInfo' || key === 'scaleBar' || key === 'pseudocolorBar' || key === 'sliceSlider' || key === 'crosshair' ? key : null
 }
 
 function toExportTargetSelectionValue(viewportKey: string): string {
@@ -349,6 +350,17 @@ const transformResetDockOptions: StackToolOption[] = [
   }
 ]
 
+const ZOOM_RANGE_MIN = 0.25
+const ZOOM_RANGE_MAX = 10
+const ZOOM_RANGE_STEP = 0.05
+const ZOOM_RANGE_TICKS = [1, 2, 5, 10].map((value) => ({ value, label: `${value}x` }))
+
+const zoomDockOptions: StackToolOption[] = transformResetDockOptions
+
+const rotate3dDockOptions: StackToolOption[] = [
+  { value: 'rotate3d:reset', label: 'Reset 3D Rotation', icon: 'reset' }
+]
+
 const annotationClearDockOptions: StackToolOption[] = [
   {
     value: 'reset:annotations',
@@ -369,7 +381,7 @@ const annotateTool: StackTool = {
 const stackTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   {
     key: 'rotate',
@@ -607,7 +619,7 @@ const layoutStackTools: StackTool[] = stackTools
 
 const fusionTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   {
     key: 'rotate',
@@ -640,7 +652,7 @@ const fusionTools: StackTool[] = [
 
 const petTools: StackTool[] = [
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   fusionPetDisplayTool,
   {
     key: 'rotate',
@@ -672,7 +684,7 @@ const petTools: StackTool[] = [
 const genericTools: StackTool[] = [
   layoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   measureTool,
   pseudocolorTool,
@@ -731,9 +743,9 @@ const segmentationTool: StackTool = {
 
 const volumeTools: StackTool[] = [
   layoutTool,
-  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
+  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode', dockOptions: rotate3dDockOptions },
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   render3dModeTool,
   volumeParamsTool,
@@ -754,13 +766,13 @@ const volumeTools: StackTool[] = [
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
+  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   mprLayoutTool,
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode', showSelectedOptionIcon: false },
-  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode' },
+  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode', dockOptions: rotate3dDockOptions },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
-  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: transformResetDockOptions },
-  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   playTool,
   measureTool,
   pseudocolorTool,
@@ -951,6 +963,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (key === 'pseudocolorBar') {
       return tab.showPseudocolorBar !== false
     }
+    if (key === 'crosshair') {
+      return tab.showCrosshair !== false
+    }
     return tab.showSliceSlider !== false
   }
 
@@ -988,7 +1003,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     const nextDraft = { ...draft }
-    for (const key of ['cornerInfo', 'scaleBar', 'pseudocolorBar', 'sliceSlider'] as const) {
+    for (const key of ['cornerInfo', 'scaleBar', 'pseudocolorBar', 'sliceSlider', 'crosshair'] as const) {
       if (nextDraft[key] === getTabDisplayOverlayVisible(tab, key)) {
         delete nextDraft[key]
       }
@@ -1043,6 +1058,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
               label: isZh.value ? '切片滑条' : 'Slice Slider',
               icon: 'page',
               checked: getActiveDisplayOverlayVisible('sliceSlider')
+            }
+          ]
+        : []),
+      ...(options.activeTab.value?.viewType === 'MPR' || options.activeTab.value?.viewType === '4D'
+        ? [
+            {
+              value: toDisplayOverlaySelectionValue('crosshair'),
+              label: isZh.value ? '十字线' : 'Crosshair',
+              icon: 'crosshair',
+              checked: getActiveDisplayOverlayVisible('crosshair')
             }
           ]
         : [])
@@ -1162,6 +1187,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         isZh.value
       )
     )
+      .map((tool) => withActiveZoomRangeControl(tool))
       .map((tool) => withSupportedExportOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
   })
@@ -1259,6 +1285,59 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return viewportKey
     }
     return 'mpr-ax'
+  }
+
+  function getActiveViewportTransformState(tab: ViewerTabItem | null | undefined): ViewTransformInfo | null {
+    if (!tab) {
+      return null
+    }
+    if (tab.viewType === 'Layout') {
+      return getActiveLayoutSlot(tab)?.transformState ?? tab.transformState ?? null
+    }
+    if (tab.viewType === 'CompareStack') {
+      const paneKey = resolveActiveComparePaneKey(tab)
+      return tab.compareTransformStates?.[paneKey] ?? tab.transformState ?? null
+    }
+    if (tab.viewType === 'PETCTFusion') {
+      const paneKey = resolveActiveFusionPaneKey(tab)
+      return tab.fusionTransformStates?.[paneKey] ?? tab.transformState ?? null
+    }
+    if (tab.viewType === 'MPR' || tab.viewType === '4D') {
+      const viewportKey = resolveActiveMprViewportKey(tab)
+      return tab.viewportTransformStates?.[viewportKey] ?? tab.transformState ?? null
+    }
+    return tab.transformState ?? null
+  }
+
+  function getActiveViewportZoom(): number {
+    const zoom = Number(getActiveViewportTransformState(options.activeTab.value)?.zoom)
+    return Number.isFinite(zoom) && zoom > 0 ? zoom : 1
+  }
+
+  function clampZoomRangeValue(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 1
+    }
+    return Math.max(ZOOM_RANGE_MIN, Math.min(ZOOM_RANGE_MAX, value))
+  }
+
+  function withActiveZoomRangeControl(tool: StackTool): StackTool {
+    if (tool.key !== 'zoom') {
+      return tool
+    }
+    return {
+      ...tool,
+      dockOptions: tool.dockOptions?.length ? tool.dockOptions : transformResetDockOptions,
+      rangeControl: {
+        kind: 'zoom',
+        value: clampZoomRangeValue(getActiveViewportZoom()),
+        min: ZOOM_RANGE_MIN,
+        max: ZOOM_RANGE_MAX,
+        step: ZOOM_RANGE_STEP,
+        ticks: ZOOM_RANGE_TICKS,
+        resetValue: 1
+      }
+    }
   }
 
   function getWindowSelectionTargetKey(tab: ViewerTabItem): string {
@@ -1854,6 +1933,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+    if (tool.key === 'zoom' && optionValue.startsWith('transform:zoom:')) {
+      const zoom = Number(optionValue.replace(/^transform:zoom:/, ''))
+      if (!Number.isFinite(zoom) || zoom <= 0) {
+        return
+      }
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      options.emitTriggerViewAction({
+        action: 'transformZoomPreset',
+        transformZoom: zoom
+      })
+      return
+    }
+
     if (optionValue === 'transform:reset') {
       closeMenusIfNeeded(behavior)
       options.stopViewportDrag()
@@ -1862,6 +1956,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         action: 'transformReset',
         transformScope: tool.key === 'pan' ? 'pan' : tool.key === 'zoom' ? 'zoom' : 'all'
       })
+      return
+    }
+
+    if (tool.key === 'crosshair' && optionValue === 'mprCrosshair:reset') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      options.emitTriggerViewAction({ action: 'mprCrosshairReset' })
+      return
+    }
+
+    if (tool.key === 'rotate3d' && optionValue === 'rotate3d:reset') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      options.emitTriggerViewAction({ action: 'rotate3dReset' })
       return
     }
 
@@ -1984,6 +2094,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       closeMenusIfNeeded(behavior)
       options.stopViewportDrag()
       options.emitTriggerViewAction({ action: 'clearMeasurements' })
+      return
+    }
+
+    if (tool.key === 'qa' && optionValue === 'reset:mtf') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      options.emitTriggerViewAction({ action: 'clearMtf' })
+      return
+    }
+
+    if (tool.key === 'qa' && optionValue === 'reset:qa-water') {
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
       return
     }
 
@@ -2343,7 +2466,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       options.activeTab.value?.showCornerInfo,
       options.activeTab.value?.showScaleBar,
       options.activeTab.value?.showPseudocolorBar,
-      options.activeTab.value?.showSliceSlider
+      options.activeTab.value?.showSliceSlider,
+      options.activeTab.value?.showCrosshair
     ] as const,
     () => pruneSettledDisplayOverlayDraft(options.activeTab.value)
   )

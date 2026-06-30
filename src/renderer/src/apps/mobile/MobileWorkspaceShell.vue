@@ -285,7 +285,7 @@ const {
   volumeDefaultTool
 } = useMobileViewerPreferences()
 const {
-  starredBySeries,
+  getStarredSliceIndexes,
   isSliceStarred,
   toggleSliceStar
 } = useKeySliceStars()
@@ -532,10 +532,10 @@ const mobileShellClasses = computed(() => ({
   'mobile-shell--orientation-portrait': orientationLock.value === 'portrait'
 }))
 const favoriteSliceItems = computed<MobileFavoriteSliceItem[]>(() => {
-  const seriesById = new Map(viewer.seriesList.value.map((series) => [series.seriesId, series]))
-  return Object.entries(starredBySeries.value)
-    .flatMap(([seriesId, sliceIndexes]) => {
-      const series = seriesById.get(seriesId) ?? null
+  return viewer.seriesList.value
+    .flatMap((series) => {
+      const seriesId = series.seriesId
+      const sliceIndexes = getStarredSliceIndexes(seriesId)
       const total = typeof series?.instanceCount === 'number' && series.instanceCount > 0 ? series.instanceCount : null
       return sliceIndexes.map((sliceIndex) => ({
         displaySlice: sliceIndex + 1,

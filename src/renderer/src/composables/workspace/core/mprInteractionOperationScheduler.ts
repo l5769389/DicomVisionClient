@@ -4,7 +4,7 @@ import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
 
 type TimerHandle = ReturnType<typeof window.setTimeout>
 
-type SchedulableViewOperation = Pick<ViewOperationInput, 'actionType' | 'line' | 'opType'>
+type SchedulableViewOperation = Pick<ViewOperationInput, 'actionType' | 'line' | 'opType' | 'previewFeedbackMode'>
 
 interface ScheduledViewOperation<TPayload extends SchedulableViewOperation> {
   operationKey: string
@@ -50,8 +50,7 @@ const MIN_MPR_SEGMENTATION_MOVE_INTERVAL_MS = 80
 const MAX_MPR_SEGMENTATION_MOVE_INTERVAL_MS = 160
 const FRONTEND_RENDER_MARGIN_MS = 4
 const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
-  ...STACK_DRAG_OPERATIONS,
-  VIEW_OPERATION_TYPES.mprMipConfig
+  ...STACK_DRAG_OPERATIONS
 ])
 
 function getOperationQueueKey(operationKey: string, payload: SchedulableViewOperation): string | null {
@@ -85,6 +84,9 @@ function estimateMoveIntervalFromBackendSample(sampleMs: number): number {
 }
 
 function shouldWaitForMatchingFeedback(payload: SchedulableViewOperation): boolean {
+  if (payload.previewFeedbackMode === 'cadence') {
+    return false
+  }
   return payload.opType !== VIEW_OPERATION_TYPES.zoom && MATCHED_FEEDBACK_OPERATION_TYPES.has(payload.opType)
 }
 

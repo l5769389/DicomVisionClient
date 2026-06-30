@@ -1,8 +1,14 @@
 import { ref, type Ref } from 'vue'
 
 const DEFAULT_STORAGE_KEY = 'dicomvision-key-slice-stars'
+const MAX_KEY_SLICE_LABEL_LENGTH = 40
 
-type KeySliceStarStore = Record<string, number[]>
+export interface KeySliceStarItem {
+  sliceIndex: number
+  label?: string
+}
+
+type KeySliceStarStore = Record<string, KeySliceStarItem[]>
 const sharedStores = new Map<string, Ref<KeySliceStarStore>>()
 
 export interface ParsedSliceLabel {
@@ -35,12 +41,47 @@ function normalizeSliceIndex(value: unknown): number | null {
   return Math.trunc(numeric)
 }
 
-function normalizeSliceIndexes(values: unknown): number[] {
+function normalizeSliceLabel(value: unknown): string | undefined {
+  const label = String(value ?? '').trim().slice(0, MAX_KEY_SLICE_LABEL_LENGTH)
+  return label.length > 0 ? label : undefined
+}
+
+function normalizeSliceStarItem(value: unknown): KeySliceStarItem | null {
+  if (typeof value === 'number' || typeof value === 'string') {
+    const sliceIndex = normalizeSliceIndex(value)
+    return sliceIndex === null ? null : { sliceIndex }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const rawItem = value as { sliceIndex?: unknown; index?: unknown; label?: unknown }
+  const sliceIndex = normalizeSliceIndex(rawItem.sliceIndex ?? rawItem.index)
+  if (sliceIndex === null) {
+    return null
+  }
+
+  const label = normalizeSliceLabel(rawItem.label)
+  return label ? { sliceIndex, label } : { sliceIndex }
+}
+
+function normalizeSliceItems(values: unknown): KeySliceStarItem[] {
   if (!Array.isArray(values)) {
     return []
   }
 
-  return [...new Set(values.map(normalizeSliceIndex).filter((value): value is number => value !== null))].sort((a, b) => a - b)
+  const byIndex = new Map<number, KeySliceStarItem>()
+  for (const value of values) {
+    const item = normalizeSliceStarItem(value)
+    if (item) {
+      byIndex.set(item.sliceIndex, item)
+    }
+  }
+  return [...byIndex.values()].sort((a, b) => a.sliceIndex - b.sliceIndex)
+}
+
+function normalizeSliceIndexes(values: unknown): number[] {
+  return normalizeSliceItems(values).map((item) => item.sliceIndex)
 }
 
 function normalizeStore(value: unknown): KeySliceStarStore {
@@ -50,8 +91,8 @@ function normalizeStore(value: unknown): KeySliceStarStore {
 
   return Object.fromEntries(
     Object.entries(value)
-      .map(([seriesId, indexes]) => [seriesId, normalizeSliceIndexes(indexes)] as const)
-      .filter(([seriesId, indexes]) => Boolean(seriesId) && indexes.length > 0)
+      .map(([seriesId, items]) => [seriesId, normalizeSliceItems(items)] as const)
+      .filter(([seriesId, items]) => Boolean(seriesId) && items.length > 0)
   )
 }
 
@@ -129,9 +170,16 @@ export function useKeySliceStars(storageKey = DEFAULT_STORAGE_KEY) {
     return normalizeSliceIndexes(starredBySeries.value[seriesId])
   }
 
+  function getStarredSlices(seriesId: string | null | undefined): KeySliceStarItem[] {
+    if (!seriesId) {
+      return []
+    }
+    return normalizeSliceItems(starredBySeries.value[seriesId])
+  }
+
   function isSliceStarred(seriesId: string | null | undefined, sliceIndex: number | null | undefined): boolean {
     const normalizedIndex = normalizeSliceIndex(sliceIndex)
-    return Boolean(seriesId && normalizedIndex !== null && starredBySeries.value[seriesId]?.includes(normalizedIndex))
+    return Boolean(seriesId && normalizedIndex !== null && getStarredSliceIndexes(seriesId).includes(normalizedIndex))
   }
 
   function toggleSliceStar(seriesId: string | null | undefined, sliceIndex: number | null | undefined): boolean {
@@ -140,19 +188,44 @@ export function useKeySliceStars(storageKey = DEFAULT_STORAGE_KEY) {
       return false
     }
 
-    const existing = getStarredSliceIndexes(seriesId)
-    const nextIndexes = existing.includes(normalizedIndex)
-      ? existing.filter((index) => index !== normalizedIndex)
-      : [...existing, normalizedIndex].sort((a, b) => a - b)
+    const existing = getStarredSlices(seriesId)
+    const isExisting = existing.some((item) => item.sliceIndex === normalizedIndex)
+    const nextItems = isExisting
+      ? existing.filter((item) => item.sliceIndex !== normalizedIndex)
+      : [...existing, { sliceIndex: normalizedIndex }].sort((a, b) => a.sliceIndex - b.sliceIndex)
     const nextStore = { ...starredBySeries.value }
 
-    if (nextIndexes.length > 0) {
-      nextStore[seriesId] = nextIndexes
+    if (nextItems.length > 0) {
+      nextStore[seriesId] = nextItems
     } else {
       delete nextStore[seriesId]
     }
     persist(nextStore)
-    return nextIndexes.includes(normalizedIndex)
+    return !isExisting
+  }
+
+  function updateSliceStarLabel(
+    seriesId: string | null | undefined,
+    sliceIndex: number | null | undefined,
+    label: string | null | undefined
+  ): boolean {
+    const normalizedIndex = normalizeSliceIndex(sliceIndex)
+    if (!seriesId || normalizedIndex === null || !isSliceStarred(seriesId, normalizedIndex)) {
+      return false
+    }
+
+    const normalizedLabel = normalizeSliceLabel(label)
+    const nextItems = getStarredSlices(seriesId).map((item) => {
+      if (item.sliceIndex !== normalizedIndex) {
+        return item
+      }
+      return normalizedLabel ? { ...item, label: normalizedLabel } : { sliceIndex: item.sliceIndex }
+    })
+    persist({
+      ...starredBySeries.value,
+      [seriesId]: nextItems
+    })
+    return true
   }
 
   function clearSeriesStars(seriesId: string | null | undefined): boolean {
@@ -172,10 +245,12 @@ export function useKeySliceStars(storageKey = DEFAULT_STORAGE_KEY) {
 
   return {
     starredBySeries,
+    getStarredSlices,
     getStarredSliceIndexes,
     getStarredSliceCount,
     clearSeriesStars,
     isSliceStarred,
-    toggleSliceStar
+    toggleSliceStar,
+    updateSliceStarLabel
   }
 }

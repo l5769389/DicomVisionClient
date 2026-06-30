@@ -51,7 +51,7 @@ const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'segmentation']
 const actionDetailToolKeys = new Set(['annotate'])
 const unselectedActionMenuToolKeys = new Set(['rotate', 'export', 'reset'])
 const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
-const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'measure', 'qa', 'annotate'])
+const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'measure', 'qa', 'annotate'])
 
 function getDockToolOptions(tool: StackTool): StackToolOption[] {
   return tool.options ?? tool.dockOptions ?? []
@@ -75,6 +75,9 @@ const selectedOperationTool = computed(() => props.activeTools.find((tool) => pr
 const activePanelTool = computed(() => {
   if (currentMenuTool.value) {
     return currentMenuTool.value
+  }
+  if (props.utilityPanelOpen === true) {
+    return undefined
   }
   const fallbackTool = [lastActivatedTool.value, selectedOperationTool.value].find((tool) => tool && hasDockToolOptions(tool))
   return fallbackTool ? getDockPanelTool(fallbackTool) : undefined

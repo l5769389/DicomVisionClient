@@ -39,6 +39,7 @@ describe('useKeySliceStars', () => {
     expect(stars.toggleSliceStar('series-a', 8)).toBe(true)
     expect(stars.toggleSliceStar('series-a', 2)).toBe(true)
     expect(stars.getStarredSliceIndexes('series-a')).toEqual([2, 8])
+    expect(stars.getStarredSlices('series-a')).toEqual([{ sliceIndex: 2 }, { sliceIndex: 8 }])
     expect(stars.getStarredSliceCount('series-a')).toBe(2)
     expect(stars.isSliceStarred('series-a', 8)).toBe(true)
 
@@ -47,6 +48,27 @@ describe('useKeySliceStars', () => {
 
     expect(reloaded.toggleSliceStar('series-a', 8)).toBe(false)
     expect(reloaded.getStarredSliceIndexes('series-a')).toEqual([2])
+  })
+
+  it('migrates old arrays and persists editable labels', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'series-a': [1, 4] }))
+    const stars = useKeySliceStars(STORAGE_KEY)
+
+    expect(stars.getStarredSlices('series-a')).toEqual([{ sliceIndex: 1 }, { sliceIndex: 4 }])
+    expect(stars.updateSliceStarLabel('series-a', 4, '  Follow up slice  ')).toBe(true)
+    expect(stars.getStarredSlices('series-a')).toEqual([
+      { sliceIndex: 1 },
+      { sliceIndex: 4, label: 'Follow up slice' }
+    ])
+
+    const reloaded = useKeySliceStars(STORAGE_KEY)
+    expect(reloaded.getStarredSlices('series-a')).toEqual([
+      { sliceIndex: 1 },
+      { sliceIndex: 4, label: 'Follow up slice' }
+    ])
+
+    expect(reloaded.updateSliceStarLabel('series-a', 4, '   ')).toBe(true)
+    expect(reloaded.getStarredSlices('series-a')).toEqual([{ sliceIndex: 1 }, { sliceIndex: 4 }])
   })
 
   it('shares reactive state across composable instances', () => {
@@ -76,6 +98,7 @@ describe('useKeySliceStars', () => {
       STORAGE_KEY,
       JSON.stringify({
         'series-a': [3, -1, 3, '5', null],
+        'series-labeled': [{ sliceIndex: 8, label: '  A  ' }, { index: 9, label: '' }],
         'series-b': 'invalid',
         '': [1]
       })
@@ -83,6 +106,7 @@ describe('useKeySliceStars', () => {
 
     const stars = useKeySliceStars(STORAGE_KEY)
     expect(stars.getStarredSliceIndexes('series-a')).toEqual([3, 5])
+    expect(stars.getStarredSlices('series-labeled')).toEqual([{ sliceIndex: 8, label: 'A' }, { sliceIndex: 9 }])
     expect(stars.getStarredSliceIndexes('series-b')).toEqual([])
   })
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
@@ -47,6 +47,9 @@ const customWindowLevel = ref('')
 const petDraftWindowMax = ref(DEFAULT_FUSION_PET_WINDOW_MAX)
 const petRangeUpperLimit = ref(DEFAULT_PET_RANGE_UPPER_LIMIT)
 const petRangeUpperLimitInput = ref(String(DEFAULT_PET_RANGE_UPPER_LIMIT))
+const zoomSliderDraftValue = ref<number | null>(null)
+let zoomSliderFrame: number | null = null
+let pendingZoomSliderValue: number | null = null
 const isZh = computed(() => locale.value === 'zh-CN')
 const customWindowCopy = computed(() => ({
   title: isZh.value ? '临时窗值' : 'Custom Window',
@@ -87,6 +90,10 @@ const transformActionCopy = computed(() => ({
 const rotateActionCopy = computed(() => ({
   resetRotation: isZh.value ? '重置旋转' : 'Reset Rotation',
   resetRotationDesc: isZh.value ? '恢复当前视图旋转和镜像状态。' : 'Restore rotation and mirror state for the current view.'
+}))
+const mprActionCopy = computed(() => ({
+  resetCrosshair: isZh.value ? '重置十字线' : 'Reset Crosshair',
+  resetRotate3d: isZh.value ? '重置 3D 旋转' : 'Reset 3D Rotation'
 }))
 const annotationActionCopy = computed(() => ({
   clearAnnotations: isZh.value ? '清除标注' : 'Clear Annotations',
@@ -224,6 +231,82 @@ function handlePlaybackFpsSliderInput(event: Event): void {
   selectPlaybackFpsIndex(value)
 }
 
+const activeZoomRangeControl = computed(() => (props.tool.rangeControl?.kind === 'zoom' ? props.tool.rangeControl : null))
+const zoomSliderValue = computed(() => zoomSliderDraftValue.value ?? activeZoomRangeControl.value?.value ?? 1)
+
+function clampZoomSliderValue(value: number): number {
+  const control = activeZoomRangeControl.value
+  const fallbackValue = control?.resetValue ?? 1
+  if (!control || !Number.isFinite(value)) {
+    return fallbackValue
+  }
+  const stepped = Math.round(value / control.step) * control.step
+  return Math.max(control.min, Math.min(control.max, Number(stepped.toFixed(3))))
+}
+
+function formatZoomSliderValue(value: number): string {
+  const rounded = Number(value.toFixed(value < 1 ? 2 : 1))
+  return Number.isInteger(rounded) ? `${rounded}x` : `${rounded}x`
+}
+
+function emitZoomSliderValue(value: number): void {
+  const normalized = clampZoomSliderValue(value)
+  emit('select', `transform:zoom:${normalized}`)
+}
+
+function flushPendingZoomSliderValue(): void {
+  if (zoomSliderFrame !== null) {
+    cancelAnimationFrame(zoomSliderFrame)
+    zoomSliderFrame = null
+  }
+  if (pendingZoomSliderValue === null) {
+    return
+  }
+  emitZoomSliderValue(pendingZoomSliderValue)
+  pendingZoomSliderValue = null
+}
+
+function queueZoomSliderValue(value: number): void {
+  pendingZoomSliderValue = clampZoomSliderValue(value)
+  if (zoomSliderFrame !== null) {
+    return
+  }
+  zoomSliderFrame = requestAnimationFrame(() => {
+    zoomSliderFrame = null
+    if (pendingZoomSliderValue !== null) {
+      emitZoomSliderValue(pendingZoomSliderValue)
+      pendingZoomSliderValue = null
+    }
+  })
+}
+
+function setZoomSliderValue(value: number, final = false): void {
+  const normalized = clampZoomSliderValue(value)
+  zoomSliderDraftValue.value = normalized
+  if (final) {
+    pendingZoomSliderValue = normalized
+    flushPendingZoomSliderValue()
+    return
+  }
+  queueZoomSliderValue(normalized)
+}
+
+function handleZoomSliderInput(event: Event): void {
+  setZoomSliderValue(Number((event.target as HTMLInputElement | null)?.value ?? zoomSliderValue.value), false)
+}
+
+function handleZoomSliderCommit(event: Event): void {
+  setZoomSliderValue(Number((event.target as HTMLInputElement | null)?.value ?? zoomSliderValue.value), true)
+}
+
+function selectZoomSliderTick(value: number): void {
+  setZoomSliderValue(value, true)
+}
+
+function isZoomSliderTickActive(value: number): boolean {
+  return Math.abs(zoomSliderValue.value - value) < 0.025
+}
+
 function parseCustomWindowValue(value: string | number | null | undefined): number | null {
   const parsed = Number.parseFloat(String(value ?? '').trim())
   return Number.isFinite(parsed) ? parsed : null
@@ -353,6 +436,8 @@ function isRotateResetOption(option: StackToolOption): boolean {
 function isFooterActionOption(option: StackToolOption): boolean {
   return (
     option.value === 'transform:reset' ||
+    (props.tool.key === 'crosshair' && option.value === 'mprCrosshair:reset') ||
+    (props.tool.key === 'rotate3d' && option.value === 'rotate3d:reset') ||
     isRotateResetOption(option) ||
     (props.tool.key === 'annotate' && option.value === 'reset:annotations') ||
     (props.tool.key === 'reset' && option.value.startsWith('reset:'))
@@ -406,6 +491,10 @@ function updateDockDrawingScope(scope: DrawingScope): void {
     emit('select', 'reset:measurements')
   } else if (key === 'annotation') {
     emit('select', 'reset:annotations')
+  } else if (key === 'mtf') {
+    emit('select', 'reset:mtf')
+  } else if (key === 'qaWater') {
+    emit('select', 'reset:qa-water')
   }
 }
 
@@ -422,6 +511,20 @@ const footerActions = computed(() => {
     actions.push({
       value: 'transform:reset',
       label: transformActionCopy.value.resetTransform,
+      icon: 'reset'
+    })
+  }
+  if (props.tool.key === 'crosshair') {
+    actions.push({
+      value: 'mprCrosshair:reset',
+      label: mprActionCopy.value.resetCrosshair,
+      icon: 'reset'
+    })
+  }
+  if (props.tool.key === 'rotate3d') {
+    actions.push({
+      value: 'rotate3d:reset',
+      label: mprActionCopy.value.resetRotate3d,
       icon: 'reset'
     })
   }
@@ -475,6 +578,25 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  () => [props.tool.key, props.tool.rangeControl?.value] as const,
+  () => {
+    zoomSliderDraftValue.value = null
+    pendingZoomSliderValue = null
+    if (zoomSliderFrame !== null) {
+      cancelAnimationFrame(zoomSliderFrame)
+      zoomSliderFrame = null
+    }
+  }
+)
+
+onBeforeUnmount(() => {
+  if (zoomSliderFrame !== null) {
+    cancelAnimationFrame(zoomSliderFrame)
+    zoomSliderFrame = null
+  }
+})
 </script>
 
 <template>
@@ -732,6 +854,42 @@ watch(
         >
           {{ toolGuideDescription }}
         </section>
+        <section
+          v-if="activeZoomRangeControl"
+          class="viewer-toolbar-dock-panel-content__zoom-control"
+          data-testid="viewer-toolbar-dock-zoom-control"
+        >
+          <div class="viewer-toolbar-dock-panel-content__zoom-header">
+            <span>{{ tool.label }}</span>
+            <strong>{{ formatZoomSliderValue(zoomSliderValue) }}</strong>
+          </div>
+          <div class="viewer-toolbar-dock-panel-content__zoom-slider">
+            <input
+              data-testid="viewer-toolbar-dock-zoom-slider"
+              type="range"
+              :min="activeZoomRangeControl.min"
+              :max="activeZoomRangeControl.max"
+              :step="activeZoomRangeControl.step"
+              :value="zoomSliderValue"
+              :aria-label="tool.label"
+              @input="handleZoomSliderInput"
+              @change="handleZoomSliderCommit"
+              @pointerup="flushPendingZoomSliderValue"
+            />
+          </div>
+          <div class="viewer-toolbar-dock-panel-content__zoom-ticks">
+            <button
+              v-for="tick in activeZoomRangeControl.ticks"
+              :key="tick.value"
+              type="button"
+              class="viewer-toolbar-dock-panel-content__zoom-tick"
+              :class="{ 'viewer-toolbar-dock-panel-content__zoom-tick--active': isZoomSliderTickActive(tick.value) }"
+              @click="selectZoomSliderTick(tick.value)"
+            >
+              {{ tick.label }}
+            </button>
+          </div>
+        </section>
         <form
           v-if="tool.key === 'window'"
           class="viewer-toolbar-dock-panel-content__custom-window"
@@ -960,6 +1118,120 @@ watch(
   font-size: 11px;
   font-weight: 650;
   line-height: 1.4;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-control {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--theme-surface-card) 58%, transparent);
+  padding: 12px;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-header strong {
+  color: var(--theme-text-primary);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-slider {
+  position: relative;
+  height: 28px;
+  display: grid;
+  align-items: center;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-slider input {
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-slider input::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--theme-accent) 55%, transparent), color-mix(in srgb, var(--theme-accent) 14%, transparent)),
+    color-mix(in srgb, var(--theme-surface-muted) 82%, transparent);
+}
+
+.viewer-toolbar-dock-panel-content__zoom-slider input::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  appearance: none;
+  border: 2px solid color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, #ffffff);
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--theme-accent) 42%, transparent),
+    0 5px 12px rgba(0, 0, 0, 0.26);
+}
+
+.viewer-toolbar-dock-panel-content__zoom-slider input::-moz-range-track {
+  height: 6px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 82%, transparent);
+}
+
+.viewer-toolbar-dock-panel-content__zoom-slider input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, #ffffff);
+  border-radius: 999px;
+  background: var(--theme-accent);
+}
+
+.viewer-toolbar-dock-panel-content__zoom-ticks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-tick {
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 64%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 850;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-tick:hover,
+.viewer-toolbar-dock-panel-content__zoom-tick:focus-visible {
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
+  color: var(--theme-text-primary);
+  outline: none;
+}
+
+.viewer-toolbar-dock-panel-content__zoom-tick--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
 }
 
 .viewer-toolbar-dock-panel-content__options-scroll {
@@ -1234,6 +1506,7 @@ watch(
   font-size: 10.5px;
   font-weight: 850;
   outline: none;
+  appearance: textfield;
 }
 
 .viewer-toolbar-dock-panel-content__pet-range-max-input:focus {
@@ -1436,14 +1709,48 @@ watch(
   font-size: 12px;
   font-weight: 800;
   outline: none;
+  appearance: textfield;
   transition:
     border-color 150ms ease,
     background 150ms ease;
 }
 
+.viewer-toolbar-dock-panel-content__custom-window-field input::-webkit-outer-spin-button,
+.viewer-toolbar-dock-panel-content__custom-window-field input::-webkit-inner-spin-button,
+.viewer-toolbar-dock-panel-content__pet-range-max-input::-webkit-outer-spin-button,
+.viewer-toolbar-dock-panel-content__pet-range-max-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .viewer-toolbar-dock-panel-content__custom-window-field input:focus {
   border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card));
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__custom-window-field input,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 72%, #94a3b8);
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 0 1px color-mix(in srgb, var(--theme-border-soft) 46%, transparent);
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__custom-window-field input::placeholder,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input::placeholder {
+  color: color-mix(in srgb, var(--theme-text-muted) 78%, transparent);
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__custom-window-field input:focus,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input:focus {
+  border-color: color-mix(in srgb, var(--theme-accent) 56%, var(--theme-border-strong));
+  background: #ffffff;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--theme-accent) 14%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .viewer-toolbar-dock-panel-content__custom-window-apply {

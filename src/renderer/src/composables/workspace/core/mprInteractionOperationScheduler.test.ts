@@ -382,7 +382,7 @@ describe('view interaction operation scheduler', () => {
     expect(timers[0].delay).toBe(200)
   })
 
-  it('throttles MPR MIP slider moves with backend preview feedback and flushes final value', () => {
+  it('throttles MPR MIP slider moves on a latest-only cadence and flushes final value', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
     const emit = vi.fn()
@@ -418,14 +418,10 @@ describe('view interaction operation scheduler', () => {
     })
 
     expect(emit).toHaveBeenCalledTimes(1)
-    expect(timers).toHaveLength(0)
-
-    now = 96
-    scheduler.recordBackendPreview('mpr-ax', 1)
     expect(timers).toHaveLength(1)
-    expect(timers[0].delay).toBe(4)
+    expect(timers[0].delay).toBe(16)
 
-    now = 100
+    now = 16
     timers[0].callback()
     scheduler.emit('mpr-ax', {
       opType: VIEW_OPERATION_TYPES.mprMipConfig,

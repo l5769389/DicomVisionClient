@@ -26,7 +26,7 @@ import {
   resolveBackendErrorDetail
 } from '../../composables/workspace/tasks/workspaceStatus'
 import { SERIES_DRAG_PAYLOAD_TYPE, SERIES_DRAG_TYPE, type SeriesDragPayload } from '../../constants/dragDrop'
-import { buildSeriesTreeGroups, type SeriesTreePatientGroup, type SeriesTreeStudyGroup } from './seriesGrouping'
+import { buildSeriesTreeGroups, formatPatientName, type SeriesTreePatientGroup, type SeriesTreeStudyGroup } from './seriesGrouping'
 import { getSeriesMetaLabel, getSeriesValueMetaLabel } from './seriesMetadata'
 import {
   createSeriesSearchTermCache,
@@ -79,7 +79,13 @@ interface SeriesContextMenuActionItem {
 
 const { locale, t, viewerCopy } = useUiLocale()
 const { dicomDeidentifyPreference, exportPreference } = useUiPreferences()
-const { clearSeriesStars, getStarredSliceIndexes, getStarredSliceCount } = useKeySliceStars()
+const {
+  clearSeriesStars,
+  getStarredSlices,
+  getStarredSliceIndexes,
+  getStarredSliceCount,
+  updateSliceStarLabel
+} = useKeySliceStars()
 let typedApiModulePromise: Promise<typeof import('../../services/typedApi')> | null = null
 
 function loadTypedApi(): Promise<typeof import('../../services/typedApi')> {
@@ -93,6 +99,7 @@ const isFusionDialogOpen = ref(false)
 const isCompatibilityDialogOpen = ref(false)
 const isCheckingCompatibility = ref(false)
 const isKeySliceDialogOpen = ref(false)
+const isAllKeySlicesDialogOpen = ref(false)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 const contextSeries = ref<FolderSeriesItem | null>(null)
 const compatibilityDialogSeries = ref<FolderSeriesItem | null>(null)
@@ -106,6 +113,8 @@ const seriesSearch = ref('')
 const seriesSearchTermCache = createSeriesSearchTermCache()
 const collapsedPatientGroupKeys = ref<string[]>([])
 const collapsedStudyGroupKeys = ref<string[]>([])
+const editingAllKeySliceKey = ref<string | null>(null)
+const editingAllKeySliceLabel = ref('')
 
 const contextMenuAnchorStyle = computed(() => ({
   left: `${contextMenuPosition.value.x}px`,
@@ -134,11 +143,48 @@ const keySliceDialogItems = computed(() =>
     label: viewerCopy.value.keySliceLabel(sliceIndex + 1)
   }))
 )
+const allKeySliceDialogItems = computed(() =>
+  props.seriesList.flatMap((series) =>
+    getStarredSlices(series.seriesId).map((star) => ({
+      seriesId: series.seriesId,
+      seriesTitle:
+        formatPatientName((series as FolderSeriesItem & { patientName?: string | null }).patientName) ||
+        series.patientId ||
+        series.seriesDescription ||
+        t('unnamedSeries'),
+      seriesDescription: series.seriesDescription || t('unnamedSeries'),
+      seriesMeta: getSeriesMetaLabel(series),
+      sliceIndex: star.sliceIndex,
+      customLabel: star.label ?? '',
+      label: star.label || viewerCopy.value.keySliceLabel(star.sliceIndex + 1),
+      defaultLabel: viewerCopy.value.keySliceLabel(star.sliceIndex + 1)
+    }))
+  )
+)
+const allKeySliceSeriesIds = computed(() =>
+  props.seriesList
+    .filter((series) => getStarredSliceIndexes(series.seriesId).length > 0)
+    .map((series) => series.seriesId)
+)
 const keySliceDialogCount = computed(() => keySliceDialogItems.value.length)
+const allKeySliceDialogCount = computed(() => allKeySliceDialogItems.value.length)
 const hasKeySliceDialogItems = computed(() => keySliceDialogCount.value > 0)
+const hasAllKeySliceDialogItems = computed(() => allKeySliceDialogCount.value > 0)
 const keySliceDialogSeriesTitle = computed(() =>
   keySliceDialogSeries.value?.seriesDescription || keySliceDialogSeries.value?.seriesId || t('unnamedSeries')
 )
+const allKeySliceDialogCopy = computed(() => ({
+  title: isZh.value ? '收藏切片' : 'Favorite Slices',
+  subtitle: isZh.value ? '当前已加载序列' : 'Loaded series',
+  clear: isZh.value ? '清除收藏' : 'Clear favorites',
+  edit: isZh.value ? '编辑' : 'Edit',
+  save: isZh.value ? '保存' : 'Save',
+  cancel: isZh.value ? '取消' : 'Cancel',
+  labelPlaceholder: isZh.value ? '输入切片名称' : 'Slice name',
+  open: isZh.value ? '打开' : 'Open',
+  empty: isZh.value ? '当前加载的序列没有收藏切片。' : 'No favorite slices are available in the loaded series.',
+  button: (count: number) => (isZh.value ? `查看收藏切片 ${count}` : `View favorite slices ${count}`)
+}))
 const deidentifyCopy = computed(() => ({
   actionTitle: isZh.value ? '脱敏导出' : 'De-identify Export',
   actionSubtitle:
@@ -624,8 +670,45 @@ function openKeySlice(sliceIndex: number): void {
   isKeySliceDialogOpen.value = false
 }
 
+function openAllKeySlice(seriesId: string, sliceIndex: number): void {
+  emit('openKeySlice', seriesId, sliceIndex)
+  cancelAllKeySliceLabelEdit()
+  isAllKeySlicesDialogOpen.value = false
+}
+
+function getAllKeySliceItemKey(seriesId: string, sliceIndex: number): string {
+  return `${seriesId}:${sliceIndex}`
+}
+
+function isEditingAllKeySliceLabel(seriesId: string, sliceIndex: number): boolean {
+  return editingAllKeySliceKey.value === getAllKeySliceItemKey(seriesId, sliceIndex)
+}
+
+function startAllKeySliceLabelEdit(item: { seriesId: string; sliceIndex: number; customLabel: string; defaultLabel: string }): void {
+  editingAllKeySliceKey.value = getAllKeySliceItemKey(item.seriesId, item.sliceIndex)
+  editingAllKeySliceLabel.value = item.customLabel || item.defaultLabel
+}
+
+function cancelAllKeySliceLabelEdit(): void {
+  editingAllKeySliceKey.value = null
+  editingAllKeySliceLabel.value = ''
+}
+
+function saveAllKeySliceLabelEdit(seriesId: string, sliceIndex: number): void {
+  if (!isEditingAllKeySliceLabel(seriesId, sliceIndex)) {
+    return
+  }
+  updateSliceStarLabel(seriesId, sliceIndex, editingAllKeySliceLabel.value)
+  cancelAllKeySliceLabelEdit()
+}
+
 function clearKeySliceMarks(): void {
   clearSeriesStars(keySliceDialogSeries.value?.seriesId)
+}
+
+function clearAllLoadedKeySliceMarks(): void {
+  allKeySliceSeriesIds.value.forEach((seriesId) => clearSeriesStars(seriesId))
+  cancelAllKeySliceLabelEdit()
 }
 
 function normalizeCompatibilitySeverity(severity?: CompatibilityIssue['severity']): CompatibilitySeverity {
@@ -938,6 +1021,23 @@ function handleSeriesDragEnd(): void {
       <div v-else class="theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm leading-6 text-[var(--theme-text-muted)]">{{ t('noSeriesDesc') }}</div>
     </div>
 
+    <div v-if="hasAllKeySliceDialogItems" class="series-list-favorites shrink-0 pt-2">
+      <button
+        type="button"
+        class="series-list-favorites__button theme-card-soft grid w-full grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border px-3 py-2 text-left transition duration-150"
+        data-testid="series-list-open-all-key-slices"
+        @click="isAllKeySlicesDialogOpen = true"
+      >
+        <span class="series-list-favorites__icon">
+          <AppIcon name="star" :size="15" />
+        </span>
+        <span class="min-w-0 truncate text-xs font-semibold text-[var(--theme-text-primary)]">
+          {{ allKeySliceDialogCopy.button(allKeySliceDialogCount) }}
+        </span>
+        <AppIcon name="chevron-right" :size="14" class="text-[var(--theme-text-muted)]" />
+      </button>
+    </div>
+
     <div v-if="contextSeries" class="fixed z-[2100] h-0 w-0" :style="contextMenuAnchorStyle">
       <VMenu
         v-model="isContextMenuOpen"
@@ -1052,7 +1152,7 @@ function handleSeriesDragEnd(): void {
             >
               {{ viewerCopy.keySliceClear }}
             </VBtn>
-            <VBtn class="h-9! w-9! min-w-0! rounded-xl! border! border-[var(--theme-border-soft)]! bg-[var(--theme-surface-muted)]! text-[var(--theme-text-secondary)]!" variant="flat" @click="isKeySliceDialogOpen = false">
+            <VBtn class="key-slice-dialog__header-button h-9! w-9! min-w-0! rounded-xl! border! p-0!" variant="flat" @click="isKeySliceDialogOpen = false">
               <AppIcon name="close" :size="16" />
             </VBtn>
           </div>
@@ -1081,6 +1181,97 @@ function handleSeriesDragEnd(): void {
           <div v-if="!hasKeySliceDialogItems" class="key-slice-dialog__empty theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm text-[var(--theme-text-muted)]">
             <AppIcon name="star-outline" :size="20" />
             <span>{{ viewerCopy.keySliceDialogEmpty }}</span>
+          </div>
+        </div>
+      </VCard>
+    </VDialog>
+
+    <VDialog v-model="isAllKeySlicesDialogOpen" max-width="640">
+      <VCard class="key-slice-dialog theme-shell-panel overflow-hidden rounded-[22px]! border! p-0! text-[var(--theme-text-primary)]! shadow-[0_24px_58px_rgba(0,0,0,0.48)]!">
+        <div class="flex items-start justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-4">
+          <div class="min-w-0">
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="truncate text-base font-semibold text-[var(--theme-text-primary)]">{{ allKeySliceDialogCopy.title }}</div>
+              <span class="key-slice-dialog__count">{{ allKeySliceDialogCount }}</span>
+            </div>
+            <div class="mt-1 truncate text-xs text-[var(--theme-text-secondary)]">
+              {{ allKeySliceDialogCopy.subtitle }}
+            </div>
+          </div>
+          <div class="flex flex-none items-center gap-2">
+            <VBtn
+              class="key-slice-dialog__clear h-9! rounded-xl! border! px-3! text-xs! font-bold!"
+              :disabled="!hasAllKeySliceDialogItems"
+              variant="flat"
+              @click="clearAllLoadedKeySliceMarks"
+            >
+              {{ allKeySliceDialogCopy.clear }}
+            </VBtn>
+            <VBtn class="key-slice-dialog__header-button h-9! w-9! min-w-0! rounded-xl! border! p-0!" variant="flat" @click="cancelAllKeySliceLabelEdit(); isAllKeySlicesDialogOpen = false">
+              <AppIcon name="close" :size="16" />
+            </VBtn>
+          </div>
+        </div>
+
+        <div class="max-h-[480px] overflow-auto p-3">
+          <div
+            v-for="item in allKeySliceDialogItems"
+            :key="`${item.seriesId}-${item.sliceIndex}`"
+            class="key-slice-dialog__item theme-card-soft grid w-full grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-3 text-left transition duration-150"
+          >
+            <span class="key-slice-dialog__icon">
+              <AppIcon name="star" :size="16" />
+            </span>
+            <span class="min-w-0">
+              <span class="block truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ item.seriesTitle }}</span>
+              <input
+                v-if="isEditingAllKeySliceLabel(item.seriesId, item.sliceIndex)"
+                v-model="editingAllKeySliceLabel"
+                class="key-slice-dialog__label-input"
+                :placeholder="allKeySliceDialogCopy.labelPlaceholder"
+                maxlength="40"
+                @click.stop
+                @keydown.enter.prevent="saveAllKeySliceLabelEdit(item.seriesId, item.sliceIndex)"
+                @keydown.esc.prevent="cancelAllKeySliceLabelEdit"
+                @blur="saveAllKeySliceLabelEdit(item.seriesId, item.sliceIndex)"
+              />
+              <span v-else class="mt-0.5 block truncate text-[11px] text-[var(--theme-text-secondary)]">
+                {{ item.label }} / {{ item.seriesDescription }} / {{ item.seriesMeta }}
+              </span>
+            </span>
+            <span class="key-slice-dialog__item-actions">
+              <button
+                v-if="isEditingAllKeySliceLabel(item.seriesId, item.sliceIndex)"
+                type="button"
+                class="key-slice-dialog__edit-action"
+                :title="allKeySliceDialogCopy.save"
+                @mousedown.prevent
+                @click.stop="saveAllKeySliceLabelEdit(item.seriesId, item.sliceIndex)"
+              >
+                <AppIcon name="check" :size="14" />
+              </button>
+              <button
+                v-else
+                type="button"
+                class="key-slice-dialog__edit-action"
+                :title="allKeySliceDialogCopy.edit"
+                @click.stop="startAllKeySliceLabelEdit(item)"
+              >
+                <AppIcon name="annotate" :size="13" />
+              </button>
+              <button
+                type="button"
+                class="key-slice-dialog__action"
+                @click="openAllKeySlice(item.seriesId, item.sliceIndex)"
+              >
+                <span>{{ allKeySliceDialogCopy.open }}</span>
+                <AppIcon name="chevron-right" :size="14" />
+              </button>
+            </span>
+          </div>
+          <div v-if="!hasAllKeySliceDialogItems" class="key-slice-dialog__empty theme-card-soft rounded-2xl border border-dashed px-4 py-5 text-sm text-[var(--theme-text-muted)]">
+            <AppIcon name="star-outline" :size="20" />
+            <span>{{ allKeySliceDialogCopy.empty }}</span>
           </div>
         </div>
       </VCard>
@@ -1277,6 +1468,32 @@ function handleSeriesDragEnd(): void {
 .series-list-search__clear:hover {
   border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
   color: var(--theme-text-primary);
+}
+
+.series-list-favorites {
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 62%, transparent);
+}
+
+.series-list-favorites__button {
+  color: var(--theme-text-primary);
+}
+
+.series-list-favorites__button:hover,
+.series-list-favorites__button:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-card));
+  outline: none;
+}
+
+.series-list-favorites__icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border-soft));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-muted));
+  color: var(--theme-accent);
 }
 
 .series-tree-patient {
@@ -1709,14 +1926,36 @@ function handleSeriesDragEnd(): void {
 }
 
 .key-slice-dialog__clear {
-  border-color: rgba(251, 113, 133, 0.22) !important;
-  background: color-mix(in srgb, rgb(251, 113, 133) 9%, var(--theme-surface-card) 84%) !important;
-  color: rgb(253, 164, 175) !important;
+  border-color: color-mix(in srgb, var(--theme-status-danger-border) 72%, var(--theme-border-soft)) !important;
+  background: color-mix(in srgb, var(--theme-status-danger-surface) 72%, var(--theme-surface-card)) !important;
+  color: var(--theme-status-danger-text) !important;
 }
 
-.key-slice-dialog__clear:hover {
-  border-color: rgba(251, 113, 133, 0.38) !important;
-  background: color-mix(in srgb, rgb(251, 113, 133) 14%, var(--theme-surface-card) 80%) !important;
+.key-slice-dialog__clear:hover:not(:disabled),
+.key-slice-dialog__clear:focus-visible:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-status-danger-text) 48%, var(--theme-status-danger-border)) !important;
+  background: color-mix(in srgb, var(--theme-status-danger-surface) 86%, var(--theme-surface-card)) !important;
+  color: var(--theme-status-danger-text) !important;
+}
+
+.key-slice-dialog__clear:disabled {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 70%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-muted) 62%, transparent) !important;
+  color: var(--theme-text-muted) !important;
+  opacity: 0.62;
+}
+
+.key-slice-dialog__header-button {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 86%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface-muted) 72%, transparent) !important;
+  color: var(--theme-text-secondary) !important;
+}
+
+.key-slice-dialog__header-button:hover,
+.key-slice-dialog__header-button:focus-visible {
+  border-color: var(--theme-hover-border) !important;
+  background: var(--theme-hover-surface) !important;
+  color: var(--theme-text-primary) !important;
 }
 
 .key-slice-dialog__empty {
@@ -1759,10 +1998,56 @@ function handleSeriesDragEnd(): void {
   letter-spacing: 0.08em;
 }
 
+.key-slice-dialog__item-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.key-slice-dialog__edit-action {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-surface-muted) 70%, transparent);
+  color: var(--theme-text-secondary);
+}
+
+.key-slice-dialog__edit-action:hover,
+.key-slice-dialog__edit-action:focus-visible,
+.key-slice-dialog__action:hover,
+.key-slice-dialog__action:focus-visible,
 .key-slice-dialog__item:hover .key-slice-dialog__action {
   border-color: color-mix(in srgb, var(--theme-accent) 44%, transparent);
   background: color-mix(in srgb, var(--theme-accent) 15%, transparent);
   color: var(--theme-accent);
+  outline: none;
+}
+
+.key-slice-dialog__label-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  padding: 6px 8px;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.key-slice-dialog__label-input:focus {
+  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-surface-card) 96%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 14%, transparent);
 }
 
 .series-compare-dialog {

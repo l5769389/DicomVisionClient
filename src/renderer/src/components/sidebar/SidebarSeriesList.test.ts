@@ -7,6 +7,11 @@ import type { FolderSeriesItem } from '../../types/viewer'
 const postApiMock = vi.hoisted(() => vi.fn())
 const dispatchWorkspaceStatusToastMock = vi.hoisted(() => vi.fn())
 const resolveBackendErrorDetailMock = vi.hoisted(() => vi.fn())
+const clearSeriesStarsMock = vi.hoisted(() => vi.fn())
+const getStarredSlicesMock = vi.hoisted(() => vi.fn<(seriesId?: string) => Array<{ sliceIndex: number; label?: string }>>(() => []))
+const getStarredSliceIndexesMock = vi.hoisted(() => vi.fn<(seriesId?: string) => number[]>(() => []))
+const getStarredSliceCountMock = vi.hoisted(() => vi.fn<(seriesId?: string) => number>(() => 0))
+const updateSliceStarLabelMock = vi.hoisted(() => vi.fn())
 
 vi.mock('vuetify/components', async () => {
   const { defineComponent, h } = await import('vue')
@@ -83,9 +88,11 @@ vi.mock('../../platform/exporting', () => ({
 
 vi.mock('../../composables/workspace/slices/useKeySliceStars', () => ({
   useKeySliceStars: () => ({
-    clearSeriesStars: vi.fn(),
-    getStarredSliceIndexes: vi.fn(() => []),
-    getStarredSliceCount: vi.fn(() => 0)
+    clearSeriesStars: clearSeriesStarsMock,
+    getStarredSlices: getStarredSlicesMock,
+    getStarredSliceIndexes: getStarredSliceIndexesMock,
+    getStarredSliceCount: getStarredSliceCountMock,
+    updateSliceStarLabel: updateSliceStarLabelMock
   })
 }))
 
@@ -237,6 +244,10 @@ async function openCompatibilityAction(wrapper: ReturnType<typeof mountSidebar>)
 afterEach(() => {
   delete (window as Window & { viewerApi?: unknown }).viewerApi
   vi.clearAllMocks()
+  getStarredSliceIndexesMock.mockImplementation(() => [])
+  getStarredSlicesMock.mockImplementation(() => [])
+  getStarredSliceCountMock.mockImplementation(() => 0)
+  updateSliceStarLabelMock.mockReset()
   resolveBackendErrorDetailMock.mockReset()
 })
 
@@ -425,6 +436,58 @@ describe('SidebarSeriesList compatibility check', () => {
       durationMs: 5000
     })
 
+    wrapper.unmount()
+  })
+
+  it('shows loaded favorite slices and opens the selected series slice', async () => {
+    getStarredSliceIndexesMock.mockImplementation((seriesId?: string) =>
+      seriesId === 'series-1' ? [1] : seriesId === 'series-2' ? [3] : []
+    )
+    getStarredSlicesMock.mockImplementation((seriesId?: string) =>
+      seriesId === 'series-1'
+        ? [{ sliceIndex: 1, label: 'Baseline' }]
+        : seriesId === 'series-2'
+          ? [{ sliceIndex: 3 }]
+          : []
+    )
+    getStarredSliceCountMock.mockImplementation((seriesId?: string) =>
+      seriesId === 'series-1' || seriesId === 'series-2' ? 1 : 0
+    )
+    const wrapper = mountSidebar([
+      createSeries({ seriesId: 'series-1', patientName: 'ZHANG^SAN', seriesDescription: 'CT A' }),
+      createSeries({ seriesId: 'series-2', patientName: 'LI^SI', seriesDescription: 'CT B' })
+    ])
+
+    const action = wrapper.find('[data-testid="series-list-open-all-key-slices"]')
+    expect(action.exists()).toBe(true)
+    expect(action.text()).toContain('View favorite slices 2')
+
+    await action.trigger('click')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('ZHANG SAN')
+    expect(wrapper.text()).toContain('CT A')
+    expect(wrapper.text()).toContain('Baseline')
+    expect(wrapper.text()).toContain('LI SI')
+    expect(wrapper.text()).toContain('CT B')
+    expect(wrapper.text()).toContain('Slice 4')
+
+    await wrapper.findAll('.key-slice-dialog__edit-action')[0]!.trigger('click')
+    const input = wrapper.find('.key-slice-dialog__label-input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('Follow up')
+    await input.trigger('keydown.enter')
+    expect(updateSliceStarLabelMock).toHaveBeenCalledWith('series-1', 1, 'Follow up')
+
+    const clearButton = wrapper.findAll('.v-btn-stub').find((button) => button.text().includes('Clear favorites'))
+    expect(clearButton).toBeTruthy()
+    await clearButton!.trigger('click')
+    expect(clearSeriesStarsMock).toHaveBeenCalledWith('series-1')
+    expect(clearSeriesStarsMock).toHaveBeenCalledWith('series-2')
+
+    await wrapper.findAll('.key-slice-dialog__action')[1]!.trigger('click')
+
+    expect(wrapper.emitted('openKeySlice')).toEqual([['series-2', 3]])
     wrapper.unmount()
   })
 })

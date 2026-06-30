@@ -78,7 +78,7 @@ const metrics = computed(() => {
     :style="metrics.containerStyle"
   >
     <div
-      class="rounded-[2px] border border-white/15 shadow-[0_0_10px_rgba(0,0,0,0.4)]"
+      class="rounded-[2px] shadow-[0_0_10px_rgba(0,0,0,0.4)]"
       :style="metrics.barStyle"
     ></div>
     <div

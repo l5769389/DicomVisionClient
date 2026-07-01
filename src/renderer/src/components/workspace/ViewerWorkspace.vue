@@ -241,6 +241,7 @@ type AnnotationInteractionState =
 
 const {
   activeViewportKey,
+  clearDrawingDrafts,
   cleanupPointerInteractions,
   copySelectedMeasurement,
   deleteSelectedMeasurement,
@@ -300,7 +301,7 @@ const {
   closeMenus,
   endPlayback,
   handleViewportClick,
-  handleViewportWheel,
+  handleViewportWheel: handleViewportWheelCore,
   isPlaying,
   isPlaybackPaused,
   isMprMipPanelOpen,
@@ -1022,6 +1023,27 @@ function createAnnotationId(): string {
 function isAnnotationOperationPath(value: string): boolean {
   const normalized = value.startsWith('stack:') ? value.slice('stack:'.length) : value
   return normalized === 'annotate' || normalized.startsWith('annotate:')
+}
+
+function isTransientDrawingOperationPath(value: string): boolean {
+  const normalized = value.startsWith('stack:') ? value.slice('stack:'.length) : value
+  return (
+    normalized.startsWith('measure:') ||
+    normalized === 'annotate' ||
+    normalized.startsWith('annotate:') ||
+    normalized.startsWith('qa:')
+  )
+}
+
+function clearTransientDrawingDrafts(): void {
+  clearDrawingDrafts()
+  clearDraftAnnotations()
+  annotationInteraction.value = { kind: 'idle' }
+}
+
+function handleViewportWheel(payload: Parameters<typeof handleViewportWheelCore>[0]): void {
+  clearTransientDrawingDrafts()
+  handleViewportWheelCore(payload)
 }
 
 function isAnnotationOperationEnabled(): boolean {
@@ -2304,7 +2326,11 @@ watch(
 
 watch(
   () => props.activeOperation,
-  (value) => {
+  (value, previousValue) => {
+    if (previousValue && value !== previousValue && isTransientDrawingOperationPath(previousValue)) {
+      clearTransientDrawingDrafts()
+      return
+    }
     if (!isAnnotationOperationPath(value)) {
       clearDraftAnnotations()
       annotationInteraction.value = { kind: 'idle' }
@@ -2318,18 +2344,20 @@ watch(
     const previousValue = previousDrawingScopePreference.value
     if (value.measurement !== previousValue.measurement) {
       pendingDeletedMeasurementIds.value = {}
+      clearTransientDrawingDrafts()
       handleToolbarViewAction({ action: 'clearMeasurements' })
     }
     if (value.annotation !== previousValue.annotation) {
       pendingDeletedAnnotationIds.value = {}
-      clearDraftAnnotations()
-      annotationInteraction.value = { kind: 'idle' }
+      clearTransientDrawingDrafts()
       handleToolbarViewAction({ action: 'clearAnnotations' })
     }
     if (value.mtf !== previousValue.mtf) {
+      clearTransientDrawingDrafts()
       handleToolbarViewAction({ action: 'clearMtf' })
     }
     if (value.qaWater !== previousValue.qaWater) {
+      clearTransientDrawingDrafts()
       qaWaterAnalysisRequestId += 1
       qaWaterAnalysisCache.value = {}
       qaWaterAnalysis.value = null

@@ -373,7 +373,23 @@ function formatTransformCornerInfoLabel(transform: ViewTransformInfo | null | un
   return `Rot:${rotation}° / Flip:${flipParts.join('') || '-'}`
 }
 
-function mergeTransformCornerInfoTag(cornerInfo: CornerInfo, transform: ViewTransformInfo | null | undefined): CornerInfo {
+function stripTransformCornerInfoTag(cornerInfo: CornerInfo): CornerInfo {
+  const tags = { ...(cornerInfo.tags ?? {}) }
+  delete tags.transform2dState
+  return {
+    ...cornerInfo,
+    tags
+  }
+}
+
+function mergeTransformCornerInfoTag(
+  cornerInfo: CornerInfo,
+  transform: ViewTransformInfo | null | undefined,
+  includeTransform = true
+): CornerInfo {
+  if (!includeTransform) {
+    return stripTransformCornerInfoTag(cornerInfo)
+  }
   return {
     ...cornerInfo,
     tags: {
@@ -596,18 +612,20 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     cornerInfo: CornerInfo,
     transform: ViewTransformInfo | null | undefined,
     row?: number | null,
-    col?: number | null
+    col?: number | null,
+    includeTransform = true
   ): CornerInfo {
-    return options.withHoverCornerInfo(mergeTransformCornerInfoTag(cornerInfo, transform), row, col)
+    return options.withHoverCornerInfo(mergeTransformCornerInfoTag(cornerInfo, transform, includeTransform), row, col)
   }
 
   function mergePixelRuntimeCornerInfo(
     current: CornerInfo | null | undefined,
     nextWindowLabel: string | null,
     fallback: CornerInfo,
-    transform: ViewTransformInfo | null | undefined
+    transform: ViewTransformInfo | null | undefined,
+    includeTransform = true
   ): CornerInfo {
-    return mergeTransformCornerInfoTag(mergePixelCornerTags(current, nextWindowLabel, fallback), transform)
+    return mergeTransformCornerInfoTag(mergePixelCornerTags(current, nextWindowLabel, fallback), transform, includeTransform)
   }
 
   function rememberActiveTabKey(tabKey: string): void {
@@ -2392,7 +2410,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             : transformState
           const phaseViewportCornerFallback = withRuntimeCornerInfo(
             mergeCornerInfo(seriesCornerInfo, sliceCornerInfo),
-            phaseViewportTransformState
+            phaseViewportTransformState,
+            null,
+            null,
+            false
           )
           nextFourDPhaseCache = {
             ...(item.fourDPhaseCache ?? {}),
@@ -2464,7 +2485,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                       phaseCacheSeed.viewportCornerInfos?.[viewportKey],
                       pixelWindowLabel,
                       phaseViewportCornerFallback,
-                      phaseViewportTransformState
+                      phaseViewportTransformState,
+                      false
                     )
                   : phaseViewportCornerFallback
               },
@@ -2521,7 +2543,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : transformState
         const viewportCornerFallback = withRuntimeCornerInfo(
           mergeCornerInfo(seriesCornerInfo, sliceCornerInfo),
-          viewportTransformState
+          viewportTransformState,
+          null,
+          null,
+          false
         )
 
         return withRenderRevision({
@@ -2587,7 +2612,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                   item.viewportCornerInfos?.[viewportKey],
                   pixelWindowLabel,
                   viewportCornerFallback,
-                  viewportTransformState
+                  viewportTransformState,
+                  false
                 )
               : viewportCornerFallback
           },
@@ -2798,7 +2824,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
         const phaseViewportTransformState = transformState ?? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
         const phaseStateCornerInfo = stateCornerInfoBase
-          ? withRuntimeCornerInfo(stateCornerInfoBase, phaseViewportTransformState)
+          ? withRuntimeCornerInfo(stateCornerInfoBase, phaseViewportTransformState, null, null, false)
           : null
         nextFourDPhaseCache = {
           ...(item.fourDPhaseCache ?? {}),
@@ -2850,8 +2876,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               [viewportKey]: phaseStateCornerInfo ?? mergePixelRuntimeCornerInfo(
                 phaseCacheSeed.viewportCornerInfos?.[viewportKey],
                 pixelWindowLabel,
-                mergeTransformCornerInfoTag(createEmptyCornerInfo(), phaseViewportTransformState),
-                phaseViewportTransformState
+                mergeTransformCornerInfoTag(createEmptyCornerInfo(), phaseViewportTransformState, false),
+                phaseViewportTransformState,
+                false
               )
             },
             viewportScaleBars: {
@@ -2899,7 +2926,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
       const viewportTransformState = transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
       const stateCornerInfo = stateCornerInfoBase
-        ? withRuntimeCornerInfo(stateCornerInfoBase, viewportTransformState)
+        ? withRuntimeCornerInfo(stateCornerInfoBase, viewportTransformState, null, null, false)
         : null
 
       return {
@@ -2928,8 +2955,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           [viewportKey]: stateCornerInfo ?? mergePixelRuntimeCornerInfo(
             item.viewportCornerInfos?.[viewportKey],
             pixelWindowLabel,
-            mergeTransformCornerInfoTag(createEmptyCornerInfo(), viewportTransformState),
-            viewportTransformState
+            mergeTransformCornerInfoTag(createEmptyCornerInfo(), viewportTransformState, false),
+            viewportTransformState,
+            false
           )
         },
         viewportScaleBars: {
@@ -3871,7 +3899,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const defaultTransformState = createDefaultTransformInfo()
       const seriesCornerInfo = withRuntimeCornerInfo(
         await options.ensureSeriesCornerInfo(options.selectedSeriesId.value),
-        defaultTransformState
+        defaultTransformState,
+        null,
+        null,
+        viewType !== 'MPR'
       )
       const initialPseudocolorPreset = viewType === 'PET'
         ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET

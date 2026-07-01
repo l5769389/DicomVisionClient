@@ -439,7 +439,7 @@ describe('SidebarSeriesList compatibility check', () => {
     wrapper.unmount()
   })
 
-  it('shows loaded favorite slices and opens the selected series slice', async () => {
+  it('shows loaded key slices and opens the selected series slice', async () => {
     getStarredSliceIndexesMock.mockImplementation((seriesId?: string) =>
       seriesId === 'series-1' ? [1] : seriesId === 'series-2' ? [3] : []
     )
@@ -460,7 +460,7 @@ describe('SidebarSeriesList compatibility check', () => {
 
     const action = wrapper.find('[data-testid="series-list-open-all-key-slices"]')
     expect(action.exists()).toBe(true)
-    expect(action.text()).toContain('View favorite slices 2')
+    expect(action.text()).toContain('View key slices 2')
 
     await action.trigger('click')
     await nextTick()
@@ -479,7 +479,7 @@ describe('SidebarSeriesList compatibility check', () => {
     await input.trigger('keydown.enter')
     expect(updateSliceStarLabelMock).toHaveBeenCalledWith('series-1', 1, 'Follow up')
 
-    const clearButton = wrapper.findAll('.v-btn-stub').find((button) => button.text().includes('Clear favorites'))
+    const clearButton = wrapper.findAll('.v-btn-stub').find((button) => button.text().includes('Clear key slices'))
     expect(clearButton).toBeTruthy()
     await clearButton!.trigger('click')
     expect(clearSeriesStarsMock).toHaveBeenCalledWith('series-1')

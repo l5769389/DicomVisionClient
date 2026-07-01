@@ -905,7 +905,7 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
   const tabs: Array<{ key: MobileSheetTabKey; icon: string; label: string }> = [
     { key: 'history', icon: 'history', label: isZh.value ? '历史' : 'History' },
     { key: 'series', icon: 'series', label: isZh.value ? '序列' : 'Series' },
-    { key: 'favorites', icon: 'star', label: isZh.value ? '收藏' : 'Favorites' }
+    { key: 'favorites', icon: 'star', label: isZh.value ? '关键切片' : 'Key Slices' }
   ]
 
   if (!activeImageTab.value) {
@@ -999,7 +999,7 @@ const sheetTitle = computed(() => {
     annotate: isZh.value ? '标注' : 'Annotate',
     color: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Pseudocolor'),
     display: isZh.value ? '显示' : 'Display',
-    favorites: isZh.value ? '收藏 DICOM' : 'Favorite DICOM',
+    favorites: isZh.value ? '关键切片' : 'Key Slices',
     export: isZh.value ? '导出' : 'Export',
     fusion: isZh.value ? 'PET/CT 融合' : 'PET/CT Fusion',
     history: isZh.value ? '浏览记录' : 'Recent Views',
@@ -3735,7 +3735,7 @@ onBeforeUnmount(() => {
             class="mobile-shell__slice-icon-button mobile-shell__slice-star"
             :class="{ 'mobile-shell__slice-star--active': isCurrentStackSliceStarred }"
             data-testid="mobile-toggle-star"
-            :aria-label="isCurrentStackSliceStarred ? (isZh ? '取消收藏当前切片' : 'Unstar current slice') : (isZh ? '收藏当前切片' : 'Star current slice')"
+            :aria-label="isCurrentStackSliceStarred ? (isZh ? '移除当前关键切片' : 'Remove current key slice') : (isZh ? '标记当前关键切片' : 'Mark current key slice')"
             :aria-pressed="isCurrentStackSliceStarred"
             :disabled="!activeStackSlice"
             @click="toggleStackStarForCurrentSlice"
@@ -4075,11 +4075,11 @@ onBeforeUnmount(() => {
 
           <div v-else-if="activeSheetKind === 'favorites'" class="mobile-shell__favorite-panel">
             <div class="mobile-shell__favorite-summary" data-testid="mobile-favorites-summary">
-              <span>{{ isZh ? '已收藏' : 'Saved' }}</span>
+              <span>{{ isZh ? '关键切片' : 'Key Slices' }}</span>
               <strong>{{ favoriteSliceCount }}</strong>
             </div>
             <div v-if="!favoriteSliceItems.length" class="mobile-shell__empty-inline" data-testid="mobile-favorites-empty">
-              {{ isZh ? '还没有收藏的 DICOM 切片' : 'No favorite DICOM slices yet' }}
+              {{ isZh ? '还没有关键切片' : 'No key slices yet' }}
             </div>
             <div v-else class="mobile-shell__action-list">
               <div
@@ -4104,7 +4104,7 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   class="mobile-shell__favorite-remove"
-                  :aria-label="isZh ? '取消收藏' : 'Remove favorite'"
+                  :aria-label="isZh ? '移除关键切片' : 'Remove key slice'"
                   data-testid="mobile-remove-favorite-slice"
                   @click="removeFavoriteSlice(item)"
                 >

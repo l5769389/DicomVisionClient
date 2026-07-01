@@ -174,16 +174,16 @@ const keySliceDialogSeriesTitle = computed(() =>
   keySliceDialogSeries.value?.seriesDescription || keySliceDialogSeries.value?.seriesId || t('unnamedSeries')
 )
 const allKeySliceDialogCopy = computed(() => ({
-  title: isZh.value ? '收藏切片' : 'Favorite Slices',
+  title: isZh.value ? '关键切片' : 'Key Slices',
   subtitle: isZh.value ? '当前已加载序列' : 'Loaded series',
-  clear: isZh.value ? '清除收藏' : 'Clear favorites',
+  clear: isZh.value ? '清空关键切片' : 'Clear key slices',
   edit: isZh.value ? '编辑' : 'Edit',
   save: isZh.value ? '保存' : 'Save',
   cancel: isZh.value ? '取消' : 'Cancel',
   labelPlaceholder: isZh.value ? '输入切片名称' : 'Slice name',
   open: isZh.value ? '打开' : 'Open',
-  empty: isZh.value ? '当前加载的序列没有收藏切片。' : 'No favorite slices are available in the loaded series.',
-  button: (count: number) => (isZh.value ? `查看收藏切片 ${count}` : `View favorite slices ${count}`)
+  empty: isZh.value ? '当前加载的序列没有关键切片。' : 'No key slices are available in the loaded series.',
+  button: (count: number) => (isZh.value ? `查看关键切片 ${count}` : `View key slices ${count}`)
 }))
 const deidentifyCopy = computed(() => ({
   actionTitle: isZh.value ? '脱敏导出' : 'De-identify Export',

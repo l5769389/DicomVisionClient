@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import MprMipConfigPanel from './MprMipConfigPanel.vue'
 import { createDefaultMprMipConfig, type MprMipConfig } from '../../types/viewer'
 
@@ -17,7 +17,12 @@ function createEnabledMipConfig(thickness = 12): MprMipConfig {
 }
 
 describe('MprMipConfigPanel', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('keeps the local slider draft while stale backend config props arrive', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(MprMipConfigPanel, {
       props: {
         config: createEnabledMipConfig(12)
@@ -35,6 +40,11 @@ describe('MprMipConfigPanel', () => {
     await slider.trigger('pointerdown')
     slider.element.value = '24'
     await slider.trigger('input')
+
+    expect(wrapper.emitted('configChange')).toBeUndefined()
+    expect(slider.element.value).toBe('24')
+
+    vi.advanceTimersByTime(50)
 
     expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
       expect.objectContaining({
@@ -61,6 +71,58 @@ describe('MprMipConfigPanel', () => {
         })
       }),
       'end'
+    ])
+  })
+
+  it('starts the next thickness drag from the submitted local value while backend props are stale', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(MprMipConfigPanel, {
+      props: {
+        config: createEnabledMipConfig(12)
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const slider = wrapper.find<HTMLInputElement>('input[type="range"]')
+    await slider.trigger('pointerdown')
+    slider.element.value = '24'
+    await slider.trigger('input')
+    slider.element.value = '24'
+    await slider.trigger('change')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        viewports: expect.objectContaining({
+          'mpr-ax': { thickness: 24 }
+        })
+      }),
+      'end'
+    ])
+
+    await wrapper.setProps({
+      config: createEnabledMipConfig(12)
+    })
+
+    expect(slider.element.value).toBe('24')
+
+    await slider.trigger('pointerdown')
+    expect(slider.element.value).toBe('24')
+
+    slider.element.value = '36'
+    await slider.trigger('input')
+    vi.advanceTimersByTime(50)
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        viewports: expect.objectContaining({
+          'mpr-ax': { thickness: 36 }
+        })
+      }),
+      'move'
     ])
   })
 

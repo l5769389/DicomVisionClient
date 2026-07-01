@@ -56,7 +56,6 @@ import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
 import {
   resolveOptimisticMprCrosshairCenter,
   resolveOptimisticMprCrosshairRotation,
-  resolveOptimisticMprCrosshairSlabOffsets,
   shouldPreserveLocalMprCrosshair,
   type ActiveMprCrosshairDragLock,
   type IncomingMprViewportUpdate
@@ -734,10 +733,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             startPointerAngleRad: getMprPointerAngleRad(optimisticPointer, centerX, centerY),
             startHorizontalAngleRad: geometry?.horizontalAngleRad ?? 0,
             startVerticalAngleRad: geometry?.verticalAngleRad ?? Math.PI / 2,
-            startHorizontalSlabOffsetX: currentCrosshair?.horizontalSlabOffsetX ?? null,
-            startHorizontalSlabOffsetY: currentCrosshair?.horizontalSlabOffsetY ?? null,
-            startVerticalSlabOffsetX: currentCrosshair?.verticalSlabOffsetX ?? null,
-            startVerticalSlabOffsetY: currentCrosshair?.verticalSlabOffsetY ?? null,
             isDoubleOblique: tab.mprCrosshairMode === 'double-oblique'
           }
         })()
@@ -2730,11 +2725,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const perfScope = tab.viewType === 'PETCTFusion'
       ? 'fusion'
-      : isMprLikeViewType(tab.viewType)
-        ? 'mpr'
-        : isStackLikeViewType(tab.viewType)
-          ? 'stack'
-          : null
+      : tab.viewType === '3D'
+        ? 'volume'
+        : isMprLikeViewType(tab.viewType)
+          ? 'mpr'
+          : isStackLikeViewType(tab.viewType)
+            ? 'stack'
+            : null
     if (!perfScope) {
       return
     }
@@ -3167,19 +3164,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    const usesCadencePreview =
+      payload.opType === VIEW_OPERATION_TYPES.pan ||
+      payload.opType === VIEW_OPERATION_TYPES.zoom ||
+      payload.opType === VIEW_OPERATION_TYPES.rotate3d
+
     if (isMprLikeViewType(tab.viewType) && !isMprVolumeViewport(tab, payload.viewportKey)) {
       emitMprViewOperation(payload.viewportKey, {
         opType: payload.opType,
         actionType: payload.phase,
         x: payload.deltaX,
         y: payload.deltaY,
-        previewFeedbackMode:
-          payload.opType === VIEW_OPERATION_TYPES.pan || payload.opType === VIEW_OPERATION_TYPES.zoom
-            ? 'cadence'
-            : undefined
+        previewFeedbackMode: usesCadencePreview ? 'cadence' : undefined
       })
       return
     }
+
+    const isVolumeDrag = tab.viewType === '3D' || isMprVolumeViewport(tab, payload.viewportKey)
 
     resolveOperationTargets(tab, payload.viewportKey, payload.opType).forEach((target) => {
       emitScheduledViewOperation({
@@ -3187,7 +3188,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         opType: payload.opType,
         actionType: payload.phase,
         x: payload.deltaX,
-        y: payload.deltaY
+        y: payload.deltaY,
+        previewFeedbackMode: isVolumeDrag && usesCadencePreview ? 'cadence' : undefined
       })
     })
   }
@@ -3528,24 +3530,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
             const centerX = previousCrosshair?.centerX ?? geometry?.center.x ?? 0.5
             const centerY = previousCrosshair?.centerY ?? geometry?.center.y ?? 0.5
-            const slabOffsets = resolveOptimisticMprCrosshairSlabOffsets({
-              currentCrosshair: previousCrosshair,
-              lock: activeMprCrosshairDragLock.value,
-              horizontalAngleRad: rotation.horizontalAngleRad,
-              verticalAngleRad: rotation.verticalAngleRad,
-              canvasWidth: optimisticPointer.canvasWidth,
-              canvasHeight: optimisticPointer.canvasHeight
-            })
             return {
               ...(previousCrosshair ?? {}),
               centerX,
               centerY,
               hitRadius: previousCrosshair?.hitRadius ?? 0.025,
-              horizontalPosition: previousCrosshair?.horizontalPosition ?? centerY,
-              verticalPosition: previousCrosshair?.verticalPosition ?? centerX,
+              horizontalPosition: centerY,
+              verticalPosition: centerX,
               horizontalAngleRad: rotation.horizontalAngleRad,
               verticalAngleRad: rotation.verticalAngleRad,
-              ...slabOffsets
+              // MIP slab offsets are backend geometry. Stale offsets paired with local rotation can jump.
+              horizontalSlabOffsetX: null,
+              horizontalSlabOffsetY: null,
+              verticalSlabOffsetX: null,
+              verticalSlabOffsetY: null
             }
           })()
         : (() => {

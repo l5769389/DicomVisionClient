@@ -1163,6 +1163,7 @@ describe('useViewerWorkspaceViews MPR segmentation preview updates', () => {
     expect(tab.viewportMeasurements?.['mpr-ax']).toEqual(nextMeasurements)
     expect(tab.viewportTransformStates?.['mpr-ax']).toEqual(nextTransform)
     expect(tab.viewportCrosshairs?.['mpr-ax']).toEqual(nextCrosshair)
+    expect(tab.viewportCornerInfos?.['mpr-ax']?.tags?.transform2dState).toBeUndefined()
     expect(tab.viewportSegmentationOverlays?.['mpr-ax']).toEqual(existingOverlay)
   })
 

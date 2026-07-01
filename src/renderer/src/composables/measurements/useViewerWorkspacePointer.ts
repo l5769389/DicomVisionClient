@@ -89,6 +89,7 @@ interface PointerComposableOptions {
 
 interface PointerComposableState {
   activeViewportKey: Ref<string>
+  clearDrawingDrafts: () => void
   cleanupPointerInteractions: () => void
   copySelectedMeasurement: (viewportKey?: string) => boolean
   deleteSelectedMeasurement: (viewportKey?: string, measurementId?: string) => boolean
@@ -2387,6 +2388,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   return {
     activeViewportKey,
+    clearDrawingDrafts: cleanupPointerInteractions,
     cleanupPointerInteractions,
     copySelectedMtf,
     copySelectedMeasurement,

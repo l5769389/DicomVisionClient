@@ -3,7 +3,7 @@ defineOptions({
   inheritAttrs: false
 })
 
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { createDefaultMprMipConfig, normalizeMprMipConfig, type MprMipAlgorithm, type MprMipConfig, type MprViewportKey } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
@@ -22,7 +22,11 @@ const { locale, mprProjectionCopy } = useUiLocale()
 const copy = computed(() => mprProjectionCopy.value)
 const isZh = computed(() => locale.value === 'zh-CN')
 const draftConfig = ref<MprMipConfig | null>(null)
+const settlingConfig = ref<MprMipConfig | null>(null)
 const activeDraftViewport = ref<MprViewportKey | null>(null)
+let pendingMoveConfig: MprMipConfig | null = null
+let pendingMoveTimer: ReturnType<typeof window.setTimeout> | null = null
+const MIP_THICKNESS_MOVE_DEBOUNCE_MS = 50
 const MIP_THICKNESS_MIN_MM = 0
 const MIP_THICKNESS_MAX_MM = 100
 const resetLabel = computed(() => (isZh.value ? '重置' : 'Reset'))
@@ -41,12 +45,34 @@ const viewportOptions: ReadonlyArray<{ key: MprViewportKey; label: string }> = [
 ]
 
 const normalizedConfig = computed(() => normalizeMprMipConfig(props.config))
-const displayedConfig = computed(() => draftConfig.value ?? normalizedConfig.value)
+const displayedConfig = computed(() => draftConfig.value ?? settlingConfig.value ?? normalizedConfig.value)
+
+function hasSameViewportThicknesses(left: MprMipConfig, right: MprMipConfig): boolean {
+  return viewportOptions.every((viewport) => {
+    return left.viewports[viewport.key]?.thickness === right.viewports[viewport.key]?.thickness
+  })
+}
+
+function hasSameNonViewportState(left: MprMipConfig, right: MprMipConfig): boolean {
+  return left.enabled === right.enabled && left.algorithm === right.algorithm
+}
 
 watch(
   () => props.config,
   () => {
-    if (activeDraftViewport.value == null) {
+    if (activeDraftViewport.value != null) {
+      return
+    }
+
+    const normalized = normalizedConfig.value
+    const settling = settlingConfig.value
+    if (!settling) {
+      draftConfig.value = null
+      return
+    }
+
+    if (!hasSameNonViewportState(normalized, settling) || hasSameViewportThicknesses(normalized, settling)) {
+      settlingConfig.value = null
       draftConfig.value = null
     }
   },
@@ -57,6 +83,43 @@ function cloneConfig(config: MprMipConfig): MprMipConfig {
   return normalizeMprMipConfig(config)
 }
 
+function cancelPendingMoveConfig(): void {
+  if (pendingMoveTimer !== null) {
+    window.clearTimeout(pendingMoveTimer)
+    pendingMoveTimer = null
+  }
+  pendingMoveConfig = null
+}
+
+function flushPendingMoveConfig(): void {
+  if (pendingMoveTimer !== null) {
+    window.clearTimeout(pendingMoveTimer)
+    pendingMoveTimer = null
+  }
+  if (!pendingMoveConfig) {
+    return
+  }
+  const config = pendingMoveConfig
+  pendingMoveConfig = null
+  emit('configChange', config, 'move')
+}
+
+function queueMoveConfig(config: MprMipConfig): void {
+  pendingMoveConfig = config
+  if (pendingMoveTimer !== null) {
+    window.clearTimeout(pendingMoveTimer)
+  }
+  pendingMoveTimer = window.setTimeout(() => {
+    pendingMoveTimer = null
+    if (!pendingMoveConfig) {
+      return
+    }
+    const nextConfig = pendingMoveConfig
+    pendingMoveConfig = null
+    emit('configChange', nextConfig, 'move')
+  }, MIP_THICKNESS_MOVE_DEBOUNCE_MS)
+}
+
 function emitConfigPatch(patch: Partial<MprMipConfig>, actionType: 'move' | 'end' = 'end'): void {
   const nextConfig = cloneConfig({
     ...displayedConfig.value,
@@ -64,8 +127,11 @@ function emitConfigPatch(patch: Partial<MprMipConfig>, actionType: 'move' | 'end
   })
   if (actionType === 'move') {
     draftConfig.value = nextConfig
+    settlingConfig.value = null
   } else {
+    cancelPendingMoveConfig()
     draftConfig.value = null
+    settlingConfig.value = null
     activeDraftViewport.value = null
   }
   emit('configChange', nextConfig, actionType)
@@ -99,11 +165,15 @@ function updateViewportThickness(viewportKey: MprViewportKey, thickness: number,
   if (actionType === 'move') {
     activeDraftViewport.value = viewportKey
     draftConfig.value = nextConfig
+    settlingConfig.value = null
+    queueMoveConfig(nextConfig)
   } else {
+    cancelPendingMoveConfig()
     activeDraftViewport.value = null
     draftConfig.value = null
+    settlingConfig.value = nextConfig
+    emit('configChange', nextConfig, actionType)
   }
-  emit('configChange', nextConfig, actionType)
 }
 
 function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string, actionType: 'move' | 'end' = 'move'): void {
@@ -111,11 +181,14 @@ function updateViewportThicknessInput(viewportKey: MprViewportKey, value: string
 }
 
 function beginViewportThicknessDrag(viewportKey: MprViewportKey): void {
+  cancelPendingMoveConfig()
   activeDraftViewport.value = viewportKey
   draftConfig.value = cloneConfig(displayedConfig.value)
+  settlingConfig.value = null
 }
 
 function endViewportThicknessDrag(viewportKey: MprViewportKey, value: string | number): void {
+  flushPendingMoveConfig()
   updateViewportThickness(viewportKey, Number(value), 'end')
 }
 
@@ -132,6 +205,10 @@ function resetViewportThicknesses(): void {
     'end'
   )
 }
+
+onBeforeUnmount(() => {
+  cancelPendingMoveConfig()
+})
 </script>
 
 <template>

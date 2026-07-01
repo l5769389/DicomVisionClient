@@ -48,8 +48,9 @@ const petDraftWindowMax = ref(DEFAULT_FUSION_PET_WINDOW_MAX)
 const petRangeUpperLimit = ref(DEFAULT_PET_RANGE_UPPER_LIMIT)
 const petRangeUpperLimitInput = ref(String(DEFAULT_PET_RANGE_UPPER_LIMIT))
 const zoomSliderDraftValue = ref<number | null>(null)
-let zoomSliderFrame: number | null = null
+let zoomSliderTimer: ReturnType<typeof window.setTimeout> | null = null
 let pendingZoomSliderValue: number | null = null
+const ZOOM_SLIDER_DEBOUNCE_MS = 50
 const isZh = computed(() => locale.value === 'zh-CN')
 const customWindowCopy = computed(() => ({
   title: isZh.value ? '临时窗值' : 'Custom Window',
@@ -255,9 +256,9 @@ function emitZoomSliderValue(value: number): void {
 }
 
 function flushPendingZoomSliderValue(): void {
-  if (zoomSliderFrame !== null) {
-    cancelAnimationFrame(zoomSliderFrame)
-    zoomSliderFrame = null
+  if (zoomSliderTimer !== null) {
+    window.clearTimeout(zoomSliderTimer)
+    zoomSliderTimer = null
   }
   if (pendingZoomSliderValue === null) {
     return
@@ -268,16 +269,16 @@ function flushPendingZoomSliderValue(): void {
 
 function queueZoomSliderValue(value: number): void {
   pendingZoomSliderValue = clampZoomSliderValue(value)
-  if (zoomSliderFrame !== null) {
-    return
+  if (zoomSliderTimer !== null) {
+    window.clearTimeout(zoomSliderTimer)
   }
-  zoomSliderFrame = requestAnimationFrame(() => {
-    zoomSliderFrame = null
+  zoomSliderTimer = window.setTimeout(() => {
+    zoomSliderTimer = null
     if (pendingZoomSliderValue !== null) {
       emitZoomSliderValue(pendingZoomSliderValue)
       pendingZoomSliderValue = null
     }
-  })
+  }, ZOOM_SLIDER_DEBOUNCE_MS)
 }
 
 function setZoomSliderValue(value: number, final = false): void {
@@ -584,17 +585,17 @@ watch(
   () => {
     zoomSliderDraftValue.value = null
     pendingZoomSliderValue = null
-    if (zoomSliderFrame !== null) {
-      cancelAnimationFrame(zoomSliderFrame)
-      zoomSliderFrame = null
+    if (zoomSliderTimer !== null) {
+      window.clearTimeout(zoomSliderTimer)
+      zoomSliderTimer = null
     }
   }
 )
 
 onBeforeUnmount(() => {
-  if (zoomSliderFrame !== null) {
-    cancelAnimationFrame(zoomSliderFrame)
-    zoomSliderFrame = null
+  if (zoomSliderTimer !== null) {
+    window.clearTimeout(zoomSliderTimer)
+    zoomSliderTimer = null
   }
 })
 </script>
@@ -978,6 +979,10 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </section>
+        <section v-if="tool.key === 'measure'" class="viewer-toolbar-dock-panel-content__measure-guide">
+          <div class="viewer-toolbar-dock-panel-content__measure-guide-title">{{ measureGuideCopy.title }}</div>
+          <p>{{ measureGuideCopy.body }}</p>
+        </section>
         <div
           class="viewer-toolbar-dock-panel-content__options-scroll"
           :class="{
@@ -985,10 +990,6 @@ onBeforeUnmount(() => {
             'viewer-toolbar-dock-panel-content__options-scroll--measure': tool.key === 'measure'
           }"
         >
-          <section v-if="tool.key === 'measure'" class="viewer-toolbar-dock-panel-content__measure-guide">
-            <div class="viewer-toolbar-dock-panel-content__measure-guide-title">{{ measureGuideCopy.title }}</div>
-            <p>{{ measureGuideCopy.body }}</p>
-          </section>
           <template
             v-for="(option, optionIndex) in regularOptions"
             :key="option.value"
@@ -1251,7 +1252,7 @@ onBeforeUnmount(() => {
 
 .viewer-toolbar-dock-panel-content__options-scroll--measure {
   flex: 1 1 auto;
-  max-height: min(420px, 48vh);
+  max-height: none;
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;

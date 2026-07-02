@@ -156,6 +156,47 @@ macOS must be built on macOS:
 npm run release:mac
 ```
 
+The default command builds the current Mac architecture. Full macOS split builds:
+
+```bash
+npm run release:mac:arm64
+npm run release:mac:x64
+npm run release:mac:all
+```
+
+Without Apple certificates, `auto` mode creates unsigned packages for local validation. For official distribution, require Developer ID signing and Apple notarization:
+
+```bash
+npm run release:mac:all -- --sign required --notarize required
+```
+
+Official distribution requires `CSC_NAME` or an imported Developer ID Application certificate, plus one notarization credential set:
+
+```env
+APPLE_ID=your-apple-id@example.com
+APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+APPLE_TEAM_ID=TEAMID1234
+```
+
+or:
+
+```env
+APPLE_API_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
+APPLE_API_KEY_ID=XXXXXXXXXX
+APPLE_API_ISSUER=00000000-0000-0000-0000-000000000000
+```
+
+Artifacts are written to `dist-electron/`, for example:
+
+```text
+DicomVision-3.0.0-mac-arm64.dmg
+DicomVision-3.0.0-mac-arm64.zip
+DicomVision-3.0.0-mac-x64.dmg
+DicomVision-3.0.0-mac-x64.zip
+```
+
+Common prerequisites: macOS, Node.js/npm, Python 3.13, uv or PyInstaller, and Xcode Command Line Tools (`iconutil`, `sips`, `xcrun notarytool`). x64 and arm64 backend bundles are built separately; universal2 is intentionally not used.
+
 ## Scripts
 
 - `npm run dev`: start the Electron desktop development runtime.
@@ -166,6 +207,9 @@ npm run release:mac
 - `npm run typecheck`: run TypeScript checks.
 - `npm run test:run`: run Vitest once.
 - `npm run release:win`: build the backend desktop bundle and package the Windows installer.
+- `npm run release:mac`: build the current Mac architecture package.
+- `npm run release:mac:arm64` / `npm run release:mac:x64`: build Apple Silicon / Intel packages.
+- `npm run release:mac:all`: build both arm64 and x64 packages.
 
 ## Backend README
 

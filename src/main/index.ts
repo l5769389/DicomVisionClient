@@ -14,6 +14,7 @@ const DEFAULT_BACKEND_PORT = APP_BACKEND_CONFIG.desktop.devPort
 const DEFAULT_BACKEND_ORIGIN = DESKTOP_DEV_BACKEND_ORIGIN
 const BACKEND_READY_TIMEOUT_MS = 20000
 const BACKEND_READY_POLL_INTERVAL_MS = 400
+const DESKTOP_SMOKE_TEST_ARG = '--smoke-test'
 
 type RendererStatusToastTone = 'info' | 'success' | 'warning' | 'error'
 type DesktopSourcePickMode = 'files' | 'folder' | 'mixed'
@@ -41,7 +42,11 @@ let backendReady = false
 let backendStarting = false
 let backendStartupError: string | null = null
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock()
+function isDesktopSmokeTestMode(): boolean {
+  return app.isPackaged && (process.env.DICOM_VISION_DESKTOP_SMOKE === '1' || process.argv.includes(DESKTOP_SMOKE_TEST_ARG))
+}
+
+const hasSingleInstanceLock = isDesktopSmokeTestMode() || app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
   app.quit()
 }
@@ -553,6 +558,20 @@ app.on('open-file', (event, path) => {
 if (hasSingleInstanceLock) {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.dicomvision.app')
+
+  if (isDesktopSmokeTestMode()) {
+    void ensureBackendRunning()
+      .then(() => {
+        stopBackendProcess()
+        app.exit(0)
+      })
+      .catch((error: unknown) => {
+        console.error(resolveBackendStartupFailureMessage(error))
+        stopBackendProcess()
+        app.exit(1)
+      })
+    return
+  }
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

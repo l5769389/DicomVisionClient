@@ -156,6 +156,47 @@ macOS 需要在 macOS 上构建：
 npm run release:mac
 ```
 
+默认命令会构建当前 Mac 的架构。完整 macOS 分包：
+
+```bash
+npm run release:mac:arm64
+npm run release:mac:x64
+npm run release:mac:all
+```
+
+无 Apple 证书时，脚本会在 `auto` 模式下生成可本地验证的 unsigned 包。正式分发时使用 Developer ID 签名和 Apple 公证：
+
+```bash
+npm run release:mac:all -- --sign required --notarize required
+```
+
+正式分发需要先准备 `CSC_NAME` 或已导入钥匙串的 Developer ID Application 证书，并设置以下任一组公证凭据：
+
+```env
+APPLE_ID=your-apple-id@example.com
+APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+APPLE_TEAM_ID=TEAMID1234
+```
+
+或：
+
+```env
+APPLE_API_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
+APPLE_API_KEY_ID=XXXXXXXXXX
+APPLE_API_ISSUER=00000000-0000-0000-0000-000000000000
+```
+
+产物输出到 `dist-electron/`，命名示例：
+
+```text
+DicomVision-3.0.0-mac-arm64.dmg
+DicomVision-3.0.0-mac-arm64.zip
+DicomVision-3.0.0-mac-x64.dmg
+DicomVision-3.0.0-mac-x64.zip
+```
+
+常见前置条件：macOS、Node.js/npm、Python 3.13、uv 或 PyInstaller、Xcode Command Line Tools（`iconutil`、`sips`、`xcrun notarytool`）。x64 和 arm64 会分别构建后端 bundle，不使用 universal2。
+
 ## 常用脚本
 
 - `npm run dev`：启动 Electron 桌面开发运行时。
@@ -166,6 +207,9 @@ npm run release:mac
 - `npm run typecheck`：运行 TypeScript 类型检查。
 - `npm run test:run`：运行 Vitest。
 - `npm run release:win`：构建后端桌面 bundle 并打包 Windows 安装器。
+- `npm run release:mac`：构建当前 Mac 架构的桌面包。
+- `npm run release:mac:arm64` / `npm run release:mac:x64`：分别构建 Apple Silicon / Intel 桌面包。
+- `npm run release:mac:all`：依次构建 arm64 与 x64 桌面包。
 
 ## 后端说明
 

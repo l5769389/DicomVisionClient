@@ -21,6 +21,8 @@
       "buildResources": "build",
       "output": "dist-electron"
     },
+    "afterPack": "scripts/mac-after-pack.cjs",
+    "afterSign": "scripts/mac-after-sign.cjs",
     "files": [
       "out/**/*",
       "build/icon.*",
@@ -58,7 +60,12 @@
     },
     "mac": {
       "category": "public.app-category.medical",
-      "icon": "build/icon.png",
+      "icon": "build/icon.icns",
+      "artifactName": "DicomVision-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
         "dmg",
         "zip"
@@ -101,10 +108,14 @@
     "build": "electron-vite build",
     "build:web": "vite build --config vite.web.config.ts",
     "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
+    "generate:mac-icon": "node scripts/generate-mac-icon.mjs",
     "package:mac": "node scripts/package-mac.mjs",
     "package:server": "node scripts/stage-server-bundle.mjs",
     "release:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\release-win.ps1",
     "release:mac": "node scripts/release-mac.mjs",
+    "release:mac:arm64": "node scripts/release-mac.mjs --arch arm64",
+    "release:mac:x64": "node scripts/release-mac.mjs --arch x64",
+    "release:mac:all": "node scripts/release-mac.mjs --arch all",
     "preview": "electron-vite preview",
     "preview:web": "vite preview --config vite.web.config.ts",
     "generate:api-types": "powershell -ExecutionPolicy Bypass -Command \"Push-Location ..\\DicomVisionServer; uv run python scripts\\generate_openapi_types.py --output ..\\DicomVisionClient\\src\\shared\\generated\\backendApi.ts; Pop-Location\"",
@@ -114,6 +125,7 @@
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^3.0.0",
+    "@electron/notarize": "^2.5.0",
     "@mdi/js": "^7.4.47",
     "@swc/core": "^1.11.24",
     "@tailwindcss/vite": "^4.2.2",

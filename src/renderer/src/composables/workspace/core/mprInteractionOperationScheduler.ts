@@ -127,9 +127,13 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
   const lastBackendPreviewByKey = new Map<string, BackendPreviewSample>()
   const sentMoveAtByKey = new Map<string, number>()
 
-  function getMoveIntervalMs(operationKey?: string, opType?: ViewOperationType | null): number {
+  function getMoveIntervalMs(operationKey?: string, payload?: SchedulableViewOperation | null): number {
+    const opType = payload?.opType ?? null
     if (opType === VIEW_OPERATION_TYPES.fusionRegistration) {
       return FASTEST_VIEW_MOVE_INTERVAL_MS
+    }
+    if (payload?.previewFeedbackMode === 'cadence') {
+      return getMoveIntervalBounds(opType).min
     }
     const intervalMs = operationKey ? backendPreviewIntervalByKey.get(operationKey) ?? fallbackPreviewIntervalMs : fallbackPreviewIntervalMs
     return intervalMs == null ? getMoveIntervalBounds(opType).min : normalizeMoveInterval(intervalMs, opType)
@@ -176,7 +180,7 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
       sentMoveAtByKey.set(operation.operationKey, sentAt)
     }
     options.emit(operation.operationKey, operation.payload as TPayload)
-    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey, operation.payload.opType), operation)
+    logCoalescingStats(scheduledMoves, emittedMoves, getMoveIntervalMs(operation.operationKey, operation.payload), operation)
   }
 
   function schedulePending(emitter: ThrottledOperationEmitter): void {
@@ -187,7 +191,7 @@ export function createMprInteractionOperationScheduler<TPayload extends Schedula
       return
     }
 
-    const intervalMs = getMoveIntervalMs(emitter.operationKey, emitter.pending.payload.opType)
+    const intervalMs = getMoveIntervalMs(emitter.operationKey, emitter.pending.payload)
     const elapsedMs = emitter.lastSentAt == null ? intervalMs : getNow() - emitter.lastSentAt
     if (elapsedMs >= intervalMs) {
       emitScheduled(emitter)

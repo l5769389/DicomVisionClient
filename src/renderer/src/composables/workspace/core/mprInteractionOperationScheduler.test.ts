@@ -768,4 +768,39 @@ describe('view interaction operation scheduler', () => {
     expect(timers).toHaveLength(1)
     expect(timers[0].delay).toBe(4)
   })
+
+  it('keeps cadence preview moves at local cadence after slow backend feedback', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('volume-view', {
+      opType: VIEW_OPERATION_TYPES.rotate3d,
+      actionType: DRAG_ACTION_TYPES.move,
+      previewFeedbackMode: 'cadence',
+      x: 4,
+      y: 2
+    })
+    now = 720
+    scheduler.recordBackendPreview('volume-view', null)
+    scheduler.emit('volume-view', {
+      opType: VIEW_OPERATION_TYPES.rotate3d,
+      actionType: DRAG_ACTION_TYPES.move,
+      previewFeedbackMode: 'cadence',
+      x: 8,
+      y: 4
+    })
+
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(timers).toHaveLength(0)
+  })
 })

@@ -2555,8 +2555,41 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (payload.opType === VIEW_OPERATION_TYPES.pseudocolor && payload.viewId) {
       pendingPseudocolorOverlayPreservationViewIds.add(payload.viewId)
     }
+    recordInteractivePreviewSendTiming(payload)
     const { previewFeedbackMode: _previewFeedbackMode, ...socketPayload } = payload
     emitSocketViewOperation(socketPayload)
+  }
+
+  function recordInteractivePreviewSendTiming(payload: ViewOperationPayload): void {
+    if (
+      !isViewerPerfDebugEnabled() ||
+      !payload.viewId ||
+      payload.actionType !== 'move' ||
+      payload.previewFeedbackMode !== 'cadence' ||
+      (
+        payload.opType !== VIEW_OPERATION_TYPES.pan &&
+        payload.opType !== VIEW_OPERATION_TYPES.zoom &&
+        payload.opType !== VIEW_OPERATION_TYPES.rotate3d
+      )
+    ) {
+      return
+    }
+    const tab = views.findTabByViewId(payload.viewId)
+    if (!tab || tab.viewType !== '3D') {
+      return
+    }
+    const key = `volume:${payload.viewId}`
+    const sentAt = performance.now()
+    interactivePreviewSendTimingByView.set(key, {
+      actionType: payload.actionType,
+      opType: payload.opType,
+      sentAt
+    })
+    console.debug('[volume perf] view_operation sent', {
+      actionType: payload.actionType,
+      opType: payload.opType,
+      viewId: payload.viewId
+    })
   }
 
   function normalizeImageBinary(value: unknown): ArrayBuffer | Uint8Array | null {
@@ -2654,7 +2687,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    logInteractivePreviewReceiveInterval(tab, payload)
+    logInteractivePreviewReceiveInterval(tab, payload, imageBinary)
     logFusionRegistrationImageReceive(tab, payload, imageBinary, extraImageBinaries)
     if (isInteractivePreviewPayload(payload)) {
       const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
@@ -2699,6 +2732,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   const interactivePreviewTimingByView = new Map<string, number>()
+  const interactivePreviewSendTimingByView = new Map<string, {
+    actionType: string | null
+    opType: string
+    sentAt: number
+  }>()
   const fusionRegistrationDragTimingByView = new Map<string, {
     phase: 'start' | 'move' | 'end'
     sentAt: number
@@ -2718,7 +2756,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return payload.imageFormat === 'jpeg'
   }
 
-  function logInteractivePreviewReceiveInterval(tab: ViewerTabItem, payload: Partial<ViewImageResponse>): void {
+  function logInteractivePreviewReceiveInterval(
+    tab: ViewerTabItem,
+    payload: Partial<ViewImageResponse>,
+    imageBinary?: ArrayBuffer | Uint8Array
+  ): void {
     if (!isViewerPerfDebugEnabled() || !payload.viewId || !isInteractivePreviewPayload(payload)) {
       return
     }
@@ -2755,11 +2797,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
     const rawMprRevision = payload.mprRevision ?? ((payload as { mpr_revision?: unknown }).mpr_revision ?? null)
+    const lastSendTiming = interactivePreviewSendTimingByView.get(key)
+    const roundTripMs = lastSendTiming ? now - lastSendTiming.sentAt : null
     console.debug(`[${perfScope} perf] image_update interval`, {
       deltaMs: Math.round(deltaMs * 10) / 10,
       fastPreview: payload.fastPreview,
       format: payload.imageFormat,
+      bytes: getBinaryByteLength(imageBinary),
       mprRevision: typeof rawMprRevision === 'number' && Number.isFinite(rawMprRevision) ? rawMprRevision : null,
+      roundTripMs: roundTripMs == null ? null : Math.round(roundTripMs * 10) / 10,
+      sentActionType: lastSendTiming?.actionType ?? null,
+      sentOpType: lastSendTiming?.opType ?? null,
+      metadataMode: payload.metadataMode ?? ((payload as { metadata_mode?: unknown }).metadata_mode ?? null),
+      renderIntent: payload.renderIntent ?? ((payload as { render_intent?: unknown }).render_intent ?? null),
       viewType: tab.viewType,
       viewId: payload.viewId
     })

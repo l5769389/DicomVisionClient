@@ -326,6 +326,30 @@ describe('ViewerToolbarDock', () => {
     expect(rotateEvent?.[2]).toEqual({ keepMenuOpen: true })
   })
 
+  it('keeps reset clip as a fixed footer action in the 3D clip panel', async () => {
+    const volumeClipTool: StackTool = {
+      key: 'volumeClip',
+      label: 'Clip',
+      icon: 'volume-clip',
+      kind: 'mode',
+      options: [
+        { value: 'volumeClip:inside', label: 'Clip Inside', icon: 'volume-clip' },
+        { value: 'volumeClip:outside', label: 'Clip Outside', icon: 'volume-clip' },
+        { value: 'volumeClip:reset', label: 'Reset Clip', icon: 'reset' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [volumeClipTool],
+      isToolSelected: vi.fn(() => true)
+    })
+
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-volumeClip-volumeClip-inside"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-volumeClip-volumeClip-reset"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="viewer-toolbar-dock-volumeClip-volumeClip-reset"]').trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([volumeClipTool, 'volumeClip:reset', { keepMenuOpen: true }])
+  })
+
   it('applies the selected measurement mode when opening the right dock measure panel', async () => {
     const measureTool: StackTool = {
       key: 'measure',

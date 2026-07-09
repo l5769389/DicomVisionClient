@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnnotationOverlay, CornerInfo, FusionInfo, MeasurementOverlay, MprCrosshairInfo, ViewerTabItem } from '../../../types/viewer'
 import { useViewerWorkspaceViews } from './useViewerWorkspaceViews'
+import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import {
   createDefaultTransformInfo,
   createEmptyCornerInfo,
@@ -232,6 +233,30 @@ function createStackTab(): ViewerTabItem {
   } as ViewerTabItem
 }
 
+function createVolumeTab(): ViewerTabItem {
+  const cornerInfo = createEmptyCornerInfo()
+  return {
+    key: 'volume-tab',
+    seriesId: 'ct-series',
+    seriesTitle: 'CT',
+    title: '3D',
+    viewType: '3D',
+    viewId: 'volume-view',
+    imageSrc: 'blob:volume',
+    sliceLabel: '',
+    windowLabel: '',
+    cornerInfo,
+    orientation: createEmptyOrientationInfo(),
+    transformState: createDefaultTransformInfo(),
+    pseudocolorPreset: 'gray',
+    volumePreset: 'volumePreset:bone',
+    render3dMode: 'volume',
+    volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
+    measurements: [],
+    annotations: []
+  } as ViewerTabItem
+}
+
 function createPetTab(pseudocolorPreset = 'bwinverse'): ViewerTabItem {
   const cornerInfo = createEmptyCornerInfo()
   return {
@@ -317,6 +342,33 @@ function createStackHarness() {
     activeMprCrosshairDragLock: ref(null),
     activeTabKey: ref('stack-tab'),
     activeViewportKey: ref('single'),
+    clearPendingVolumeConfig: vi.fn(),
+    completeActiveMprCrosshairDragLock: vi.fn(),
+    ensureSeriesCornerInfo: vi.fn(async () => emptyCornerInfo),
+    isViewLoading: ref(false),
+    message: ref(''),
+    selectedSeries: computed(() => null),
+    selectedSeriesId: ref('ct-series'),
+    seriesCornerInfoMap: ref({
+      'ct-series': emptyCornerInfo
+    }),
+    seriesList: ref([]),
+    stripHoverCornerInfo: (cornerInfo) => cornerInfo,
+    viewportElements: ref({}),
+    viewerStage: ref(null),
+    viewerTabs,
+    withHoverCornerInfo: (cornerInfo) => cornerInfo
+  })
+  return { viewerTabs, views }
+}
+
+function createVolumeHarness() {
+  const viewerTabs = ref<ViewerTabItem[]>([createVolumeTab()])
+  const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
+  const views = useViewerWorkspaceViews({
+    activeMprCrosshairDragLock: ref(null),
+    activeTabKey: ref('volume-tab'),
+    activeViewportKey: ref('volume'),
     clearPendingVolumeConfig: vi.fn(),
     completeActiveMprCrosshairDragLock: vi.fn(),
     ensureSeriesCornerInfo: vi.fn(async () => emptyCornerInfo),
@@ -673,6 +725,127 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     const tab = viewerTabs.value[0]
     expect(tab.windowLabel).toBe('WW 900  WL 90')
     expect(tab.imageUpdateRevisions?.['stack-view']).toBe(5)
+  })
+
+  it('applies backend-adapted AAA volume config from image metadata', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:volume-aaa'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createVolumeHarness()
+    const adaptiveConfig = createDefaultVolumeRenderConfig('aaa')
+    const bloodLayer = adaptiveConfig.layers.find((layer) => layer.key === 'blood')!
+    bloodLayer.wl = 154
+    bloodLayer.ww = 210
+
+    views.updateTabImage(
+      'volume-tab',
+      {
+        viewId: 'volume-view',
+        imageFormat: 'png',
+        fastPreview: false,
+        renderIntent: 'full',
+        renderRevision: 6,
+        volumePreset: 'aaa',
+        render3dMode: 'volume',
+        volumeConfig: adaptiveConfig
+      },
+      new Uint8Array([6, 6, 6])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.volumePreset).toBe('volumePreset:aaa')
+    expect(tab.volumeRenderConfig?.layers.find((layer) => layer.key === 'blood')).toMatchObject({
+      wl: 154,
+      ww: 210
+    })
+  })
+
+  it('drops stale 3D preview updates by render revision', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:volume-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createVolumeHarness()
+
+    views.updateTabImage(
+      'volume-tab',
+      {
+        viewId: 'volume-view',
+        imageFormat: 'png',
+        fastPreview: false,
+        renderIntent: 'full',
+        renderRevision: 5,
+        volumePreset: 'bone',
+        render3dMode: 'volume',
+        volumeConfig: createDefaultVolumeRenderConfig('bone'),
+        volumeRenderOptions: {
+          removeBed: true,
+          clip: {
+            mode: 'inside',
+            points: [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.5, y: 0.8 }]
+          }
+        }
+      },
+      new Uint8Array([5, 5, 5])
+    )
+    const acceptedImageSrc = viewerTabs.value[0].imageSrc
+
+    views.updateTabImage(
+      'volume-tab',
+      {
+        viewId: 'volume-view',
+        imageFormat: 'png',
+        fastPreview: true,
+        renderIntent: 'geometry-preview',
+        renderRevision: 4,
+        volumePreset: 'red',
+        render3dMode: 'surface',
+        volumeConfig: createDefaultVolumeRenderConfig('red'),
+        volumeRenderOptions: {
+          removeBed: false,
+          clip: null
+        }
+      },
+      new Uint8Array([4, 4, 4])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.imageSrc).toBe(acceptedImageSrc)
+    expect(tab.imageUpdateRevisions?.['volume-view']).toBe(5)
+    expect(tab.volumePreset).toBe('volumePreset:bone')
+    expect(tab.render3dMode).toBe('volume')
+    expect(tab.volumeRenderOptions).toMatchObject({
+      removeBed: true,
+      clip: {
+        mode: 'inside'
+      }
+    })
+  })
+
+  it('shows 3D preprocess progress over an existing image', () => {
+    const { viewerTabs, views } = createVolumeHarness()
+
+    views.updateViewProgress({
+      viewId: 'volume-view',
+      phase: 'preprocess',
+      progressPercent: 78,
+      message: '正在应用 3D 裁剪...'
+    })
+
+    expect(viewerTabs.value[0].loadingProgress).toMatchObject({
+      phase: 'preprocess',
+      progressPercent: 78,
+      message: '正在应用 3D 裁剪...'
+    })
+
+    views.updateViewProgress({
+      viewId: 'volume-view',
+      phase: 'complete'
+    })
+
+    expect(viewerTabs.value[0].loadingProgress).toBeNull()
   })
 })
 

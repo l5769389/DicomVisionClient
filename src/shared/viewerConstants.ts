@@ -13,6 +13,8 @@ export const VIEW_OPERATION_TYPES = {
   volumeConfig: 'volumeConfig',
   render3dMode: 'render3dMode',
   surfaceConfig: 'surfaceConfig',
+  volumeRenderOptions: 'volumeRenderOptions',
+  volumeClip: 'volumeClip',
   mprMipConfig: 'mprMipConfig',
   mprSegmentation: 'mprSegmentation',
   mprOblique: 'mprOblique',

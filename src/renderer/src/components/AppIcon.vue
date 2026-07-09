@@ -116,6 +116,7 @@ const mdiIconMap: Record<string, string> = {
   rotate3d: mdiRotate3dVariant,
   'render-volume': mdiLayersTriple,
   'render-surface': mdiShapePolygonPlus,
+  'volume-clip': mdiShapePolygonPlus,
   volumePreset: mdiTuneVariant,
   'volume-preset-aaa': mdiRocketLaunchOutline,
   'volume-preset-red': mdiWaterOutline,
@@ -202,7 +203,8 @@ const mdiIconMap: Record<string, string> = {
   warning: mdiAlertOutline
 }
 
-const iconPath = computed(() => mdiIconMap[props.name] ?? mdiHelpCircleOutline)
+const bedIconName = computed(() => (props.name === 'bed-visible' || props.name === 'remove-bed' || props.name === 'bed-hidden' ? props.name : null))
+const iconPath = computed(() => bedIconName.value ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
 const iconSize = computed(() => props.size ?? 24)
 </script>
 
@@ -215,7 +217,16 @@ const iconSize = computed(() => props.size ?? 24)
     focusable="false"
     aria-hidden="true"
   >
-    <path :d="iconPath" />
+    <g
+      v-if="bedIconName"
+      class="app-icon-svg__line-icon"
+      :data-bed-icon="bedIconName === 'remove-bed' ? 'bed-visible' : bedIconName"
+    >
+      <path class="app-icon-svg__bed-eye" :d="mdiEyeOutline" transform="matrix(0.78 0 0 0.58 2.64 2.08)" />
+      <path class="app-icon-svg__bed-board" d="M4.05 16.98C8.68 16.48 15.36 16.32 19.88 16.62c0.6 0.04 1.02 0.58 0.9 1.17l-0.22 1.08c-0.1 0.48-0.54 0.82-1.03 0.79C15.12 19.44 8.78 19.6 4.4 20.12c-0.58 0.07-1.09-0.36-1.12-0.94l-0.07-1.08c-0.04-0.55 0.3-1.06 0.84-1.12Z" />
+      <path v-if="bedIconName === 'bed-hidden'" class="app-icon-svg__bed-slash" d="M5.45 4.05a0.95 0.95 0 0 1 1.34 0l11.12 11.12a0.95 0.95 0 1 1-1.34 1.34L5.45 5.39a0.95 0.95 0 0 1 0-1.34Z" />
+    </g>
+    <path v-else :d="iconPath" />
   </svg>
 </template>
 
@@ -227,5 +238,21 @@ const iconSize = computed(() => props.size ?? 24)
   flex: 0 0 auto;
   fill: currentColor;
   line-height: 1;
+}
+
+.app-icon-svg__line-icon {
+  fill: currentColor;
+}
+
+.app-icon-svg__bed-board {
+  opacity: 0.9;
+}
+
+.app-icon-svg__bed-eye {
+  opacity: 0.96;
+}
+
+.app-icon-svg__bed-slash {
+  opacity: 0.98;
 }
 </style>

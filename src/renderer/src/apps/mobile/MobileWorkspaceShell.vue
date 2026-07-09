@@ -19,9 +19,11 @@ import {
 import { useViewerWorkspace } from '../../composables/workspace/core/useViewerWorkspace'
 import { useWorkspaceViewExport } from '../../composables/workspace/export/useWorkspaceViewExport'
 import type { ViewerExportFormat } from '../../composables/workspace/export/viewExport'
+import { VIEWER_LAYOUT_PRESETS } from '../../composables/workspace/layout/viewerLayoutTemplates'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../../composables/workspace/sync/viewSyncConfig'
-import { createDefaultVolumeRenderConfig } from '../../composables/workspace/volume/volumeRenderConfig'
+import { VOLUME_PRESET_OPTIONS, createDefaultVolumeRenderConfig } from '../../composables/workspace/volume/volumeRenderConfig'
+import { createDefaultSurfaceRenderConfig } from '../../composables/workspace/volume/surfaceRenderConfig'
 import { useWorkspaceAnnotations } from '../../composables/workspace/overlays/useWorkspaceAnnotations'
 import { useWorkspaceQaWaterAnalysis } from '../../composables/workspace/overlays/useWorkspaceQaWaterAnalysis'
 import { isPetSeries, isSeriesViewSupported, resolveInitialSeriesViewType } from '../../composables/workspace/views/seriesViewSupport'
@@ -39,7 +41,7 @@ import { setApiBaseURL } from '../../services/apiBase'
 import type { LoadFolderResponse } from '../../services/typedApi'
 import { viewerRuntime, type DicomLoadSelection, type DicomLoadSource } from '../../platform/runtime'
 import { mobileViewerCapabilityProfile, supportsViewerDataSource, supportsViewerViewType } from '../../shell/viewerCapabilityProfile'
-import type { AnnotationSize, CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, FusionPaneKey, MeasurementOverlay, MeasurementToolType, MprSegmentationConfig, MprSegmentationConfigActionType, MprThresholdRegion, MprViewportKey, ViewerMtfItem, ViewerTabItem, ViewType, WindowLevelInfo } from '../../types/viewer'
+import type { AnnotationSize, CompareStackPaneKey, CompareSyncSettingKey, ConnectionState, DicomTagItem, FolderSeriesItem, FusionPaneKey, MeasurementOverlay, MeasurementToolType, MprSegmentationConfig, MprSegmentationConfigActionType, MprThresholdRegion, MprViewportKey, ViewerLayoutTemplate, ViewerMtfItem, ViewerTabItem, ViewType, WindowLevelInfo } from '../../types/viewer'
 import { DEFAULT_MPR_SEGMENTATION_COLOR, DEFAULT_MPR_VOI_COLOR, MPR_SEGMENTATION_DEPTH_LIMITS, MPR_SEGMENTATION_HU_LIMITS, createDefaultMprSegmentationConfig } from '../../types/viewer'
 import {
   MOBILE_STACK_PLAYBACK_FPS_OPTIONS,
@@ -50,6 +52,7 @@ import {
 } from './useMobileViewerPreferences'
 
 const MtfCurveDialog = defineAsyncComponent(() => import('../../components/viewer/overlays/MtfCurveDialog.vue'))
+const SurfaceRenderConfigPanel = defineAsyncComponent(() => import('../../components/workspace/SurfaceRenderConfigPanel.vue'))
 const VolumeRenderConfigPanel = defineAsyncComponent(() => import('../../components/workspace/VolumeRenderConfigPanel.vue'))
 const WorkspaceExportNameDialog = defineAsyncComponent(() => import('../../components/workspace/export/WorkspaceExportNameDialog.vue'))
 const WorkspaceExportNotice = defineAsyncComponent(() => import('../../components/workspace/export/WorkspaceExportNotice.vue'))
@@ -69,11 +72,11 @@ function loadTypedApi() {
   return typedApiModulePromise
 }
 
-type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'annotate' | 'qa' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'volumeParams' | 'export' | 'tag' | 'compare' | 'fusion' | 'segmentation'
+type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'annotate' | 'qa' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'layout' | 'volumeRemoveBed' | 'volumeClip' | 'volumeParams' | 'export' | 'tag' | 'compare' | 'fusion' | 'segmentation'
 type MobileInlineToolKey = 'fusionRegistrationToggle' | 'fusionRegistrationTranslate' | 'fusionRegistrationRotate' | 'fusionRegistrationReset' | 'fusionRegistrationSave'
 type MobileToolbarKey = MobileToolKey | MobileInlineToolKey | 'more'
 type FusionRegistrationExitToolKey = Extract<MobileToolKey, 'pan' | 'zoom' | 'scroll' | 'crosshair' | 'rotate3d'>
-type MobileInlineToolPanel = 'measure' | 'color' | 'transform' | 'segmentation' | 'qa' | 'playback' | 'fusion-registration' | 'volume-render' | null
+type MobileInlineToolPanel = 'measure' | 'color' | 'transform' | 'layout' | 'segmentation' | 'qa' | 'playback' | 'fusion-registration' | 'volume-render' | 'volume-clip' | null
 type MobileSheetKind = 'history' | 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'fusion' | 'segmentation' | 'mpr' | 'measure' | 'annotate' | 'qa' | 'export' | 'volumeParams' | 'reset' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
@@ -148,7 +151,6 @@ interface MobileViewHistoryItem extends MobileViewHistoryRecord {
   viewLabel: string
 }
 
-const DEFAULT_MOBILE_DEV_SAMPLE_DICOM_PATH = 'D:/test/sample'
 const MAX_MOBILE_VIEW_HISTORY = 20
 type MobileSampleMode = 'local-path' | 'server-sample'
 const GESTURE_SCROLL_THRESHOLDS: Record<MobileGestureSensitivity, number> = {
@@ -175,13 +177,10 @@ const VOLUME_RENDER_MODE_OPTIONS = [
   { value: 'render3dMode:surface', icon: 'render-surface', label: 'Surface', detail: 'Bone surface mesh' }
 ]
 
-const VOLUME_PRESET_OPTIONS = [
-  { value: 'volumePreset:bone', icon: 'render-surface', label: 'Bone' },
-  { value: 'volumePreset:aaa', icon: 'volume-preset-aaa', label: 'AAA' },
-  { value: 'volumePreset:red', icon: 'volume-preset-red', label: 'Red' },
-  { value: 'volumePreset:cardiac', icon: 'volume-preset-cardiac', label: 'Cardiac' },
-  { value: 'volumePreset:muscle', icon: 'volume-preset-muscle', label: 'Muscle' },
-  { value: 'volumePreset:mip', icon: 'volume-preset-mip', label: 'MIP' }
+const SURFACE_PRESET_OPTIONS = [
+  { value: 'surfacePreset:bone', icon: 'render-surface', label: 'Bone' },
+  { value: 'surfacePreset:softTissue', icon: 'volume-preset-muscle', label: 'Soft Tissue' },
+  { value: 'surfacePreset:highDensity', icon: 'volume-preset-mip', label: 'High Density' }
 ]
 
 const MOBILE_EXPORT_OPTIONS: Array<{ value: ViewerExportFormat; icon: string; zh: string; en: string; detailZh: string; detailEn: string }> = [
@@ -334,12 +333,13 @@ const activeStackLikeTab = computed(() => activeStackTab.value ?? activePetTab.v
 const activeCompareTab = computed(() => (viewer.activeTab.value?.viewType === 'CompareStack' ? viewer.activeTab.value : null))
 const activeMprTab = computed(() => (viewer.activeTab.value?.viewType === 'MPR' ? viewer.activeTab.value : null))
 const activeVolumeTab = computed(() => (viewer.activeTab.value?.viewType === '3D' ? viewer.activeTab.value : null))
+const activeLayoutTab = computed(() => (viewer.activeTab.value?.viewType === 'Layout' ? viewer.activeTab.value : null))
 const activeFourDTab = computed(() => (viewer.activeTab.value?.viewType === '4D' ? viewer.activeTab.value : null))
 const activeFusionTab = computed(() => (viewer.activeTab.value?.viewType === 'PETCTFusion' ? viewer.activeTab.value : null))
 const isFusionRegistrationEnabled = computed(() => activeFusionTab.value?.fusionManualRegistration === true)
 const activeMprLikeTab = computed(() => activeMprTab.value ?? activeFourDTab.value)
 const activeTagTab = computed(() => (viewer.activeTab.value?.viewType === 'Tag' ? viewer.activeTab.value : null))
-const activeImageTab = computed(() => activeStackLikeTab.value ?? activeCompareTab.value ?? activeMprTab.value ?? activeVolumeTab.value ?? activeFourDTab.value ?? activeFusionTab.value)
+const activeImageTab = computed(() => activeStackLikeTab.value ?? activeCompareTab.value ?? activeMprTab.value ?? activeVolumeTab.value ?? activeLayoutTab.value ?? activeFourDTab.value ?? activeFusionTab.value)
 const activeMobilePseudocolorKey = computed(() => {
   const tab = viewer.activeTab.value
   if (!tab) {
@@ -603,7 +603,8 @@ const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
       windowTool.value,
       panTool.value,
       zoomTool.value,
-      { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' }
+      { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' },
+      colorTool.value
     ]
   }
 
@@ -642,7 +643,14 @@ const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
 const secondaryMobileTools = computed<MobileToolbarItem[]>(() => {
   if (activeVolumeTab.value) {
     return withResetAfterMore([
-      colorTool.value,
+      {
+        key: 'volumeRemoveBed',
+        icon: activeVolumeTab.value?.volumeRenderOptions?.removeBed ? 'bed-hidden' : 'bed-visible',
+        label: activeVolumeTab.value?.volumeRenderOptions?.removeBed
+          ? (isZh.value ? '已去床板' : 'Bed Hidden')
+          : (isZh.value ? '去床板' : 'Remove Bed')
+      },
+      { key: 'volumeClip', icon: 'volume-clip', label: isZh.value ? '裁剪' : 'Clip' },
       { key: 'volumeParams', icon: 'settings', label: isZh.value ? '参数' : 'Params' },
       createMoreTool()
     ])
@@ -703,6 +711,9 @@ function getInlinePanelParentToolKey(panel: MobileInlineToolPanel): MobileToolba
   if (panel === 'segmentation') {
     return 'segmentation'
   }
+  if (panel === 'volume-clip') {
+    return 'volumeClip'
+  }
   if (panel === 'qa') {
     return 'qa'
   }
@@ -713,6 +724,19 @@ function getInlinePanelParentToolKey(panel: MobileInlineToolPanel): MobileToolba
     return 'fusion'
   }
   return null
+}
+
+const activeMobileVolumePresetOptions = computed<Array<{ value: string; icon: string; label: string; group?: string }>>(() =>
+  activeVolumeTab.value?.render3dMode === 'surface' ? SURFACE_PRESET_OPTIONS : VOLUME_PRESET_OPTIONS
+)
+
+function shouldShowMobileVolumePresetGroupLabel(option: { group?: string }, optionIndex: number): boolean {
+  const group = option.group
+  if (!group) {
+    return false
+  }
+  const previous = activeMobileVolumePresetOptions.value[optionIndex - 1] as { group?: string } | undefined
+  return group !== previous?.group
 }
 
 const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
@@ -755,6 +779,7 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
   }
 
   if (activeInlineToolPanel.value === 'volume-render') {
+    const presetOptions = activeMobileVolumePresetOptions.value
     return [
       ...VOLUME_RENDER_MODE_OPTIONS.map((option) => ({
         key: getMobileInlineActionKey('volume-render', option.value),
@@ -763,17 +788,56 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
         active: activeVolumeRenderModeValue.value === option.value,
         onClick: () => applyVolumeRenderMode(option.value)
       })),
-      ...VOLUME_PRESET_OPTIONS.map((preset) => ({
+      ...presetOptions.map((preset) => ({
         key: getMobileInlineActionKey('volume-preset', preset.value),
         icon: preset.icon,
         label: preset.label,
-        onClick: () => applyVolumePreset(preset.value)
+        active: preset.value.startsWith('surfacePreset:')
+          ? activeSurfacePresetValue.value === preset.value
+          : activeVolumePresetValue.value === preset.value,
+        onClick: () => {
+          if (preset.value.startsWith('surfacePreset:')) {
+            applySurfacePreset(preset.value)
+            return
+          }
+          applyVolumePreset(preset.value)
+        }
       })),
       {
         key: 'volume-render-details',
         icon: 'settings',
         label: isZh.value ? '参数' : 'Params',
         onClick: () => openFocusedSheet('volumeParams')
+      }
+    ]
+  }
+
+  if (activeInlineToolPanel.value === 'layout') {
+    return VIEWER_LAYOUT_PRESETS.map((template) => ({
+      key: getMobileInlineActionKey('layout', template.key),
+      icon: 'layout',
+      label: template.label,
+      active: activeLayoutTab.value?.layoutTemplate?.rows === template.rows && activeLayoutTab.value?.layoutTemplate?.columns === template.columns,
+      onClick: () => applyMobileLayoutTemplate(template)
+    }))
+  }
+
+  if (activeInlineToolPanel.value === 'volume-clip') {
+    const operation = getNormalizedMobileOperation(viewer.activeOperation.value)
+    return [
+      {
+        key: 'volume-clip-inside',
+        icon: 'volume-clip',
+        label: isZh.value ? '裁剪内部' : 'Inside',
+        active: operation === 'volumeClip:inside',
+        onClick: () => setMobileVolumeClipMode('inside')
+      },
+      {
+        key: 'volume-clip-outside',
+        icon: 'volume-clip',
+        label: isZh.value ? '裁剪外部' : 'Outside',
+        active: operation === 'volumeClip:outside',
+        onClick: () => setMobileVolumeClipMode('outside')
       }
     ]
   }
@@ -1101,10 +1165,20 @@ const currentConnectionState = computed<ConnectionState>(() => viewer.connection
 const connectionIcon = computed(() => getConnectionIcon(currentConnectionState.value))
 const connectionToneClass = computed(() => `mobile-shell__connection mobile-shell__connection--${getConnectionTone(currentConnectionState.value)}`)
 const activeVolumeRenderModeValue = computed(() => `render3dMode:${activeVolumeTab.value?.render3dMode ?? 'volume'}`)
-const activeVolumePresetValue = computed(() => activeVolumeTab.value?.volumePreset ?? 'volumePreset:bone')
-const activeVolumeRenderConfig = computed(() => (
-  activeVolumeTab.value?.volumeRenderConfig ?? createDefaultVolumeRenderConfig(activeVolumeTab.value?.volumePreset ?? 'bone')
-))
+const activeVolumePresetValue = computed(() => activeVolumeTab.value?.volumePreset ?? 'volumePreset:aaa')
+const activeSurfacePresetValue = computed(() => `surfacePreset:${activeVolumeTab.value?.surfaceRenderConfig?.preset ?? 'bone'}`)
+const activeVolumeRenderConfig = computed(() => {
+  if (activeVolumeTab.value?.render3dMode === 'surface') {
+    return null
+  }
+  return activeVolumeTab.value?.volumeRenderConfig ?? createDefaultVolumeRenderConfig(activeVolumeTab.value?.volumePreset ?? 'aaa')
+})
+const activeSurfaceRenderConfig = computed(() => {
+  if (activeVolumeTab.value?.render3dMode !== 'surface') {
+    return null
+  }
+  return activeVolumeTab.value?.surfaceRenderConfig ?? createDefaultSurfaceRenderConfig()
+})
 const mobileExportOptions = computed(() =>
   MOBILE_EXPORT_OPTIONS.filter((option) =>
     !(option.value === 'dicom-sr' || option.value === 'dicom-gsps') ||
@@ -1750,7 +1824,7 @@ function getMobileDevSampleDicomPath(): string | null {
   }
 
   const configuredPath = import.meta.env.VITE_MOBILE_DEV_SAMPLE_DICOM_PATH?.trim()
-  return configuredPath || DEFAULT_MOBILE_DEV_SAMPLE_DICOM_PATH
+  return configuredPath || null
 }
 
 function resolveMobileSampleMode(): MobileSampleMode {
@@ -1758,7 +1832,7 @@ function resolveMobileSampleMode(): MobileSampleMode {
   if (explicitMode === 'local-path' || explicitMode === 'server-sample') {
     return explicitMode
   }
-  return import.meta.env.DEV ? 'local-path' : 'server-sample'
+  return 'server-sample'
 }
 
 async function loadMobileDemoResponse() {
@@ -2310,6 +2384,26 @@ function applyVolumeRenderMode(value: string): void {
 function applyVolumePreset(value: string): void {
   handleToolbarViewAction({ action: 'volumePreset', value })
   dismissSheet()
+}
+
+function applySurfacePreset(value: string): void {
+  handleToolbarViewAction({ action: 'surfacePreset', value })
+  dismissSheet()
+}
+
+function applyMobileLayoutTemplate(template: ViewerLayoutTemplate): void {
+  void viewer.openLayoutView(template)
+  closeInlineToolPanel()
+}
+
+function setMobileVolumeClipMode(mode: 'inside' | 'outside'): void {
+  viewer.setActiveOperation(`${STACK_OPERATION_PREFIX}volumeClip:${mode}`)
+}
+
+function resetMobileVolumeClip(): void {
+  viewer.triggerViewAction({ action: 'volumeClipReset' })
+  viewer.setActiveOperation(`${STACK_OPERATION_PREFIX}rotate3d`)
+  closeInlineToolPanel()
 }
 
 function applyTransform(value: string): void {
@@ -2874,11 +2968,20 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
   if (tool.key === 'transform') {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'transform'
   }
+  if (tool.key === 'layout') {
+    return activeInlineToolPanel.value === 'layout'
+  }
   if (tool.key === 'export') {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'export'
   }
   if (tool.key === 'volumeParams') {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'volumeParams'
+  }
+  if (tool.key === 'volumeRemoveBed') {
+    return activeVolumeTab.value?.volumeRenderOptions?.removeBed === true
+  }
+  if (tool.key === 'volumeClip') {
+    return getNormalizedMobileOperation(viewer.activeOperation.value).startsWith('volumeClip:')
   }
   if (tool.key === 'fusion') {
     return (activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'fusion') ||
@@ -2917,6 +3020,9 @@ function isToolbarItemDisabled(tool: MobileToolbarItem): boolean {
     return !activeImageTab.value || Boolean(activeVolumeTab.value)
   }
   if (tool.key === 'volumeParams') {
+    return !activeVolumeTab.value
+  }
+  if (tool.key === 'volumeRemoveBed' || tool.key === 'volumeClip') {
     return !activeVolumeTab.value
   }
   if (tool.key === 'fusion') {
@@ -3012,15 +3118,15 @@ function handleToolbarItem(tool: MobileToolbarItem): void {
     return
   }
   if (tool.key === 'color') {
-    if (activeVolumeTab.value) {
-      toggleInlineToolPanel('volume-render')
-    } else {
-      openFocusedSheet('color')
-    }
+    openFocusedSheet('color')
     return
   }
   if (tool.key === 'transform') {
     toggleInlineToolPanel('transform')
+    return
+  }
+  if (tool.key === 'layout') {
+    toggleInlineToolPanel('layout')
     return
   }
   if (tool.key === 'play') {
@@ -3029,6 +3135,18 @@ function handleToolbarItem(tool: MobileToolbarItem): void {
   }
   if (tool.key === 'volumeParams') {
     openFocusedSheet('volumeParams')
+    return
+  }
+  if (tool.key === 'volumeRemoveBed') {
+    viewer.triggerViewAction({
+      action: 'volumeRenderOptions',
+      enabled: !(activeVolumeTab.value?.volumeRenderOptions?.removeBed === true)
+    })
+    return
+  }
+  if (tool.key === 'volumeClip') {
+    setMobileVolumeClipMode('inside')
+    toggleInlineToolPanel('volume-clip')
     return
   }
   if (tool.key === 'fusion') {
@@ -3425,6 +3543,7 @@ onBeforeUnmount(() => {
         :active-operation="viewer.activeOperation.value"
         :active-tab="viewer.activeTab.value"
         @active-viewport-change="viewer.setActiveViewportKey"
+        @volume-clip="viewer.handleVolumeClip"
         @viewport-drag="viewer.handleViewportDrag"
         @workspace-ready="viewer.setViewerStage"
       />
@@ -3851,6 +3970,17 @@ onBeforeUnmount(() => {
               <AppIcon :name="tool.icon" :size="15" />
             </span>
             <span v-if="!tool.iconOnly" class="mobile-shell__inline-tool-label">{{ tool.label }}</span>
+          </button>
+        </div>
+        <div v-if="activeInlineToolPanel === 'volume-clip'" class="mobile-shell__inline-tool-footer" data-testid="mobile-volume-clip-footer">
+          <button
+            type="button"
+            class="mobile-shell__inline-footer-action"
+            data-testid="mobile-tool-volume-clip-reset"
+            @click="resetMobileVolumeClip"
+          >
+            <AppIcon name="reset" :size="15" />
+            <span>{{ isZh ? '重置裁剪' : 'Reset Clip' }}</span>
           </button>
         </div>
         <div
@@ -4292,18 +4422,28 @@ onBeforeUnmount(() => {
                     <small>{{ option.detail }}</small>
                   </span>
                 </button>
-                <button
-                  v-for="option in VOLUME_PRESET_OPTIONS"
+                <template
+                  v-for="(option, optionIndex) in activeMobileVolumePresetOptions"
                   :key="option.value"
-                  type="button"
-                  class="mobile-shell__action-row"
-                  :class="{ 'mobile-shell__action-row--active': activeVolumePresetValue === option.value }"
-                  data-testid="mobile-volume-preset"
-                  @click="applyVolumePreset(option.value)"
                 >
-                  <AppIcon :name="option.icon" :size="18" />
-                  <span><strong>{{ option.label }}</strong></span>
-                </button>
+                  <div
+                    v-if="shouldShowMobileVolumePresetGroupLabel(option, optionIndex)"
+                    class="mobile-shell__action-group-label"
+                    data-testid="mobile-volume-preset-group"
+                  >
+                    {{ option.group }}
+                  </div>
+                  <button
+                    type="button"
+                    class="mobile-shell__action-row"
+                    :class="{ 'mobile-shell__action-row--active': (option.value.startsWith('surfacePreset:') ? activeSurfacePresetValue : activeVolumePresetValue) === option.value }"
+                    data-testid="mobile-volume-preset"
+                    @click="option.value.startsWith('surfacePreset:') ? applySurfacePreset(option.value) : applyVolumePreset(option.value)"
+                  >
+                    <AppIcon :name="option.icon" :size="18" />
+                    <span><strong>{{ option.label }}</strong></span>
+                  </button>
+                </template>
               </template>
               <template v-else>
                 <button
@@ -4677,9 +4817,16 @@ onBeforeUnmount(() => {
 
           <div v-else-if="activeSheetKind === 'volumeParams'" class="mobile-shell__volume-params" data-testid="mobile-volume-params">
             <VolumeRenderConfigPanel
+              v-if="activeVolumeRenderConfig"
               :config="activeVolumeRenderConfig"
               @close="closeSheet"
               @config-change="viewer.handleVolumeConfigChange"
+            />
+            <SurfaceRenderConfigPanel
+              v-else-if="activeSurfaceRenderConfig"
+              :config="activeSurfaceRenderConfig"
+              @close="closeSheet"
+              @config-change="viewer.handleSurfaceConfigChange"
             />
           </div>
 
@@ -5504,6 +5651,10 @@ onBeforeUnmount(() => {
   appearance: none;
 }
 
+.mobile-shell__inline-tool-panel:has(.mobile-shell__inline-tool-footer) {
+  grid-template-columns: 34px minmax(0, 1fr) minmax(90px, auto);
+}
+
 .mobile-shell__inline-tool-header {
   display: none;
 }
@@ -5740,6 +5891,30 @@ onBeforeUnmount(() => {
 
 .mobile-shell__inline-tool:disabled .mobile-shell__inline-tool-icon {
   color: color-mix(in srgb, var(--theme-text-muted) 68%, transparent);
+}
+
+.mobile-shell__inline-tool-footer {
+  display: inline-flex;
+  min-width: 0;
+  height: var(--mobile-inline-tool-height);
+}
+
+.mobile-shell__inline-footer-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 100%;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent-warm) 48%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent-warm) 14%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+  appearance: none;
 }
 
 .mobile-shell--active-view .mobile-shell__header {
@@ -6052,6 +6227,22 @@ onBeforeUnmount(() => {
   display: grid;
   align-content: start;
   gap: 6px;
+}
+
+.mobile-shell__action-group-label {
+  margin: 10px 2px 2px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 70%, transparent);
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.mobile-shell__action-group-label:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .mobile-shell__series-footer {

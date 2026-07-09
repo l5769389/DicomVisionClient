@@ -15,6 +15,8 @@ type StandaloneNavigator = Navigator & {
 const deferredPrompt = shallowRef<BeforeInstallPromptEvent | null>(null)
 const installedState = ref(false)
 
+const SERVICE_WORKER_CACHE_PREFIX = 'dicomvision-'
+
 let isInitialized = false
 let displayModeQuery: MediaQueryList | null = null
 let serviceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
@@ -95,7 +97,38 @@ function removeDisplayModeListener(): void {
   displayModeQuery = null
 }
 
+async function unregisterDevelopmentServiceWorkers(): Promise<void> {
+  if (typeof window === 'undefined' || !import.meta.env.DEV || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  const serviceWorkerContainer = navigator.serviceWorker
+  const getRegistrations = serviceWorkerContainer.getRegistrations?.bind(serviceWorkerContainer)
+  if (getRegistrations) {
+    const registrations = await getRegistrations()
+    await Promise.all(registrations.map((registration) => registration.unregister()))
+  }
+
+  if ('caches' in window) {
+    const keys = await window.caches.keys()
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith(SERVICE_WORKER_CACHE_PREFIX))
+        .map((key) => window.caches.delete(key))
+    )
+  }
+}
+
 export function registerPwaServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    serviceWorkerRegistrationPromise ??= unregisterDevelopmentServiceWorkers()
+      .catch((error) => {
+        console.warn('Failed to clear stale DicomVision service worker state.', error)
+      })
+      .then(() => null)
+    return serviceWorkerRegistrationPromise
+  }
+
   if (
     typeof window === 'undefined' ||
     hasDesktopRuntime() ||

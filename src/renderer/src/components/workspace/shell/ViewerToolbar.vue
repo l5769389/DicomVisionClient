@@ -167,7 +167,8 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
               { 'fusion-registration-tool__button--active': activeTab.fusionManualRegistration === true }
             ]"
             :disabled="areToolbarActionsDisabled"
-            :title="tool.label"
+            :title="tool.title ?? tool.label"
+              :aria-pressed="tool.pressed"
             @click.stop="emit('selectToolOption', tool, 'fusionRegistration:toggle')"
           >
             <AppIcon name="crosshair" :size="toolbarIconSize" />
@@ -272,9 +273,10 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
             type="button"
             class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
             :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused))"
-            :active="isToolSelected(tool) || openMenuKey === tool.key"
-            :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': isToolSelected(tool) || openMenuKey === tool.key }"
-            :title="tool.label"
+            :active="tool.pressed === true || isToolSelected(tool) || openMenuKey === tool.key"
+            :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': tool.pressed === true || isToolSelected(tool) || openMenuKey === tool.key }"
+            :title="tool.title ?? tool.label"
+              :aria-pressed="tool.pressed"
             @click.stop="emit('applyTool', tool)"
           >
             <PseudocolorBand

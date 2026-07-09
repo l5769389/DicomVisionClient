@@ -124,13 +124,15 @@ import {
   normalizePseudocolorPresetKey
 } from '../../../constants/pseudocolor'
 import {
+  createDefaultVolumeRenderOptions,
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
   isStaleMprSegmentationPreviewConfig,
   isFourDSeriesItem,
   mergeMprSegmentationPreviewConfig,
   normalizeMprMipConfig,
-  normalizeMprSegmentationConfig
+  normalizeMprSegmentationConfig,
+  normalizeVolumeRenderOptions
 } from '../../../types/viewer'
 import {
   createDefaultVolumeRenderConfig,
@@ -1975,6 +1977,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const surfaceRenderConfig = payload.surfaceConfig
         ? normalizeSurfaceRenderConfig(payload.surfaceConfig)
         : item.surfaceRenderConfig
+      const volumeRenderOptionsPayload =
+        payload.volumeRenderOptions ??
+        ((payload as { volume_render_options?: ViewImageResponse['volumeRenderOptions'] | null }).volume_render_options ?? null)
+      const volumeRenderOptions = volumeRenderOptionsPayload
+        ? normalizeVolumeRenderOptions(volumeRenderOptionsPayload, item.volumeRenderOptions ?? createDefaultVolumeRenderOptions())
+        : item.volumeRenderOptions ?? createDefaultVolumeRenderOptions()
       const payloadAnnotations = (payload.annotations ?? []) as AnnotationOverlay[]
 
       const layoutSlot = item.viewType === 'Layout'
@@ -2655,6 +2663,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           volumeRenderConfig,
           render3dMode,
           surfaceRenderConfig,
+          volumeRenderOptions,
           fourDPhaseCache: nextFourDPhaseCache
         })
       }
@@ -2719,6 +2728,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         volumeRenderConfig,
         render3dMode,
         surfaceRenderConfig,
+        volumeRenderOptions,
         loadingProgress: null
       })
     })
@@ -3346,7 +3356,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const nextProgress = progress.phase === 'complete' ? null : progress
     options.viewerTabs.value = options.viewerTabs.value.map((item) => {
       if (item.viewId === progress.viewId) {
-        if (nextProgress && item.imageSrc) {
+        const shouldOverlayProgressOnExistingImage = item.viewType === '3D' && nextProgress?.phase === 'preprocess'
+        if (nextProgress && item.imageSrc && !shouldOverlayProgressOnExistingImage) {
           return item
         }
         return {
@@ -3737,8 +3748,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       seriesId: tab.seriesId,
       viewType: '3D'
     })
-    const volumeConfig = tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig(tab.volumePreset ?? 'bone')
-    const volumePreset = tab.volumePreset ?? `volumePreset:${normalizeVolumePresetKey(volumeConfig.preset)}`
+    const volumeConfig = tab.volumeRenderConfig ?? null
+    const volumePreset = tab.volumePreset
     const surfaceConfig = tab.surfaceRenderConfig ?? createDefaultSurfaceRenderConfig()
 
     options.viewerTabs.value = options.viewerTabs.value.map((item) =>
@@ -3753,7 +3764,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             volumePreset,
             volumeRenderConfig: volumeConfig,
             render3dMode: tab.render3dMode ?? 'volume',
-            surfaceRenderConfig: surfaceConfig
+            surfaceRenderConfig: surfaceConfig,
+            volumeRenderOptions: normalizeVolumeRenderOptions(tab.volumeRenderOptions, createDefaultVolumeRenderOptions())
           }
         : item
     )
@@ -3989,10 +4001,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                   : createEmptyMprPseudocolorPresets(),
               mprMipConfig: createDefaultMprMipConfig(),
               mprSegmentationConfig: createDefaultMprSegmentationConfig(),
-              volumePreset: 'volumePreset:bone',
-              volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
+              volumePreset: viewType === '3D' ? undefined : 'volumePreset:bone',
+              volumeRenderConfig: viewType === '3D' ? null : createDefaultVolumeRenderConfig('bone'),
               render3dMode: 'volume',
-              surfaceRenderConfig: createDefaultSurfaceRenderConfig()
+              surfaceRenderConfig: createDefaultSurfaceRenderConfig(),
+              volumeRenderOptions: createDefaultVolumeRenderOptions()
             }
           : item
       )

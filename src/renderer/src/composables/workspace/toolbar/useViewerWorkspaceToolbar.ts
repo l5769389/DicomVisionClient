@@ -3,7 +3,8 @@ import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerCons
 import { PSEUDOCOLOR_PRESET_OPTIONS, toPseudocolorSelectionValue } from '../../../constants/pseudocolor'
 import { useUiLocale } from '../../ui/useUiLocale'
 import { useUiPreferences } from '../../ui/useUiPreferences'
-import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
+import { VOLUME_PRESET_OPTIONS, createDefaultVolumeRenderConfig, normalizeVolumePresetKey } from '../volume/volumeRenderConfig'
+import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
 import type { ViewerExportFormat } from '../export/viewExport'
 import {
   createViewerLayoutOptionValue,
@@ -47,12 +48,13 @@ import {
   type ViewTransformInfo,
   type ViewerLayoutTemplate,
   type ViewerTabItem,
+  type SurfaceRenderConfig,
   type VolumeRenderConfig
 } from '../../../types/viewer'
 import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from '../../../components/workspace/shell/toolbarTypes'
 
-const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'qa', 'mtf', 'annotate'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'page', 'measure', 'qa', 'mtf', 'annotate', 'segmentation'])
+const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'volumeClip', 'qa', 'mtf', 'annotate'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'volumeClip', 'page', 'measure', 'qa', 'mtf', 'annotate', 'segmentation'])
 const DEFAULT_QA_OPERATION = 'qa:mtf'
 const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
 const STACK_PLAYBACK_DEFAULT_FPS = 5
@@ -83,7 +85,11 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   reset: '重置',
   rotate: '旋转',
   rotate3d: '3D 旋转',
+  surfaceParams: 'Surface 参数',
+  surfacePreset: 'Surface 预设',
   tag: '标签',
+  volumeClip: '裁剪',
+  volumeRemoveBed: '去床板',
   volumeParams: '参数',
   volumePreset: '预设',
   window: '窗宽窗位',
@@ -105,6 +111,9 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'measure:freeform': { label: '自由手绘' },
   'measure:line': { label: '线段' },
   'measure:rect': { label: '矩形' },
+  'volumeClip:inside': { label: '裁剪内部', description: '只显示自由区域投影内的 3D 内容' },
+  'volumeClip:outside': { label: '裁剪外部', description: '隐藏自由区域投影内的 3D 内容' },
+  'volumeClip:reset': { label: '重置裁剪', description: '恢复完整 3D 体数据投影' },
   'pseudocolor:blackbody': { label: '黑体' },
   'pseudocolor:bw': { label: '黑白' },
   'pseudocolor:bwinverse': { label: '反相黑白' },
@@ -138,9 +147,35 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'rotate:mirror-h': { label: '水平镜像' },
   'rotate:mirror-v': { label: '垂直镜像' },
   'rotate:reset': { label: '重置旋转' },
+  'surfacePreset:bone': { label: '骨表面' },
+  'surfacePreset:softTissue': { label: '软组织' },
+  'surfacePreset:highDensity': { label: '高密度' },
   'volumePreset:bone': { label: '骨骼' },
+  'volumePreset:aaa': { label: 'AAA' },
   'volumePreset:cardiac': { label: '心脏' },
+  'volumePreset:xray': { label: 'XRay' },
+  'volumePreset:carotid': { label: '颈动脉' },
+  'volumePreset:bonePlusPlate': { label: '骨骼 + 钢板' },
+  'volumePreset:fracture': { label: '骨折' },
+  'volumePreset:lumbar': { label: '腰椎' },
+  'volumePreset:hardware': { label: '金属植入物' },
+  'volumePreset:lung': { label: '肺' },
+  'volumePreset:lung2': { label: '肺 2' },
+  'volumePreset:lung3': { label: '肺 3' },
+  'volumePreset:renalsStomach': { label: '肾脏-胃' },
+  'volumePreset:vesselOutline': { label: '血管轮廓' },
+  'volumePreset:bones': { label: '骨骼增强' },
+  'volumePreset:coronaryCta': { label: '冠脉 CTA' },
+  'volumePreset:bodyCta': { label: '全身 CTA' },
+  'volumePreset:neckCta': { label: '颈部 CTA' },
+  'volumePreset:mrDefault': { label: 'MR 默认' },
+  'volumePreset:mrMip': { label: 'MR-MIP' },
+  'volumePreset:mrAngio': { label: 'MR 血管' },
+  'volumePreset:cbctRealist': { label: 'CBCT 真实' },
+  'volumePreset:cbctBone': { label: 'CBCT 骨骼' },
+  'volumePreset:cbctBone2': { label: 'CBCT 骨骼 2' },
   'volumePreset:muscle': { label: '肌肉' },
+  'volumePreset:mip': { label: 'MIP' },
   'volumePreset:red': { label: '红色' }
 }
 
@@ -693,6 +728,7 @@ const genericTools: StackTool[] = [
 ]
 
 const volumeParamsTool: StackTool = { key: 'volumeParams', label: 'Params', icon: 'settings', kind: 'action' }
+const surfaceParamsTool: StackTool = { key: 'surfaceParams', label: 'Surface Params', icon: 'settings', kind: 'action' }
 
 const render3dModeTool: StackTool = {
   key: 'render3dMode',
@@ -710,13 +746,32 @@ const volumePresetTool: StackTool = {
   label: 'Preset',
   icon: 'volumePreset',
   kind: 'action',
+  options: VOLUME_PRESET_OPTIONS.map((option) => ({ ...option }))
+}
+
+const surfacePresetTool: StackTool = {
+  key: 'surfacePreset',
+  label: 'Surface Preset',
+  icon: 'render-surface',
+  kind: 'action',
   options: [
-    { value: 'volumePreset:bone', label: 'Bone', icon: 'render-surface' },
-    { value: 'volumePreset:aaa', label: 'AAA', icon: 'volume-preset-aaa' },
-    { value: 'volumePreset:red', label: 'Red', icon: 'volume-preset-red' },
-    { value: 'volumePreset:cardiac', label: 'Cardiac', icon: 'volume-preset-cardiac' },
-    { value: 'volumePreset:muscle', label: 'Muscle', icon: 'volume-preset-muscle' },
-    { value: 'volumePreset:mip', label: 'MIP', icon: 'volume-preset-mip' }
+    { value: 'surfacePreset:bone', label: 'Bone', icon: 'render-surface' },
+    { value: 'surfacePreset:softTissue', label: 'Soft Tissue', icon: 'volume-preset-muscle' },
+    { value: 'surfacePreset:highDensity', label: 'High Density', icon: 'volume-preset-mip' }
+  ]
+}
+
+const volumeRemoveBedTool: StackTool = { key: 'volumeRemoveBed', label: 'Remove Bed', icon: 'remove-bed', kind: 'action' }
+
+const volumeClipTool: StackTool = {
+  key: 'volumeClip',
+  label: 'Clip',
+  icon: 'volume-clip',
+  kind: 'mode',
+  options: [
+    { value: 'volumeClip:inside', label: 'Clip Inside', icon: 'volume-clip' },
+    { value: 'volumeClip:outside', label: 'Clip Outside', icon: 'volume-clip' },
+    { value: 'volumeClip:reset', label: 'Reset Clip', icon: 'reset' }
   ]
 }
 
@@ -748,6 +803,8 @@ const volumeTools: StackTool[] = [
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   render3dModeTool,
+  volumeRemoveBedTool,
+  volumeClipTool,
   volumeParamsTool,
   volumePresetTool,
   exportTool,
@@ -799,7 +856,7 @@ const mprToolsWithSegmentation: StackTool[] = genericToolsWithCrosshair.flatMap(
 )
 
 const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
-  tool.key === 'mprMip' ? [tool, segmentationTool, render3dModeTool, volumeParamsTool, volumePresetTool] : [tool]
+  tool.key === 'mprMip' ? [tool, segmentationTool, render3dModeTool, volumeRemoveBedTool, volumeClipTool, volumeParamsTool, volumePresetTool] : [tool]
 )
 
 interface ViewerWorkspaceToolbarOptions {
@@ -850,7 +907,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     export: 'png',
     exportTarget: '',
     render3dMode: 'render3dMode:volume',
-    volumePreset: 'volumePreset:bone',
+    volumeClip: 'volumeClip:inside',
+    volumePreset: 'volumePreset:aaa',
+    surfacePreset: 'surfacePreset:bone',
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
     crosshair: toMprCrosshairModeSelectionValue('orthogonal'),
@@ -1173,7 +1232,34 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!tab || tab.render3dMode !== 'surface' || !isActiveRender3dViewport()) {
       return tools
     }
-    return tools.filter((tool) => tool.key !== 'window' && tool.key !== 'volumeParams' && tool.key !== 'volumePreset')
+    return tools.flatMap((tool) => {
+      if (tool.key === 'window' || tool.key === 'volumeParams' || tool.key === 'volumePreset') {
+        return []
+      }
+      if (tool.key === 'render3dMode') {
+        return [tool, surfaceParamsTool, surfacePresetTool]
+      }
+      return [tool]
+    })
+  }
+
+  function withDynamicVolumeToolState(tool: StackTool): StackTool {
+    if (tool.key !== 'volumeRemoveBed' || !isActiveRender3dViewport()) {
+      return tool
+    }
+    const removeBedEnabled = options.activeTab.value?.volumeRenderOptions?.removeBed === true
+    const label = removeBedEnabled
+      ? (isZh.value ? '已去床板' : 'Bed Hidden')
+      : (isZh.value ? '去床板' : 'Remove Bed')
+    return {
+      ...tool,
+      icon: removeBedEnabled ? 'bed-hidden' : 'bed-visible',
+      label,
+      pressed: removeBedEnabled,
+      title: removeBedEnabled
+        ? (isZh.value ? '恢复床板显示' : 'Show Bed')
+        : (isZh.value ? '隐藏床板' : 'Hide Bed')
+    }
   }
 
   const activeTools = computed(() => {
@@ -1190,6 +1276,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       .map((tool) => withActiveZoomRangeControl(tool))
       .map((tool) => withSupportedExportOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
+      .map((tool) => withDynamicVolumeToolState(tool))
   })
 
   const areToolbarActionsDisabled = computed(
@@ -1207,7 +1294,19 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return null
     }
 
-    return tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig('bone')
+    return tab.volumeRenderConfig ?? createDefaultVolumeRenderConfig(normalizeVolumePresetKey(tab.volumePreset ?? 'aaa'))
+  })
+
+  const activeSurfaceRenderConfig = computed<SurfaceRenderConfig | null>(() => {
+    const tab = options.activeTab.value
+    if (!tab || (tab.viewType !== '3D' && !isActiveMpr3dLayout.value)) {
+      return null
+    }
+    if (tab.render3dMode !== 'surface') {
+      return null
+    }
+
+    return tab.surfaceRenderConfig ?? createDefaultSurfaceRenderConfig()
   })
 
   const activeMprMipConfig = computed(() => {
@@ -1771,7 +1870,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       options.cleanupPointerInteractions()
     }
     setToolbarToolActive(tool.key)
-    if ((tool.key === 'measure' || tool.key === 'qa') && getSelectedOption(tool.key)) {
+    if (tool.key === 'volumeClip') {
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        volumeClip: 'volumeClip:inside'
+      }
+      options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}volumeClip:inside`)
+      return
+    }
+    if ((tool.key === 'measure' || tool.key === 'qa' || tool.key === 'volumeClip') && getSelectedOption(tool.key)) {
       activateSelectedOption(tool.key)
     } else {
       options.emitSetActiveOperation(getModeOperationValue(tool.key))
@@ -1793,7 +1900,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       stackToolSelections.value = {
         ...stackToolSelections.value,
         render3dMode: 'render3dMode:volume',
-        volumePreset: 'volumePreset:bone'
+        volumePreset: options.activeTab.value?.volumePreset || 'volumePreset:aaa'
       }
     }
     options.emitTriggerViewAction({ action: 'reset' })
@@ -1805,7 +1912,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function applySelectedViewAction(
     tool: StackTool,
-    action: 'volumePreset' | 'render3dMode' | 'rotate' | 'pseudocolor' | 'fusionPseudocolor'
+    action: 'volumePreset' | 'surfacePreset' | 'render3dMode' | 'rotate' | 'pseudocolor' | 'fusionPseudocolor'
   ): void {
     closeMenus()
     const selectedOption = getSelectedOption(tool.key)
@@ -1821,6 +1928,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     closeMenusIfNeeded(behavior)
     const selectedOption = getSelectedOption(tool.key)
     if (!selectedOption) {
+      return
+    }
+    if (tool.key === 'volumeClip' && selectedOption.value === 'volumeClip:reset') {
+      closeMenusIfNeeded(behavior)
+      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+        options.emitTriggerViewAction({ action: 'volumeClipReset' })
+      })
       return
     }
     if (tool.key === 'measure') {
@@ -1848,6 +1962,13 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       isMprSegmentationPanelOpen.value = false
       isVolumeConfigPanelOpen.value = nextOpen
     },
+    surfaceParams: () => {
+      closeMenus()
+      const nextOpen = !isVolumeConfigPanelOpen.value
+      isMprMipPanelOpen.value = false
+      isMprSegmentationPanelOpen.value = false
+      isVolumeConfigPanelOpen.value = nextOpen
+    },
     mprMip: () => {
       closeMenus()
       isVolumeConfigPanelOpen.value = false
@@ -1866,7 +1987,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       activateSegmentationOption(selectedOption)
     },
     volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
+    surfacePreset: (tool) => applySelectedViewAction(tool, 'surfacePreset'),
     render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
+    volumeRemoveBed: () => {
+      closeMenus()
+      flashToolActive('volumeRemoveBed', activeToolbarToolKey.value, () => {
+        options.emitTriggerViewAction({
+          action: 'volumeRenderOptions',
+          enabled: !(options.activeTab.value?.volumeRenderOptions?.removeBed === true)
+        })
+      })
+    },
     rotate: (tool) => applySelectedViewAction(tool, 'rotate'),
     pseudocolor: (tool) => applySelectedViewAction(tool, 'pseudocolor'),
     fusionPseudocolor: (tool) => applySelectedViewAction(tool, 'fusionPseudocolor'),
@@ -2295,6 +2426,29 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
+    if (tool.key === 'volumeClip') {
+      if (optionValue === 'volumeClip:reset') {
+        stackToolSelections.value = {
+          ...stackToolSelections.value,
+          volumeClip: 'volumeClip:inside'
+        }
+        closeMenusIfNeeded(behavior)
+        options.stopViewportDrag()
+        flashToolActive(tool.key, activeToolbarToolKey.value, () => {
+          options.emitTriggerViewAction({ action: 'volumeClipReset' })
+        })
+        return
+      }
+      if (optionValue !== 'volumeClip:inside' && optionValue !== 'volumeClip:outside') {
+        return
+      }
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${optionValue}`)
+      return
+    }
+
     if (tool.key === 'reset') {
       stackToolSelections.value = {
         ...stackToolSelections.value,
@@ -2322,9 +2476,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'volumePreset' || tool.key === 'render3dMode') {
+    if (tool.key === 'volumePreset' || tool.key === 'surfacePreset' || tool.key === 'render3dMode') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.emitTriggerViewAction({ action: tool.key === 'volumePreset' ? 'volumePreset' : 'render3dMode', value: optionValue })
+        options.emitTriggerViewAction({
+          action: tool.key === 'volumePreset' ? 'volumePreset' : tool.key === 'surfacePreset' ? 'surfacePreset' : 'render3dMode',
+          value: optionValue
+        })
       })
       return
     }
@@ -2496,7 +2653,6 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         render3dMode: `render3dMode:${render3dMode === 'surface' ? 'surface' : 'volume'}`
       }
       if (render3dMode === 'surface') {
-        isVolumeConfigPanelOpen.value = false
         const activeToolUnavailable = !isToolAvailable(activeToolbarToolKey.value)
         const activeOperationToolKey = getOperationToolKey(options.activeOperation.value)
         if (activeToolUnavailable || activeOperationToolKey === 'window') {
@@ -2516,7 +2672,21 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       }
       stackToolSelections.value = {
         ...stackToolSelections.value,
-        volumePreset: value || 'volumePreset:bone'
+        volumePreset: value || 'volumePreset:aaa'
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    () => options.activeTab.value?.surfaceRenderConfig?.preset,
+    (value) => {
+      if (options.activeTab.value?.viewType !== '3D' && !isActiveMpr3dLayout.value) {
+        return
+      }
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        surfacePreset: `surfacePreset:${value || 'bone'}`
       }
     },
     { immediate: true }
@@ -2616,6 +2786,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     activeMprMipConfig,
     activeMprSegmentationConfig,
     activeVolumeRenderConfig,
+    activeSurfaceRenderConfig,
     applyTool,
     areToolbarActionsDisabled,
     closeMprSegmentationPanel,

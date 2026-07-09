@@ -70,6 +70,14 @@ vi.mock('../../components/workspace/VolumeRenderConfigPanel.vue', () => ({
   }
 }))
 
+vi.mock('../../components/workspace/SurfaceRenderConfigPanel.vue', () => ({
+  default: {
+    props: ['config'],
+    emits: ['close', 'configChange'],
+    template: '<div data-testid="mobile-surface-config-panel"><button data-testid="mobile-surface-config-change" @click="$emit(\'configChange\', config)">Config</button></div>'
+  }
+}))
+
 vi.mock('../../components/workspace/export/WorkspaceExportNameDialog.vue', () => ({
   default: {
     props: ['copy', 'error', 'extension', 'format', 'modelValue'],
@@ -455,10 +463,13 @@ function createMockViewer() {
     handleMeasurementCreate: vi.fn(),
     handleMeasurementDelete: vi.fn(),
     handleVolumeConfigChange: vi.fn(),
+    handleSurfaceConfigChange: vi.fn(),
     handleViewportDrag: vi.fn(),
     handleViewportWheel: vi.fn(),
+    handleVolumeClip: vi.fn(),
     isLoadingFolder: ref(false),
     isViewLoading: ref(false),
+    openLayoutView: vi.fn(),
     openSeriesCompare: vi.fn(),
     openPetCtFusion: vi.fn(),
     openSeriesView: vi.fn(),
@@ -496,6 +507,11 @@ function mountShell() {
           props: ['config'],
           emits: ['close', 'configChange'],
           template: '<div data-testid="mobile-volume-config-panel"><button data-testid="mobile-volume-config-change" @click="$emit(\'configChange\', config)">Config</button></div>'
+        },
+        SurfaceRenderConfigPanel: {
+          props: ['config'],
+          emits: ['close', 'configChange'],
+          template: '<div data-testid="mobile-surface-config-panel"><button data-testid="mobile-surface-config-change" @click="$emit(\'configChange\', config)">Config</button></div>'
         },
         WorkspaceExportNameDialog: {
           props: ['copy', 'error', 'extension', 'format', 'modelValue'],
@@ -594,6 +610,27 @@ describe('MobileWorkspaceShell', () => {
       { seriesList: [series] },
       { openFirstSeriesView: false, selectLoadedSeries: true }
     )
+    expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
+  })
+
+  it('defaults mobile demo loading to the server sample instead of a dev local path', async () => {
+    vi.stubEnv('VITE_MOBILE_SAMPLE_MODE', '')
+    vi.stubEnv('VITE_MOBILE_DEV_SAMPLE_DICOM_PATH', 'D:/test/sample')
+    const series = createSeries()
+    postApiMock.mockResolvedValue({ seriesList: [series] })
+    mockViewer.applyLoadedDicomSeries.mockImplementation(async () => {
+      mockViewer.seriesList.value = [series]
+      return [series]
+    })
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-load-demo"]').trigger('click')
+    await flushPromises()
+
+    expect(postApiMock).toHaveBeenCalledWith('LoadSampleFolderApiV1DicomLoadSamplePost', undefined)
+    expect(postApiMock).not.toHaveBeenCalledWith('LoadFolderApiV1DicomLoadFolderPost', {
+      folderPath: 'D:/test/sample'
+    })
     expect(mockViewer.openSeriesView).toHaveBeenCalledWith('series-1', 'Stack', { useHangingProtocol: false })
   })
 
@@ -1321,8 +1358,22 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.find('[data-testid="mobile-tool-zoom"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-tool-measure"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-transform"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-color"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mobile-tool-volumeParams"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-layout"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mobile-tool-export"]').exists()).toBe(false)
+    const toolbarRows = wrapper.findAll('.mobile-shell__toolbar-row')
+    expect(toolbarRows[0].findAll('.mobile-shell__tool')).toHaveLength(5)
+    expect(toolbarRows[1].findAll('.mobile-shell__tool')).toHaveLength(5)
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').text()).toContain('去床板')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"] .app-icon-stub').text()).toBe('bed-visible')
+
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeRenderOptions',
+      enabled: true
+    })
 
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
     await wrapper.get('[data-testid="mobile-sheet-tab-export"]').trigger('click')
@@ -1330,12 +1381,82 @@ describe('MobileWorkspaceShell', () => {
     await wrapper.get('.mobile-shell__sheet-close').trigger('click')
 
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-tool-volume-render-render3dMode-volume"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    const modeButtons = wrapper.findAll('[data-testid="mobile-volume-render-mode"]')
+    expect(modeButtons[0].classes()).toContain('mobile-shell__action-row--active')
+    const presetButtons = wrapper.findAll('[data-testid="mobile-volume-preset"]')
+    expect(presetButtons.some((button) => button.classes().includes('mobile-shell__action-row--active'))).toBe(true)
+    await modeButtons[0].trigger('click')
 
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'render3dMode', value: 'render3dMode:volume' })
 
-    await wrapper.get('[data-testid="mobile-tool-volume-render-details"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-volumeParams"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-volume-config-panel"]').exists()).toBe(true)
+
+    mockViewer.__setActiveTab(createVolumeTab('series-1', {
+      volumeRenderOptions: {
+        removeBed: true,
+        clip: null
+      }
+    }))
+    await flushPromises()
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').text()).toContain('已去床板')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"] .app-icon-stub').text()).toBe('bed-hidden')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').classes()).toContain('mobile-shell__tool--active')
+
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeRenderOptions',
+      enabled: false
+    })
+
+    mockViewer.activeOperation.value = `${STACK_OPERATION_PREFIX}volumeClip:outside`
+    mockViewer.setActiveOperation.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-volumeClip"]').trigger('click')
+
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith(`${STACK_OPERATION_PREFIX}volumeClip:inside`)
+    expect(wrapper.find('[data-testid="mobile-volume-clip-footer"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-volume-clip-reset"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="mobile-tool-volume-clip-reset"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({ action: 'volumeClipReset' })
+    expect(mockViewer.setActiveOperation).toHaveBeenCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`)
+  })
+
+  it('shows mobile surface presets and opens surface 3D params for surface rendering', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createVolumeTab('series-1', {
+      render3dMode: 'surface',
+      surfaceRenderConfig: {
+        preset: 'softTissue'
+      } as ViewerTabItem['surfaceRenderConfig']
+    }))
+
+    const wrapper = mountShell()
+
+    await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
+    const modeButtons = wrapper.findAll('[data-testid="mobile-volume-render-mode"]')
+    expect(modeButtons[1].classes()).toContain('mobile-shell__action-row--active')
+    const presetButtons = wrapper.findAll('[data-testid="mobile-volume-preset"]')
+    const softTissuePreset = presetButtons.find((button) => button.text().includes('Soft Tissue'))
+    expect(softTissuePreset?.classes()).toContain('mobile-shell__action-row--active')
+
+    mockViewer.triggerViewAction.mockClear()
+    const highDensityPreset = presetButtons.find((button) => button.text().includes('High Density'))
+    expect(highDensityPreset).toBeTruthy()
+    await highDensityPreset!.trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'surfacePreset',
+      value: 'surfacePreset:highDensity'
+    })
+
+    await wrapper.get('[data-testid="mobile-tool-volumeParams"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-surface-config-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-volume-config-panel"]').exists()).toBe(false)
   })
 
   it('renders mobile PET/CT fusion and forwards registration actions', async () => {

@@ -19,6 +19,7 @@ import type {
   ViewImageResponse,
   Render3DMode,
   SurfaceRenderConfig,
+  VolumeRenderOptions,
   VolumeRenderConfig
 } from '../types/viewer'
 
@@ -62,6 +63,11 @@ export interface ViewOperationPayload {
   actionType?: ViewActionType
   x?: number
   y?: number
+  canvasX?: number
+  canvasY?: number
+  canvasWidth?: number
+  canvasHeight?: number
+  interactionId?: string
   anchorX?: number
   anchorY?: number
   currentX?: number
@@ -102,6 +108,8 @@ export interface ViewOperationPayload {
   volumeConfig?: VolumeRenderConfig
   render3dMode?: Render3DMode
   surfaceConfig?: SurfaceRenderConfig
+  volumeRenderOptions?: VolumeRenderOptions
+  removeBed?: boolean
   previewFeedbackMode?: 'matched' | 'cadence'
 }
 

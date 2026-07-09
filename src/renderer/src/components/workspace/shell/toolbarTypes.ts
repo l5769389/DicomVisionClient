@@ -34,7 +34,9 @@ export interface StackToolRangeControl {
 export interface StackTool {
   key: string
   label: string
+  title?: string
   icon: string
+  pressed?: boolean
   swatchKey?: string
   kind?: 'mode' | 'action'
   menuKind?: 'options' | 'layout' | 'mprLayout'

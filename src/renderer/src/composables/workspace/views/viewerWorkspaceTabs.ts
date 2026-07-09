@@ -24,7 +24,7 @@ import type {
   ViewType,
   WindowLevelInfo
 } from '../../../types/viewer'
-import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig } from '../../../types/viewer'
+import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig, createDefaultVolumeRenderOptions } from '../../../types/viewer'
 import {
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
@@ -33,7 +33,6 @@ import {
   DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET
 } from '../../../constants/pseudocolor'
-import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
 import { cloneViewerLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import { createCompareSyncDefaults, createLayoutSyncDefaults } from '../sync/viewSyncConfig'
@@ -868,10 +867,11 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     mprSegmentationConfig: createDefaultMprSegmentationConfig(),
     viewportSegmentationOverlays: createEmptyMprSegmentationOverlays(),
     mprCrosshairMode: 'orthogonal',
-    volumePreset: 'volumePreset:bone',
-    volumeRenderConfig: createDefaultVolumeRenderConfig('bone'),
+    volumePreset: undefined,
+    volumeRenderConfig: null,
     render3dMode: 'volume',
     surfaceRenderConfig: createDefaultSurfaceRenderConfig(),
+    volumeRenderOptions: createDefaultVolumeRenderOptions(),
     tagIndex: 0,
     tagTotal: 0,
     tagItems: [],

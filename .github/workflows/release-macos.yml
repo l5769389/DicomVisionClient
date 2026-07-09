@@ -1,0 +1,110 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish'
+        required: true
+        default: 'v3.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          if [[ -z "$tag" || "$tag" != v* ]]; then
+            echo "Release tag must use the vX.Y.Z format. Received: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout client
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+          path: DicomVisionClient
+
+      - name: Checkout server
+        uses: actions/checkout@v4
+        with:
+          repository: l5769389/DicomVisionServer
+          ref: ${{ steps.release.outputs.tag }}
+          path: DicomVisionServer
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: DicomVisionClient/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install server dependencies
+        working-directory: DicomVisionServer
+        run: uv sync --frozen
+
+      - name: Install client dependencies
+        working-directory: DicomVisionClient
+        run: npm ci
+
+      - name: Build macOS desktop package
+        working-directory: DicomVisionClient
+        run: npm run release:mac
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          files=(
+            "DicomVisionClient/dist-electron/DicomVision-${version}-Setup.dmg"
+            "DicomVisionClient/dist-electron/DicomVision-${version}-Setup.zip"
+          )
+          : > SHA256SUMS-macos.txt
+          for file in "${files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Expected release asset was not found: $file" >&2
+              exit 1
+            fi
+            hash="$(shasum -a 256 "$file" | awk '{print $1}')"
+            printf '%s  %s\n' "$hash" "$(basename "$file")" >> SHA256SUMS-macos.txt
+          done
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: DicomVision ${{ steps.release.outputs.tag }}
+          body_path: DicomVisionClient/release-notes/${{ steps.release.outputs.tag }}.md
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-Setup.dmg*
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-Setup.zip*
+            DicomVisionClient/dist-electron/latest-mac.yml
+            SHA256SUMS-macos.txt

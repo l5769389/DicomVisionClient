@@ -4,29 +4,30 @@
 
 DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端和 FastAPI 后端。它把 DICOM 解析、2D/MPR/4D/3D 重建、PET/CT 融合、分割、QA 和导出等重计算放在后端完成，再把结果实时推送给桌面端、Web 端和移动端界面。
 
-## v3.0.0 重点更新
+## v3.1.0 重点更新
 
-- **右侧操作区**：桌面/Web 端新增顶部工具栏和右侧 Dock 两种操作布局；右侧模式固定占位，工具二级菜单、3D/MIP 参数、QA/MTF 结果和分割详情都在右侧区域内显示，减少弹窗和视口抖动。
-- **PET/CT Fusion**：新增 PET/CT 融合浏览、PET-only 显示、SUV/强度范围控制、手动配准、配准保存、Fusion pane 双击放大和独立 PET 视图优化。
-- **MPR 分割与 VOI**：新增阈值分割、球形 VOI、分割 overlay、sidecar 数据流、移动端分割入口和详情面板。
-- **QA/MTF 右侧报告化**：MTF 曲线、水模 QA、错误和加载状态统一进入右侧结果区；MTF ROI 自动打开结果面板，并提供复制/删除操作。
-- **移动端重构**：统一 2D 命名，新增浏览记录、PACS 设置、移动端 bottom sheet、播放/FPS、4D/MPR slice play、方向锁定、测量/标注/分割、移动端截图和演示 GIF。
-- **发布形态**：v3.0.0 Release 提供 Windows 桌面安装包、Web 静态包和独立 Server bundle。桌面安装包内置后端服务，安装后可直接使用。
+- **3D 渲染与交互**：优化 VR/Surface 预览与最终帧一致性，改进模型直接拖拽旋转、连续拖动防跳帧、移动端 3D 初始相机适配和最终帧采样质量。
+- **3D 模板与参数**：补齐 General、CT、CTA、MR、CBCT 分组模板；AAA 等模板改为 CT HU 锚点 + 前景百分位自适应，Surface 独立使用 iso-surface/material 参数。
+- **3D 工具**：新增去床板开关、自由形状裁剪、裁剪进度提示、3D 参数弹层、移动端 3D 工具链路和服务端 metadata 状态同步。
+- **Web/移动端连接**：开发环境按当前页面 host 自动连接同一台后端，修复手机访问局域网地址时仍连接 `127.0.0.1` 的问题；开发模式自动清理旧 PWA 缓存，避免模块 MIME 错误。
+- **Demo 数据**：本地 macOS 开发环境优先加载 `/Users/jun/Documents/test_dicom/py_test_path/py_test_path2`，部署环境继续使用项目默认样例。
+- **发布形态**：v3.1.0 Release 计划提供 Web 静态包、Windows 桌面安装包、Windows 独立 Server bundle、macOS DMG/ZIP 桌面端和校验文件。
 
 ## 主要功能
 
-- 本地 DICOM 文件/文件夹导入，Web 上传，PACS DICOMweb/DIMSE 查询与下载。
-- 2D、2D Compare、Layout、多序列同步、MPR、斜切 MPR、MPR + 3D、3D 体渲染和 4D 时相播放。
-- PET/CT Fusion、PET 显示范围、PET-only 视图、手动配准和融合视图四宫格/单视口切换。
-- 线段、矩形、椭圆、角度、曲线、自由形状测量，标注，MTF/FWHM 和水模 QA。
-- MPR 阈值分割、VOI、分割预览、分割结果导入/导出和移动端触控绘制。
-- DICOM Tag 树查看、VR 感知编辑、批量 Tag 修改、脱敏导出、PNG/DICOM/DICOM SR/DICOM GSPS 导出。
-- 桌面端、Web 端、移动端响应式界面，支持深色、浅色和蓝色主题。
+- **数据源**：本地 DICOM 文件/文件夹导入、拖拽导入、浏览器上传、服务端样例数据、PACS DICOMweb/DIMSE 查询与下载。
+- **2D 浏览**：窗宽窗位、缩放、平移、滚动、翻转/旋转、伪彩、同步浏览、Compare、Layout、多序列和多视图工作区。
+- **MPR/4D**：AX/COR/SAG 三视图、斜切 MPR、十字线同步、MPR 播放、4D phase 播放、FPS 控制和时相同步。
+- **3D**：VR 体渲染、Surface 渲染、MIP/XRay 类模板、AAA/CT/CTA/MR/CBCT 自适应预设、3D 参数面板、去床板、自由形状裁剪、移动端触控 3D。
+- **PET/CT Fusion**：PET/CT 融合浏览、PET-only、SUV/强度范围、手动配准、配准保存、Fusion 四宫格和单视口切换。
+- **测量与标注**：线段、矩形、椭圆、角度、曲线、自由形状测量，箭头/文本标注，实时 draft 和 ROI 指标。
+- **分割与 QA**：MPR 阈值分割、球形 VOI、分割 overlay、分割导入/导出、MTF/FWHM、水模 QA 和结果报告。
+- **DICOM 与导出**：DICOM Tag 树查看、VR 感知编辑、批量 Tag 修改、脱敏导出、PNG、DICOM、DICOM SR、DICOM GSPS 导出。
+- **多端体验**：桌面端、Web 端、移动端响应式界面，支持深色、浅色和蓝色主题；桌面端安装包内置后端服务。
 
 ## 在线预览
 
-- https://dicom-vision-client.vercel.app/
-- http://111.228.1.213/
+- https://dicom.zhaolin.online/
 
 公开 Web 预览用于体验 UI 和基础流程。真实 PACS、本地大数据量和桌面端内置后端场景建议使用本地部署或桌面端。
 
@@ -89,12 +90,14 @@ DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端
 
 ## Release 资产
 
-v3.0.0 Release 包含：
+v3.1.0 Release 包含：
 
-- `DicomVision-3.0.0-Setup.exe`：Windows 桌面端安装包，内置 Server bundle。
-- `DicomVision-web-v3.0.0.zip`：Web 静态前端产物，需要连接可访问的 DicomVisionServer。
-- `DicomVisionServer-v3.0.0-win-x64.zip`：Windows 独立后端 bundle。
-- `SHA256SUMS.txt`：发布资产校验值。
+- `DicomVision-3.1.0-Setup.exe`：Windows 桌面端安装包，内置 Server bundle。
+- `DicomVision-web-v3.1.0.zip`：Web 静态前端产物，需要连接可访问的 DicomVisionServer。
+- `DicomVisionServer-v3.1.0-win-x64.zip`：Windows 独立后端 bundle。
+- `DicomVision-3.1.0-Setup.dmg`：macOS 桌面端安装镜像，内置 Server bundle。
+- `DicomVision-3.1.0-Setup.zip`：macOS 桌面端 ZIP 包。
+- `SHA256SUMS-windows.txt` / `SHA256SUMS-macos.txt`：发布资产校验值。
 
 ## 快速开始
 

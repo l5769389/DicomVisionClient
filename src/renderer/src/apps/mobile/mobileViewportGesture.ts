@@ -10,6 +10,12 @@ export interface MobileViewportDragMove<ViewportKey extends string = string> {
   deltaY: number
   opType: ViewOperationType
   viewportKey: ViewportKey
+  canvasX?: number
+  canvasY?: number
+  canvasWidth?: number
+  canvasHeight?: number
+  interactionId?: string
+  force?: boolean
 }
 
 export const MOBILE_VIEWPORT_DRAG_MOVE_THRESHOLD = 1.25
@@ -73,7 +79,7 @@ export function createMobileViewportDragMoveQueue<ViewportKey extends string>(
   }
 
   function push(move: MobileViewportDragMove<ViewportKey>): void {
-    if (!exceedsMobileDragThreshold(move.deltaX, move.deltaY)) {
+    if (!move.force && !exceedsMobileDragThreshold(move.deltaX, move.deltaY)) {
       return
     }
     pendingMoves.push(move)

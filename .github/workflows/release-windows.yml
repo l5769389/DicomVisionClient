@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: l5769389/DicomVisionServer
-          ref: main
+          ref: ${{ steps.release.outputs.tag }}
           path: DicomVisionServer
 
       - name: Setup Node.js
@@ -80,6 +80,47 @@ jobs:
         working-directory: DicomVisionClient
         run: npm run release:win
 
+      - name: Build web package
+        shell: pwsh
+        working-directory: DicomVisionClient
+        run: |
+          npm run build:web
+          $version = "${{ steps.release.outputs.version }}"
+          $archive = "DicomVision-web-v$version.zip"
+          if (Test-Path $archive) {
+            Remove-Item $archive -Force
+          }
+          Compress-Archive -Path "dist-web\*" -DestinationPath $archive -Force
+
+      - name: Package standalone server bundle
+        shell: pwsh
+        run: |
+          $version = "${{ steps.release.outputs.version }}"
+          $archive = "DicomVisionServer-v$version-win-x64.zip"
+          $bundle = "DicomVisionServer\dist\DicomVisionServer"
+          if (!(Test-Path (Join-Path $bundle "DicomVisionServer.exe"))) {
+            throw "Expected Windows server executable was not found in $bundle"
+          }
+          if (Test-Path $archive) {
+            Remove-Item $archive -Force
+          }
+          Compress-Archive -Path $bundle -DestinationPath $archive -Force
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $version = "${{ steps.release.outputs.version }}"
+          $files = @(
+            "DicomVisionClient\dist-electron\DicomVision-$version-Setup.exe",
+            "DicomVisionClient\DicomVision-web-v$version.zip",
+            "DicomVisionServer-v$version-win-x64.zip"
+          )
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+            "$hash  $(Split-Path $file -Leaf)"
+          }
+          $lines | Set-Content -Path SHA256SUMS-windows.txt -Encoding UTF8
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -92,3 +133,6 @@ jobs:
             DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-Setup.exe
             DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-Setup.exe.blockmap
             DicomVisionClient/dist-electron/latest.yml
+            DicomVisionClient/DicomVision-web-v${{ steps.release.outputs.version }}.zip
+            DicomVisionServer-v${{ steps.release.outputs.version }}-win-x64.zip
+            SHA256SUMS-windows.txt

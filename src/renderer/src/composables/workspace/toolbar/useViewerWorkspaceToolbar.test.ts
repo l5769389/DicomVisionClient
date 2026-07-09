@@ -181,7 +181,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.wrapper.unmount()
   })
 
-  it('hides volume/window-only tools while keeping rotate and zoom available', async () => {
+  it('shows surface controls while hiding volume/window-only tools', async () => {
     const harness = mountToolbarHarness()
     await nextTick()
 
@@ -189,10 +189,13 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(toolKeys).toContain('rotate3d')
     expect(toolKeys).toContain('zoom')
     expect(toolKeys).toContain('render3dMode')
+    expect(toolKeys).toContain('surfaceParams')
+    expect(toolKeys).toContain('surfacePreset')
     expect(toolKeys).not.toContain('window')
     expect(toolKeys).not.toContain('volumeParams')
     expect(toolKeys).not.toContain('volumePreset')
     expect(harness.toolbar.activeVolumeRenderConfig.value).toBeNull()
+    expect(harness.toolbar.activeSurfaceRenderConfig.value?.preset).toBe('bone')
     expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:rotate3d')
 
     harness.emitSetActiveOperation.mockClear()
@@ -220,9 +223,115 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(toolKeys).toContain('window')
     expect(toolKeys).toContain('volumeParams')
     expect(toolKeys).toContain('volumePreset')
+    expect(toolKeys).not.toContain('surfaceParams')
+    expect(toolKeys).not.toContain('surfacePreset')
     expect(harness.toolbar.stackToolSelections.value.render3dMode).toBe('render3dMode:volume')
+    const volumePresetTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumePreset')!
+    expect(volumePresetTool.options?.map((option) => option.value)).toEqual(expect.arrayContaining([
+      'volumePreset:aaa',
+      'volumePreset:bonePlusPlate',
+      'volumePreset:coronaryCta',
+      'volumePreset:mrAngio',
+      'volumePreset:cbctBone2'
+    ]))
+    expect(volumePresetTool.options?.find((option) => option.value === 'volumePreset:coronaryCta')?.group).toBe('CTA')
 
     harness.wrapper.unmount()
+  })
+
+  it('updates the remove-bed tool icon and label from server metadata', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      render3dMode: 'volume',
+      volumeRenderOptions: {
+        removeBed: false,
+        clip: null
+      }
+    })
+    await nextTick()
+
+    const getRemoveBedTool = () => harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumeRemoveBed')!
+
+    expect(getRemoveBedTool().icon).toBe('bed-visible')
+    expect(getRemoveBedTool().label).toBe('去床板')
+    expect(getRemoveBedTool().title).toBe('隐藏床板')
+    expect(getRemoveBedTool().pressed).toBe(false)
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      volumeRenderOptions: {
+        removeBed: true,
+        clip: null
+      }
+    }
+    await nextTick()
+
+    expect(getRemoveBedTool().icon).toBe('bed-hidden')
+    expect(getRemoveBedTool().label).toBe('已去床板')
+    expect(getRemoveBedTool().title).toBe('恢复床板显示')
+    expect(getRemoveBedTool().pressed).toBe(true)
+
+    harness.wrapper.unmount()
+  })
+
+  it('opens the layout menu from the 3D layout main button and applies a template', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      render3dMode: 'volume'
+    })
+    await nextTick()
+
+    const layoutTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'layout')!
+    harness.toolbar.applyTool(layoutTool)
+    expect(harness.toolbar.openMenuKey.value).toBe('layout')
+
+    const layoutOption = layoutTool.options!.find((option) => option.layoutRows === 2 && option.layoutColumns === 2)!
+    harness.toolbar.selectToolOption(layoutTool, layoutOption.value)
+
+    expect(harness.emitOpenLayoutView).toHaveBeenCalledWith(expect.objectContaining({
+      rows: 2,
+      columns: 2
+    }))
+
+    harness.wrapper.unmount()
+  })
+
+  it('starts 3D clipping in inside mode from the main clip button', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      render3dMode: 'volume'
+    })
+    await nextTick()
+
+    const clipTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumeClip')!
+    harness.toolbar.selectToolOption(clipTool, 'volumeClip:outside')
+    expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:volumeClip:outside')
+
+    harness.emitSetActiveOperation.mockClear()
+    harness.toolbar.applyTool(clipTool)
+
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:volumeClip:inside')
+    expect(harness.toolbar.stackToolSelections.value.volumeClip).toBe('volumeClip:inside')
+
+    harness.wrapper.unmount()
+  })
+
+  it('emits surfacePreset when selecting a surface preset option', async () => {
+    vi.useFakeTimers()
+    const harness = mountToolbarHarness()
+    await nextTick()
+
+    const surfacePresetTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'surfacePreset')!
+    harness.toolbar.selectToolOption(surfacePresetTool, 'surfacePreset:softTissue')
+    vi.advanceTimersByTime(260)
+    await nextTick()
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'surfacePreset',
+      value: 'surfacePreset:softTissue'
+    })
+    harness.wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('adds MPR crosshair mode options for MPR and 4D views', async () => {

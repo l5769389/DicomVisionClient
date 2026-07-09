@@ -73,7 +73,7 @@ export type MprLayoutKey = 'three-columns' | 'right-primary' | 'three-rows' | 'q
 export type CompareStackPaneKey = 'compare-a' | 'compare-b'
 export type ViewSyncSettingKey = 'scroll' | 'window' | 'pseudocolor' | 'view' | 'transform' | 'reset'
 export type CompareSyncSettingKey = ViewSyncSettingKey
-export type ViewProgressPhase = 'queued' | 'waiting' | 'volume' | 'normalize' | 'initialize' | 'render' | 'encode' | 'complete'
+export type ViewProgressPhase = 'queued' | 'waiting' | 'volume' | 'normalize' | 'preprocess' | 'initialize' | 'render' | 'encode' | 'complete'
 export type MprCrosshairLineTarget = 'horizontal' | 'vertical'
 export type MprCrosshairInteractionMode = 'move' | 'rotate'
 export type MeasurementToolType = 'line' | 'rect' | 'ellipse' | 'angle' | 'curve' | 'freeform'
@@ -1037,6 +1037,59 @@ export interface SurfaceRenderConfig {
   roughness: number
 }
 
+export type VolumeClipMode = 'inside' | 'outside'
+
+export interface VolumeClipState {
+  mode: VolumeClipMode
+  points: MeasurementDraftPoint[]
+}
+
+export interface VolumeRenderOptions {
+  removeBed: boolean
+  clip?: VolumeClipState | null
+}
+
+export function createDefaultVolumeRenderOptions(): VolumeRenderOptions {
+  return {
+    removeBed: false,
+    clip: null
+  }
+}
+
+function normalizeVolumeClipMode(value: unknown): VolumeClipMode | null {
+  return value === 'inside' || value === 'outside' ? value : null
+}
+
+export function normalizeVolumeRenderOptions(
+  value?: Partial<VolumeRenderOptions> | null,
+  fallback: VolumeRenderOptions = createDefaultVolumeRenderOptions()
+): VolumeRenderOptions {
+  const rawValue = (value ?? {}) as Partial<VolumeRenderOptions> & {
+    remove_bed?: unknown
+    clip?: Partial<VolumeClipState> | null
+  }
+  const rawClip = rawValue.clip ?? fallback.clip ?? null
+  const clipMode = normalizeVolumeClipMode(rawClip?.mode)
+  const clipPoints = Array.isArray(rawClip?.points)
+    ? rawClip.points
+        .map((point) => ({
+          x: clampUnitRange(point?.x, 0),
+          y: clampUnitRange(point?.y, 0)
+        }))
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    : []
+
+  return {
+    removeBed: Boolean(rawValue.removeBed ?? rawValue.remove_bed ?? fallback.removeBed),
+    clip: clipMode && clipPoints.length >= 3
+      ? {
+          mode: clipMode,
+          points: clipPoints
+        }
+      : null
+  }
+}
+
 export interface ViewTransformInfo {
   rotationDegrees: number
   horFlip: boolean
@@ -1062,6 +1115,7 @@ export interface ViewImageResponse {
   metadataMode?: string
   renderIntent?: 'pixel-only' | 'geometry-preview' | 'overlay-preview' | 'full'
   renderRevision?: number | null
+  interactionId?: string | null
   viewId: string
   slice_info?: {
     current: number
@@ -1085,6 +1139,7 @@ export interface ViewImageResponse {
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: Render3DMode | null
   surfaceConfig?: SurfaceRenderConfig | null
+  volumeRenderOptions?: VolumeRenderOptions | null
   transform?: ViewTransformInfo | null
   color?: ViewColorInfo | null
   mprMipConfig?: MprMipOperationConfig | null
@@ -1217,6 +1272,7 @@ export interface ViewerTabItem {
   volumeRenderConfig?: VolumeRenderConfig | null
   render3dMode?: Render3DMode
   surfaceRenderConfig?: SurfaceRenderConfig | null
+  volumeRenderOptions?: VolumeRenderOptions | null
   mtfState?: ViewerMtfState | null
   tagIndex?: number
   tagTotal?: number

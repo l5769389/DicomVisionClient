@@ -439,6 +439,7 @@ function isFooterActionOption(option: StackToolOption): boolean {
     option.value === 'transform:reset' ||
     (props.tool.key === 'crosshair' && option.value === 'mprCrosshair:reset') ||
     (props.tool.key === 'rotate3d' && option.value === 'rotate3d:reset') ||
+    (props.tool.key === 'volumeClip' && option.value === 'volumeClip:reset') ||
     isRotateResetOption(option) ||
     (props.tool.key === 'annotate' && option.value === 'reset:annotations') ||
     (props.tool.key === 'reset' && option.value.startsWith('reset:'))
@@ -528,6 +529,15 @@ const footerActions = computed(() => {
       label: mprActionCopy.value.resetRotate3d,
       icon: 'reset'
     })
+  }
+  if (props.tool.key === 'volumeClip') {
+    const resetOption = props.tool.options?.find((option) => option.value === 'volumeClip:reset')
+    if (resetOption) {
+      actions.push({
+        ...resetOption,
+        label: isZh.value ? '重置裁剪' : 'Reset Clip'
+      })
+    }
   }
   if (props.tool.key === 'measure') {
     actions.push({

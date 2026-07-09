@@ -9,6 +9,7 @@ import type {
   MeasurementToolType,
   MprCrosshairInteractionPayload,
   MprViewportKey,
+  VolumeClipMode,
   ViewerMtfItem,
   ViewerTabItem
 } from '../../types/viewer'
@@ -76,12 +77,22 @@ interface PointerComposableOptions {
   emitMtfDelete: (payload: { mtfId: string }) => void
   emitMtfSelect: (payload: { mtfId: string | null }) => void
   emitMprCrosshair: (payload: MprCrosshairInteractionPayload) => void
+  emitVolumeClip?: (payload: {
+    viewportKey: string
+    mode: VolumeClipMode
+    points: MeasurementDraftPoint[]
+  }) => void
   emitViewportDrag: (payload: {
     deltaX: number
     deltaY: number
     opType: ViewOperationType
     phase: 'start' | 'move' | 'end'
     viewportKey: string
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+    interactionId?: string
   }) => void
   getCommittedMeasurements: (viewportKey: string) => MeasurementOverlay[]
   getMtfItems: (viewportKey: string) => ViewerMtfItem[]
@@ -117,6 +128,15 @@ interface BasicPointerContext {
   viewportKey: string
 }
 
+interface ViewportCanvasPoint {
+  x: number
+  y: number
+  canvasX: number
+  canvasY: number
+  canvasWidth: number
+  canvasHeight: number
+}
+
 interface MeasurementPointerContext extends BasicPointerContext {
   imageElement: HTMLImageElement
   imageRect: DOMRect
@@ -131,6 +151,9 @@ const POINTER_BUTTON_RIGHT = 2
 const POINT_SEQUENCE_DOUBLE_CLICK_MS = 420
 const POINT_SEQUENCE_DOUBLE_CLICK_DISTANCE = 0.025
 const POINT_SET_CLOSE_EPSILON = 0.0005
+const VOLUME_CLIP_MIN_POLYGON_AREA = 0.0008
+const VOLUME_CLIP_MAX_POINTS = 240
+const VOLUME_CLIP_SIMPLIFY_EPSILON = 0.0025
 
 function generateMeasurementId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -144,6 +167,107 @@ function clampNormalizedPoint(point: MeasurementDraftPoint): MeasurementDraftPoi
     x: Math.max(0, Math.min(1, point.x)),
     y: Math.max(0, Math.min(1, point.y))
   }
+}
+
+function getPolygonArea(points: MeasurementDraftPoint[]): number {
+  if (points.length < 3) {
+    return 0
+  }
+  let area = 0
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!
+    const nextPoint = points[(index + 1) % points.length]!
+    area += point.x * nextPoint.y - nextPoint.x * point.y
+  }
+  return Math.abs(area) / 2
+}
+
+function getPointSegmentDistance(
+  point: MeasurementDraftPoint,
+  start: MeasurementDraftPoint,
+  end: MeasurementDraftPoint
+): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared <= 1e-12) {
+    return Math.hypot(point.x - start.x, point.y - start.y)
+  }
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
+}
+
+function simplifyVolumeClipPolyline(points: MeasurementDraftPoint[], epsilon: number): MeasurementDraftPoint[] {
+  if (points.length <= 2) {
+    return points
+  }
+
+  let farthestIndex = -1
+  let farthestDistance = 0
+  const start = points[0]!
+  const end = points[points.length - 1]!
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const distance = getPointSegmentDistance(points[index]!, start, end)
+    if (distance > farthestDistance) {
+      farthestDistance = distance
+      farthestIndex = index
+    }
+  }
+
+  if (farthestDistance <= epsilon || farthestIndex < 0) {
+    return [start, end]
+  }
+
+  const left = simplifyVolumeClipPolyline(points.slice(0, farthestIndex + 1), epsilon)
+  const right = simplifyVolumeClipPolyline(points.slice(farthestIndex), epsilon)
+  return [...left.slice(0, -1), ...right]
+}
+
+function capVolumeClipPoints(points: MeasurementDraftPoint[], maxPoints: number): MeasurementDraftPoint[] {
+  if (points.length <= maxPoints) {
+    return points
+  }
+  const capped: MeasurementDraftPoint[] = []
+  const lastIndex = points.length - 1
+  for (let index = 0; index < maxPoints; index += 1) {
+    capped.push(points[Math.round((index * lastIndex) / (maxPoints - 1))]!)
+  }
+  return capped
+}
+
+function simplifyVolumeClipPoints(points: MeasurementDraftPoint[]): MeasurementDraftPoint[] {
+  if (points.length <= 3) {
+    return points
+  }
+  const firstPoint = points[0]!
+  const lastPoint = points[points.length - 1]!
+  const openPoints = areVolumeClipPointsClose(firstPoint, lastPoint) ? points.slice(0, -1) : points
+  const simplifiedPoints = simplifyVolumeClipPolyline(openPoints, VOLUME_CLIP_SIMPLIFY_EPSILON)
+  const safePoints = simplifiedPoints.length >= 3 ? simplifiedPoints : openPoints.slice(0, 3)
+  return capVolumeClipPoints(safePoints, VOLUME_CLIP_MAX_POINTS)
+}
+
+function areVolumeClipPointsClose(first: MeasurementDraftPoint, second: MeasurementDraftPoint): boolean {
+  return Math.hypot(first.x - second.x, first.y - second.y) < 0.006
+}
+
+function getFinalizedVolumeClipPoints(points: MeasurementDraftPoint[]): MeasurementDraftPoint[] {
+  if (points.length < 3) {
+    return []
+  }
+  const finalizedPoints = simplifyVolumeClipPoints(points.map(clampNormalizedPoint))
+  if (finalizedPoints.length < 3) {
+    return []
+  }
+  const firstPoint = finalizedPoints[0]!
+  const lastPoint = finalizedPoints[finalizedPoints.length - 1]!
+  if (firstPoint.x !== lastPoint.x || firstPoint.y !== lastPoint.y) {
+    finalizedPoints.push({ ...firstPoint })
+  }
+  if (getPolygonArea(finalizedPoints) < VOLUME_CLIP_MIN_POLYGON_AREA) {
+    return []
+  }
+  return finalizedPoints
 }
 
 function offsetMeasurementPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
@@ -238,6 +362,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   const crosshairDragMode = ref<'move' | 'rotate'>('move')
   const crosshairRotationLine = ref<CrosshairLineTarget | null>(null)
   const isViewportDragging = ref(false)
+  const volumeClipViewportKey = ref('')
+  const volumeClipMode = ref<VolumeClipMode | null>(null)
   const activePointerId = ref<number | null>(null)
 
   let lastPointerX = 0
@@ -245,8 +371,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   let totalDeltaX = 0
   let totalDeltaY = 0
   let hasSentDragStart = false
-  let dragStartNormalizedPoint: { x: number; y: number } | null = null
-  let lastDragNormalizedPoint: { x: number; y: number } | null = null
+  let dragStartNormalizedPoint: ViewportCanvasPoint | null = null
+  let lastDragNormalizedPoint: ViewportCanvasPoint | null = null
+  let activeRotate3dInteractionId: string | null = null
   let lastPointSequenceClick: { viewportKey: string; toolType: MeasurementToolType; point: MeasurementDraftPoint; timeStamp: number } | null = null
   measurementInteractionController.subscribe((state) => {
     measurementInteraction.value = state
@@ -261,6 +388,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     opType: ViewOperationType
     phase: 'move'
     viewportKey: string
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+    interactionId?: string
   }>({
     emit: (payload) => {
       options.emitViewportDrag(payload)
@@ -418,6 +550,22 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return operation === 'segmentation:threshold' || operation === 'segmentation:voi'
   }
 
+  function getVolumeClipMode(): VolumeClipMode | null {
+    const operation = getNormalizedOperationPath()
+    if (operation === 'volumeClip:inside') {
+      return 'inside'
+    }
+    if (operation === 'volumeClip:outside') {
+      return 'outside'
+    }
+    return null
+  }
+
+  function isVolumeClipOperationEnabled(viewportKey: string): boolean {
+    const viewType = options.activeTab.value?.viewType
+    return getVolumeClipMode() != null && (viewType === '3D' || (viewType === 'MPR' && viewportKey === 'volume'))
+  }
+
   function isAnnotationOperationActive(): boolean {
     return getNormalizedOperationPath().startsWith('annotate')
   }
@@ -459,6 +607,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     if (isSegmentationOperationEnabled()) {
       return null
     }
+    if (isVolumeClipOperationEnabled(viewportKey)) {
+      return null
+    }
 
     const operation = getNormalizedOperation()
     if (operation === VIEW_OPERATION_TYPES.scroll) {
@@ -489,6 +640,9 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
   function getViewportIdleCursorClass(viewportKey: string): string {
     const operationType = getNormalizedOperation()
+    if (isVolumeClipOperationEnabled(viewportKey)) {
+      return 'cursor-crosshair'
+    }
     if (operationType === VIEW_OPERATION_TYPES.window) {
       return canUseDefaultWindowDrag(viewportKey) ? 'cursor-window-level' : 'cursor-auto'
     }
@@ -505,9 +659,24 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return dragOperationType.value === VIEW_OPERATION_TYPES.rotate3d
   }
 
-  function emitViewportDragMove(payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'move'; viewportKey: string }): void {
+  function emitViewportDragMove(payload: {
+    deltaX: number
+    deltaY: number
+    opType: ViewOperationType
+    phase: 'move'
+    viewportKey: string
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+    interactionId?: string
+  }): void {
     emitViewportDragMoves.schedule(payload)
-  }
+    }
+
+    function createRotate3dInteractionId(): string {
+      return globalThis.crypto?.randomUUID?.() ?? `rotate3d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    }
 
   function flushViewportDragMoves(): void {
     emitViewportDragMoves.flush()
@@ -571,6 +740,29 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return {
       x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
       y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+    }
+  }
+
+  function getViewportCanvasPoint(event: PointerEvent): ViewportCanvasPoint | null {
+    const container = resolvePointerContainer(event)
+    if (!container) {
+      return null
+    }
+
+    const rect = container.getBoundingClientRect()
+    if (!rect.width || !rect.height) {
+      return null
+    }
+
+    const canvasX = event.clientX - rect.left
+    const canvasY = event.clientY - rect.top
+    return {
+      x: Math.max(0, Math.min(1, canvasX / rect.width)),
+      y: Math.max(0, Math.min(1, canvasY / rect.height)),
+      canvasX,
+      canvasY,
+      canvasWidth: rect.width,
+      canvasHeight: rect.height
     }
   }
 
@@ -826,6 +1018,93 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         labelLines: draft.labelLines ?? existingDraft?.labelLines ?? []
       }
     }
+  }
+
+  function clearVolumeClipDraft(): void {
+    if (volumeClipViewportKey.value) {
+      clearDraftMeasurement(volumeClipViewportKey.value)
+    }
+    volumeClipViewportKey.value = ''
+    volumeClipMode.value = null
+  }
+
+  function appendVolumeClipPoint(viewportKey: string, point: MeasurementDraftPoint): MeasurementDraftPoint[] {
+    const currentDraft = draftMeasurements.value[viewportKey]
+    const currentPoints = currentDraft?.points ?? []
+    const lastPoint = currentPoints[currentPoints.length - 1]
+    if (lastPoint && Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 0.003) {
+      return currentPoints
+    }
+    const nextPoints = [...currentPoints, point]
+    updateDraftMeasurement(viewportKey, createMeasurementDraft('freeform', nextPoints))
+    return nextPoints
+  }
+
+  function handleVolumeClipPointerDown(event: PointerEvent, viewportKey: string, pointerTarget: HTMLElement): boolean {
+    const mode = getVolumeClipMode()
+    if (event.button !== POINTER_BUTTON_LEFT || !mode || !isVolumeClipOperationEnabled(viewportKey)) {
+      return false
+    }
+    const point = getNormalizedContainerPoint(event)
+    if (!point) {
+      return false
+    }
+
+    event.preventDefault()
+    setActiveViewport(viewportKey)
+    clearVolumeClipDraft()
+    volumeClipViewportKey.value = viewportKey
+    volumeClipMode.value = mode
+    updateDraftMeasurement(viewportKey, createMeasurementDraft('freeform', [point]))
+    setViewportCursor(viewportKey, 'cursor-crosshair')
+    setPointerCapture(pointerTarget, event.pointerId)
+    return true
+  }
+
+  function handleVolumeClipPointerMove(event: PointerEvent): boolean {
+    const viewportKey = volumeClipViewportKey.value
+    if (!viewportKey || !volumeClipMode.value) {
+      return false
+    }
+    const point = getNormalizedContainerPoint(event)
+    if (!point) {
+      return true
+    }
+    appendVolumeClipPoint(viewportKey, point)
+    return true
+  }
+
+  function handleVolumeClipPointerUp(event: PointerEvent, pointerTarget?: EventTarget | null): boolean {
+    const viewportKey = volumeClipViewportKey.value
+    const mode = volumeClipMode.value
+    if (!viewportKey || !mode) {
+      return false
+    }
+    const point = getNormalizedContainerPoint(event)
+    const points = point ? appendVolumeClipPoint(viewportKey, point) : (draftMeasurements.value[viewportKey]?.points ?? [])
+    const finalizedPoints = getFinalizedVolumeClipPoints(points)
+    if (finalizedPoints.length >= 3) {
+      options.emitVolumeClip?.({
+        viewportKey,
+        mode,
+        points: finalizedPoints
+      })
+    }
+    clearVolumeClipDraft()
+    clearViewportCursor(viewportKey)
+    releasePointerCapture(pointerTarget)
+    return true
+  }
+
+  function cancelVolumeClipPointerInteraction(pointerTarget?: EventTarget | null): boolean {
+    const viewportKey = volumeClipViewportKey.value
+    if (!viewportKey || !volumeClipMode.value) {
+      return false
+    }
+    clearVolumeClipDraft()
+    clearViewportCursor(viewportKey)
+    releasePointerCapture(pointerTarget)
+    return true
   }
 
   function updateMtfDraft(viewportKey: string, draft: MtfDraft): void {
@@ -1146,7 +1425,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
           deltaY: lastDragNormalizedPoint.y,
           opType: VIEW_OPERATION_TYPES.rotate3d,
           phase: DRAG_ACTION_TYPES.end,
-          viewportKey: dragViewportKey.value
+          viewportKey: dragViewportKey.value,
+          canvasX: lastDragNormalizedPoint.canvasX,
+          canvasY: lastDragNormalizedPoint.canvasY,
+          canvasWidth: lastDragNormalizedPoint.canvasWidth,
+          canvasHeight: lastDragNormalizedPoint.canvasHeight,
+          interactionId: activeRotate3dInteractionId ?? undefined
         })
       } else if (dragOperationType.value) {
         options.emitViewportDrag({
@@ -1167,6 +1451,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     hasSentDragStart = false
     dragStartNormalizedPoint = null
     lastDragNormalizedPoint = null
+    activeRotate3dInteractionId = null
     dragOperationType.value = null
     if (stoppedViewportKey) {
       clearViewportCursor(stoppedViewportKey)
@@ -1968,7 +2253,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
           deltaY: dragStartNormalizedPoint.y,
           opType: VIEW_OPERATION_TYPES.rotate3d,
           phase: DRAG_ACTION_TYPES.start,
-          viewportKey: dragViewportKey.value
+          viewportKey: dragViewportKey.value,
+          canvasX: dragStartNormalizedPoint.canvasX,
+          canvasY: dragStartNormalizedPoint.canvasY,
+          canvasWidth: dragStartNormalizedPoint.canvasWidth,
+          canvasHeight: dragStartNormalizedPoint.canvasHeight,
+          interactionId: activeRotate3dInteractionId ?? undefined
         })
       } else if (dragOperationType.value) {
         options.emitViewportDrag({
@@ -1982,7 +2272,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     if (isRotate3dDragOperation()) {
-      const point = getNormalizedContainerPoint(event)
+      const point = getViewportCanvasPoint(event)
       if (!point) {
         return true
       }
@@ -1992,7 +2282,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         deltaY: point.y,
         opType: VIEW_OPERATION_TYPES.rotate3d,
         phase: DRAG_ACTION_TYPES.move,
-        viewportKey: dragViewportKey.value
+        viewportKey: dragViewportKey.value,
+        canvasX: point.canvasX,
+        canvasY: point.canvasY,
+        canvasWidth: point.canvasWidth,
+        canvasHeight: point.canvasHeight,
+        interactionId: activeRotate3dInteractionId ?? undefined
       })
       return true
     }
@@ -2193,9 +2488,33 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     totalDeltaX = 0
     totalDeltaY = 0
     hasSentDragStart = false
-    dragStartNormalizedPoint = isRotate3dDragOperation() ? getNormalizedContainerPoint(event) : null
+    dragStartNormalizedPoint = isRotate3dDragOperation() ? getViewportCanvasPoint(event) : null
     lastDragNormalizedPoint = dragStartNormalizedPoint
+    activeRotate3dInteractionId = operationType === VIEW_OPERATION_TYPES.rotate3d ? createRotate3dInteractionId() : null
     return true
+  }
+
+  function queueRotate3dReleaseMove(event: PointerEvent): void {
+    if (!isViewportDragging.value || !hasSentDragStart || !isRotate3dDragOperation()) {
+      return
+    }
+    const point = getViewportCanvasPoint(event)
+    if (!point) {
+      return
+    }
+    lastDragNormalizedPoint = point
+    emitViewportDragMove({
+      deltaX: point.x,
+      deltaY: point.y,
+      opType: VIEW_OPERATION_TYPES.rotate3d,
+      phase: DRAG_ACTION_TYPES.move,
+      viewportKey: dragViewportKey.value,
+      canvasX: point.canvasX,
+      canvasY: point.canvasY,
+      canvasWidth: point.canvasWidth,
+      canvasHeight: point.canvasHeight,
+      interactionId: activeRotate3dInteractionId ?? undefined
+    })
   }
 
   function handleViewportPointerMove(event: PointerEvent): void {
@@ -2204,7 +2523,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         return
       }
       if (event.buttons === 0) {
-        if (isCrosshairOperationEnabled()) {
+        const viewportKey = resolveViewportKeyFromEvent(event)
+        if (viewportKey && isVolumeClipOperationEnabled(viewportKey)) {
+          setViewportCursor(viewportKey, 'cursor-crosshair')
+        } else if (isCrosshairOperationEnabled()) {
           updateCrosshairHoverCursor(event)
         } else if (isMtfOperationEnabled()) {
           updateMtfHoverCursor(event)
@@ -2216,6 +2538,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     }
 
     event.preventDefault()
+
+    if (handleVolumeClipPointerMove(event)) {
+      return
+    }
 
     if (handleMtfPointerMove(event)) {
       return
@@ -2231,7 +2557,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     if (!handleViewportDragPointerMove(event)) {
       if (event.buttons === 0) {
-        if (isCrosshairOperationEnabled()) {
+        const viewportKey = resolveViewportKeyFromEvent(event)
+        if (viewportKey && isVolumeClipOperationEnabled(viewportKey)) {
+          setViewportCursor(viewportKey, 'cursor-crosshair')
+        } else if (isCrosshairOperationEnabled()) {
           updateCrosshairHoverCursor(event)
         } else if (isMtfOperationEnabled()) {
           updateMtfHoverCursor(event)
@@ -2274,6 +2603,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     event.preventDefault()
 
+    if (handleVolumeClipPointerUp(event, event.currentTarget)) {
+      return
+    }
+
     if (handleMtfInteractionPointerUp(event.currentTarget)) {
       return
     }
@@ -2307,6 +2640,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         crosshairRotationLine.value
       )
     }
+    queueRotate3dReleaseMove(event)
     stopViewportDrag(event.currentTarget)
   }
 
@@ -2324,6 +2658,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         crosshairDragMode.value,
         crosshairRotationLine.value
       )
+    }
+
+    if (cancelVolumeClipPointerInteraction(event.currentTarget)) {
+      return
     }
 
     if (isCapturedMtfInteraction(mtfInteraction.value)) {
@@ -2362,6 +2700,10 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
+    if (handleVolumeClipPointerDown(event, viewportKey, context.pointerTarget)) {
+      return
+    }
+
     if (handleMtfPointerDown(event, viewportKey, context.pointerTarget)) {
       return
     }
@@ -2379,6 +2721,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     emitThrottledMeasurementDraft.cancel()
     viewportCursorClasses.value = {}
     lastPointSequenceClick = null
+    cancelVolumeClipPointerInteraction()
     stopViewportDrag()
     clearDraftMeasurement()
     clearMtfDraft()

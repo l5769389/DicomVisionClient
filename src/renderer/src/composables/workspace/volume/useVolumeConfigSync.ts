@@ -1,15 +1,13 @@
-import type { VolumeRenderConfig } from '../../../types/viewer'
-
-interface VolumeConfigSyncOptions {
+interface VolumeConfigSyncOptions<TConfig> {
   debounceMs: number
-  emitVolumeConfig: (viewId: string, config: VolumeRenderConfig) => void
+  emitVolumeConfig: (viewId: string, config: TConfig) => void
 }
 
-export function useVolumeConfigSync(options: VolumeConfigSyncOptions) {
+export function useVolumeConfigSync<TConfig>(options: VolumeConfigSyncOptions<TConfig>) {
   // Volume render controls can emit many small changes while the user drags a
   // slider. Keep one pending payload per view so separate 3D tabs do not block
   // each other and only the latest config is sent.
-  const pendingVolumeConfigByViewId = new Map<string, VolumeRenderConfig>()
+  const pendingVolumeConfigByViewId = new Map<string, TConfig>()
   const volumeConfigTimers = new Map<string, ReturnType<typeof window.setTimeout>>()
 
   function flushVolumeConfig(viewId: string): void {
@@ -37,7 +35,7 @@ export function useVolumeConfigSync(options: VolumeConfigSyncOptions) {
     pendingVolumeConfigByViewId.delete(viewId)
   }
 
-  function scheduleVolumeConfigEmit(viewId: string, config: VolumeRenderConfig): void {
+  function scheduleVolumeConfigEmit(viewId: string, config: TConfig): void {
     pendingVolumeConfigByViewId.set(viewId, config)
     const existingTimer = volumeConfigTimers.get(viewId)
     if (existingTimer) {

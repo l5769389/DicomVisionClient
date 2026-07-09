@@ -26,6 +26,12 @@ export default defineConfig({
     }
   },
   publicDir: 'public',
+  server: {
+    allowedHosts: true
+  },
+  preview: {
+    allowedHosts: true
+  },
   resolve: {
     alias: rendererResolveAlias
   },

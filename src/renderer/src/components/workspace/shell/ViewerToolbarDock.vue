@@ -47,7 +47,7 @@ const { locale, toolbarCopy: copy } = useUiLocale()
 const isDockCollapsed = ref(props.collapsed ?? false)
 const lastActivatedToolKey = ref<string | null>(null)
 const lastDetaillessToolKey = ref<string | null>(null)
-const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'segmentation'])
+const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'surfaceParams', 'segmentation'])
 const actionDetailToolKeys = new Set(['annotate'])
 const unselectedActionMenuToolKeys = new Set(['rotate', 'export', 'reset'])
 const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
@@ -134,7 +134,7 @@ function isToolDisabled(tool: StackTool): boolean {
 }
 
 function isDockToolActive(tool: StackTool): boolean {
-  return activeDockToolKey.value === tool.key
+  return tool.pressed === true || activeDockToolKey.value === tool.key
 }
 
 function canShowSelectedOptionOnDockButton(tool: StackTool): boolean {
@@ -275,7 +275,8 @@ watch(
               }"
               :disabled="isToolDisabled(tool)"
               :aria-expanded="hasDockToolOptions(tool) ? activePanelTool?.key === tool.key : undefined"
-              :title="hasDockToolOptions(tool) ? copy.toolOptions(tool.label) : tool.label"
+              :aria-pressed="tool.pressed"
+              :title="tool.title ?? (hasDockToolOptions(tool) ? copy.toolOptions(tool.label) : tool.label)"
               @click.stop="handleToolClick(tool)"
             >
               <PseudocolorBand

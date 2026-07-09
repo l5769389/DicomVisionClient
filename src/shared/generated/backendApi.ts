@@ -746,6 +746,16 @@ export interface SurfaceRenderConfig {
   roughness?: number
 }
 
+export interface VolumeClipState {
+  mode: 'inside' | 'outside'
+  points: MeasurementPointPayload[]
+}
+
+export interface VolumeRenderOptions {
+  removeBed: boolean
+  clip?: VolumeClipState | null
+}
+
 export interface ValidationError {
   loc: (string | number)[]
   msg: string
@@ -850,6 +860,7 @@ export interface ViewImageResponse {
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: 'volume' | 'surface' | null
   surfaceConfig?: SurfaceRenderConfig | null
+  volumeRenderOptions?: VolumeRenderOptions | null
 }
 
 export interface ViewMtfAnalyzeRequest {
@@ -869,7 +880,7 @@ export interface ViewMtfAnalyzeResponse {
 
 export interface ViewOperationRequest {
   viewId: string
-  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'annotation' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
+  opType: 'scroll' | 'crosshair' | 'pan' | 'zoom' | 'window' | 'pseudocolor' | 'transform2d' | 'rotate3d' | 'reset' | 'volumePreset' | 'volumeConfig' | 'render3dMode' | 'surfaceConfig' | 'volumeRenderOptions' | 'volumeClip' | 'mprMipConfig' | 'mprSegmentation' | 'mprOblique' | 'mprCrosshairMode' | 'mprStateSync' | 'measurement' | 'annotation' | 'fusionRegistration' | 'fusionConfig' | 'petConfig'
   imageFormat?: 'png' | 'jpeg' | 'webp'
   measurementId?: string | null
   annotationId?: string | null
@@ -917,6 +928,8 @@ export interface ViewOperationRequest {
   volumeConfig?: VolumeRenderConfig | null
   render3dMode?: 'volume' | 'surface' | null
   surfaceConfig?: SurfaceRenderConfig | null
+  volumeRenderOptions?: VolumeRenderOptions | null
+  removeBed?: boolean | null
 }
 
 export interface ViewQaWaterAnalyzeRequest {

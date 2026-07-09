@@ -156,6 +156,7 @@ function createPointerHarness(
 
   const emitActiveViewportChange = vi.fn()
   const emitMprCrosshair = vi.fn()
+  const emitVolumeClip = vi.fn()
   const emitViewportDrag = vi.fn()
 
   const pointer = useViewerWorkspacePointer({
@@ -175,6 +176,7 @@ function createPointerHarness(
     emitMtfDelete: vi.fn(),
     emitMtfSelect: vi.fn(),
     emitMprCrosshair,
+    emitVolumeClip,
     emitViewportDrag,
     getCommittedMeasurements: () => committedMeasurements,
     getMtfItems: () => []
@@ -196,6 +198,7 @@ function createPointerHarness(
     createdMeasurements,
     emitActiveViewportChange,
     emitMprCrosshair,
+    emitVolumeClip,
     emitViewportDrag,
     pointer,
     viewport
@@ -390,6 +393,152 @@ describe('useViewerWorkspacePointer', () => {
 
     const payloads = getViewportDragPayloads(emitViewportDrag)
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.zoom, DRAG_ACTION_TYPES.start)).toBe(true)
+  })
+
+  it('draws and submits a closed freeform 3D volume clip polygon', () => {
+    const { emitVolumeClip, emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: `${STACK_OPERATION_PREFIX}volumeClip:inside`,
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 31 }), 'volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.7, y: 0.25 }, { pointerId: 31 }))
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.6, y: 0.65 }, { pointerId: 31 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.25, y: 0.55 }, { buttons: 0, pointerId: 31 }))
+
+    expect(emitViewportDrag).not.toHaveBeenCalled()
+    expect(emitVolumeClip).toHaveBeenCalledTimes(1)
+    const payload = emitVolumeClip.mock.calls[0]?.[0] as {
+      mode: string
+      points: MeasurementDraftPoint[]
+      viewportKey: string
+    }
+    expect(payload).toMatchObject({ mode: 'inside', viewportKey: 'volume' })
+    expect(payload.points.length).toBeGreaterThanOrEqual(5)
+    expect(payload.points.at(-1)).toEqual(payload.points[0])
+    expect(pointer.draftMeasurements.value.volume).toBeNull()
+  })
+
+  it('simplifies dense desktop 3D volume clip polygons before submitting', () => {
+    const { emitVolumeClip, pointer, viewport } = createPointerHarness({
+      activeOperation: `${STACK_OPERATION_PREFIX}volumeClip:inside`,
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.8, y: 0.5 }, { pointerId: 33 }), 'volume')
+    for (let index = 1; index <= 360; index += 1) {
+      const radians = (index / 360) * Math.PI * 2
+      pointer.handleViewportPointerMove(createPointerEvent(viewport, {
+        x: 0.5 + Math.cos(radians) * 0.3,
+        y: 0.5 + Math.sin(radians) * 0.3
+      }, { pointerId: 33 }))
+    }
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.8, y: 0.5 }, { buttons: 0, pointerId: 33 }))
+
+    const payload = emitVolumeClip.mock.calls[0]?.[0] as {
+      points: MeasurementDraftPoint[]
+    }
+    expect(payload.points.length).toBeLessThanOrEqual(241)
+    expect(payload.points.length).toBeGreaterThan(8)
+    expect(payload.points.at(-1)).toEqual(payload.points[0])
+  })
+
+  it('does not submit tiny accidental 3D volume clip strokes', () => {
+    const { emitVolumeClip, pointer, viewport } = createPointerHarness({
+      activeOperation: `${STACK_OPERATION_PREFIX}volumeClip:outside`,
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 32 }), 'volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.205, y: 0.2 }, { pointerId: 32 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.205, y: 0.205 }, { buttons: 0, pointerId: 32 }))
+
+    expect(emitVolumeClip).not.toHaveBeenCalled()
+    expect(pointer.draftMeasurements.value.volume).toBeNull()
+  })
+
+  it('emits raw canvas coordinates for 3D rotate without clamping edge drags', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`,
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 23 }), 'volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.3, y: 0.25 }, { pointerId: 23 }))
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: -0.1, y: 0.25 }, { pointerId: 23 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: -0.1, y: 0.25 }, { buttons: 0, pointerId: 23 }))
+
+    const payloads = emitViewportDrag.mock.calls.map(([payload]) => payload as {
+      phase: string
+      deltaX: number
+      deltaY: number
+      canvasX?: number
+      canvasY?: number
+      canvasWidth?: number
+      canvasHeight?: number
+      interactionId?: string
+    })
+    const interactionIds = payloads.map((payload) => payload.interactionId)
+    expect(interactionIds.every((interactionId) => typeof interactionId === 'string' && interactionId.length > 0)).toBe(true)
+    expect(new Set(interactionIds).size).toBe(1)
+    expect(payloads.find((payload) => payload.phase === DRAG_ACTION_TYPES.start)).toMatchObject({
+      deltaX: 0.2,
+      deltaY: 0.2,
+      canvasX: 40,
+      canvasY: 40,
+      canvasWidth: 200,
+      canvasHeight: 200
+    })
+    expect(payloads.find((payload) => payload.phase === DRAG_ACTION_TYPES.move)).toMatchObject({
+      deltaX: 0,
+      deltaY: 0.25,
+      canvasX: -20,
+      canvasY: 50,
+      canvasWidth: 200,
+      canvasHeight: 200
+    })
+    expect(payloads.find((payload) => payload.phase === DRAG_ACTION_TYPES.end)).toMatchObject({
+      deltaX: 0,
+      deltaY: 0.25,
+      canvasX: -20,
+      canvasY: 50,
+      canvasWidth: 200,
+      canvasHeight: 200
+    })
+  })
+
+  it('sends the pointerup 3D rotate position as the final move before end', () => {
+    const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`,
+      activeTab: { viewType: '3D' } as ViewerTabItem,
+      viewportKey: 'volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 25 }), 'volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.3, y: 0.25 }, { pointerId: 25 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.45, y: 0.4 }, { buttons: 0, pointerId: 25 }))
+
+    const payloads = emitViewportDrag.mock.calls.map(([payload]) => payload as {
+      phase: string
+      canvasX?: number
+      canvasY?: number
+      interactionId?: string
+    })
+    const lastMove = payloads.filter((payload) => payload.phase === DRAG_ACTION_TYPES.move).at(-1)
+    const end = payloads.find((payload) => payload.phase === DRAG_ACTION_TYPES.end)
+    expect(lastMove).toMatchObject({
+      canvasX: 90,
+      canvasY: 80
+    })
+    expect(end).toMatchObject({
+      canvasX: 90,
+      canvasY: 80,
+      interactionId: lastMove?.interactionId
+    })
   })
 
   it('coalesces repeated viewport drag moves to the latest animation frame payload', () => {

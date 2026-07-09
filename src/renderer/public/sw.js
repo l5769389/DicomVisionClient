@@ -33,6 +33,22 @@ function isStaticShellAsset(url) {
   )
 }
 
+function isDevelopmentModuleRequest(request, url) {
+  return (
+    request.destination === 'script' ||
+    request.destination === 'worker' ||
+    request.destination === 'sharedworker' ||
+    request.destination === 'style' ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@vite') ||
+    url.pathname.startsWith('/@fs/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.endsWith('.ts') ||
+    url.pathname.endsWith('.tsx') ||
+    url.pathname.endsWith('.vue')
+  )
+}
+
 async function networkFirstNavigation(request) {
   try {
     const response = await fetch(request)
@@ -89,6 +105,7 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url)
   if (!isSameOrigin(url) || isApiOrPatientDataRequest(url)) return
+  if (isDevelopmentModuleRequest(request, url)) return
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirstNavigation(request))

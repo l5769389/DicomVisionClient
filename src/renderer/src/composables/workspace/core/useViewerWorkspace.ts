@@ -92,9 +92,11 @@ import {
   normalizePseudocolorPresetKey
 } from '../../../constants/pseudocolor'
 import {
+  createDefaultVolumeRenderOptions,
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
   normalizeMprSegmentationConfig,
+  normalizeVolumeRenderOptions,
   recolorMprSegmentationConfig
 } from '../../../types/viewer'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -107,7 +109,9 @@ import {
 } from '../volume/volumeRenderConfig'
 import {
   createDefaultSurfaceRenderConfig,
+  createSurfaceRenderPresetConfig,
   normalizeRender3DMode,
+  normalizeSurfacePresetKey,
   normalizeSurfaceRenderConfig
 } from '../volume/surfaceRenderConfig'
 import type {
@@ -138,7 +142,10 @@ import type {
   ViewerMtfItem,
   ViewerTabItem,
   ViewType,
+  SurfaceRenderConfig,
+  VolumeClipMode,
   VolumeRenderConfig,
+  VolumeRenderOptions,
   WorkspaceReadyPayload
 } from '../../../types/viewer'
 
@@ -177,6 +184,11 @@ interface ViewerWorkspaceState {
     opType: ViewOperationType
     phase: 'start' | 'move' | 'end'
     viewportKey: string
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+    interactionId?: string
   }) => void
   handleFusionRegistrationDrag: (payload: {
     deltaX: number
@@ -249,6 +261,12 @@ interface ViewerWorkspaceState {
     seriesInstanceUid?: string | null
   }) => Promise<void>
   handleVolumeConfigChange: (config: VolumeRenderConfig) => void
+  handleSurfaceConfigChange: (config: SurfaceRenderConfig) => void
+  handleVolumeClip: (payload: {
+    viewportKey: string
+    mode: VolumeClipMode | 'reset'
+    points?: MeasurementDraftPoint[]
+  }) => void
   isLoadingFolder: Ref<boolean>
   isSidebarCollapsed: Ref<boolean>
   isViewLoading: Ref<boolean>
@@ -325,6 +343,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   // stays optimistic, while the backend receives only the last value in a burst.
   const VOLUME_CONFIG_DEBOUNCE_MS = 120
   const PREVIEW_PERF_IDLE_GAP_MS = 5000
+  const ROTATE3D_INTERACTION_GUARD_TTL_MS = 2500
   const FUSION_PET_WINDOW_DRAG_RANGE_FRACTION = 0.01
   // During MPR crosshair drag, incoming render frames may lag behind the pointer.
   // Keep the active viewport locally anchored, with the timer as a missing-end fallback.
@@ -546,6 +565,27 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function getActiveViewIdForTab(tab: ViewerTabItem, viewportKey = activeViewportKey.value): string {
     return resolveViewIdForTabViewport(tab, viewportKey)
+  }
+
+  function setActiveVolumePreprocessProgress(messageText: string, progressPercent = 70): void {
+    const tab = activeTab.value
+    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+      return
+    }
+    const progress: ViewProgressInfo = {
+      viewId: tab.viewId,
+      phase: 'preprocess',
+      progressPercent,
+      message: messageText
+    }
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            loadingProgress: progress
+          }
+        : item
+    )
   }
 
   function normalizeMprCrosshairMode(value: unknown): MprCrosshairMode {
@@ -881,13 +921,27 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeOperation.value = value
   }
 
-  const { clearPendingVolumeConfig, flushAllPendingVolumeConfig, scheduleVolumeConfigEmit } = useVolumeConfigSync({
+  const { clearPendingVolumeConfig, flushAllPendingVolumeConfig, scheduleVolumeConfigEmit } = useVolumeConfigSync<VolumeRenderConfig>({
     debounceMs: VOLUME_CONFIG_DEBOUNCE_MS,
     emitVolumeConfig: (viewId, config) => {
       emitViewOperation({
         viewId,
         opType: VIEW_OPERATION_TYPES.volumeConfig,
         volumeConfig: config
+      })
+    }
+  })
+  const {
+    clearPendingVolumeConfig: clearPendingSurfaceConfig,
+    flushAllPendingVolumeConfig: flushAllPendingSurfaceConfig,
+    scheduleVolumeConfigEmit: scheduleSurfaceConfigEmit
+  } = useVolumeConfigSync<SurfaceRenderConfig>({
+    debounceMs: VOLUME_CONFIG_DEBOUNCE_MS,
+    emitVolumeConfig: (viewId, config) => {
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.surfaceConfig,
+        surfaceConfig: config
       })
     }
   })
@@ -1063,7 +1117,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'volumePreset' || payload.action === 'render3dMode') && !hasVolumeView(tab)) {
+    if ((payload.action === 'volumePreset' || payload.action === 'surfacePreset' || payload.action === 'render3dMode') && !hasVolumeView(tab)) {
       return
     }
 
@@ -1242,6 +1296,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (tab.viewId) {
       clearPendingVolumeConfig(tab.viewId)
+      clearPendingSurfaceConfig(tab.viewId)
     }
 
     if (payload.action === 'reset' || payload.action === 'resetAll') {
@@ -1535,17 +1590,18 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if ((payload.action === 'reset' || payload.action === 'resetAll') && (tab.viewType === '3D' || isMprVolumeViewport(tab, activeViewportKey.value))) {
-      const defaultConfig = createDefaultVolumeRenderConfig('bone')
       const defaultSurfaceConfig = createDefaultSurfaceRenderConfig()
+      const defaultRenderOptions = createDefaultVolumeRenderOptions()
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
               ...item,
               pseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
-              volumePreset: 'volumePreset:bone',
-              volumeRenderConfig: defaultConfig,
               render3dMode: 'volume',
-              surfaceRenderConfig: defaultSurfaceConfig
+              surfaceRenderConfig: defaultSurfaceConfig,
+              volumePreset: undefined,
+              volumeRenderConfig: null,
+              volumeRenderOptions: defaultRenderOptions
             }
           : item
       )
@@ -1562,11 +1618,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId: tab.viewId,
         opType: VIEW_OPERATION_TYPES.reset,
         subOpType: 'view'
-      })
-      emitViewOperation({
-        viewId: tab.viewId,
-        opType: VIEW_OPERATION_TYPES.volumeConfig,
-        volumeConfig: defaultConfig
       })
       return
     }
@@ -1607,8 +1658,78 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       emitViewOperation({
         viewId: tab.viewId,
-        opType: VIEW_OPERATION_TYPES.volumeConfig,
-        volumeConfig: presetConfig
+        opType: VIEW_OPERATION_TYPES.volumePreset,
+        subOpType: presetKey
+      })
+      return
+    }
+
+    if (payload.action === 'surfacePreset' && payload.value) {
+      const presetKey = normalizeSurfacePresetKey(payload.value)
+      const surfaceConfig = createSurfaceRenderPresetConfig(presetKey)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              render3dMode: 'surface',
+              surfaceRenderConfig: surfaceConfig
+            }
+          : item
+      )
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.surfaceConfig,
+        subOpType: `surfacePreset:${presetKey}`,
+        surfaceConfig
+      })
+      return
+    }
+
+    if (payload.action === 'volumeRenderOptions') {
+      const previousOptions = normalizeVolumeRenderOptions(tab.volumeRenderOptions, createDefaultVolumeRenderOptions())
+      const nextOptions: VolumeRenderOptions = {
+        ...previousOptions,
+        removeBed: payload.enabled ?? !previousOptions.removeBed
+      }
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              volumeRenderOptions: nextOptions
+            }
+          : item
+      )
+
+      setActiveVolumePreprocessProgress(nextOptions.removeBed ? '正在过滤床板...' : '正在恢复床板显示...', 72)
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.volumeRenderOptions,
+        volumeRenderOptions: nextOptions
+      })
+      return
+    }
+
+    if (payload.action === 'volumeClipReset') {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              volumeRenderOptions: normalizeVolumeRenderOptions({
+                ...(item.volumeRenderOptions ?? createDefaultVolumeRenderOptions()),
+                clip: null
+              })
+            }
+          : item
+      )
+
+      setActiveVolumePreprocessProgress('正在重置 3D 裁剪...', 76)
+
+      emitViewOperation({
+        viewId: tab.viewId,
+        opType: VIEW_OPERATION_TYPES.volumeClip,
+        subOpType: 'reset'
       })
       return
     }
@@ -1841,6 +1962,76 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     scheduleVolumeConfigEmit(tab.viewId, normalizedConfig)
+  }
+
+  function handleSurfaceConfigChange(config: SurfaceRenderConfig): void {
+    const tab = activeTab.value
+    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+      return
+    }
+
+    const normalizedConfig = normalizeSurfaceRenderConfig(config, config.preset)
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            render3dMode: 'surface',
+            surfaceRenderConfig: normalizedConfig
+          }
+        : item
+    )
+
+    scheduleSurfaceConfigEmit(tab.viewId, normalizedConfig)
+  }
+
+  function handleVolumeClip(payload: {
+    viewportKey: string
+    mode: VolumeClipMode | 'reset'
+    points?: MeasurementDraftPoint[]
+  }): void {
+    const tab = activeTab.value
+    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+      return
+    }
+
+    const normalizedPoints = (payload.points ?? [])
+      .map((point) => ({
+        x: Math.max(0, Math.min(1, Number(point.x))),
+        y: Math.max(0, Math.min(1, Number(point.y)))
+      }))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    const previousOptions = normalizeVolumeRenderOptions(tab.volumeRenderOptions, createDefaultVolumeRenderOptions())
+    const nextOptions = payload.mode === 'reset'
+      ? normalizeVolumeRenderOptions({ ...previousOptions, clip: null })
+      : normalizeVolumeRenderOptions({
+          ...previousOptions,
+          clip: {
+            mode: payload.mode,
+            points: normalizedPoints
+          }
+        })
+
+    viewerTabs.value = viewerTabs.value.map((item) =>
+      item.key === tab.key
+        ? {
+            ...item,
+            volumeRenderOptions: nextOptions
+          }
+        : item
+    )
+
+    setActiveVolumePreprocessProgress(
+      payload.mode === 'reset' ? '正在重置 3D 裁剪...' : '正在应用 3D 裁剪...',
+      78
+    )
+
+    emitViewOperation({
+      viewId: tab.viewId,
+      opType: VIEW_OPERATION_TYPES.volumeClip,
+      subOpType: payload.mode,
+      points: payload.mode === 'reset' ? undefined : normalizedPoints,
+      viewportKey: payload.viewportKey
+    })
   }
 
   function handleCompareSyncChange(payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }): void {
@@ -2538,6 +2729,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   })
   const pendingPseudocolorOverlayPreservationViewIds = new Set<string>()
   const pendingMissingMprImageRecoveryKeys = new Set<string>()
+  const rotate3dInteractionGuardByView = new Map<string, { id: string; startedAt: number; endedAt: number | null }>()
 
   watch(viewerImageFormatPreference, (nextFormat, previousFormat) => {
     setSocketViewerImageFormatPreference(nextFormat)
@@ -2602,6 +2794,33 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     return null
+  }
+
+  function getPayloadInteractionId(payload: Partial<ViewImageResponse>): string | null {
+    const raw = payload.interactionId ?? ((payload as { interaction_id?: unknown }).interaction_id ?? null)
+    return typeof raw === 'string' && raw.trim() ? raw : null
+  }
+
+  function shouldDropStaleRotate3dImageUpdate(tab: ViewerTabItem, payload: Partial<ViewImageResponse>): boolean {
+    if (tab.viewType !== '3D' || !payload.viewId) {
+      return false
+    }
+    const guard = rotate3dInteractionGuardByView.get(payload.viewId)
+    if (!guard) {
+      return false
+    }
+    if (performance.now() - guard.startedAt > ROTATE3D_INTERACTION_GUARD_TTL_MS) {
+      rotate3dInteractionGuardByView.delete(payload.viewId)
+      return false
+    }
+    const interactionId = getPayloadInteractionId(payload)
+    if (interactionId !== guard.id) {
+      return true
+    }
+    if (!isInteractivePreviewPayload(payload)) {
+      rotate3dInteractionGuardByView.delete(payload.viewId)
+    }
+    return false
   }
 
   function normalizeExtraImageBinaries(value: unknown): Record<string, ArrayBuffer | Uint8Array> {
@@ -2684,6 +2903,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const tab = views.findTabByViewId(viewId)
     if (!tab) {
+      return
+    }
+    if (shouldDropStaleRotate3dImageUpdate(tab, payload)) {
       return
     }
 
@@ -3179,6 +3401,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     opType: ViewOperationType
     phase: 'start' | 'move' | 'end'
     viewportKey: string
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+    interactionId?: string
   }): void {
     const tab = activeTab.value
     if (!tab || isFourDPlaybackLocked(tab)) {
@@ -3210,7 +3437,50 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY) {
+    const hasCanvasPosition =
+      payload.opType === VIEW_OPERATION_TYPES.rotate3d &&
+      typeof payload.canvasX === 'number' &&
+      Number.isFinite(payload.canvasX) &&
+      typeof payload.canvasY === 'number' &&
+      Number.isFinite(payload.canvasY) &&
+      typeof payload.canvasWidth === 'number' &&
+      Number.isFinite(payload.canvasWidth) &&
+      payload.canvasWidth > 0 &&
+      typeof payload.canvasHeight === 'number' &&
+      Number.isFinite(payload.canvasHeight) &&
+      payload.canvasHeight > 0
+
+    const canvasPositionPayload = hasCanvasPosition
+      ? {
+          canvasX: payload.canvasX,
+          canvasY: payload.canvasY,
+          canvasWidth: payload.canvasWidth,
+          canvasHeight: payload.canvasHeight
+        }
+      : {}
+    const hasRotate3dInteractionId =
+      tab.viewType === '3D' &&
+      payload.opType === VIEW_OPERATION_TYPES.rotate3d &&
+      typeof payload.interactionId === 'string' &&
+      payload.interactionId.trim().length > 0
+    if (hasRotate3dInteractionId && payload.phase === DRAG_ACTION_TYPES.start) {
+      rotate3dInteractionGuardByView.set(viewId, {
+        id: payload.interactionId!,
+        startedAt: performance.now(),
+        endedAt: null
+      })
+    } else if (hasRotate3dInteractionId && payload.phase === DRAG_ACTION_TYPES.end) {
+      const guard = rotate3dInteractionGuardByView.get(viewId)
+      if (guard && guard.id === payload.interactionId) {
+        guard.endedAt = performance.now()
+      }
+    }
+    const interactionPayload = hasRotate3dInteractionId
+      ? {
+          interactionId: payload.interactionId
+        }
+      : {}
+    if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY && !hasCanvasPosition) {
       return
     }
 
@@ -3225,6 +3495,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         actionType: payload.phase,
         x: payload.deltaX,
         y: payload.deltaY,
+        ...canvasPositionPayload,
+        ...interactionPayload,
         previewFeedbackMode: usesCadencePreview ? 'cadence' : undefined
       })
       return
@@ -3239,6 +3511,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         actionType: payload.phase,
         x: payload.deltaX,
         y: payload.deltaY,
+        ...canvasPositionPayload,
+        ...interactionPayload,
         previewFeedbackMode: isVolumeDrag && usesCadencePreview ? 'cadence' : undefined
       })
     })
@@ -4203,6 +4477,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   onBeforeUnmount(() => {
     viewInteractionOperationScheduler.cancel()
     flushAllPendingVolumeConfig()
+    flushAllPendingSurfaceConfig()
     clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()
@@ -4253,6 +4528,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleLayoutSlotDicomDrop,
     handleLayoutSlotSeriesDrop,
     handleVolumeConfigChange,
+    handleSurfaceConfigChange,
+    handleVolumeClip,
     handleViewportDrag,
     handleViewportWheel,
     hasSelectedSeries,

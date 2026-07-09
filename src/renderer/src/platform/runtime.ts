@@ -83,6 +83,16 @@ function isHttpOrigin(origin: string): boolean {
   return /^http:\/\//i.test(origin.trim())
 }
 
+function parseBackendPort(value: string | undefined): number {
+  const trimmed = getTrimmedEnvValue(value)
+  if (!trimmed) {
+    return APP_BACKEND_CONFIG.desktop.devPort
+  }
+
+  const port = Number(trimmed)
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : APP_BACKEND_CONFIG.desktop.devPort
+}
+
 function resolveSameOriginBackendOrigin(): string | null {
   if (typeof window === 'undefined' || !window.location.origin) {
     return null
@@ -90,12 +100,37 @@ function resolveSameOriginBackendOrigin(): string | null {
   return normalizeOrigin(window.location.origin)
 }
 
+export function resolvePageHostBackendOrigin(
+  pageProtocol: string | null | undefined,
+  pageHostname: string | null | undefined,
+  backendPort: number = APP_BACKEND_CONFIG.desktop.devPort
+): string | null {
+  const hostname = pageHostname?.trim()
+  if (!hostname) {
+    return null
+  }
+
+  const protocol = pageProtocol === 'https:' ? 'https:' : 'http:'
+  return `${protocol}//${hostname}:${backendPort}`
+}
+
 export function resolveWebBackendOriginForPage(
   configuredOrigin: string,
   sameOrigin: string | null,
-  pageProtocol: string | null | undefined
+  pageProtocol: string | null | undefined,
+  pageHostname?: string | null,
+  backendPort: number = APP_BACKEND_CONFIG.desktop.devPort
 ): string {
   const normalizedConfiguredOrigin = normalizeOrigin(configuredOrigin)
+  const configuredMode = normalizedConfiguredOrigin.toLowerCase()
+  if (
+    configuredMode === 'page-host' ||
+    configuredMode === 'same-host' ||
+    configuredMode === 'network-host'
+  ) {
+    return resolvePageHostBackendOrigin(pageProtocol, pageHostname, backendPort) ?? APP_BACKEND_CONFIG.web.devOrigin
+  }
+
   if (pageProtocol === 'https:' && sameOrigin && isHttpOrigin(normalizedConfiguredOrigin)) {
     return normalizeOrigin(sameOrigin)
   }
@@ -114,6 +149,7 @@ function normalizeBackendStatus(status: ViewerBackendStatusPayload | null | unde
 
 function resolveWebBackendOrigin(): string {
   const configuredOrigin = getTrimmedEnvValue(import.meta.env.VITE_BACKEND_ORIGIN)
+  const backendPort = parseBackendPort(import.meta.env.VITE_BACKEND_PORT)
   if (configuredOrigin) {
     const normalizedConfiguredOrigin = configuredOrigin.toLowerCase()
     if (
@@ -126,12 +162,20 @@ function resolveWebBackendOrigin(): string {
     return resolveWebBackendOriginForPage(
       configuredOrigin,
       resolveSameOriginBackendOrigin(),
-      typeof window === 'undefined' ? null : window.location.protocol
+      typeof window === 'undefined' ? null : window.location.protocol,
+      typeof window === 'undefined' ? null : window.location.hostname,
+      backendPort
     )
   }
 
   if (import.meta.env.DEV) {
-    return APP_BACKEND_CONFIG.web.devOrigin
+    return (
+      resolvePageHostBackendOrigin(
+        typeof window === 'undefined' ? null : window.location.protocol,
+        typeof window === 'undefined' ? null : window.location.hostname,
+        backendPort
+      ) ?? APP_BACKEND_CONFIG.web.devOrigin
+    )
   }
 
   return APP_BACKEND_CONFIG.web.prodOrigin

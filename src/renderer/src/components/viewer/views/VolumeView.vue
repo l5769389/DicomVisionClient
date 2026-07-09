@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, ViewProgressInfo, ViewerTabItem } from '../../../types/viewer'
+import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewProgressInfo, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
   activeOperation: string
+  draftMeasurement?: MeasurementDraft | null
+  draftMeasurementMode?: DraftMeasurementMode | null
+  measurements?: MeasurementOverlay[]
 }>()
 
 const emit = defineEmits<{
@@ -32,6 +35,7 @@ const VIEW_PROGRESS_LABELS: Record<string, string> = {
   waiting: '等待体数据',
   volume: '读取 DICOM 切片',
   normalize: '整理体数据',
+  preprocess: '处理 3D 数据',
   initialize: '初始化视图',
   render: '渲染影像',
   encode: '生成预览图',
@@ -43,6 +47,7 @@ const VIEW_PROGRESS_LABELS_EN: Record<string, string> = {
   waiting: 'Waiting for volume',
   volume: 'Reading DICOM slices',
   normalize: 'Preparing volume',
+  preprocess: 'Processing 3D volume',
   initialize: 'Initializing view',
   render: 'Rendering image',
   encode: 'Encoding preview',
@@ -57,6 +62,14 @@ function getLoadingProgressPercent(): number | null {
   const progressPercent = getLoadingProgress()?.progressPercent
   return typeof progressPercent === 'number' ? progressPercent : null
 }
+
+const isVolumeProcessing = computed(() => {
+  const progress = getLoadingProgress()
+  if (!progress || progress.phase === 'complete') {
+    return false
+  }
+  return progress.phase === 'preprocess'
+})
 
 function getLoadingLabel(): string {
   const fallback = viewerCopy.value.loadingVolumeView
@@ -81,13 +94,16 @@ function getLoadingLabel(): string {
       :render-surface-active="true"
       :image-src="activeTab.imageSrc"
       :active-operation="activeOperation"
-      :is-loading="Boolean(activeTab.viewId) && !activeTab.imageSrc"
+      :is-loading="Boolean(activeTab.viewId) && (!activeTab.imageSrc || isVolumeProcessing)"
       :loading-label="getLoadingLabel()"
       :loading-progress-percent="getLoadingProgressPercent()"
       :alt="activeTab.viewType"
       :placeholder="viewerCopy.volumePlaceholder"
       :corner-info="emptyVolumeCornerInfo"
       :orientation="activeTab.orientation"
+      :draft-measurement="draftMeasurement ?? null"
+      :draft-measurement-mode="draftMeasurementMode ?? null"
+      :measurements="measurements ?? []"
       :soft-image="true"
       @click-viewport="emit('viewportClick', $event)"
       @pointer-down="emit('pointerDown', $event, 'volume')"

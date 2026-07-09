@@ -42,7 +42,7 @@ import ViewerTabStrip from './ViewerTabStrip.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
 import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
 import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
-import type { VolumeRenderConfig } from '../../types/viewer'
+import type { SurfaceRenderConfig, VolumeClipMode, VolumeRenderConfig } from '../../types/viewer'
 import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/useViewerWorkspaceToolbar'
 import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
@@ -74,6 +74,7 @@ import {
 
 const MprMipConfigPanel = defineAsyncComponent(() => import('./MprMipConfigPanel.vue'))
 const MprSegmentationPanel = defineAsyncComponent(() => import('./MprSegmentationPanel.vue'))
+const SurfaceRenderConfigPanel = defineAsyncComponent(() => import('./SurfaceRenderConfigPanel.vue'))
 const VolumeRenderConfigPanel = defineAsyncComponent(() => import('./VolumeRenderConfigPanel.vue'))
 const MeasurementMetricsPanelContent = defineAsyncComponent(() => import('./results/MeasurementMetricsPanelContent.vue'))
 const MtfCurvePanelContent = defineAsyncComponent(() => import('./results/MtfCurvePanelContent.vue'))
@@ -143,7 +144,20 @@ const emit = defineEmits<{
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   triggerViewAction: [payload: ViewerToolbarActionPayload]
   volumeConfigChange: [config: VolumeRenderConfig]
-  viewportDrag: [payload: { deltaX: number; deltaY: number; opType: ViewOperationType; phase: 'start' | 'move' | 'end'; viewportKey: string }]
+  surfaceConfigChange: [config: SurfaceRenderConfig]
+  volumeClip: [payload: { viewportKey: string; mode: VolumeClipMode; points: MeasurementDraftPoint[] }]
+  viewportDrag: [payload: {
+    deltaX: number
+    deltaY: number
+    opType: ViewOperationType
+    phase: 'start' | 'move' | 'end'
+    viewportKey: string
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+    interactionId?: string
+  }]
   fusionRegistrationDrag: [payload: {
     deltaX: number
     deltaY: number
@@ -284,6 +298,7 @@ const {
   emitMtfDelete: (payload) => emit('mtfDelete', payload),
   emitMtfSelect: (payload) => emit('mtfSelect', payload),
   emitMprCrosshair: (payload) => emit('mprCrosshair', payload),
+  emitVolumeClip: (payload) => emit('volumeClip', payload),
   emitViewportDrag: (payload) => emit('viewportDrag', payload),
   getCommittedMeasurements: (viewportKey) => getCommittedMeasurements(viewportKey),
   getMtfItems: (viewportKey) => getMtfItems(viewportKey)
@@ -293,6 +308,7 @@ const {
   activeTools,
   activeMprMipConfig,
   activeMprSegmentationConfig,
+  activeSurfaceRenderConfig,
   activeVolumeRenderConfig,
   activateSegmentationSelectionMode,
   applyTool,
@@ -402,13 +418,16 @@ const isVolumeConfigPanelAvailable = computed(() => {
 const isRightToolbarLayout = computed(() => viewerToolbarPlacement.value === 'right')
 const shouldShowTopToolbar = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && !isRightToolbarLayout.value))
 const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && isRightToolbarLayout.value))
-const rightToolbarUtilityPanelKind = computed<'volume' | 'mprMip' | 'segmentation' | null>(() => {
+const rightToolbarUtilityPanelKind = computed<'volume' | 'surface' | 'mprMip' | 'segmentation' | null>(() => {
   const activeTab = activeTabRef.value
   if (!shouldShowRightToolbarDock.value || !activeTab) {
     return null
   }
   if (isVolumeConfigPanelAvailable.value && isVolumeConfigPanelOpen.value && activeVolumeRenderConfig.value) {
     return 'volume'
+  }
+  if (isVolumeConfigPanelAvailable.value && isVolumeConfigPanelOpen.value && activeSurfaceRenderConfig.value) {
+    return 'surface'
   }
   if ((activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen.value && activeMprMipConfig.value) {
     return 'mprMip'
@@ -422,6 +441,9 @@ const rightToolbarUtilityPanelIcon = computed(() => {
   if (rightToolbarUtilityPanelKind.value === 'volume') {
     return 'settings'
   }
+  if (rightToolbarUtilityPanelKind.value === 'surface') {
+    return 'settings'
+  }
   if (rightToolbarUtilityPanelKind.value === 'segmentation') {
     return 'segmentation'
   }
@@ -431,6 +453,9 @@ const rightToolbarUtilityPanelTitle = computed(() => {
   if (rightToolbarUtilityPanelKind.value === 'volume') {
     return '3D Params'
   }
+  if (rightToolbarUtilityPanelKind.value === 'surface') {
+    return 'Surface Params'
+  }
   if (rightToolbarUtilityPanelKind.value === 'segmentation') {
     return locale.value === 'zh-CN' ? '阈值分割' : 'Segmentation'
   }
@@ -439,6 +464,9 @@ const rightToolbarUtilityPanelTitle = computed(() => {
 const rightToolbarUtilityPanelToolKey = computed(() => {
   if (rightToolbarUtilityPanelKind.value === 'volume') {
     return 'volumeParams'
+  }
+  if (rightToolbarUtilityPanelKind.value === 'surface') {
+    return 'surfaceParams'
   }
   if (rightToolbarUtilityPanelKind.value === 'mprMip') {
     return 'mprMip'
@@ -2604,13 +2632,20 @@ onBeforeUnmount(() => {
           class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden rounded-[20px] border p-2"
         >
         <div
-          v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && activeVolumeRenderConfig"
+          v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && (activeVolumeRenderConfig || activeSurfaceRenderConfig)"
           class="absolute right-5 top-5 z-[20]"
         >
           <VolumeRenderConfigPanel
+            v-if="activeVolumeRenderConfig"
             :config="activeVolumeRenderConfig"
             @close="closeVolumeConfigPanel"
             @config-change="emit('volumeConfigChange', $event)"
+          />
+          <SurfaceRenderConfigPanel
+            v-else-if="activeSurfaceRenderConfig"
+            :config="activeSurfaceRenderConfig"
+            @close="closeVolumeConfigPanel"
+            @config-change="emit('surfaceConfigChange', $event)"
           />
         </div>
 
@@ -2820,6 +2855,9 @@ onBeforeUnmount(() => {
           v-else-if="activeTab.viewType === '3D'"
           :active-tab="activeTab"
           :active-operation="props.activeOperation"
+          :draft-measurement="getViewportDraftMeasurement('volume')"
+          :draft-measurement-mode="getViewportDraftMeasurementMode('volume')"
+          :measurements="getViewportMeasurements('volume')"
           @viewport-click="handleViewportClick"
           @pointer-down="handleViewportPointerDown"
           @pointer-move="handleViewportPointerMove"
@@ -3021,6 +3059,14 @@ onBeforeUnmount(() => {
               embedded
               @close="closeVolumeConfigPanel"
               @config-change="emit('volumeConfigChange', $event)"
+            />
+            <SurfaceRenderConfigPanel
+              v-else-if="rightToolbarUtilityPanelKind === 'surface' && activeSurfaceRenderConfig"
+              class="viewer-workspace-dock-panel"
+              :config="activeSurfaceRenderConfig"
+              embedded
+              @close="closeVolumeConfigPanel"
+              @config-change="emit('surfaceConfigChange', $event)"
             />
             <MprMipConfigPanel
               v-else-if="rightToolbarUtilityPanelKind === 'mprMip' && activeMprMipConfig"

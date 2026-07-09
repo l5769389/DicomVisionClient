@@ -4,29 +4,30 @@
 
 DicomVision is a client/server DICOM viewer with a Vue/Electron client and a FastAPI backend. The backend handles DICOM parsing, 2D/MPR/4D/3D reconstruction, PET/CT fusion, segmentation, QA, and export work, then streams rendered results to desktop, web, and mobile interfaces.
 
-## v3.0.0 Highlights
+## v3.1.0 Highlights
 
-- **Right-side tool dock**: desktop and web now support top toolbar and fixed right-side dock layouts. Tool subpanels, 3D/MIP parameters, QA/MTF reports, and segmentation controls can stay inside the dock instead of opening scattered popups.
-- **PET/CT Fusion**: added PET/CT fusion viewing, PET-only display, SUV/intensity controls, manual registration, registration save flow, pane double-click expansion, and standalone PET view refinements.
-- **MPR segmentation and VOI**: added threshold segmentation, spherical VOI, segmentation overlays, sidecar-style data flow, and mobile segmentation controls.
-- **QA/MTF report panels**: MTF curves, water phantom QA, loading states, and errors are shown in right-side report panels. MTF ROI results open automatically and support copy/delete actions.
-- **Mobile refresh**: unified 2D naming, browsing history, PACS settings, bottom sheets, playback/FPS, 4D/MPR slice play, orientation lock, measurement, annotation, segmentation, screenshots, and demo GIF.
-- **Release formats**: v3.0.0 provides a Windows desktop installer, a static web package, and a standalone Windows Server bundle. The desktop installer includes the backend server.
+- **3D rendering and interaction**: improves VR/Surface preview/final consistency, direct model rotation, stale-frame suppression, mobile 3D camera fitting, and final-frame sampling quality.
+- **3D presets and parameters**: adds General, CT, CTA, MR, and CBCT preset groups. AAA and related presets now use CT HU anchors plus foreground percentiles, while Surface keeps independent iso-surface/material controls.
+- **3D tools**: adds remove-bed rendering, freeform clipping, clip progress feedback, 3D parameter popovers, mobile 3D tools, and server-driven metadata sync.
+- **Web/mobile connectivity**: local web development now connects to the backend through the current page host, so phones on the LAN do not try to connect to their own `127.0.0.1`. Development mode also clears stale PWA caches to avoid module MIME errors.
+- **Demo data**: local macOS development prefers `/Users/jun/Documents/test_dicom/py_test_path/py_test_path2`; deployed environments continue to use the bundled sample data.
+- **Release formats**: v3.1.0 is prepared for static web assets, Windows desktop installer, Windows standalone Server bundle, macOS DMG/ZIP desktop packages, and checksums.
 
 ## Feature Overview
 
-- Local DICOM file/folder import, browser upload, PACS DICOMweb/DIMSE query and retrieval.
-- 2D, 2D Compare, Layout, synchronized multi-series viewing, MPR, oblique MPR, MPR + 3D, 3D volume rendering, and 4D phase playback.
-- PET/CT Fusion, PET intensity range control, PET-only display, manual registration, and four-pane/single-pane fusion switching.
-- Line, rectangle, ellipse, angle, curve, freeform measurement, annotation, MTF/FWHM, and water phantom QA.
-- MPR threshold segmentation, VOI, segmentation preview, segmentation import/export, and mobile touch drawing.
-- DICOM tag tree review, VR-aware editing, batch tag modification, de-identification export, PNG/DICOM/DICOM SR/DICOM GSPS export.
-- Desktop, web, and mobile-responsive UI with dark, light, and blue themes.
+- **Data sources**: local DICOM files/folders, drag-and-drop import, browser upload, server sample data, and PACS DICOMweb/DIMSE query/retrieval.
+- **2D viewing**: window/level, zoom, pan, scroll, flip/rotate, pseudocolor, synchronized browsing, Compare, Layout, multi-series, and multi-view workspaces.
+- **MPR/4D**: AX/COR/SAG tri-view, oblique MPR, synchronized crosshair, MPR playback, 4D phase playback, FPS control, and phase sync.
+- **3D**: VR volume rendering, Surface rendering, MIP/XRay-style presets, AAA/CT/CTA/MR/CBCT adaptive presets, 3D parameter panels, remove-bed, freeform clipping, and mobile touch 3D.
+- **PET/CT Fusion**: PET/CT fusion, PET-only mode, SUV/intensity range controls, manual registration, saved registration, and four-pane/single-pane switching.
+- **Measurement and annotation**: line, rectangle, ellipse, angle, curve, freeform measurements, arrow/text annotations, realtime drafts, and ROI metrics.
+- **Segmentation and QA**: MPR threshold segmentation, spherical VOI, segmentation overlays, segmentation import/export, MTF/FWHM, water phantom QA, and report panels.
+- **DICOM and export**: DICOM tag tree, VR-aware editing, batch tag changes, de-identification export, PNG, DICOM, DICOM SR, and DICOM GSPS export.
+- **Multi-platform UI**: desktop, web, and mobile-responsive UI with dark, light, and blue themes. Desktop installers include the backend service.
 
 ## Web Preview
 
-- https://dicom-vision-client.vercel.app/
-- http://111.228.1.213/
+- https://dicom.zhaolin.online/
 
 The public web preview is useful for UI and basic workflow checks. Real PACS, local large datasets, and desktop embedded-backend workflows are better tested with a local deployment or the desktop app.
 
@@ -89,12 +90,14 @@ The public web preview is useful for UI and basic workflow checks. Real PACS, lo
 
 ## Release Assets
 
-The v3.0.0 release contains:
+The v3.1.0 release contains:
 
-- `DicomVision-3.0.0-Setup.exe`: Windows desktop installer with embedded Server bundle.
-- `DicomVision-web-v3.0.0.zip`: static web frontend build. It requires a reachable DicomVisionServer backend.
-- `DicomVisionServer-v3.0.0-win-x64.zip`: standalone Windows backend bundle.
-- `SHA256SUMS.txt`: checksums for release artifacts.
+- `DicomVision-3.1.0-Setup.exe`: Windows desktop installer with embedded Server bundle.
+- `DicomVision-web-v3.1.0.zip`: static web frontend build. It requires a reachable DicomVisionServer backend.
+- `DicomVisionServer-v3.1.0-win-x64.zip`: standalone Windows backend bundle.
+- `DicomVision-3.1.0-Setup.dmg`: macOS desktop installer image with embedded Server bundle.
+- `DicomVision-3.1.0-Setup.zip`: macOS desktop ZIP package.
+- `SHA256SUMS-windows.txt` / `SHA256SUMS-macos.txt`: checksums for release artifacts.
 
 ## Quick Start
 

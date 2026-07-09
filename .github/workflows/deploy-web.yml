@@ -25,16 +25,17 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.JDCLOUD_DEPLOY_HOST || '111.228.1.213' }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
+          DEPLOY_PASSWORD: ${{ secrets.JDCLOUD_DEPLOY_PASSWORD || secrets.DEPLOY_PASSWORD }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          PUBLIC_ORIGIN: ${{ secrets.JDCLOUD_PUBLIC_ORIGIN || 'same-origin' }}
+          PUBLIC_ORIGIN: ${{ secrets.JDCLOUD_PUBLIC_ORIGIN || 'https://dicom.zhaolin.online' }}
           WEB_PORT: ${{ secrets.JDCLOUD_WEB_PORT || '127.0.0.1:18080' }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
-          test -n "${DEPLOY_SSH_KEY:-}${DEPLOY_SSH_KEY_B64:-}"
+          test -n "${DEPLOY_PASSWORD:-}${DEPLOY_SSH_KEY:-}${DEPLOY_SSH_KEY_B64:-}"
 
           CLIENT_ARCHIVE="/tmp/DicomVisionClient-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
           SERVER_ARCHIVE="/tmp/DicomVisionServer-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
@@ -63,18 +64,27 @@ jobs:
             --exclude='sample-data' \
             -czf "$SERVER_ARCHIVE" -C DicomVisionServer .
 
-          install -m 700 -d ~/.ssh
-          if [ -n "${DEPLOY_SSH_KEY_B64:-}" ]; then
-            printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/deploy_key
+          SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=45 -o ConnectionAttempts=4 -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
+          if [ -n "${DEPLOY_PASSWORD:-}" ]; then
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+            export SSHPASS="$DEPLOY_PASSWORD"
+            SSH_CMD=(sshpass -e ssh "${SSH_OPTS[@]}" -o PreferredAuthentications=password -o PubkeyAuthentication=no)
+            SCP_CMD=(sshpass -e scp "${SSH_OPTS[@]}" -o PreferredAuthentications=password -o PubkeyAuthentication=no)
           else
-            printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+            install -m 700 -d ~/.ssh
+            if [ -n "${DEPLOY_SSH_KEY_B64:-}" ]; then
+              printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/deploy_key
+            else
+              printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+            fi
+            tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
+            mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
+            SSH_CMD=(ssh "${SSH_OPTS[@]}" -i ~/.ssh/deploy_key)
+            SCP_CMD=(scp "${SSH_OPTS[@]}" -i ~/.ssh/deploy_key)
           fi
-          tr -d '\r' < ~/.ssh/deploy_key > ~/.ssh/deploy_key.tmp
-          mv ~/.ssh/deploy_key.tmp ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
-
-          SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ConnectionAttempts=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -i ~/.ssh/deploy_key)
 
           retry_remote() {
             local attempt
@@ -119,7 +129,7 @@ jobs:
           echo "Uploaded source deploy started at $ts"
           EOF
 
-          retry_remote scp "${SSH_OPTS[@]}" "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "$REMOTE_SCRIPT_LOCAL" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
+          retry_remote "${SCP_CMD[@]}" "$CLIENT_ARCHIVE" "$SERVER_ARCHIVE" "$REMOTE_SCRIPT_LOCAL" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
 
-          retry_remote ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-same-origin}' WEB_PORT='${WEB_PORT:-127.0.0.1:18080}' CLIENT_ARCHIVE='$CLIENT_ARCHIVE' SERVER_ARCHIVE='$SERVER_ARCHIVE' REMOTE_SCRIPT='$REMOTE_SCRIPT' bash '$REMOTE_SCRIPT'"
+          retry_remote "${SSH_CMD[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='${DEPLOY_PATH:-/opt/dicomvision}' PUBLIC_ORIGIN='${PUBLIC_ORIGIN:-https://dicom.zhaolin.online}' WEB_PORT='${WEB_PORT:-127.0.0.1:18080}' CLIENT_ARCHIVE='$CLIENT_ARCHIVE' SERVER_ARCHIVE='$SERVER_ARCHIVE' REMOTE_SCRIPT='$REMOTE_SCRIPT' bash '$REMOTE_SCRIPT'"

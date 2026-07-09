@@ -75,6 +75,8 @@ jobs:
 
       - name: Build macOS desktop package
         working-directory: DicomVisionClient
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run release:mac
 
       - name: Generate checksums

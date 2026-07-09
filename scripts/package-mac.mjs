@@ -62,4 +62,4 @@ if (!existsSync(stagedServerBundlePath) || !hasMacServerExecutable()) {
   )
 }
 
-run('npx', ['electron-builder', '--mac', 'dmg', 'zip'])
+run('npx', ['electron-builder', '--mac', 'dmg', 'zip', '-c.mac.identity=null'])

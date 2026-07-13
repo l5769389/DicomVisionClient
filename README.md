@@ -2,16 +2,15 @@
 
 [English](./README.en.md)
 
-DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端和 FastAPI 后端。它把 DICOM 解析、2D/MPR/4D/3D 重建、PET/CT 融合、分割、QA 和导出等重计算放在后端完成，再把结果实时推送给桌面端、Web 端和移动端界面。
+DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端和 FastAPI 后端。它把 DICOM 解析、2D/MPR/4D/3D 重建、PET/CT 融合、分割、QA 和导出等显存与计算压力较高的任务放在后端完成，再把渲染结果实时推送给桌面端、Web 端和移动端界面。
+
+这个架构更适合终端显存较小、需要多端访问、希望统一复用服务端影像处理能力的场景。如果目标环境中的工作站具备充足 GPU/显存，并且更看重本机最高帧率三维交互、极低延迟或完全离线的原生工作流，通常更建议优先评估 C3D 等成熟本地 3D Viewer，或采用前后端不分离的 Python/C++ 原生渲染方案。DicomVision 的定位是服务端渲染、多端复用和轻量客户端部署。
 
 ## v3.1.0 重点更新
 
 - **3D 渲染与交互**：优化 VR/Surface 预览与最终帧一致性，改进模型直接拖拽旋转、连续拖动防跳帧、移动端 3D 初始相机适配和最终帧采样质量。
 - **3D 模板与参数**：补齐 General、CT、CTA、MR、CBCT 分组模板；AAA 等模板改为 CT HU 锚点 + 前景百分位自适应，Surface 独立使用 iso-surface/material 参数。
 - **3D 工具**：新增去床板开关、自由形状裁剪、裁剪进度提示、3D 参数弹层、移动端 3D 工具链路和服务端 metadata 状态同步。
-- **Web/移动端连接**：开发环境按当前页面 host 自动连接同一台后端，修复手机访问局域网地址时仍连接 `127.0.0.1` 的问题；开发模式自动清理旧 PWA 缓存，避免模块 MIME 错误。
-- **Demo 数据**：本地 macOS 开发环境优先加载 `/Users/jun/Documents/test_dicom/py_test_path/py_test_path2`，部署环境继续使用项目默认样例。
-- **发布形态**：v3.1.0 Release 计划提供 Web 静态包、Windows 桌面安装包、Windows 独立 Server bundle、macOS DMG/ZIP 桌面端和校验文件。
 
 ## 主要功能
 
@@ -87,17 +86,6 @@ DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端
 | 拖拽导入 | 脱敏导出 |
 | --- | --- |
 | <img src="./screenshots/drap_import.png" alt="拖拽导入 DICOM" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM 脱敏导出" width="420"> |
-
-## Release 资产
-
-v3.1.0 Release 包含：
-
-- `DicomVision-3.1.0-Setup.exe`：Windows 桌面端安装包，内置 Server bundle。
-- `DicomVision-web-v3.1.0.zip`：Web 静态前端产物，需要连接可访问的 DicomVisionServer。
-- `DicomVisionServer-v3.1.0-win-x64.zip`：Windows 独立后端 bundle。
-- `DicomVision-3.1.0-Setup.dmg`：macOS 桌面端安装镜像，内置 Server bundle。
-- `DicomVision-3.1.0-Setup.zip`：macOS 桌面端 ZIP 包。
-- `SHA256SUMS-windows.txt` / `SHA256SUMS-macos.txt`：发布资产校验值。
 
 ## 快速开始
 

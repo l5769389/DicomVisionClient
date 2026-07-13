@@ -2,16 +2,15 @@
 
 [中文说明](./README.md)
 
-DicomVision is a client/server DICOM viewer with a Vue/Electron client and a FastAPI backend. The backend handles DICOM parsing, 2D/MPR/4D/3D reconstruction, PET/CT fusion, segmentation, QA, and export work, then streams rendered results to desktop, web, and mobile interfaces.
+DicomVision is a client/server DICOM viewer with a Vue/Electron client and a FastAPI backend. The backend handles GPU- and compute-intensive work such as DICOM parsing, 2D/MPR/4D/3D reconstruction, PET/CT fusion, segmentation, QA, and export, then streams rendered results to desktop, web, and mobile interfaces.
+
+This architecture is intended for deployments where endpoint GPU memory is limited, multiple client surfaces need to share the same imaging pipeline, or rendering work should be centralized on a server. If each workstation has sufficient GPU/VRAM and the priority is maximum local 3D interaction throughput, lowest-latency native operation, or fully offline workflows, it is usually better to evaluate mature local 3D viewers such as C3D, or use a non-separated Python/C++ native rendering architecture. DicomVision focuses on server-side rendering, multi-device reuse, and lightweight clients.
 
 ## v3.1.0 Highlights
 
 - **3D rendering and interaction**: improves VR/Surface preview/final consistency, direct model rotation, stale-frame suppression, mobile 3D camera fitting, and final-frame sampling quality.
 - **3D presets and parameters**: adds General, CT, CTA, MR, and CBCT preset groups. AAA and related presets now use CT HU anchors plus foreground percentiles, while Surface keeps independent iso-surface/material controls.
 - **3D tools**: adds remove-bed rendering, freeform clipping, clip progress feedback, 3D parameter popovers, mobile 3D tools, and server-driven metadata sync.
-- **Web/mobile connectivity**: local web development now connects to the backend through the current page host, so phones on the LAN do not try to connect to their own `127.0.0.1`. Development mode also clears stale PWA caches to avoid module MIME errors.
-- **Demo data**: local macOS development prefers `/Users/jun/Documents/test_dicom/py_test_path/py_test_path2`; deployed environments continue to use the bundled sample data.
-- **Release formats**: v3.1.0 is prepared for static web assets, Windows desktop installer, Windows standalone Server bundle, macOS DMG/ZIP desktop packages, and checksums.
 
 ## Feature Overview
 
@@ -87,17 +86,6 @@ The public web preview is useful for UI and basic workflow checks. Real PACS, lo
 | Drag-and-drop import | De-identification export |
 | --- | --- |
 | <img src="./screenshots/drap_import.png" alt="Drag-and-drop DICOM import" width="420"> | <img src="./screenshots/deIndentifyExport.png" alt="DICOM de-identification export" width="420"> |
-
-## Release Assets
-
-The v3.1.0 release contains:
-
-- `DicomVision-3.1.0-Setup.exe`: Windows desktop installer with embedded Server bundle.
-- `DicomVision-web-v3.1.0.zip`: static web frontend build. It requires a reachable DicomVisionServer backend.
-- `DicomVisionServer-v3.1.0-win-x64.zip`: standalone Windows backend bundle.
-- `DicomVision-3.1.0-Setup.dmg`: macOS desktop installer image with embedded Server bundle.
-- `DicomVision-3.1.0-Setup.zip`: macOS desktop ZIP package.
-- `SHA256SUMS-windows.txt` / `SHA256SUMS-macos.txt`: checksums for release artifacts.
 
 ## Quick Start
 

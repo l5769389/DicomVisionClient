@@ -151,6 +151,13 @@ Common scripts:
 - `npm run test:run`: run Vitest once.
 - `npm run release:win`: build the backend desktop bundle and package the Windows installer.
 - `npm run release:mac`: build the backend desktop bundle and package the macOS desktop app on macOS.
+- `npm run release:mac:publish -- --tag vX.Y.Z`: build macOS DMG/ZIP assets locally, generate checksums, and upload them to the GitHub Release.
+
+### Release process
+
+- **Windows / Web / Windows Server**: push a `vX.Y.Z` tag and `.github/workflows/release-windows.yml` builds and publishes these assets automatically.
+- **macOS**: on macOS, run `npm run release:mac:publish -- --tag vX.Y.Z`. The script uses the official Electron Builder binary mirror, builds the DMG/ZIP packages, generates `SHA256SUMS-macos.txt`, and uploads the assets to the same GitHub Release.
+- Before publishing, push matching version tags to both the Client and Server repositories and complete `gh auth login`. Use `--skip-build` when the macOS assets have already been built locally.
 
 Backend API, Socket.IO events, deployment, and desktop bundle details are documented here:
 

@@ -151,6 +151,13 @@ VITE_WEB_APP_MODE=web
 - `npm run test:run`：运行 Vitest。
 - `npm run release:win`：构建后端桌面 bundle 并打包 Windows 安装器。
 - `npm run release:mac`：在 macOS 上构建后端桌面 bundle 并打包 macOS 桌面端。
+- `npm run release:mac:publish -- --tag vX.Y.Z`：在 macOS 本地构建 DMG/ZIP、生成校验文件并上传到 GitHub Release。
+
+### 发布流程
+
+- **Windows / Web / Windows Server**：推送 `vX.Y.Z` 标签后，由 `.github/workflows/release-windows.yml` 自动构建并发布。
+- **macOS**：在 macOS 本地运行 `npm run release:mac:publish -- --tag vX.Y.Z`。脚本会使用官方 Electron Builder 二进制源，构建 DMG/ZIP，生成 `SHA256SUMS-macos.txt`，并将资产上传到同一个 GitHub Release。
+- 发布前需要先将 Client 和 Server 的同名版本标签推送到远端，并完成 `gh auth login`。macOS 也支持 `--skip-build`，用于上传已经生成的本地资产。
 
 后端 API、Socket.IO 事件、部署和桌面 bundle 细节见：
 

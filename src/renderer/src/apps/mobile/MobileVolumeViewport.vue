@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES, type ViewOperationType } from '@shared/viewerConstants'
 import VolumeView from '../../components/viewer/views/VolumeView.vue'
 import type { MeasurementDraft, MeasurementDraftPoint, ViewerTabItem, VolumeClipMode, WorkspaceReadyPayload } from '../../types/viewer'
+import type { VolumeOrientationFace } from '../../composables/workspace/volume/volumeOrientation'
 import {
   createMobileViewportDragMoveQueue,
   getMobileGestureCenter,
@@ -43,6 +44,7 @@ const emit = defineEmits<{
     canvasHeight?: number
     interactionId?: string
   }]
+  volumeOrientationSelect: [face: VolumeOrientationFace]
   volumeClip: [payload: { viewportKey: string; mode: VolumeClipMode; points: MeasurementDraftPoint[] }]
   workspaceReady: [payload: WorkspaceReadyPayload]
 }>()
@@ -705,6 +707,7 @@ watch(
       @pointer-move="handlePointerMove"
       @pointer-up="handlePointerUp"
       @viewport-click="handleViewportClick"
+      @volume-orientation-select="emit('volumeOrientationSelect', $event)"
     />
   </section>
 </template>

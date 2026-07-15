@@ -81,17 +81,6 @@ async function openToolbarLayoutSection(
   await nextTick()
 }
 
-async function openImageFormatSection(wrapper: ReturnType<typeof mountSettingsDialog>): Promise<void> {
-  const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes('Display'))
-  expect(displayGroupButton).toBeTruthy()
-  await displayGroupButton!.trigger('click')
-
-  const imageFormatButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes('Image Format'))
-  expect(imageFormatButton).toBeTruthy()
-  await imageFormatButton!.trigger('click')
-  await nextTick()
-}
-
 async function openCornerInfoSection(wrapper: ReturnType<typeof mountSettingsDialog>): Promise<void> {
   const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes('Display'))
   expect(displayGroupButton).toBeTruthy()
@@ -220,26 +209,19 @@ describe('SidebarSettingsDialog corner info style settings', () => {
   })
 })
 
-describe('SidebarSettingsDialog image format settings', () => {
+describe('SidebarSettingsDialog image transport settings', () => {
   beforeEach(() => {
     preferenceStorage.value = null
     const preferences = useUiPreferences()
     preferences.setLocale('en-US')
-    preferences.viewerImageFormatPreference.value = 'png'
   })
 
-  it('switches the viewer image transport format', async () => {
-    const preferences = useUiPreferences()
+  it('does not expose the fixed WebP transport as a user setting', async () => {
     const wrapper = mountSettingsDialog()
 
-    await openImageFormatSection(wrapper)
-
-    expect(wrapper.find('[data-testid="settings-image-format-png"]').classes()).toContain('settings-toolbar-layout-choice--active')
-
-    await wrapper.get('[data-testid="settings-image-format-webp"]').trigger('click')
-
-    expect(preferences.viewerImageFormatPreference.value).toBe('webp')
-    expect(wrapper.find('[data-testid="settings-image-format-webp"]').classes()).toContain('settings-toolbar-layout-choice--active')
+    expect(wrapper.text()).not.toContain('Image Format')
+    expect(wrapper.find('[data-testid="settings-image-format-png"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-image-format-webp"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

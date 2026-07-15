@@ -2,38 +2,38 @@
 
 [English](./README.en.md)
 
-DicomVision 是一套 C/S 架构的 DICOM Viewer，包含 Vue/Electron 客户端和 FastAPI 后端。它把 DICOM 解析、2D/MPR/4D/3D 重建、PET/CT 融合、分割、QA 和导出等显存与计算压力较高的任务放在后端完成，再把渲染结果实时推送给桌面端、Web 端和移动端界面。
+**DICOM Viewer for Desktop / Web / Mobile**
 
-这个架构更适合终端显存较小、需要多端访问、希望统一复用服务端影像处理能力的场景。如果目标环境中的工作站具备充足 GPU/显存，并且更看重本机最高帧率三维交互、极低延迟或完全离线的原生工作流，通常更建议优先评估 C3D 等成熟本地 3D Viewer，或采用前后端不分离的 Python/C++ 原生渲染方案。DicomVision 的定位是服务端渲染、多端复用和轻量客户端部署。
+DicomVision 是一套面向医学影像浏览、分析和教学验证场景的 DICOM Viewer。项目采用 C/S 架构：客户端基于 Vue、TypeScript 和 Electron 构建，后端基于 FastAPI、Socket.IO 和医学影像处理栈完成 DICOM 解析、渲染、重建、分析和导出，并将结果实时推送到桌面端、Web 端和移动端界面。
 
-## v3.1.0 重点更新
+## 项目概览
 
-- **3D 渲染与交互**：优化 VR/Surface 预览与最终帧一致性，改进模型直接拖拽旋转、连续拖动防跳帧、移动端 3D 初始相机适配和最终帧采样质量。
-- **3D 模板与参数**：补齐 General、CT、CTA、MR、CBCT 分组模板；AAA 等模板改为 CT HU 锚点 + 前景百分位自适应，Surface 独立使用 iso-surface/material 参数。
-- **3D 工具**：新增去床板开关、自由形状裁剪、裁剪进度提示、3D 参数弹层、移动端 3D 工具链路和服务端 metadata 状态同步。
+- 在线预览：[https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
+- Client 仓库：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
+- Server 仓库：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+- 当前发布：[DicomVision v3.1.1](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.1)
 
-## 主要功能
+DicomVision 将重计算任务放在后端执行，前端负责交互、工具组织和结果呈现。这样可以让浏览器、移动端和桌面端复用同一套影像能力，也便于在局域网、云服务器或桌面内置后端环境中部署。
 
-- **数据源**：本地 DICOM 文件/文件夹导入、拖拽导入、浏览器上传、服务端样例数据、PACS DICOMweb/DIMSE 查询与下载。
-- **2D 浏览**：窗宽窗位、缩放、平移、滚动、翻转/旋转、伪彩、同步浏览、Compare、Layout、多序列和多视图工作区。
-- **MPR/4D**：AX/COR/SAG 三视图、斜切 MPR、十字线同步、MPR 播放、4D phase 播放、FPS 控制和时相同步。
-- **3D**：VR 体渲染、Surface 渲染、MIP/XRay 类模板、AAA/CT/CTA/MR/CBCT 自适应预设、3D 参数面板、去床板、自由形状裁剪、移动端触控 3D。
-- **PET/CT Fusion**：PET/CT 融合浏览、PET-only、SUV/强度范围、手动配准、配准保存、Fusion 四宫格和单视口切换。
-- **测量与标注**：线段、矩形、椭圆、角度、曲线、自由形状测量，箭头/文本标注，实时 draft 和 ROI 指标。
-- **分割与 QA**：MPR 阈值分割、球形 VOI、分割 overlay、分割导入/导出、MTF/FWHM、水模 QA 和结果报告。
-- **DICOM 与导出**：DICOM Tag 树查看、VR 感知编辑、批量 Tag 修改、脱敏导出、PNG、DICOM、DICOM SR、DICOM GSPS 导出。
-- **多端体验**：桌面端、Web 端、移动端响应式界面，支持深色、浅色和蓝色主题；桌面端安装包内置后端服务。
+本项目特别适合客户端显存有限、但仍需要使用统一 DICOM 浏览和后端 2D/3D 渲染能力的场景。对于显存充足且追求本地 GPU 交互性能的工作站，建议优先评估 C3D 等原生方案；对于需要将计算与界面部署在同一进程中的场景，也可以选择 Python/C++ 等前后端不分离的实现。DicomVision 的 C/S 架构主要面向跨端复用、集中式渲染和轻量客户端接入。
+
+## 核心能力
+
+- **数据导入**：支持 DICOM 文件、文件夹、拖拽导入、浏览器上传、服务端样例数据，以及 PACS DICOMweb/DIMSE 查询和下载。
+- **2D 浏览**：支持窗宽窗位、缩放、平移、滚动、翻转、旋转、伪彩、同步浏览、Compare、Layout、多序列和多视图工作区。
+- **MPR 与 4D**：支持 AX/COR/SAG 三视图、斜切 MPR、十字线同步、MPR 播放、4D phase 播放、FPS 控制和时相同步。
+- **3D 可视化**：支持 VR 体渲染、Surface 渲染、MIP/XRay 类模板、AAA/CT/CTA/MR/CBCT 自适应预设、3D 参数面板、去床板、自由形状裁剪和移动端触控 3D。
+- **PET/CT Fusion**：支持 PET/CT 融合浏览、PET-only、SUV/强度范围控制、手动配准、配准保存、Fusion 四宫格和单视口切换。
+- **测量与标注**：支持线段、矩形、椭圆、角度、曲线、自由形状测量，箭头和文本标注，实时 draft 与 ROI 指标。
+- **分割与 QA**：支持 MPR 阈值分割、球形 VOI、分割 overlay、分割导入导出、MTF/FWHM、水模 QA 和结果报告。
+- **DICOM 与导出**：支持 DICOM Tag 树查看、VR 感知编辑、批量 Tag 修改、脱敏导出、PNG、DICOM、DICOM SR 和 DICOM GSPS 导出。
+- **多端体验**：支持桌面端、Web 端和移动端响应式界面，提供深色、浅色和蓝色主题；桌面安装包内置后端服务。
 
 ## 在线预览
 
-- https://dicom.zhaolin.online/
+[https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
 
-公开 Web 预览用于体验 UI 和基础流程。真实 PACS、本地大数据量和桌面端内置后端场景建议使用本地部署或桌面端。
-
-## 仓库
-
-- Client: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
-- Server: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+公开 Web 预览适合体验 UI、基础流程和远程渲染能力。真实 PACS、本地大数据量、桌面端内置后端和隐私数据场景，建议使用本地部署或桌面端。
 
 ## 演示
 
@@ -118,12 +118,16 @@ $env:DICOM_VISION_SERVER_ORIGIN = "http://127.0.0.1:8000"
 npm run dev
 ```
 
-### Web 开发与构建
+### 启动 Web 开发服务
 
 ```bash
 npm run dev:web
+```
+
+### 构建 Web 静态包
+
+```bash
 npm run build:web
-npm run preview:web
 ```
 
 生产环境变量示例：
@@ -133,33 +137,25 @@ VITE_BACKEND_ORIGIN=https://your-backend.example.com
 VITE_WEB_APP_MODE=web
 ```
 
-### 桌面端打包
+## 开发
 
-Windows：
-
-```powershell
-npm run release:win
-```
-
-macOS 需要在 macOS 上构建：
-
-```bash
-npm run release:mac
-```
-
-## 常用脚本
+常用脚本：
 
 - `npm run dev`：启动 Electron 桌面开发运行时。
 - `npm run dev:web`：启动 Web Vite 开发服务。
 - `npm run build`：构建 Electron main、preload 和 renderer。
 - `npm run build:web`：构建独立 Web 前端到 `dist-web/`。
+- `npm run preview:web`：本地预览 Web 静态构建。
 - `npm run generate:api-types`：从 Server OpenAPI 重新生成前端 API 类型。
 - `npm run typecheck`：运行 TypeScript 类型检查。
 - `npm run test:run`：运行 Vitest。
 - `npm run release:win`：构建后端桌面 bundle 并打包 Windows 安装器。
-
-## 后端说明
+- `npm run release:mac`：在 macOS 上构建后端桌面 bundle 并打包 macOS 桌面端。
 
 后端 API、Socket.IO 事件、部署和桌面 bundle 细节见：
 
 [DicomVisionServer README](https://github.com/l5769389/DicomVisionServer)
+
+## 联系与反馈
+
+如有问题、建议或希望参与改进，欢迎联系：5769389@qq.com

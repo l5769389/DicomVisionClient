@@ -114,21 +114,19 @@ describe('MobileStackViewport', () => {
     ])
   })
 
-  it('uses two-finger gestures for simultaneous zoom and pan', async () => {
+  it('uses a two-finger distance change for zoom without also panning', async () => {
     const wrapper = mountStackViewport(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`)
     const stage = wrapper.get('[data-testid="stack-stage"]')
 
     await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 1 })
     await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 10, clientY: 0, pointerId: 2 })
     await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 20, clientY: 4, pointerId: 2 })
-    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 20, clientY: 4, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 24, clientY: 4, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { clientX: 24, clientY: 4, pointerId: 2 })
 
     const dragEvents = wrapper.emitted('viewportDrag') ?? []
     expect(dragEvents).toContainEqual([
       { deltaX: 0, deltaY: 0, opType: VIEW_OPERATION_TYPES.zoom, phase: 'start', viewportKey: 'single' }
-    ])
-    expect(dragEvents).toContainEqual([
-      { deltaX: 0, deltaY: 0, opType: VIEW_OPERATION_TYPES.pan, phase: 'start', viewportKey: 'single' }
     ])
     expect(
       dragEvents.some(([payload]) => {
@@ -136,12 +134,22 @@ describe('MobileStackViewport', () => {
         return event.opType === VIEW_OPERATION_TYPES.zoom && event.phase === 'move'
       })
     ).toBe(true)
-    expect(
-      dragEvents.some(([payload]) => {
-        const event = payload as { opType: string; phase: string }
-        return event.opType === VIEW_OPERATION_TYPES.pan && event.phase === 'move'
-      })
-    ).toBe(true)
+    expect(dragEvents.some(([payload]) => (payload as { opType: string }).opType === VIEW_OPERATION_TYPES.pan)).toBe(false)
+  })
+
+  it('uses a two-finger same-direction gesture for slice scrolling only', async () => {
+    const wrapper = mountStackViewport(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`)
+    const stage = wrapper.get('[data-testid="stack-stage"]')
+
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { clientX: 20, clientY: 0, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 0, clientY: 40, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { clientX: 20, clientY: 40, pointerId: 2 })
+
+    expect(wrapper.emitted('viewportWheel')).toContainEqual([
+      { viewportKey: 'single', deltaY: 1, exact: true }
+    ])
+    expect(wrapper.emitted('viewportDrag')).toBeUndefined()
   })
 
   it('creates rectangular measurements from drag gestures', async () => {

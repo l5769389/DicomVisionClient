@@ -5,6 +5,15 @@ import { useUiLocale } from '../../ui/useUiLocale'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { VOLUME_PRESET_OPTIONS, createDefaultVolumeRenderConfig, normalizeVolumePresetKey } from '../volume/volumeRenderConfig'
 import { createDefaultSurfaceRenderConfig } from '../volume/surfaceRenderConfig'
+import {
+  DEFAULT_VOLUME_ORIENTATION_FACE,
+  getVolumeOrientationIcon,
+  isVolumeOrientationFace,
+  resolveVolumeOrientationFace,
+  VOLUME_ORIENTATION_FACE_NAMES,
+  VOLUME_ORIENTATION_FACES,
+  type VolumeOrientationFace
+} from '../volume/volumeOrientation'
 import type { ViewerExportFormat } from '../export/viewExport'
 import {
   createViewerLayoutOptionValue,
@@ -89,6 +98,7 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   surfacePreset: 'Surface 预设',
   tag: '标签',
   volumeClip: '裁剪',
+  volumeOrientation: '朝向',
   volumeRemoveBed: '去床板',
   volumeParams: '参数',
   volumePreset: '预设',
@@ -114,6 +124,7 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'volumeClip:inside': { label: '裁剪内部', description: '只显示自由区域投影内的 3D 内容' },
   'volumeClip:outside': { label: '裁剪外部', description: '隐藏自由区域投影内的 3D 内容' },
   'volumeClip:reset': { label: '重置裁剪', description: '恢复完整 3D 体数据投影' },
+  'volumeOrientation:reset': { label: '重置朝向', description: '恢复 3D 初始朝向。' },
   'pseudocolor:blackbody': { label: '黑体' },
   'pseudocolor:bw': { label: '黑白' },
   'pseudocolor:bwinverse': { label: '反相黑白' },
@@ -148,8 +159,8 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'rotate:mirror-v': { label: '垂直镜像' },
   'rotate:reset': { label: '重置旋转' },
   'surfacePreset:bone': { label: '骨表面' },
-  'surfacePreset:softTissue': { label: '软组织' },
-  'surfacePreset:highDensity': { label: '高密度' },
+  'surfacePreset:softTissue': { label: '软组织/皮肤' },
+  'surfacePreset:highDensity': { label: '高密度/金属' },
   'volumePreset:bone': { label: '骨骼' },
   'volumePreset:aaa': { label: 'AAA' },
   'volumePreset:cardiac': { label: '心脏' },
@@ -322,7 +333,7 @@ function toDisplayOverlaySelectionValue(key: DisplayOverlayKey): string {
 
 function parseDisplayOverlaySelectionValue(value: string | null | undefined): DisplayOverlayKey | null {
   const key = String(value ?? '').replace(DISPLAY_OVERLAY_SELECTION_PREFIX, '')
-  return key === 'cornerInfo' || key === 'scaleBar' || key === 'pseudocolorBar' || key === 'sliceSlider' || key === 'crosshair' ? key : null
+  return key === 'cornerInfo' || key === 'scaleBar' || key === 'pseudocolorBar' || key === 'sliceSlider' || key === 'crosshair' || key === 'volumeOrientationCube' ? key : null
 }
 
 function toExportTargetSelectionValue(viewportKey: string): string {
@@ -485,7 +496,8 @@ function localizeToolbarTool(tool: StackTool, isZh: boolean): StackTool {
     ...tool,
     label: tool.key === 'crosshair' && tool.options ? tool.label : (ZH_TOOL_LABELS[tool.key] ?? tool.label),
     options: tool.options?.map((option) => localizeToolbarOption(option, isZh)),
-    dockOptions: tool.dockOptions?.map((option) => localizeToolbarOption(option, isZh))
+    dockOptions: tool.dockOptions?.map((option) => localizeToolbarOption(option, isZh)),
+    footerOptions: tool.footerOptions?.map((option) => localizeToolbarOption(option, isZh))
   }
 }
 
@@ -733,11 +745,32 @@ const surfaceParamsTool: StackTool = { key: 'surfaceParams', label: 'Surface Par
 const render3dModeTool: StackTool = {
   key: 'render3dMode',
   label: 'Render',
-  icon: 'render-volume',
+  icon: 'render-mode',
   kind: 'action',
+  showSelectedOptionIcon: false,
   options: [
     { value: 'render3dMode:volume', label: 'VR', icon: 'render-volume', description: 'Volume rendering' },
     { value: 'render3dMode:surface', label: 'Surface', icon: 'render-surface', description: 'Bone surface mesh' }
+  ]
+}
+
+const volumeOrientationTool: StackTool = {
+  key: 'volumeOrientation',
+  label: 'Orientation',
+  icon: getVolumeOrientationIcon(DEFAULT_VOLUME_ORIENTATION_FACE),
+  kind: 'action',
+  showSelectedOptionIcon: false,
+  options: VOLUME_ORIENTATION_FACES.map((face) => ({
+    value: `volumeOrientation:${face}`,
+    label: VOLUME_ORIENTATION_FACE_NAMES[face].en
+  })),
+  footerOptions: [
+    {
+      value: 'volumeOrientation:reset',
+      label: 'Reset Orientation',
+      icon: 'reset',
+      description: 'Restore the initial 3D orientation.'
+    }
   ]
 }
 
@@ -752,12 +785,13 @@ const volumePresetTool: StackTool = {
 const surfacePresetTool: StackTool = {
   key: 'surfacePreset',
   label: 'Surface Preset',
-  icon: 'render-surface',
+  icon: 'surface-preset',
   kind: 'action',
+  showSelectedOptionIcon: false,
   options: [
     { value: 'surfacePreset:bone', label: 'Bone', icon: 'render-surface' },
-    { value: 'surfacePreset:softTissue', label: 'Soft Tissue', icon: 'volume-preset-muscle' },
-    { value: 'surfacePreset:highDensity', label: 'High Density', icon: 'volume-preset-mip' }
+    { value: 'surfacePreset:softTissue', label: 'Soft Tissue / Skin', icon: 'volume-preset-muscle' },
+    { value: 'surfacePreset:highDensity', label: 'High Density / Metal', icon: 'volume-preset-mip' }
   ]
 }
 
@@ -799,9 +833,9 @@ const segmentationTool: StackTool = {
 const volumeTools: StackTool[] = [
   layoutTool,
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode', dockOptions: rotate3dDockOptions },
+  volumeOrientationTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
-  { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
   render3dModeTool,
   volumeRemoveBedTool,
   volumeClipTool,
@@ -823,10 +857,10 @@ const volumeTools: StackTool[] = [
 ]
 
 const genericToolsWithCrosshair: StackTool[] = [
+  mprLayoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
-  mprLayoutTool,
   { key: 'crosshair', label: 'Crosshair', icon: 'crosshair', kind: 'mode', showSelectedOptionIcon: false },
   { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode', dockOptions: rotate3dDockOptions },
   { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' },
@@ -855,9 +889,14 @@ const mprToolsWithSegmentation: StackTool[] = genericToolsWithCrosshair.flatMap(
   tool.key === 'mprMip' ? [tool, segmentationTool] : [tool]
 )
 
-const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
-  tool.key === 'mprMip' ? [tool, segmentationTool, render3dModeTool, volumeRemoveBedTool, volumeClipTool, volumeParamsTool, volumePresetTool] : [tool]
-)
+const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) => {
+  if (tool.key === 'rotate3d') {
+    return [tool, volumeOrientationTool]
+  }
+  return tool.key === 'mprMip'
+    ? [tool, segmentationTool, render3dModeTool, volumeRemoveBedTool, volumeClipTool, volumeParamsTool, volumePresetTool]
+    : [tool]
+})
 
 interface ViewerWorkspaceToolbarOptions {
   activeOperation: ComputedRef<string>
@@ -866,7 +905,7 @@ interface ViewerWorkspaceToolbarOptions {
   emitTriggerViewAction: (payload: ViewerToolbarActionPayload) => void
   emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   emitOpenLayoutView: (template: ViewerLayoutTemplate) => void | Promise<void>
-  emitViewportWheel: (payload: { viewportKey: string; deltaY: number; exact?: boolean }) => void
+  emitViewportWheel: (payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }) => void
   emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
   exportCurrentView: (format: ViewerExportFormat, viewportKey?: string) => void
   activeViewportKey: Ref<string>
@@ -910,6 +949,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     volumeClip: 'volumeClip:inside',
     volumePreset: 'volumePreset:aaa',
     surfacePreset: 'surfacePreset:bone',
+    volumeOrientation: 'volumeOrientation:A',
     layout: createViewerLayoutOptionValue(VIEWER_LAYOUT_PRESETS[0]!),
     mprLayout: toMprLayoutSelectionValue(mprDefaultLayoutKey.value),
     crosshair: toMprCrosshairModeSelectionValue('orthogonal'),
@@ -1025,6 +1065,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (key === 'crosshair') {
       return tab.showCrosshair !== false
     }
+    if (key === 'volumeOrientationCube') {
+      return tab.showVolumeOrientationCube !== false
+    }
     return tab.showSliceSlider !== false
   }
 
@@ -1062,7 +1105,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
 
     const nextDraft = { ...draft }
-    for (const key of ['cornerInfo', 'scaleBar', 'pseudocolorBar', 'sliceSlider', 'crosshair'] as const) {
+    for (const key of ['cornerInfo', 'scaleBar', 'pseudocolorBar', 'sliceSlider', 'crosshair', 'volumeOrientationCube'] as const) {
       if (nextDraft[key] === getTabDisplayOverlayVisible(tab, key)) {
         delete nextDraft[key]
       }
@@ -1094,13 +1137,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         icon: 'info',
         checked: getActiveDisplayOverlayVisible('cornerInfo')
       },
-      {
-        value: toDisplayOverlaySelectionValue('scaleBar'),
-        label: isZh.value ? '比例尺' : 'Scale Bar',
-        icon: 'measure',
-        checked: getActiveDisplayOverlayVisible('scaleBar')
-      },
-      ...(options.activeTab.value?.viewType !== 'PETCTFusion'
+      ...(!isActiveRender3dViewport()
+        ? [
+            {
+              value: toDisplayOverlaySelectionValue('scaleBar'),
+              label: isZh.value ? '比例尺' : 'Scale Bar',
+              icon: 'measure',
+              checked: getActiveDisplayOverlayVisible('scaleBar')
+            }
+          ]
+        : []),
+      ...(options.activeTab.value?.viewType !== 'PETCTFusion' && options.activeTab.value?.viewType !== '3D'
         ? [
             {
               value: toDisplayOverlaySelectionValue('pseudocolorBar'),
@@ -1129,6 +1176,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
               checked: getActiveDisplayOverlayVisible('crosshair')
             }
           ]
+        : []),
+      ...((isActiveRender3dViewport() || isActiveMpr3dLayout.value)
+        ? [
+            {
+              value: toDisplayOverlaySelectionValue('volumeOrientationCube'),
+              label: isZh.value ? '方向立方体' : 'Orientation Cube',
+              icon: 'render-mode',
+              checked: getActiveDisplayOverlayVisible('volumeOrientationCube')
+            }
+          ]
         : [])
     ]
   }))
@@ -1138,7 +1195,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion' || viewType === 'Layout'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion' || viewType === 'Layout' || viewType === '3D'
   }
 
   function withDisplayTool(tools: StackTool[]): StackTool[] {
@@ -1214,7 +1271,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       case '4D':
         return genericToolsWithCrosshair
       case 'Layout':
-        return withSyncToolAfterLayout(layoutStackTools)
+        return isActiveLayoutVolumeSlot() ? volumeTools : withSyncToolAfterLayout(layoutStackTools)
       case '3D':
         return volumeTools
       default:
@@ -1224,7 +1281,29 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function isActiveRender3dViewport(): boolean {
     const tab = options.activeTab.value
-    return Boolean(tab && (tab.viewType === '3D' || (isActiveMpr3dLayout.value && options.activeViewportKey.value === 'volume')))
+    return Boolean(
+      tab && (
+        tab.viewType === '3D' ||
+        (isActiveMpr3dLayout.value && options.activeViewportKey.value === 'volume') ||
+        (tab.viewType === 'Layout' && isActiveLayoutVolumeSlot())
+      )
+    )
+  }
+
+  function getActiveVolumeQuaternion(): [number, number, number, number] | null {
+    const tab = options.activeTab.value
+    if (!tab) {
+      return null
+    }
+    if (tab.viewType === 'Layout') {
+      return getActiveLayoutSlot(tab)?.orientation?.volumeQuaternion ?? tab.orientation.volumeQuaternion ?? null
+    }
+    return tab.orientation.volumeQuaternion ?? null
+  }
+
+  function getActiveVolumeOrientationFace(): VolumeOrientationFace | null {
+    const quaternion = getActiveVolumeQuaternion()
+    return quaternion ? resolveVolumeOrientationFace(quaternion) : DEFAULT_VOLUME_ORIENTATION_FACE
   }
 
   function withRenderModeTools(tools: StackTool[]): StackTool[] {
@@ -1232,15 +1311,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!tab || tab.render3dMode !== 'surface' || !isActiveRender3dViewport()) {
       return tools
     }
-    return tools.flatMap((tool) => {
-      if (tool.key === 'window' || tool.key === 'volumeParams' || tool.key === 'volumePreset') {
-        return []
-      }
-      if (tool.key === 'render3dMode') {
-        return [tool, surfaceParamsTool, surfacePresetTool]
-      }
-      return [tool]
-    })
+    return tools
+      .filter((tool) => tool.key !== 'window')
+      .map((tool) => {
+        if (tool.key === 'volumeParams') {
+          return surfaceParamsTool
+        }
+        if (tool.key === 'volumePreset') {
+          return surfacePresetTool
+        }
+        return tool
+      })
   }
 
   function withDynamicVolumeToolState(tool: StackTool): StackTool {
@@ -1262,6 +1343,33 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
   }
 
+  function withDynamicVolumeOrientationToolState(tool: StackTool): StackTool {
+    if (tool.key !== 'volumeOrientation' || !isActiveRender3dViewport()) {
+      return tool
+    }
+    const face = getActiveVolumeOrientationFace()
+    const faceLabel = face ?? (isZh.value ? '自由' : 'Oblique')
+    return {
+      ...tool,
+      icon: getVolumeOrientationIcon(face),
+      label: isZh.value
+        ? `朝向 · ${faceLabel}`
+        : `Orientation · ${faceLabel}`,
+      options: tool.options?.map((option) => ({
+        ...option,
+        label: option.value.startsWith('volumeOrientation:')
+          ? VOLUME_ORIENTATION_FACE_NAMES[option.value.replace(/^volumeOrientation:/, '') as VolumeOrientationFace]?.en ?? option.label
+          : option.label,
+        description: option.value.startsWith('volumeOrientation:')
+          ? (isZh.value
+              ? VOLUME_ORIENTATION_FACE_NAMES[option.value.replace(/^volumeOrientation:/, '') as VolumeOrientationFace]?.zh
+              : undefined)
+          : option.description,
+        checked: face !== null && option.value === `volumeOrientation:${face}`
+      }))
+    }
+  }
+
   const activeTools = computed(() => {
     const viewType = options.activeTab.value?.viewType
     return withDisplayTool(
@@ -1277,6 +1385,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       .map((tool) => withSupportedExportOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
       .map((tool) => withDynamicVolumeToolState(tool))
+      .map((tool) => withDynamicVolumeOrientationToolState(tool))
   })
 
   const areToolbarActionsDisabled = computed(
@@ -1287,7 +1396,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeVolumeRenderConfig = computed(() => {
     const tab = options.activeTab.value
-    if (!tab || (tab.viewType !== '3D' && !isActiveMpr3dLayout.value)) {
+    if (!tab || !isActiveRender3dViewport()) {
       return null
     }
     if (tab.render3dMode === 'surface') {
@@ -1299,7 +1408,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   const activeSurfaceRenderConfig = computed<SurfaceRenderConfig | null>(() => {
     const tab = options.activeTab.value
-    if (!tab || (tab.viewType !== '3D' && !isActiveMpr3dLayout.value)) {
+    if (!tab || !isActiveRender3dViewport()) {
       return null
     }
     if (tab.render3dMode !== 'surface') {
@@ -1361,6 +1470,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   function getActiveLayoutSlot(tab: ViewerTabItem): NonNullable<ViewerTabItem['layoutSlots']>[number] | null {
     const slots = tab.layoutSlots ?? []
     return slots.find((slot) => slot.id === options.activeViewportKey.value && slot.viewId) ?? slots.find((slot) => Boolean(slot.viewId)) ?? null
+  }
+
+  function isActiveLayoutVolumeSlot(): boolean {
+    const tab = options.activeTab.value
+    if (!tab || tab.viewType !== 'Layout') {
+      return false
+    }
+    const slot = getActiveLayoutSlot(tab)
+    return slot?.viewType === '3D' || slot?.sourceViewType === '3D'
   }
 
   function resolveActiveComparePaneKey(tab: ViewerTabItem): CompareStackPaneKey {
@@ -1490,7 +1608,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (viewType === 'MPR' || viewType === '4D') {
       return 'crosshair'
     }
-    if (viewType === '3D') {
+    if (viewType === '3D' || (viewType === 'Layout' && isActiveLayoutVolumeSlot())) {
       return 'rotate3d'
     }
     return 'window'
@@ -1896,7 +2014,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       ...stackToolSelections.value,
       reset: 'reset:view'
     }
-    if (options.activeTab.value?.viewType === '3D' || (isActiveMpr3dLayout.value && options.activeViewportKey.value === 'volume')) {
+    if (isActiveRender3dViewport()) {
       stackToolSelections.value = {
         ...stackToolSelections.value,
         render3dMode: 'render3dMode:volume',
@@ -1988,6 +2106,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     },
     volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
     surfacePreset: (tool) => applySelectedViewAction(tool, 'surfacePreset'),
+    volumeOrientation: toggleToolMenu,
     render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
     volumeRemoveBed: () => {
       closeMenus()
@@ -2103,6 +2222,27 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       options.stopViewportDrag()
       setToolbarToolActive(tool.key)
       options.emitTriggerViewAction({ action: 'rotate3dReset' })
+      return
+    }
+
+    if (tool.key === 'volumeOrientation') {
+      const face = optionValue === 'volumeOrientation:reset'
+        ? DEFAULT_VOLUME_ORIENTATION_FACE
+        : optionValue.replace(/^volumeOrientation:/, '').toUpperCase()
+      if (!isVolumeOrientationFace(face) || !isActiveRender3dViewport()) {
+        return
+      }
+      closeMenusIfNeeded(behavior)
+      options.stopViewportDrag()
+      setToolbarToolActive(tool.key)
+      stackToolSelections.value = {
+        ...stackToolSelections.value,
+        volumeOrientation: `volumeOrientation:${face}`
+      }
+      options.emitTriggerViewAction({
+        action: 'volumeOrientation',
+        value: face
+      })
       return
     }
 
@@ -2492,16 +2632,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     options.setActiveViewport(viewportKey)
   }
 
-  function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean }): void {
+  function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }): void {
     options.setActiveViewport(payload.viewportKey)
-    const delta = payload.exact ? payload.deltaY : payload.deltaY > 0 ? 1 : payload.deltaY < 0 ? -1 : 0
-    if (!Number.isFinite(delta) || delta === 0) {
+    if (!Number.isFinite(payload.deltaY) || payload.deltaY === 0) {
       return
     }
-    options.emitViewportWheel({
-      viewportKey: payload.viewportKey,
-      deltaY: delta
-    })
+    options.emitViewportWheel(payload)
   }
 
   watch(
@@ -2623,6 +2759,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       options.activeTab.value?.showCornerInfo,
       options.activeTab.value?.showScaleBar,
       options.activeTab.value?.showPseudocolorBar,
+      options.activeTab.value?.showVolumeOrientationCube,
       options.activeTab.value?.showSliceSlider,
       options.activeTab.value?.showCrosshair
     ] as const,
@@ -2667,7 +2804,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   watch(
     () => options.activeTab.value?.volumePreset,
     (value) => {
-      if (options.activeTab.value?.viewType !== '3D' && !isActiveMpr3dLayout.value) {
+      if (!isActiveRender3dViewport()) {
         return
       }
       stackToolSelections.value = {
@@ -2681,7 +2818,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   watch(
     () => options.activeTab.value?.surfaceRenderConfig?.preset,
     (value) => {
-      if (options.activeTab.value?.viewType !== '3D' && !isActiveMpr3dLayout.value) {
+      if (!isActiveRender3dViewport()) {
         return
       }
       stackToolSelections.value = {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { OrientationInfo } from '../../../types/viewer'
+import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 const DEFAULT_FACE_LABELS = {
   front: 'A',
@@ -13,6 +14,10 @@ const DEFAULT_FACE_LABELS = {
 
 const props = defineProps<{
   orientation: OrientationInfo
+}>()
+
+const emit = defineEmits<{
+  selectFace: [face: VolumeOrientationFace]
 }>()
 
 const cubeTransform = computed(() => {
@@ -89,15 +94,19 @@ const faces = [
   <div class="viewer-orientation-cube">
     <div class="viewer-orientation-cube__viewport">
       <div class="viewer-orientation-cube__body" :style="{ transform: cubeTransform }">
-        <span
+        <button
           v-for="face in faces"
           :key="face.key"
+          type="button"
           class="viewer-orientation-cube__face"
           :class="`viewer-orientation-cube__face--${face.key}`"
           :style="{ transform: face.transform }"
+          :aria-label="`Set 3D orientation to ${face.label}`"
+          @pointerdown.stop
+          @click.stop="emit('selectFace', face.label)"
         >
           {{ face.label }}
-        </span>
+        </button>
       </div>
     </div>
   </div>

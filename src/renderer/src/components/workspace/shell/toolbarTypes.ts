@@ -3,7 +3,7 @@ import type { CompareSyncSettingKey, MprLayoutKey } from '../../../types/viewer'
 export interface StackToolOption {
   value: string
   label: string
-  icon: string
+  icon?: string
   layoutRows?: number
   layoutColumns?: number
   swatchKey?: string
@@ -43,6 +43,7 @@ export interface StackTool {
   inlineKind?: 'fusionPetDisplay' | 'fusionRegistration'
   options?: StackToolOption[]
   dockOptions?: StackToolOption[]
+  footerOptions?: StackToolOption[]
   rangeControl?: StackToolRangeControl
   showSelectedOptionIcon?: boolean
 }

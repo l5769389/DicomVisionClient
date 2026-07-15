@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AnnotationOverlay, CornerInfo, FusionInfo, MeasurementOverlay, MprCrosshairInfo, ViewerTabItem } from '../../../types/viewer'
+import type { AnnotationOverlay, CornerInfo, FolderSeriesItem, FusionInfo, MeasurementOverlay, MprCrosshairInfo, ViewerTabItem } from '../../../types/viewer'
 import { useViewerWorkspaceViews } from './useViewerWorkspaceViews'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
+import { createUniformLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import {
   createDefaultTransformInfo,
   createEmptyCornerInfo,
@@ -24,6 +25,34 @@ import {
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PET_AXIAL_PANE_KEY
 } from './viewerWorkspaceTabs'
+
+const postApiMock = vi.hoisted(() => vi.fn())
+const bindViewMock = vi.hoisted(() => vi.fn())
+const bindViewSilentlyMock = vi.hoisted(() => vi.fn())
+const bindViewSilentlyWithAckMock = vi.hoisted(() => vi.fn(async () => ({ ok: true })))
+const emitViewOperationWithAckMock = vi.hoisted(() => vi.fn(async () => ({ ok: true })))
+
+vi.mock('../../../services/typedApi', () => ({
+  postApi: postApiMock
+}))
+
+vi.mock('../../../services/socket', () => ({
+  VIEWER_IMAGE_TRANSPORT_FORMAT: 'webp',
+  bindView: bindViewMock,
+  bindViewSilently: bindViewSilentlyMock,
+  bindViewSilentlyWithAck: bindViewSilentlyWithAckMock,
+  emitViewOperationWithAck: emitViewOperationWithAckMock
+}))
+
+afterEach(() => {
+  postApiMock.mockReset()
+  bindViewMock.mockReset()
+  bindViewSilentlyMock.mockReset()
+  bindViewSilentlyWithAckMock.mockClear()
+  bindViewSilentlyWithAckMock.mockResolvedValue({ ok: true })
+  emitViewOperationWithAckMock.mockClear()
+  emitViewOperationWithAckMock.mockResolvedValue({ ok: true })
+})
 
 function createFusionInfo(revision: number): FusionInfo {
   return {
@@ -280,6 +309,59 @@ function createPetTab(pseudocolorPreset = 'bwinverse'): ViewerTabItem {
   } as ViewerTabItem
 }
 
+function createSeriesItem(seriesId = 'ct-series'): FolderSeriesItem {
+  return {
+    seriesId,
+    seriesDescription: seriesId === 'ct-series' ? 'CT' : seriesId,
+    seriesInstanceUid: seriesId,
+    studyInstanceUid: 'study-1',
+    modality: 'CT',
+    width: 512,
+    height: 512,
+    instanceCount: 320,
+    isImageSeries: true
+  } as FolderSeriesItem
+}
+
+function createLifecycleHarness(
+  initialTabs: ViewerTabItem[],
+  activeTabKeyValue: string,
+  seriesItems: FolderSeriesItem[] = [createSeriesItem('ct-series')],
+  selectedSeriesIdValue = seriesItems[0]?.seriesId ?? ''
+) {
+  const viewerTabs = ref<ViewerTabItem[]>(initialTabs)
+  const activeTabKey = ref(activeTabKeyValue)
+  const activeViewportKey = ref('single')
+  const selectedSeriesId = ref(selectedSeriesIdValue)
+  const seriesList = ref<FolderSeriesItem[]>(seriesItems)
+  const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
+  const views = useViewerWorkspaceViews({
+    activeMprCrosshairDragLock: ref(null),
+    activeTabKey,
+    activeViewportKey,
+    clearPendingVolumeConfig: vi.fn(),
+    completeActiveMprCrosshairDragLock: vi.fn(),
+    ensureSeriesCornerInfo: vi.fn(async () => emptyCornerInfo),
+    isViewLoading: ref(false),
+    message: ref(''),
+    selectedSeries: computed(() => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null),
+    selectedSeriesId,
+    seriesCornerInfoMap: ref(
+      seriesItems.reduce<Record<string, CornerInfo>>((accumulator, series) => {
+        accumulator[series.seriesId] = emptyCornerInfo
+        return accumulator
+      }, {})
+    ),
+    seriesList,
+    stripHoverCornerInfo: (cornerInfo) => cornerInfo,
+    viewportElements: ref({}),
+    viewerStage: ref(null),
+    viewerTabs,
+    withHoverCornerInfo: (cornerInfo) => cornerInfo
+  })
+  return { activeTabKey, activeViewportKey, selectedSeriesId, seriesList, viewerTabs, views }
+}
+
 function createHarness() {
   const viewerTabs = ref<ViewerTabItem[]>([createFusionTab()])
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
@@ -335,9 +417,19 @@ function createMprHarness() {
   return { viewerTabs, views }
 }
 
-function createStackHarness() {
+function createStackHarness(lastHoverSample: {
+  displayText: string
+} | null = null) {
   const viewerTabs = ref<ViewerTabItem[]>([createStackTab()])
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
+  const withHoverCornerInfo = vi.fn((cornerInfo: CornerInfo, sample = lastHoverSample) =>
+    sample
+      ? {
+          ...cornerInfo,
+          bottomRight: [...cornerInfo.bottomRight, sample.displayText]
+        }
+      : cornerInfo
+  )
   const views = useViewerWorkspaceViews({
     activeMprCrosshairDragLock: ref(null),
     activeTabKey: ref('stack-tab'),
@@ -354,21 +446,22 @@ function createStackHarness() {
     }),
     seriesList: ref([]),
     stripHoverCornerInfo: (cornerInfo) => cornerInfo,
+    getLastHoverSample: (viewId) => (viewId === 'stack-view' ? lastHoverSample : null),
     viewportElements: ref({}),
     viewerStage: ref(null),
     viewerTabs,
-    withHoverCornerInfo: (cornerInfo) => cornerInfo
+    withHoverCornerInfo
   })
-  return { viewerTabs, views }
+  return { viewerTabs, views, withHoverCornerInfo }
 }
 
-function createVolumeHarness() {
-  const viewerTabs = ref<ViewerTabItem[]>([createVolumeTab()])
+function createVolumeHarness(initialTab: ViewerTabItem = createVolumeTab()) {
+  const viewerTabs = ref<ViewerTabItem[]>([initialTab])
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
   const views = useViewerWorkspaceViews({
     activeMprCrosshairDragLock: ref(null),
-    activeTabKey: ref('volume-tab'),
-    activeViewportKey: ref('volume'),
+    activeTabKey: ref(initialTab.key),
+    activeViewportKey: ref(initialTab.viewType === 'Layout' ? 'slot-1-1' : 'volume'),
     clearPendingVolumeConfig: vi.fn(),
     completeActiveMprCrosshairDragLock: vi.fn(),
     ensureSeriesCornerInfo: vi.fn(async () => emptyCornerInfo),
@@ -415,6 +508,133 @@ function createPetHarness(pseudocolorPreset = 'bwinverse') {
   })
   return { viewerTabs, views }
 }
+
+describe('useViewerWorkspaceViews tab lifecycle', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('opens a 3D tab by creating a backend view and selecting the volume viewport', async () => {
+    postApiMock.mockResolvedValueOnce({ viewId: 'created-volume-view' })
+    const series = createSeriesItem('open-series')
+    const { activeTabKey, activeViewportKey, viewerTabs, views } = createLifecycleHarness(
+      [],
+      '',
+      [series],
+      'open-series'
+    )
+
+    await views.openSeriesView('open-series', '3D')
+
+    expect(postApiMock).toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', {
+      seriesId: 'open-series',
+      viewType: '3D'
+    })
+    expect(bindViewSilentlyWithAckMock).toHaveBeenCalledWith('created-volume-view')
+    expect(activeTabKey.value).toBe('open-series::3D')
+    expect(activeViewportKey.value).toBe('volume')
+    expect(viewerTabs.value).toHaveLength(1)
+    expect(viewerTabs.value[0]).toMatchObject({
+      key: 'open-series::3D',
+      viewId: 'created-volume-view',
+      viewType: '3D'
+    })
+  })
+
+  it('switches between 2D and 3D tabs without releasing backend views', () => {
+    const stackTab = createStackTab()
+    const volumeTab = createVolumeTab()
+    const { activeTabKey, activeViewportKey, selectedSeriesId, views } = createLifecycleHarness(
+      [stackTab, volumeTab],
+      stackTab.key,
+      [createSeriesItem('ct-series')]
+    )
+
+    views.activateTab(volumeTab.key)
+
+    expect(activeTabKey.value).toBe(volumeTab.key)
+    expect(activeViewportKey.value).toBe('volume')
+    expect(selectedSeriesId.value).toBe(volumeTab.seriesId)
+    expect(postApiMock).not.toHaveBeenCalled()
+
+    views.activateTab(stackTab.key)
+
+    expect(activeTabKey.value).toBe(stackTab.key)
+    expect(activeViewportKey.value).toBe('single')
+    expect(postApiMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps a live 3D backend view when converting a volume tab to Layout', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('blob cloning unavailable in this test')
+    }))
+    postApiMock.mockImplementation(async (operation: string) => {
+      if (operation === 'CreateViewApiV1ViewCreatePost') {
+        return { viewId: 'layout-volume-view' }
+      }
+      return { success: true, message: 'View closed', viewId: 'volume-view' }
+    })
+    const { activeTabKey, activeViewportKey, viewerTabs, views } = createLifecycleHarness(
+      [createVolumeTab()],
+      'volume-tab',
+      [createSeriesItem('ct-series')]
+    )
+    activeViewportKey.value = 'volume'
+
+    await views.openLayoutView(createUniformLayoutTemplate(1, 2))
+
+    const layoutTab = viewerTabs.value[0]
+    expect(layoutTab).toMatchObject({
+      key: 'volume-tab::Layout',
+      viewType: 'Layout'
+    })
+    expect(layoutTab?.layoutSlots?.[0]).toMatchObject({
+      viewType: '3D',
+      sourceViewType: '3D',
+      viewportKey: 'volume',
+      viewId: 'layout-volume-view'
+    })
+    expect(activeTabKey.value).toBe('volume-tab::Layout')
+    expect(activeViewportKey.value).toBe('slot-1-1')
+    expect(postApiMock).toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', {
+      seriesId: 'ct-series',
+      viewType: '3D'
+    })
+    await vi.waitFor(() => {
+      expect(postApiMock).toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'volume-view' })
+    })
+  })
+
+  it('closes a 3D tab, releases its backend view, and ignores late image updates', async () => {
+    const createObjectURL = vi.fn(() => 'blob:late-volume')
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() })
+    postApiMock.mockResolvedValueOnce({ success: true, message: 'View closed', viewId: 'volume-view' })
+    const { viewerTabs, views } = createVolumeHarness()
+
+    views.closeTab('volume-tab')
+
+    expect(viewerTabs.value).toHaveLength(0)
+    await vi.waitFor(() => {
+      expect(postApiMock).toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'volume-view' })
+    })
+
+    views.updateTabImage(
+      'volume-tab',
+      {
+        viewId: 'volume-view',
+        imageFormat: 'png'
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(views.findTabByViewId('volume-view')).toBeUndefined()
+  })
+})
 
 describe('useViewerWorkspaceViews fusion layer updates', () => {
   afterEach(() => {
@@ -495,6 +715,28 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     expect(viewerTabs.value[0].imageSrc).toBe('blob:stack-webp')
     expect(blobs).toHaveLength(1)
     expect(blobs[0].type).toBe('image/webp')
+  })
+
+  it('reapplies the last hover coordinate and HU after a new image frame arrives', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:stack-next'),
+      revokeObjectURL: vi.fn()
+    })
+    const sample = { displayText: 'X: 210 Y:  99    115 HU' }
+    const { viewerTabs, views, withHoverCornerInfo } = createStackHarness(sample)
+
+    views.updateTabImage(
+      'stack-tab',
+      {
+        viewId: 'stack-view',
+        imageFormat: 'webp',
+        cornerInfo: createEmptyCornerInfo()
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    expect(withHoverCornerInfo).toHaveBeenCalledWith(expect.any(Object), sample)
+    expect(viewerTabs.value[0].cornerInfo.bottomRight).toContain('X: 210 Y:  99    115 HU')
   })
 
   it('preserves stack measurements and annotations when a preview image update omits overlay fields', () => {
@@ -759,6 +1001,72 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
       wl: 154,
       ww: 210
     })
+  })
+
+  it('removes slice and 2D transform lines from normal and layout 3D corner overlays', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:volume-corners'),
+      revokeObjectURL: vi.fn()
+    })
+    const cornerInfo = {
+      topLeft: ['Scanner', 'Im: 12/320', '3D VR'],
+      topRight: ['Patient'],
+      bottomLeft: ['W: 400 L: 40'],
+      bottomRight: ['Zoom:1.20x', 'X:20 Y:13', 'Rot:0° / Flip:-'],
+      tags: {
+        imageIndex: ['Im: 12/320'],
+        coordinates: ['X:20 Y:13'],
+        transform2dState: ['Rot:0° / Flip:-'],
+        zoom: ['Zoom:1.20x']
+      }
+    }
+    const imageUpdate = {
+      viewId: 'volume-view',
+      imageFormat: 'png' as const,
+      cornerInfo,
+      render3dMode: 'volume' as const,
+      volumeConfig: createDefaultVolumeRenderConfig('bone')
+    }
+
+    const normal = createVolumeHarness()
+    normal.views.updateTabImage('volume-tab', imageUpdate, new Uint8Array([1]))
+    expect(normal.viewerTabs.value[0].cornerInfo).toMatchObject({
+      topLeft: ['Scanner', '3D VR'],
+      bottomRight: ['Zoom:1.20x']
+    })
+    expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('imageIndex')
+    expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('coordinates')
+    expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('transform2dState')
+
+    const layout = createVolumeHarness({
+      ...createVolumeTab(),
+      key: 'layout-tab',
+      viewType: 'Layout',
+      viewId: '',
+      layoutSlots: [
+        {
+          id: 'slot-1-1',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: 'ct-series',
+          viewType: '3D',
+          sourceViewType: '3D',
+          viewId: 'volume-view',
+          imageSrc: 'blob:volume'
+        }
+      ]
+    })
+    layout.views.updateTabImage('layout-tab', imageUpdate, new Uint8Array([2]))
+    const layoutCornerInfo = layout.viewerTabs.value[0].layoutSlots?.[0]?.cornerInfo
+    expect(layoutCornerInfo).toMatchObject({
+      topLeft: ['Scanner', '3D VR'],
+      bottomRight: ['Zoom:1.20x']
+    })
+    expect(layoutCornerInfo?.tags).not.toHaveProperty('imageIndex')
+    expect(layoutCornerInfo?.tags).not.toHaveProperty('coordinates')
+    expect(layoutCornerInfo?.tags).not.toHaveProperty('transform2dState')
   })
 
   it('drops stale 3D preview updates by render revision', () => {

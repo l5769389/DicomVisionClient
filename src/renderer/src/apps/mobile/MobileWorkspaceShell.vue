@@ -23,6 +23,14 @@ import { VIEWER_LAYOUT_PRESETS } from '../../composables/workspace/layout/viewer
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import { getViewSyncEnabled, VIEW_SYNC_OPTION_CONFIGS } from '../../composables/workspace/sync/viewSyncConfig'
 import { VOLUME_PRESET_OPTIONS, createDefaultVolumeRenderConfig } from '../../composables/workspace/volume/volumeRenderConfig'
+import {
+  DEFAULT_VOLUME_ORIENTATION_FACE,
+  getVolumeOrientationIcon,
+  VOLUME_ORIENTATION_FACE_NAMES,
+  VOLUME_ORIENTATION_FACES,
+  resolveVolumeOrientationFace,
+  type VolumeOrientationFace
+} from '../../composables/workspace/volume/volumeOrientation'
 import { createDefaultSurfaceRenderConfig } from '../../composables/workspace/volume/surfaceRenderConfig'
 import { useWorkspaceAnnotations } from '../../composables/workspace/overlays/useWorkspaceAnnotations'
 import { useWorkspaceQaWaterAnalysis } from '../../composables/workspace/overlays/useWorkspaceQaWaterAnalysis'
@@ -72,15 +80,15 @@ function loadTypedApi() {
   return typedApiModulePromise
 }
 
-type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'annotate' | 'qa' | 'rotate3d' | 'play' | 'reset' | 'color' | 'transform' | 'layout' | 'volumeRemoveBed' | 'volumeClip' | 'volumeParams' | 'export' | 'tag' | 'compare' | 'fusion' | 'segmentation'
+type MobileToolKey = 'scroll' | 'crosshair' | 'window' | 'pan' | 'zoom' | 'measure' | 'annotate' | 'qa' | 'rotate3d' | 'volumeOrientation' | 'play' | 'reset' | 'color' | 'transform' | 'layout' | 'volumeRemoveBed' | 'volumeClip' | 'volumeParams' | 'export' | 'tag' | 'compare' | 'fusion' | 'segmentation'
 type MobileInlineToolKey = 'fusionRegistrationToggle' | 'fusionRegistrationTranslate' | 'fusionRegistrationRotate' | 'fusionRegistrationReset' | 'fusionRegistrationSave'
 type MobileToolbarKey = MobileToolKey | MobileInlineToolKey | 'more'
 type FusionRegistrationExitToolKey = Extract<MobileToolKey, 'pan' | 'zoom' | 'scroll' | 'crosshair' | 'rotate3d'>
-type MobileInlineToolPanel = 'measure' | 'color' | 'transform' | 'layout' | 'segmentation' | 'qa' | 'playback' | 'fusion-registration' | 'volume-render' | 'volume-clip' | null
+type MobileInlineToolPanel = 'measure' | 'color' | 'transform' | 'layout' | 'segmentation' | 'qa' | 'playback' | 'fusion-registration' | 'volume-render' | 'volume-orientation' | 'volume-clip' | null
 type MobileSheetKind = 'history' | 'series' | 'favorites' | 'window' | 'display' | 'transform' | 'color' | 'playback' | 'compare' | 'fusion' | 'segmentation' | 'mpr' | 'measure' | 'annotate' | 'qa' | 'export' | 'volumeParams' | 'reset' | 'tag' | null
 type MobileSheetTabKey = Exclude<MobileSheetKind, null>
 type MobileSheetPresentation = 'menu' | 'focused'
-type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar'
+type DisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar' | 'volumeOrientationCube'
 type MobileScreenOrientationLockType = 'portrait-primary' | 'landscape-primary'
 type LockableScreenOrientation = ScreenOrientation & {
   lock?: (orientation: MobileScreenOrientationLockType) => Promise<void>
@@ -97,6 +105,11 @@ interface MobileInlineActionItem {
   key: string
   icon?: string
   label: string
+  orientationLabel?: {
+    initial: string
+    suffix: string
+  }
+  orientationSecondaryLabel?: string
   active?: boolean
   disabled?: boolean
   iconOnly?: boolean
@@ -179,8 +192,8 @@ const VOLUME_RENDER_MODE_OPTIONS = [
 
 const SURFACE_PRESET_OPTIONS = [
   { value: 'surfacePreset:bone', icon: 'render-surface', label: 'Bone' },
-  { value: 'surfacePreset:softTissue', icon: 'volume-preset-muscle', label: 'Soft Tissue' },
-  { value: 'surfacePreset:highDensity', icon: 'volume-preset-mip', label: 'High Density' }
+  { value: 'surfacePreset:softTissue', icon: 'volume-preset-muscle', label: 'Soft Tissue / Skin' },
+  { value: 'surfacePreset:highDensity', icon: 'volume-preset-mip', label: 'High Density / Metal' }
 ]
 
 const MOBILE_EXPORT_OPTIONS: Array<{ value: ViewerExportFormat; icon: string; zh: string; en: string; detailZh: string; detailEn: string }> = [
@@ -594,16 +607,21 @@ const scrollTool = computed<MobileToolbarItem>(() => ({ key: 'scroll', icon: 'pa
 const crosshairTool = computed<MobileToolbarItem>(() => ({ key: 'crosshair', icon: 'crosshair', label: isZh.value ? '十字线' : 'Cross' }))
 const measureTool = computed<MobileToolbarItem>(() => ({ key: 'measure', icon: 'measure', label: isZh.value ? '测量' : 'Measure' }))
 const annotateTool = computed<MobileToolbarItem>(() => ({ key: 'annotate', icon: 'annotate', label: isZh.value ? '标注' : 'Annotate' }))
-const colorTool = computed<MobileToolbarItem>(() => ({ key: 'color', icon: activeVolumeTab.value ? 'render-volume' : 'pseudocolor', label: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Color') }))
+const colorTool = computed<MobileToolbarItem>(() => ({ key: 'color', icon: activeVolumeTab.value ? 'render-mode' : 'pseudocolor', label: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Color') }))
 const transformTool = computed<MobileToolbarItem>(() => ({ key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' }))
+const volumeOrientationTool = computed<MobileToolbarItem>(() => ({
+  key: 'volumeOrientation',
+  icon: getVolumeOrientationIcon(activeVolumeOrientationFace.value),
+  label: activeVolumeOrientationFace.value ?? (isZh.value ? '自由' : 'Free')
+}))
 
 const primaryMobileTools = computed<MobileToolbarItem[]>(() => {
   if (activeVolumeTab.value) {
     return [
-      windowTool.value,
       panTool.value,
       zoomTool.value,
       { key: 'rotate3d', icon: 'rotate3d', label: isZh.value ? '旋转' : 'Rotate' },
+      volumeOrientationTool.value,
       colorTool.value
     ]
   }
@@ -705,6 +723,9 @@ function getInlinePanelParentToolKey(panel: MobileInlineToolPanel): MobileToolba
   if (panel === 'color' || panel === 'volume-render') {
     return 'color'
   }
+  if (panel === 'volume-orientation') {
+    return 'volumeOrientation'
+  }
   if (panel === 'transform') {
     return 'transform'
   }
@@ -729,6 +750,14 @@ function getInlinePanelParentToolKey(panel: MobileInlineToolPanel): MobileToolba
 const activeMobileVolumePresetOptions = computed<Array<{ value: string; icon: string; label: string; group?: string }>>(() =>
   activeVolumeTab.value?.render3dMode === 'surface' ? SURFACE_PRESET_OPTIONS : VOLUME_PRESET_OPTIONS
 )
+
+function createVolumeOrientationInlineLabel(face: VolumeOrientationFace): { initial: string; suffix: string } {
+  const label = VOLUME_ORIENTATION_FACE_NAMES[face].en
+  return {
+    initial: label.slice(0, 1).toUpperCase(),
+    suffix: label.slice(1).toLowerCase()
+  }
+}
 
 function shouldShowMobileVolumePresetGroupLabel(option: { group?: string }, optionIndex: number): boolean {
   const group = option.group
@@ -810,6 +839,19 @@ const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
         onClick: () => openFocusedSheet('volumeParams')
       }
     ]
+  }
+
+  if (activeInlineToolPanel.value === 'volume-orientation') {
+    return VOLUME_ORIENTATION_FACES.map((face) => ({
+      key: getMobileInlineActionKey('volume-orientation', face),
+      label: isZh.value
+        ? `${VOLUME_ORIENTATION_FACE_NAMES[face].en} ${VOLUME_ORIENTATION_FACE_NAMES[face].zh}`
+        : VOLUME_ORIENTATION_FACE_NAMES[face].en,
+      orientationLabel: createVolumeOrientationInlineLabel(face),
+      orientationSecondaryLabel: isZh.value ? VOLUME_ORIENTATION_FACE_NAMES[face].zh : undefined,
+      active: activeVolumeOrientationFace.value === face,
+      onClick: () => applyVolumeOrientation(face)
+    }))
   }
 
   if (activeInlineToolPanel.value === 'layout') {
@@ -1088,15 +1130,30 @@ const showSheetTabBar = computed(() => activeSheetPresentation.value === 'menu')
 const displayOverlayOptions = computed<Array<{ key: DisplayOverlayKey; icon: string; label: string; enabled: boolean }>>(() => {
   const tab = activeImageTab.value
   const options: Array<{ key: DisplayOverlayKey; icon: string; label: string; enabled: boolean }> = [
-  { key: 'cornerInfo', icon: 'info', label: isZh.value ? '四角信息' : 'Corner Info', enabled: activeImageTab.value?.showCornerInfo !== false },
-  { key: 'scaleBar', icon: 'measure', label: isZh.value ? '比例尺' : 'Scale Bar', enabled: activeImageTab.value?.showScaleBar !== false }
+    { key: 'cornerInfo', icon: 'info', label: isZh.value ? '四角信息' : 'Corner Info', enabled: activeImageTab.value?.showCornerInfo !== false }
   ]
+  if (!activeVolumeTab.value) {
+    options.push({
+      key: 'scaleBar',
+      icon: 'measure',
+      label: isZh.value ? '比例尺' : 'Scale Bar',
+      enabled: activeImageTab.value?.showScaleBar !== false
+    })
+  }
   if (tab?.viewType !== '3D' && tab?.viewType !== 'PETCTFusion') {
     options.push({
       key: 'pseudocolorBar',
       icon: 'pseudocolor',
       label: isZh.value ? '伪彩条' : 'Pseudocolor Bar',
       enabled: tab?.showPseudocolorBar !== false
+    })
+  }
+  if (activeVolumeTab.value) {
+    options.push({
+      key: 'volumeOrientationCube',
+      icon: 'render-mode',
+      label: isZh.value ? '方向立方体' : 'Orientation Cube',
+      enabled: activeVolumeTab.value.showVolumeOrientationCube !== false
     })
   }
   return options
@@ -1167,6 +1224,13 @@ const connectionToneClass = computed(() => `mobile-shell__connection mobile-shel
 const activeVolumeRenderModeValue = computed(() => `render3dMode:${activeVolumeTab.value?.render3dMode ?? 'volume'}`)
 const activeVolumePresetValue = computed(() => activeVolumeTab.value?.volumePreset ?? 'volumePreset:aaa')
 const activeSurfacePresetValue = computed(() => `surfacePreset:${activeVolumeTab.value?.surfaceRenderConfig?.preset ?? 'bone'}`)
+const activeVolumeOrientationFace = computed<VolumeOrientationFace | null>(() => {
+  const quaternion = activeVolumeTab.value?.orientation?.volumeQuaternion
+  if (!quaternion) {
+    return DEFAULT_VOLUME_ORIENTATION_FACE
+  }
+  return resolveVolumeOrientationFace(quaternion)
+})
 const activeVolumeRenderConfig = computed(() => {
   if (activeVolumeTab.value?.render3dMode === 'surface') {
     return null
@@ -2381,6 +2445,15 @@ function applyVolumeRenderMode(value: string): void {
   dismissSheet()
 }
 
+function applyVolumeOrientation(face: VolumeOrientationFace): void {
+  handleToolbarViewAction({
+    action: 'volumeOrientation',
+    value: face,
+    viewportKey: 'volume'
+  })
+  closeInlineToolPanel()
+}
+
 function applyVolumePreset(value: string): void {
   handleToolbarViewAction({ action: 'volumePreset', value })
   dismissSheet()
@@ -3125,6 +3198,10 @@ function handleToolbarItem(tool: MobileToolbarItem): void {
     toggleInlineToolPanel('transform')
     return
   }
+  if (tool.key === 'volumeOrientation') {
+    toggleInlineToolPanel('volume-orientation')
+    return
+  }
   if (tool.key === 'layout') {
     toggleInlineToolPanel('layout')
     return
@@ -3544,6 +3621,7 @@ onBeforeUnmount(() => {
         :active-tab="viewer.activeTab.value"
         @active-viewport-change="viewer.setActiveViewportKey"
         @volume-clip="viewer.handleVolumeClip"
+        @volume-orientation-select="applyVolumeOrientation"
         @viewport-drag="viewer.handleViewportDrag"
         @workspace-ready="viewer.setViewerStage"
       />
@@ -3969,7 +4047,14 @@ onBeforeUnmount(() => {
             <span v-if="tool.icon" class="mobile-shell__inline-tool-icon" aria-hidden="true">
               <AppIcon :name="tool.icon" :size="15" />
             </span>
-            <span v-if="!tool.iconOnly" class="mobile-shell__inline-tool-label">{{ tool.label }}</span>
+            <span v-if="!tool.iconOnly" class="mobile-shell__inline-tool-label">
+              <span v-if="tool.orientationLabel" class="mobile-shell__orientation-option-label">
+                <span class="mobile-shell__orientation-option-initial">{{ tool.orientationLabel.initial }}</span>
+                <span class="mobile-shell__orientation-option-suffix">{{ tool.orientationLabel.suffix }}</span>
+                <span v-if="tool.orientationSecondaryLabel" class="mobile-shell__orientation-option-secondary">{{ tool.orientationSecondaryLabel }}</span>
+              </span>
+              <template v-else>{{ tool.label }}</template>
+            </span>
           </button>
         </div>
         <div v-if="activeInlineToolPanel === 'volume-clip'" class="mobile-shell__inline-tool-footer" data-testid="mobile-volume-clip-footer">
@@ -3981,6 +4066,17 @@ onBeforeUnmount(() => {
           >
             <AppIcon name="reset" :size="15" />
             <span>{{ isZh ? '重置裁剪' : 'Reset Clip' }}</span>
+          </button>
+        </div>
+        <div v-if="activeInlineToolPanel === 'volume-orientation'" class="mobile-shell__inline-tool-footer" data-testid="mobile-volume-orientation-footer">
+          <button
+            type="button"
+            class="mobile-shell__inline-footer-action"
+            data-testid="mobile-tool-volume-orientation-reset"
+            @click="applyVolumeOrientation(DEFAULT_VOLUME_ORIENTATION_FACE)"
+          >
+            <AppIcon name="reset" :size="15" />
+            <span>{{ isZh ? '重置朝向' : 'Reset Orientation' }}</span>
           </button>
         </div>
         <div
@@ -5847,6 +5943,31 @@ onBeforeUnmount(() => {
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mobile-shell__orientation-option-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  letter-spacing: 0;
+}
+
+.mobile-shell__orientation-option-initial {
+  color: var(--theme-text-primary);
+  font-weight: 900;
+}
+
+.mobile-shell__orientation-option-suffix {
+  color: var(--theme-text-muted);
+  font-weight: 750;
+  text-transform: lowercase;
+}
+
+.mobile-shell__orientation-option-secondary {
+  margin-left: 0.45rem;
+  color: var(--theme-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 750;
 }
 
 .mobile-shell__inline-tool-panel--icon-only .mobile-shell__inline-tool-label {

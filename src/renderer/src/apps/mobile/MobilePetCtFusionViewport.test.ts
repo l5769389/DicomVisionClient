@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import MobilePetCtFusionViewport from './MobilePetCtFusionViewport.vue'
 import type { ViewerTabItem } from '../../types/viewer'
 
@@ -303,5 +304,35 @@ describe('MobilePetCtFusionViewport', () => {
       viewportKey: 'fusion-overlay-ax',
       toolType: 'line'
     })
+  })
+
+  it('uses a two-finger PET/CT distance change for zoom without panning', async () => {
+    const wrapper = mount(MobilePetCtFusionViewport, {
+      props: {
+        activeOperation: `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`,
+        activeTab: createFusionTab(),
+        activeViewportKey: 'fusion-overlay-ax',
+        isViewLoading: false
+      }
+    })
+
+    const stage = wrapper.get('[data-testid="mobile-petct-fusion-primary"] .viewer-stage-stub')
+    await dispatchPointerEvent(stage.element, 'pointerdown', { button: 0, clientX: 0, clientY: 0, pointerId: 1 })
+    await dispatchPointerEvent(stage.element, 'pointerdown', { button: 0, clientX: 10, clientY: 0, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { button: 0, clientX: 24, clientY: 6, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointermove', { button: 0, clientX: 28, clientY: 6, pointerId: 2 })
+    await dispatchPointerEvent(stage.element, 'pointerup', { button: 0, clientX: 28, clientY: 6, pointerId: 2 })
+
+    const dragEvents = wrapper.emitted('viewportDrag') ?? []
+    expect(dragEvents).toContainEqual([
+      { deltaX: 0, deltaY: 0, opType: VIEW_OPERATION_TYPES.zoom, phase: 'start', viewportKey: 'fusion-overlay-ax' }
+    ])
+    expect(
+      dragEvents.some(([payload]) => {
+        const event = payload as { opType: string; phase: string }
+        return event.opType === VIEW_OPERATION_TYPES.zoom && event.phase === 'move'
+      })
+    ).toBe(true)
+    expect(dragEvents.some(([payload]) => (payload as { opType: string }).opType === VIEW_OPERATION_TYPES.pan)).toBe(false)
   })
 })

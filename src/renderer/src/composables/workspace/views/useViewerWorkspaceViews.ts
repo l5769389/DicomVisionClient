@@ -5,7 +5,8 @@ import {
   bindView,
   bindViewSilently,
   bindViewSilentlyWithAck,
-  emitViewOperationWithAck
+  emitViewOperationWithAck,
+  VIEWER_IMAGE_TRANSPORT_FORMAT
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
@@ -192,6 +193,7 @@ import type {
   ViewType,
   WindowLevelInfo
 } from '../../../types/viewer'
+import type { HoverCornerSample } from '../hover/useViewerWorkspaceHover'
 
 interface ViewerWorkspaceViewsOptions {
   activeTabKey: Ref<string>
@@ -211,7 +213,8 @@ interface ViewerWorkspaceViewsOptions {
   completeActiveMprCrosshairDragLock: (update: IncomingMprViewportUpdate) => void
   ensureSeriesCornerInfo: (seriesId: string) => Promise<CornerInfo>
   stripHoverCornerInfo: (cornerInfo: CornerInfo) => CornerInfo
-  withHoverCornerInfo: (cornerInfo: CornerInfo, row?: number | null, col?: number | null) => CornerInfo
+  getLastHoverSample?: (viewId: string | null | undefined) => HoverCornerSample | null
+  withHoverCornerInfo: (cornerInfo: CornerInfo, sample?: HoverCornerSample | null) => CornerInfo
 }
 
 interface SetFourDPhaseOptions {
@@ -380,6 +383,25 @@ function stripTransformCornerInfoTag(cornerInfo: CornerInfo): CornerInfo {
   delete tags.transform2dState
   return {
     ...cornerInfo,
+    tags
+  }
+}
+
+function stripVolumeOnlyCornerInfo(cornerInfo: CornerInfo): CornerInfo {
+  const tags = { ...(cornerInfo.tags ?? {}) }
+  delete tags.imageIndex
+  delete tags.coordinates
+  delete tags.transform2dState
+  const isVolumeOnlyLine = (line: string): boolean =>
+    /^Im:\s*/i.test(line) ||
+    /^(?:Cursor\s+)?X:\s*(?:-?\d+|--)\s+Y:\s*(?:-?\d+|--)(?:\s+.+)?$/i.test(line) ||
+    /^Rot:\s*-?\d+(?:\.\d+)?°?\s*\/\s*Flip:/i.test(line)
+  return {
+    ...cornerInfo,
+    topLeft: cornerInfo.topLeft.filter((line) => !isVolumeOnlyLine(line)),
+    topRight: cornerInfo.topRight.filter((line) => !isVolumeOnlyLine(line)),
+    bottomLeft: cornerInfo.bottomLeft.filter((line) => !isVolumeOnlyLine(line)),
+    bottomRight: cornerInfo.bottomRight.filter((line) => !isVolumeOnlyLine(line)),
     tags
   }
 }
@@ -607,7 +629,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const renderTabScheduler = createRenderTabScheduler({
     renderNow: renderTabNow
   })
-  const { locale, selectedPseudocolorKey, viewerImageFormatPreference } = useUiPreferences()
+  const { locale, selectedPseudocolorKey } = useUiPreferences()
   let tabActivationHistory: string[] = []
 
   function withRuntimeCornerInfo(
@@ -615,9 +637,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     transform: ViewTransformInfo | null | undefined,
     row?: number | null,
     col?: number | null,
-    includeTransform = true
+    includeTransform = true,
+    viewId?: string | null
   ): CornerInfo {
-    return options.withHoverCornerInfo(mergeTransformCornerInfoTag(cornerInfo, transform, includeTransform), row, col)
+    void row
+    void col
+    return options.withHoverCornerInfo(
+      mergeTransformCornerInfoTag(cornerInfo, transform, includeTransform),
+      options.getLastHoverSample?.(viewId) ?? null
+    )
   }
 
   function mergePixelRuntimeCornerInfo(
@@ -819,8 +847,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
-  async function createLayoutStackSlotView(slot: ViewerLayoutSlot, forceNewView: boolean): Promise<ViewerLayoutSlot> {
-    if (!isLayoutStackSlot(slot) || !slot.seriesId) {
+  function isLayoutVolumeSlot(slot: ViewerLayoutSlot): boolean {
+    return Boolean(slot.seriesId && (slot.viewType === '3D' || slot.sourceViewType === '3D'))
+  }
+
+  async function createLayoutSlotView(slot: ViewerLayoutSlot, forceNewView: boolean): Promise<ViewerLayoutSlot> {
+    const isStackSlot = isLayoutStackSlot(slot)
+    const isVolumeSlot = isLayoutVolumeSlot(slot)
+    if ((!isStackSlot && !isVolumeSlot) || !slot.seriesId) {
       return {
         ...slot,
         viewId: null
@@ -834,8 +868,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const { postApi } = await loadTypedApi()
     const data = await postApi('CreateViewApiV1ViewCreatePost', {
       seriesId: slot.seriesId,
-      viewType: 'Stack'
+      viewType: isVolumeSlot ? '3D' : 'Stack'
     })
+    if (isVolumeSlot) {
+      return {
+        ...slot,
+        viewType: '3D',
+        sourceViewType: '3D',
+        viewportKey: slot.viewportKey ?? 'volume',
+        viewId: data.viewId
+      }
+    }
+
     const pseudocolorPreset = normalizePseudocolorPresetKey(slot.pseudocolorPreset ?? selectedPseudocolorKey.value)
     return {
       ...slot,
@@ -848,8 +892,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  async function hydrateLayoutStackSlots(slots: ViewerLayoutSlot[], forceNewViews: boolean): Promise<ViewerLayoutSlot[]> {
-    return await Promise.all(slots.map((slot) => createLayoutStackSlotView(slot, forceNewViews)))
+  async function hydrateLayoutSlots(slots: ViewerLayoutSlot[], forceNewViews: boolean): Promise<ViewerLayoutSlot[]> {
+    return await Promise.all(slots.map((slot) => createLayoutSlotView(slot, forceNewViews)))
   }
 
   async function emitLayoutPseudocolorOperations(slots: ViewerLayoutSlot[], presetOverride?: string): Promise<void> {
@@ -1989,6 +2033,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? item.layoutSlots?.find((slot) => slot.viewId === payload.viewId)
         : null
       if (layoutSlot) {
+        const isVolumeLayoutSlot = layoutSlot.viewType === '3D' || layoutSlot.sourceViewType === '3D'
         const expectedLayoutPseudocolorPreset = normalizePseudocolorPresetKey(
           layoutSlot.pseudocolorPreset ?? item.pseudocolorPreset
         )
@@ -2007,6 +2052,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
         return withRenderRevision({
           ...item,
+          volumePreset: isVolumeLayoutSlot ? volumePreset : item.volumePreset,
+          volumeRenderConfig: isVolumeLayoutSlot ? volumeRenderConfig : item.volumeRenderConfig,
+          render3dMode: isVolumeLayoutSlot ? render3dMode : item.render3dMode,
+          surfaceRenderConfig: isVolumeLayoutSlot ? surfaceRenderConfig : item.surfaceRenderConfig,
+          volumeRenderOptions: isVolumeLayoutSlot ? volumeRenderOptions : item.volumeRenderOptions,
+          loadingProgress: isVolumeLayoutSlot ? null : item.loadingProgress,
           viewportMeasurements: {
             ...(item.viewportMeasurements ?? {}),
             [layoutSlot.id]: hasMeasurementsPayload
@@ -2027,7 +2078,23 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               revokeObjectUrlIfNeeded(slot.imageSrc)
             }
             const slotTransformState = hasTransformPayload ? transformState : slot.transformState ?? transformState
-            const slotCornerFallback = withRuntimeCornerInfo(mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo), slotTransformState)
+            const slotCornerFallback = withRuntimeCornerInfo(
+              mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo),
+              slotTransformState,
+              null,
+              null,
+              !isVolumeLayoutSlot,
+              payload.viewId
+            )
+            const nextSlotCornerInfo = hasCornerInfoPayload
+              ? slotCornerFallback
+              : mergePixelRuntimeCornerInfo(
+                  slot.cornerInfo,
+                  pixelWindowLabel,
+                  slotCornerFallback,
+                  slotTransformState,
+                  !isVolumeLayoutSlot
+                )
             return {
               ...slot,
               imageSrc: getIncomingImageSrc(),
@@ -2037,14 +2104,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               initialWindowInfo: rememberInitialWindowInfo(slot.initialWindowInfo, ww, wl) ?? null,
               currentWindowInfo: resolveCurrentWindowInfo(slot.currentWindowInfo, slot.initialWindowInfo, ww, wl),
               scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
-              cornerInfo: hasCornerInfoPayload
-                ? slotCornerFallback
-                : mergePixelRuntimeCornerInfo(
-                    slot.cornerInfo,
-                    pixelWindowLabel,
-                    slotCornerFallback,
-                    slotTransformState
-                  ),
+              cornerInfo: isVolumeLayoutSlot ? stripVolumeOnlyCornerInfo(nextSlotCornerInfo) : nextSlotCornerInfo,
               orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
               transformState: slotTransformState,
               pseudocolorPreset: layoutPseudocolorPreset
@@ -2077,7 +2137,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : item.compareTransformStates?.[compareViewportKey] ?? transformState
         const compareCornerFallback = withRuntimeCornerInfo(
           mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo),
-          compareTransformState
+          compareTransformState,
+          null,
+          null,
+          true,
+          payload.viewId
         )
 
         return withRenderRevision({
@@ -2212,7 +2276,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : item.fusionTransformStates?.[fusionViewportKey] ?? transformState
         const fusionCornerFallback = withRuntimeCornerInfo(
           mergeCornerInfo(fusionSeriesCornerInfo, sliceCornerInfo),
-          fusionTransformState
+          fusionTransformState,
+          null,
+          null,
+          true,
+          payload.viewId
         )
         const mergedFusionCornerInfo = hasCornerInfoPayload
           ? fusionCornerFallback
@@ -2421,7 +2489,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             phaseViewportTransformState,
             null,
             null,
-            false
+            false,
+            payload.viewId
           )
           nextFourDPhaseCache = {
             ...(item.fourDPhaseCache ?? {}),
@@ -2554,7 +2623,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           viewportTransformState,
           null,
           null,
-          false
+          false,
+          payload.viewId
         )
 
         return withRenderRevision({
@@ -2688,18 +2758,29 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           }
         : item.petInfo ?? null
       const singleTransformState = hasTransformPayload ? transformState : item.transformState ?? transformState
-      const singleCornerFallback = withRuntimeCornerInfo(mergeCornerInfo(seriesCornerInfo, sliceCornerInfo), singleTransformState)
+      const isVolumeView = item.viewType === '3D'
+      const singleCornerFallback = withRuntimeCornerInfo(
+        mergeCornerInfo(seriesCornerInfo, sliceCornerInfo),
+        singleTransformState,
+        null,
+        null,
+        !isVolumeView,
+        payload.viewId
+      )
       const baseSingleCornerInfo = hasCornerInfoPayload
         ? singleCornerFallback
         : mergePixelRuntimeCornerInfo(
             item.cornerInfo,
             pixelWindowLabel,
             singleCornerFallback,
-            singleTransformState
+            singleTransformState,
+            !isVolumeView
           )
       const singleCornerInfo = item.viewType === 'PET'
         ? normalizeStandalonePetCornerInfo(baseSingleCornerInfo, petInfo ?? previousPetInfo)
-        : baseSingleCornerInfo
+        : isVolumeView
+          ? stripVolumeOnlyCornerInfo(baseSingleCornerInfo)
+          : baseSingleCornerInfo
 
       revokeObjectUrlIfNeeded(item.imageSrc)
 
@@ -2834,7 +2915,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
         const phaseViewportTransformState = transformState ?? phaseCacheSeed.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
         const phaseStateCornerInfo = stateCornerInfoBase
-          ? withRuntimeCornerInfo(stateCornerInfoBase, phaseViewportTransformState, null, null, false)
+          ? withRuntimeCornerInfo(stateCornerInfoBase, phaseViewportTransformState, null, null, false, payload.viewId)
           : null
         nextFourDPhaseCache = {
           ...(item.fourDPhaseCache ?? {}),
@@ -2936,7 +3017,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
       const viewportTransformState = transformState ?? item.viewportTransformStates?.[viewportKey] ?? createDefaultTransformInfo()
       const stateCornerInfo = stateCornerInfoBase
-        ? withRuntimeCornerInfo(stateCornerInfoBase, viewportTransformState, null, null, false)
+        ? withRuntimeCornerInfo(stateCornerInfoBase, viewportTransformState, null, null, false, payload.viewId)
         : null
 
       return {
@@ -3398,6 +3479,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }
       }
 
+      const layoutSlot = item.viewType === 'Layout'
+        ? item.layoutSlots?.find((slot) => slot.viewId === progress.viewId)
+        : null
+      if (layoutSlot) {
+        const isVolumeLayoutSlot = layoutSlot.viewType === '3D' || layoutSlot.sourceViewType === '3D'
+        const shouldOverlayProgressOnExistingImage = isVolumeLayoutSlot && nextProgress?.phase === 'preprocess'
+        if (nextProgress && layoutSlot.imageSrc && !shouldOverlayProgressOnExistingImage) {
+          return item
+        }
+        return {
+          ...item,
+          loadingProgress: isVolumeLayoutSlot ? nextProgress : item.loadingProgress
+        }
+      }
+
       return item
     })
   }
@@ -3569,7 +3665,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           opType: VIEW_OPERATION_TYPES.setSize,
           size: update.size,
           viewId: update.viewId,
-          imageFormat: viewerImageFormatPreference.value
+          imageFormat: VIEWER_IMAGE_TRANSPORT_FORMAT
         })
         bindView(update.viewId)
         return
@@ -3580,7 +3676,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         opType: VIEW_OPERATION_TYPES.setSize,
         size: update.size,
         viewId: update.viewId,
-        imageFormat: viewerImageFormatPreference.value
+        imageFormat: VIEWER_IMAGE_TRANSPORT_FORMAT
       })
     })
   }
@@ -3914,7 +4010,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         defaultTransformState,
         null,
         null,
-        viewType !== 'MPR'
+        viewType !== 'MPR' && viewType !== '3D'
       )
       const initialPseudocolorPreset = viewType === 'PET'
         ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
@@ -3974,7 +4070,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               measurements: [],
               annotations: [],
               scaleBar: null,
-              cornerInfo: seriesCornerInfo,
+              cornerInfo: viewType === '3D' ? stripVolumeOnlyCornerInfo(seriesCornerInfo) : seriesCornerInfo,
               orientation: createEmptyOrientationInfo(),
               viewportCornerInfos:
                 viewType === 'MPR'
@@ -4324,7 +4420,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       cloneLayoutImageSrc,
       options.activeViewportKey.value
     )
-    const layoutSlots = await hydrateLayoutStackSlots(seededLayoutSlots, activeTab?.viewType !== 'Layout')
+    const layoutSlots = await hydrateLayoutSlots(seededLayoutSlots, activeTab?.viewType !== 'Layout')
     const title = `${getSeriesDisplayName(sourceSeries, sourceSeries.seriesId)} - Layout ${layoutTemplate.label}`
     let nextTabKey = ''
 
@@ -4397,7 +4493,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       releaseBackendViews([previousSlot.viewId])
       viewSizeCache.delete(previousSlot.viewId)
     }
-    const nextSlot = await createLayoutStackSlotView(
+    const nextSlot = await createLayoutSlotView(
       {
         ...(previousSlot ?? {
           id: payload.slotId,

@@ -19,6 +19,32 @@ vi.mock('../../../composables/ui/useUiPreferences', async () => {
 })
 
 describe('ViewportMeasurementOverlay', () => {
+  it('preserves offscreen line geometry instead of clamping it to the viewport edge', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: { left: 0, top: 0, width: 200, height: 100 },
+        measurements: [
+          {
+            measurementId: 'offscreen-line',
+            toolType: 'line',
+            points: [
+              { x: -0.25, y: 0.2 },
+              { x: 1.25, y: 0.8 }
+            ],
+            labelLines: ['150 px']
+          }
+        ]
+      }
+    })
+
+    const line = wrapper.find('line')
+    expect(line.attributes('x1')).toBe('-50')
+    expect(line.attributes('y1')).toBe('20')
+    expect(line.attributes('x2')).toBe('250')
+    expect(line.attributes('y2')).toBe('80')
+    wrapper.unmount()
+  })
+
   it('renders committed measurement and selected draft together', () => {
     const wrapper = mount(ViewportMeasurementOverlay, {
       props: {
@@ -121,6 +147,34 @@ describe('ViewportMeasurementOverlay', () => {
 
     expect(wrapper.findAll('ellipse').length).toBe(2)
     expect(wrapper.findAll('circle').length).toBe(4)
+  })
+
+  it('keeps a freehand crop outline without editable handle points when requested', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: {
+          left: 0,
+          top: 0,
+          width: 300,
+          height: 300
+        },
+        hideDraftHandles: true,
+        measurements: [],
+        draftMeasurement: {
+          toolType: 'freeform',
+          points: [
+            { x: 0.2, y: 0.2 },
+            { x: 0.7, y: 0.25 },
+            { x: 0.55, y: 0.7 }
+          ],
+          labelLines: []
+        },
+        draftMeasurementMode: 'draft'
+      }
+    })
+
+    expect(wrapper.findAll('path')).toHaveLength(2)
+    expect(wrapper.findAll('circle')).toHaveLength(0)
   })
 
   it('renders keyed roi labels in aligned key-value columns', () => {

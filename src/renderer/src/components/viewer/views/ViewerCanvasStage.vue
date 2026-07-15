@@ -38,6 +38,7 @@ import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
 import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 const props = withDefaults(
   defineProps<{
@@ -59,6 +60,7 @@ const props = withDefaults(
     imageStyle?: Record<string, string>
     imageLayers?: ViewerImageLayer[]
     imageSrc: string
+    hideDraftHandles?: boolean
     compactLoading?: boolean
     isActive?: boolean
     isLoading?: boolean
@@ -81,6 +83,7 @@ const props = withDefaults(
     showCrosshair?: boolean
     showPseudocolorBar?: boolean
     showScaleBar?: boolean
+    showVolumeOrientationCube?: boolean
     softImage?: boolean
     stageSurfaceClass?: string
     lightSurface?: boolean
@@ -100,6 +103,7 @@ const props = withDefaults(
     imageLayers: () => [],
     imageClass: '',
     imageStyle: () => ({}),
+    hideDraftHandles: false,
     compactLoading: false,
     isActive: false,
     isLoading: false,
@@ -121,6 +125,7 @@ const props = withDefaults(
     showCrosshair: true,
     showPseudocolorBar: true,
     showScaleBar: true,
+    showVolumeOrientationCube: true,
     softImage: false,
     stageSurfaceClass: '',
     lightSurface: false,
@@ -153,12 +158,23 @@ const emit = defineEmits<{
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  volumeOrientationSelect: [face: VolumeOrientationFace]
   mprSegmentationConfigChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
   mprSegmentationModeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
-  wheelViewport: [payload: { viewportKey: string; deltaY: number }]
+  wheelViewport: [payload: {
+    viewportKey: string
+    deltaX: number
+    deltaY: number
+    deltaMode: number
+    ctrlKey: boolean
+    canvasX: number
+    canvasY: number
+    canvasWidth: number
+    canvasHeight: number
+  }]
 }>()
 
 const stageRef = ref<HTMLDivElement | null>(null)
@@ -381,6 +397,22 @@ function handlePointerLeave(): void {
   emit('pointerLeave', props.viewportKey)
 }
 
+function handleWheel(event: WheelEvent): void {
+  const target = event.currentTarget
+  const rect = target instanceof HTMLElement ? target.getBoundingClientRect() : null
+  emit('wheelViewport', {
+    viewportKey: props.viewportKey,
+    deltaX: event.deltaX,
+    deltaY: event.deltaY,
+    deltaMode: event.deltaMode,
+    ctrlKey: event.ctrlKey,
+    canvasX: rect ? event.clientX - rect.left : 0,
+    canvasY: rect ? event.clientY - rect.top : 0,
+    canvasWidth: rect?.width ?? 0,
+    canvasHeight: rect?.height ?? 0
+  })
+}
+
 function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
   emit('mprSegmentationConfigChange', config, actionType)
 }
@@ -546,7 +578,7 @@ watch(
     @click="emit('clickViewport', viewportKey)"
     @contextmenu.prevent
     @dblclick.stop="emit('doubleClickViewport', viewportKey)"
-    @wheel.prevent="emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
+    @wheel.prevent="handleWheel"
     @pointerdown="handlePointerDown"
     @pointermove.capture="handlePointerMove"
     @pointerup="emit('pointerUp', $event)"
@@ -636,6 +668,7 @@ watch(
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
         :image-frame="measurementFrame"
+        :hide-draft-handles="hideDraftHandles"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"
       />
@@ -645,7 +678,7 @@ watch(
         :annotations="annotations"
         :selected-annotation-id="draftAnnotation?.annotationId ?? null"
         :draft-annotation="draftAnnotation"
-        :image-frame="imageFrame"
+        :image-frame="measurementFrame"
         @copy-annotation="emit('copyAnnotation', { viewportKey: props.viewportKey, annotationId: $event })"
         @delete-annotation="emit('deleteAnnotation', { viewportKey: props.viewportKey, annotationId: $event })"
         @update-annotation-color="emit('updateAnnotationColor', { viewportKey: props.viewportKey, ...$event })"
@@ -671,7 +704,11 @@ watch(
       />
       <ViewportCornerOverlay v-if="shouldShowCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
       <ViewportOrientationOverlay v-if="shouldShowImageOverlays" :orientation="orientation" />
-      <VolumeOrientationCube v-if="shouldShowImageOverlays && viewportKey === 'volume' && orientation.volumeQuaternion" :orientation="orientation" />
+      <VolumeOrientationCube
+        v-if="shouldShowImageOverlays && showVolumeOrientationCube && orientation.volumeQuaternion"
+        :orientation="orientation"
+        @select-face="emit('volumeOrientationSelect', $event)"
+      />
       <div
         v-if="isLoading"
         class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"

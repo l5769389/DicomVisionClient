@@ -9,18 +9,22 @@ import {
 } from '../views/viewerViewportTargets'
 
 const HOVER_EMIT_THROTTLE_MS = 30
-const HOVER_CORNER_PATTERN = /^Cursor\s+X:\s*-?\d+\s+Y:\s*-?\d+$/i
-const COORDINATE_CORNER_PATTERN = /^(?:Cursor\s+)?X:\s*(-?\d+)\s+Y:\s*(-?\d+)$/i
+const COORDINATE_CORNER_PATTERN = /^(?:Cursor\s+)?X:\s*(?:-?\d+|--)\s+Y:\s*(?:-?\d+|--)(?:\s+.+)?$/i
+const EMPTY_HOVER_CORNER_LINE = `X:${' '.repeat(4)} Y:${' '.repeat(4)} ${' '.repeat(6)} ${' '.repeat(2)}`
+
+export interface HoverCornerSample {
+  displayText: string
+}
 
 interface ViewerWorkspaceHoverOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
   activeViewportKey: { value: string }
-  updateHoverCornerInfoByViewId: (viewId: string, row?: number | null, col?: number | null) => void
+  updateHoverCornerInfoByViewId: (viewId: string, sample: HoverCornerSample) => void
 }
 
 export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   const hoveredViewIds = new Set<string>()
-  const lastHoverPixelsByViewId = new Map<string, { row: number; col: number }>()
+  const lastHoverSamplesByViewId = new Map<string, HoverCornerSample>()
 
   const emitThrottledViewHover = throttle(
     (payload: { viewId: string; x: number; y: number }) => {
@@ -31,67 +35,51 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   )
 
   function stripHoverCornerInfo(cornerInfo: CornerInfo): CornerInfo {
+    const tags = { ...(cornerInfo.tags ?? {}) }
+    delete tags.coordinates
     return {
       ...cornerInfo,
-      bottomRight: cornerInfo.bottomRight.filter((line) => !HOVER_CORNER_PATTERN.test(line.trim()))
+      bottomRight: cornerInfo.bottomRight.filter((line) => !COORDINATE_CORNER_PATTERN.test(line.trim())),
+      tags
     }
   }
 
-  function normalizeCoordinateCornerLine(line: string | null): string | null {
-    if (!line) {
-      return null
-    }
-    const match = COORDINATE_CORNER_PATTERN.exec(line.trim())
-    return match ? `X:${match[1]} Y:${match[2]}` : null
+  function formatHoverCornerLine(sample: HoverCornerSample | null | undefined): string {
+    return sample?.displayText || EMPTY_HOVER_CORNER_LINE
   }
 
-  function withHoverCornerInfo(cornerInfo: CornerInfo, row: number | null = null, col: number | null = null): CornerInfo {
-    const coordinateLine =
-      cornerInfo.bottomRight.find((line) => COORDINATE_CORNER_PATTERN.test(line.trim())) ??
-      cornerInfo.tags?.coordinates?.find((line) => COORDINATE_CORNER_PATTERN.test(line.trim())) ??
-      null
+  function withHoverCornerInfo(cornerInfo: CornerInfo, sample: HoverCornerSample | null = null): CornerInfo {
     const bottomRight = cornerInfo.bottomRight.filter((line) => !COORDINATE_CORNER_PATTERN.test(line.trim()))
-    let nextCoordinateLine: string | null = null
-    if (row != null && col != null) {
-      nextCoordinateLine = `X:${col} Y:${row}`
-    } else {
-      nextCoordinateLine = normalizeCoordinateCornerLine(coordinateLine)
-    }
-    if (nextCoordinateLine) {
-      bottomRight.push(nextCoordinateLine)
-    }
+    const nextCoordinateLine = formatHoverCornerLine(sample)
+    bottomRight.push(nextCoordinateLine)
     return {
       ...cornerInfo,
       bottomRight,
       tags: {
         ...(cornerInfo.tags ?? {}),
-        coordinates: nextCoordinateLine ? [nextCoordinateLine] : []
+        coordinates: [nextCoordinateLine]
       }
     }
   }
 
-  function normalizeHoverPixel(row: number | null | undefined, col: number | null | undefined): { row: number; col: number } | null {
-    if (!Number.isFinite(row) || !Number.isFinite(col) || Number(row) < 1 || Number(col) < 1) {
+  function normalizeHoverSample(payload: ViewHoverResponse): HoverCornerSample | null {
+    const displayText = String(payload.displayText || '').trim()
+    if (!displayText) {
       return null
     }
-    return { row: Number(row), col: Number(col) }
+    return { displayText }
   }
 
   function handleHoverInfo(payload: ViewHoverResponse | undefined): void {
     if (!payload?.viewId || !hoveredViewIds.has(payload.viewId)) {
       return
     }
-    const pixel = normalizeHoverPixel(payload.row, payload.col)
-    if (pixel) {
-      lastHoverPixelsByViewId.set(payload.viewId, {
-        row: pixel.row,
-        col: pixel.col
-      })
-      options.updateHoverCornerInfoByViewId(payload.viewId, pixel.row, pixel.col)
+    const sample = normalizeHoverSample(payload)
+    if (!sample) {
       return
     }
-    const lastHover = lastHoverPixelsByViewId.get(payload.viewId)
-    options.updateHoverCornerInfoByViewId(payload.viewId, lastHover?.row ?? null, lastHover?.col ?? null)
+    lastHoverSamplesByViewId.set(payload.viewId, sample)
+    options.updateHoverCornerInfoByViewId(payload.viewId, sample)
   }
 
   function resolveHoverViewId(tab: ViewerTabItem, viewportKey: string): string {
@@ -113,8 +101,6 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
     if (payload.x == null || payload.y == null) {
       emitThrottledViewHover.cancel()
       hoveredViewIds.delete(viewId)
-      const lastHover = lastHoverPixelsByViewId.get(viewId)
-      options.updateHoverCornerInfoByViewId(viewId, lastHover?.row ?? null, lastHover?.col ?? null)
       return
     }
 
@@ -129,11 +115,22 @@ export function useViewerWorkspaceHover(options: ViewerWorkspaceHoverOptions) {
   function cleanupHover(): void {
     emitThrottledViewHover.cancel()
     hoveredViewIds.clear()
-    lastHoverPixelsByViewId.clear()
+    lastHoverSamplesByViewId.clear()
+  }
+
+  function getLastHoverSample(viewId: string | null | undefined): HoverCornerSample | null {
+    return viewId ? lastHoverSamplesByViewId.get(viewId) ?? null : null
+  }
+
+  function clearHoverSample(viewId: string): void {
+    hoveredViewIds.delete(viewId)
+    lastHoverSamplesByViewId.delete(viewId)
   }
 
   return {
     cleanupHover,
+    clearHoverSample,
+    getLastHoverSample,
     handleHoverInfo,
     handleHoverViewportChange,
     stripHoverCornerInfo,

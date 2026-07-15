@@ -2,38 +2,38 @@
 
 [中文说明](./README.md)
 
-DicomVision is a client/server DICOM viewer with a Vue/Electron client and a FastAPI backend. The backend handles GPU- and compute-intensive work such as DICOM parsing, 2D/MPR/4D/3D reconstruction, PET/CT fusion, segmentation, QA, and export, then streams rendered results to desktop, web, and mobile interfaces.
+**DICOM Viewer for Desktop / Web / Mobile**
 
-This architecture is intended for deployments where endpoint GPU memory is limited, multiple client surfaces need to share the same imaging pipeline, or rendering work should be centralized on a server. If each workstation has sufficient GPU/VRAM and the priority is maximum local 3D interaction throughput, lowest-latency native operation, or fully offline workflows, it is usually better to evaluate mature local 3D viewers such as C3D, or use a non-separated Python/C++ native rendering architecture. DicomVision focuses on server-side rendering, multi-device reuse, and lightweight clients.
+DicomVision is a client/server DICOM viewer for medical image viewing, analysis, and workflow validation. The client is built with Vue, TypeScript, and Electron. The backend is built with FastAPI, Socket.IO, and medical imaging libraries to parse, render, reconstruct, analyze, and export DICOM data while streaming rendered results to desktop, web, and mobile interfaces in real time.
 
-## v3.1.0 Highlights
+## Overview
 
-- **3D rendering and interaction**: improves VR/Surface preview/final consistency, direct model rotation, stale-frame suppression, mobile 3D camera fitting, and final-frame sampling quality.
-- **3D presets and parameters**: adds General, CT, CTA, MR, and CBCT preset groups. AAA and related presets now use CT HU anchors plus foreground percentiles, while Surface keeps independent iso-surface/material controls.
-- **3D tools**: adds remove-bed rendering, freeform clipping, clip progress feedback, 3D parameter popovers, mobile 3D tools, and server-driven metadata sync.
+- Web preview: [https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
+- Client repository: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
+- Server repository: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+- Current release: [DicomVision v3.1.1](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.1)
 
-## Feature Overview
+DicomVision keeps compute-heavy work on the backend and leaves interaction, tools, and result presentation to the client. The same rendering and analysis capabilities can therefore be reused by the browser, mobile UI, and desktop app across local networks, cloud deployments, or desktop packages with an embedded backend.
 
-- **Data sources**: local DICOM files/folders, drag-and-drop import, browser upload, server sample data, and PACS DICOMweb/DIMSE query/retrieval.
-- **2D viewing**: window/level, zoom, pan, scroll, flip/rotate, pseudocolor, synchronized browsing, Compare, Layout, multi-series, and multi-view workspaces.
-- **MPR/4D**: AX/COR/SAG tri-view, oblique MPR, synchronized crosshair, MPR playback, 4D phase playback, FPS control, and phase sync.
-- **3D**: VR volume rendering, Surface rendering, MIP/XRay-style presets, AAA/CT/CTA/MR/CBCT adaptive presets, 3D parameter panels, remove-bed, freeform clipping, and mobile touch 3D.
-- **PET/CT Fusion**: PET/CT fusion, PET-only mode, SUV/intensity range controls, manual registration, saved registration, and four-pane/single-pane switching.
+The project is designed especially for deployments where the client has limited GPU memory but still needs shared DICOM viewing and backend 2D/3D rendering capabilities. For workstations with ample GPU resources and a strong requirement for fully local GPU interaction, native solutions such as C3D may be a better fit. For deployments that require UI and computation in one process, a non-separated Python or C++ implementation may also be preferable. DicomVision is primarily intended for cross-platform reuse, centralized rendering, and lightweight clients.
+
+## Features
+
+- **Data import**: DICOM files, folders, drag-and-drop import, browser upload, server sample data, and PACS DICOMweb/DIMSE query/retrieval.
+- **2D viewing**: window/level, zoom, pan, scroll, flip, rotate, pseudocolor, synchronized browsing, Compare, Layout, multi-series, and multi-view workspaces.
+- **MPR and 4D**: AX/COR/SAG tri-view, oblique MPR, synchronized crosshair, MPR playback, 4D phase playback, FPS control, and phase sync.
+- **3D visualization**: VR volume rendering, Surface rendering, MIP/XRay-style presets, AAA/CT/CTA/MR/CBCT adaptive presets, 3D parameter panels, remove-bed, freeform clipping, and mobile touch 3D.
+- **PET/CT Fusion**: PET/CT fusion, PET-only mode, SUV/intensity controls, manual registration, saved registration, and four-pane/single-pane switching.
 - **Measurement and annotation**: line, rectangle, ellipse, angle, curve, freeform measurements, arrow/text annotations, realtime drafts, and ROI metrics.
 - **Segmentation and QA**: MPR threshold segmentation, spherical VOI, segmentation overlays, segmentation import/export, MTF/FWHM, water phantom QA, and report panels.
 - **DICOM and export**: DICOM tag tree, VR-aware editing, batch tag changes, de-identification export, PNG, DICOM, DICOM SR, and DICOM GSPS export.
-- **Multi-platform UI**: desktop, web, and mobile-responsive UI with dark, light, and blue themes. Desktop installers include the backend service.
+- **Multi-platform UI**: desktop, web, and mobile-responsive interfaces with dark, light, and blue themes. Desktop installers include the backend service.
 
 ## Web Preview
 
-- https://dicom.zhaolin.online/
+[https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
 
-The public web preview is useful for UI and basic workflow checks. Real PACS, local large datasets, and desktop embedded-backend workflows are better tested with a local deployment or the desktop app.
-
-## Repositories
-
-- Client: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
-- Server: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
+The public web preview is intended for checking the UI, basic workflows, and remote-rendering behavior. Real PACS workflows, large local datasets, embedded desktop backend scenarios, and privacy-sensitive data are better tested with a local deployment or the desktop app.
 
 ## Demos
 
@@ -118,12 +118,16 @@ $env:DICOM_VISION_SERVER_ORIGIN = "http://127.0.0.1:8000"
 npm run dev
 ```
 
-### Web development and build
+### Start the web development server
 
 ```bash
 npm run dev:web
+```
+
+### Build the static web package
+
+```bash
 npm run build:web
-npm run preview:web
 ```
 
 Production environment example:
@@ -133,33 +137,25 @@ VITE_BACKEND_ORIGIN=https://your-backend.example.com
 VITE_WEB_APP_MODE=web
 ```
 
-### Desktop packaging
+## Development
 
-Windows:
-
-```powershell
-npm run release:win
-```
-
-macOS must be built on macOS:
-
-```bash
-npm run release:mac
-```
-
-## Scripts
+Common scripts:
 
 - `npm run dev`: start the Electron desktop development runtime.
 - `npm run dev:web`: start the web Vite development server.
 - `npm run build`: build Electron main, preload, and renderer.
 - `npm run build:web`: build the static web frontend into `dist-web/`.
+- `npm run preview:web`: preview the static web build locally.
 - `npm run generate:api-types`: regenerate frontend API types from Server OpenAPI.
 - `npm run typecheck`: run TypeScript checks.
 - `npm run test:run`: run Vitest once.
 - `npm run release:win`: build the backend desktop bundle and package the Windows installer.
-
-## Backend README
+- `npm run release:mac`: build the backend desktop bundle and package the macOS desktop app on macOS.
 
 Backend API, Socket.IO events, deployment, and desktop bundle details are documented here:
 
 [DicomVisionServer README](https://github.com/l5769389/DicomVisionServer)
+
+## Contact & Feedback
+
+Feedback, issue reports, and improvement suggestions are welcome: 5769389@qq.com

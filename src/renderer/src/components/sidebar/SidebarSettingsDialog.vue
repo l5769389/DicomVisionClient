@@ -56,7 +56,6 @@ type SettingsSection =
   | 'deidentifyExport'
   | 'displayCrosshair'
   | 'displayCornerInfo'
-  | 'displayImageFormat'
   | 'displayMprLayout'
   | 'displayToolbarLayout'
   | 'displayScaleBar'
@@ -195,7 +194,6 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
   displayMeasurement: ['测量', '标注', '线宽', '颜色', 'measure', 'measurement', 'annotation', 'line', 'style'],
   displaySegmentation: ['分割', 'voi', '阈值', '默认颜色', 'segmentation', 'threshold', 'default color'],
   displayPseudocolor: ['伪彩', '色图', '色带', '默认伪彩', 'pseudocolor', 'colormap', 'color', 'palette', 'bw', 'rainbow', 'pet', 'cardiac'],
-  displayImageFormat: ['影像格式', '传输格式', 'png', 'webp', 'image format', 'transport', 'socket'],
   displayRoi: ['roi', '统计', '均值', '面积', '最大值', '最小值', 'stats', 'mean', 'area', 'min', 'max']
 }
 
@@ -445,7 +443,6 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
-  viewerImageFormatPreference,
   viewerToolbarPlacement,
   viewportCornerInfoPreference,
   setCrosshairConfigs,
@@ -525,7 +522,6 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'shortcuts' as const, title: copy.value.shortcuts, subtitle: isZh.value ? '快捷键列表' : 'Keyboard shortcuts', icon: 'keyboard' },
   { key: 'pacs' as const, title: isZh.value ? 'PACS 数据源' : 'PACS Source', subtitle: isZh.value ? 'DICOMweb / DIMSE 配置' : 'DICOMweb / DIMSE profiles', icon: 'pacs' },
   { key: 'displayPseudocolor' as const, title: copy.value.pseudocolor, subtitle: isZh.value ? '默认伪彩' : 'Default pseudocolor', icon: 'pseudocolor' },
-  { key: 'displayImageFormat' as const, title: isZh.value ? '影像格式' : 'Image Format', subtitle: isZh.value ? 'PNG / WebP 传输' : 'PNG / WebP transport', icon: 'display' },
   { key: 'displayMprLayout' as const, title: isZh.value ? 'MPR 布局' : 'MPR Layout', subtitle: isZh.value ? '默认视口排布' : 'Default viewport grid', icon: 'layout' },
   { key: 'displayToolbarLayout' as const, title: toolbarLayoutCopy.value.navTitle, subtitle: toolbarLayoutCopy.value.navSubtitle, icon: 'settings' },
   { key: 'windowPresets' as const, title: copy.value.windowPresets, subtitle: isZh.value ? '窗宽窗位预设' : 'WW/WL presets', icon: 'contrast' },
@@ -533,7 +529,7 @@ const sections = computed<SettingsNavItem[]>(() => [
   { key: 'displayCornerInfo' as const, title: isZh.value ? '四角信息' : 'Corner Info', subtitle: isZh.value ? '视口角标内容' : 'Viewport corner tags', icon: 'tag' },
   { key: 'displayScaleBar' as const, title: copy.value.scaleBarTitle, subtitle: isZh.value ? '比例尺样式' : 'Scale bar style', icon: 'measure' },
   { key: 'displayMeasurement' as const, title: copy.value.measurementStyleTitle, subtitle: isZh.value ? '线条、标注、范围' : 'Lines, labels, scope', icon: 'measure-line' },
-  { key: 'displaySegmentation' as const, title: isZh.value ? '分割样式' : 'Segmentation Style', subtitle: isZh.value ? '默认分割与 VOI 颜色' : 'Default segmentation and VOI colors', icon: 'segmentation-threshold' },
+  { key: 'displaySegmentation' as const, title: isZh.value ? '分割样式' : 'Segmentation Style', subtitle: isZh.value ? '默认分割与 VOI 颜色' : 'Default segmentation and VOI colors', icon: 'segmentation' },
   { key: 'displayRoi' as const, title: copy.value.roiStatsTitle, subtitle: isZh.value ? 'ROI 统计项' : 'ROI stats', icon: 'measure-rect' },
   { key: 'hangingProtocol' as const, title: isZh.value ? '挂片协议' : 'Hanging Protocol', subtitle: isZh.value ? '自动布局规则' : 'Layout rules', icon: 'layout' },
   { key: 'dicomTags' as const, title: isZh.value ? 'DICOM 标签' : 'DICOM Tags', subtitle: isZh.value ? '显示与修改保存' : 'Display and edit save', icon: 'tag' },
@@ -583,7 +579,6 @@ const navigationGroups = computed<SettingsNavGroup[]>(() => {
       icon: 'crosshair',
       items: [
         getSection('displayPseudocolor'),
-        getSection('displayImageFormat'),
         getSection('displayMprLayout'),
         getSection('displayToolbarLayout'),
         getSection('windowPresets'),
@@ -1875,10 +1870,6 @@ function resetDisplaySubSection(section: SettingsSection): void {
     selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
     return
   }
-  if (section === 'displayImageFormat') {
-    viewerImageFormatPreference.value = 'png'
-    return
-  }
   if (section === 'displayRoi') {
     setRoiStatOptions(createDefaultRoiStatOptions())
     return
@@ -2087,15 +2078,15 @@ onBeforeUnmount(() => {
         <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_14%,transparent),transparent_26%),radial-gradient(circle_at_bottom_left,color-mix(in_srgb,var(--theme-accent-warm)_12%,transparent),transparent_22%)]"></div>
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[color:color-mix(in_srgb,var(--theme-text-primary)_40%,transparent)] to-transparent"></div>
 
-        <div class="settings-dialog-header relative flex items-center justify-between gap-4 border-b border-[var(--theme-border-soft)] px-6 py-3.5">
+        <div class="settings-dialog-header relative flex items-center justify-between gap-4 border-b border-[var(--theme-border-soft)] px-5 py-2.5">
           <div class="min-w-0">
             <div class="flex items-center gap-3">
-              <div class="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-primary)]">
-                <AppIcon name="settings" :size="18" />
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,transparent)] text-[var(--theme-text-primary)]">
+                <AppIcon name="settings" :size="17" />
               </div>
               <div class="min-w-0">
-                <div class="text-lg font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ copy.title }}</div>
-                <div class="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--theme-text-muted)]">
+                <div class="text-base font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ copy.title }}</div>
+                <div class="mt-px flex flex-wrap items-center gap-2 text-[11px] text-[var(--theme-text-muted)]">
                   <span>{{ copy.productName }}</span>
                   <span class="h-1 w-1 rounded-full bg-[var(--theme-border-strong)]"></span>
                   <span>{{ copy.versionLabel }} {{ copy.versionBadge(appVersion) }}</span>
@@ -2103,7 +2094,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <button type="button" class="theme-button-secondary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition hover:brightness-110" :aria-label="copy.title" @click="emit('close')">
+          <button type="button" class="theme-button-secondary flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition hover:brightness-110" :aria-label="copy.title" @click="emit('close')">
             <AppIcon name="close" :size="16" />
           </button>
         </div>
@@ -2880,7 +2871,6 @@ onBeforeUnmount(() => {
                     activeSection === 'displayMeasurement' ||
                     activeSection === 'displaySegmentation' ||
                     activeSection === 'displayPseudocolor' ||
-                    activeSection === 'displayImageFormat' ||
                     activeSection === 'displayRoi'
                   "
                 >
@@ -3284,54 +3274,6 @@ onBeforeUnmount(() => {
                         >
                           <span>{{ isZh ? '移除' : 'Remove' }}</span>
                           <AppIcon name="close" :size="13" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div v-if="activeSection === 'displayImageFormat'" class="theme-card-soft rounded-[24px] p-4">
-                      <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                            <AppIcon name="display" :size="18" />
-                            <span class="text-sm font-semibold">{{ isZh ? '影像传输格式' : 'Image Transport Format' }}</span>
-                          </div>
-                        </div>
-                        <div class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-3 py-1.5 text-xs font-semibold uppercase text-[var(--theme-text-secondary)]">
-                          {{ viewerImageFormatPreference }}
-                        </div>
-                      </div>
-
-                      <div class="grid gap-4 md:grid-cols-2">
-                        <button
-                          type="button"
-                          class="settings-toolbar-layout-choice settings-image-format-choice"
-                          :class="{ 'settings-toolbar-layout-choice--active': viewerImageFormatPreference === 'png' }"
-                          data-testid="settings-image-format-png"
-                          @click="viewerImageFormatPreference = 'png'"
-                        >
-                          <span class="settings-toolbar-layout-choice__header">
-                            <span class="settings-toolbar-layout-choice__title">PNG</span>
-                            <span class="settings-toolbar-layout-choice__check">
-                              <AppIcon v-if="viewerImageFormatPreference === 'png'" name="check" :size="13" />
-                            </span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          class="settings-toolbar-layout-choice settings-image-format-choice"
-                          :class="{ 'settings-toolbar-layout-choice--active': viewerImageFormatPreference === 'webp' }"
-                          data-testid="settings-image-format-webp"
-                          @click="viewerImageFormatPreference = 'webp'"
-                        >
-                          <span class="settings-toolbar-layout-choice__header">
-                            <span class="settings-toolbar-layout-choice__title">WebP</span>
-                            <span class="settings-toolbar-layout-choice__check">
-                              <AppIcon v-if="viewerImageFormatPreference === 'webp'" name="check" :size="13" />
-                            </span>
-                          </span>
-                          <span class="mt-3 block text-xs leading-5 text-[var(--theme-text-secondary)]">
-                            {{ isZh ? '传输体积更小' : 'Smaller transfer size' }}
-                          </span>
                         </button>
                       </div>
                     </div>
@@ -3766,7 +3708,7 @@ onBeforeUnmount(() => {
                       <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                            <AppIcon name="segmentation-threshold" :size="18" />
+                            <AppIcon name="segmentation" :size="18" />
                             <span class="text-sm font-semibold">{{ isZh ? '分割样式' : 'Segmentation Style' }}</span>
                           </div>
                           <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
@@ -4218,12 +4160,6 @@ onBeforeUnmount(() => {
 .settings-toolbar-layout-choice--active .settings-toolbar-layout-choice__check {
   border-color: color-mix(in srgb, var(--theme-accent) 84%, white 8%);
   background: var(--theme-accent);
-}
-
-.settings-image-format-choice {
-  min-height: 92px;
-  align-content: center;
-  padding: 18px 20px;
 }
 
 .settings-toolbar-layout-skeleton {

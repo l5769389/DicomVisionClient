@@ -144,19 +144,7 @@ export type ViewerSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 
 let socket: ViewerSocket | null = null
 const measurementDraftHandlers = new Set<(payload: MeasurementDraftPayload) => void>()
-let socketViewerImageFormat: ViewerImageTransportFormat = 'png'
-
-function normalizeSocketViewerImageFormat(value: string | null | undefined): ViewerImageTransportFormat {
-  return value === 'webp' || value === 'jpeg' ? value : 'png'
-}
-
-export function setSocketViewerImageFormatPreference(value: string | null | undefined): void {
-  socketViewerImageFormat = normalizeSocketViewerImageFormat(value)
-}
-
-export function getSocketViewerImageFormatPreference(): ViewerImageTransportFormat {
-  return socketViewerImageFormat
-}
+export const VIEWER_IMAGE_TRANSPORT_FORMAT: ViewerImageTransportFormat = 'webp'
 
 export function connectSocket(origin: string): ViewerSocket {
   if (socket) {
@@ -181,7 +169,7 @@ export function getSocket(): ViewerSocket | null {
   return socket
 }
 
-export function bindView(viewId: string, imageFormat: ViewerImageTransportFormat = socketViewerImageFormat): void {
+export function bindView(viewId: string, imageFormat: ViewerImageTransportFormat = VIEWER_IMAGE_TRANSPORT_FORMAT): void {
   if (!socket || !viewId) {
     return
   }
@@ -189,7 +177,7 @@ export function bindView(viewId: string, imageFormat: ViewerImageTransportFormat
   socket.emit('bind_view', { viewId, imageFormat })
 }
 
-export function bindViewSilently(viewId: string, imageFormat: ViewerImageTransportFormat = socketViewerImageFormat): void {
+export function bindViewSilently(viewId: string, imageFormat: ViewerImageTransportFormat = VIEWER_IMAGE_TRANSPORT_FORMAT): void {
   if (!socket || !viewId) {
     return
   }
@@ -200,7 +188,7 @@ export function bindViewSilently(viewId: string, imageFormat: ViewerImageTranspo
 export function bindViewSilentlyWithAck(
   viewId: string,
   timeoutMs = BIND_VIEW_ACK_TIMEOUT_MS,
-  imageFormat: ViewerImageTransportFormat = socketViewerImageFormat
+  imageFormat: ViewerImageTransportFormat = VIEWER_IMAGE_TRANSPORT_FORMAT
 ): Promise<boolean> {
   if (!socket || !viewId) {
     return Promise.resolve(false)
@@ -219,14 +207,14 @@ export function emitViewOperation(payload: ViewOperationPayload): void {
   if (!socket || !payload.viewId) {
     return
   }
-  socket.emit('view_operation', { ...payload, imageFormat: payload.imageFormat ?? socketViewerImageFormat })
+  socket.emit('view_operation', { ...payload, imageFormat: payload.imageFormat ?? VIEWER_IMAGE_TRANSPORT_FORMAT })
 }
 
 export function emitMprCrosshairState(payload: ViewOperationPayload): void {
   if (!socket || !payload.viewId) {
     return
   }
-  socket.emit('mpr_crosshair_state', { ...payload, imageFormat: payload.imageFormat ?? socketViewerImageFormat })
+  socket.emit('mpr_crosshair_state', { ...payload, imageFormat: payload.imageFormat ?? VIEWER_IMAGE_TRANSPORT_FORMAT })
 }
 
 export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutMs = VIEW_OPERATION_ACK_TIMEOUT_MS): Promise<boolean> {
@@ -237,7 +225,7 @@ export function emitViewOperationWithAck(payload: ViewOperationPayload, timeoutM
   return new Promise((resolve) => {
     socket
       ?.timeout(timeoutMs)
-      .emit('view_operation', { ...payload, imageFormat: payload.imageFormat ?? socketViewerImageFormat }, (error: Error | null, response?: SocketAckPayload) => {
+      .emit('view_operation', { ...payload, imageFormat: payload.imageFormat ?? VIEWER_IMAGE_TRANSPORT_FORMAT }, (error: Error | null, response?: SocketAckPayload) => {
         resolve(!error && response?.ok !== false)
       })
   })

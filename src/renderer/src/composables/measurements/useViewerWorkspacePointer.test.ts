@@ -420,6 +420,33 @@ describe('useViewerWorkspacePointer', () => {
     expect(pointer.draftMeasurements.value.volume).toBeNull()
   })
 
+  it('starts the default inside crop immediately from a live 3D layout slot', () => {
+    const { emitVolumeClip, emitViewportDrag, pointer, viewport } = createPointerHarness({
+      activeOperation: `${STACK_OPERATION_PREFIX}volumeClip:inside`,
+      activeTab: {
+        viewType: 'Layout',
+        layoutSlots: [
+          {
+            id: 'slot-volume',
+            viewId: 'layout-volume',
+            viewType: '3D',
+            sourceViewType: '3D'
+          }
+        ]
+      } as ViewerTabItem,
+      viewportKey: 'slot-volume'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 34 }), 'slot-volume')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.75, y: 0.25 }, { pointerId: 34 }))
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.6, y: 0.7 }, { pointerId: 34 }))
+    pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.25, y: 0.6 }, { buttons: 0, pointerId: 34 }))
+
+    expect(emitViewportDrag).not.toHaveBeenCalled()
+    expect(emitVolumeClip).toHaveBeenCalledTimes(1)
+    expect(emitVolumeClip.mock.calls[0]?.[0]).toMatchObject({ mode: 'inside', viewportKey: 'slot-volume' })
+  })
+
   it('simplifies dense desktop 3D volume clip polygons before submitting', () => {
     const { emitVolumeClip, pointer, viewport } = createPointerHarness({
       activeOperation: `${STACK_OPERATION_PREFIX}volumeClip:inside`,
@@ -511,7 +538,7 @@ describe('useViewerWorkspacePointer', () => {
     })
   })
 
-  it('sends the pointerup 3D rotate position as the final move before end', () => {
+  it('sends the pointerup 3D rotate position only in the final end payload', () => {
     const { emitViewportDrag, pointer, viewport } = createPointerHarness({
       activeOperation: `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.rotate3d}`,
       activeTab: { viewType: '3D' } as ViewerTabItem,
@@ -531,8 +558,8 @@ describe('useViewerWorkspacePointer', () => {
     const lastMove = payloads.filter((payload) => payload.phase === DRAG_ACTION_TYPES.move).at(-1)
     const end = payloads.find((payload) => payload.phase === DRAG_ACTION_TYPES.end)
     expect(lastMove).toMatchObject({
-      canvasX: 90,
-      canvasY: 80
+      canvasX: 60,
+      canvasY: 50
     })
     expect(end).toMatchObject({
       canvasX: 90,
@@ -540,6 +567,50 @@ describe('useViewerWorkspacePointer', () => {
       interactionId: lastMove?.interactionId
     })
   })
+
+  it.each([VIEW_OPERATION_TYPES.pan, VIEW_OPERATION_TYPES.zoom, VIEW_OPERATION_TYPES.window])(
+    'keeps %s start, move, and release in one canvas-space interaction',
+    (opType) => {
+      const { emitViewportDrag, pointer, viewport } = createPointerHarness({
+        activeOperation: `${STACK_OPERATION_PREFIX}${opType}`,
+        activeTab: { viewType: 'Stack' } as ViewerTabItem,
+        viewportKey: 'single'
+      })
+
+      pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 26 }), 'single')
+      pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.3, y: 0.25 }, { pointerId: 26 }))
+      pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.45, y: 0.4 }, { buttons: 0, pointerId: 26 }))
+
+      const payloads = emitViewportDrag.mock.calls.map(([payload]) => payload as {
+        phase: string
+        deltaX: number
+        deltaY: number
+        canvasX?: number
+        canvasY?: number
+        canvasWidth?: number
+        canvasHeight?: number
+        interactionId?: string
+      })
+      const interactionIds = payloads.map((payload) => payload.interactionId)
+      expect(new Set(interactionIds).size).toBe(1)
+      expect(interactionIds[0]).toEqual(expect.any(String))
+      expect(payloads.find((payload) => payload.phase === DRAG_ACTION_TYPES.start)).toMatchObject({
+        canvasX: 40,
+        canvasY: 40,
+        canvasWidth: 200,
+        canvasHeight: 200
+      })
+      expect(payloads.at(-1)).toMatchObject({
+        phase: DRAG_ACTION_TYPES.end,
+        deltaX: 50,
+        deltaY: 40,
+        canvasX: 90,
+        canvasY: 80,
+        canvasWidth: 200,
+        canvasHeight: 200
+      })
+    }
+  )
 
   it('coalesces repeated viewport drag moves to the latest animation frame payload', () => {
     const callbacks: FrameRequestCallback[] = []
@@ -652,7 +723,7 @@ describe('useViewerWorkspacePointer', () => {
     expect(hasViewportDragPhase(payloads, VIEW_OPERATION_TYPES.window, DRAG_ACTION_TYPES.end)).toBe(true)
   })
 
-  it('sends the pointerup crosshair position as the final optimistic move before end', () => {
+  it('sends the pointerup crosshair position only in the final end payload', () => {
     const { emitMprCrosshair, pointer, viewport } = createPointerHarness({
       activeOperation: 'stack:crosshair',
       activeTab: createMprCrosshairTab(),
@@ -664,12 +735,10 @@ describe('useViewerWorkspacePointer', () => {
     pointer.handleViewportPointerUp(createPointerEvent(viewport, { x: 0.68, y: 0.72 }, { buttons: 0, pointerId: 20 }))
 
     const payloads = emitMprCrosshair.mock.calls.map(([payload]) => payload)
-    expect(payloads.at(-2)).toMatchObject({
-      phase: DRAG_ACTION_TYPES.move,
-      viewportKey: 'mpr-ax',
-      x: 0.68,
-      y: 0.72
-    })
+    const releaseMoves = payloads.filter(
+      (payload) => payload.phase === DRAG_ACTION_TYPES.move && payload.x === 0.68 && payload.y === 0.72
+    )
+    expect(releaseMoves).toHaveLength(0)
     expect(payloads.at(-1)).toMatchObject({
       phase: DRAG_ACTION_TYPES.end,
       viewportKey: 'mpr-ax',

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
-import type { CornerInfo, DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewProgressInfo, ViewerTabItem } from '../../../types/viewer'
+import type { DraftMeasurementMode, MeasurementDraft, MeasurementOverlay, ViewProgressInfo, ViewerTabItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -17,18 +18,12 @@ const emit = defineEmits<{
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
+  volumeOrientationSelect: [face: VolumeOrientationFace]
   viewportClick: [viewportKey: string]
 }>()
 
 const { locale, viewerCopy } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
-
-const emptyVolumeCornerInfo: CornerInfo = {
-  topLeft: [],
-  topRight: [],
-  bottomLeft: [],
-  bottomRight: []
-}
 
 const VIEW_PROGRESS_LABELS: Record<string, string> = {
   queued: '准备渲染',
@@ -71,6 +66,11 @@ const isVolumeProcessing = computed(() => {
   return progress.phase === 'preprocess'
 })
 
+const isVolumeClipActive = computed(() => {
+  const operation = props.activeOperation.replace(/^stack:/, '')
+  return operation === 'volumeClip:inside' || operation === 'volumeClip:outside'
+})
+
 function getLoadingLabel(): string {
   const fallback = viewerCopy.value.loadingVolumeView
   const progress = getLoadingProgress()
@@ -99,17 +99,23 @@ function getLoadingLabel(): string {
       :loading-progress-percent="getLoadingProgressPercent()"
       :alt="activeTab.viewType"
       :placeholder="viewerCopy.volumePlaceholder"
-      :corner-info="emptyVolumeCornerInfo"
+      :corner-info="activeTab.cornerInfo"
       :orientation="activeTab.orientation"
+      :scale-bar="null"
+      :show-corner-info="activeTab.showCornerInfo !== false"
+      :show-scale-bar="false"
+      :show-volume-orientation-cube="activeTab.showVolumeOrientationCube !== false"
       :draft-measurement="draftMeasurement ?? null"
       :draft-measurement-mode="draftMeasurementMode ?? null"
       :measurements="measurements ?? []"
+      :hide-draft-handles="isVolumeClipActive"
       :soft-image="true"
       @click-viewport="emit('viewportClick', $event)"
       @pointer-down="emit('pointerDown', $event, 'volume')"
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"
       @pointer-cancel="emit('pointerCancel', $event)"
+      @volume-orientation-select="emit('volumeOrientationSelect', $event)"
     />
   </div>
 </template>

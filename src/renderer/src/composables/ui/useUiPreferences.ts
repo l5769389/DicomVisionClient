@@ -179,7 +179,6 @@ export interface RoiStatPreference {
 
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
 export type ViewerToolbarPlacement = 'top' | 'right'
-export type ViewerImageFormatPreference = 'png' | 'webp'
 
 export interface QaWaterMetricPreference {
   key: QaWaterMetricKey
@@ -200,7 +199,6 @@ interface UiPreferencesState {
   locale: AppLocale
   themeId: string
   viewerToolbarPlacement: ViewerToolbarPlacement
-  viewerImageFormatPreference: ViewerImageFormatPreference
   selectedPseudocolorKey: string
   mprDefaultLayoutKey: MprDefaultLayoutKey
   dicomTagDisplayMode: DicomTagDisplayMode
@@ -225,7 +223,6 @@ interface UiPreferencesState {
 const CURRENT_PREFERENCES_VERSION = 21
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
-const DEFAULT_VIEWER_IMAGE_FORMAT_PREFERENCE: ViewerImageFormatPreference = 'png'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
@@ -520,7 +517,6 @@ function createDefaultState(): UiPreferencesState {
     locale: 'zh-CN',
     themeId: DEFAULT_THEME_ID,
     viewerToolbarPlacement: DEFAULT_VIEWER_TOOLBAR_PLACEMENT,
-    viewerImageFormatPreference: DEFAULT_VIEWER_IMAGE_FORMAT_PREFERENCE,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
     mprDefaultLayoutKey: DEFAULT_MPR_LAYOUT_KEY,
     dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
@@ -597,10 +593,6 @@ function normalizeThemeId(value: unknown): string {
 
 function normalizeViewerToolbarPlacement(value: unknown): ViewerToolbarPlacement {
   return value === 'top' || value === 'right' ? value : DEFAULT_VIEWER_TOOLBAR_PLACEMENT
-}
-
-function normalizeViewerImageFormatPreference(value: unknown): ViewerImageFormatPreference {
-  return value === 'webp' ? 'webp' : DEFAULT_VIEWER_IMAGE_FORMAT_PREFERENCE
 }
 
 function normalizePseudocolorKey(value: unknown): string {
@@ -1031,7 +1023,6 @@ function applyState(nextState: UiPreferencesState): void {
   state.locale = nextState.locale
   state.themeId = nextState.themeId
   state.viewerToolbarPlacement = nextState.viewerToolbarPlacement
-  state.viewerImageFormatPreference = nextState.viewerImageFormatPreference
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
   state.mprDefaultLayoutKey = nextState.mprDefaultLayoutKey
   state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
@@ -1060,7 +1051,6 @@ function serializeState(): UiPreferencesState {
     locale: state.locale,
     themeId: state.themeId,
     viewerToolbarPlacement: state.viewerToolbarPlacement,
-    viewerImageFormatPreference: state.viewerImageFormatPreference,
     selectedPseudocolorKey: state.selectedPseudocolorKey,
     mprDefaultLayoutKey: state.mprDefaultLayoutKey,
     dicomTagDisplayMode: state.dicomTagDisplayMode,
@@ -1187,7 +1177,6 @@ async function hydrateState(): Promise<void> {
         locale: normalizeLocale(parsed.locale),
         themeId: normalizeThemeId(parsed.themeId),
         viewerToolbarPlacement: normalizeViewerToolbarPlacement(parsed.viewerToolbarPlacement),
-        viewerImageFormatPreference: normalizeViewerImageFormatPreference(parsed.viewerImageFormatPreference),
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
         mprDefaultLayoutKey: normalizeMprDefaultLayoutKey(parsed.mprDefaultLayoutKey),
         dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
@@ -1262,13 +1251,6 @@ export function useUiPreferences() {
     get: () => state.viewerToolbarPlacement,
     set: (value: ViewerToolbarPlacement) => {
       state.viewerToolbarPlacement = normalizeViewerToolbarPlacement(value)
-      void persistState()
-    }
-  })
-  const viewerImageFormatPreference = computed({
-    get: () => state.viewerImageFormatPreference,
-    set: (value: ViewerImageFormatPreference) => {
-      state.viewerImageFormatPreference = normalizeViewerImageFormatPreference(value)
       void persistState()
     }
   })
@@ -1476,7 +1458,6 @@ export function useUiPreferences() {
     getWindowPresetLabel,
     locale,
     viewerToolbarPlacement,
-    viewerImageFormatPreference,
     dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
     hangingProtocolRules: computed(() => state.hangingProtocolRules),

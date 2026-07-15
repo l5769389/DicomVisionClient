@@ -556,8 +556,8 @@ function mountShell() {
         },
         MobileStackViewport: { template: '<div class="mobile-stack-stub" />' },
         MobileVolumeViewport: {
-          emits: ['activeViewportChange'],
-          template: '<div class="mobile-volume-stub" data-testid="mobile-volume-stub"><button data-testid="stub-volume-active" @click="$emit(\'activeViewportChange\', \'volume\')">Volume</button></div>'
+          emits: ['activeViewportChange', 'volumeOrientationSelect'],
+          template: '<div class="mobile-volume-stub" data-testid="mobile-volume-stub"><button data-testid="stub-volume-active" @click="$emit(\'activeViewportChange\', \'volume\')">Volume</button><button data-testid="stub-volume-orientation" @click="$emit(\'volumeOrientationSelect\', \'P\')">P</button></div>'
         }
       }
     }
@@ -1202,6 +1202,27 @@ describe('MobileWorkspaceShell', () => {
     })
   })
 
+  it('exposes the 3D orientation-cube setting in the mobile display sheet', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createVolumeTab('series-1', { showVolumeOrientationCube: true }))
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-sheet-tab-display"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-display-volumeOrientationCube"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-display-scaleBar"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="mobile-display-volumeOrientationCube"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'displayOverlay',
+      overlay: 'volumeOrientationCube',
+      enabled: false
+    })
+
+    wrapper.unmount()
+  })
+
   it('offers 2D, MPR, 3D, and 4D open actions from the mobile series sheet', async () => {
     mockViewer.seriesList.value = [createSeries({ fourDPhaseCount: 4, isFourDSeries: true })]
     mockViewer.selectedSeriesId.value = 'series-1'
@@ -1373,6 +1394,38 @@ describe('MobileWorkspaceShell', () => {
     expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
       action: 'volumeRenderOptions',
       enabled: true
+    })
+
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-volumeOrientation"]').trigger('click')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeOrientation"]').classes()).toContain('mobile-shell__tool--active')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeOrientation"] .app-icon-stub').text()).toBe('orientation-face-A')
+    expect(wrapper.get('[data-testid="mobile-tool-volume-orientation-S"]').text()).toContain('Superior')
+    expect(wrapper.get('[data-testid="mobile-tool-volume-orientation-S"]').text()).toContain('头侧')
+
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-volume-orientation-reset"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeOrientation',
+      value: 'A',
+      viewportKey: 'volume'
+    })
+
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="mobile-tool-volumeOrientation"]').trigger('click')
+    await wrapper.get('[data-testid="mobile-tool-volume-orientation-S"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeOrientation',
+      value: 'S',
+      viewportKey: 'volume'
+    })
+
+    mockViewer.triggerViewAction.mockClear()
+    await wrapper.get('[data-testid="stub-volume-orientation"]').trigger('click')
+    expect(mockViewer.triggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeOrientation',
+      value: 'P',
+      viewportKey: 'volume'
     })
 
     await wrapper.get('[data-testid="mobile-more-button"]').trigger('click')

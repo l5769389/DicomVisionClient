@@ -48,6 +48,7 @@ const props = withDefaults(
     draftMeasurementMode?: DraftMeasurementMode | null
     draftMeasurement?: MeasurementDraft | null
     focusState?: 'focus' | 'context' | 'neutral'
+    hideDraftHandles?: boolean
     measurements?: MeasurementOverlay[]
     imageFrame: {
       left: number
@@ -60,6 +61,7 @@ const props = withDefaults(
     draftMeasurementMode: null,
     draftMeasurement: null,
     focusState: 'neutral',
+    hideDraftHandles: false,
     measurements: () => []
   }
 )
@@ -373,6 +375,9 @@ function getHandleFill(measurement: RenderedMeasurement): string {
 }
 
 function shouldRenderHandles(measurement: RenderedMeasurement): boolean {
+  if (props.hideDraftHandles && measurement.mode === 'draft' && measurement.toolType === 'freeform') {
+    return false
+  }
   return measurement.mode !== 'committed'
 }
 

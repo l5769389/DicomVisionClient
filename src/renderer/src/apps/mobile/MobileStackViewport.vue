@@ -22,9 +22,11 @@ import type {
   WorkspaceReadyPayload
 } from '../../types/viewer'
 import {
+  classifyMobileTwoFingerGesture,
   createMobileViewportDragMoveQueue,
   getMobileGestureCenter,
   getMobileGestureDistance,
+  type MobileTwoFingerGestureMode,
   type MobileViewportDragMove
 } from './mobileViewportGesture'
 
@@ -102,11 +104,13 @@ let activeDragOperation: ViewOperationType | null = null
 let scrollAccumulator = 0
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
+let initialPinchDistance = 0
+let initialPinchCenter: PointerPoint | null = null
+let pinchGestureMode: MobileTwoFingerGestureMode = 'pending'
+const pinchPointerMoveCounts = new Map<number, number>()
 let isPinching = false
 let totalDragDeltaX = 0
 let totalDragDeltaY = 0
-let totalPinchPanDeltaX = 0
-let totalPinchPanDeltaY = 0
 let totalPinchZoomDeltaY = 0
 
 const dragMoveQueue = createMobileViewportDragMoveQueue<'single'>((move: MobileViewportDragMove<'single'>) => {
@@ -292,23 +296,11 @@ function beginPinch(): void {
   isPinching = true
   lastPinchDistance = getPinchDistance()
   lastPinchCenter = getPinchCenter()
-  totalPinchPanDeltaX = 0
-  totalPinchPanDeltaY = 0
+  initialPinchDistance = lastPinchDistance
+  initialPinchCenter = lastPinchCenter
+  pinchGestureMode = 'pending'
+  pinchPointerMoveCounts.clear()
   totalPinchZoomDeltaY = 0
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.zoom,
-    phase: 'start',
-    viewportKey: 'single'
-  })
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.pan,
-    phase: 'start',
-    viewportKey: 'single'
-  })
 }
 
 function endPinch(): void {
@@ -316,25 +308,22 @@ function endPinch(): void {
     return
   }
   flushPendingDragMoves()
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.zoom,
-    phase: 'end',
-    viewportKey: 'single'
-  })
-  emit('viewportDrag', {
-    deltaX: 0,
-    deltaY: 0,
-    opType: VIEW_OPERATION_TYPES.pan,
-    phase: 'end',
-    viewportKey: 'single'
-  })
+  if (pinchGestureMode === 'zoom') {
+    emit('viewportDrag', {
+      deltaX: 0,
+      deltaY: totalPinchZoomDeltaY,
+      opType: VIEW_OPERATION_TYPES.zoom,
+      phase: 'end',
+      viewportKey: 'single'
+    })
+  }
   isPinching = false
   lastPinchDistance = 0
   lastPinchCenter = null
-  totalPinchPanDeltaX = 0
-  totalPinchPanDeltaY = 0
+  initialPinchDistance = 0
+  initialPinchCenter = null
+  pinchGestureMode = 'pending'
+  pinchPointerMoveCounts.clear()
   totalPinchZoomDeltaY = 0
 }
 
@@ -390,19 +379,40 @@ function handlePointerMove(event: PointerEvent): void {
       return
     }
     const nextDistance = getPinchDistance()
-    const deltaDistance = nextDistance - lastPinchDistance
-    lastPinchDistance = nextDistance
     const nextCenter = getPinchCenter()
-    if (nextCenter && lastPinchCenter) {
-      totalPinchPanDeltaX += nextCenter.x - lastPinchCenter.x
-      totalPinchPanDeltaY += nextCenter.y - lastPinchCenter.y
-      emitViewportDragMove(totalPinchPanDeltaX, totalPinchPanDeltaY, VIEW_OPERATION_TYPES.pan)
+    if (!nextCenter || !initialPinchCenter) {
+      return
     }
-    lastPinchCenter = nextCenter
-    if (deltaDistance) {
-      totalPinchZoomDeltaY += -deltaDistance
+    if (pinchGestureMode === 'pending') {
+      const pointerMoveCount = (pinchPointerMoveCounts.get(event.pointerId) ?? 0) + 1
+      pinchPointerMoveCounts.set(event.pointerId, pointerMoveCount)
+      if (pinchPointerMoveCounts.size < 2 && pointerMoveCount < 2) {
+        return
+      }
+      pinchGestureMode = classifyMobileTwoFingerGesture({
+        initialCenter: initialPinchCenter,
+        initialDistance: initialPinchDistance,
+        currentCenter: nextCenter,
+        currentDistance: nextDistance
+      })
+      if (pinchGestureMode === 'zoom') {
+        emit('viewportDrag', {
+          deltaX: 0,
+          deltaY: 0,
+          opType: VIEW_OPERATION_TYPES.zoom,
+          phase: 'start',
+          viewportKey: 'single'
+        })
+      }
+    }
+    if (pinchGestureMode === 'zoom') {
+      totalPinchZoomDeltaY = -(nextDistance - initialPinchDistance)
       emitViewportDragMove(0, totalPinchZoomDeltaY, VIEW_OPERATION_TYPES.zoom)
+    } else if (pinchGestureMode === 'scroll' && lastPinchCenter) {
+      handleScrollDrag(nextCenter.y - lastPinchCenter.y)
     }
+    lastPinchDistance = nextDistance
+    lastPinchCenter = nextCenter
     return
   }
 
@@ -489,8 +499,9 @@ onBeforeUnmount(() => {
   workspacePointerIds.clear()
   totalDragDeltaX = 0
   totalDragDeltaY = 0
-  totalPinchPanDeltaX = 0
-  totalPinchPanDeltaY = 0
+  initialPinchDistance = 0
+  initialPinchCenter = null
+  pinchGestureMode = 'pending'
   totalPinchZoomDeltaY = 0
   cancelPendingDragMoves()
   endPinch()

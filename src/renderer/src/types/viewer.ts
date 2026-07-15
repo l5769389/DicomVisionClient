@@ -1251,6 +1251,7 @@ export interface ViewerTabItem {
   showCornerInfo?: boolean
   showScaleBar?: boolean
   showPseudocolorBar?: boolean
+  showVolumeOrientationCube?: boolean
   showSliceSlider?: boolean
   showCrosshair?: boolean
   viewportCornerInfos?: Partial<Record<MprViewportKey, CornerInfo>>

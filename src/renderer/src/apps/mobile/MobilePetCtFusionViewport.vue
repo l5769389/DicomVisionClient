@@ -29,7 +29,11 @@ import type {
   WorkspaceReadyPayload
 } from '../../types/viewer'
 import {
+  classifyMobileTwoFingerGesture,
   createMobileViewportDragMoveQueue,
+  getMobileGestureCenter,
+  getMobileGestureDistance,
+  type MobileTwoFingerGestureMode,
   type MobileViewportDragMove
 } from './mobileViewportGesture'
 
@@ -151,9 +155,17 @@ const registrationDrag = ref<RegistrationDragState | null>(null)
 let activeDragOperation: ViewOperationType | null = null
 let activeDragViewportKey: FusionPaneKey | null = null
 let lastPrimaryPoint: PointerPoint | null = null
+let isPinching = false
+let lastPinchDistance = 0
+let lastPinchCenter: PointerPoint | null = null
+let initialPinchDistance = 0
+let initialPinchCenter: PointerPoint | null = null
+let pinchGestureMode: MobileTwoFingerGestureMode = 'pending'
+const pinchPointerMoveCounts = new Map<number, number>()
 let scrollAccumulator = 0
 let totalDragDeltaX = 0
 let totalDragDeltaY = 0
+let totalPinchZoomDeltaY = 0
 
 const emptyCornerInfo: CornerInfo = {
   topLeft: [],
@@ -409,6 +421,14 @@ function getPoint(event: PointerEvent): PointerPoint {
   }
 }
 
+function getPinchDistance(): number {
+  return getMobileGestureDistance(Array.from(activePointers.values()))
+}
+
+function getPinchCenter(): PointerPoint | null {
+  return getMobileGestureCenter(Array.from(activePointers.values()))
+}
+
 function getPaneElement(paneKey: FusionPaneKey): HTMLElement | null {
   return paneElements.get(paneKey) ?? null
 }
@@ -629,6 +649,45 @@ function endDrag(): void {
   totalDragDeltaY = 0
 }
 
+function beginPinch(): void {
+  cleanupPointerInteractions()
+  workspacePointerIds.clear()
+  registrationDrag.value = null
+  endDrag()
+  isPinching = true
+  lastPinchDistance = getPinchDistance()
+  lastPinchCenter = getPinchCenter()
+  initialPinchDistance = lastPinchDistance
+  initialPinchCenter = lastPinchCenter
+  pinchGestureMode = 'pending'
+  pinchPointerMoveCounts.clear()
+  totalPinchZoomDeltaY = 0
+}
+
+function endPinch(): void {
+  if (!isPinching) {
+    return
+  }
+  flushPendingDragMoves()
+  if (pinchGestureMode === 'zoom') {
+    emit('viewportDrag', {
+      deltaX: 0,
+      deltaY: totalPinchZoomDeltaY,
+      opType: VIEW_OPERATION_TYPES.zoom,
+      phase: 'end',
+      viewportKey: activePaneKey.value
+    })
+  }
+  isPinching = false
+  lastPinchDistance = 0
+  lastPinchCenter = null
+  initialPinchDistance = 0
+  initialPinchCenter = null
+  pinchGestureMode = 'pending'
+  pinchPointerMoveCounts.clear()
+  totalPinchZoomDeltaY = 0
+}
+
 function normalizeAngleDelta(delta: number): number {
   let next = delta
   while (next > Math.PI) {
@@ -766,6 +825,10 @@ function handlePointerDown(event: PointerEvent, viewportKey: string): void {
     return
   }
   activePointers.set(event.pointerId, getPoint(event))
+  if (activePointers.size >= 2) {
+    beginPinch()
+    return
+  }
   if (paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY && beginRegistrationDrag(event)) {
     return
   }
@@ -783,6 +846,49 @@ function handlePointerMove(event: PointerEvent): void {
   const previousPoint = activePointers.get(event.pointerId)
   if (previousPoint) {
     activePointers.set(event.pointerId, getPoint(event))
+  }
+  if (activePointers.size >= 2) {
+    event.preventDefault()
+    if (!isPinching) {
+      beginPinch()
+      return
+    }
+    const nextDistance = getPinchDistance()
+    const nextCenter = getPinchCenter()
+    if (!nextCenter || !initialPinchCenter) {
+      return
+    }
+    if (pinchGestureMode === 'pending') {
+      const pointerMoveCount = (pinchPointerMoveCounts.get(event.pointerId) ?? 0) + 1
+      pinchPointerMoveCounts.set(event.pointerId, pointerMoveCount)
+      if (pinchPointerMoveCounts.size < 2 && pointerMoveCount < 2) {
+        return
+      }
+      pinchGestureMode = classifyMobileTwoFingerGesture({
+        initialCenter: initialPinchCenter,
+        initialDistance: initialPinchDistance,
+        currentCenter: nextCenter,
+        currentDistance: nextDistance
+      })
+      if (pinchGestureMode === 'zoom') {
+        emit('viewportDrag', {
+          deltaX: 0,
+          deltaY: 0,
+          opType: VIEW_OPERATION_TYPES.zoom,
+          phase: 'start',
+          viewportKey: activePaneKey.value
+        })
+      }
+    }
+    if (pinchGestureMode === 'zoom') {
+      totalPinchZoomDeltaY = -(nextDistance - initialPinchDistance)
+      emitViewportDragMove(0, totalPinchZoomDeltaY, VIEW_OPERATION_TYPES.zoom, activePaneKey.value)
+    } else if (pinchGestureMode === 'scroll' && lastPinchCenter) {
+      handleScrollDrag(nextCenter.y - lastPinchCenter.y, activePaneKey.value)
+    }
+    lastPinchDistance = nextDistance
+    lastPinchCenter = nextCenter
+    return
   }
   if (updateRegistrationDrag(event)) {
     event.preventDefault()
@@ -818,7 +924,21 @@ function handlePointerUp(event: PointerEvent): void {
     return
   }
   activePointers.delete(event.pointerId)
+  if (activePointers.size >= 2) {
+    lastPinchDistance = getPinchDistance()
+    lastPinchCenter = getPinchCenter()
+    return
+  }
+  if (isPinching) {
+    endPinch()
+  }
   if (endRegistrationDrag(event)) {
+    return
+  }
+  if (activePointers.size === 1) {
+    lastPrimaryPoint = Array.from(activePointers.values())[0] ?? null
+    activeDragOperation = null
+    activeDragViewportKey = null
     return
   }
   endDrag()
@@ -834,10 +954,21 @@ function handlePointerCancel(event: PointerEvent): void {
     return
   }
   activePointers.delete(event.pointerId)
+  if (activePointers.size >= 2) {
+    lastPinchDistance = getPinchDistance()
+    lastPinchCenter = getPinchCenter()
+    return
+  }
+  if (isPinching) {
+    endPinch()
+  }
+  if (activePointers.size === 0) {
+    endDrag()
+    return
+  }
   if (endRegistrationDrag(event)) {
     return
   }
-  endDrag()
 }
 
 function handlePointerLeave(viewportKey: string): void {
@@ -864,6 +995,7 @@ onBeforeUnmount(() => {
     window.clearTimeout(referenceToggleClickResetTimer)
   }
   cancelPendingDragMoves()
+  endPinch()
   endDrag()
   cleanupPointerInteractions()
 })

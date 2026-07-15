@@ -165,9 +165,9 @@ export const VIEWPORT_CORNER_INFO_CATALOG: ViewportCornerInfoCatalogItem[] = [
   },
   {
     key: 'coordinates',
-    labels: { 'zh-CN': '坐标 / 平移', 'en-US': 'Coordinates / pan' },
+    labels: { 'zh-CN': '坐标 / 像素值', 'en-US': 'Coordinates / pixel value' },
     dicomKeywords: [],
-    keywords: ['coordinate', 'cursor', 'pan', 'offset', '坐标', '平移']
+    keywords: ['coordinate', 'cursor', 'pixel value', 'HU', '坐标', '像素值']
   },
   {
     key: 'transform2dState',
@@ -539,7 +539,7 @@ function isZoomLine(line: string): boolean {
 }
 
 function isCoordinateLine(line: string): boolean {
-  return /^(?:Cursor\s+)?X:\s*-?\d+\s+Y:\s*-?\d+$/i.test(line)
+  return /^(?:Cursor\s+)?X:\s*(?:-?\d+|--)\s+Y:\s*(?:-?\d+|--)(?:\s+.+)?$/i.test(line)
 }
 
 function isTransform2dStateLine(line: string): boolean {

@@ -91,12 +91,15 @@ async function createStackLayoutSeedSlot(
       seriesTitle: tab.seriesTitle,
       viewType: tab.viewType,
       sourceViewType: tab.viewType,
-      viewportKey: 'single',
+      viewportKey: tab.viewType === '3D' ? 'volume' : 'single',
       viewId: tab.viewId,
       sliceLabel: tab.sliceLabel,
       windowLabel: tab.windowLabel,
       initialWindowInfo: tab.initialWindowInfo ?? null,
-      currentWindowInfo: tab.currentWindowInfo ?? tab.initialWindowInfo ?? null
+      currentWindowInfo: tab.currentWindowInfo ?? tab.initialWindowInfo ?? null,
+      cornerInfo: tab.cornerInfo,
+      orientation: tab.orientation,
+      scaleBar: tab.scaleBar ?? null
     }),
     tab.imageSrc,
     cloneImageSrc

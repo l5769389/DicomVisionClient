@@ -93,4 +93,39 @@ describe('ViewportCornerOverlay', () => {
     expect(overlay.classes()).not.toContain('viewer-corner-overlay--custom-color')
     wrapper.unmount()
   })
+
+  it('keeps the fixed-width coordinate line DOM node stable while hover text changes', async () => {
+    preferenceState.current = {
+      ...preferenceState.current,
+      topLeft: [],
+      bottomRight: ['coordinates']
+    }
+    const wrapper = mount(ViewportCornerOverlay, {
+      props: {
+        viewportKey: 'viewport-1',
+        cornerInfo: {
+          topLeft: [],
+          topRight: [],
+          bottomLeft: [],
+          bottomRight: ['X:   9 Y:   7     12 HU'],
+          tags: { coordinates: ['X:   9 Y:   7     12 HU'] }
+        }
+      }
+    })
+
+    const initialLine = wrapper.get('.viewer-corner-line--coordinates').element
+    await wrapper.setProps({
+      cornerInfo: {
+        topLeft: [],
+        topRight: [],
+        bottomLeft: [],
+        bottomRight: ['X: 512 Y:1024  -1024 HU'],
+        tags: { coordinates: ['X: 512 Y:1024  -1024 HU'] }
+      }
+    })
+
+    expect(wrapper.get('.viewer-corner-line--coordinates').element).toBe(initialLine)
+    expect(wrapper.get('.viewer-corner-line--coordinates').text()).toBe('X: 512 Y:1024  -1024 HU')
+    wrapper.unmount()
+  })
 })

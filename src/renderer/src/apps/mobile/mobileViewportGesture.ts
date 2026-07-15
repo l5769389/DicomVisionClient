@@ -5,6 +5,39 @@ export interface MobileGesturePoint {
   y: number
 }
 
+export type MobileTwoFingerGestureMode = 'pending' | 'scroll' | 'zoom'
+
+export interface MobileTwoFingerGestureSample {
+  initialCenter: MobileGesturePoint
+  initialDistance: number
+  currentCenter: MobileGesturePoint
+  currentDistance: number
+}
+
+const MOBILE_PINCH_DISTANCE_THRESHOLD_PX = 6
+const MOBILE_PINCH_DISTANCE_RATIO_THRESHOLD = 0.035
+const MOBILE_TWO_FINGER_SCROLL_THRESHOLD_PX = 8
+
+export function classifyMobileTwoFingerGesture(sample: MobileTwoFingerGestureSample): MobileTwoFingerGestureMode {
+  const distanceDelta = Math.abs(sample.currentDistance - sample.initialDistance)
+  const relativeDistanceDelta = distanceDelta / Math.max(sample.initialDistance, 1)
+  if (
+    distanceDelta >= MOBILE_PINCH_DISTANCE_THRESHOLD_PX ||
+    relativeDistanceDelta >= MOBILE_PINCH_DISTANCE_RATIO_THRESHOLD
+  ) {
+    return 'zoom'
+  }
+  const centerDeltaX = sample.currentCenter.x - sample.initialCenter.x
+  const centerDeltaY = sample.currentCenter.y - sample.initialCenter.y
+  if (
+    Math.abs(centerDeltaY) >= MOBILE_TWO_FINGER_SCROLL_THRESHOLD_PX &&
+    Math.abs(centerDeltaY) >= Math.abs(centerDeltaX)
+  ) {
+    return 'scroll'
+  }
+  return 'pending'
+}
+
 export interface MobileViewportDragMove<ViewportKey extends string = string> {
   deltaX: number
   deltaY: number

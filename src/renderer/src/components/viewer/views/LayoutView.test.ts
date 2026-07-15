@@ -6,10 +6,10 @@ import LayoutView from './LayoutView.vue'
 vi.mock('./ViewerCanvasStage.vue', () => ({
   default: {
     name: 'ViewerCanvasStage',
-    props: ['viewportKey', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showCornerInfo', 'showPseudocolorBar', 'showScaleBar'],
-    emits: ['doubleClickViewport'],
+    props: ['viewportKey', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showCornerInfo', 'showPseudocolorBar', 'showScaleBar', 'showVolumeOrientationCube', 'hideDraftHandles', 'softImage', 'isLoading', 'isActive', 'cornerInfo'],
+    emits: ['doubleClickViewport', 'volumeOrientationSelect'],
     template:
-      '<div class="viewer-canvas-stage-stub" :data-viewport-key="viewportKey" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"></div>'
+      '<div class="viewer-canvas-stage-stub" :data-viewport-key="viewportKey" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-show-volume-cube="showVolumeOrientationCube ? \'true\' : \'false\'" :data-hide-draft-handles="hideDraftHandles ? \'true\' : \'false\'" :data-soft-image="softImage ? \'true\' : \'false\'" :data-loading="isLoading ? \'true\' : \'false\'" :data-active="isActive ? \'true\' : \'false\'" :data-corner-top-left="cornerInfo?.topLeft?.join(\'|\') ?? \'\'" @click="$emit(\'volumeOrientationSelect\', \'R\')" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"></div>'
   }
 }))
 
@@ -124,6 +124,65 @@ describe('LayoutView viewport display controls', () => {
 
     expect(wrapper.find('.layout-view__slider').exists()).toBe(false)
     expect(wrapper.find('.layout-view__slot-body--no-slider').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('renders a live 3D layout slot with the same corner treatment as VolumeView', () => {
+    const volumeSlot: ViewerLayoutSlot = {
+      ...createLayoutSlot('slot-1-1', 0),
+      viewType: '3D',
+      sourceViewType: '3D',
+      viewportKey: 'volume',
+      viewId: 'volume-view',
+      imageSrc: 'blob:volume',
+      cornerInfo: emptyCornerInfo
+    }
+    const wrapper = mountLayoutView(
+      createLayoutTab({
+        layoutTemplate: {
+          key: '1x1',
+          label: '1 x 1',
+          rows: 1,
+          columns: 1,
+          slots: [volumeSlot],
+          source: 'preset'
+        },
+        layoutSlots: [volumeSlot],
+        cornerInfo: {
+          ...emptyCornerInfo,
+          topLeft: ['Patient Name', 'Series 1']
+        }
+      })
+    )
+
+    const stage = wrapper.get('.viewer-canvas-stage-stub[data-viewport-key="slot-1-1"]')
+    expect(stage.attributes('data-soft-image')).toBe('true')
+    expect(stage.attributes('data-loading')).toBe('false')
+    expect(stage.attributes('data-corner-top-left')).toBe('Patient Name|Series 1')
+    expect(stage.attributes('data-show-volume-cube')).toBe('true')
+    expect(stage.attributes('data-hide-draft-handles')).toBe('false')
+    expect(stage.attributes('data-active')).toBe('true')
+    expect(wrapper.find('.layout-view__slider').exists()).toBe(false)
+    expect(wrapper.find('.layout-view__slot--active').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('emits orientation selections with the active 3D slot id', async () => {
+    const volumeSlot: ViewerLayoutSlot = {
+      ...createLayoutSlot('slot-1-2', 1),
+      viewType: '3D',
+      sourceViewType: '3D',
+      viewId: 'volume-view',
+      imageSrc: 'blob:volume'
+    }
+    const wrapper = mountLayoutView(
+      createLayoutTab({
+        layoutSlots: [createLayoutSlot('slot-1-1', 0), volumeSlot]
+      })
+    )
+
+    await wrapper.get('.viewer-canvas-stage-stub[data-viewport-key="slot-1-2"]').trigger('click')
+    expect(wrapper.emitted('volumeOrientationSelect')).toEqual([[{ viewportKey: 'slot-1-2', face: 'R' }]])
     wrapper.unmount()
   })
 

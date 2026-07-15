@@ -140,20 +140,23 @@ function getAnnotationPointerProjection(event: PointerEvent): AnnotationPointerP
 }
 
 function offsetAnnotationPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
-  const shiftedPoints = points.map((point) => ({
-    x: Math.max(0, Math.min(1, point.x + delta)),
-    y: Math.max(0, Math.min(1, point.y + delta))
-  }))
+  const translatePoints = (offset: number): MeasurementDraftPoint[] => {
+    const minX = Math.min(...points.map((point) => point.x))
+    const maxX = Math.max(...points.map((point) => point.x))
+    const minY = Math.min(...points.map((point) => point.y))
+    const maxY = Math.max(...points.map((point) => point.y))
+    const deltaX = Math.max(-minX, Math.min(offset, 1 - maxX))
+    const deltaY = Math.max(-minY, Math.min(offset, 1 - maxY))
+    return points.map((point) => ({ x: point.x + deltaX, y: point.y + deltaY }))
+  }
+  const shiftedPoints = translatePoints(delta)
 
   const changed = shiftedPoints.some((point, index) => point.x !== points[index]?.x || point.y !== points[index]?.y)
   if (changed) {
     return shiftedPoints
   }
 
-  return points.map((point) => ({
-    x: Math.max(0, Math.min(1, point.x - delta)),
-    y: Math.max(0, Math.min(1, point.y - delta))
-  }))
+  return translatePoints(-delta)
 }
 
 function areAnnotationPointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {

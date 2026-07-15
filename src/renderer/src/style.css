@@ -998,6 +998,16 @@
     text-align: right;
   }
 
+  .viewer-corner-block--bottomRight .viewer-corner-line--coordinates {
+    display: block;
+    inline-size: 24ch;
+    max-inline-size: none;
+    text-align: right;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
   .viewer-layout--stack .viewer-corner-block {
     max-width: min(46%, 360px);
     padding: 14px 16px;
@@ -1120,7 +1130,7 @@
     top: 14px;
     right: 14px;
     z-index: 4;
-    pointer-events: none;
+    pointer-events: auto;
     width: 78px;
     height: 78px;
     border-radius: 18px;
@@ -1146,10 +1156,13 @@
     width: 44px;
     height: 44px;
     transform-style: preserve-3d;
-    transition: transform 80ms linear;
+    transition: transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+    will-change: transform;
   }
 
   .viewer-orientation-cube__face {
+    appearance: none;
+    padding: 0;
     position: absolute;
     inset: 0;
     display: grid;
@@ -1161,6 +1174,7 @@
     color: #eaf6ff;
     font-family: var(--font-overlay);
     font-size: 13px;
+    line-height: 1;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
@@ -1168,12 +1182,26 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
       inset 0 -10px 18px rgba(5, 9, 14, 0.18);
     backface-visibility: hidden;
+    cursor: pointer;
+  }
+
+  .viewer-orientation-cube__face:hover,
+  .viewer-orientation-cube__face:focus-visible {
+    border-color: color-mix(in srgb, var(--theme-accent) 62%, rgba(222, 244, 255, 0.62));
+    filter: brightness(1.12);
+    outline: none;
   }
 
   .viewer-orientation-cube__face--top,
   .viewer-orientation-cube__face--bottom {
     background:
       linear-gradient(180deg, rgba(77, 113, 143, 0.92), rgba(29, 53, 74, 0.94));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .viewer-orientation-cube__body {
+      transition: none;
+    }
   }
 
   :root[data-theme="industrial-utility"] .theme-shell-panel,

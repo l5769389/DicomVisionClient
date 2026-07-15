@@ -41,6 +41,28 @@ function mountOverlay(props: Partial<InstanceType<typeof ViewportAnnotationOverl
 }
 
 describe('ViewportAnnotationOverlay', () => {
+  it('preserves offscreen arrow geometry instead of clamping endpoints', () => {
+    const wrapper = mountOverlay({
+      annotations: [
+        {
+          ...annotation,
+          points: [
+            { x: -0.2, y: 0.25 },
+            { x: 1.3, y: 0.75 }
+          ]
+        }
+      ],
+      selectedAnnotationId: null
+    })
+    const line = wrapper.find('line')
+
+    expect(line.attributes('x1')).toBe('-40')
+    expect(line.attributes('y1')).toBe('25')
+    expect(line.attributes('x2')).toBe('260')
+    expect(line.attributes('y2')).toBe('75')
+    wrapper.unmount()
+  })
+
   it('renders backend-projected normalized coordinates directly in the image frame', () => {
     const wrapper = mountOverlay()
     const line = wrapper.find('line')

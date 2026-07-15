@@ -88,7 +88,6 @@ const settingsState = vi.hoisted(() => ({
   },
   selectedPseudocolorKey: 'bw',
   selectedWindowPresetId: 'lung',
-  viewerImageFormatPreference: 'png',
   viewportCornerInfoPreference: {
     topLeft: ['patientName'],
     topRight: ['patientSummary'],
@@ -162,12 +161,6 @@ vi.mock('../../composables/ui/useUiPreferences', () => ({
       get: () => settingsState.selectedWindowPresetId,
       set: (value: string) => {
         settingsState.selectedWindowPresetId = value
-      }
-    }),
-    viewerImageFormatPreference: computed({
-      get: () => settingsState.viewerImageFormatPreference,
-      set: (value: string) => {
-        settingsState.viewerImageFormatPreference = value
       }
     }),
     setCrosshairConfigs: (value: typeof settingsState.crosshairConfigs) => {
@@ -389,7 +382,6 @@ beforeEach(() => {
   settingsState.scaleBarPreference = { color: '#f8fafc', enabled: true }
   settingsState.selectedPseudocolorKey = 'bw'
   settingsState.selectedWindowPresetId = 'lung'
-  settingsState.viewerImageFormatPreference = 'png'
   settingsState.viewportCornerInfoPreference = {
     topLeft: ['patientName'],
     topRight: ['patientSummary'],
@@ -465,7 +457,8 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-corner-info"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-scale-bar"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-pseudocolor-bar"]').trigger('click')
-    await wrapper.get('[data-testid="mobile-settings-image-format-webp"]').trigger('click')
+    expect(wrapper.find('[data-testid="mobile-settings-image-format-png"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-settings-image-format-webp"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-overlays"]').trigger('click')
@@ -535,7 +528,6 @@ describe('MobileSettingsOverlay', () => {
     expect(settingsState.setDefaultShowCornerInfoMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowPseudocolorBarMock).toHaveBeenCalledWith(false)
     expect(settingsState.setDefaultShowScaleBarMock).toHaveBeenCalledWith(false)
-    expect(settingsState.viewerImageFormatPreference).toBe('webp')
     expect(settingsState.scaleBarPreference).toEqual({ color: '#3b82f6', enabled: false })
     expect(settingsState.viewportCornerInfoPreference).toMatchObject({
       typographyPreset: 'standard',

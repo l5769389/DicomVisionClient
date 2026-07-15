@@ -191,7 +191,22 @@ function isOptionActive(option: StackToolOption): boolean {
   if (UNSELECTED_ACTION_MENU_TOOL_KEYS.has(props.tool.key)) {
     return false
   }
+  if (props.tool.key === 'volumeOrientation') {
+    return option.checked === true
+  }
   return props.stackToolSelections[props.tool.key] === option.value || option.checked === true
+}
+
+function isVolumeOrientationOption(option: StackToolOption): boolean {
+  return /^volumeOrientation:[APLRSI]$/.test(option.value)
+}
+
+function getVolumeOrientationInitial(option: StackToolOption): string {
+  return (option.label.trim()[0] ?? '').toUpperCase()
+}
+
+function getVolumeOrientationSuffix(option: StackToolOption): string {
+  return option.label.trim().slice(1).toLowerCase()
 }
 
 function getSelectedPlaybackFps(value: string | undefined): string {
@@ -501,7 +516,7 @@ function updateDockDrawingScope(scope: DrawingScope): void {
 }
 
 const footerActions = computed(() => {
-  const actions: StackToolOption[] = []
+  const actions: StackToolOption[] = [...(props.tool.footerOptions ?? [])]
   if (props.tool.key === 'window') {
     actions.push({
       value: 'window:reset',
@@ -659,7 +674,7 @@ onBeforeUnmount(() => {
           >
             <span class="viewer-toolbar-dock-panel-content__option-rail" aria-hidden="true"></span>
             <span class="viewer-toolbar-dock-panel-content__option-icon">
-              <AppIcon :name="option.icon" :size="menuIconSize + 2" />
+              <AppIcon :name="option.icon ?? 'settings'" :size="menuIconSize + 2" />
             </span>
             <span class="viewer-toolbar-dock-panel-content__option-copy">
               <span class="viewer-toolbar-dock-panel-content__option-label">{{ getFusionRegistrationActionCopy(option).label }}</span>
@@ -1022,6 +1037,7 @@ onBeforeUnmount(() => {
             >
               <span class="viewer-toolbar-dock-panel-content__option-rail" aria-hidden="true"></span>
               <span
+                v-if="tool.key === 'pseudocolor' || option.icon"
                 class="viewer-toolbar-dock-panel-content__option-icon"
                 :class="{ 'viewer-toolbar-dock-panel-content__option-icon--wide': tool.key === 'pseudocolor' }"
               >
@@ -1032,13 +1048,19 @@ onBeforeUnmount(() => {
                   :preset="option.swatchKey ?? 'bw'"
                 />
                 <AppIcon
-                  v-else
+                  v-else-if="option.icon"
                   :name="option.icon"
                   :size="menuIconSize + 2"
                 />
               </span>
               <span class="viewer-toolbar-dock-panel-content__option-copy">
-                <span class="viewer-toolbar-dock-panel-content__option-label">{{ option.label }}</span>
+                <span class="viewer-toolbar-dock-panel-content__option-label">
+                  <span v-if="isVolumeOrientationOption(option)" class="volume-orientation-option-label">
+                    <span class="volume-orientation-option-label__initial">{{ getVolumeOrientationInitial(option) }}</span>
+                    <span class="volume-orientation-option-label__suffix">{{ getVolumeOrientationSuffix(option) }}</span>
+                  </span>
+                  <template v-else>{{ option.label }}</template>
+                </span>
                 <span v-if="option.description" class="viewer-toolbar-dock-panel-content__option-description">{{ option.description }}</span>
               </span>
               <span
@@ -1074,7 +1096,7 @@ onBeforeUnmount(() => {
             @click="emit('select', action.value)"
           >
             <span class="viewer-toolbar-dock-panel-content__danger-action-icon">
-              <AppIcon :name="action.icon" :size="16" />
+              <AppIcon :name="action.icon ?? 'settings'" :size="16" />
             </span>
             <span class="viewer-toolbar-dock-panel-content__danger-action-copy">
               <span class="viewer-toolbar-dock-panel-content__danger-action-label">{{ action.label }}</span>
@@ -2033,6 +2055,24 @@ onBeforeUnmount(() => {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.volume-orientation-option-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  letter-spacing: 0;
+}
+
+.volume-orientation-option-label__initial {
+  color: var(--theme-text-primary);
+  font-weight: 900;
+}
+
+.volume-orientation-option-label__suffix {
+  color: var(--theme-text-muted);
+  font-weight: 750;
+  text-transform: lowercase;
 }
 
 .viewer-toolbar-dock-panel-content__option-description {

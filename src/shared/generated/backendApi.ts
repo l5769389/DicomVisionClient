@@ -6,7 +6,7 @@
 export interface AnnotationOverlayPayload {
   annotationId: string
   toolType: string
-  points: MeasurementPointPayload[]
+  points: OverlayPointPayload[]
   text?: string
   color?: string
   size?: string
@@ -254,7 +254,7 @@ export interface LoadSampleResponse {
 export interface MeasurementOverlayPayload {
   measurementId: string
   toolType: string
-  points: MeasurementPointPayload[]
+  points: OverlayPointPayload[]
   labelLines?: string[]
   scope?: 'image' | 'series'
   sliceIndex?: number | null
@@ -450,6 +450,11 @@ export interface OrientationInfo {
   bottom?: string | null
   left?: string | null
   volumeQuaternion?: [number, number, number, number] | null
+}
+
+export interface OverlayPointPayload {
+  x: number
+  y: number
 }
 
 export interface PacsDicomwebProfile {
@@ -746,16 +751,6 @@ export interface SurfaceRenderConfig {
   roughness?: number
 }
 
-export interface VolumeClipState {
-  mode: 'inside' | 'outside'
-  points: MeasurementPointPayload[]
-}
-
-export interface VolumeRenderOptions {
-  removeBed: boolean
-  clip?: VolumeClipState | null
-}
-
 export interface ValidationError {
   loc: (string | number)[]
   msg: string
@@ -829,6 +824,10 @@ export interface ViewHoverResponse {
   viewId: string
   row: number
   col: number
+  pixelValue?: number | null
+  valueLabel?: string | null
+  valueUnit?: string | null
+  displayText?: string | null
 }
 
 export interface ViewImageResponse {
@@ -889,6 +888,11 @@ export interface ViewOperationRequest {
   actionType?: 'start' | 'move' | 'end' | 'delete' | null
   x?: number | null
   y?: number | null
+  canvasX?: number | null
+  canvasY?: number | null
+  canvasWidth?: number | null
+  canvasHeight?: number | null
+  interactionId?: string | null
   anchorX?: number | null
   anchorY?: number | null
   currentX?: number | null
@@ -968,6 +972,16 @@ export interface ViewTransformPayload {
   offsetY?: number
 }
 
+export interface VolumeClipPointPayload {
+  x: number
+  y: number
+}
+
+export interface VolumeClipState {
+  mode: 'inside' | 'outside'
+  points?: VolumeClipPointPayload[]
+}
+
 export interface VolumeLayerConfig {
   key: string
   label: string
@@ -993,6 +1007,11 @@ export interface VolumeRenderConfig {
   blendMode: 'composite' | 'mip'
   layers: VolumeLayerConfig[]
   lighting?: VolumeLightingConfig
+}
+
+export interface VolumeRenderOptions {
+  removeBed?: boolean
+  clip?: VolumeClipState | null
 }
 
 export interface WindowInfo {

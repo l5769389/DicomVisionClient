@@ -55,6 +55,7 @@ import { viewerRuntime, type DicomDropInput } from '../../platform/runtime'
 import type { FusionRegistrationExportMode, FusionRegistrationExportResponse } from '../../services/typedApi'
 import { useWorkspaceExportUi } from '../../composables/workspace/export/useWorkspaceExportUi'
 import { DEFAULT_MPR_LAYOUT_KEY, parseMprLayoutSelectionValue } from '../../composables/workspace/layout/mprLayoutOptions'
+import type { VolumeOrientationFace } from '../../composables/workspace/volume/volumeOrientation'
 import {
   COMPARE_STACK_SOURCE_PANE_KEY,
   COMPARE_STACK_TARGET_PANE_KEY,
@@ -173,7 +174,7 @@ const emit = defineEmits<{
     rotationDeltaDegrees?: number
   }]
   fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
-  viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean }]
+  viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
@@ -1327,6 +1328,15 @@ function handleToolbarViewAction(payload: ViewerToolbarActionPayload): void {
   emit('triggerViewAction', payload)
 }
 
+function handleVolumeOrientationSelect(face: VolumeOrientationFace, viewportKey = 'volume'): void {
+  setActiveViewport(viewportKey)
+  handleToolbarViewAction({
+    action: 'volumeOrientation',
+    value: face,
+    viewportKey
+  })
+}
+
 function commitAnnotation(viewportKey: string, annotation: AnnotationOverlay | AnnotationDraft): void {
   if (!annotation.annotationId || !isValidArrowAnnotation(annotation.points)) {
     return
@@ -1609,20 +1619,23 @@ function updateSelectedAnnotation(
 }
 
 function offsetAnnotationPoints(points: MeasurementDraftPoint[], delta: number): MeasurementDraftPoint[] {
-  const shiftedPoints = points.map((point) => ({
-    x: Math.max(0, Math.min(1, point.x + delta)),
-    y: Math.max(0, Math.min(1, point.y + delta))
-  }))
+  const translatePoints = (offset: number): MeasurementDraftPoint[] => {
+    const minX = Math.min(...points.map((point) => point.x))
+    const maxX = Math.max(...points.map((point) => point.x))
+    const minY = Math.min(...points.map((point) => point.y))
+    const maxY = Math.max(...points.map((point) => point.y))
+    const deltaX = Math.max(-minX, Math.min(offset, 1 - maxX))
+    const deltaY = Math.max(-minY, Math.min(offset, 1 - maxY))
+    return points.map((point) => ({ x: point.x + deltaX, y: point.y + deltaY }))
+  }
+  const shiftedPoints = translatePoints(delta)
 
   const changed = shiftedPoints.some((point, index) => point.x !== points[index]?.x || point.y !== points[index]?.y)
   if (changed) {
     return shiftedPoints
   }
 
-  return points.map((point) => ({
-    x: Math.max(0, Math.min(1, point.x - delta)),
-    y: Math.max(0, Math.min(1, point.y - delta))
-  }))
+  return translatePoints(-delta)
 }
 
 function areAnnotationPointSetsClose(a: MeasurementDraftPoint[], b: MeasurementDraftPoint[]): boolean {
@@ -2735,6 +2748,7 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
+          @volume-orientation-select="handleVolumeOrientationSelect($event.face, $event.viewportKey)"
         />
 
         <StackView
@@ -2819,6 +2833,7 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
+          @volume-orientation-select="handleVolumeOrientationSelect($event.face, $event.viewportKey)"
         />
 
         <PetCtFusionView
@@ -2863,6 +2878,7 @@ onBeforeUnmount(() => {
           @pointer-move="handleViewportPointerMove"
           @pointer-up="handleViewportPointerUp"
           @pointer-cancel="handleViewportPointerCancel"
+          @volume-orientation-select="handleVolumeOrientationSelect"
         />
 
         <FourDView

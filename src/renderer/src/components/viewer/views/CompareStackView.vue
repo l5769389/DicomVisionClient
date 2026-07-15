@@ -56,7 +56,7 @@ const emit = defineEmits<{
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
   toggleSliceStar: [payload: { viewportKey: string; seriesId: string; sliceIndex: number }]
   viewportClick: [viewportKey: string]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
 }>()
 
 interface ComparePaneView {

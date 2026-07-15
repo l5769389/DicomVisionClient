@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.1.1 - 2026-07-15
+
+### Highlights
+
+- Stabilized the bottom-right X/Y/value readout with backend-authoritative text, fixed-width fields, preserved last valid hover values, and no `CT:` prefix.
+- Improved 2D/MPR pan, zoom, hover sampling, coordinate handling, and out-of-viewport measurement/annotation geometry.
+- Added and refined 3D orientation controls, mobile 3D gestures, Surface/VR presets, remove-bed and freeform clipping workflows.
+- Improved 3D layout viewport overlays, orientation cube behavior, tool ordering, rendering controls, and mobile viewport fitting.
+- Added regression coverage for 3D rendering, tabs/layouts, hover values, gestures, clipping, surface rendering, and socket/view lifecycle behavior.
+
 ## v3.1.0 - 2026-07-09
 
 ### 新增

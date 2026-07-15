@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { computed, defineComponent, h, nextTick, ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import type { ViewerTabItem } from '../../../types/viewer'
+import { createVolumeOrientationQuaternion } from '../volume/volumeOrientation'
 import { useViewerWorkspaceToolbar } from './useViewerWorkspaceToolbar'
 
 function create3dTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
@@ -108,7 +109,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
 }
 
 describe('useViewerWorkspaceToolbar surface mode', () => {
-  it('normalizes mouse wheel scroll to one slice while preserving exact scroll requests', async () => {
+  it('preserves raw wheel deltas so the core can distinguish trackpads from mouse wheels', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),
       key: 'series-1::stack',
@@ -118,13 +119,13 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
 
     harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: 120 })
-    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 1 })
+    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 120 })
 
     harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: -240 })
-    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: -1 })
+    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: -240 })
 
     harness.toolbar.handleViewportWheel({ viewportKey: 'single', deltaY: 5, exact: true })
-    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 5 })
+    expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 5, exact: true })
 
     harness.wrapper.unmount()
   })
@@ -194,6 +195,25 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(toolKeys).not.toContain('window')
     expect(toolKeys).not.toContain('volumeParams')
     expect(toolKeys).not.toContain('volumePreset')
+    expect(toolKeys).toEqual([
+      'layout',
+      'rotate3d',
+      'volumeOrientation',
+      'pan',
+      'zoom',
+      'render3dMode',
+      'volumeRemoveBed',
+      'volumeClip',
+      'surfaceParams',
+      'surfacePreset',
+      'export',
+      'display',
+      'tag',
+      'reset'
+    ])
+    const surfacePreset = harness.toolbar.activeTools.value.find((tool) => tool.key === 'surfacePreset')!
+    expect(surfacePreset.icon).toBe('surface-preset')
+    expect(surfacePreset.showSelectedOptionIcon).toBe(false)
     expect(harness.toolbar.activeVolumeRenderConfig.value).toBeNull()
     expect(harness.toolbar.activeSurfaceRenderConfig.value?.preset).toBe('bone')
     expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:rotate3d')
@@ -220,11 +240,27 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
 
     const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
-    expect(toolKeys).toContain('window')
+    expect(toolKeys).not.toContain('window')
     expect(toolKeys).toContain('volumeParams')
     expect(toolKeys).toContain('volumePreset')
     expect(toolKeys).not.toContain('surfaceParams')
     expect(toolKeys).not.toContain('surfacePreset')
+    expect(toolKeys).toEqual([
+      'layout',
+      'rotate3d',
+      'volumeOrientation',
+      'pan',
+      'zoom',
+      'render3dMode',
+      'volumeRemoveBed',
+      'volumeClip',
+      'volumeParams',
+      'volumePreset',
+      'export',
+      'display',
+      'tag',
+      'reset'
+    ])
     expect(harness.toolbar.stackToolSelections.value.render3dMode).toBe('render3dMode:volume')
     const volumePresetTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumePreset')!
     expect(volumePresetTool.options?.map((option) => option.value)).toEqual(expect.arrayContaining([
@@ -292,6 +328,41 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       rows: 2,
       columns: 2
     }))
+
+    harness.wrapper.unmount()
+  })
+
+  it('keeps the 3D toolset when the active Layout slot is a volume view', async () => {
+    const volumeTab = create3dTab({ render3dMode: 'volume' })
+    const harness = mountToolbarHarness({
+      ...volumeTab,
+      key: 'series-1::layout',
+      viewType: 'Layout',
+      viewId: '',
+      layoutSlots: [
+        {
+          id: 'slot-1-1',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: volumeTab.seriesId,
+          viewType: '3D',
+          sourceViewType: '3D',
+          viewportKey: 'volume',
+          viewId: 'layout-volume-view',
+          imageSrc: 'blob:layout-volume'
+        }
+      ]
+    })
+    await nextTick()
+
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(harness.activeViewportKey.value).toBe('slot-1-1')
+    expect(toolKeys).toContain('rotate3d')
+    expect(toolKeys).toContain('volumeRemoveBed')
+    expect(toolKeys).toContain('volumeClip')
+    expect(toolKeys).toContain('volumePreset')
 
     harness.wrapper.unmount()
   })
@@ -396,7 +467,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.wrapper.unmount()
   })
 
-  it('places the MPR layout between 2D tools and MPR tools, and maps MPR reset actions', async () => {
+  it('places the MPR layout before all MPR tools, and maps MPR reset actions', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),
       key: 'series-1::mpr',
@@ -407,7 +478,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
 
     const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
-    expect(toolKeys.slice(0, 6)).toEqual(['pan', 'zoom', 'window', 'mprLayout', 'crosshair', 'rotate3d'])
+    expect(toolKeys.slice(0, 6)).toEqual(['mprLayout', 'pan', 'zoom', 'window', 'crosshair', 'rotate3d'])
 
     const crosshairTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'crosshair')!
     harness.toolbar.selectToolOption(crosshairTool, 'mprCrosshair:reset', { keepMenuOpen: true })
@@ -531,7 +602,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     }
   })
 
-  it('adds display overlay toggles for Stack, MPR, and 4D views', async () => {
+  it('adds display overlay toggles for 2D, MPR, 4D, and 3D views', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),
       key: 'series-1::stack',
@@ -615,7 +686,178 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     harness.activeTab.value = create3dTab()
     await nextTick()
-    expect(getDisplayTool()).toBeUndefined()
+    expect(getDisplayTool()?.options?.map((option) => option.value)).toEqual([
+      'display:cornerInfo',
+      'display:volumeOrientationCube'
+    ])
+    expect(getDisplayTool()?.options?.find((option) => option.value === 'display:volumeOrientationCube')?.checked).toBe(true)
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(getDisplayTool()!, 'display:volumeOrientationCube')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'displayOverlay',
+      overlay: 'volumeOrientationCube',
+      enabled: false
+    })
+
+    harness.wrapper.unmount()
+  })
+
+  it('keeps the render-mode primary icon fixed while VR and Surface retain letter option icons', async () => {
+    const harness = mountToolbarHarness()
+    await nextTick()
+
+    const renderTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'render3dMode')!
+    expect(renderTool.icon).toBe('render-mode')
+    expect(renderTool.showSelectedOptionIcon).toBe(false)
+    expect(renderTool.options?.map((option) => option.icon)).toEqual(['render-volume', 'render-surface'])
+
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      render3dMode: 'volume'
+    }
+    await nextTick()
+    expect(harness.toolbar.activeTools.value.find((tool) => tool.key === 'render3dMode')?.icon).toBe('render-mode')
+
+    harness.wrapper.unmount()
+  })
+
+  it('binds the 3D orientation tool to the current volume quaternion', async () => {
+    const harness = mountToolbarHarness(create3dTab({
+      render3dMode: 'volume',
+      orientation: {
+        top: null,
+        right: null,
+        bottom: null,
+        left: null,
+        volumeQuaternion: createVolumeOrientationQuaternion('L')
+      }
+    }))
+    await nextTick()
+
+    const orientationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumeOrientation')!
+    expect(orientationTool.label).toBe('朝向 · L')
+    expect(orientationTool.icon).toBe('orientation-face-L')
+    const leftOption = orientationTool.options?.find((option) => option.value === 'volumeOrientation:L')
+    expect(leftOption?.checked).toBe(true)
+    expect(leftOption?.icon).toBeUndefined()
+    expect(leftOption?.label).toBe('Left')
+    expect(leftOption?.description).toBe('左侧')
+
+    harness.toolbar.selectToolOption(orientationTool, 'volumeOrientation:S')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeOrientation',
+      value: 'S'
+    })
+
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(orientationTool, 'volumeOrientation:reset')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'volumeOrientation',
+      value: 'A'
+    })
+    expect(orientationTool.footerOptions?.[0]).toMatchObject({
+      value: 'volumeOrientation:reset',
+      label: '重置朝向'
+    })
+
+    harness.wrapper.unmount()
+  })
+
+  it('does not keep a stale selected orientation while the 3D model is oblique', async () => {
+    const harness = mountToolbarHarness(create3dTab({
+      render3dMode: 'volume',
+      orientation: {
+        top: null,
+        right: null,
+        bottom: null,
+        left: null,
+        volumeQuaternion: [0.3826834, 0, 0, 0.9238795]
+      }
+    }))
+    await nextTick()
+
+    const orientationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumeOrientation')!
+    expect(orientationTool.label).toBe('朝向 · 自由')
+    expect(orientationTool.icon).toBe('orientation-face-oblique')
+    expect(orientationTool.options?.filter((option) => option.checked)).toHaveLength(0)
+
+    harness.wrapper.unmount()
+  })
+
+  it('shows A as the default 3D orientation when no quaternion has arrived yet', async () => {
+    const harness = mountToolbarHarness(create3dTab({ render3dMode: 'volume' }))
+    await nextTick()
+
+    const orientationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'volumeOrientation')!
+    expect(orientationTool.label).toBe('朝向 · A')
+    expect(orientationTool.icon).toBe('orientation-face-A')
+    expect(orientationTool.options?.find((option) => option.value === 'volumeOrientation:A')?.checked).toBe(true)
+    harness.wrapper.unmount()
+  })
+
+  it('only offers scale-bar settings when the active MPR or Layout viewport is 2D', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR'
+    })
+    await nextTick()
+
+    const getDisplayValues = () =>
+      harness.toolbar.activeTools.value.find((tool) => tool.key === 'display')?.options?.map((option) => option.value) ?? []
+    const mprLayoutTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'mprLayout')!
+    const mpr3dOption = mprLayoutTool.options!.find((option) => option.mprLayoutKey === 'mpr-3d')!
+    harness.toolbar.selectToolOption(mprLayoutTool, mpr3dOption.value)
+    harness.activeViewportKey.value = 'volume'
+    await nextTick()
+    expect(getDisplayValues()).not.toContain('display:scaleBar')
+
+    harness.activeViewportKey.value = 'mpr-ax'
+    await nextTick()
+    expect(getDisplayValues()).toContain('display:scaleBar')
+
+    const volumeTab = create3dTab({ render3dMode: 'volume' })
+    harness.activeTab.value = {
+      ...volumeTab,
+      key: 'series-1::layout',
+      viewType: 'Layout',
+      viewId: '',
+      layoutSlots: [
+        {
+          id: 'slot-volume',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: volumeTab.seriesId,
+          viewType: '3D',
+          sourceViewType: '3D',
+          viewportKey: 'volume',
+          viewId: 'layout-volume-view'
+        },
+        {
+          id: 'slot-stack',
+          row: 0,
+          column: 1,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: volumeTab.seriesId,
+          viewType: 'Stack',
+          sourceViewType: 'Stack',
+          viewportKey: 'single',
+          viewId: 'layout-stack-view'
+        }
+      ]
+    }
+    harness.activeViewportKey.value = 'slot-volume'
+    await nextTick()
+    expect(getDisplayValues()).not.toContain('display:scaleBar')
+
+    harness.activeViewportKey.value = 'slot-stack'
+    await nextTick()
+    expect(getDisplayValues()).toContain('display:scaleBar')
 
     harness.wrapper.unmount()
   })

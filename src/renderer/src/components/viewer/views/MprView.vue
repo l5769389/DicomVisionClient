@@ -26,6 +26,7 @@ import {
 } from '../../../types/viewer'
 import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 type MprDisplayViewportKey = MprViewportKey | 'volume'
 
@@ -81,8 +82,9 @@ const emit = defineEmits<{
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
+  volumeOrientationSelect: [payload: { viewportKey: MprDisplayViewportKey; face: VolumeOrientationFace }]
   viewportClick: [viewportKey: string]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
 }>()
 
 const { locale, viewerCopy } = useUiLocale()
@@ -183,13 +185,6 @@ const canToggleViewportMaximize = computed(() => {
     operation.startsWith('qa:mtf')
   )
 })
-
-const emptyVolumeCornerInfo: CornerInfo = {
-  topLeft: [],
-  topRight: [],
-  bottomLeft: [],
-  bottomRight: []
-}
 
 const DEFAULT_MPR_CROSSHAIR: MprCrosshairInfo = {
   centerX: 0.5,
@@ -336,7 +331,27 @@ function getItemLoadingLabel(item: MprViewportLayoutItem): string {
 
 function getItemCornerInfo(item: MprViewportLayoutItem): CornerInfo {
   const viewportKey = asMprViewportKey(item)
-  return viewportKey ? props.getCornerInfo(viewportKey) : emptyVolumeCornerInfo
+  if (viewportKey) {
+    return props.getCornerInfo(viewportKey)
+  }
+
+  const cornerInfo = props.activeTab.cornerInfo
+  const tags = { ...(cornerInfo.tags ?? {}) }
+  delete tags.imageIndex
+  delete tags.coordinates
+  delete tags.transform2dState
+  const isVolumeOnlyLine = (line: string): boolean =>
+    /^Im:\s*/i.test(line) ||
+    /^(?:Cursor\s+)?X:\s*-?\d+\s+Y:\s*-?\d+$/i.test(line) ||
+    /^Rot:\s*-?\d+(?:\.\d+)?°?\s*\/\s*Flip:/i.test(line)
+  return {
+    ...cornerInfo,
+    topLeft: cornerInfo.topLeft.filter((line) => !isVolumeOnlyLine(line)),
+    topRight: cornerInfo.topRight.filter((line) => !isVolumeOnlyLine(line)),
+    bottomLeft: cornerInfo.bottomLeft.filter((line) => !isVolumeOnlyLine(line)),
+    bottomRight: cornerInfo.bottomRight.filter((line) => !isVolumeOnlyLine(line)),
+    tags
+  }
 }
 
 function getItemDraftMeasurementMode(item: MprViewportLayoutItem): DraftMeasurementMode | null {
@@ -478,7 +493,7 @@ function resolveWheelViewportKey(viewportKey: string): MprViewportKey | null {
   return isMprViewportKey(viewportKey) ? viewportKey : null
 }
 
-function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean }): void {
+function handleViewportWheel(payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }): void {
   const viewportKey = resolveWheelViewportKey(payload.viewportKey)
   if (!viewportKey) {
     return
@@ -561,8 +576,9 @@ watch(
       :pseudocolor-window-info="getItemPseudocolorWindowInfo(item)"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-crosshair="props.activeTab.showCrosshair !== false"
-      :show-scale-bar="props.activeTab.showScaleBar !== false"
+      :show-scale-bar="item.kind !== 'volume' && props.activeTab.showScaleBar !== false"
       :show-pseudocolor-bar="props.activeTab.showPseudocolorBar !== false"
+      :show-volume-orientation-cube="item.kind === 'volume' && props.activeTab.showVolumeOrientationCube !== false"
       :viewport-transform="getItemTransform(item)"
       :orientation="getItemOrientation(item)"
       :soft-image="item.kind === 'volume'"
@@ -585,6 +601,7 @@ watch(
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"
       @pointer-cancel="emit('pointerCancel', $event)"
+      @volume-orientation-select="emit('volumeOrientationSelect', { viewportKey: item.key, face: $event })"
       @update-annotation-color="emit('updateAnnotationColor', $event)"
       @update-annotation-size="emit('updateAnnotationSize', $event)"
       @update-annotation-text="emit('updateAnnotationText', $event)"

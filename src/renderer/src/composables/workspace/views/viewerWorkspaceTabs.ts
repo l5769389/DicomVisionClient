@@ -852,6 +852,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     showCornerInfo: true,
     showScaleBar: true,
     showPseudocolorBar: true,
+    showVolumeOrientationCube: true,
     showCrosshair: true,
     viewportCornerInfos: createEmptyMprCornerInfos(),
     orientation: createEmptyOrientationInfo(),

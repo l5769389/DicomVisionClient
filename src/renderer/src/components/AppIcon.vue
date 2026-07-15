@@ -6,6 +6,7 @@ import {
   mdiArrowExpandHorizontal,
   mdiArmFlexOutline,
   mdiBellOutline,
+  mdiBedEmpty,
   mdiBone,
   mdiChartBellCurveCumulative,
   mdiCheckBold,
@@ -19,10 +20,13 @@ import {
   mdiCloseCircleMultipleOutline,
   mdiCogOutline,
   mdiConnection,
+  mdiContentCut,
   mdiContentCopy,
   mdiContentSaveOutline,
   mdiContrastCircle,
   mdiCrosshairsGps,
+  mdiCubeOutline,
+  mdiCubeScan,
   mdiCursorMove,
   mdiDotsHorizontal,
   mdiDotsVertical,
@@ -75,7 +79,7 @@ import {
   mdiRotateRight,
   mdiRotateRightVariant,
   mdiRuler,
-  mdiSelectMultipleMarker,
+  mdiSegment,
   mdiShapePolygonPlus,
   mdiShieldCheckOutline,
   mdiSphere,
@@ -107,7 +111,7 @@ const mdiIconMap: Record<string, string> = {
   window: mdiContrastCircle,
   crosshair: mdiCrosshairsGps,
   mip: mdiLayersTriple,
-  segmentation: mdiSelectMultipleMarker,
+  segmentation: mdiSegment,
   'segmentation-threshold': mdiDotsSquare,
   'segmentation-voi': mdiSphere,
   'dots-horizontal': mdiDotsHorizontal,
@@ -116,8 +120,12 @@ const mdiIconMap: Record<string, string> = {
   rotate3d: mdiRotate3dVariant,
   'render-volume': mdiLayersTriple,
   'render-surface': mdiShapePolygonPlus,
-  'volume-clip': mdiShapePolygonPlus,
-  volumePreset: mdiTuneVariant,
+  'render-mode': mdiLayersTriple,
+  'orientation-3d': mdiCubeScan,
+  'orientation-face-oblique': mdiCubeScan,
+  'surface-preset': mdiShapePolygonPlus,
+  'volume-clip': mdiContentCut,
+  volumePreset: mdiCubeOutline,
   'volume-preset-aaa': mdiRocketLaunchOutline,
   'volume-preset-red': mdiWaterOutline,
   'volume-preset-cardiac': mdiHeartPulse,
@@ -204,7 +212,16 @@ const mdiIconMap: Record<string, string> = {
 }
 
 const bedIconName = computed(() => (props.name === 'bed-visible' || props.name === 'remove-bed' || props.name === 'bed-hidden' ? props.name : null))
-const iconPath = computed(() => bedIconName.value ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
+const isPseudocolorIcon = computed(() => props.name === 'pseudocolor')
+const renderModeLetter = computed(() => (props.name === 'render-volume' ? 'V' : props.name === 'render-surface' ? 'S' : null))
+const orientationFaceLetter = computed(() => {
+  const match = props.name.match(/^orientation-face-([APLRSI])$/)
+  if (match) {
+    return match[1] ?? null
+  }
+  return null
+})
+const iconPath = computed(() => (bedIconName.value || isPseudocolorIcon.value || renderModeLetter.value || orientationFaceLetter.value) ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
 const iconSize = computed(() => props.size ?? 24)
 </script>
 
@@ -222,10 +239,41 @@ const iconSize = computed(() => props.size ?? 24)
       class="app-icon-svg__line-icon"
       :data-bed-icon="bedIconName === 'remove-bed' ? 'bed-visible' : bedIconName"
     >
-      <path class="app-icon-svg__bed-eye" :d="mdiEyeOutline" transform="matrix(0.78 0 0 0.58 2.64 2.08)" />
-      <path class="app-icon-svg__bed-board" d="M4.05 16.98C8.68 16.48 15.36 16.32 19.88 16.62c0.6 0.04 1.02 0.58 0.9 1.17l-0.22 1.08c-0.1 0.48-0.54 0.82-1.03 0.79C15.12 19.44 8.78 19.6 4.4 20.12c-0.58 0.07-1.09-0.36-1.12-0.94l-0.07-1.08c-0.04-0.55 0.3-1.06 0.84-1.12Z" />
-      <path v-if="bedIconName === 'bed-hidden'" class="app-icon-svg__bed-slash" d="M5.45 4.05a0.95 0.95 0 0 1 1.34 0l11.12 11.12a0.95 0.95 0 1 1-1.34 1.34L5.45 5.39a0.95 0.95 0 0 1 0-1.34Z" />
+      <path
+        class="app-icon-svg__bed-eye"
+        :d="bedIconName === 'bed-hidden' ? mdiEyeOffOutline : mdiEyeOutline"
+        transform="matrix(0.66 0 0 0.66 4.08 -0.72)"
+      />
+      <path class="app-icon-svg__bed-board" :d="mdiBedEmpty" transform="matrix(0.78 0 0 0.52 2.64 10.55)" />
     </g>
+    <template v-else-if="isPseudocolorIcon">
+      <defs>
+        <radialGradient id="app-icon-pseudocolor-gradient" cx="34%" cy="28%" r="72%">
+          <stop offset="0%" stop-color="#ffffff" />
+          <stop offset="28%" stop-color="#e7ebef" />
+          <stop offset="58%" stop-color="#9fa8b2" />
+          <stop offset="100%" stop-color="#4f5b66" />
+        </radialGradient>
+      </defs>
+      <circle cx="12" cy="12" r="8.25" fill="url(#app-icon-pseudocolor-gradient)" />
+      <circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.1" />
+    </template>
+    <text
+      v-else-if="renderModeLetter"
+      class="app-icon-svg__render-letter"
+      x="12"
+      y="16.4"
+      text-anchor="middle"
+      :data-render-mode-icon="props.name"
+    >{{ renderModeLetter }}</text>
+    <text
+      v-else-if="orientationFaceLetter"
+      class="app-icon-svg__orientation-letter"
+      x="12"
+      y="16.4"
+      text-anchor="middle"
+      :data-orientation-face-icon="orientationFaceLetter"
+    >{{ orientationFaceLetter }}</text>
     <path v-else :d="iconPath" />
   </svg>
 </template>
@@ -244,15 +292,25 @@ const iconSize = computed(() => props.size ?? 24)
   fill: currentColor;
 }
 
-.app-icon-svg__bed-board {
-  opacity: 0.9;
-}
-
+.app-icon-svg__bed-board,
 .app-icon-svg__bed-eye {
   opacity: 0.96;
 }
 
-.app-icon-svg__bed-slash {
-  opacity: 0.98;
+.app-icon-svg__render-letter {
+  fill: currentColor;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.app-icon-svg__orientation-letter {
+  fill: currentColor;
+  stroke: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0;
 }
 </style>

@@ -30,6 +30,10 @@ const cornerOverlayStyle = computed(() =>
 function getCornerLines(cornerInfo: CornerInfo, position: CornerPosition): string[] {
   return cornerInfo[position] ?? []
 }
+
+function isCoordinateLine(line: string): boolean {
+  return /^(?:Cursor\s+)?X:\s*(?:-?\d+|--)\s+Y:\s*(?:-?\d+|--)(?:\s+.+)?$/i.test(line.trim())
+}
 </script>
 
 <template>
@@ -40,7 +44,12 @@ function getCornerLines(cornerInfo: CornerInfo, position: CornerPosition): strin
       class="viewer-corner-block"
       :class="[`viewer-corner-block--${position}`, { 'viewer-corner-block--empty': !getCornerLines(displayCornerInfo, position).length }]"
     >
-      <span v-for="line in getCornerLines(displayCornerInfo, position)" :key="`${viewportKey}-${position}-${line}`" class="viewer-corner-line">
+      <span
+        v-for="(line, lineIndex) in getCornerLines(displayCornerInfo, position)"
+        :key="`${viewportKey}-${position}-${lineIndex}`"
+        class="viewer-corner-line"
+        :class="{ 'viewer-corner-line--coordinates': isCoordinateLine(line) }"
+      >
         {{ line }}
       </span>
     </div>

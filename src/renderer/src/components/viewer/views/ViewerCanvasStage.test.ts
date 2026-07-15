@@ -32,7 +32,10 @@ const annotationOverlayStub = {
 }
 
 const overlayStubs = {
-  VolumeOrientationCube: { template: '<div />' },
+  VolumeOrientationCube: {
+    emits: ['selectFace'],
+    template: '<button type="button" class="volume-orientation-cube-stub" @click="$emit(\'selectFace\', \'L\')" />'
+  },
   ViewportAnnotationOverlay: annotationOverlayStub,
   ViewportCornerOverlay: { template: '<div class="corner-overlay-stub" />' },
   ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
@@ -109,6 +112,97 @@ afterEach(() => {
 })
 
 describe('ViewerCanvasStage layout metrics', () => {
+  it('preserves trackpad wheel metadata for server-side gesture routing', () => {
+    const wrapper = mountStage()
+    const viewport = wrapper.get('.viewer-viewport')
+    vi.spyOn(viewport.element, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      right: 320,
+      bottom: 240,
+      width: 320,
+      height: 240,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect)
+
+    viewport.element.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      clientX: 80,
+      clientY: 60,
+      deltaX: 3,
+      deltaY: -12,
+      deltaMode: WheelEvent.DOM_DELTA_PIXEL
+    }))
+
+    expect(wrapper.emitted('wheelViewport')).toEqual([[
+      {
+        viewportKey: 'single',
+        deltaX: 3,
+        deltaY: -12,
+        deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+        ctrlKey: true,
+        canvasX: 80,
+        canvasY: 60,
+        canvasWidth: 320,
+        canvasHeight: 240
+      }
+    ]])
+    wrapper.unmount()
+  })
+
+  it('shows the 3D direction cube for a layout slot when explicitly enabled', () => {
+    const orientation: OrientationInfo = {
+      ...emptyOrientation,
+      volumeQuaternion: [0, 0, 0, 1]
+    }
+
+    const wrapper = mountStage('blob:volume', {
+      viewportKey: 'slot-1-1',
+      orientation,
+      showVolumeOrientationCube: true
+    })
+
+    expect(wrapper.find('.volume-orientation-cube-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('hides the 3D direction cube when the viewport setting is disabled', () => {
+    const orientation: OrientationInfo = {
+      ...emptyOrientation,
+      volumeQuaternion: [0, 0, 0, 1]
+    }
+
+    const wrapper = mountStage('blob:volume', {
+      viewportKey: 'volume',
+      orientation,
+      showVolumeOrientationCube: false
+    })
+
+    expect(wrapper.find('.volume-orientation-cube-stub').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('emits selected anatomical orientation faces from the 3D direction cube', async () => {
+    const orientation: OrientationInfo = {
+      ...emptyOrientation,
+      volumeQuaternion: [0, 0, 0, 1]
+    }
+
+    const wrapper = mountStage('blob:volume', {
+      viewportKey: 'volume',
+      orientation,
+      showVolumeOrientationCube: true
+    })
+
+    await wrapper.get('.volume-orientation-cube-stub').trigger('click')
+    expect(wrapper.emitted('volumeOrientationSelect')).toEqual([['L']])
+    wrapper.unmount()
+  })
+
   it('coalesces resize and image changes into one layout measurement per animation frame', async () => {
     let resizeCallback: ResizeObserverCallback = () => undefined
     class ResizeObserverStub {

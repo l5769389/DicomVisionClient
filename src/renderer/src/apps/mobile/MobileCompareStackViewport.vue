@@ -24,9 +24,11 @@ import {
   isCompareStackPaneKey
 } from '../../composables/workspace/views/viewerWorkspaceTabs'
 import {
+  classifyMobileTwoFingerGesture,
   createMobileViewportDragMoveQueue,
   getMobileGestureCenter,
   getMobileGestureDistance,
+  type MobileTwoFingerGestureMode,
   type MobileViewportDragMove
 } from './mobileViewportGesture'
 
@@ -91,11 +93,13 @@ let lastPrimaryPoint: PointerPoint | null = null
 let scrollAccumulator = 0
 let lastPinchDistance = 0
 let lastPinchCenter: PointerPoint | null = null
+let initialPinchDistance = 0
+let initialPinchCenter: PointerPoint | null = null
+let pinchGestureMode: MobileTwoFingerGestureMode = 'pending'
+const pinchPointerMoveCounts = new Map<number, number>()
 let isPinching = false
 let totalDragDeltaX = 0
 let totalDragDeltaY = 0
-let totalPinchPanDeltaX = 0
-let totalPinchPanDeltaY = 0
 let totalPinchZoomDeltaY = 0
 
 const dragMoveQueue = createMobileViewportDragMoveQueue<CompareStackPaneKey>((move: MobileViewportDragMove<CompareStackPaneKey>) => {
@@ -295,11 +299,11 @@ function beginPinch(): void {
   isPinching = true
   lastPinchDistance = getPinchDistance()
   lastPinchCenter = getPinchCenter()
-  totalPinchPanDeltaX = 0
-  totalPinchPanDeltaY = 0
+  initialPinchDistance = lastPinchDistance
+  initialPinchCenter = lastPinchCenter
+  pinchGestureMode = 'pending'
+  pinchPointerMoveCounts.clear()
   totalPinchZoomDeltaY = 0
-  emitViewportDragStart(VIEW_OPERATION_TYPES.zoom, activeViewport.value)
-  emitViewportDragStart(VIEW_OPERATION_TYPES.pan, activeViewport.value)
 }
 
 function endPinch(): void {
@@ -307,13 +311,16 @@ function endPinch(): void {
     return
   }
   flushPendingDragMoves()
-  emitViewportDragEnd(VIEW_OPERATION_TYPES.zoom, activeViewport.value)
-  emitViewportDragEnd(VIEW_OPERATION_TYPES.pan, activeViewport.value)
+  if (pinchGestureMode === 'zoom') {
+    emitViewportDragEnd(VIEW_OPERATION_TYPES.zoom, activeViewport.value)
+  }
   isPinching = false
   lastPinchDistance = 0
   lastPinchCenter = null
-  totalPinchPanDeltaX = 0
-  totalPinchPanDeltaY = 0
+  initialPinchDistance = 0
+  initialPinchCenter = null
+  pinchGestureMode = 'pending'
+  pinchPointerMoveCounts.clear()
   totalPinchZoomDeltaY = 0
 }
 
@@ -379,24 +386,34 @@ function handlePointerMove(event: PointerEvent): void {
       return
     }
     const nextDistance = getPinchDistance()
-    const deltaDistance = nextDistance - lastPinchDistance
-    lastPinchDistance = nextDistance
     const nextCenter = getPinchCenter()
-    if (nextCenter && lastPinchCenter) {
-      totalPinchPanDeltaX += nextCenter.x - lastPinchCenter.x
-      totalPinchPanDeltaY += nextCenter.y - lastPinchCenter.y
-      emitViewportDragMove(
-        totalPinchPanDeltaX,
-        totalPinchPanDeltaY,
-        VIEW_OPERATION_TYPES.pan,
-        activeViewport.value
-      )
+    if (!nextCenter || !initialPinchCenter) {
+      return
     }
-    lastPinchCenter = nextCenter
-    if (deltaDistance) {
-      totalPinchZoomDeltaY += -deltaDistance
+    if (pinchGestureMode === 'pending') {
+      const pointerMoveCount = (pinchPointerMoveCounts.get(event.pointerId) ?? 0) + 1
+      pinchPointerMoveCounts.set(event.pointerId, pointerMoveCount)
+      if (pinchPointerMoveCounts.size < 2 && pointerMoveCount < 2) {
+        return
+      }
+      pinchGestureMode = classifyMobileTwoFingerGesture({
+        initialCenter: initialPinchCenter,
+        initialDistance: initialPinchDistance,
+        currentCenter: nextCenter,
+        currentDistance: nextDistance
+      })
+      if (pinchGestureMode === 'zoom') {
+        emitViewportDragStart(VIEW_OPERATION_TYPES.zoom, activeViewport.value)
+      }
+    }
+    if (pinchGestureMode === 'zoom') {
+      totalPinchZoomDeltaY = -(nextDistance - initialPinchDistance)
       emitViewportDragMove(0, totalPinchZoomDeltaY, VIEW_OPERATION_TYPES.zoom, activeViewport.value)
+    } else if (pinchGestureMode === 'scroll' && lastPinchCenter) {
+      handleScrollDrag(nextCenter.y - lastPinchCenter.y, activeViewport.value)
     }
+    lastPinchDistance = nextDistance
+    lastPinchCenter = nextCenter
     return
   }
 
@@ -473,8 +490,9 @@ onBeforeUnmount(() => {
   workspacePointerIds.clear()
   totalDragDeltaX = 0
   totalDragDeltaY = 0
-  totalPinchPanDeltaX = 0
-  totalPinchPanDeltaY = 0
+  initialPinchDistance = 0
+  initialPinchCenter = null
+  pinchGestureMode = 'pending'
   totalPinchZoomDeltaY = 0
   cancelPendingDragMoves()
   endPinch()

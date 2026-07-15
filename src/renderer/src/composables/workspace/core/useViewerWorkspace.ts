@@ -15,7 +15,6 @@ import {
   emitMprCrosshairState,
   emitViewOperation as emitSocketViewOperation,
   emitViewOperationWithAck,
-  setSocketViewerImageFormatPreference,
   type ViewOperationInput,
   type ViewOperationPayload
 } from '../../../services/socket'
@@ -51,7 +50,7 @@ import {
 } from '../operations/viewTabPatches'
 import type { ViewerToolbarActionPayload, ViewerTransformResetScope } from '../operations/viewActionTypes'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
-import { useViewerWorkspaceHover } from '../hover/useViewerWorkspaceHover'
+import { useViewerWorkspaceHover, type HoverCornerSample } from '../hover/useViewerWorkspaceHover'
 import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
 import {
   resolveOptimisticMprCrosshairCenter,
@@ -114,6 +113,10 @@ import {
   normalizeSurfacePresetKey,
   normalizeSurfaceRenderConfig
 } from '../volume/surfaceRenderConfig'
+import {
+  createVolumeOrientationQuaternion,
+  isVolumeOrientationFace
+} from '../volume/volumeOrientation'
 import type {
   CornerInfo,
   ConnectionState,
@@ -166,6 +169,10 @@ export function normalizeViewportWheelScrollDelta(deltaY: number, exact = false)
   return deltaY > 0 ? 1 : deltaY < 0 ? -1 : 0
 }
 
+const TRACKPAD_SCROLL_STEP_PX = 36
+const TRACKPAD_MOUSE_WHEEL_NOTCH_PX = 80
+const TRACKPAD_PINCH_END_DELAY_MS = 120
+
 interface ViewerWorkspaceState {
   activeOperation: Ref<string>
   activeTab: ComputedRef<ViewerTabItem | null>
@@ -177,7 +184,7 @@ interface ViewerWorkspaceState {
   closeOtherTabs: (tabKey: string) => void
   connectionState: Ref<ConnectionState>
   hasSelectedSeries: ComputedRef<boolean>
-  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number; exact?: boolean }) => void
+  handleViewportWheel: (payload: number | { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }) => void
   handleViewportDrag: (payload: {
     deltaX: number
     deltaY: number
@@ -189,6 +196,8 @@ interface ViewerWorkspaceState {
     canvasWidth?: number
     canvasHeight?: number
     interactionId?: string
+    anchorX?: number
+    anchorY?: number
   }) => void
   handleFusionRegistrationDrag: (payload: {
     deltaX: number
@@ -385,10 +394,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     mprSegmentationStylePreference,
     selectedPseudocolorKey,
     setWorkspaceDockPreference,
-    viewerImageFormatPreference,
     workspaceDockPreference
   } = useUiPreferences()
-  setSocketViewerImageFormatPreference(viewerImageFormatPreference.value)
   isSidebarCollapsed.value = workspaceDockPreference.value.leftCollapsed
   const { locale, workspaceStatusCopy } = useUiLocale()
   let statusToastId = 0
@@ -567,13 +574,28 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return resolveViewIdForTabViewport(tab, viewportKey)
   }
 
+  function getActiveVolumeViewId(tab: ViewerTabItem, viewportKey = activeViewportKey.value): string {
+    if (tab.viewType === '3D' || tab.viewType === 'MPR') {
+      return tab.viewId
+    }
+    if (tab.viewType === 'Layout') {
+      const slots = tab.layoutSlots ?? []
+      const activeSlot = slots.find((slot) => slot.id === viewportKey) ?? slots.find((slot) => Boolean(slot.viewId))
+      if (activeSlot && (activeSlot.viewType === '3D' || activeSlot.sourceViewType === '3D')) {
+        return activeSlot.viewId ?? ''
+      }
+    }
+    return ''
+  }
+
   function setActiveVolumePreprocessProgress(messageText: string, progressPercent = 70): void {
     const tab = activeTab.value
-    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+    const viewId = tab ? getActiveVolumeViewId(tab) : ''
+    if (!tab || !viewId) {
       return
     }
     const progress: ViewProgressInfo = {
-      viewId: tab.viewId,
+      viewId,
       phase: 'preprocess',
       progressPercent,
       message: messageText
@@ -846,12 +868,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
-  function updateHoverCornerInfoByViewId(viewId: string, row: number | null = null, col: number | null = null): void {
+  function updateHoverCornerInfoByViewId(viewId: string, sample: HoverCornerSample): void {
     viewerTabs.value = viewerTabs.value.map((item) => {
       if (item.viewId === viewId && (item.viewType === 'Stack' || item.viewType === 'PET')) {
         return {
           ...item,
-          cornerInfo: withHoverCornerInfo(item.cornerInfo, row, col)
+          cornerInfo: withHoverCornerInfo(item.cornerInfo, sample)
         }
       }
 
@@ -861,7 +883,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           ...item,
           compareCornerInfos: {
             ...(item.compareCornerInfos ?? {}),
-            [compareViewportKey]: withHoverCornerInfo(item.compareCornerInfos?.[compareViewportKey] ?? item.cornerInfo, row, col)
+            [compareViewportKey]: withHoverCornerInfo(item.compareCornerInfos?.[compareViewportKey] ?? item.cornerInfo, sample)
           }
         }
       }
@@ -873,7 +895,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             slot.viewId === viewId
               ? {
                   ...slot,
-                  cornerInfo: withHoverCornerInfo(slot.cornerInfo ?? item.cornerInfo, row, col)
+                  cornerInfo: withHoverCornerInfo(slot.cornerInfo ?? item.cornerInfo, sample)
                 }
               : slot
           )
@@ -886,7 +908,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           ...item,
           fusionCornerInfos: {
             ...(item.fusionCornerInfos ?? {}),
-            [fusionViewportKey]: withHoverCornerInfo(item.fusionCornerInfos?.[fusionViewportKey] ?? item.cornerInfo, row, col)
+            [fusionViewportKey]: withHoverCornerInfo(item.fusionCornerInfos?.[fusionViewportKey] ?? item.cornerInfo, sample)
           }
         }
       }
@@ -902,7 +924,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...item,
         viewportCornerInfos: {
           ...(item.viewportCornerInfos ?? {}),
-          [viewportKey]: withHoverCornerInfo(item.viewportCornerInfos?.[viewportKey] ?? item.cornerInfo, row, col)
+          [viewportKey]: withHoverCornerInfo(item.viewportCornerInfos?.[viewportKey] ?? item.cornerInfo, sample)
         }
       }
     })
@@ -1060,11 +1082,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function hasVolumeView(tab: ViewerTabItem): boolean {
-    return tab.viewType === '3D' || (tab.viewType === 'MPR' && Boolean(tab.viewId))
+    return Boolean(getActiveVolumeViewId(tab))
   }
 
   function isMprVolumeViewport(tab: ViewerTabItem, viewportKey: string): boolean {
     return tab.viewType === 'MPR' && viewportKey === 'volume' && Boolean(tab.viewId)
+  }
+
+  function isLayoutVolumeViewport(tab: ViewerTabItem, viewportKey: string): boolean {
+    if (tab.viewType !== 'Layout') {
+      return false
+    }
+    const slot = tab.layoutSlots?.find((item) => item.id === viewportKey)
+    return Boolean(slot?.viewId && (slot.viewType === '3D' || slot.sourceViewType === '3D'))
   }
 
   function clearActiveTabMeasurementOverlays(): void {
@@ -1117,7 +1147,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'volumePreset' || payload.action === 'surfacePreset' || payload.action === 'render3dMode') && !hasVolumeView(tab)) {
+    if ((payload.action === 'volumePreset' || payload.action === 'surfacePreset' || payload.action === 'render3dMode' || payload.action === 'volumeOrientation') && !hasVolumeView(tab)) {
       return
     }
 
@@ -1149,11 +1179,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'rotate3dReset' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'rotate3dReset' && !hasVolumeView(tab)) {
       return
     }
 
-    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && tab.viewType !== 'Layout' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && tab.viewType !== 'Layout' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -1163,13 +1193,16 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'displayOverlay') {
       const overlay = payload.overlay
-      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'pseudocolorBar' && overlay !== 'sliceSlider' && overlay !== 'crosshair') {
+      if (overlay !== 'cornerInfo' && overlay !== 'scaleBar' && overlay !== 'pseudocolorBar' && overlay !== 'sliceSlider' && overlay !== 'crosshair' && overlay !== 'volumeOrientationCube') {
         return
       }
       if (overlay === 'pseudocolorBar' && tab.viewType === 'PETCTFusion') {
         return
       }
       if (overlay === 'crosshair' && !isMprLikeViewType(tab.viewType)) {
+        return
+      }
+      if (overlay === 'volumeOrientationCube' && !hasVolumeView(tab)) {
         return
       }
 
@@ -1185,7 +1218,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                     ? { showPseudocolorBar: payload.enabled ?? item.showPseudocolorBar === false }
                     : overlay === 'sliceSlider'
                       ? { showSliceSlider: payload.enabled ?? item.showSliceSlider === false }
-                      : { showCrosshair: payload.enabled ?? item.showCrosshair === false })
+                      : overlay === 'crosshair'
+                        ? { showCrosshair: payload.enabled ?? item.showCrosshair === false }
+                        : { showVolumeOrientationCube: payload.enabled ?? item.showVolumeOrientationCube === false })
             }
           : item
       )
@@ -1294,9 +1329,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (tab.viewId) {
-      clearPendingVolumeConfig(tab.viewId)
-      clearPendingSurfaceConfig(tab.viewId)
+    const activeVolumeViewId = getActiveVolumeViewId(tab)
+    if (activeVolumeViewId) {
+      clearPendingVolumeConfig(activeVolumeViewId)
+      clearPendingSurfaceConfig(activeVolumeViewId)
     }
 
     if (payload.action === 'reset' || payload.action === 'resetAll') {
@@ -1479,7 +1515,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'rotate3dReset') {
-      const viewId = isMprLikeViewType(tab.viewType) ? getActiveMprOperationViewId(tab) : tab.viewId
+      const viewId = getActiveVolumeViewId(tab)
       if (!viewId) {
         return
       }
@@ -1492,6 +1528,53 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (tab.viewType === '4D') {
         views.invalidateFourDMprState(tab.key)
       }
+      return
+    }
+
+    if (payload.action === 'volumeOrientation' && payload.value) {
+      const face = payload.value.toUpperCase()
+      if (!isVolumeOrientationFace(face)) {
+        return
+      }
+      const viewportKey = payload.viewportKey ?? activeViewportKey.value
+      const viewId = getActiveVolumeViewId(tab, viewportKey)
+      if (!viewId) {
+        return
+      }
+      const volumeQuaternion = createVolumeOrientationQuaternion(face)
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key) {
+          return item
+        }
+        if (item.viewType === 'Layout') {
+          return {
+            ...item,
+            layoutSlots: item.layoutSlots?.map((slot) =>
+              slot.id === viewportKey && (slot.viewType === '3D' || slot.sourceViewType === '3D')
+                ? {
+                    ...slot,
+                    orientation: {
+                      ...(slot.orientation ?? item.orientation),
+                      volumeQuaternion
+                    }
+                  }
+                : slot
+            )
+          }
+        }
+        return {
+          ...item,
+          orientation: {
+            ...item.orientation,
+            volumeQuaternion
+          }
+        }
+      })
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.rotate3d,
+        subOpType: `orientation:${face}`
+      })
       return
     }
 
@@ -1589,7 +1672,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'reset' || payload.action === 'resetAll') && (tab.viewType === '3D' || isMprVolumeViewport(tab, activeViewportKey.value))) {
+    const isActiveVolumeViewport =
+      tab.viewType === '3D' ||
+      isMprVolumeViewport(tab, activeViewportKey.value) ||
+      isLayoutVolumeViewport(tab, activeViewportKey.value)
+    if ((payload.action === 'reset' || payload.action === 'resetAll') && isActiveVolumeViewport) {
+      const viewId = getActiveVolumeViewId(tab)
+      if (!viewId) {
+        return
+      }
       const defaultSurfaceConfig = createDefaultSurfaceRenderConfig()
       const defaultRenderOptions = createDefaultVolumeRenderOptions()
       viewerTabs.value = viewerTabs.value.map((item) =>
@@ -1608,14 +1699,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
       if (payload.action === 'resetAll') {
         emitViewOperation({
-          viewId: tab.viewId,
+          viewId,
           opType: VIEW_OPERATION_TYPES.reset,
           subOpType: 'all'
         })
         return
       }
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.reset,
         subOpType: 'view'
       })
@@ -1623,6 +1714,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'render3dMode' && payload.value) {
+      const viewId = getActiveVolumeViewId(tab)
+      if (!viewId) {
+        return
+      }
       const render3dMode = normalizeRender3DMode(payload.value.replace(/^render3dMode:/, ''))
       const surfaceConfig = normalizeSurfaceRenderConfig(tab.surfaceRenderConfig ?? createDefaultSurfaceRenderConfig())
       viewerTabs.value = viewerTabs.value.map((item) =>
@@ -1636,7 +1731,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       )
 
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.render3dMode,
         render3dMode
       })
@@ -1644,6 +1739,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'volumePreset' && payload.value) {
+      const viewId = getActiveVolumeViewId(tab)
+      if (!viewId) {
+        return
+      }
       const presetKey = normalizeVolumePresetKey(payload.value)
       const presetConfig = createDefaultVolumeRenderConfig(presetKey)
       viewerTabs.value = viewerTabs.value.map((item) =>
@@ -1657,7 +1756,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       )
 
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.volumePreset,
         subOpType: presetKey
       })
@@ -1665,6 +1764,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'surfacePreset' && payload.value) {
+      const viewId = getActiveVolumeViewId(tab)
+      if (!viewId) {
+        return
+      }
       const presetKey = normalizeSurfacePresetKey(payload.value)
       const surfaceConfig = createSurfaceRenderPresetConfig(presetKey)
       viewerTabs.value = viewerTabs.value.map((item) =>
@@ -1677,8 +1780,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
+      setActiveVolumePreprocessProgress('正在应用 Surface 预设...', 68)
+
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.surfaceConfig,
         subOpType: `surfacePreset:${presetKey}`,
         surfaceConfig
@@ -1687,6 +1792,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'volumeRenderOptions') {
+      const viewId = getActiveVolumeViewId(tab)
+      if (!viewId) {
+        return
+      }
       const previousOptions = normalizeVolumeRenderOptions(tab.volumeRenderOptions, createDefaultVolumeRenderOptions())
       const nextOptions: VolumeRenderOptions = {
         ...previousOptions,
@@ -1704,7 +1813,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       setActiveVolumePreprocessProgress(nextOptions.removeBed ? '正在过滤床板...' : '正在恢复床板显示...', 72)
 
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.volumeRenderOptions,
         volumeRenderOptions: nextOptions
       })
@@ -1712,6 +1821,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'volumeClipReset') {
+      const viewId = getActiveVolumeViewId(tab)
+      if (!viewId) {
+        return
+      }
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
@@ -1727,7 +1840,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       setActiveVolumePreprocessProgress('正在重置 3D 裁剪...', 76)
 
       emitViewOperation({
-        viewId: tab.viewId,
+        viewId,
         opType: VIEW_OPERATION_TYPES.volumeClip,
         subOpType: 'reset'
       })
@@ -1946,7 +2059,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function handleVolumeConfigChange(config: VolumeRenderConfig): void {
     const tab = activeTab.value
-    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+    const viewId = tab ? getActiveVolumeViewId(tab) : ''
+    if (!tab || !viewId) {
       return
     }
 
@@ -1961,12 +2075,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         : item
     )
 
-    scheduleVolumeConfigEmit(tab.viewId, normalizedConfig)
+    scheduleVolumeConfigEmit(viewId, normalizedConfig)
   }
 
   function handleSurfaceConfigChange(config: SurfaceRenderConfig): void {
     const tab = activeTab.value
-    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+    const viewId = tab ? getActiveVolumeViewId(tab) : ''
+    if (!tab || !viewId) {
       return
     }
 
@@ -1981,7 +2096,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         : item
     )
 
-    scheduleSurfaceConfigEmit(tab.viewId, normalizedConfig)
+    scheduleSurfaceConfigEmit(viewId, normalizedConfig)
   }
 
   function handleVolumeClip(payload: {
@@ -1990,7 +2105,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     points?: MeasurementDraftPoint[]
   }): void {
     const tab = activeTab.value
-    if (!tab || !hasVolumeView(tab) || !tab.viewId) {
+    const viewId = tab ? getActiveVolumeViewId(tab, payload.viewportKey) : ''
+    if (!tab || !viewId) {
       return
     }
 
@@ -2026,7 +2142,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     emitViewOperation({
-      viewId: tab.viewId,
+      viewId,
       opType: VIEW_OPERATION_TYPES.volumeClip,
       subOpType: payload.mode,
       points: payload.mode === 'reset' ? undefined : normalizedPoints,
@@ -2686,7 +2802,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     return request
   }
 
-  const { cleanupHover, handleHoverInfo, handleHoverViewportChange, stripHoverCornerInfo, withHoverCornerInfo } =
+  const {
+    cleanupHover,
+    clearHoverSample,
+    getLastHoverSample,
+    handleHoverInfo,
+    handleHoverViewportChange,
+    stripHoverCornerInfo,
+    withHoverCornerInfo
+  } =
     useViewerWorkspaceHover({
       activeTab,
       activeViewportKey,
@@ -2706,12 +2830,25 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (tab.viewType === '4D') {
         emitFourDPlaybackStop({ tabKey: tab.key })
       }
+      const closingViewIds = new Set([
+        tab.viewId,
+        ...Object.values(tab.compareViewIds ?? {}),
+        ...Object.values(tab.viewportViewIds ?? {}),
+        ...Object.values(tab.fusionViewIds ?? {}),
+        ...(tab.layoutSlots ?? []).map((slot) => slot.viewId)
+      ])
+      closingViewIds.forEach((viewId) => {
+        if (viewId) {
+          clearHoverSample(viewId)
+        }
+      })
     },
     selectedSeries,
     selectedSeriesId,
     seriesCornerInfoMap,
     seriesList,
     stripHoverCornerInfo,
+    getLastHoverSample,
     viewerStage,
     viewerTabs,
     viewportElements,
@@ -2727,21 +2864,21 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewInteractionOperationScheduler = createMprInteractionOperationScheduler<ViewOperationPayload>({
     emit: (_operationKey, payload) => emitViewOperation(payload)
   })
+  const implicitDragInteractionIds = new Map<string, string>()
+  const wheelScrollAccumulatorByViewport = new Map<string, number>()
+  let trackpadZoomSession: {
+    anchorX: number
+    anchorY: number
+    canvasHeight: number
+    canvasWidth: number
+    interactionId: string
+    timeout: ReturnType<typeof window.setTimeout> | null
+    totalDeltaY: number
+    viewportKey: string
+  } | null = null
   const pendingPseudocolorOverlayPreservationViewIds = new Set<string>()
   const pendingMissingMprImageRecoveryKeys = new Set<string>()
   const rotate3dInteractionGuardByView = new Map<string, { id: string; startedAt: number; endedAt: number | null }>()
-
-  watch(viewerImageFormatPreference, (nextFormat, previousFormat) => {
-    setSocketViewerImageFormatPreference(nextFormat)
-    if (!previousFormat || nextFormat === previousFormat) {
-      return
-    }
-    viewerTabs.value.forEach((tab) => {
-      if (tab.viewType !== 'Tag') {
-        void views.renderTab(tab.key, true)
-      }
-    })
-  })
 
   function emitViewOperation(payload: ViewOperationPayload): void {
     if (payload.opType === VIEW_OPERATION_TYPES.pseudocolor && payload.viewId) {
@@ -3135,6 +3272,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function handleImageError(error: { message?: string } | undefined): void {
+    const tab = activeTab.value
+    if (tab?.loadingProgress) {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              loadingProgress: null
+            }
+          : item
+      )
+    }
     if (error?.message) {
       message.value = error.message
       if (error.message.toLowerCase().includes('view size has not been set')) {
@@ -3266,7 +3414,114 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     await backendConnectionPromise
   }
 
-  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number; exact?: boolean }): void {
+  function finishTrackpadZoomSession(): void {
+    const session = trackpadZoomSession
+    if (!session) {
+      return
+    }
+    if (session.timeout != null) {
+      window.clearTimeout(session.timeout)
+    }
+    trackpadZoomSession = null
+    handleViewportDrag({
+      viewportKey: session.viewportKey,
+      opType: VIEW_OPERATION_TYPES.zoom,
+      phase: DRAG_ACTION_TYPES.end,
+      deltaX: 0,
+      deltaY: session.totalDeltaY,
+      anchorX: session.anchorX,
+      anchorY: session.anchorY,
+      canvasWidth: session.canvasWidth,
+      canvasHeight: session.canvasHeight,
+      interactionId: session.interactionId
+    })
+  }
+
+  function handleTrackpadPinchZoom(payload: {
+    viewportKey: string
+    deltaY: number
+    canvasX?: number
+    canvasY?: number
+    canvasWidth?: number
+    canvasHeight?: number
+  }): void {
+    if (!Number.isFinite(payload.deltaY) || payload.deltaY === 0) {
+      return
+    }
+    if (trackpadZoomSession && trackpadZoomSession.viewportKey !== payload.viewportKey) {
+      finishTrackpadZoomSession()
+    }
+    if (!trackpadZoomSession) {
+      const interactionId = globalThis.crypto?.randomUUID?.() ?? `trackpad-zoom-${Date.now().toString(36)}`
+      trackpadZoomSession = {
+        anchorX: Number.isFinite(payload.canvasX) ? Number(payload.canvasX) : Math.max(1, Number(payload.canvasWidth) || 1) / 2,
+        anchorY: Number.isFinite(payload.canvasY) ? Number(payload.canvasY) : Math.max(1, Number(payload.canvasHeight) || 1) / 2,
+        canvasHeight: Math.max(1, Number(payload.canvasHeight) || 1),
+        canvasWidth: Math.max(1, Number(payload.canvasWidth) || 1),
+        interactionId,
+        timeout: null,
+        totalDeltaY: 0,
+        viewportKey: payload.viewportKey
+      }
+      handleViewportDrag({
+        viewportKey: payload.viewportKey,
+        opType: VIEW_OPERATION_TYPES.zoom,
+        phase: DRAG_ACTION_TYPES.start,
+        deltaX: 0,
+        deltaY: 0,
+        anchorX: trackpadZoomSession.anchorX,
+        anchorY: trackpadZoomSession.anchorY,
+        canvasWidth: trackpadZoomSession.canvasWidth,
+        canvasHeight: trackpadZoomSession.canvasHeight,
+        interactionId
+      })
+    }
+    const session = trackpadZoomSession
+    session.canvasWidth = Math.max(1, Number(payload.canvasWidth) || session.canvasWidth)
+    session.canvasHeight = Math.max(1, Number(payload.canvasHeight) || session.canvasHeight)
+    session.totalDeltaY += payload.deltaY
+    handleViewportDrag({
+      viewportKey: session.viewportKey,
+      opType: VIEW_OPERATION_TYPES.zoom,
+      phase: DRAG_ACTION_TYPES.move,
+      deltaX: 0,
+      deltaY: session.totalDeltaY,
+      anchorX: session.anchorX,
+      anchorY: session.anchorY,
+      canvasWidth: session.canvasWidth,
+      canvasHeight: session.canvasHeight,
+      interactionId: session.interactionId
+    })
+    if (session.timeout != null) {
+      window.clearTimeout(session.timeout)
+    }
+    session.timeout = window.setTimeout(finishTrackpadZoomSession, TRACKPAD_PINCH_END_DELAY_MS)
+  }
+
+  function resolveWheelSliceDelta(
+    tabKey: string,
+    viewportKey: string,
+    deltaY: number,
+    deltaMode = 0,
+    exact = false
+  ): number {
+    if (exact) {
+      return normalizeViewportWheelScrollDelta(deltaY, true)
+    }
+    if (!Number.isFinite(deltaY) || deltaY === 0) {
+      return 0
+    }
+    if (deltaMode !== 0 || Math.abs(deltaY) >= TRACKPAD_MOUSE_WHEEL_NOTCH_PX) {
+      return deltaY > 0 ? 1 : -1
+    }
+    const key = `${tabKey}:${viewportKey}`
+    const accumulated = (wheelScrollAccumulatorByViewport.get(key) ?? 0) + deltaY
+    const steps = Math.trunc(accumulated / TRACKPAD_SCROLL_STEP_PX)
+    wheelScrollAccumulatorByViewport.set(key, accumulated - steps * TRACKPAD_SCROLL_STEP_PX)
+    return steps
+  }
+
+  function handleViewportWheel(payload: number | { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }): void {
     const tab = activeTab.value
     if (!tab) {
       return
@@ -3274,12 +3529,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const viewportKey = typeof payload === 'number' ? activeViewportKey.value : payload.viewportKey
     const deltaY = typeof payload === 'number' ? payload : payload.deltaY
+    if (typeof payload !== 'number' && payload.ctrlKey) {
+      setActiveViewportKey(viewportKey)
+      handleTrackpadPinchZoom(payload)
+      return
+    }
     const viewId = getActiveViewIdForTab(tab, viewportKey)
     if (!viewId || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
       return
     }
 
-    const normalizedDelta = normalizeViewportWheelScrollDelta(deltaY, typeof payload !== 'number' && payload.exact === true)
+    const normalizedDelta = resolveWheelSliceDelta(
+      tab.key,
+      viewportKey,
+      deltaY,
+      typeof payload === 'number' ? 0 : payload.deltaMode ?? 0,
+      typeof payload !== 'number' && payload.exact === true
+    )
     const scroll = normalizedDelta > 0 ? normalizedDelta : normalizedDelta < 0 ? normalizedDelta : 0
     if (!scroll) {
       return
@@ -3406,6 +3672,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     canvasWidth?: number
     canvasHeight?: number
     interactionId?: string
+    anchorX?: number
+    anchorY?: number
   }): void {
     const tab = activeTab.value
     if (!tab || isFourDPlaybackLocked(tab)) {
@@ -3433,53 +3701,101 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    const supportsInteractionSession =
+      payload.opType === VIEW_OPERATION_TYPES.pan ||
+      payload.opType === VIEW_OPERATION_TYPES.zoom ||
+      payload.opType === VIEW_OPERATION_TYPES.rotate3d
+    const interactionKey = `${viewId}:${payload.opType}`
+    let resolvedInteractionId = typeof payload.interactionId === 'string' && payload.interactionId.trim()
+      ? payload.interactionId
+      : undefined
+    if (supportsInteractionSession && !resolvedInteractionId) {
+      if (payload.phase === DRAG_ACTION_TYPES.start) {
+        resolvedInteractionId = globalThis.crypto?.randomUUID?.() ??
+          `${payload.opType}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+        implicitDragInteractionIds.set(interactionKey, resolvedInteractionId)
+      } else {
+        resolvedInteractionId = implicitDragInteractionIds.get(interactionKey)
+      }
+    } else if (supportsInteractionSession && payload.phase === DRAG_ACTION_TYPES.start && resolvedInteractionId) {
+      implicitDragInteractionIds.set(interactionKey, resolvedInteractionId)
+    }
+    const clearCompletedInteraction = (): void => {
+      if (payload.phase === DRAG_ACTION_TYPES.end && implicitDragInteractionIds.get(interactionKey) === resolvedInteractionId) {
+        implicitDragInteractionIds.delete(interactionKey)
+      }
+    }
+
     if (handleFusionPetWindowDrag(tab, payload)) {
       return
     }
 
+    const supportsCanvasPosition =
+      payload.opType === VIEW_OPERATION_TYPES.rotate3d ||
+      payload.opType === VIEW_OPERATION_TYPES.pan ||
+      payload.opType === VIEW_OPERATION_TYPES.zoom
+    const registeredViewportRect = viewportElements.value[payload.viewportKey]?.getBoundingClientRect()
+    const resolvedCanvasWidth =
+      typeof payload.canvasWidth === 'number' && Number.isFinite(payload.canvasWidth) && payload.canvasWidth > 0
+        ? payload.canvasWidth
+        : registeredViewportRect?.width
+    const resolvedCanvasHeight =
+      typeof payload.canvasHeight === 'number' && Number.isFinite(payload.canvasHeight) && payload.canvasHeight > 0
+        ? payload.canvasHeight
+        : registeredViewportRect?.height
+    const hasCanvasSize =
+      supportsCanvasPosition &&
+      typeof resolvedCanvasWidth === 'number' &&
+      Number.isFinite(resolvedCanvasWidth) &&
+      resolvedCanvasWidth > 0 &&
+      typeof resolvedCanvasHeight === 'number' &&
+      Number.isFinite(resolvedCanvasHeight) &&
+      resolvedCanvasHeight > 0
     const hasCanvasPosition =
-      payload.opType === VIEW_OPERATION_TYPES.rotate3d &&
+      hasCanvasSize &&
       typeof payload.canvasX === 'number' &&
       Number.isFinite(payload.canvasX) &&
       typeof payload.canvasY === 'number' &&
-      Number.isFinite(payload.canvasY) &&
-      typeof payload.canvasWidth === 'number' &&
-      Number.isFinite(payload.canvasWidth) &&
-      payload.canvasWidth > 0 &&
-      typeof payload.canvasHeight === 'number' &&
-      Number.isFinite(payload.canvasHeight) &&
-      payload.canvasHeight > 0
+      Number.isFinite(payload.canvasY)
 
-    const canvasPositionPayload = hasCanvasPosition
+    const canvasPositionPayload = hasCanvasSize
       ? {
-          canvasX: payload.canvasX,
-          canvasY: payload.canvasY,
-          canvasWidth: payload.canvasWidth,
-          canvasHeight: payload.canvasHeight
+          ...(hasCanvasPosition ? { canvasX: payload.canvasX, canvasY: payload.canvasY } : {}),
+          canvasWidth: resolvedCanvasWidth,
+          canvasHeight: resolvedCanvasHeight
         }
       : {}
+    const isVolumeViewport =
+      tab.viewType === '3D' ||
+      isMprVolumeViewport(tab, payload.viewportKey) ||
+      isLayoutVolumeViewport(tab, payload.viewportKey)
+    const hasDragInteractionId =
+      supportsInteractionSession && typeof resolvedInteractionId === 'string' && resolvedInteractionId.length > 0
     const hasRotate3dInteractionId =
-      tab.viewType === '3D' &&
-      payload.opType === VIEW_OPERATION_TYPES.rotate3d &&
-      typeof payload.interactionId === 'string' &&
-      payload.interactionId.trim().length > 0
+      isVolumeViewport && payload.opType === VIEW_OPERATION_TYPES.rotate3d && hasDragInteractionId
     if (hasRotate3dInteractionId && payload.phase === DRAG_ACTION_TYPES.start) {
       rotate3dInteractionGuardByView.set(viewId, {
-        id: payload.interactionId!,
+        id: resolvedInteractionId!,
         startedAt: performance.now(),
         endedAt: null
       })
     } else if (hasRotate3dInteractionId && payload.phase === DRAG_ACTION_TYPES.end) {
       const guard = rotate3dInteractionGuardByView.get(viewId)
-      if (guard && guard.id === payload.interactionId) {
+      if (guard && guard.id === resolvedInteractionId) {
         guard.endedAt = performance.now()
       }
     }
-    const interactionPayload = hasRotate3dInteractionId
+    const interactionPayload = hasDragInteractionId
       ? {
-          interactionId: payload.interactionId
+          interactionId: resolvedInteractionId
         }
       : {}
+    const zoomAnchorPayload =
+      payload.opType === VIEW_OPERATION_TYPES.zoom &&
+      typeof payload.anchorX === 'number' && Number.isFinite(payload.anchorX) &&
+      typeof payload.anchorY === 'number' && Number.isFinite(payload.anchorY)
+        ? { anchorX: payload.anchorX, anchorY: payload.anchorY }
+        : {}
     if (payload.phase === DRAG_ACTION_TYPES.move && !payload.deltaX && !payload.deltaY && !hasCanvasPosition) {
       return
     }
@@ -3497,12 +3813,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         y: payload.deltaY,
         ...canvasPositionPayload,
         ...interactionPayload,
+        ...zoomAnchorPayload,
         previewFeedbackMode: usesCadencePreview ? 'cadence' : undefined
       })
+      clearCompletedInteraction()
       return
     }
 
-    const isVolumeDrag = tab.viewType === '3D' || isMprVolumeViewport(tab, payload.viewportKey)
+    const isVolumeDrag = isVolumeViewport
 
     resolveOperationTargets(tab, payload.viewportKey, payload.opType).forEach((target) => {
       emitScheduledViewOperation({
@@ -3513,9 +3831,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         y: payload.deltaY,
         ...canvasPositionPayload,
         ...interactionPayload,
+        ...zoomAnchorPayload,
         previewFeedbackMode: isVolumeDrag && usesCadencePreview ? 'cadence' : undefined
       })
     })
+    clearCompletedInteraction()
   }
 
   function handleFusionRegistrationDrag(payload: {
@@ -4475,6 +4795,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   })
 
   onBeforeUnmount(() => {
+    if (trackpadZoomSession?.timeout != null) {
+      window.clearTimeout(trackpadZoomSession.timeout)
+    }
+    trackpadZoomSession = null
+    implicitDragInteractionIds.clear()
+    wheelScrollAccumulatorByViewport.clear()
     viewInteractionOperationScheduler.cancel()
     flushAllPendingVolumeConfig()
     flushAllPendingSurfaceConfig()

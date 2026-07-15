@@ -60,6 +60,33 @@ describe('viewerLayoutSlotSeeds', () => {
     expect(slots[1]?.imageSrc).toBeUndefined()
   })
 
+  it('seeds the current 3D view as a live volume layout slot', async () => {
+    const volumeTab = createTab({
+      viewType: '3D',
+      viewId: 'volume-view',
+      imageSrc: 'blob:volume',
+      sliceLabel: '',
+      windowLabel: '',
+      cornerInfo: { topLeft: ['Patient'], topRight: [], bottomLeft: [], bottomRight: [] },
+      orientation: { top: 'A', right: 'L', bottom: 'P', left: 'R', volumeQuaternion: [0, 0, 0, 1] }
+    })
+
+    const slots = await createSeededLayoutSlots(createUniformLayoutTemplate(1, 2), volumeTab, cloneImageSrc)
+
+    expect(slots[0]).toMatchObject({
+      id: 'slot-1-1',
+      seriesId: 'series-a',
+      viewType: '3D',
+      sourceViewType: '3D',
+      viewportKey: 'volume',
+      viewId: 'volume-view',
+      imageSrc: 'copy:blob:volume',
+      ownsImageSrc: true,
+      cornerInfo: { topLeft: ['Patient'] },
+      orientation: { top: 'A', volumeQuaternion: [0, 0, 0, 1] }
+    })
+  })
+
   it('seeds CompareStack panes into the first two slots', async () => {
     const compareTab = createTab({
       viewType: 'CompareStack',

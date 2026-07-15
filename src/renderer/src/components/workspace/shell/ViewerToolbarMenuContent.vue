@@ -5,7 +5,7 @@ import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
-import type { StackTool } from './toolbarTypes'
+import type { StackTool, StackToolOption } from './toolbarTypes'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -66,6 +66,25 @@ function selectPlaybackIndex(index: number): void {
 function handlePlaybackSliderInput(event: Event): void {
   const value = Number((event.target as HTMLInputElement | null)?.value ?? playbackSelectedIndex.value)
   selectPlaybackIndex(Number.isFinite(value) ? value : playbackSelectedIndex.value)
+}
+
+function isVolumeOrientationOption(option: StackToolOption): boolean {
+  return /^volumeOrientation:[APLRSI]$/.test(option.value)
+}
+
+function getVolumeOrientationInitial(option: StackToolOption): string {
+  return (option.label.trim()[0] ?? '').toUpperCase()
+}
+
+function getVolumeOrientationSuffix(option: StackToolOption): string {
+  return option.label.trim().slice(1).toLowerCase()
+}
+
+function isToolbarOptionActive(option: StackToolOption): boolean {
+  if (props.tool.key === 'volumeOrientation') {
+    return option.checked === true
+  }
+  return props.stackToolSelections[props.tool.key] === option.value || option.checked === true
 }
 </script>
 
@@ -150,21 +169,22 @@ function handlePlaybackSliderInput(event: Event): void {
           type="button"
           class="toolbar-menu-option group relative w-full appearance-none overflow-hidden rounded-xl! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
           :class="{
-            'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': stackToolSelections[tool.key] === option.value || option.checked
+            'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': isToolbarOptionActive(option)
           }"
           @click="emit('select', option.value)"
         >
           <div
             class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-            :class="{ 'opacity-100': stackToolSelections[tool.key] === option.value || option.checked }"
+            :class="{ 'opacity-100': isToolbarOptionActive(option) }"
           />
           <div class="flex items-center justify-between gap-2.5">
             <div class="flex min-w-0 items-center gap-3">
               <div
+                v-if="tool.key === 'pseudocolor' || option.icon"
                 class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
                 :class="{
                   'w-[46px] rounded-xl': tool.key === 'pseudocolor',
-                  'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel-solid)_90%))]': stackToolSelections[tool.key] === option.value || option.checked
+                  'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel-solid)_90%))]': isToolbarOptionActive(option)
                 }"
               >
                 <PseudocolorBand
@@ -174,7 +194,7 @@ function handlePlaybackSliderInput(event: Event): void {
                   :preset="option.swatchKey ?? 'bw'"
                 />
                 <AppIcon
-                  v-else
+                  v-else-if="option.icon"
                   :name="option.icon"
                   :size="menuIconSize + 2"
                 />
@@ -184,7 +204,11 @@ function handlePlaybackSliderInput(event: Event): void {
                   class="whitespace-nowrap font-medium text-[var(--theme-text-primary)]"
                   :class="{ truncate: tool.key !== 'display' }"
                 >
-                  {{ option.label }}
+                  <span v-if="isVolumeOrientationOption(option)" class="volume-orientation-option-label">
+                    <span class="volume-orientation-option-label__initial">{{ getVolumeOrientationInitial(option) }}</span>
+                    <span class="volume-orientation-option-label__suffix">{{ getVolumeOrientationSuffix(option) }}</span>
+                  </span>
+                  <template v-else>{{ option.label }}</template>
                 </div>
                 <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.2] text-[var(--theme-text-muted)]">
                   {{ option.description }}
@@ -207,6 +231,35 @@ function handlePlaybackSliderInput(event: Event): void {
           </div>
         </button>
       </template>
+      <div
+        v-if="tool.footerOptions?.length"
+        class="viewer-toolbar-menu-content__footer-actions"
+      >
+        <button
+          v-for="option in tool.footerOptions"
+          :key="option.value"
+          type="button"
+          class="toolbar-menu-option toolbar-menu-option--footer group relative w-full appearance-none overflow-hidden rounded-xl! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+          @click="emit('select', option.value)"
+        >
+          <div class="flex items-center gap-3">
+            <div
+              v-if="option.icon"
+              class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
+            >
+              <AppIcon :name="option.icon" :size="menuIconSize + 2" />
+            </div>
+            <div class="min-w-0">
+              <div class="whitespace-nowrap font-medium text-[var(--theme-text-primary)]">
+                {{ option.label }}
+              </div>
+              <div v-if="option.description" class="mt-0.5 text-[11px] leading-[1.2] text-[var(--theme-text-muted)]">
+                {{ option.description }}
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
     </template>
   </div>
 </template>
@@ -229,6 +282,34 @@ function handlePlaybackSliderInput(event: Event): void {
   width: min(224px, calc(100vw - 32px));
   min-width: 0 !important;
   max-width: min(224px, calc(100vw - 32px)) !important;
+}
+
+.volume-orientation-option-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  letter-spacing: 0;
+}
+
+.volume-orientation-option-label__initial {
+  color: var(--theme-text-primary);
+  font-weight: 900;
+}
+
+.volume-orientation-option-label__suffix {
+  color: var(--theme-text-muted);
+  font-weight: 750;
+  text-transform: lowercase;
+}
+
+.viewer-toolbar-menu-content__footer-actions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+}
+
+.toolbar-menu-option--footer {
+  color: var(--theme-text-secondary) !important;
 }
 
 .viewer-toolbar-menu-content__playback-fps {

@@ -49,8 +49,8 @@ function createMprTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
 const globalStubs = {
   ViewerCanvasStage: {
     name: 'ViewerCanvasStage',
-    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel', 'mprCrosshair'],
-    emits: ['clickViewport', 'doubleClickViewport', 'wheelViewport'],
+    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel', 'mprCrosshair', 'cornerInfo', 'showVolumeOrientationCube'],
+    emits: ['clickViewport', 'doubleClickViewport', 'volumeOrientationSelect', 'wheelViewport'],
     template: `
       <button
         class="viewer-stage-stub"
@@ -61,8 +61,14 @@ const globalStubs = {
         :data-loading="isLoading ? 'true' : 'false'"
         :data-loading-label="loadingLabel"
         :data-has-crosshair="mprCrosshair ? 'true' : 'false'"
+        :data-corner-top-left="cornerInfo?.topLeft?.join('|') ?? ''"
+        :data-corner-top-right="cornerInfo?.topRight?.join('|') ?? ''"
+        :data-corner-bottom-left="cornerInfo?.bottomLeft?.join('|') ?? ''"
+        :data-corner-bottom-right="cornerInfo?.bottomRight?.join('|') ?? ''"
+        :data-show-volume-cube="showVolumeOrientationCube ? 'true' : 'false'"
         @click="$emit('clickViewport', viewportKey)"
         @dblclick="$emit('doubleClickViewport', viewportKey)"
+        @contextmenu.prevent="$emit('volumeOrientationSelect', 'I')"
         @wheel="$emit('wheelViewport', { viewportKey, deltaY: $event.deltaY })"
       >
         {{ viewportKey }}
@@ -170,6 +176,56 @@ describe('MprView', () => {
       'mpr-sag',
       'volume'
     ])
+    wrapper.unmount()
+  })
+
+  it('keeps the 3D corner metadata and direction-cube setting in an MPR 3D layout', () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeTab: createMprTab({
+          viewId: 'volume-view-1',
+          imageSrc: 'volume.png',
+          showVolumeOrientationCube: false,
+          cornerInfo: {
+            topLeft: ['Patient: Demo', 'Im: 4/320'],
+            topRight: ['Study: CT', 'X: 12 Y: 24'],
+            bottomLeft: ['Scanner: DV', 'Rot: 0 / Flip: -'],
+            bottomRight: ['Zoom: 1.00x']
+          }
+        }),
+        layoutKey: 'mpr-3d'
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    const volumeStage = wrapper.get('[data-viewport-key="volume"]')
+    expect(volumeStage.attributes('data-corner-top-left')).toBe('Patient: Demo')
+    expect(volumeStage.attributes('data-corner-top-right')).toBe('Study: CT')
+    expect(volumeStage.attributes('data-corner-bottom-left')).toBe('Scanner: DV')
+    expect(volumeStage.attributes('data-corner-bottom-right')).toBe('Zoom: 1.00x')
+    expect(volumeStage.attributes('data-show-volume-cube')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('emits orientation selections from the MPR 3D volume viewport', async () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeViewportKey: 'volume',
+        activeTab: createMprTab({
+          viewId: 'volume-view-1',
+          imageSrc: 'volume.png'
+        }),
+        layoutKey: 'mpr-3d'
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    await wrapper.get('[data-viewport-key="volume"]').trigger('contextmenu')
+    expect(wrapper.emitted('volumeOrientationSelect')).toEqual([[{ viewportKey: 'volume', face: 'I' }]])
     wrapper.unmount()
   })
 

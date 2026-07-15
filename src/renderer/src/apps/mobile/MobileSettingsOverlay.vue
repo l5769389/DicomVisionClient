@@ -65,7 +65,6 @@ const {
   scaleBarPreference,
   selectedPseudocolorKey,
   selectedWindowPresetId,
-  viewerImageFormatPreference,
   viewportCornerInfoPreference,
   setCrosshairConfigs,
   setExportPreference,
@@ -1033,27 +1032,6 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               <span></span>
             </span>
           </button>
-          <div class="mobile-settings__control-block">
-            <div class="mobile-settings__subhead">{{ isZh ? '影像传输格式' : 'Image Transport Format' }}</div>
-            <div class="mobile-settings__segmented">
-              <button
-                type="button"
-                :class="{ active: viewerImageFormatPreference === 'png' }"
-                data-testid="mobile-settings-image-format-png"
-                @click="viewerImageFormatPreference = 'png'"
-              >
-                PNG
-              </button>
-              <button
-                type="button"
-                :class="{ active: viewerImageFormatPreference === 'webp' }"
-                data-testid="mobile-settings-image-format-webp"
-                @click="viewerImageFormatPreference = 'webp'"
-              >
-                WebP
-              </button>
-            </div>
-          </div>
         </section>
 
         <section v-else-if="activePanel === 'overlays'" class="mobile-settings__section">

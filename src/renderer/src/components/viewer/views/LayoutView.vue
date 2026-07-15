@@ -10,9 +10,11 @@ import type {
   DraftMeasurementMode,
   MeasurementDraft,
   MeasurementOverlay,
+  CornerInfo,
   ViewerLayoutSlot,
   ViewerTabItem
 } from '../../../types/viewer'
+import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -43,13 +45,21 @@ const emit = defineEmits<{
   updateAnnotationColor: [payload: { viewportKey: string; annotationId: string; color: string }]
   updateAnnotationSize: [payload: { viewportKey: string; annotationId: string; size: 'sm' | 'md' | 'lg' }]
   updateAnnotationText: [payload: { viewportKey: string; annotationId: string; text: string }]
+  volumeOrientationSelect: [payload: { viewportKey: string; face: VolumeOrientationFace }]
   viewportClick: [viewportKey: string]
-  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean }]
+  viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
 }>()
 
 interface SliceInfo {
   current: number
   total: number
+}
+
+const EMPTY_CORNER_INFO: CornerInfo = {
+  topLeft: [],
+  topRight: [],
+  bottomLeft: [],
+  bottomRight: []
 }
 
 const activeDropSlotId = ref<string | null>(null)
@@ -58,7 +68,6 @@ const activeSliderIds = ref<Record<string, boolean>>({})
 const maximizedSlotId = ref<string | null>(null)
 const { locale, viewerCopy } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
-
 const template = computed(() => props.activeTab.layoutTemplate ?? null)
 const rows = computed(() => Math.max(1, template.value?.rows ?? 1))
 const columns = computed(() => Math.max(1, template.value?.columns ?? 1))
@@ -80,6 +89,10 @@ const slots = computed<ViewerLayoutSlot[]>(() => {
 const isSingleStackLayout = computed(() => {
   const [slot] = slots.value
   return rows.value === 1 && columns.value === 1 && slots.value.length === 1 && Boolean(slot && isStackSlot(slot))
+})
+const isVolumeClipActive = computed(() => {
+  const operation = props.activeOperation.replace(/^stack:/, '')
+  return operation === 'volumeClip:inside' || operation === 'volumeClip:outside'
 })
 const showSliceSlider = computed(() => props.activeTab.showSliceSlider !== false)
 const layoutIdentity = computed(() => `${props.activeTab.key}:${rows.value}:${columns.value}`)
@@ -111,6 +124,18 @@ function getSlotTitle(slot: ViewerLayoutSlot, index: number): string {
 
 function isStackSlot(slot: ViewerLayoutSlot): boolean {
   return Boolean(slot.viewId && (slot.viewType === 'Stack' || slot.sourceViewType === 'Stack' || slot.sourceViewType === 'CompareStack'))
+}
+
+function isVolumeSlot(slot: ViewerLayoutSlot): boolean {
+  return Boolean(slot.viewId && (slot.viewType === '3D' || slot.sourceViewType === '3D'))
+}
+
+function hasCornerInfo(cornerInfo: ViewerLayoutSlot['cornerInfo'] | null | undefined): boolean {
+  return Boolean(cornerInfo && Object.values(cornerInfo).some((lines) => lines.length > 0))
+}
+
+function getVolumeCornerInfo(slot: ViewerLayoutSlot) {
+  return hasCornerInfo(slot.cornerInfo) ? slot.cornerInfo! : props.activeTab.cornerInfo ?? EMPTY_CORNER_INFO
 }
 
 function parseSliceInfo(sliceLabel: string): SliceInfo {
@@ -326,7 +351,7 @@ function handleSlotDrop(event: DragEvent, slot: ViewerLayoutSlot): void {
 }
 
 function handleSlotDoubleClick(slot: ViewerLayoutSlot): void {
-  if (!isStackSlot(slot)) {
+  if (!isStackSlot(slot) && !isVolumeSlot(slot)) {
     return
   }
 
@@ -357,7 +382,7 @@ watch(
         class="layout-view__slot"
         :class="{
           'layout-view__slot--filled': Boolean(slot.imageSrc || slot.viewId),
-          'layout-view__slot--active': isSingleStackLayout || activeViewportKey === slot.id,
+          'layout-view__slot--active': !slot.viewId && (isSingleStackLayout || activeViewportKey === slot.id),
           'layout-view__slot--maximized': maximizedSlotId === slot.id,
           'layout-view__slot--hidden-by-maximized': maximizedSlotId != null && maximizedSlotId !== slot.id,
           'layout-view__slot--drop-target': canDropFilesIntoSlot(slot),
@@ -369,7 +394,39 @@ watch(
         @dragleave="handleSlotDragLeave($event, slot)"
         @drop="handleSlotDrop($event, slot)"
       >
-        <template v-if="isStackSlot(slot)">
+        <template v-if="isVolumeSlot(slot)">
+          <ViewerCanvasStage
+            class="min-w-0 h-full w-full"
+            :viewport-key="slot.id"
+            viewport-class="grid place-items-center"
+            :is-active="activeViewportKey === slot.id"
+            :render-surface-active="true"
+            :image-src="slot.imageSrc ?? ''"
+            :is-loading="Boolean(slot.viewId) && (!slot.imageSrc || activeTab.loadingProgress?.phase === 'preprocess')"
+            :loading-label="activeTab.loadingProgress?.message || getLayoutLoadingLabel()"
+            :loading-progress-percent="activeTab.loadingProgress?.progressPercent ?? null"
+            :alt="getSlotTitle(slot, index)"
+            :active-operation="activeOperation"
+            :placeholder="getLayoutPlaceholder()"
+            :corner-info="getVolumeCornerInfo(slot)"
+            :orientation="slot.orientation ?? activeTab.orientation"
+            :scale-bar="null"
+            :show-corner-info="activeTab.showCornerInfo !== false"
+            :show-scale-bar="false"
+            :show-volume-orientation-cube="activeTab.showVolumeOrientationCube !== false"
+            :hide-draft-handles="isVolumeClipActive"
+            :soft-image="true"
+            @click-viewport="emit('viewportClick', $event)"
+            @pointer-down="(event) => emit('pointerDown', event, slot.id)"
+            @pointer-move="emit('pointerMove', $event)"
+            @pointer-up="emit('pointerUp', $event)"
+            @pointer-cancel="emit('pointerCancel', $event)"
+            @volume-orientation-select="emit('volumeOrientationSelect', { viewportKey: slot.id, face: $event })"
+            @double-click-viewport="handleSlotDoubleClick(slot)"
+          />
+        </template>
+
+        <template v-else-if="isStackSlot(slot)">
           <div class="layout-view__slot-body" :class="{ 'layout-view__slot-body--no-slider': !showSliceSlider }">
             <ViewerCanvasStage
               class="min-w-0"

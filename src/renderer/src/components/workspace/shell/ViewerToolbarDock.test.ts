@@ -541,6 +541,32 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__button svg').exists()).toBe(true)
   })
 
+  it('does not highlight stale 3D orientation selections while the model is oblique', () => {
+    const orientationTool: StackTool = {
+      key: 'volumeOrientation',
+      label: 'Orientation',
+      icon: 'orientation-face-oblique',
+      kind: 'action',
+      showSelectedOptionIcon: false,
+      options: [
+        { value: 'volumeOrientation:A', label: 'Anterior' },
+        { value: 'volumeOrientation:P', label: 'Posterior' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [orientationTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'volumeOrientation',
+      stackToolSelections: { volumeOrientation: 'volumeOrientation:A' }
+    })
+
+    expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(2)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
+    expect(wrapper.find('.volume-orientation-option-label__initial').text()).toBe('A')
+    expect(wrapper.find('.volume-orientation-option-label__suffix').text()).toBe('nterior')
+  })
+
   it('shows reset rotation in the rotate panel without preselecting it', () => {
     const rotateTool: StackTool = {
       key: 'rotate',

@@ -84,6 +84,9 @@ jobs:
 
       - name: Build macOS desktop package
         working-directory: DicomVisionClient
+        env:
+          NPM_CONFIG_ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
         run: npm run release:mac
 
       - name: Generate checksums

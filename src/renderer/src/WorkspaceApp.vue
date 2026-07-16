@@ -11,6 +11,7 @@ import { isFourDSeriesItem } from './types/viewer'
 import { resolvePrimaryTwoDimensionalViewType } from './composables/workspace/views/seriesViewSupport'
 import { normalizeInlineSvg } from './utils/svg'
 import { initializePwaInstall } from './platform/pwaInstall'
+import { usePointerDockResize } from './composables/ui/usePointerDockResize'
 
 const SidebarBootFallback = defineComponent({
   name: 'SidebarBootFallback',
@@ -111,6 +112,7 @@ type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
 const SIDEBAR_MIN_WIDTH = 280
 const SIDEBAR_MAX_WIDTH = 480
 const SIDEBAR_COLLAPSE_THRESHOLD = 220
+const SIDEBAR_COLLAPSED_WIDTH = 64
 
 const isZh = computed(() => locale.value === 'zh-CN')
 const isWebPlatform = computed(() => viewer.viewerPlatform === 'web')
@@ -133,83 +135,47 @@ const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Cl
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
 const sidebarPanelRef = ref<{ openSettings?: (sectionKey?: string | null) => void } | null>(null)
-const sidebarResizePreviewWidth = ref<number | null>(null)
-const isSidebarResizing = ref(false)
-let activeSidebarResizeLayout: HTMLElement | null = null
+const sidebarDockResize = usePointerDockResize<'sidebar'>({
+  onCommit: (_key, result) => {
+    setWorkspaceDockPreference({
+      ...workspaceDockPreference.value,
+      leftWidth: result.collapsed ? workspaceDockPreference.value.leftWidth : result.width,
+      leftCollapsed: result.collapsed
+    })
+    if (viewer.isSidebarCollapsed.value !== result.collapsed) {
+      viewer.toggleSidebar()
+    }
+  }
+})
+const sidebarResizePreviewWidth = computed(() => sidebarDockResize.preview.value?.result.width ?? null)
+const sidebarResizePreviewCollapsed = computed(() => sidebarDockResize.preview.value?.result.collapsed ?? null)
+const isSidebarResizing = sidebarDockResize.isResizing
 const dicomDropPreviewIcon = computed(() =>
   normalizeInlineSvg(dicomDropPreviewKind.value === 'folder' ? folderIcon : dicomFileIcon)
 )
 const appMainLayoutStyle = computed(() => ({
-  '--app-sidebar-width': `${workspaceDockPreference.value.leftWidth}px`,
+  '--app-sidebar-width': `${sidebarResizePreviewWidth.value ?? workspaceDockPreference.value.leftWidth}px`,
   '--app-sidebar-preview-width': `${sidebarResizePreviewWidth.value ?? workspaceDockPreference.value.leftWidth}px`
 }))
-
-function clampSidebarWidth(width: number): number {
-  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(width)))
-}
-
-function resolveSidebarResizeWidth(event: PointerEvent): number {
-  const layoutRect = activeSidebarResizeLayout?.getBoundingClientRect()
-  if (!layoutRect) {
-    return workspaceDockPreference.value.leftWidth
-  }
-  return Math.round(event.clientX - layoutRect.left - 8)
-}
-
-function cleanupSidebarResizeListeners(): void {
-  window.removeEventListener('pointermove', handleSidebarResizeMove)
-  window.removeEventListener('pointerup', handleSidebarResizeEnd)
-  window.removeEventListener('pointercancel', handleSidebarResizeCancel)
-}
-
-function handleSidebarResizeMove(event: PointerEvent): void {
-  if (!isSidebarResizing.value) {
-    return
-  }
-  const width = resolveSidebarResizeWidth(event)
-  sidebarResizePreviewWidth.value = width < SIDEBAR_COLLAPSE_THRESHOLD ? 72 : clampSidebarWidth(width)
-}
-
-function handleSidebarResizeCancel(): void {
-  isSidebarResizing.value = false
-  sidebarResizePreviewWidth.value = null
-  activeSidebarResizeLayout = null
-  cleanupSidebarResizeListeners()
-}
-
-function handleSidebarResizeEnd(event: PointerEvent): void {
-  if (!isSidebarResizing.value) {
-    return
-  }
-  const width = resolveSidebarResizeWidth(event)
-  const shouldCollapse = width < SIDEBAR_COLLAPSE_THRESHOLD
-  const nextWidth = shouldCollapse ? workspaceDockPreference.value.leftWidth : clampSidebarWidth(width)
-  setWorkspaceDockPreference({
-    ...workspaceDockPreference.value,
-    leftWidth: nextWidth,
-    leftCollapsed: shouldCollapse
-  })
-  if (viewer.isSidebarCollapsed.value !== shouldCollapse) {
-    viewer.toggleSidebar()
-  }
-  handleSidebarResizeCancel()
-}
+const effectiveSidebarCollapsed = computed(() => sidebarResizePreviewCollapsed.value ?? viewer.isSidebarCollapsed.value)
 
 function startSidebarResize(event: PointerEvent): void {
   if (window.matchMedia('(max-width: 900px)').matches) {
     return
   }
-  const layout = (event.currentTarget as HTMLElement | null)?.closest<HTMLElement>('.app-main-layout') ?? null
-  if (!layout) {
-    return
-  }
-  event.preventDefault()
-  activeSidebarResizeLayout = layout
-  isSidebarResizing.value = true
-  sidebarResizePreviewWidth.value = viewer.isSidebarCollapsed.value ? 64 : workspaceDockPreference.value.leftWidth
-  window.addEventListener('pointermove', handleSidebarResizeMove)
-  window.addEventListener('pointerup', handleSidebarResizeEnd)
-  window.addEventListener('pointercancel', handleSidebarResizeCancel)
+  const wasCollapsed = viewer.isSidebarCollapsed.value
+  const startWidth = wasCollapsed ? SIDEBAR_COLLAPSED_WIDTH : workspaceDockPreference.value.leftWidth
+  sidebarDockResize.start(event, {
+    key: 'sidebar',
+    direction: 'left',
+    startWidth,
+    config: {
+      collapsedWidth: SIDEBAR_COLLAPSED_WIDTH,
+      collapseThreshold: SIDEBAR_COLLAPSE_THRESHOLD,
+      minWidth: SIDEBAR_MIN_WIDTH,
+      maxWidth: SIDEBAR_MAX_WIDTH
+    }
+  })
 }
 
 function openSidebarSettings(sectionKey?: string): void {
@@ -376,7 +342,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  handleSidebarResizeCancel()
+  sidebarDockResize.cancel()
   document.removeEventListener('selectstart', preventSelection)
   window.removeEventListener('keydown', preventSelectAll)
   window.removeEventListener('dicomvision:status-toast', handleStatusToastEvent)
@@ -536,7 +502,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       </div>
       <div
         class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent pt-2 pr-4 pb-4 pl-2"
-        :data-sidebar-collapsed="viewer.isSidebarCollapsed.value ? 'true' : 'false'"
+        :data-sidebar-collapsed="effectiveSidebarCollapsed ? 'true' : 'false'"
         :data-sidebar-resizing="isSidebarResizing ? 'true' : 'false'"
         :style="appMainLayoutStyle"
       >
@@ -548,7 +514,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :has-selected-series="viewer.hasSelectedSeries.value"
           :is-loading-folder="viewer.isLoadingFolder.value"
           :is-selected-series-four-d="isSelectedSeriesFourD"
-          :is-sidebar-collapsed="viewer.isSidebarCollapsed.value"
+          :is-sidebar-collapsed="effectiveSidebarCollapsed"
           :selected-series-id="viewer.selectedSeriesId.value"
           :series-list="viewer.seriesList.value"
           @compare-series="viewer.openSeriesCompare"
@@ -686,6 +652,10 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   grid-template-columns: 64px minmax(0, 1fr);
 }
 
+.app-main-layout[data-sidebar-resizing="true"] {
+  grid-template-columns: var(--app-sidebar-preview-width, 64px) minmax(0, 1fr);
+}
+
 .app-sidebar-resize-handle {
   position: absolute;
   top: 8px;
@@ -700,6 +670,10 @@ const handleDicomFileDrop = (event: DragEvent): void => {
 
 .app-main-layout[data-sidebar-collapsed="true"] .app-sidebar-resize-handle {
   left: 72px;
+}
+
+.app-main-layout[data-sidebar-resizing="true"] .app-sidebar-resize-handle {
+  left: calc(var(--app-sidebar-preview-width, 64px) + 8px);
 }
 
 .app-sidebar-resize-handle::before {

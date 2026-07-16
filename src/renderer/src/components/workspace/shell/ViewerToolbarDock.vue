@@ -6,6 +6,7 @@ import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import ViewerToolbarDockPanelContent from './ViewerToolbarDockPanelContent.vue'
+import DockInfoPopover from './DockInfoPopover.vue'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -22,6 +23,7 @@ const props = defineProps<{
   resultPanelToolKey?: string | null
   width?: number
   collapsed?: boolean
+  resizing?: boolean
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
   utilityPanelIcon?: string
@@ -49,7 +51,7 @@ const lastActivatedToolKey = ref<string | null>(null)
 const lastDetaillessToolKey = ref<string | null>(null)
 const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'surfaceParams', 'segmentation'])
 const actionDetailToolKeys = new Set(['annotate'])
-const unselectedActionMenuToolKeys = new Set(['rotate', 'export', 'reset'])
+const unselectedActionMenuToolKeys = new Set(['page', 'rotate', 'export', 'reset'])
 const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
 const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'measure', 'qa', 'annotate'])
 
@@ -65,12 +67,21 @@ function getDockPanelTool(tool: StackTool): StackTool {
   return tool.options?.length ? tool : { ...tool, options: getDockToolOptions(tool) }
 }
 
+const activeToolByKey = computed(() => new Map(props.activeTools.map((tool) => [tool.key, tool])))
+
+function getActiveTool(key: string | null | undefined): StackTool | undefined {
+  return key ? activeToolByKey.value.get(key) : undefined
+}
+
 const currentMenuTool = computed(() => {
-  const tool = props.activeTools.find((item) => item.key === props.openMenuKey && hasDockToolOptions(item))
-  return tool ? getDockPanelTool(tool) : undefined
+  const tool = getActiveTool(props.openMenuKey)
+  if (!tool || !hasDockToolOptions(tool)) {
+    return undefined
+  }
+  return getDockPanelTool(tool)
 })
-const lastActivatedTool = computed(() => props.activeTools.find((tool) => tool.key === lastActivatedToolKey.value) ?? null)
-const lastDetaillessTool = computed(() => props.activeTools.find((tool) => tool.key === lastDetaillessToolKey.value) ?? null)
+const lastActivatedTool = computed(() => getActiveTool(lastActivatedToolKey.value) ?? null)
+const lastDetaillessTool = computed(() => getActiveTool(lastDetaillessToolKey.value) ?? null)
 const selectedOperationTool = computed(() => props.activeTools.find((tool) => props.isToolSelected(tool)) ?? null)
 const activePanelTool = computed(() => {
   if (currentMenuTool.value) {
@@ -111,19 +122,42 @@ const activeDisplayTool = computed(
     activePanelTool.value ??
     lastDetaillessTool.value ??
     selectedOperationTool.value ??
-    props.activeTools.find((tool) => tool.key === props.openMenuKey) ??
+    getActiveTool(props.openMenuKey) ??
     props.activeTools[0] ??
     null
 )
 const activePanelLabel = computed(() => activeDisplayTool.value?.label ?? props.activeTab.title)
-const activePanelDescription = computed(() => copy.value.dockNoDetails)
-const dockCollapseTitle = computed(() => copy.value.dockCollapse)
-const dockExpandTitle = computed(() => copy.value.dockExpand)
 const isZh = computed(() => locale.value === 'zh-CN')
+const dockExpandTitle = computed(() => copy.value.dockExpand)
 const annotationActionCopy = computed(() => ({
   clearAnnotations: isZh.value ? '清除标注' : 'Clear Annotations',
   clearAnnotationsDesc: isZh.value ? '移除当前目标视图中的标注结果。' : 'Remove annotations from the current target view.'
 }))
+const activePanelHelp = computed(() => {
+  const key = activePanelTool.value?.key
+  const messages: Record<string, string> = isZh.value
+    ? {
+        pan: '拖动影像调整位置；可使用底部按钮单独重置平移。',
+        zoom: '拖动调整缩放；可使用底部按钮单独重置缩放。',
+        window: '拖动调整窗宽窗位；也可选择预设或重置窗值。',
+        measure: '鼠标按下确定一点，移动绘制边；双击鼠标或按 Esc 结束编辑。',
+        fusionRegistration: '左键拖动平移 PET 图像，右键拖动旋转 PET 图像，按 Esc 退出当前配准操作。'
+      }
+    : {
+        pan: 'Drag the image to adjust position. Use the bottom action to reset pan only.',
+        zoom: 'Drag to adjust zoom. Use the bottom action to reset zoom only.',
+        window: 'Drag to adjust window width and level, or choose a preset/reset window.',
+        measure: 'Click to place each point, move to preview edges, then double-click or press Esc to finish.',
+        fusionRegistration: 'Left-drag to move PET, right-drag to rotate PET, and press Esc to leave the current registration operation.'
+      }
+  return key ? messages[key] ?? '' : ''
+})
+const utilityPanelHelp = computed(() => {
+  if (props.utilityPanelToolKey !== 'mprMip') {
+    return ''
+  }
+  return isZh.value ? '设置 MPR 各平面的厚层投影算法和层厚。' : 'Configure the slab projection algorithm and thickness for each MPR plane.'
+})
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
   return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
@@ -222,12 +256,6 @@ function handleToolClick(tool: StackTool): void {
   emit('applyTool', tool)
 }
 
-function toggleDockCollapsed(): void {
-  isDockCollapsed.value = !isDockCollapsed.value
-  emit('collapseChange', isDockCollapsed.value)
-  emit('dockResize')
-}
-
 watch(
   () => props.collapsed,
   (value) => {
@@ -249,7 +277,7 @@ watch(
 <template>
   <aside
     class="viewer-toolbar-dock"
-    :class="{ 'viewer-toolbar-dock--collapsed': isDockCollapsed }"
+    :class="{ 'viewer-toolbar-dock--collapsed': isDockCollapsed, 'viewer-toolbar-dock--resizing': resizing }"
     :style="{ '--viewer-toolbar-dock-width': `${width ?? 224}px` }"
     data-tool-menu-root
   >
@@ -329,6 +357,7 @@ watch(
               <div class="viewer-toolbar-dock__panel-title">
                 <AppIcon :name="utilityPanelIcon ?? 'settings'" :size="16" />
                 <span>{{ utilityPanelTitle }}</span>
+                <DockInfoPopover :text="utilityPanelHelp" />
               </div>
             </div>
 
@@ -345,6 +374,7 @@ watch(
               <div class="viewer-toolbar-dock__panel-title">
                 <AppIcon :name="activePanelTool.icon" :size="16" />
                 <span>{{ activePanelTool.label }}</span>
+                <DockInfoPopover :text="activePanelHelp" />
               </div>
             </div>
 
@@ -392,7 +422,6 @@ watch(
               </div>
               <div class="viewer-toolbar-dock__active-tool-copy">
                 <div class="viewer-toolbar-dock__active-tool-label">{{ activePanelLabel }}</div>
-                <div class="viewer-toolbar-dock__active-tool-description">{{ activePanelDescription }}</div>
               </div>
             </div>
             <button
@@ -405,25 +434,28 @@ watch(
                 <AppIcon name="reset" :size="16" />
               </span>
               <span class="viewer-toolbar-dock__active-tool-action-copy">
-                <span class="viewer-toolbar-dock__active-tool-action-label">{{ annotationActionCopy.clearAnnotations }}</span>
-                <span class="viewer-toolbar-dock__active-tool-action-description">{{ annotationActionCopy.clearAnnotationsDesc }}</span>
+                <span class="viewer-toolbar-dock__active-tool-action-label">
+                  {{ annotationActionCopy.clearAnnotations }}
+                  <DockInfoPopover :text="annotationActionCopy.clearAnnotationsDesc" />
+                </span>
               </span>
             </button>
           </div>
         </Transition>
       </div>
 
-      <div class="viewer-toolbar-dock__footer">
+      <div v-if="isDockCollapsed" class="viewer-toolbar-dock__footer">
         <button
           type="button"
           class="viewer-toolbar-dock__collapse-button"
-          :title="isDockCollapsed ? dockExpandTitle : dockCollapseTitle"
-          :aria-label="isDockCollapsed ? dockExpandTitle : dockCollapseTitle"
-          @click="toggleDockCollapsed"
+          :title="dockExpandTitle"
+          :aria-label="dockExpandTitle"
+          @click="expandDockForDetailTool"
         >
-          <AppIcon :name="isDockCollapsed ? 'chevron-left' : 'chevron-right'" :size="16" :stroke-width="2.3" />
+          <AppIcon name="chevron-left" :size="17" :stroke-width="2.3" />
         </button>
       </div>
+
     </div>
   </aside>
 </template>
@@ -457,6 +489,16 @@ watch(
   width: 58px;
   min-width: 58px;
   max-width: 58px;
+}
+
+.viewer-toolbar-dock--collapsed.viewer-toolbar-dock--resizing {
+  width: var(--viewer-toolbar-dock-width, 58px);
+  min-width: var(--viewer-toolbar-dock-width, 58px);
+  max-width: var(--viewer-toolbar-dock-width, 58px);
+}
+
+.viewer-toolbar-dock--resizing {
+  transition: none;
 }
 
 .viewer-toolbar-dock__body {
@@ -802,14 +844,6 @@ watch(
   white-space: nowrap;
 }
 
-.viewer-toolbar-dock__active-tool-description {
-  margin-top: 3px;
-  color: var(--theme-text-muted);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.35;
-}
-
 .viewer-toolbar-dock__active-tool-action {
   display: grid;
   align-self: end;
@@ -862,9 +896,10 @@ watch(
   min-width: 0;
 }
 
-.viewer-toolbar-dock__active-tool-action-label,
-.viewer-toolbar-dock__active-tool-action-description {
-  display: block;
+.viewer-toolbar-dock__active-tool-action-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -875,30 +910,18 @@ watch(
   font-weight: 850;
 }
 
-.viewer-toolbar-dock__active-tool-action-description {
-  margin-top: 2px;
-  color: var(--theme-text-muted);
-  font-size: 11px;
-}
-
 .viewer-toolbar-dock__footer {
   display: flex;
   flex: 0 0 auto;
-  justify-content: flex-end;
-  margin-top: auto;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
-  padding: 7px 8px;
-}
-
-.viewer-toolbar-dock--collapsed .viewer-toolbar-dock__footer {
   justify-content: center;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
   padding: 7px 6px;
 }
 
 .viewer-toolbar-dock__collapse-button {
   display: inline-flex;
   width: 38px;
-  height: 32px;
+  height: 34px;
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
@@ -908,8 +931,7 @@ watch(
   transition:
     border-color 150ms ease,
     background 150ms ease,
-    color 150ms ease,
-    box-shadow 150ms ease;
+    color 150ms ease;
 }
 
 .viewer-toolbar-dock__collapse-button:hover {

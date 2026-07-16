@@ -11,7 +11,7 @@ DicomVision is a client/server DICOM viewer for medical image viewing, analysis,
 - Web preview: [https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
 - Client repository: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - Server repository: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-- Current release: [DicomVision v3.1.1](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.1)
+- Current release: [DicomVision v3.1.2](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.2)
 
 DicomVision keeps compute-heavy work on the backend and leaves interaction, tools, and result presentation to the client. The same rendering and analysis capabilities can therefore be reused by the browser, mobile UI, and desktop app across local networks, cloud deployments, or desktop packages with an embedded backend.
 

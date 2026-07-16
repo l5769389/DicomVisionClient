@@ -121,6 +121,10 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'measure:freeform': { label: '自由手绘' },
   'measure:line': { label: '线段' },
   'measure:rect': { label: '矩形' },
+  'page:first': { label: '翻到第一页' },
+  'page:last': { label: '翻到最后一页' },
+  'page:next10': { label: '向后翻 10 页' },
+  'page:previous10': { label: '向前翻 10 页' },
   'volumeClip:inside': { label: '裁剪内部', description: '只显示自由区域投影内的 3D 内容' },
   'volumeClip:outside': { label: '裁剪外部', description: '隐藏自由区域投影内的 3D 内容' },
   'volumeClip:reset': { label: '重置裁剪', description: '恢复完整 3D 体数据投影' },
@@ -131,6 +135,7 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'pseudocolor:cardiac': { label: '心脏' },
   'pseudocolor:hotiron': { label: '热铁' },
   'pseudocolor:rainbow': { label: '彩虹' },
+  'pseudocolor:reset': { label: '重置伪彩', description: '恢复设置中选择的默认伪彩。' },
   'qa:mtf': {
     description: '通过金属点 ROI 计算空间分辨率',
     badge: '分辨率',
@@ -242,7 +247,29 @@ const pseudocolorTool: StackTool = {
     label: option.label,
     icon: 'pseudocolor',
     swatchKey: option.key
-  }))
+  })),
+  footerOptions: [
+    {
+      value: 'pseudocolor:reset',
+      label: 'Reset Pseudocolor',
+      icon: 'reset',
+      description: 'Restore the default pseudocolor selected in settings.'
+    }
+  ]
+}
+
+const pageTool: StackTool = {
+  key: 'page',
+  label: 'Page',
+  icon: 'page',
+  kind: 'action',
+  showSelectedOptionIcon: false,
+  options: [
+    { value: 'page:previous10', label: 'Previous 10', icon: 'chevron-left' },
+    { value: 'page:next10', label: 'Next 10', icon: 'chevron-right' },
+    { value: 'page:first', label: 'First Page', icon: 'chevron-left' },
+    { value: 'page:last', label: 'Last Page', icon: 'chevron-right' }
+  ]
 }
 
 function toFusionPseudocolorSelectionValue(value: string | null | undefined): string {
@@ -436,7 +463,7 @@ const stackTools: StackTool[] = [
     kind: 'action',
     options: rotateOptions
   },
-  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  pageTool,
   playTool,
   pseudocolorTool,
   annotateTool,
@@ -675,7 +702,7 @@ const fusionTools: StackTool[] = [
     kind: 'action',
     options: rotateOptions
   },
-  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  pageTool,
   annotateTool,
   measureTool,
   exportTool,
@@ -708,7 +735,7 @@ const petTools: StackTool[] = [
     kind: 'action',
     options: rotateOptions
   },
-  { key: 'page', label: 'Page', icon: 'page', kind: 'action' },
+  pageTool,
   annotateTool,
   measureTool,
   exportTool,
@@ -1798,9 +1825,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     startPlaybackTimer()
   }
 
-  function getCurrentSlicePlaybackInfo(): { current: number; total: number; viewportKey: string } | null {
+  function getCurrentSliceNavigationInfo(): { current: number; total: number; viewportKey: string } | null {
     const activeTab = options.activeTab.value
-    if (!activeTab || !supportsSlicePlayback(activeTab.viewType)) {
+    if (!activeTab || !['Stack', 'PET', 'CompareStack', 'Layout', 'MPR', '4D', 'PETCTFusion'].includes(activeTab.viewType)) {
       return null
     }
 
@@ -1809,6 +1836,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     const sliceLabel =
       activeTab.viewType === 'Layout'
         ? (getActiveLayoutSlot(activeTab)?.sliceLabel ?? '')
+        : activeTab.viewType === 'CompareStack'
+          ? (activeTab.compareSliceLabels?.[resolveActiveComparePaneKey(activeTab)] ?? activeTab.sliceLabel)
+          : activeTab.viewType === 'PETCTFusion'
+            ? (activeTab.fusionSliceLabels?.[resolveActiveFusionPaneKey(activeTab)] ?? activeTab.sliceLabel)
         : mprViewportKey
           ? (activeTab.viewportSliceLabels?.[mprViewportKey] ?? '')
           : activeTab.sliceLabel
@@ -1834,11 +1865,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (activeTab?.viewType === 'MPR' || activeTab?.viewType === '4D') {
       return resolveActiveMprViewportKey(activeTab)
     }
+    if (activeTab?.viewType === 'CompareStack') {
+      return resolveActiveComparePaneKey(activeTab)
+    }
+    if (activeTab?.viewType === 'PETCTFusion') {
+      return resolveActiveFusionPaneKey(activeTab)
+    }
     return 'single'
   }
 
   function tickPlayback(): void {
-    const sliceInfo = getCurrentSlicePlaybackInfo()
+    const sliceInfo = getCurrentSliceNavigationInfo()
     if (!playbackTarget || !sliceInfo) {
       stopPlayback()
       return
@@ -1858,7 +1895,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!supportsSlicePlayback(options.activeTab.value?.viewType)) {
       return
     }
-    const sliceInfo = getCurrentSlicePlaybackInfo()
+    const sliceInfo = getCurrentSliceNavigationInfo()
     if (!sliceInfo) {
       return
     }
@@ -1874,7 +1911,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       stopPlayback()
       return
     }
-    if (!playbackTarget && !getCurrentSlicePlaybackInfo()) {
+    if (!playbackTarget && !getCurrentSliceNavigationInfo()) {
       stopPlayback()
       return
     }
@@ -2183,6 +2220,31 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function selectToolOption(tool: StackTool, optionValue: string, behavior?: StackToolOptionSelectBehavior): void {
+    if (tool.key === 'page') {
+      const sliceInfo = getCurrentSliceNavigationInfo()
+      if (!sliceInfo) {
+        return
+      }
+      const deltaByOption: Record<string, number> = {
+        'page:previous10': -10,
+        'page:next10': 10,
+        'page:first': 1 - sliceInfo.current,
+        'page:last': sliceInfo.total - sliceInfo.current
+      }
+      const delta = deltaByOption[optionValue]
+      if (!Number.isFinite(delta) || delta === 0) {
+        return
+      }
+      closeMenusIfNeeded(behavior)
+      flashToolActive(tool.key, activeToolbarToolKey.value)
+      options.emitViewportWheel({
+        viewportKey: sliceInfo.viewportKey,
+        deltaY: delta,
+        exact: true
+      })
+      return
+    }
+
     if (tool.key === 'zoom' && optionValue.startsWith('transform:zoom:')) {
       const zoom = Number(optionValue.replace(/^transform:zoom:/, ''))
       if (!Number.isFinite(zoom) || zoom <= 0) {
@@ -2416,9 +2478,12 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
+    const resolvedOptionValue = tool.key === 'pseudocolor' && optionValue === 'pseudocolor:reset'
+      ? toPseudocolorSelectionValue(selectedPseudocolorKey.value)
+      : optionValue
     stackToolSelections.value = {
       ...stackToolSelections.value,
-      [tool.key]: optionValue
+      [tool.key]: resolvedOptionValue
     }
     closeMenusIfNeeded(behavior)
 
@@ -2431,7 +2496,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
     if (tool.key === 'pseudocolor') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        options.emitTriggerViewAction({ action: 'pseudocolor', value: optionValue })
+        options.emitTriggerViewAction({ action: 'pseudocolor', value: resolvedOptionValue })
       })
       return
     }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
+import DockInfoPopover from './DockInfoPopover.vue'
 import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
@@ -64,12 +65,6 @@ const measureActionCopy = computed(() => ({
   clearMeasurements: isZh.value ? '清除测量' : 'Clear Measurements',
   clearMeasurementsDesc: isZh.value ? '移除当前目标视图中的测量结果。' : 'Remove measurements from the current target view.'
 }))
-const measureGuideCopy = computed(() => ({
-  title: isZh.value ? '使用提示' : 'Usage Tips',
-  body: isZh.value
-    ? '鼠标按下确定一点，移动绘制边；双击鼠标或按 Esc 结束编辑。'
-    : 'Click to place each point, move to preview edges, then double-click or press Esc to finish.'
-}))
 const windowActionCopy = computed(() => ({
   resetWindow: isZh.value ? '重置窗值' : 'Reset Window',
   resetWindowDesc: isZh.value ? '恢复已选择窗值；未选择时回到影像内置窗值。' : 'Restore the selected window, or fall back to the image window.'
@@ -86,7 +81,8 @@ const drawingScopeCopy = computed(() => ({
   series: isZh.value ? '整个 series' : 'Series'
 }))
 const transformActionCopy = computed(() => ({
-  resetTransform: isZh.value ? '重置' : 'Reset'
+  resetPan: isZh.value ? '重置平移' : 'Reset Pan',
+  resetZoom: isZh.value ? '重置缩放' : 'Reset Zoom'
 }))
 const rotateActionCopy = computed(() => ({
   resetRotation: isZh.value ? '重置旋转' : 'Reset Rotation',
@@ -109,11 +105,6 @@ const dockDrawingScopeCopy = computed(() => ({
   mtf: isZh.value ? '新建 MTF 绘制显示在当前影像或整个 series；切换会清空已有 MTF 结果。' : 'New MTF drawings are shown on the current image or the whole series. Switching clears existing MTF results.',
   image: isZh.value ? '当前影像' : 'Image',
   series: isZh.value ? '整个 series' : 'Series'
-}))
-const toolGuideCopy = computed<Record<string, string>>(() => ({
-  pan: isZh.value ? '拖动影像调整位置；可使用底部按钮单独重置平移。' : 'Drag the image to adjust position. Use the bottom action to reset pan only.',
-  zoom: isZh.value ? '拖动调整缩放；可使用底部按钮单独重置缩放。' : 'Drag to adjust zoom. Use the bottom action to reset zoom only.',
-  window: isZh.value ? '拖动调整窗宽窗位；也可选择预设或重置窗值。' : 'Drag to adjust window width and level, or choose a preset/reset window.'
 }))
 
 const petDisplayCopy = computed(() => ({
@@ -456,13 +447,11 @@ function isFooterActionOption(option: StackToolOption): boolean {
     (props.tool.key === 'rotate3d' && option.value === 'rotate3d:reset') ||
     (props.tool.key === 'volumeClip' && option.value === 'volumeClip:reset') ||
     isRotateResetOption(option) ||
-    (props.tool.key === 'annotate' && option.value === 'reset:annotations') ||
-    (props.tool.key === 'reset' && option.value.startsWith('reset:'))
+    (props.tool.key === 'annotate' && option.value === 'reset:annotations')
   )
 }
 
 const regularOptions = computed(() => (props.tool.options ?? []).filter((option) => !isFooterActionOption(option)))
-const toolGuideDescription = computed(() => toolGuideCopy.value[props.tool.key] ?? '')
 const drawingScopeToolKey = computed<keyof DrawingScopePreference | null>(() => {
   if (props.tool.key === 'measure') {
     return 'measurement'
@@ -527,7 +516,7 @@ const footerActions = computed(() => {
   if (props.tool.key === 'pan' || props.tool.key === 'zoom') {
     actions.push({
       value: 'transform:reset',
-      label: transformActionCopy.value.resetTransform,
+      label: props.tool.key === 'pan' ? transformActionCopy.value.resetPan : transformActionCopy.value.resetZoom,
       icon: 'reset'
     })
   }
@@ -577,11 +566,12 @@ const footerActions = computed(() => {
       })
     }
   }
-  if (props.tool.key === 'reset') {
-    actions.push(...(props.tool.options ?? []))
-  }
   return actions
 })
+
+function shouldShowOptionDescriptionInline(option: StackToolOption): boolean {
+  return Boolean(option.description) && (props.tool.key === 'window' || props.tool.key === 'volumeOrientation')
+}
 
 function shouldShowGroupLabel(option: StackToolOption, optionIndex: number): boolean {
   return props.tool.key !== 'qa' && Boolean(option.group) && option.group !== regularOptions.value[optionIndex - 1]?.group
@@ -641,9 +631,6 @@ onBeforeUnmount(() => {
             <div class="viewer-toolbar-dock-panel-content__registration-state">
               {{ isFusionRegistrationActive ? fusionRegistrationCopy.active : fusionRegistrationCopy.inactive }}
             </div>
-            <p class="viewer-toolbar-dock-panel-content__registration-description">
-              {{ fusionRegistrationCopy.hint }}
-            </p>
           </div>
           <span
             class="viewer-toolbar-dock-panel-content__registration-dot"
@@ -678,19 +665,11 @@ onBeforeUnmount(() => {
             </span>
             <span class="viewer-toolbar-dock-panel-content__option-copy">
               <span class="viewer-toolbar-dock-panel-content__option-label">{{ getFusionRegistrationActionCopy(option).label }}</span>
-              <span class="viewer-toolbar-dock-panel-content__option-description">{{ getFusionRegistrationActionCopy(option).description }}</span>
+              <DockInfoPopover :text="getFusionRegistrationActionCopy(option).description" />
             </span>
           </button>
         </div>
 
-        <section class="viewer-toolbar-dock-panel-content__registration-guide">
-          <div class="viewer-toolbar-dock-panel-content__section-label">{{ fusionRegistrationCopy.guide }}</div>
-          <ul>
-            <li>{{ fusionRegistrationCopy.leftDrag }}</li>
-            <li>{{ fusionRegistrationCopy.rightDrag }}</li>
-            <li>{{ fusionRegistrationCopy.esc }}</li>
-          </ul>
-        </section>
       </div>
     </template>
 
@@ -794,8 +773,10 @@ onBeforeUnmount(() => {
               <AppIcon name="reset" :size="16" />
             </span>
             <span class="viewer-toolbar-dock-panel-content__danger-action-copy">
-              <span class="viewer-toolbar-dock-panel-content__danger-action-label">{{ petDisplayCopy.reset }}</span>
-              <span class="viewer-toolbar-dock-panel-content__danger-action-description">{{ petDisplayCopy.resetDesc }}</span>
+              <span class="viewer-toolbar-dock-panel-content__danger-action-label">
+                {{ petDisplayCopy.reset }}
+                <DockInfoPopover :text="petDisplayCopy.resetDesc" />
+              </span>
             </span>
           </button>
         </div>
@@ -875,12 +856,6 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="viewer-toolbar-dock-panel-content__options">
         <section
-          v-if="toolGuideDescription"
-          class="viewer-toolbar-dock-panel-content__tool-guide"
-        >
-          {{ toolGuideDescription }}
-        </section>
-        <section
           v-if="activeZoomRangeControl"
           class="viewer-toolbar-dock-panel-content__zoom-control"
           data-testid="viewer-toolbar-dock-zoom-control"
@@ -922,9 +897,9 @@ onBeforeUnmount(() => {
           @submit.prevent="applyCustomWindow"
         >
           <div class="viewer-toolbar-dock-panel-content__custom-window-header">
-            <div>
+            <div class="viewer-toolbar-dock-panel-content__inline-heading">
               <div class="viewer-toolbar-dock-panel-content__custom-window-title">{{ customWindowCopy.title }}</div>
-              <p class="viewer-toolbar-dock-panel-content__custom-window-description">{{ customWindowCopy.description }}</p>
+              <DockInfoPopover :text="customWindowCopy.description" />
             </div>
             <button
               type="button"
@@ -980,9 +955,9 @@ onBeforeUnmount(() => {
           class="viewer-toolbar-dock-panel-content__scope-card"
         >
           <div class="viewer-toolbar-dock-panel-content__scope-header">
-            <div>
+            <div class="viewer-toolbar-dock-panel-content__inline-heading">
               <div class="viewer-toolbar-dock-panel-content__scope-title">{{ dockDrawingScopeCopy.title }}</div>
-              <p class="viewer-toolbar-dock-panel-content__scope-description">{{ drawingScopeDescription }}</p>
+              <DockInfoPopover :text="drawingScopeDescription" />
             </div>
           </div>
           <div class="viewer-toolbar-dock-panel-content__scope-actions">
@@ -1003,10 +978,6 @@ onBeforeUnmount(() => {
               {{ dockDrawingScopeCopy.series }}
             </button>
           </div>
-        </section>
-        <section v-if="tool.key === 'measure'" class="viewer-toolbar-dock-panel-content__measure-guide">
-          <div class="viewer-toolbar-dock-panel-content__measure-guide-title">{{ measureGuideCopy.title }}</div>
-          <p>{{ measureGuideCopy.body }}</p>
         </section>
         <div
           class="viewer-toolbar-dock-panel-content__options-scroll"
@@ -1060,8 +1031,14 @@ onBeforeUnmount(() => {
                     <span class="volume-orientation-option-label__suffix">{{ getVolumeOrientationSuffix(option) }}</span>
                   </span>
                   <template v-else>{{ option.label }}</template>
+                  <DockInfoPopover v-if="option.description && !shouldShowOptionDescriptionInline(option)" :text="option.description" />
                 </span>
-                <span v-if="option.description" class="viewer-toolbar-dock-panel-content__option-description">{{ option.description }}</span>
+                <span
+                  v-if="shouldShowOptionDescriptionInline(option)"
+                  class="viewer-toolbar-dock-panel-content__option-description"
+                >
+                  {{ option.description }}
+                </span>
               </span>
               <span
                 v-if="tool.key === 'compareSync' || tool.key === 'display'"
@@ -1099,8 +1076,10 @@ onBeforeUnmount(() => {
               <AppIcon :name="action.icon ?? 'settings'" :size="16" />
             </span>
             <span class="viewer-toolbar-dock-panel-content__danger-action-copy">
-              <span class="viewer-toolbar-dock-panel-content__danger-action-label">{{ action.label }}</span>
-              <span v-if="action.description" class="viewer-toolbar-dock-panel-content__danger-action-description">{{ action.description }}</span>
+              <span class="viewer-toolbar-dock-panel-content__danger-action-label">
+                {{ action.label }}
+                <DockInfoPopover v-if="action.description" :text="action.description" />
+              </span>
             </span>
           </button>
         </div>
@@ -1116,6 +1095,15 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex-direction: column;
   overflow: auto;
+}
+
+.viewer-toolbar-dock-panel-content__inline-heading,
+.viewer-toolbar-dock-panel-content__option-label,
+.viewer-toolbar-dock-panel-content__danger-action-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
 }
 
 .viewer-toolbar-dock-panel-content--with-actions {
@@ -1968,7 +1956,8 @@ onBeforeUnmount(() => {
   position: relative;
   display: grid;
   min-width: 0;
-  min-height: 56px;
+  height: 64px;
+  min-height: 64px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
@@ -2087,7 +2076,8 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content--window .viewer-toolbar-dock-panel-content__option {
-  min-height: 58px;
+  height: 64px;
+  min-height: 64px;
 }
 
 .viewer-toolbar-dock-panel-content--window .viewer-toolbar-dock-panel-content__options {

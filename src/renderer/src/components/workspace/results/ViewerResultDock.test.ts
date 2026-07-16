@@ -23,7 +23,7 @@ describe('ViewerResultDock', () => {
     useUiPreferences().setLocale('en-US')
   })
 
-  it('renders a stable empty result area that can collapse to a narrow strip', async () => {
+  it('keeps the footer hidden while expanded and exposes an expand button when collapsed', async () => {
     const wrapper = mount(ViewerResultDock, {
       props: {
         hasContent: false,
@@ -34,11 +34,13 @@ describe('ViewerResultDock', () => {
 
     expect(wrapper.find('.viewer-result-dock__header').exists()).toBe(false)
     expect(wrapper.find('.viewer-result-dock__empty-state').exists()).toBe(true)
-    await wrapper.get('.viewer-result-dock__collapse-button').trigger('click')
-
+    expect(wrapper.find('.viewer-result-dock__collapse-button').exists()).toBe(false)
+    await wrapper.setProps({ collapsed: true })
     expect(wrapper.classes()).toContain('viewer-result-dock--collapsed')
     expect(wrapper.find('.viewer-result-dock__content').exists()).toBe(false)
-    expect(wrapper.emitted('dockResize')).toHaveLength(1)
+    expect(wrapper.find('.viewer-result-dock__collapse-button').exists()).toBe(true)
+    await wrapper.get('.viewer-result-dock__collapse-button').trigger('click')
+    expect(wrapper.emitted('collapseChange')).toEqual([[false]])
     wrapper.unmount()
   })
 

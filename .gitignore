@@ -7,3 +7,6 @@
 /dist-electron/
 /dist-server/
 /dist-web/
+.DS_Store
+DicomVision-web-v*.zip
+SHA256SUMS-*.txt

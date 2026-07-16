@@ -11,7 +11,7 @@ DicomVision 是一套面向医学影像浏览、分析和教学验证场景的 D
 - 在线预览：[https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
 - Client 仓库：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - Server 仓库：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-- 当前发布：[DicomVision v3.1.1](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.1)
+- 当前发布：[DicomVision v3.1.2](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.2)
 
 DicomVision 将重计算任务放在后端执行，前端负责交互、工具组织和结果呈现。这样可以让浏览器、移动端和桌面端复用同一套影像能力，也便于在局域网、云服务器或桌面内置后端环境中部署。
 

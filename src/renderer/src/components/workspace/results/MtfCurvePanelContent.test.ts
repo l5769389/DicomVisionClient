@@ -43,7 +43,8 @@ describe('MtfCurvePanelContent', () => {
     expect(wrapper.text()).toContain('0.420 lp/mm')
     expect(wrapper.text()).toContain('MTF10')
     expect(wrapper.text()).toContain('Reading Guide')
-    expect(wrapper.text()).toContain('Higher curves')
+    expect(wrapper.text()).not.toContain('Higher curves')
+    expect(wrapper.find('.mtf-curve-panel-content__guide-heading .dock-info-popover__trigger').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Measured from the current ROI')
     expect(wrapper.text()).not.toContain('Based on current ROI')
     expect(wrapper.text()).not.toContain('Normalized MTF against spatial frequency')
@@ -64,7 +65,7 @@ describe('MtfCurvePanelContent', () => {
       props: { mtfItem }
     })
 
-    await wrapper.get('button:not(.mtf-curve-panel-content__action-button--danger)').trigger('click')
+    await wrapper.findAll('.mtf-curve-panel-content__action-button')[0]!.trigger('click')
     await wrapper.get('.mtf-curve-panel-content__action-button--danger').trigger('click')
 
     expect(wrapper.emitted('copy')).toHaveLength(1)

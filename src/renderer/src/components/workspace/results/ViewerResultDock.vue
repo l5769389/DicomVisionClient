@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 
@@ -9,46 +8,34 @@ const props = withDefaults(defineProps<{
   title: string
   width?: number
   collapsed?: boolean
+  resizing?: boolean
 }>(), {
   hasContent: true,
   width: 344,
-  collapsed: false
+  collapsed: false,
+  resizing: false
 })
 
 const emit = defineEmits<{
   close: []
-  dockResize: []
   collapseChange: [collapsed: boolean]
 }>()
 
-const { overlayCopy } = useUiLocale()
-const isCollapsed = ref(props.collapsed)
-
-function toggleCollapsed(): void {
-  isCollapsed.value = !isCollapsed.value
-  emit('collapseChange', isCollapsed.value)
-  emit('dockResize')
-}
-
-watch(
-  () => props.collapsed,
-  (value) => {
-    isCollapsed.value = value
-  }
-)
+const { overlayCopy, toolbarCopy } = useUiLocale()
 </script>
 
 <template>
   <aside
     class="viewer-result-dock"
     :class="{
-      'viewer-result-dock--collapsed': isCollapsed,
+      'viewer-result-dock--collapsed': collapsed,
+      'viewer-result-dock--resizing': resizing,
       'viewer-result-dock--empty': !hasContent
     }"
     :style="{ '--viewer-result-dock-width': `${width}px` }"
     data-viewer-result-dock
   >
-    <header v-if="!isCollapsed && hasContent" class="viewer-result-dock__header">
+    <header v-if="!collapsed && hasContent" class="viewer-result-dock__header">
       <div class="viewer-result-dock__title">
         <AppIcon :name="icon" :size="18" />
         <span>{{ title }}</span>
@@ -64,22 +51,23 @@ watch(
       </button>
     </header>
 
-    <div v-if="!isCollapsed" class="viewer-result-dock__content">
+    <div v-if="!collapsed" class="viewer-result-dock__content">
       <slot v-if="hasContent" />
       <div v-else class="viewer-result-dock__empty-state" aria-hidden="true" />
     </div>
 
-    <div class="viewer-result-dock__footer">
+    <footer v-if="collapsed" class="viewer-result-dock__footer">
       <button
         type="button"
         class="viewer-result-dock__collapse-button"
-        :aria-label="isCollapsed ? overlayCopy.resultDockExpand : overlayCopy.resultDockCollapse"
-        :title="isCollapsed ? overlayCopy.resultDockExpand : overlayCopy.resultDockCollapse"
-        @click="toggleCollapsed"
+        :aria-label="toolbarCopy.dockExpand"
+        :title="toolbarCopy.dockExpand"
+        @click="emit('collapseChange', false)"
       >
-        <AppIcon :name="isCollapsed ? 'chevron-left' : 'chevron-right'" :size="16" :stroke-width="2.3" />
+        <AppIcon name="chevron-left" :size="17" />
       </button>
-    </div>
+    </footer>
+
   </aside>
 </template>
 
@@ -106,6 +94,12 @@ watch(
   width: 58px;
   min-width: 58px;
   max-width: 58px;
+}
+
+.viewer-result-dock--collapsed.viewer-result-dock--resizing {
+  width: var(--viewer-result-dock-width, 58px);
+  min-width: var(--viewer-result-dock-width, 58px);
+  max-width: var(--viewer-result-dock-width, 58px);
 }
 
 .viewer-result-dock__header {
@@ -179,37 +173,30 @@ watch(
 .viewer-result-dock__footer {
   display: flex;
   flex: 0 0 auto;
-  justify-content: flex-end;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
-  padding: 8px 10px 10px;
-}
-
-.viewer-result-dock--collapsed .viewer-result-dock__footer {
-  margin-top: auto;
   justify-content: center;
-  border-top: 0;
-  padding: 10px 0;
+  margin-top: auto;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  padding: 7px 6px;
 }
 
 .viewer-result-dock__collapse-button {
-  display: grid;
-  width: 36px;
+  display: inline-flex;
+  width: 38px;
   height: 34px;
-  flex: 0 0 auto;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
   color: var(--theme-text-secondary);
-  transition:
-    border-color 150ms ease,
-    background 150ms ease,
-    color 150ms ease;
 }
 
-.viewer-result-dock__collapse-button:hover {
+.viewer-result-dock__collapse-button:hover,
+.viewer-result-dock__collapse-button:focus-visible {
   border-color: var(--theme-hover-border);
   background: var(--theme-hover-surface);
   color: var(--theme-text-primary);
+  outline: none;
 }
+
 </style>

@@ -47,6 +47,7 @@ import { useViewerWorkspaceToolbar } from '../../composables/workspace/toolbar/u
 import type { ViewerToolbarActionPayload } from '../../composables/workspace/operations/viewActionTypes'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
+import { usePointerDockResize } from '../../composables/ui/usePointerDockResize'
 import { applyViewportCornerInfoPreference } from '../../composables/ui/viewportCornerInfo'
 import { parseSliceLabel, useKeySliceStars } from '../../composables/workspace/slices/useKeySliceStars'
 import type { ViewerExportFormat, ViewerExportOverlays } from '../../composables/workspace/export/viewExport'
@@ -229,6 +230,7 @@ const RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD = 170
 const RIGHT_RESULT_DOCK_MIN_WIDTH = 300
 const RIGHT_RESULT_DOCK_MAX_WIDTH = 520
 const RIGHT_RESULT_DOCK_COLLAPSE_THRESHOLD = 260
+const RIGHT_DOCK_COLLAPSED_WIDTH = 58
 const pendingDeletedMeasurementIds = ref<Partial<Record<string, string[]>>>({})
 const previousDrawingScopePreference = ref({ ...drawingScopePreference.value })
 type WorkspaceResultPanel = 'measurement' | 'mtfCurve' | 'qaWater'
@@ -1977,13 +1979,42 @@ const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const isTabStripCollapsed = ref(false)
 const workspaceContentWidth = ref(0)
 type RightDockResizeTarget = 'toolbar' | 'result'
-const activeRightDockResize = ref<{ target: RightDockResizeTarget; startX: number; startWidth: number } | null>(null)
-const rightDockResizePreviewWidth = ref<number | null>(null)
-const rightDockResizePreviewTarget = ref<RightDockResizeTarget | null>(null)
-const isRightDockResizing = computed(() => activeRightDockResize.value != null)
+const rightDockResize = usePointerDockResize<RightDockResizeTarget>({
+  onCommit: (target, result) => {
+    const config = getRightDockResizeConfig(target)
+    updateWorkspaceDockPreferencePatch({
+      [config.widthKey]: result.collapsed ? workspaceDockPreference.value[config.widthKey] : result.width,
+      [config.collapsedKey]: result.collapsed
+    })
+  }
+})
+const rightDockResizePreviewWidth = computed(() => rightDockResize.preview.value?.result.width ?? null)
+const rightDockResizePreviewTarget = computed(() => rightDockResize.preview.value?.key ?? null)
+const activeRightDockResizeTarget = computed(() => rightDockResize.active.value?.key ?? null)
+const isRightDockResizing = rightDockResize.isResizing
 const workspaceContentStyle = computed(() => ({
   '--viewer-right-dock-preview-width': `${rightDockResizePreviewWidth.value ?? 0}px`
 }))
+
+function isRightDockPreviewTarget(target: RightDockResizeTarget): boolean {
+  return rightDockResizePreviewTarget.value === target && rightDockResizePreviewWidth.value != null
+}
+
+function getRightDockDisplayWidth(target: RightDockResizeTarget): number {
+  const config = getRightDockResizeConfig(target)
+  return isRightDockPreviewTarget(target)
+    ? rightDockResizePreviewWidth.value!
+    : workspaceDockPreference.value[config.widthKey]
+}
+
+function getRightDockDisplayCollapsed(target: RightDockResizeTarget): boolean {
+  const preview = rightDockResize.preview.value
+  if (preview?.key === target) {
+    return preview.result.collapsed
+  }
+  const config = getRightDockResizeConfig(target)
+  return workspaceDockPreference.value[config.collapsedKey]
+}
 const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
 const shouldShowTabStrip = computed(() => hasViewerTabs.value && (!isTabStripCollapsed.value || shouldForceShowTabStrip.value))
 const shouldShowTabStripToggle = computed(() => hasViewerTabs.value && Boolean(props.activeTab) && props.activeTab?.viewType !== 'Tag')
@@ -2086,12 +2117,13 @@ function closeResultPanel(): void {
   activeResultPanel.value = null
 }
 
-function getRightDockResizeConfig(target: RightDockResizeTarget): { min: number; max: number; collapse: number; widthKey: 'rightToolbarWidth' | 'rightResultWidth'; collapsedKey: 'rightToolbarCollapsed' | 'rightResultCollapsed' } {
+function getRightDockResizeConfig(target: RightDockResizeTarget): { min: number; max: number; collapse: number; collapsedWidth: number; widthKey: 'rightToolbarWidth' | 'rightResultWidth'; collapsedKey: 'rightToolbarCollapsed' | 'rightResultCollapsed' } {
   return target === 'toolbar'
     ? {
         min: RIGHT_TOOLBAR_DOCK_MIN_WIDTH,
         max: RIGHT_TOOLBAR_DOCK_MAX_WIDTH,
         collapse: RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD,
+        collapsedWidth: RIGHT_DOCK_COLLAPSED_WIDTH,
         widthKey: 'rightToolbarWidth',
         collapsedKey: 'rightToolbarCollapsed'
       }
@@ -2099,19 +2131,10 @@ function getRightDockResizeConfig(target: RightDockResizeTarget): { min: number;
         min: RIGHT_RESULT_DOCK_MIN_WIDTH,
         max: RIGHT_RESULT_DOCK_MAX_WIDTH,
         collapse: RIGHT_RESULT_DOCK_COLLAPSE_THRESHOLD,
+        collapsedWidth: RIGHT_DOCK_COLLAPSED_WIDTH,
         widthKey: 'rightResultWidth',
         collapsedKey: 'rightResultCollapsed'
       }
-}
-
-function clampRightDockWidth(target: RightDockResizeTarget, width: number): number {
-  const config = getRightDockResizeConfig(target)
-  return Math.max(config.min, Math.min(config.max, Math.round(width)))
-}
-
-function resolveRightDockPreviewWidth(target: RightDockResizeTarget, width: number): number {
-  const config = getRightDockResizeConfig(target)
-  return width < config.collapse ? 58 : clampRightDockWidth(target, width)
 }
 
 function updateWorkspaceDockPreferencePatch(patch: Partial<typeof workspaceDockPreference.value>): void {
@@ -2128,57 +2151,21 @@ function handleRightDockCollapseChange(target: RightDockResizeTarget, collapsed:
   })
 }
 
-function cleanupRightDockResizeListeners(): void {
-  window.removeEventListener('pointermove', handleRightDockResizeMove)
-  window.removeEventListener('pointerup', handleRightDockResizeEnd)
-  window.removeEventListener('pointercancel', handleRightDockResizeCancel)
-}
-
-function handleRightDockResizeMove(event: PointerEvent): void {
-  const activeResize = activeRightDockResize.value
-  if (!activeResize) {
-    return
-  }
-  const nextWidth = activeResize.startWidth + activeResize.startX - event.clientX
-  rightDockResizePreviewWidth.value = resolveRightDockPreviewWidth(activeResize.target, nextWidth)
-}
-
-function handleRightDockResizeCancel(): void {
-  activeRightDockResize.value = null
-  rightDockResizePreviewWidth.value = null
-  rightDockResizePreviewTarget.value = null
-  cleanupRightDockResizeListeners()
-}
-
-function handleRightDockResizeEnd(event: PointerEvent): void {
-  const activeResize = activeRightDockResize.value
-  if (!activeResize) {
-    return
-  }
-  const config = getRightDockResizeConfig(activeResize.target)
-  const rawWidth = activeResize.startWidth + activeResize.startX - event.clientX
-  const shouldCollapse = rawWidth < config.collapse
-  updateWorkspaceDockPreferencePatch({
-    [config.widthKey]: shouldCollapse ? workspaceDockPreference.value[config.widthKey] : clampRightDockWidth(activeResize.target, rawWidth),
-    [config.collapsedKey]: shouldCollapse
-  })
-  handleRightDockResizeCancel()
-}
-
 function startRightDockResize(target: RightDockResizeTarget, event: PointerEvent): void {
-  event.preventDefault()
   const config = getRightDockResizeConfig(target)
-  const startWidth = workspaceDockPreference.value[config.widthKey]
-  activeRightDockResize.value = {
-    target,
-    startX: event.clientX,
-    startWidth
-  }
-  rightDockResizePreviewTarget.value = target
-  rightDockResizePreviewWidth.value = startWidth
-  window.addEventListener('pointermove', handleRightDockResizeMove)
-  window.addEventListener('pointerup', handleRightDockResizeEnd)
-  window.addEventListener('pointercancel', handleRightDockResizeCancel)
+  const wasCollapsed = workspaceDockPreference.value[config.collapsedKey]
+  const startWidth = wasCollapsed ? config.collapsedWidth : workspaceDockPreference.value[config.widthKey]
+  rightDockResize.start(event, {
+    key: target,
+    direction: 'right',
+    startWidth,
+    config: {
+      collapsedWidth: config.collapsedWidth,
+      collapseThreshold: config.collapse,
+      minWidth: config.min,
+      maxWidth: config.max
+    }
+  })
 }
 
 const {
@@ -2556,7 +2543,7 @@ useWorkspaceHotkeys({
 })
 
 onBeforeUnmount(() => {
-  handleRightDockResizeCancel()
+  rightDockResize.cancel()
   clearQuickPreviewDropState()
   cleanupExportUi()
   stopAnnotationInteraction()
@@ -2987,11 +2974,11 @@ onBeforeUnmount(() => {
           :has-content="Boolean(activeResultPanelKind)"
           :icon="resultPanelIcon"
           :title="resultPanelTitle"
-          :width="workspaceDockPreference.rightResultWidth"
-          :collapsed="workspaceDockPreference.rightResultCollapsed"
+          :width="getRightDockDisplayWidth('result')"
+          :collapsed="getRightDockDisplayCollapsed('result')"
+          :resizing="activeRightDockResizeTarget === 'result'"
           @close="closeResultPanel"
           @collapse-change="handleRightDockCollapseChange('result', $event)"
-          @dock-resize="handleRightToolbarDockResize"
         >
           <MeasurementMetricsPanelContent
             v-if="activeResultPanelKind === 'measurement'"
@@ -3037,8 +3024,9 @@ onBeforeUnmount(() => {
           :utility-panel-open="rightToolbarUtilityPanelKind != null"
           :utility-panel-title="rightToolbarUtilityPanelTitle"
           :utility-panel-tool-key="rightToolbarUtilityPanelToolKey"
-          :width="workspaceDockPreference.rightToolbarWidth"
-          :collapsed="workspaceDockPreference.rightToolbarCollapsed"
+          :width="getRightDockDisplayWidth('toolbar')"
+          :collapsed="getRightDockDisplayCollapsed('toolbar')"
+          :resizing="activeRightDockResizeTarget === 'toolbar'"
           @apply-tool="handleToolbarApplyTool"
           @close-result-panel="closeResultPanel"
           @close-utility-panel="closeRightToolbarUtilityPanel"

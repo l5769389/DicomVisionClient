@@ -84,16 +84,16 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__panel-content-shell').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-label').text()).toBe('Pan')
-    expect(wrapper.find('.viewer-toolbar-dock__active-tool-description').text()).toBe('No additional settings for this tool.')
+    expect(wrapper.find('.viewer-toolbar-dock__active-tool-description').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Active tool')
   })
 
-  it('localizes dock helper labels', () => {
+  it('does not render redundant empty-state copy or a footer collapse button', () => {
     useUiPreferences().setLocale('zh-CN')
     const wrapper = mountDock()
 
-    expect(wrapper.find('.viewer-toolbar-dock__active-tool-description').text()).toBe('该工具没有额外设置。')
-    expect(wrapper.find('.viewer-toolbar-dock__collapse-button').attributes('title')).toBe('收起右侧操作区')
+    expect(wrapper.text()).not.toContain('该工具没有额外设置。')
+    expect(wrapper.find('.viewer-toolbar-dock__collapse-button').exists()).toBe(false)
   })
 
   it('renders option tools as single buttons and applies mode tools while opening panels', async () => {
@@ -113,7 +113,8 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Window')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag to adjust window width and level')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title .dock-info-popover__trigger').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__panel-close').exists()).toBe(false)
     expect(wrapper.find('.toolbar-menu-option').exists()).toBe(false)
   })
@@ -188,6 +189,14 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([tools[1], '400|40', { keepMenuOpen: true }])
   })
 
+  it('keeps window values visible in the option row instead of an info popover', () => {
+    const wrapper = mountDock({ openMenuKey: 'window' })
+    const option = wrapper.get('.viewer-toolbar-dock-panel-content__option')
+
+    expect(option.get('.viewer-toolbar-dock-panel-content__option-description').text()).toBe('WW 400 / WL 40')
+    expect(option.find('.dock-info-popover__trigger').exists()).toBe(false)
+  })
+
   it('applies a temporary custom window value from the right dock window panel', async () => {
     const wrapper = mountDock({
       openMenuKey: 'window'
@@ -235,7 +244,9 @@ describe('ViewerToolbarDock', () => {
 
     expect(wrapper.emitted('setMenuOpen')).toEqual([['pan']])
     expect(wrapper.emitted('applyTool')?.[0]).toEqual([panTool, { keepMenuOpen: true }])
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag the image to adjust position')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title .dock-info-popover__trigger').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="viewer-toolbar-dock-pan-transform-reset"]').text()).toContain('Reset Pan')
 
     await wrapper.find('[data-testid="viewer-toolbar-dock-pan-transform-reset"]').trigger('click')
 
@@ -276,11 +287,13 @@ describe('ViewerToolbarDock', () => {
 
     await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
 
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').text()).toContain('Drag to adjust zoom')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__tool-guide').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock__panel-title .dock-info-popover__trigger').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').text()).toContain('1x')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').text()).toContain('10x')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__zoom-header').text()).toContain('5x')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__zoom-tick--active').text()).toContain('5x')
+    expect(wrapper.get('[data-testid="viewer-toolbar-dock-zoom-transform-reset"]').text()).toContain('Reset Zoom')
 
     await wrapper.findAll('.viewer-toolbar-dock-panel-content__zoom-tick')[2]!.trigger('click')
     const selectEvent = wrapper.emitted('selectToolOption')?.[0]
@@ -396,7 +409,8 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.emitted('setMenuOpen')).toEqual([['qa']])
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([qaTool, 'qa:water-phantom', { keepMenuOpen: true }])
     expect(wrapper.emitted('applyTool')).toBeUndefined()
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).toContain('Switching clears existing QA results')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).not.toContain('Switching clears existing QA results')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card .dock-info-popover__trigger').exists()).toBe(true)
   })
 
   it('opens segmentation and selects threshold by default from the right dock button', async () => {
@@ -504,10 +518,10 @@ describe('ViewerToolbarDock', () => {
         stackToolSelections: { [tool.key]: tool.options![0]!.value }
       })
 
-      expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(tool.key === 'reset' ? 0 : 1)
+      expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(1)
       if (tool.key === 'reset') {
-        expect(wrapper.find('.viewer-toolbar-dock-panel-content__action-zone').exists()).toBe(true)
-        expect(wrapper.find('.viewer-toolbar-dock-panel-content__danger-action').exists()).toBe(true)
+        expect(wrapper.find('.viewer-toolbar-dock-panel-content__action-zone').exists()).toBe(false)
+        expect(wrapper.find('.viewer-toolbar-dock-panel-content__danger-action').exists()).toBe(false)
       }
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
@@ -549,8 +563,8 @@ describe('ViewerToolbarDock', () => {
       kind: 'action',
       showSelectedOptionIcon: false,
       options: [
-        { value: 'volumeOrientation:A', label: 'Anterior' },
-        { value: 'volumeOrientation:P', label: 'Posterior' }
+        { value: 'volumeOrientation:A', label: 'Anterior', description: 'Front-facing view' },
+        { value: 'volumeOrientation:P', label: 'Posterior', description: 'Back-facing view' }
       ]
     }
     const wrapper = mountDock({
@@ -565,6 +579,57 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
     expect(wrapper.find('.volume-orientation-option-label__initial').text()).toBe('A')
     expect(wrapper.find('.volume-orientation-option-label__suffix').text()).toBe('nterior')
+    expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option-description')[0]!.text()).toBe('Front-facing view')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__option .dock-info-popover__trigger').exists()).toBe(false)
+  })
+
+  it('renders page navigation actions as direct, evenly structured choices', async () => {
+    const pageTool: StackTool = {
+      key: 'page',
+      label: 'Page',
+      icon: 'page',
+      kind: 'action',
+      options: [
+        { value: 'page:previous10', label: 'Previous 10', icon: 'chevron-left' },
+        { value: 'page:next10', label: 'Next 10', icon: 'chevron-right' },
+        { value: 'page:first', label: 'First Page', icon: 'chevron-left' },
+        { value: 'page:last', label: 'Last Page', icon: 'chevron-right' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [pageTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'page'
+    })
+
+    expect(wrapper.findAll('.viewer-toolbar-dock-panel-content__option')).toHaveLength(4)
+    await wrapper.findAll('.viewer-toolbar-dock-panel-content__option')[1]!.trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([pageTool, 'page:next10', { keepMenuOpen: true }])
+  })
+
+  it('renders reset pseudocolor as a fixed footer action', async () => {
+    const pseudocolorTool: StackTool = {
+      key: 'pseudocolor',
+      label: 'Pseudocolor',
+      icon: 'pseudocolor',
+      kind: 'action',
+      options: [{ value: 'pseudocolor:rainbow', label: 'Rainbow', swatchKey: 'rainbow' }],
+      footerOptions: [{ value: 'pseudocolor:reset', label: 'Reset Pseudocolor', icon: 'reset' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [pseudocolorTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'pseudocolor'
+    })
+
+    const reset = wrapper.get('[data-testid="viewer-toolbar-dock-pseudocolor-pseudocolor-reset"]')
+    expect(reset.text()).toContain('Reset Pseudocolor')
+    await reset.trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([
+      pseudocolorTool,
+      'pseudocolor:reset',
+      { keepMenuOpen: true }
+    ])
   })
 
   it('shows reset rotation in the rotate panel without preselecting it', () => {
@@ -639,7 +704,8 @@ describe('ViewerToolbarDock', () => {
       stackToolSelections: { measure: 'measure:line' }
     })
 
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).toContain('Switching clears existing measurements')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).not.toContain('Switching clears existing measurements')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card .dock-info-popover__trigger').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Measurement & Annotation Settings')
 
     await wrapper.findAll('.viewer-toolbar-dock-panel-content__scope-choice')[1]!.trigger('click')
@@ -1157,23 +1223,22 @@ describe('ViewerToolbarDock', () => {
     expect(bodyChildren[0]?.classList.contains('viewer-toolbar-dock__tools-region')).toBe(true)
     expect(bodyChildren[1]?.classList.contains('viewer-toolbar-dock__status')).toBe(true)
     expect(bodyChildren[2]?.classList.contains('viewer-toolbar-dock__panel')).toBe(true)
-    expect(bodyChildren[3]?.classList.contains('viewer-toolbar-dock__footer')).toBe(true)
+    expect(bodyChildren).toHaveLength(3)
   })
 
-  it('collapses to a narrow icon rail and emits a dock resize event', async () => {
-    const wrapper = mountDock()
-
-    await wrapper.find('.viewer-toolbar-dock__collapse-button').trigger('click')
+  it('renders a narrow icon rail when controlled as collapsed', async () => {
+    const wrapper = mountDock({ collapsed: true })
 
     expect(wrapper.find('.viewer-toolbar-dock').classes()).toContain('viewer-toolbar-dock--collapsed')
     expect(wrapper.find('.viewer-toolbar-dock__status').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__panel').exists()).toBe(false)
     expect(wrapper.findAll('.viewer-toolbar-dock__button')).toHaveLength(2)
-    expect(wrapper.emitted('dockResize')).toHaveLength(1)
-
+    expect(wrapper.find('.viewer-toolbar-dock__collapse-button').exists()).toBe(true)
     await wrapper.find('.viewer-toolbar-dock__collapse-button').trigger('click')
+    expect(wrapper.emitted('collapseChange')).toEqual([[false]])
+    expect(wrapper.emitted('dockResize')).toHaveLength(1)
+    await wrapper.setProps({ collapsed: false })
     expect(wrapper.find('.viewer-toolbar-dock').classes()).not.toContain('viewer-toolbar-dock--collapsed')
-    expect(wrapper.emitted('dockResize')).toHaveLength(2)
   })
 
   it('collapses immediately while a utility panel is visible', async () => {
@@ -1183,25 +1248,22 @@ describe('ViewerToolbarDock', () => {
       isToolSelected: vi.fn(() => false),
       utilityPanelOpen: true,
       utilityPanelTitle: 'MIP Params',
-      utilityPanelToolKey: 'mprMip'
+      utilityPanelToolKey: 'mprMip',
+      collapsed: true
     })
-
-    await wrapper.find('.viewer-toolbar-dock__collapse-button').trigger('click')
 
     expect(wrapper.find('.viewer-toolbar-dock').classes()).toContain('viewer-toolbar-dock--collapsed')
     expect(wrapper.find('.viewer-toolbar-dock__panel').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__status').exists()).toBe(false)
-    expect(wrapper.find('.viewer-toolbar-dock__footer').element).toBe(wrapper.find('.viewer-toolbar-dock__body').element.lastElementChild)
+    expect(wrapper.find('.viewer-toolbar-dock__footer').exists()).toBe(true)
   })
 
   it('expands the dock when a collapsed option tool is clicked', async () => {
-    const wrapper = mountDock()
-
-    await wrapper.find('.viewer-toolbar-dock__collapse-button').trigger('click')
+    const wrapper = mountDock({ collapsed: true })
     await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
 
     expect(wrapper.find('.viewer-toolbar-dock').classes()).not.toContain('viewer-toolbar-dock--collapsed')
-    expect(wrapper.emitted('dockResize')).toHaveLength(2)
+    expect(wrapper.emitted('dockResize')).toHaveLength(1)
     expect(wrapper.emitted('setMenuOpen')).toEqual([['window']])
   })
 
@@ -1209,14 +1271,13 @@ describe('ViewerToolbarDock', () => {
     const mprMipTool: StackTool = { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' }
     const wrapper = mountDock({
       activeTools: [mprMipTool],
-      isToolSelected: vi.fn(() => false)
+      isToolSelected: vi.fn(() => false),
+      collapsed: true
     })
-
-    await wrapper.find('.viewer-toolbar-dock__collapse-button').trigger('click')
     await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
 
     expect(wrapper.find('.viewer-toolbar-dock').classes()).not.toContain('viewer-toolbar-dock--collapsed')
-    expect(wrapper.emitted('dockResize')).toHaveLength(2)
+    expect(wrapper.emitted('dockResize')).toHaveLength(1)
     expect(wrapper.emitted('applyTool')?.[0]).toEqual([mprMipTool])
   })
 

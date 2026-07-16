@@ -1048,7 +1048,7 @@
     color: var(--viewer-corner-custom-light-color);
   }
 
-  @container (max-width: 360px), (max-height: 260px) {
+  @container (max-width: 360px) or (max-height: 260px) {
     .viewer-corner-block {
       gap: 1px;
       max-width: 48%;
@@ -1063,7 +1063,7 @@
     }
   }
 
-  @container (max-width: 260px), (max-height: 190px) {
+  @container (max-width: 260px) or (max-height: 190px) {
     .viewer-corner-block {
       padding: 4px 5px;
       font-size: 8px;
@@ -1075,7 +1075,7 @@
     }
   }
 
-  @container (max-width: 190px), (max-height: 135px) {
+  @container (max-width: 190px) or (max-height: 135px) {
     .viewer-corner-block {
       display: none;
     }

@@ -5,6 +5,7 @@ defineOptions({
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
+import DockInfoPopover from './shell/DockInfoPopover.vue'
 import { createDefaultMprMipConfig, normalizeMprMipConfig, type MprMipAlgorithm, type MprMipConfig, type MprViewportKey } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 
@@ -218,9 +219,13 @@ onBeforeUnmount(() => {
     :class="props.embedded ? 'mpr-mip-config-panel--embedded flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-transparent px-0 py-0 shadow-none' : isCollapsed ? 'w-[300px]' : 'w-[368px]'"
   >
     <div class="mb-3 flex items-start justify-between gap-3">
-      <div>
+      <div class="flex items-center gap-1">
         <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ copy.title }}</div>
-        <div class="mt-0.5 text-[13px] font-medium text-[var(--theme-text-primary)]">{{ copy.subtitle }}</div>
+        <DockInfoPopover
+          v-if="!props.embedded"
+          :text="isZh ? '设置 MPR 各平面的厚层投影算法和层厚。' : 'Configure the slab projection algorithm and thickness for each MPR plane.'"
+          location="right center"
+        />
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -404,8 +409,10 @@ onBeforeUnmount(() => {
           <AppIcon name="reset" :size="16" />
         </span>
         <span class="min-w-0">
-          <span class="block truncate text-[13px] font-[850]">{{ resetLabel }}</span>
-          <span class="mt-0.5 block truncate text-[11px] text-[var(--theme-text-muted)]">{{ isZh ? '恢复 MIP 厚度默认值' : 'Restore default MIP thickness values.' }}</span>
+          <span class="flex items-center gap-1 truncate text-[13px] font-[850]">
+            {{ resetLabel }}
+            <DockInfoPopover :text="isZh ? '恢复 MIP 厚度默认值' : 'Restore default MIP thickness values.'" />
+          </span>
         </span>
       </button>
     </div>

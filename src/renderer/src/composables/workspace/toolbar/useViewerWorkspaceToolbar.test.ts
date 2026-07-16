@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { computed, defineComponent, h, nextTick, ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { useUiPreferences } from '../../ui/useUiPreferences'
 import type { ViewerTabItem } from '../../../types/viewer'
 import { createVolumeOrientationQuaternion } from '../volume/volumeOrientation'
 import { useViewerWorkspaceToolbar } from './useViewerWorkspaceToolbar'
@@ -128,6 +129,61 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY: 5, exact: true })
 
     harness.wrapper.unmount()
+  })
+
+  it('navigates ten slices or directly to the first and last slice from the page panel', async () => {
+    vi.useFakeTimers()
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack',
+      sliceLabel: '3 / 9'
+    })
+    await nextTick()
+    const pageTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'page')!
+
+    const cases = [
+      ['page:previous10', -10],
+      ['page:next10', 10],
+      ['page:first', -2],
+      ['page:last', 6]
+    ] as const
+    for (const [option, deltaY] of cases) {
+      harness.emitViewportWheel.mockClear()
+      harness.toolbar.selectToolOption(pageTool, option, { keepMenuOpen: true })
+      vi.advanceTimersByTime(260)
+      await nextTick()
+      expect(harness.emitViewportWheel).toHaveBeenLastCalledWith({ viewportKey: 'single', deltaY, exact: true })
+    }
+
+    harness.wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('resets pseudocolor to the default selected in settings', async () => {
+    vi.useFakeTimers()
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.selectedPseudocolorKey.value
+    preferences.selectedPseudocolorKey.value = 'hotiron'
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack'
+    })
+    await nextTick()
+    const pseudocolorTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'pseudocolor')!
+
+    harness.toolbar.selectToolOption(pseudocolorTool, 'pseudocolor:reset', { keepMenuOpen: true })
+    vi.advanceTimersByTime(260)
+    await nextTick()
+
+    expect(harness.toolbar.stackToolSelections.value.pseudocolor).toBe('pseudocolor:hotiron')
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'pseudocolor', value: 'pseudocolor:hotiron' })
+    harness.wrapper.unmount()
+    preferences.selectedPseudocolorKey.value = previousPreset
+    vi.useRealTimers()
   })
 
   it('cleans stale pointer interactions before activating annotation mode', async () => {

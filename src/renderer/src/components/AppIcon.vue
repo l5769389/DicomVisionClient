@@ -192,6 +192,7 @@ const mdiIconMap: Record<string, string> = {
   copy: mdiContentCopy,
   save: mdiContentSaveOutline,
   error: mdiAlertCircleOutline,
+  explanation: mdiAlertCircleOutline,
   info: mdiInformationOutline,
   trash: mdiTrashCanOutline,
   check: mdiCheckBold,

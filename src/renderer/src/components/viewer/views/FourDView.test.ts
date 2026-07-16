@@ -330,7 +330,7 @@ describe('FourDView', () => {
     expect(dockChildren[0]?.classList.contains('viewer-toolbar-dock__tools-region')).toBe(true)
     expect(dockChildren[1]?.classList.contains('viewer-toolbar-dock__status')).toBe(true)
     expect(dockChildren[2]?.classList.contains('viewer-toolbar-dock__panel')).toBe(true)
-    expect(dockChildren[3]?.classList.contains('viewer-toolbar-dock__footer')).toBe(true)
+    expect(dockChildren).toHaveLength(3)
     const dockButtons = wrapper.findAll('.viewer-toolbar-dock__button')
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
     expect(dockButtons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')

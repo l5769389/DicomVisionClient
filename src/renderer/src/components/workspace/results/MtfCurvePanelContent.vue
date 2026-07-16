@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { ViewerMtfItem } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import DockInfoPopover from '../shell/DockInfoPopover.vue'
 
 const CHART_LEFT = 4
 const CHART_RIGHT = 98
@@ -145,6 +146,10 @@ const guideRows = computed(() => [
     text: stripGuidePrefix(overlayCopy.value.mtf10Guide, 'MTF10')
   }
 ])
+const readingGuideText = computed(() => [
+  overlayCopy.value.mtfGuideIntro,
+  ...guideRows.value.map((row) => `${row.label}: ${row.text}`)
+].join('\n'))
 </script>
 
 <template>
@@ -225,19 +230,9 @@ const guideRows = computed(() => [
         </div>
       </section>
 
-      <section class="mtf-curve-panel-content__guide">
+      <section class="mtf-curve-panel-content__guide-heading">
         <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.readingGuide }}</div>
-        <p>{{ overlayCopy.mtfGuideIntro }}</p>
-        <div class="mtf-curve-panel-content__guide-rows">
-          <div
-            v-for="row in guideRows"
-            :key="row.key"
-            class="mtf-curve-panel-content__guide-row"
-          >
-            <span>{{ row.label }}</span>
-            <p>{{ row.text }}</p>
-          </div>
-        </div>
+        <DockInfoPopover :text="readingGuideText" />
       </section>
     </div>
 
@@ -283,7 +278,7 @@ const guideRows = computed(() => [
 }
 
 .mtf-curve-panel-content__card,
-.mtf-curve-panel-content__guide {
+.mtf-curve-panel-content__guide-heading {
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -415,42 +410,10 @@ const guideRows = computed(() => [
   font-weight: 800;
 }
 
-.mtf-curve-panel-content__guide {
-  color: var(--theme-text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.mtf-curve-panel-content__guide p {
-  margin: 8px 0 0;
-}
-
-.mtf-curve-panel-content__guide-rows {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.mtf-curve-panel-content__guide-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-}
-
-.mtf-curve-panel-content__guide-row span {
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
-  padding: 3px 7px;
-  color: var(--theme-text-primary);
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: 0.08em;
-}
-
-.mtf-curve-panel-content__guide-row p {
-  margin: 2px 0 0;
+.mtf-curve-panel-content__guide-heading {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .mtf-curve-panel-content__actions {

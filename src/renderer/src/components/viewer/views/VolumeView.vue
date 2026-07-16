@@ -93,6 +93,7 @@ function getLoadingLabel(): string {
       :is-active="true"
       :render-surface-active="true"
       :image-src="activeTab.imageSrc"
+      :media-view-id="activeTab.viewId"
       :active-operation="activeOperation"
       :is-loading="Boolean(activeTab.viewId) && (!activeTab.imageSrc || isVolumeProcessing)"
       :loading-label="getLoadingLabel()"

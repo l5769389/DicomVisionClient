@@ -456,10 +456,12 @@ const {
   setMprDefaultLayoutKey,
   setQaWaterMetrics,
   setScaleBarPreference,
+  setThreeDImageTransport,
   setViewportCornerInfoPreference,
   systemWindowPresets,
   setRoiStatOptions,
   themeId,
+  threeDImageTransport,
   windowPresets
 } = useUiPreferences()
 
@@ -2241,6 +2243,42 @@ onBeforeUnmount(() => {
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ getThemeLabel(theme) }}</div>
                             <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ getThemeSummary(theme) }}</div>
                           </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="theme-card-soft rounded-[28px] p-5 xl:col-span-2">
+                      <div class="mb-4">
+                        <div class="text-lg font-semibold text-[var(--theme-text-primary)]">
+                          {{ isZh ? '3D 图像传输' : '3D Image Transport' }}
+                        </div>
+                        <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">
+                          {{ isZh ? 'WebRTC 为实验模式；协商失败时会自动回退到 WebP。' : 'WebRTC is experimental and automatically falls back to WebP if negotiation fails.' }}
+                        </div>
+                      </div>
+                      <div class="grid gap-3 md:grid-cols-2">
+                        <button
+                          type="button"
+                          data-testid="settings-3d-transport-webp"
+                          class="rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                          :class="threeDImageTransport === 'webp' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
+                          @click="setThreeDImageTransport('webp')"
+                        >
+                          <div class="text-sm font-semibold text-[var(--theme-text-primary)]">WebP</div>
+                          <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ isZh ? '稳定模式，逐帧图像通过 Socket.IO 传输。' : 'Stable per-frame transport over Socket.IO.' }}</div>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="settings-3d-transport-webrtc"
+                          class="rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                          :class="threeDImageTransport === 'webrtc' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
+                          @click="setThreeDImageTransport('webrtc')"
+                        >
+                          <div class="flex items-center gap-2 text-sm font-semibold text-[var(--theme-text-primary)]">
+                            <span>WebRTC</span>
+                            <span class="rounded-full border border-[var(--theme-border-soft)] px-2 py-0.5 text-[10px]">{{ isZh ? '实验' : 'Experimental' }}</span>
+                          </div>
+                          <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ isZh ? '视频轨道只保留最新帧，绕过 WebP 编码。' : 'A latest-frame video track bypasses WebP encoding.' }}</div>
                         </button>
                       </div>
                     </div>

@@ -74,7 +74,9 @@ const {
   setPacsPreference,
   setRoiStatOptions,
   setScaleBarPreference,
+  setThreeDImageTransport,
   setViewportCornerInfoPreference,
+  threeDImageTransport,
   themeId,
   windowPresets
 } = useUiPreferences()
@@ -868,6 +870,12 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               </span>
             </button>
           </div>
+          <div class="mobile-settings__subhead">{{ isZh ? '3D 图像传输' : '3D Image Transport' }}</div>
+          <div class="mobile-settings__segmented" data-testid="mobile-settings-3d-transport">
+            <button type="button" :class="{ active: threeDImageTransport === 'webp' }" @click="setThreeDImageTransport('webp')">WebP</button>
+            <button type="button" :class="{ active: threeDImageTransport === 'webrtc' }" @click="setThreeDImageTransport('webrtc')">WebRTC</button>
+          </div>
+          <div class="mobile-settings__hint">{{ isZh ? 'WebRTC 为实验模式，连接失败时自动回退 WebP。' : 'WebRTC is experimental and falls back to WebP on failure.' }}</div>
         </section>
 
         <section v-else-if="activePanel === 'reading'" class="mobile-settings__section">

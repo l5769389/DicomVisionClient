@@ -277,6 +277,10 @@ function getItemImage(item: MprViewportLayoutItem): string {
   return viewportKey ? getViewportImage(viewportKey) : props.activeTab.imageSrc
 }
 
+function getItemMediaViewId(item: MprViewportLayoutItem): string | null {
+  return item.kind === 'volume' ? props.activeTab.viewId || null : null
+}
+
 function isItemLoading(item: MprViewportLayoutItem): boolean {
   const viewportKey = asMprViewportKey(item)
   return viewportKey ? isViewportLoading(viewportKey) : Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc
@@ -548,6 +552,7 @@ watch(
       :draft-annotation="getItemDraftAnnotation(item)"
       :render-surface-active="isViewportActive(item.key)"
       :image-src="getItemImage(item)"
+      :media-view-id="getItemMediaViewId(item)"
       :active-operation="props.activeOperation"
       :is-loading="isItemLoading(item)"
       :loading-label="getItemLoadingLabel(item)"

@@ -50,6 +50,7 @@ import {
 } from '../operations/viewTabPatches'
 import type { ViewerToolbarActionPayload, ViewerTransformResetScope } from '../operations/viewActionTypes'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
+import { restartThreeDWebRtcTransports } from '../../../services/threeDWebRtcTransport'
 import { useViewerWorkspaceHover, type HoverCornerSample } from '../hover/useViewerWorkspaceHover'
 import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
 import {
@@ -3075,6 +3076,21 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     scheduleMissingMprImageRecovery(tab.key)
   }
 
+  function handleImageMetadataUpdate(payload: Partial<ViewImageResponse> | undefined): void {
+    const viewId = payload?.viewId
+    if (!viewId || !payload) {
+      return
+    }
+    const tab = views.findTabByViewId(viewId)
+    if (!tab || shouldDropStaleRotate3dImageUpdate(tab, payload)) {
+      return
+    }
+    // The video track owns the pixels. A zero-length placeholder lets the
+    // established metadata reducer update overlays and revisions without
+    // allocating or decoding another rendered image.
+    views.updateTabImage(tab.key, payload, new Uint8Array())
+  }
+
   function handleMprStateUpdate(payload: Partial<ViewImageResponse> | undefined): void {
     const viewId = payload?.viewId
     if (!viewId) {
@@ -3303,7 +3319,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     updateConnectionState
   } = useViewerWorkspaceConnection({
     backendOrigin,
-    onConnected: views.rebindOpenViews,
+    onConnected: () => {
+      restartThreeDWebRtcTransports()
+      views.rebindOpenViews()
+    },
     onDisconnected: () => {
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.viewType === '4D'
@@ -3329,6 +3348,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     onHoverInfo: handleHoverInfo,
     onImageError: handleImageError,
     onImageUpdate: handleImageUpdate,
+    onImageMetadataUpdate: handleImageMetadataUpdate,
     onMprStateUpdate: handleMprStateUpdate,
     onViewProgress: handleViewProgress
   })

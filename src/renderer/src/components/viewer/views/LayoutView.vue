@@ -402,6 +402,7 @@ watch(
             :is-active="activeViewportKey === slot.id"
             :render-surface-active="true"
             :image-src="slot.imageSrc ?? ''"
+            :media-view-id="slot.viewId ?? null"
             :is-loading="Boolean(slot.viewId) && (!slot.imageSrc || activeTab.loadingProgress?.phase === 'preprocess')"
             :loading-label="activeTab.loadingProgress?.message || getLayoutLoadingLabel()"
             :loading-progress-percent="activeTab.loadingProgress?.progressPercent ?? null"

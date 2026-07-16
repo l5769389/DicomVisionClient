@@ -38,6 +38,13 @@ import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
 import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
+import {
+  acquireThreeDWebRtcTransport,
+  getThreeDWebRtcStream,
+  releaseThreeDWebRtcTransport
+} from '../../../services/threeDWebRtcTransport'
+import { bindView } from '../../../services/socket'
 import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 const props = withDefaults(
@@ -60,6 +67,7 @@ const props = withDefaults(
     imageStyle?: Record<string, string>
     imageLayers?: ViewerImageLayer[]
     imageSrc: string
+    mediaViewId?: string | null
     hideDraftHandles?: boolean
     compactLoading?: boolean
     isActive?: boolean
@@ -103,6 +111,7 @@ const props = withDefaults(
     imageLayers: () => [],
     imageClass: '',
     imageStyle: () => ({}),
+    mediaViewId: null,
     hideDraftHandles: false,
     compactLoading: false,
     isActive: false,
@@ -252,10 +261,16 @@ const normalizedLoadingProgressPercent = computed(() => {
   return Math.max(0, Math.min(100, Math.round(props.loadingProgressPercent)))
 })
 
+const { threeDImageTransport } = useUiPreferences()
+const videoRef = ref<HTMLVideoElement | null>(null)
+const webRtcStream = computed(() =>
+  threeDImageTransport.value === 'webrtc' ? getThreeDWebRtcStream(props.mediaViewId) : null
+)
+
 const resolvedLoadingLabel = computed(() => props.loadingLabel || viewerCopy.value.loadingView)
 
 const hasImageContent = computed(() =>
-  Boolean(props.imageSrc) || props.imageLayers.some((layer) => Boolean(layer.src))
+  Boolean(webRtcStream.value || props.imageSrc) || props.imageLayers.some((layer) => Boolean(layer.src))
 )
 
 const shouldShowImageOverlays = computed(() => hasImageContent.value)
@@ -291,7 +306,7 @@ function toStablePixel(value: number): number {
 
 let resizeObserver: ResizeObserver | null = null
 let observedStage: HTMLElement | null = null
-let observedImage: HTMLImageElement | null = null
+let observedImage: Element | null = null
 let stageMetricsRaf: number | null = null
 
 const normalizedActiveOperation = computed(() =>
@@ -320,6 +335,10 @@ function getOverlayFocusState(kind: 'measurement' | 'annotation' | 'mtf'): Overl
 }
 
 function getHoverImageRect(): DOMRect | null {
+  const video = videoRef.value
+  if (video && webRtcStream.value) {
+    return getContainedImageRect(video.getBoundingClientRect(), video.videoWidth, video.videoHeight)
+  }
   const image = imageRef.value
   if (image && props.imageSrc) {
     return getRenderedImageRect(image)
@@ -437,6 +456,7 @@ function getRenderedImageRect(image: HTMLImageElement): DOMRect {
 function updateStageMetricsNow(): void {
   const stage = stageRef.value
   const image = imageRef.value
+  const video = videoRef.value
 
   if (!stage) {
     return
@@ -446,6 +466,16 @@ function updateStageMetricsNow(): void {
   stageSize.value = {
     width: stageRect.width,
     height: stageRect.height
+  }
+
+  if (video && webRtcStream.value && video.videoWidth > 0 && video.videoHeight > 0) {
+    const videoRect = getContainedImageRect(video.getBoundingClientRect(), video.videoWidth, video.videoHeight)
+    const nextFrame = buildImageFrame(stageRect, videoRect, video.videoWidth, video.videoHeight)
+    imageFrame.value = nextFrame
+    if (isValidImageFrame(nextFrame)) {
+      lastValidImageFrame = nextFrame
+    }
+    return
   }
 
   if (!image || !props.imageSrc) {
@@ -509,7 +539,7 @@ function observeLayout(): void {
   }
 
   const nextStage = stageRef.value
-  const nextImage = imageRef.value
+  const nextImage = videoRef.value ?? imageRef.value
   if (observedStage === nextStage && observedImage === nextImage) {
     return
   }
@@ -550,8 +580,53 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleStageMetricsUpdate)
 })
 
+let acquiredWebRtcViewId: string | null = null
+
 watch(
-  () => [props.imageSrc, props.imageLayers.map((layer) => layer.src).join('|'), props.isActive, props.viewportKey] as const,
+  () => [props.mediaViewId, threeDImageTransport.value] as const,
+  ([viewId, transport]) => {
+    const nextViewId = transport === 'webrtc' ? viewId || null : null
+    if (acquiredWebRtcViewId === nextViewId) {
+      return
+    }
+    if (acquiredWebRtcViewId) {
+      releaseThreeDWebRtcTransport(acquiredWebRtcViewId)
+    }
+    acquiredWebRtcViewId = nextViewId
+    if (nextViewId) {
+      acquireThreeDWebRtcTransport(nextViewId)
+    } else if (transport === 'webp' && viewId) {
+      // The WebRTC metadata path does not carry encoded pixels. Request a
+      // fresh WebP frame immediately when the user switches back.
+      bindView(viewId)
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  webRtcStream,
+  async (stream) => {
+    await nextTick()
+    if (videoRef.value) {
+      videoRef.value.srcObject = stream
+      void videoRef.value.play().catch(() => undefined)
+    }
+    observeLayout()
+    scheduleStageMetricsUpdate()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (acquiredWebRtcViewId) {
+    releaseThreeDWebRtcTransport(acquiredWebRtcViewId)
+    acquiredWebRtcViewId = null
+  }
+})
+
+watch(
+  () => [props.imageSrc, webRtcStream.value, props.imageLayers.map((layer) => layer.src).join('|'), props.isActive, props.viewportKey] as const,
   async () => {
     await nextTick()
     observeLayout()
@@ -594,7 +669,7 @@ watch(
       :data-viewport-key="viewportKey"
     >
       <img
-        v-if="imageSrc"
+        v-if="!webRtcStream && imageSrc"
         ref="imageRef"
         class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
         :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
@@ -604,6 +679,18 @@ watch(
         draggable="false"
         @dragstart.prevent
         @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
+      />
+      <video
+        v-if="webRtcStream"
+        ref="videoRef"
+        class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
+        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
+        :style="imageStyle"
+        autoplay
+        muted
+        playsinline
+        @loadedmetadata="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
+        @resize="scheduleStageMetricsUpdate"
       />
       <img
         v-for="layer in imageLayers"

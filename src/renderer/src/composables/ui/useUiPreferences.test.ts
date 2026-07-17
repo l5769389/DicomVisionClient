@@ -58,7 +58,6 @@ describe('useUiPreferences', () => {
       locale: 'en-US',
       themeId: 'clinical-light',
       viewerToolbarPlacement: 'right',
-      threeDImageTransport: 'webrtc',
       viewerImageFormatPreference: 'webp',
       selectedPseudocolorKey: 'rainbow',
       mprDefaultLayoutKey: 'quad',
@@ -106,7 +105,6 @@ describe('useUiPreferences', () => {
     expect(document.documentElement.dataset.theme).toBe('clinical-light')
     expect(document.documentElement.style.colorScheme).toBe('light')
     expect(preferences.viewerToolbarPlacement.value).toBe('right')
-    expect(preferences.threeDImageTransport.value).toBe('webrtc')
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
     expect(preferences.mprDefaultLayoutKey.value).toBe('quad')
     expect(preferences.dicomTagDisplayMode.value).toBe('flat')
@@ -164,14 +162,6 @@ describe('useUiPreferences', () => {
       authType: 'basic',
       timeoutSeconds: 60
     })
-  })
-
-  it('defaults the experimental 3D transport to WebP and normalizes invalid values', async () => {
-    const defaults = await loadPreferences()
-    expect(defaults.threeDImageTransport.value).toBe('webp')
-
-    const normalized = await loadPreferences({ version: 22, threeDImageTransport: 'invalid' })
-    expect(normalized.threeDImageTransport.value).toBe('webp')
   })
 
   it('persists user changes after hydration', async () => {

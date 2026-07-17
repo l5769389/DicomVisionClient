@@ -433,6 +433,7 @@ describe('MobileSettingsOverlay', () => {
     expect(wrapper.findAll('.mobile-settings__theme-preview-accent')).toHaveLength(3)
     await wrapper.findAll('[data-testid="mobile-settings-locale"] button')[1].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-theme"]')[2].trigger('click')
+    expect(wrapper.find('[data-testid="mobile-settings-3d-transport"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="mobile-settings-back"]').trigger('click')
     await wrapper.get('[data-testid="mobile-settings-nav-window-color"]').trigger('click')

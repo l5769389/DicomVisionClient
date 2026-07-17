@@ -56,8 +56,12 @@ export interface WebRtcIceServerConfig {
 export interface WebRtc3DConfigResponse {
   ok?: boolean
   message?: string
+  transport?: 'webp' | 'webrtc'
   iceServers?: WebRtcIceServerConfig[]
   videoCodecs?: string[]
+  videoCodec?: string
+  videoBitrateBps?: number
+  videoFps?: number
 }
 
 export interface WebRtc3DAnswerResponse {

@@ -209,24 +209,18 @@ describe('SidebarSettingsDialog corner info style settings', () => {
   })
 })
 
-describe('SidebarSettingsDialog 3D image transport settings', () => {
+describe('SidebarSettingsDialog image transport settings', () => {
   beforeEach(() => {
     preferenceStorage.value = null
     const preferences = useUiPreferences()
     preferences.setLocale('en-US')
-    preferences.setThreeDImageTransport('webp')
   })
 
-  it('switches between stable WebP and experimental WebRTC transport', async () => {
-    const preferences = useUiPreferences()
+  it('does not expose the server-controlled 3D transport as a user setting', async () => {
     const wrapper = mountSettingsDialog()
 
-    expect(wrapper.find('[data-testid="settings-3d-transport-webp"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="settings-3d-transport-webrtc"]').exists()).toBe(true)
-    expect(preferences.threeDImageTransport.value).toBe('webp')
-
-    await wrapper.get('[data-testid="settings-3d-transport-webrtc"]').trigger('click')
-    expect(preferences.threeDImageTransport.value).toBe('webrtc')
+    expect(wrapper.find('[data-testid="settings-3d-transport-webp"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-3d-transport-webrtc"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

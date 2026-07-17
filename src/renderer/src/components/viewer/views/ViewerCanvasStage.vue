@@ -38,11 +38,11 @@ import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
 import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
-import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
 import {
   acquireThreeDWebRtcTransport,
   getThreeDWebRtcStream,
-  releaseThreeDWebRtcTransport
+  releaseThreeDWebRtcTransport,
+  threeDTransportMode
 } from '../../../services/threeDWebRtcTransport'
 import { bindView } from '../../../services/socket'
 import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
@@ -261,10 +261,9 @@ const normalizedLoadingProgressPercent = computed(() => {
   return Math.max(0, Math.min(100, Math.round(props.loadingProgressPercent)))
 })
 
-const { threeDImageTransport } = useUiPreferences()
 const videoRef = ref<HTMLVideoElement | null>(null)
 const webRtcStream = computed(() =>
-  threeDImageTransport.value === 'webrtc' ? getThreeDWebRtcStream(props.mediaViewId) : null
+  threeDTransportMode.value === 'webrtc' ? getThreeDWebRtcStream(props.mediaViewId) : null
 )
 
 const resolvedLoadingLabel = computed(() => props.loadingLabel || viewerCopy.value.loadingView)
@@ -583,7 +582,7 @@ onBeforeUnmount(() => {
 let acquiredWebRtcViewId: string | null = null
 
 watch(
-  () => [props.mediaViewId, threeDImageTransport.value] as const,
+  () => [props.mediaViewId, threeDTransportMode.value] as const,
   ([viewId, transport]) => {
     const nextViewId = transport === 'webrtc' ? viewId || null : null
     if (acquiredWebRtcViewId === nextViewId) {

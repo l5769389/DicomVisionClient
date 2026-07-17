@@ -1,12 +1,14 @@
-import { shallowReactive } from 'vue'
+import { readonly, ref, shallowReactive } from 'vue'
 import {
   bindView,
   closeWebRtc3DTransport,
   requestWebRtc3DConfig,
-  sendWebRtc3DOffer
+  sendWebRtc3DOffer,
+  type WebRtc3DConfigResponse
 } from './socket'
 
 export type ThreeDWebRtcState = 'idle' | 'connecting' | 'connected' | 'failed'
+export type ThreeDTransportMode = 'webp' | 'webrtc'
 
 interface PeerEntry {
   peer: RTCPeerConnection
@@ -17,7 +19,30 @@ const peers = new Map<string, PeerEntry>()
 const referenceCounts = new Map<string, number>()
 const streams = shallowReactive(new Map<string, MediaStream>())
 const states = shallowReactive(new Map<string, ThreeDWebRtcState>())
+const configuredTransport = ref<ThreeDTransportMode>('webp')
+export const threeDTransportMode = readonly(configuredTransport)
+let serverConfig: WebRtc3DConfigResponse | null = null
+let configRequest: Promise<ThreeDTransportMode> | null = null
 let generation = 0
+
+type LowLatencyRtpReceiver = RTCRtpReceiver & { playoutDelayHint?: number | null }
+
+function configureReceiverForLowLatency(receiver: RTCRtpReceiver | undefined): void {
+  if (!receiver) {
+    return
+  }
+  const lowLatencyReceiver = receiver as LowLatencyRtpReceiver
+  try {
+    lowLatencyReceiver.playoutDelayHint = 0
+  } catch {
+    // Browser does not expose the optional WebRTC playout hint.
+  }
+  try {
+    lowLatencyReceiver.jitterBufferTarget = 0
+  } catch {
+    // Chromium-only experimental property; absence is harmless.
+  }
+}
 
 function waitForIceGatheringComplete(peer: RTCPeerConnection, timeoutMs = 5000): Promise<void> {
   if (peer.iceGatheringState === 'complete') {
@@ -51,7 +76,7 @@ function disposeLocalPeer(viewId: string): void {
 }
 
 async function establish(viewId: string): Promise<void> {
-  if (!viewId || peers.has(viewId) || typeof RTCPeerConnection === 'undefined') {
+  if (configuredTransport.value !== 'webrtc' || !viewId || peers.has(viewId) || typeof RTCPeerConnection === 'undefined') {
     if (typeof RTCPeerConnection === 'undefined') {
       states.set(viewId, 'failed')
     }
@@ -61,7 +86,7 @@ async function establish(viewId: string): Promise<void> {
   const currentGeneration = ++generation
   states.set(viewId, 'connecting')
   try {
-    const config = await requestWebRtc3DConfig()
+    const config = serverConfig ?? await requestWebRtc3DConfig()
     if (!config.ok) {
       throw new Error(config.message || 'WebRTC configuration was rejected')
     }
@@ -76,6 +101,7 @@ async function establish(viewId: string): Promise<void> {
       if (peers.get(viewId)?.generation !== currentGeneration) {
         return
       }
+      configureReceiverForLowLatency(event.receiver)
       const stream = event.streams[0] ?? new MediaStream([event.track])
       streams.set(viewId, stream)
       states.set(viewId, 'connected')
@@ -123,7 +149,34 @@ export function acquireThreeDWebRtcTransport(viewId: string): void {
     return
   }
   referenceCounts.set(viewId, (referenceCounts.get(viewId) ?? 0) + 1)
-  void establish(viewId)
+  if (configuredTransport.value === 'webrtc') {
+    void establish(viewId)
+  }
+}
+
+export function initializeThreeDTransport(): Promise<ThreeDTransportMode> {
+  if (configRequest) {
+    return configRequest
+  }
+  configRequest = requestWebRtc3DConfig()
+    .then((config) => {
+      serverConfig = config
+      configuredTransport.value = config.ok && config.transport === 'webrtc' ? 'webrtc' : 'webp'
+      if (configuredTransport.value === 'webp') {
+        closeAllThreeDWebRtcTransports()
+      }
+      return configuredTransport.value
+    })
+    .catch(() => {
+      serverConfig = null
+      configuredTransport.value = 'webp'
+      closeAllThreeDWebRtcTransports()
+      return 'webp' as const
+    })
+    .finally(() => {
+      configRequest = null
+    })
+  return configRequest
 }
 
 export function releaseThreeDWebRtcTransport(viewId: string): void {
@@ -150,6 +203,9 @@ export function getThreeDWebRtcState(viewId: string | null | undefined): ThreeDW
 }
 
 export function restartThreeDWebRtcTransports(): void {
+  if (configuredTransport.value !== 'webrtc') {
+    return
+  }
   for (const viewId of referenceCounts.keys()) {
     disposeLocalPeer(viewId)
     states.set(viewId, 'idle')

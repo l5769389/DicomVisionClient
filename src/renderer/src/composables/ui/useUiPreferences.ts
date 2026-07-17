@@ -20,7 +20,6 @@ import {
 } from './viewportCornerInfo'
 
 export type AppLocale = 'zh-CN' | 'en-US'
-export type ThreeDImageTransport = 'webp' | 'webrtc'
 export type DicomTagDisplayMode = 'flat' | 'tree'
 export type DicomDeidentifyFieldKey =
   | 'patientIdentity'
@@ -200,7 +199,6 @@ interface UiPreferencesState {
   locale: AppLocale
   themeId: string
   viewerToolbarPlacement: ViewerToolbarPlacement
-  threeDImageTransport: ThreeDImageTransport
   selectedPseudocolorKey: string
   mprDefaultLayoutKey: MprDefaultLayoutKey
   dicomTagDisplayMode: DicomTagDisplayMode
@@ -519,7 +517,6 @@ function createDefaultState(): UiPreferencesState {
     locale: 'zh-CN',
     themeId: DEFAULT_THEME_ID,
     viewerToolbarPlacement: DEFAULT_VIEWER_TOOLBAR_PLACEMENT,
-    threeDImageTransport: 'webp',
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
     mprDefaultLayoutKey: DEFAULT_MPR_LAYOUT_KEY,
     dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
@@ -1026,7 +1023,6 @@ function applyState(nextState: UiPreferencesState): void {
   state.locale = nextState.locale
   state.themeId = nextState.themeId
   state.viewerToolbarPlacement = nextState.viewerToolbarPlacement
-  state.threeDImageTransport = nextState.threeDImageTransport
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
   state.mprDefaultLayoutKey = nextState.mprDefaultLayoutKey
   state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
@@ -1055,7 +1051,6 @@ function serializeState(): UiPreferencesState {
     locale: state.locale,
     themeId: state.themeId,
     viewerToolbarPlacement: state.viewerToolbarPlacement,
-    threeDImageTransport: state.threeDImageTransport,
     selectedPseudocolorKey: state.selectedPseudocolorKey,
     mprDefaultLayoutKey: state.mprDefaultLayoutKey,
     dicomTagDisplayMode: state.dicomTagDisplayMode,
@@ -1182,7 +1177,6 @@ async function hydrateState(): Promise<void> {
         locale: normalizeLocale(parsed.locale),
         themeId: normalizeThemeId(parsed.themeId),
         viewerToolbarPlacement: normalizeViewerToolbarPlacement(parsed.viewerToolbarPlacement),
-        threeDImageTransport: parsed.threeDImageTransport === 'webrtc' ? 'webrtc' : 'webp',
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
         mprDefaultLayoutKey: normalizeMprDefaultLayoutKey(parsed.mprDefaultLayoutKey),
         dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
@@ -1291,11 +1285,6 @@ export function useUiPreferences() {
 
   function setLocale(locale: AppLocale): void {
     state.locale = locale
-    void persistState()
-  }
-
-  function setThreeDImageTransport(value: ThreeDImageTransport): void {
-    state.threeDImageTransport = value === 'webrtc' ? 'webrtc' : 'webp'
     void persistState()
   }
 
@@ -1468,7 +1457,6 @@ export function useUiPreferences() {
     dicomTagEditSavePreference: computed(() => state.dicomTagEditSavePreference),
     getWindowPresetLabel,
     locale,
-    threeDImageTransport: computed(() => state.threeDImageTransport),
     viewerToolbarPlacement,
     dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
@@ -1492,7 +1480,6 @@ export function useUiPreferences() {
     setHangingProtocolRules,
     setPacsPreference,
     setLocale,
-    setThreeDImageTransport,
     setDrawingScopePreference,
     setMeasurementStylePreference,
     setMprSegmentationStylePreference,

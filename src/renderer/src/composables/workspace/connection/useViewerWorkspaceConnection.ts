@@ -5,7 +5,7 @@ import type { ConnectionState, FourDPlaybackPhaseEvent, FourDPlaybackStateEvent,
 
 interface ViewerWorkspaceConnectionOptions {
   backendOrigin: Ref<string>
-  onConnected: () => void
+  onConnected: () => void | Promise<void>
   onDisconnected: () => void
   onReconnecting: () => void
   onImageUpdate: ServerToClientEvents['image_update']
@@ -31,7 +31,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
 
   function handleSocketConnect(): void {
     updateConnectionState('connected')
-    options.onConnected()
+    void options.onConnected()
   }
 
   function handleSocketDisconnect(): void {
@@ -46,7 +46,7 @@ export function useViewerWorkspaceConnection(options: ViewerWorkspaceConnectionO
 
   function handleSocketReconnect(): void {
     updateConnectionState('connected')
-    options.onConnected()
+    void options.onConnected()
   }
 
   function handleSocketReconnectError(): void {

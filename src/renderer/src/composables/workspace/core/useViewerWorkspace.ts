@@ -50,7 +50,10 @@ import {
 } from '../operations/viewTabPatches'
 import type { ViewerToolbarActionPayload, ViewerTransformResetScope } from '../operations/viewActionTypes'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
-import { restartThreeDWebRtcTransports } from '../../../services/threeDWebRtcTransport'
+import {
+  initializeThreeDTransport,
+  restartThreeDWebRtcTransports
+} from '../../../services/threeDWebRtcTransport'
 import { useViewerWorkspaceHover, type HoverCornerSample } from '../hover/useViewerWorkspaceHover'
 import { getTabViewportCrosshairGeometry } from '../views/mprFrameGeometry'
 import {
@@ -3319,7 +3322,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     updateConnectionState
   } = useViewerWorkspaceConnection({
     backendOrigin,
-    onConnected: () => {
+    onConnected: async () => {
+      await initializeThreeDTransport()
       restartThreeDWebRtcTransports()
       views.rebindOpenViews()
     },

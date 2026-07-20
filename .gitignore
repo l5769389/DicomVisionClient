@@ -7,6 +7,8 @@
 /dist-electron/
 /dist-server/
 /dist-web/
+/playwright-report/
+/test-results/
 .DS_Store
 DicomVision-web-v*.zip
 SHA256SUMS-*.txt

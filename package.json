@@ -111,11 +111,14 @@
     "generate:api-types": "powershell -ExecutionPolicy Bypass -Command \"Push-Location ..\\DicomVisionServer; uv run python scripts\\generate_openapi_types.py --output ..\\DicomVisionClient\\src\\shared\\generated\\backendApi.ts; Pop-Location\"",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^3.0.0",
     "@mdi/js": "^7.4.47",
+    "@playwright/test": "^1.61.1",
     "@swc/core": "^1.11.24",
     "@tailwindcss/vite": "^4.2.2",
     "@types/lodash": "^4.17.24",

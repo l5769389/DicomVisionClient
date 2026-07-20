@@ -564,6 +564,54 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
     expect(postApiMock).not.toHaveBeenCalled()
   })
 
+  it('rebinds every backend view owned by open tabs after a socket reconnect', () => {
+    const compareTab = {
+      ...createStackTab(),
+      key: 'compare-tab',
+      viewId: '',
+      viewType: 'CompareStack',
+      compareViewIds: {
+        left: 'compare-left-view',
+        right: 'compare-right-view'
+      }
+    } as ViewerTabItem
+    const layoutTab = {
+      ...createVolumeTab(),
+      key: 'layout-tab',
+      viewId: '',
+      viewType: 'Layout',
+      layoutSlots: [
+        {
+          id: 'slot-1-1',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: 'ct-series',
+          viewType: '3D',
+          sourceViewType: '3D',
+          viewId: 'layout-view',
+          imageSrc: 'blob:layout'
+        }
+      ]
+    } as ViewerTabItem
+    const { views } = createLifecycleHarness(
+      [createStackTab(), compareTab, createFusionTab(), createMprTab(), layoutTab],
+      'stack-tab'
+    )
+
+    views.rebindOpenViews()
+
+    expect(bindViewMock.mock.calls.map(([viewId]) => viewId)).toEqual([
+      'stack-view',
+      'compare-left-view',
+      'compare-right-view',
+      'overlay-view',
+      'mpr-ax-view',
+      'layout-view'
+    ])
+  })
+
   it('keeps a live 3D backend view when converting a volume tab to Layout', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0)

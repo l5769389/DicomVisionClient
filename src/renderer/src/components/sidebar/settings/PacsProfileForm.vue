@@ -164,11 +164,12 @@ function selectQueryModel(value: DimseQueryModel): void {
               v-for="option in protocolOptions"
               :key="option.value"
               type="button"
+              role="radio"
+              :aria-checked="option.value === profile.protocol"
               class="toolbar-menu-option pacs-select-option"
               :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.protocol }"
               @click="selectProtocol(option.value)"
             >
-              <span class="pacs-select-option__rail"></span>
               <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
               <AppIcon v-if="option.value === profile.protocol" name="check" :size="14" />
             </button>
@@ -201,11 +202,12 @@ function selectQueryModel(value: DimseQueryModel): void {
               v-for="option in presetOptions"
               :key="option.value"
               type="button"
+              role="radio"
+              :aria-checked="option.value === profile.preset"
               class="toolbar-menu-option pacs-select-option"
               :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.preset }"
               @click="selectPreset(option.value)"
             >
-              <span class="pacs-select-option__rail"></span>
               <span class="min-w-0 flex-1 truncate">{{ getPresetLabel(option.value) }}</span>
               <AppIcon v-if="option.value === profile.preset" name="check" :size="14" />
             </button>
@@ -250,11 +252,12 @@ function selectQueryModel(value: DimseQueryModel): void {
               v-for="option in getAuthOptions(isZh)"
               :key="option.value"
               type="button"
+              role="radio"
+              :aria-checked="option.value === profile.authType"
               class="toolbar-menu-option pacs-select-option"
               :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.authType }"
               @click="selectAuthType(option.value)"
             >
-              <span class="pacs-select-option__rail"></span>
               <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
               <AppIcon v-if="option.value === profile.authType" name="check" :size="14" />
             </button>
@@ -304,11 +307,12 @@ function selectQueryModel(value: DimseQueryModel): void {
                 v-for="option in queryModelOptions"
                 :key="option.value"
                 type="button"
+                role="radio"
+                :aria-checked="option.value === profile.queryModel"
                 class="toolbar-menu-option pacs-select-option"
                 :class="{ 'toolbar-menu-option--active pacs-select-option--active': option.value === profile.queryModel }"
                 @click="selectQueryModel(option.value)"
               >
-                <span class="pacs-select-option__rail"></span>
                 <span class="min-w-0 flex-1 truncate">{{ getQueryModelLabel(option.value) }}</span>
                 <AppIcon v-if="option.value === profile.queryModel" name="check" :size="14" />
               </button>
@@ -485,16 +489,4 @@ function selectQueryModel(value: DimseQueryModel): void {
   color: var(--theme-active-foreground);
 }
 
-.pacs-select-option__rail {
-  position: absolute;
-  inset: 9px auto 9px 0;
-  width: 3px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent) 80%, white 8%);
-  opacity: 0;
-}
-
-.pacs-select-option--active .pacs-select-option__rail {
-  opacity: 0.72;
-}
 </style>

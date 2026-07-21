@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolvePageHostBackendOrigin, resolveWebBackendOriginForPage } from './runtime'
+import { isDicomUploadCandidate, resolvePageHostBackendOrigin, resolveWebBackendOriginForPage, toUploadItems } from './runtime'
 
 describe('resolveWebBackendOriginForPage', () => {
   it('falls back to same-origin when an HTTPS page is configured with an insecure HTTP backend', () => {
@@ -43,6 +43,18 @@ describe('resolveWebBackendOriginForPage', () => {
       )
     ).toBe('http://10.241.133.38:8000')
   })
+
+  it('keeps the WebRTC worktree backend port when resolving a LAN page address', () => {
+    expect(
+      resolveWebBackendOriginForPage(
+        'page-host',
+        'http://192.168.139.3:5174',
+        'http:',
+        '192.168.139.3',
+        8100
+      )
+    ).toBe('http://192.168.139.3:8100')
+  })
 })
 
 describe('resolvePageHostBackendOrigin', () => {
@@ -52,5 +64,25 @@ describe('resolvePageHostBackendOrigin', () => {
 
   it('returns null when the page hostname is unavailable', () => {
     expect(resolvePageHostBackendOrigin('http:', '', 8000)).toBeNull()
+  })
+})
+
+describe('DICOM upload candidates', () => {
+  it('keeps normal, extensionless, and supported archive candidates while skipping unsupported byproducts', () => {
+    const dicom = new File(['dicom'], 'slice.dcm')
+    const extensionlessDicom = new File(['dicom'], 'IM0001')
+    const zipArchive = new File(['zip'], 'study.zip')
+    const sevenZipArchive = new File(['7z'], 'study.7z')
+    const rarArchive = new File(['rar'], 'study.rar')
+    const metadata = new File(['notes'], 'README.txt')
+
+    expect(isDicomUploadCandidate(dicom)).toBe(true)
+    expect(isDicomUploadCandidate(extensionlessDicom)).toBe(true)
+    expect(isDicomUploadCandidate(zipArchive)).toBe(true)
+    expect(isDicomUploadCandidate(sevenZipArchive)).toBe(true)
+    expect(isDicomUploadCandidate(rarArchive)).toBe(true)
+    expect(isDicomUploadCandidate(metadata)).toBe(false)
+    expect(isDicomUploadCandidate(dicom, '__MACOSX/._slice.dcm')).toBe(false)
+    expect(toUploadItems([dicom, extensionlessDicom, zipArchive, sevenZipArchive, rarArchive, metadata])).toHaveLength(5)
   })
 })

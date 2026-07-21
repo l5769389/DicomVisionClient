@@ -32,12 +32,12 @@ const MIP_THICKNESS_MIN_MM = 0
 const MIP_THICKNESS_MAX_MM = 100
 const resetLabel = computed(() => (isZh.value ? '重置' : 'Reset'))
 
-const algorithmOptions: ReadonlyArray<{ value: MprMipAlgorithm; label: string }> = [
-  { value: 'maximum', label: 'MaxIP' },
-  { value: 'minimum', label: 'MinIP' },
-  { value: 'average', label: 'Average' },
-  { value: 'sum', label: 'Sum' }
-]
+const algorithmOptions = computed<ReadonlyArray<{ value: MprMipAlgorithm; label: string; shortLabel: string }>>(() => [
+  { value: 'maximum', label: copy.value.maximum, shortLabel: 'MaxIP' },
+  { value: 'minimum', label: copy.value.minimum, shortLabel: 'MinIP' },
+  { value: 'average', label: copy.value.average, shortLabel: isZh.value ? '平均' : 'Avg' },
+  { value: 'sum', label: copy.value.sum, shortLabel: isZh.value ? '累加' : 'Sum' }
+])
 
 const viewportOptions: ReadonlyArray<{ key: MprViewportKey; label: string }> = [
   { key: 'mpr-ax', label: 'AX' },
@@ -215,7 +215,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     v-bind="$attrs"
-    class="theme-shell-panel max-w-[calc(100vw-2.5rem)] overflow-y-auto rounded-[22px] border-[color:color-mix(in_srgb,var(--theme-border-strong)_85%,white_8%)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_96%,black_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.03),0_24px_54px_rgba(0,0,0,0.42),0_8px_20px_rgba(0,0,0,0.24)] backdrop-blur-xl transition-[width]"
+    class="mpr-mip-config-panel theme-shell-panel max-w-[calc(100vw-2.5rem)] overflow-y-auto rounded-[22px] border-[color:color-mix(in_srgb,var(--theme-border-strong)_85%,white_8%)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-panel-strong-solid)_96%,black_4%),color-mix(in_srgb,var(--theme-surface-panel-solid)_94%,black_6%))] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.03),0_24px_54px_rgba(0,0,0,0.42),0_8px_20px_rgba(0,0,0,0.24)] backdrop-blur-xl transition-[width]"
     :class="props.embedded ? 'mpr-mip-config-panel--embedded flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-transparent px-0 py-0 shadow-none' : isCollapsed ? 'w-[300px]' : 'w-[368px]'"
   >
     <div class="mb-3 flex items-start justify-between gap-3">
@@ -276,13 +276,13 @@ onBeforeUnmount(() => {
     </div>
 
     <div
-      class="mb-3 grid grid-cols-4 gap-2 transition"
+      class="mpr-mip-config-panel__algorithm-grid mb-3 grid grid-cols-2 gap-2 transition"
       :class="displayedConfig.enabled ? '' : 'opacity-50 grayscale'"
     >
       <label
         v-for="option in algorithmOptions"
         :key="option.value"
-        class="flex min-w-0 cursor-pointer items-center justify-center rounded-[12px] border px-2 py-2 text-center transition"
+        class="mpr-mip-config-panel__algorithm-option flex min-w-0 cursor-pointer items-center justify-center rounded-[12px] border px-2 py-2 text-center transition"
         :class="
           displayedConfig.algorithm === option.value
             ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-text-primary)]'
@@ -298,7 +298,8 @@ onBeforeUnmount(() => {
           :checked="displayedConfig.algorithm === option.value"
           @change="emitConfigPatch({ algorithm: option.value }, 'end')"
         />
-        <span class="truncate text-[11px] font-semibold">{{ option.label }}</span>
+        <span class="mpr-mip-config-panel__algorithm-label truncate text-[11px] font-semibold">{{ option.label }}</span>
+        <span class="mpr-mip-config-panel__algorithm-short text-[11px] font-semibold">{{ option.shortLabel }}</span>
       </label>
     </div>
 
@@ -400,12 +401,12 @@ onBeforeUnmount(() => {
     >
       <button
         data-testid="mpr-mip-reset"
-        class="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[14px] border border-[color:color-mix(in_srgb,var(--theme-status-danger)_30%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-status-danger)_8%,var(--theme-surface-card))] px-3 py-2.5 text-left text-[var(--theme-text-primary)] transition hover:border-[color:color-mix(in_srgb,var(--theme-status-danger)_48%,var(--theme-border-strong))] hover:bg-[color:color-mix(in_srgb,var(--theme-status-danger)_13%,var(--theme-surface-card))]"
+        class="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[14px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-3 py-2.5 text-left text-[var(--theme-text-primary)] transition hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-hover-surface)]"
         type="button"
         :title="resetLabel"
         @click="resetViewportThicknesses"
       >
-        <span class="grid h-9 w-9 place-items-center rounded-[12px] border border-[color:color-mix(in_srgb,var(--theme-status-danger)_32%,var(--theme-border-soft))] bg-[color:color-mix(in_srgb,var(--theme-status-danger)_10%,transparent)] text-[var(--theme-status-danger-text)]">
+        <span class="grid h-9 w-9 place-items-center rounded-[12px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)]">
           <AppIcon name="reset" :size="16" />
         </span>
         <span class="min-w-0">
@@ -418,3 +419,29 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.mpr-mip-config-panel {
+  container-type: inline-size;
+}
+
+.mpr-mip-config-panel__algorithm-short {
+  display: none;
+}
+
+@container (min-width: 310px) {
+  .mpr-mip-config-panel__algorithm-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 260px) {
+  .mpr-mip-config-panel__algorithm-label {
+    display: none;
+  }
+
+  .mpr-mip-config-panel__algorithm-short {
+    display: block;
+  }
+}
+</style>

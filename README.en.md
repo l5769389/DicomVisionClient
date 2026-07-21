@@ -2,7 +2,7 @@
 
 [中文说明](./README.md)
 
-**DICOM Viewer for Desktop / Web / Mobile**
+**Remote-rendered DICOM workspace for Desktop, Web, and Mobile**
 
 DicomVision is a client/server DICOM viewer for medical image viewing, analysis, and workflow validation. The client is built with Vue, TypeScript, and Electron. The backend is built with FastAPI, Socket.IO, and medical imaging libraries to parse, render, reconstruct, analyze, and export DICOM data while streaming rendered results to desktop, web, and mobile interfaces in real time.
 
@@ -11,18 +11,25 @@ DicomVision is a client/server DICOM viewer for medical image viewing, analysis,
 - Web preview: [https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
 - Client repository: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - Server repository: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-- Current release: [DicomVision v3.1.2](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.2)
+- Current release: [DicomVision v3.1.3](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.3)
 
-DicomVision keeps compute-heavy work on the backend and leaves interaction, tools, and result presentation to the client. The same rendering and analysis capabilities can therefore be reused by the browser, mobile UI, and desktop app across local networks, cloud deployments, or desktop packages with an embedded backend.
+DicomVision keeps DICOM parsing, reconstruction, rendering, and compute-intensive analysis on the backend while the client owns interaction, workflow, and presentation. The browser, mobile UI, and desktop app therefore reuse the same image capabilities across LAN deployments, cloud services, and desktop packages with an embedded backend.
 
-The project is designed especially for deployments where the client has limited GPU memory but still needs shared DICOM viewing and backend 2D/3D rendering capabilities. For workstations with ample GPU resources and a strong requirement for fully local GPU interaction, native solutions such as C3D may be a better fit. For deployments that require UI and computation in one process, a non-separated Python or C++ implementation may also be preferable. DicomVision is primarily intended for cross-platform reuse, centralized rendering, and lightweight clients.
+The project is designed especially for deployments where the client has limited GPU memory but still needs shared DICOM viewing and backend 2D/3D rendering. For workstations with ample GPU resources and a strong requirement for fully local GPU interaction, native solutions such as C3D may be a better fit. For products that require UI and computation in one process, a non-separated Python or C++ implementation may also be preferable. DicomVision is optimized for cross-platform reuse, centralized rendering, and lightweight clients.
+
+## Architecture and Scope
+
+- **Unified rendering service**: FastAPI, Socket.IO, VTK, and the medical-imaging pipeline execute on the server while clients remain lightweight.
+- **Two 3D transport modes**: Select WebP settled frames or WebRTC low-latency previews at startup; a high-quality final frame is retained after interaction settles.
+- **Consistent multi-platform workflow**: Electron desktop, browser, and mobile interfaces share views, tools, PACS, and export workflows.
+- **Safe import**: DICOM files, directories, ZIP, 7z, and RAR archives are supported. Archives are processed in temporary server sessions with path, entry-count, unpacked-size, and compression-ratio limits.
 
 ## Features
 
-- **Data import**: DICOM files, folders, drag-and-drop import, browser upload, server sample data, and PACS DICOMweb/DIMSE query/retrieval.
+- **Data import**: DICOM files, folders, drag-and-drop import, browser upload, ZIP/7z/RAR archives, server sample data, and PACS DICOMweb/DIMSE query/retrieval.
 - **2D viewing**: window/level, zoom, pan, scroll, flip, rotate, pseudocolor, synchronized browsing, Compare, Layout, multi-series, and multi-view workspaces.
 - **MPR and 4D**: AX/COR/SAG tri-view, oblique MPR, synchronized crosshair, MPR playback, 4D phase playback, FPS control, and phase sync.
-- **3D visualization**: VR volume rendering, Surface rendering, MIP/XRay-style presets, AAA/CT/CTA/MR/CBCT adaptive presets, 3D parameter panels, remove-bed, freeform clipping, and mobile touch 3D.
+- **3D visualization**: VR volume rendering, Surface rendering, MIP/XRay-style presets, AAA/CT/CTA/MR/CBCT adaptive presets, WebRTC low-latency interaction, 3D parameter panels, remove-bed, freeform clipping, standard anatomical orientation, and mobile touch 3D.
 - **PET/CT Fusion**: PET/CT fusion, PET-only mode, SUV/intensity controls, manual registration, saved registration, and four-pane/single-pane switching.
 - **Measurement and annotation**: line, rectangle, ellipse, angle, curve, freeform measurements, arrow/text annotations, realtime drafts, and ROI metrics.
 - **Segmentation and QA**: MPR threshold segmentation, spherical VOI, segmentation overlays, segmentation import/export, MTF/FWHM, water phantom QA, and report panels.

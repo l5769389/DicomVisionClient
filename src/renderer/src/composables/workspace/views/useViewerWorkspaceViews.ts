@@ -1,6 +1,7 @@
 import { nextTick, watch, type ComputedRef, type Ref } from 'vue'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import { resolveBackendAssetUrl } from '../../../services/apiBase'
+import { stripVolumeCornerInfo } from '../../ui/viewportCornerInfo'
 import {
   bindView,
   bindViewSilently,
@@ -383,25 +384,6 @@ function stripTransformCornerInfoTag(cornerInfo: CornerInfo): CornerInfo {
   delete tags.transform2dState
   return {
     ...cornerInfo,
-    tags
-  }
-}
-
-function stripVolumeOnlyCornerInfo(cornerInfo: CornerInfo): CornerInfo {
-  const tags = { ...(cornerInfo.tags ?? {}) }
-  delete tags.imageIndex
-  delete tags.coordinates
-  delete tags.transform2dState
-  const isVolumeOnlyLine = (line: string): boolean =>
-    /^Im:\s*/i.test(line) ||
-    /^(?:Cursor\s+)?X:\s*(?:-?\d+|--)\s+Y:\s*(?:-?\d+|--)(?:\s+.+)?$/i.test(line) ||
-    /^Rot:\s*-?\d+(?:\.\d+)?°?\s*\/\s*Flip:/i.test(line)
-  return {
-    ...cornerInfo,
-    topLeft: cornerInfo.topLeft.filter((line) => !isVolumeOnlyLine(line)),
-    topRight: cornerInfo.topRight.filter((line) => !isVolumeOnlyLine(line)),
-    bottomLeft: cornerInfo.bottomLeft.filter((line) => !isVolumeOnlyLine(line)),
-    bottomRight: cornerInfo.bottomRight.filter((line) => !isVolumeOnlyLine(line)),
     tags
   }
 }
@@ -1951,7 +1933,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return item
       }
       let incomingImageSrc: string | null = null
-      const getIncomingImageSrc = (): string => {
+      const preserveCurrentImageSource =
+        imageBinary.byteLength === 0 && payload.imageTransport === 'webrtc'
+      const getIncomingImageSrc = (currentImageSrc?: string | null): string => {
+        if (preserveCurrentImageSource) {
+          return currentImageSrc ?? ''
+        }
         if (incomingImageSrc == null) {
           incomingImageSrc = imageUrlRegistry.create(imageBinary, mimeType)
         }
@@ -2074,7 +2061,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             if (slot.id !== layoutSlot.id) {
               return slot
             }
-            if (slot.ownsImageSrc) {
+            if (!preserveCurrentImageSource && slot.ownsImageSrc) {
               revokeObjectUrlIfNeeded(slot.imageSrc)
             }
             const slotTransformState = hasTransformPayload ? transformState : slot.transformState ?? transformState
@@ -2097,14 +2084,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                 )
             return {
               ...slot,
-              imageSrc: getIncomingImageSrc(),
-              ownsImageSrc: true,
+              imageSrc: getIncomingImageSrc(slot.imageSrc),
+              ownsImageSrc: preserveCurrentImageSource ? slot.ownsImageSrc : true,
               sliceLabel,
               windowLabel,
               initialWindowInfo: rememberInitialWindowInfo(slot.initialWindowInfo, ww, wl) ?? null,
               currentWindowInfo: resolveCurrentWindowInfo(slot.currentWindowInfo, slot.initialWindowInfo, ww, wl),
               scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
-              cornerInfo: isVolumeLayoutSlot ? stripVolumeOnlyCornerInfo(nextSlotCornerInfo) : nextSlotCornerInfo,
+              cornerInfo: isVolumeLayoutSlot ? stripVolumeCornerInfo(nextSlotCornerInfo) : nextSlotCornerInfo,
               orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
               transformState: slotTransformState,
               pseudocolorPreset: layoutPseudocolorPreset
@@ -2131,7 +2118,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           return item
         }
         const currentImage = item.compareImages?.[compareViewportKey]
-        revokeObjectUrlIfNeeded(currentImage)
+        if (!preserveCurrentImageSource) {
+          revokeObjectUrlIfNeeded(currentImage)
+        }
         const compareTransformState = hasTransformPayload
           ? transformState
           : item.compareTransformStates?.[compareViewportKey] ?? transformState
@@ -2148,7 +2137,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           compareImages: {
             ...(item.compareImages ?? createEmptyCompareImages()),
-            [compareViewportKey]: getIncomingImageSrc()
+            [compareViewportKey]: getIncomingImageSrc(currentImage)
           },
           compareSliceLabels: {
             ...(item.compareSliceLabels ?? createEmptyCompareSliceLabels()),
@@ -2256,7 +2245,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           return item
         }
         const shouldKeepCurrentPrimaryImage = primaryImageUnchanged && Boolean(currentImage)
-        const nextPrimaryImage = shouldKeepCurrentPrimaryImage ? currentImage! : getIncomingImageSrc()
+        const nextPrimaryImage = shouldKeepCurrentPrimaryImage ? currentImage! : getIncomingImageSrc(currentImage)
         const nextPetLayerSrc = layeredFusionComposite && extraImageBinaries.pet
           ? imageUrlRegistry.create(extraImageBinaries.pet, 'image/png')
           : null
@@ -2264,7 +2253,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ? {
               ct: shouldKeepCurrentPrimaryImage
                 ? currentLayerImages?.ct ?? currentImage
-                : getIncomingImageSrc(),
+                : getIncomingImageSrc(currentLayerImages?.ct ?? currentImage),
               pet: nextPetLayerSrc ?? currentLayerImages?.pet,
               revision: layeredFusionComposite.revision,
               width: layeredFusionComposite.width,
@@ -2293,7 +2282,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
         if (shouldKeepCurrentPrimaryImage) {
           revokeIncomingImageSrcIfNeeded()
-        } else {
+        } else if (!preserveCurrentImageSource) {
           revokeObjectUrlIfNeeded(currentImage)
         }
         if (nextPetLayerSrc) {
@@ -2453,7 +2442,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           currentSegmentationProgress?.phase === 'render'
         if (shouldPreserveImageForMprSegmentationUpdate) {
           revokeIncomingImageSrcIfNeeded()
-        } else if (currentViewportKey) {
+        } else if (currentViewportKey && !preserveCurrentImageSource) {
           revokeObjectUrlIfNeeded(currentViewportImage)
         }
 
@@ -2464,13 +2453,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           const existingPhaseCache = item.fourDPhaseCache?.[fourDViewportMatch.phaseKey]
           const phaseCacheSeed = createFourDPhaseCacheSeed(phase, existingPhaseCache)
           const previousCachedImage = existingPhaseCache?.viewportImages?.[viewportKey]
-          if (previousCachedImage !== currentViewportImage) {
+          if (!preserveCurrentImageSource && previousCachedImage !== currentViewportImage) {
             revokeObjectUrlIfNeeded(previousCachedImage)
           }
 
           const nextViewportImages = {
             ...(phaseCacheSeed.viewportImages ?? createEmptyMprImages()),
-            [viewportKey]: getIncomingImageSrc()
+            [viewportKey]: getIncomingImageSrc(previousCachedImage ?? currentViewportImage)
           }
           const currentPhaseCrosshair = phaseCacheSeed.viewportCrosshairs?.[viewportKey] ?? null
           const nextViewportCrosshair = hasMprCrosshairUpdate && shouldApplyMprMetadataFromImage
@@ -2643,7 +2632,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? item.viewportImages ?? createEmptyMprImages()
             : {
                 ...(item.viewportImages ?? createEmptyMprImages()),
-                [viewportKey]: getIncomingImageSrc()
+                [viewportKey]: getIncomingImageSrc(currentViewportImage)
               },
           viewportSliceLabels: {
             ...(item.viewportSliceLabels ?? createEmptyMprSliceLabels()),
@@ -2779,15 +2768,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const singleCornerInfo = item.viewType === 'PET'
         ? normalizeStandalonePetCornerInfo(baseSingleCornerInfo, petInfo ?? previousPetInfo)
         : isVolumeView
-          ? stripVolumeOnlyCornerInfo(baseSingleCornerInfo)
+          ? stripVolumeCornerInfo(baseSingleCornerInfo)
           : baseSingleCornerInfo
 
-      revokeObjectUrlIfNeeded(item.imageSrc)
+      if (!preserveCurrentImageSource) {
+        revokeObjectUrlIfNeeded(item.imageSrc)
+      }
 
       return withRenderRevision({
         ...item,
         viewId: payload.viewId ?? item.viewId,
-        imageSrc: getIncomingImageSrc(),
+        imageSrc: getIncomingImageSrc(item.imageSrc),
         sliceLabel,
         windowLabel,
         initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
@@ -3107,6 +3098,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     return Math.max(0, Math.min(100, value))
   }
 
+  function localizeViewProgressMessage(value: unknown): string | null {
+    if (typeof value !== 'string' || !value) {
+      return null
+    }
+    const surfaceMessages: Record<string, [string, string]> = {
+      '正在准备 Surface 数据...': ['正在准备 Surface 数据...', 'Preparing Surface data...'],
+      '正在提取 Surface 等值面...': ['正在提取 Surface 等值面...', 'Extracting the Surface mesh...'],
+      '正在复用 Surface 网格...': ['正在复用 Surface 网格...', 'Reusing the cached Surface mesh...'],
+      'Surface 表面优化完成': ['Surface 表面优化完成', 'Surface optimization complete'],
+      '正在更新 Surface 材质...': ['正在更新 Surface 材质...', 'Updating Surface material...']
+    }
+    const localized = surfaceMessages[value]
+    return localized ? viewMessage(localized[0], localized[1]) : value
+  }
+
   function normalizeViewProgressPayload(payload: ViewProgressInfo | undefined): ViewProgressInfo | null {
     if (!payload) {
       return null
@@ -3136,7 +3142,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       progressPercent: normalizeProgressNumber(record.progressPercent ?? record.progress_percent),
       loadedCount,
       totalCount,
-      message: typeof record.message === 'string' ? record.message : null
+      message: localizeViewProgressMessage(record.message)
     }
   }
 
@@ -4070,7 +4076,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               measurements: [],
               annotations: [],
               scaleBar: null,
-              cornerInfo: viewType === '3D' ? stripVolumeOnlyCornerInfo(seriesCornerInfo) : seriesCornerInfo,
+              cornerInfo: viewType === '3D' ? stripVolumeCornerInfo(seriesCornerInfo) : seriesCornerInfo,
               orientation: createEmptyOrientationInfo(),
               viewportCornerInfos:
                 viewType === 'MPR'

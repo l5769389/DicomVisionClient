@@ -119,4 +119,137 @@ describe('threeDWebRtcTransport', () => {
     expect(transport.threeDTransportMode.value).toBe('webp')
     transport.releaseThreeDWebRtcTransport('view-webp')
   })
+
+  it('keeps the final still until the announced WebRTC preview frame is presented', async () => {
+    const transport = await import('./threeDWebRtcTransport')
+
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webp-final',
+      fastPreview: false
+    })
+    expect(transport.shouldShowThreeDFinalStill('view-3d')).toBe(true)
+
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    const generation = transport.getPendingThreeDVideoFrameGeneration('view-3d')
+    expect(generation).toBe(1)
+    expect(transport.shouldShowThreeDFinalStill('view-3d')).toBe(true)
+    expect(transport.shouldShowThreeDStillFrame('view-3d')).toBe(true)
+    expect(transport.hasPresentedThreeDVideoFrame('view-3d')).toBe(false)
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', 99)).toBe(false)
+    expect(transport.shouldShowThreeDFinalStill('view-3d')).toBe(true)
+
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation!)).toBe(false)
+    expect(transport.shouldShowThreeDFinalStill('view-3d')).toBe(true)
+    expect(transport.hasPresentedThreeDVideoFrame('view-3d')).toBe(false)
+
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation!)).toBe(true)
+    expect(transport.shouldShowThreeDFinalStill('view-3d')).toBe(false)
+    expect(transport.shouldShowThreeDStillFrame('view-3d')).toBe(false)
+    expect(transport.hasPresentedThreeDVideoFrame('view-3d')).toBe(true)
+    expect(transport.getPendingThreeDVideoFrameGeneration('view-3d')).toBeNull()
+
+    // Once video has presented pixels, ordinary consecutive previews remain
+    // on video and do not repeatedly hide it behind a handoff generation.
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    expect(transport.getPendingThreeDVideoFrameGeneration('view-3d')).toBeNull()
+
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webp-final',
+      fastPreview: false
+    })
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    expect(transport.getPendingThreeDVideoFrameGeneration('view-3d')).toBe(2)
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation!)).toBe(false)
+  })
+
+  it('does not restart the two-frame handoff for consecutive preview metadata', async () => {
+    const transport = await import('./threeDWebRtcTransport')
+
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webp-final',
+      fastPreview: false
+    })
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    const generation = transport.getPendingThreeDVideoFrameGeneration('view-3d')!
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation)).toBe(false)
+
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    expect(transport.getPendingThreeDVideoFrameGeneration('view-3d')).toBe(generation)
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation)).toBe(true)
+    expect(transport.shouldShowThreeDStillFrame('view-3d')).toBe(false)
+  })
+
+  it('keeps video hidden before the first two frames have been presented', async () => {
+    const transport = await import('./threeDWebRtcTransport')
+
+    expect(transport.shouldShowThreeDStillFrame('view-3d')).toBe(true)
+    expect(transport.hasPresentedThreeDVideoFrame('view-3d')).toBe(false)
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    const generation = transport.getPendingThreeDVideoFrameGeneration('view-3d')!
+
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation)).toBe(false)
+    expect(transport.shouldShowThreeDStillFrame('view-3d')).toBe(true)
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', generation)).toBe(true)
+    expect(transport.hasPresentedThreeDVideoFrame('view-3d')).toBe(true)
+  })
+
+  it('does not let a late preview callback uncover a newer final still', async () => {
+    const transport = await import('./threeDWebRtcTransport')
+
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webrtc',
+      fastPreview: true
+    })
+    const staleGeneration = transport.getPendingThreeDVideoFrameGeneration('view-3d')!
+    transport.applyThreeDFrameTransportUpdate({
+      viewId: 'view-3d',
+      imageTransport: 'webp-final',
+      fastPreview: false
+    })
+
+    expect(transport.acknowledgeThreeDVideoFrame('view-3d', staleGeneration)).toBe(false)
+    expect(transport.shouldShowThreeDFinalStill('view-3d')).toBe(true)
+  })
+
+  it('keeps final still state isolated per 3D view and clears it on release', async () => {
+    const transport = await import('./threeDWebRtcTransport')
+
+    transport.applyThreeDFrameTransportUpdate({ viewId: 'view-a', imageTransport: 'webp-final' })
+    transport.applyThreeDFrameTransportUpdate({ viewId: 'view-b', imageTransport: 'webp-final' })
+    transport.acquireThreeDWebRtcTransport('view-a')
+    transport.releaseThreeDWebRtcTransport('view-a')
+
+    expect(transport.shouldShowThreeDFinalStill('view-a')).toBe(false)
+    expect(transport.shouldShowThreeDFinalStill('view-b')).toBe(true)
+    transport.closeAllThreeDWebRtcTransports()
+    expect(transport.shouldShowThreeDFinalStill('view-b')).toBe(false)
+  })
 })

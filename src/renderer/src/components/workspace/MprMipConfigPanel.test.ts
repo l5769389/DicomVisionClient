@@ -1,7 +1,8 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MprMipConfigPanel from './MprMipConfigPanel.vue'
 import { createDefaultMprMipConfig, type MprMipConfig } from '../../types/viewer'
+import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 
 function createEnabledMipConfig(thickness = 12): MprMipConfig {
   const config = createDefaultMprMipConfig()
@@ -17,6 +18,10 @@ function createEnabledMipConfig(thickness = 12): MprMipConfig {
 }
 
 describe('MprMipConfigPanel', () => {
+  beforeEach(() => {
+    useUiPreferences().setLocale('en-US')
+  })
+
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -239,5 +244,29 @@ describe('MprMipConfigPanel', () => {
     await buttons[buttons.length - 1]!.trigger('click')
 
     expect(wrapper.find('[data-testid="mpr-mip-enable-toggle"]').text()).toBe('')
+  })
+
+  it('uses localized projection algorithm labels and exposes the responsive algorithm grid', () => {
+    const preferences = useUiPreferences()
+    preferences.setLocale('zh-CN')
+    const wrapper = mount(MprMipConfigPanel, {
+      props: {
+        config: createEnabledMipConfig(10),
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true,
+          DockInfoPopover: true
+        }
+      }
+    })
+
+    expect(wrapper.find('.mpr-mip-config-panel__algorithm-grid').exists()).toBe(true)
+    expect(wrapper.findAll('.mpr-mip-config-panel__algorithm-option')).toHaveLength(4)
+    expect(wrapper.text()).toContain('最大密度')
+    expect(wrapper.text()).toContain('最小密度')
+    expect(wrapper.text()).toContain('平均密度')
+    expect(wrapper.text()).toContain('累加投影')
   })
 })

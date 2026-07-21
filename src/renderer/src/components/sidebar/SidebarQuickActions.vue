@@ -73,6 +73,12 @@ const sourcePickerActions = computed<SourcePickerAction[]>(() => {
         icon: 'folder-upload',
         label: t('uploadFolder'),
         mode: 'folder'
+      },
+      {
+        description: t('uploadArchiveHint'),
+        icon: 'file-upload',
+        label: t('uploadArchive'),
+        mode: 'archive'
       }
     ]
   }
@@ -85,7 +91,7 @@ const sourcePickerActions = computed<SourcePickerAction[]>(() => {
       mode: 'files'
     },
     {
-      description: isZh.value ? '选择一个或多个文件夹。' : 'Choose one or more folders.',
+      description: isZh.value ? '选择文件夹，或直接选择 ZIP、7z、RAR 压缩包。' : 'Choose folders or select a ZIP, 7z, or RAR archive directly.',
       icon: 'folder-upload',
       label: t('loadFolder'),
       mode: 'folder'
@@ -147,7 +153,7 @@ async function handleInstallAppClick(): Promise<void> {
 </script>
 
 <template>
-  <VCard class="quick-actions-card theme-shell-panel rounded-2xl! border! p-2.5! shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+  <VCard class="quick-actions-card theme-shell-panel border! p-2.5!">
     <VBtn
       v-if="isServerSampleMode"
       variant="flat"
@@ -181,7 +187,7 @@ async function handleInstallAppClick(): Promise<void> {
       </span>
     </VBtn>
 
-    <div class="quick-action-icon-grid grid grid-cols-6 gap-1.5">
+    <div class="quick-action-icon-grid grid grid-cols-6 gap-1">
       <VMenu
         location="bottom start"
         :offset="8"
@@ -191,7 +197,7 @@ async function handleInstallAppClick(): Promise<void> {
           <VBtn
             v-bind="menuProps"
             variant="flat"
-            class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-xl! border! p-0! shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_18px_rgba(9,18,32,0.18)]"
+            class="quick-action-button quick-action-button--primary theme-button-primary h-10! min-w-0! rounded-lg! border! p-0!"
             :aria-label="pickerActionLabel"
             :title="pickerActionLabel"
           >
@@ -221,7 +227,7 @@ async function handleInstallAppClick(): Promise<void> {
         v-for="action in quickViewActions"
         :key="action.viewType"
         variant="flat"
-        class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-xl! border! p-0!"
+        class="quick-action-button quick-action-button--secondary theme-button-secondary h-10! min-w-0! rounded-lg! border! p-0!"
         :disabled="action.disabled"
         :aria-label="action.title"
         :title="action.title"

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { mdiBedEmpty, mdiContentCut, mdiCubeOutline, mdiCubeScan, mdiEyeOffOutline, mdiEyeOutline, mdiSegment } from '@mdi/js'
+import { mdiBedEmpty, mdiContentCut, mdiCubeOutline, mdiCubeScan, mdiEyeOffOutline, mdiEyeOutline, mdiPaletteOutline, mdiSegment } from '@mdi/js'
 import AppIcon from './AppIcon.vue'
 
 describe('AppIcon bed visibility icons', () => {
@@ -55,19 +55,29 @@ describe('AppIcon bed visibility icons', () => {
     expect(preset.get('path').attributes('d')).toBe(mdiCubeOutline)
   })
 
-  it('renders pseudocolor as the shared grayscale circular swatch', () => {
+  it('renders the pseudocolor primary action with the official MDI palette icon', () => {
     const pseudocolor = mount(AppIcon, { props: { name: 'pseudocolor' } })
 
-    expect(pseudocolor.find('defs').exists()).toBe(true)
-    expect(pseudocolor.findAll('circle')).toHaveLength(2)
+    expect(pseudocolor.find('defs').exists()).toBe(false)
+    expect(pseudocolor.get('path').attributes('d')).toBe(mdiPaletteOutline)
   })
 
-  it('uses compact V and S letter icons for the 3D render modes', () => {
+  it('uses compact V and S marks for the 3D render modes', () => {
     const volume = mount(AppIcon, { props: { name: 'render-volume' } })
     const surface = mount(AppIcon, { props: { name: 'render-surface' } })
 
     expect(volume.get('[data-render-mode-icon="render-volume"]').text()).toBe('V')
     expect(surface.get('[data-render-mode-icon="render-surface"]').text()).toBe('S')
+    expect(volume.get('[data-render-mode-icon="render-volume"]').attributes('font-size')).toBe('18')
+    expect(surface.get('[data-render-mode-icon="render-surface"]').attributes('font-weight')).toBe('600')
+  })
+
+  it('uses a 24 by 24 viewBox and a 20px default visual size', () => {
+    const icon = mount(AppIcon, { props: { name: 'pan' } })
+
+    expect(icon.get('svg').attributes('viewBox')).toBe('0 0 24 24')
+    expect(icon.get('svg').attributes('width')).toBe('20')
+    expect(icon.get('svg').attributes('height')).toBe('20')
   })
 
   it('uses a neutral layers icon for the render-mode primary button', () => {

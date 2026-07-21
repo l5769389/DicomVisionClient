@@ -910,16 +910,16 @@ function handleSeriesDragEnd(): void {
 </script>
 
 <template>
-  <div class="theme-shell-panel min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-    <div class="shrink-0">
-      <div class="mb-2.5 flex items-center justify-between gap-2">
+  <div class="series-list-panel theme-shell-panel min-h-0 flex flex-1 flex-col overflow-hidden border p-2.5">
+    <div class="series-list-panel__header shrink-0">
+      <div class="mb-2 flex items-center justify-between gap-2">
         <div>
           <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ t('seriesList') }}</div>
-          <div class="mt-1 text-xs text-[var(--theme-text-muted)]">{{ t('seriesListSubtitle') }}</div>
+          <div class="mt-0.5 text-[11px] text-[var(--theme-text-muted)]">{{ t('seriesListSubtitle') }}</div>
         </div>
         <VChip v-if="seriesList.length" size="small" class="theme-card-soft rounded-full! border! px-2.5! py-1! text-xs! font-semibold! text-[var(--theme-text-secondary)]!" variant="flat">{{ seriesCountLabel }}</VChip>
       </div>
-      <label v-if="seriesList.length" class="series-list-search mb-2.5 flex items-center gap-2">
+      <label v-if="seriesList.length" class="series-list-search mb-2 flex items-center gap-2">
         <AppIcon name="search" :size="15" />
         <input
           v-model="seriesSearch"
@@ -1403,20 +1403,23 @@ function handleSeriesDragEnd(): void {
 
 <style scoped>
 .series-tree-list {
-  --series-active-border: color-mix(in srgb, var(--theme-accent) 34%, transparent);
-  --series-active-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card) 91%),
-      color-mix(in srgb, var(--theme-accent-strong) 7%, var(--theme-surface-card-soft) 93%)
-    );
-  --series-active-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent),
-    0 0 0 1px rgba(0, 0, 0, 0.22),
-    0 6px 14px rgba(0, 0, 0, 0.18);
+  --series-active-border: var(--theme-selection-border);
+  --series-active-surface: var(--theme-selection-surface);
+  --series-active-shadow: var(--theme-selection-shadow);
 
   display: grid;
-  gap: 10px;
+  gap: 5px;
+}
+
+.series-list-panel {
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 3%, transparent);
+}
+
+.series-list-panel__header {
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 52%, transparent);
+  margin: 0 -2px 6px;
+  padding: 0 2px 2px;
 }
 
 .series-list-search {
@@ -1447,6 +1450,13 @@ function handleSeriesDragEnd(): void {
   color: var(--theme-text-primary);
   font-size: 12px;
   line-height: 1;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.series-list-search input[type='search']::-webkit-search-cancel-button {
+  display: none;
+  -webkit-appearance: none;
 }
 
 .series-list-search input::placeholder {
@@ -1498,7 +1508,7 @@ function handleSeriesDragEnd(): void {
 
 .series-tree-patient {
   position: relative;
-  padding-left: 9px;
+  padding-left: 7px;
 }
 
 .series-tree-patient::before {
@@ -1510,8 +1520,8 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-tree-patient--active::before {
-  width: 2px;
-  background: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-soft));
+  width: 1px;
+  background: color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
 }
 
 .series-tree-group-header,
@@ -1543,27 +1553,27 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-tree-group-header {
-  min-height: 34px;
-  border-radius: 11px;
-  padding: 5px 7px;
+  min-height: 32px;
+  border-radius: 7px;
+  padding: 4px 5px;
 }
 
 .series-tree-study-header {
-  min-height: 31px;
-  border-radius: 10px;
-  padding: 4px 6px;
+  min-height: 29px;
+  border-radius: 6px;
+  padding: 3px 5px;
 }
 
 .series-tree-group-header:hover,
 .series-tree-study-header:hover {
-  border-color: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border-soft));
-  background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface-card));
+  border-color: transparent;
+  background: color-mix(in srgb, var(--theme-accent) 7%, transparent);
 }
 
 .series-tree-group-header--active,
 .series-tree-study-header--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 18%, transparent);
-  background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface-card-soft));
+  border-color: transparent;
+  background: color-mix(in srgb, var(--theme-accent) 6%, transparent);
   box-shadow: none;
 }
 
@@ -1575,11 +1585,11 @@ function handleSeriesDragEnd(): void {
 
 .series-tree-study-list {
   display: grid;
-  gap: 7px;
-  margin-top: 5px;
-  margin-left: 14px;
+  gap: 4px;
+  margin-top: 3px;
+  margin-left: 11px;
   border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 42%, transparent);
-  padding-left: 7px;
+  padding-left: 6px;
 }
 
 .series-tree-study {
@@ -1587,14 +1597,14 @@ function handleSeriesDragEnd(): void {
 }
 
 .series-tree-study--active {
-  border-left-color: color-mix(in srgb, var(--theme-accent) 68%, var(--theme-border-strong));
+  border-left-color: color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
 }
 
 .series-tree-series-list {
   display: grid;
-  gap: 7px;
-  margin-top: 6px;
-  padding-left: 5px;
+  gap: 5px;
+  margin-top: 4px;
+  padding-left: 3px;
 }
 
 .series-tree-chevron {
@@ -1603,9 +1613,9 @@ function handleSeriesDragEnd(): void {
   height: 22px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--theme-surface-muted) 56%, transparent);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--theme-text-secondary);
   transition: transform 150ms ease;
 }
@@ -1613,7 +1623,7 @@ function handleSeriesDragEnd(): void {
 .series-tree-chevron--small {
   width: 19px;
   height: 19px;
-  border-radius: 8px;
+  border-radius: 5px;
 }
 
 .series-tree-chevron--collapsed {

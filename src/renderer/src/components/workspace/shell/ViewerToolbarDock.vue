@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
-import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
@@ -168,11 +167,21 @@ function isToolDisabled(tool: StackTool): boolean {
 }
 
 function isDockToolActive(tool: StackTool): boolean {
-  return tool.pressed === true || activeDockToolKey.value === tool.key
+  return props.isToolSelected(tool)
+}
+
+function isDockToolPanelOpen(tool: StackTool): boolean {
+  return activePanelTool.value?.key === tool.key ||
+    (shouldShowUtilityPanel.value && props.utilityPanelToolKey === tool.key) ||
+    (shouldShowStandaloneResultPanel.value && props.resultPanelToolKey === tool.key)
+}
+
+function isDockToolStateOn(tool: StackTool): boolean {
+  return tool.stateControl === true && tool.stateActive === true
 }
 
 function canShowSelectedOptionOnDockButton(tool: StackTool): boolean {
-  return hasDockToolOptions(tool) && tool.showSelectedOptionIcon !== false && !unselectedActionMenuToolKeys.has(tool.key)
+  return hasDockToolOptions(tool) && tool.showSelectedOptionIcon === true && !unselectedActionMenuToolKeys.has(tool.key)
 }
 
 function shouldExpandDockForTool(tool: StackTool): boolean {
@@ -235,6 +244,13 @@ function handleToolClick(tool: StackTool): void {
       return
     }
 
+    if (tool.key === 'volumeClip') {
+      // The primary clip action always starts an inside freehand clip. The
+      // panel remains open so outside/reset stay one click away.
+      emit('applyTool', tool, { keepMenuOpen: true })
+      return
+    }
+
     if (autoApplyOptionToolKeys.has(tool.key)) {
       const optionValue = getSelectedToolOptionValue(tool)
       if (optionValue) {
@@ -290,7 +306,9 @@ watch(
             class="viewer-toolbar-dock__tool-group"
             :class="{
               'viewer-toolbar-dock__tool-group--compound': hasDockToolOptions(tool),
-              'viewer-toolbar-dock__tool-group--active': isDockToolActive(tool)
+              'viewer-toolbar-dock__tool-group--active': isDockToolActive(tool),
+              'viewer-toolbar-dock__tool-group--panel-open': isDockToolPanelOpen(tool),
+              'viewer-toolbar-dock__tool-group--state-on': isDockToolStateOn(tool)
             }"
           >
             <button
@@ -298,22 +316,18 @@ watch(
               class="viewer-toolbar-dock__button"
               :class="{
                 'viewer-toolbar-dock__button--active': isDockToolActive(tool),
+                'viewer-toolbar-dock__button--panel-open': isDockToolPanelOpen(tool),
+                'viewer-toolbar-dock__button--state-on': isDockToolStateOn(tool),
                 'viewer-toolbar-dock__button--options': hasDockToolOptions(tool),
                 'viewer-toolbar-dock__button--accent': tool.key === 'play' && (isPlaying || isPlaybackPaused)
               }"
               :disabled="isToolDisabled(tool)"
-              :aria-expanded="hasDockToolOptions(tool) ? activePanelTool?.key === tool.key : undefined"
-              :aria-pressed="tool.pressed"
+              :aria-expanded="hasDockToolOptions(tool) ? isDockToolPanelOpen(tool) : undefined"
+              :aria-pressed="tool.stateControl === true ? tool.stateActive === true : tool.pressed"
               :title="tool.title ?? (hasDockToolOptions(tool) ? copy.toolOptions(tool.label) : tool.label)"
               @click.stop="handleToolClick(tool)"
             >
-              <PseudocolorBand
-                v-if="tool.key === 'pseudocolor'"
-                compact
-                :preset="canShowSelectedOptionOnDockButton(tool) ? (tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.swatchKey ?? tool.swatchKey ?? 'bw') : (tool.swatchKey ?? 'bw')"
-              />
               <AppIcon
-                v-else
                 :name="canShowSelectedOptionOnDockButton(tool) ? (tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
                 :size="toolbarIconSize"
               />
@@ -339,7 +353,7 @@ watch(
           >
             <div class="viewer-toolbar-dock__panel-header">
               <div class="viewer-toolbar-dock__panel-title">
-                <AppIcon :name="resultPanelIcon ?? 'info'" :size="16" />
+                <AppIcon :name="resultPanelIcon ?? 'info'" :size="20" />
                 <span>{{ resultPanelTitle }}</span>
               </div>
             </div>
@@ -355,7 +369,7 @@ watch(
           >
             <div class="viewer-toolbar-dock__panel-header">
               <div class="viewer-toolbar-dock__panel-title">
-                <AppIcon :name="utilityPanelIcon ?? 'settings'" :size="16" />
+                <AppIcon :name="utilityPanelIcon ?? 'settings'" :size="20" />
                 <span>{{ utilityPanelTitle }}</span>
                 <DockInfoPopover :text="utilityPanelHelp" />
               </div>
@@ -372,7 +386,7 @@ watch(
           >
             <div class="viewer-toolbar-dock__panel-header">
               <div class="viewer-toolbar-dock__panel-title">
-                <AppIcon :name="activePanelTool.icon" :size="16" />
+                <AppIcon :name="activePanelTool.icon" :size="20" />
                 <span>{{ activePanelTool.label }}</span>
                 <DockInfoPopover :text="activePanelHelp" />
               </div>
@@ -409,13 +423,7 @@ watch(
           >
             <div class="viewer-toolbar-dock__active-tool-panel">
               <div class="viewer-toolbar-dock__active-tool-icon">
-                <PseudocolorBand
-                  v-if="activeDisplayTool?.key === 'pseudocolor'"
-                  compact
-                  :preset="activeDisplayTool.options?.find((item) => item.value === stackToolSelections[activeDisplayTool.key])?.swatchKey ?? activeDisplayTool.swatchKey ?? 'bw'"
-                />
                 <AppIcon
-                  v-else
                   :name="activeDisplayTool?.icon ?? 'settings'"
                   :size="20"
                 />
@@ -431,7 +439,7 @@ watch(
               @click="clearActiveAnnotations"
             >
               <span class="viewer-toolbar-dock__active-tool-action-icon">
-                <AppIcon name="reset" :size="16" />
+                <AppIcon name="reset" :size="20" />
               </span>
               <span class="viewer-toolbar-dock__active-tool-action-copy">
                 <span class="viewer-toolbar-dock__active-tool-action-label">
@@ -486,6 +494,8 @@ watch(
 }
 
 .viewer-toolbar-dock--collapsed {
+  --viewer-tool-button-size: 40px;
+  --viewer-tool-icon-size: 20px;
   width: 58px;
   min-width: 58px;
   max-width: 58px;
@@ -517,7 +527,7 @@ watch(
   gap: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
   overflow: hidden;
-  padding: 8px;
+  padding: 6px;
 }
 
 .viewer-toolbar-dock--collapsed .viewer-toolbar-dock__tools-region {
@@ -533,10 +543,10 @@ watch(
   width: 100%;
   min-width: 0;
   flex: 1 1 auto;
-  grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--viewer-tool-button-size), 1fr));
   justify-content: stretch;
   align-content: flex-start;
-  gap: 5px;
+  gap: 4px;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: color-mix(in srgb, var(--theme-border-strong) 72%, transparent) transparent;
@@ -567,11 +577,11 @@ watch(
 
 .viewer-toolbar-dock__tool-group {
   display: grid;
-  width: clamp(36px, 100%, 42px);
+  width: var(--viewer-tool-button-size);
   justify-self: center;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
-  border-radius: 12px;
+  border-radius: var(--viewer-tool-radius);
 }
 
 .viewer-toolbar-dock__tool-group--compound {
@@ -583,6 +593,7 @@ watch(
 }
 
 .viewer-toolbar-dock__button {
+  position: relative;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
   background: color-mix(in srgb, var(--theme-surface-card) 86%, transparent);
   color: var(--theme-text-primary);
@@ -596,11 +607,12 @@ watch(
 
 .viewer-toolbar-dock__button {
   display: grid;
-  width: 100%;
-  min-width: 34px;
-  height: 38px;
+  width: var(--viewer-tool-button-size);
+  min-width: var(--viewer-tool-button-size);
+  height: var(--viewer-tool-button-size);
   place-items: center;
-  border-radius: 12px;
+  padding: 0;
+  border-radius: var(--viewer-tool-radius);
 }
 
 @container (max-width: 220px) {
@@ -610,19 +622,19 @@ watch(
   }
 
   .viewer-toolbar-dock__tools {
-    grid-template-columns: repeat(auto-fit, minmax(30px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(var(--viewer-tool-button-size), 1fr));
     gap: 4px;
   }
 
   .viewer-toolbar-dock__tool-group {
-    width: clamp(30px, 100%, 36px);
-    border-radius: 10px;
+    width: var(--viewer-tool-button-size);
+    border-radius: var(--viewer-tool-radius);
   }
 
   .viewer-toolbar-dock__button {
-    min-width: 30px;
-    height: 32px;
-    border-radius: 10px;
+    min-width: var(--viewer-tool-button-size);
+    height: var(--viewer-tool-button-size);
+    border-radius: var(--viewer-tool-radius);
   }
 }
 
@@ -651,14 +663,52 @@ watch(
 }
 
 .viewer-toolbar-dock__button--active,
-.viewer-toolbar-dock__tool-group--active,
-.viewer-toolbar-dock__button[aria-expanded="true"] {
+.viewer-toolbar-dock__tool-group--active {
   border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface-card));
   color: var(--theme-text-primary);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 34%, transparent),
     0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+}
+
+.viewer-toolbar-dock__button--panel-open:not(.viewer-toolbar-dock__button--active) {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 72%, var(--theme-border-soft));
+  background: var(--theme-surface-card-elevated-soft);
+  color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-text-primary));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 7%, transparent),
+    0 5px 12px rgba(0, 0, 0, 0.14);
+}
+
+.viewer-toolbar-dock__button--panel-open:not(.viewer-toolbar-dock__button--active)::after {
+  position: absolute;
+  right: 50%;
+  bottom: 4px;
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--theme-accent) 78%, white 4%);
+  content: '';
+  transform: translateX(50%);
+  pointer-events: none;
+}
+
+.viewer-toolbar-dock__tool-group--panel-open:not(.viewer-toolbar-dock__tool-group--active) {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 58%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-surface-card) 76%, transparent);
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.1);
+}
+
+.viewer-toolbar-dock__button--state-on:not(.viewer-toolbar-dock__button--active) {
+  border-color: color-mix(in srgb, var(--theme-status-success) 68%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-success) 18%, var(--theme-surface-card));
+  color: var(--theme-status-success-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-status-success) 34%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 0 1px color-mix(in srgb, var(--theme-status-success) 18%, transparent),
+    0 8px 18px color-mix(in srgb, var(--theme-status-success) 10%, transparent);
 }
 
 .viewer-toolbar-dock__button--accent {
@@ -826,7 +876,7 @@ watch(
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
-  border-radius: 13px;
+  border-radius: var(--viewer-tool-radius);
   background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
   color: var(--theme-text-primary);
 }
@@ -852,7 +902,7 @@ watch(
   align-items: center;
   gap: 11px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
-  border-radius: 14px;
+  border-radius: var(--viewer-tool-radius);
   background: color-mix(in srgb, var(--theme-surface-card) 58%, transparent);
   padding: 10px 12px;
   color: var(--theme-text-primary);
@@ -887,7 +937,7 @@ watch(
   height: 36px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
-  border-radius: 12px;
+  border-radius: var(--viewer-tool-radius);
   background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
   color: var(--theme-status-danger-text);
 }

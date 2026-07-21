@@ -111,6 +111,16 @@ describe('SidebarSettingsDialog toolbar layout settings', () => {
     preferences.viewerToolbarPlacement.value = 'top'
   })
 
+  it('keeps the settings search outside the independently scrolling navigation list', () => {
+    const wrapper = mountSettingsDialog()
+
+    expect(wrapper.find('.settings-nav-search-wrap').exists()).toBe(true)
+    expect(wrapper.find('.settings-nav-scroll').exists()).toBe(true)
+    expect(wrapper.find('.settings-nav-scroll').find('.settings-nav-search-wrap').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('shows toolbar layout skeleton cards and switches placement', async () => {
     const preferences = useUiPreferences()
     const wrapper = mountSettingsDialog()

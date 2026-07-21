@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import type { StackToolOption } from './toolbarTypes'
 import {
   VIEWER_LAYOUT_CUSTOM_GRID_SIZE,
@@ -104,6 +105,8 @@ function clearPreviewLayout(): void {
         v-for="option in presetOptions"
         :key="option.value"
         type="button"
+        role="radio"
+        :aria-checked="isPresetLayoutActive(option)"
         class="layout-preset-button"
         :class="{
           'layout-preset-button--active': isPresetLayoutActive(option),
@@ -127,6 +130,9 @@ function clearPreviewLayout(): void {
             :key="cell"
             class="layout-preset-icon__cell"
           />
+        </span>
+        <span v-if="isPresetLayoutActive(option)" class="layout-preset-button__check" aria-hidden="true">
+          <AppIcon name="check" :size="10" />
         </span>
       </button>
     </div>
@@ -208,15 +214,17 @@ function clearPreviewLayout(): void {
     0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent);
 }
 
-.layout-preset-button--active::after {
-  content: '';
+.layout-preset-button__check {
   position: absolute;
-  right: 4px;
-  top: 4px;
-  width: 5px;
-  height: 5px;
+  right: 2px;
+  top: 2px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
   border-radius: 999px;
   background: var(--theme-accent);
+  color: var(--theme-accent-contrast);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
 }
 

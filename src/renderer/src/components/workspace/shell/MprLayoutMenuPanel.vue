@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import {
   DEFAULT_MPR_LAYOUT_KEY,
   parseMprLayoutSelectionValue,
@@ -109,6 +110,8 @@ function selectOption(option: StackToolOption): void {
       v-for="option in options"
       :key="option.value"
       type="button"
+      role="radio"
+      :aria-checked="isActive(option)"
       class="mpr-layout-option"
       :class="{
         'mpr-layout-option--active': isActive(option),
@@ -135,6 +138,9 @@ function selectOption(option: StackToolOption): void {
             gridRow: `${cell.row} / span ${cell.rowSpan ?? 1}`
           }"
         />
+      </span>
+      <span v-if="isActive(option)" class="mpr-layout-option__check" aria-hidden="true">
+        <AppIcon name="check" :size="10" />
       </span>
     </button>
   </div>
@@ -184,15 +190,17 @@ function selectOption(option: StackToolOption): void {
     0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent);
 }
 
-.mpr-layout-option--active::after {
-  content: '';
+.mpr-layout-option__check {
   position: absolute;
-  right: 4px;
-  top: 4px;
-  width: 5px;
-  height: 5px;
+  right: 2px;
+  top: 2px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
   border-radius: 999px;
   background: var(--theme-accent);
+  color: var(--theme-accent-contrast);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
 }
 

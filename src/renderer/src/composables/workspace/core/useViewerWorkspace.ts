@@ -51,6 +51,7 @@ import {
 import type { ViewerToolbarActionPayload, ViewerTransformResetScope } from '../operations/viewActionTypes'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import {
+  applyThreeDFrameTransportUpdate,
   initializeThreeDTransport,
   restartThreeDWebRtcTransports
 } from '../../../services/threeDWebRtcTransport'
@@ -1734,6 +1735,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
+      setActiveVolumePreprocessProgress(
+        render3dMode === 'surface'
+          ? (locale.value === 'zh-CN' ? '正在切换到 Surface 渲染...' : 'Switching to Surface rendering...')
+          : (locale.value === 'zh-CN' ? '正在切换到 VR 渲染...' : 'Switching to volume rendering...'),
+        render3dMode === 'surface' ? 70 : 82
+      )
+
       emitViewOperation({
         viewId,
         opType: VIEW_OPERATION_TYPES.render3dMode,
@@ -1784,7 +1792,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
-      setActiveVolumePreprocessProgress('正在应用 Surface 预设...', 68)
+      setActiveVolumePreprocessProgress(
+        locale.value === 'zh-CN' ? '正在应用 Surface 预设...' : 'Applying Surface preset...',
+        68
+      )
 
       emitViewOperation({
         viewId,
@@ -1814,7 +1825,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
-      setActiveVolumePreprocessProgress(nextOptions.removeBed ? '正在过滤床板...' : '正在恢复床板显示...', 72)
+      setActiveVolumePreprocessProgress(
+        nextOptions.removeBed
+          ? (locale.value === 'zh-CN' ? '正在过滤床板...' : 'Filtering the patient table...')
+          : (locale.value === 'zh-CN' ? '正在恢复床板显示...' : 'Restoring the patient table...'),
+        72
+      )
 
       emitViewOperation({
         viewId,
@@ -1841,7 +1857,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           : item
       )
 
-      setActiveVolumePreprocessProgress('正在重置 3D 裁剪...', 76)
+      setActiveVolumePreprocessProgress(
+        locale.value === 'zh-CN' ? '正在重置 3D 裁剪...' : 'Resetting 3D crop...',
+        76
+      )
 
       emitViewOperation({
         viewId,
@@ -2141,7 +2160,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     setActiveVolumePreprocessProgress(
-      payload.mode === 'reset' ? '正在重置 3D 裁剪...' : '正在应用 3D 裁剪...',
+      payload.mode === 'reset'
+        ? (locale.value === 'zh-CN' ? '正在重置 3D 裁剪...' : 'Resetting 3D crop...')
+        : (locale.value === 'zh-CN' ? '正在应用 3D 裁剪...' : 'Applying 3D crop...'),
       78
     )
 
@@ -2507,7 +2528,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const fallbackMessage =
         typeof error === 'object' && error != null && 'message' in error && typeof error.message === 'string'
           ? error.message
-          : 'MTF 分析失败'
+          : (locale.value === 'zh-CN' ? 'MTF 分析失败' : 'MTF analysis failed')
 
       updateActiveTabMtfState((item) =>
         updateMtfItemCollection(
@@ -3049,6 +3070,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (shouldDropStaleRotate3dImageUpdate(tab, payload)) {
       return
     }
+    applyThreeDFrameTransportUpdate(payload)
 
     logInteractivePreviewReceiveInterval(tab, payload, imageBinary)
     logFusionRegistrationImageReceive(tab, payload, imageBinary, extraImageBinaries)
@@ -3088,6 +3110,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (!tab || shouldDropStaleRotate3dImageUpdate(tab, payload)) {
       return
     }
+    applyThreeDFrameTransportUpdate(payload)
     // The video track owns the pixels. A zero-length placeholder lets the
     // established metadata reducer update overlays and revisions without
     // allocating or decoding another rendered image.
@@ -4143,7 +4166,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
     const viewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean) ?? ''
     if (!viewId) {
-      showStatusToast('融合视图尚未初始化，请等待图像加载完成后再加载配准文件。', 'warning')
+      showStatusToast(
+        locale.value === 'zh-CN'
+          ? '融合视图尚未初始化，请等待图像加载完成后再加载配准文件。'
+          : 'The fusion view is not ready. Wait for the images to load before importing registration data.',
+        'warning'
+      )
       return
     }
     const ok = await emitViewOperationWithAck({
@@ -4153,7 +4181,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       subOpType: 'load',
       fusionRegistrationFile: registrationFile
     })
-    showStatusToast(ok ? '配准文件已加载。' : '加载配准文件失败，请确认 CT/PET 序列匹配。', ok ? 'success' : 'error')
+    showStatusToast(
+      ok
+        ? (locale.value === 'zh-CN' ? '配准文件已加载。' : 'Registration data loaded.')
+        : (locale.value === 'zh-CN'
+            ? '加载配准文件失败，请确认 CT/PET 序列匹配。'
+            : 'Unable to load registration data. Verify that the CT and PET series match.'),
+      ok ? 'success' : 'error'
+    )
   }
 
   function applyOptimisticMprCrosshair(payload: MprCrosshairInteractionPayload): void {

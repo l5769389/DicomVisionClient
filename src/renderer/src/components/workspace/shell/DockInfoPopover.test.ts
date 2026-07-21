@@ -41,4 +41,21 @@ describe('DockInfoPopover', () => {
     expect(document.activeElement).toBe(trigger.element)
     wrapper.unmount()
   })
+
+  it('uses one centered trigger box wherever explanatory help is embedded', () => {
+    const wrapper = mount(DockInfoPopover, {
+      props: { text: 'Aligned help' },
+      attachTo: document.body
+    })
+    const trigger = wrapper.get<HTMLElement>('.dock-info-popover__trigger')
+    const style = window.getComputedStyle(trigger.element)
+
+    expect(style.display).toBe('inline-flex')
+    expect(style.width).toBe('20px')
+    expect(style.height).toBe('20px')
+    expect(style.alignItems).toBe('center')
+    expect(style.justifyContent).toBe('center')
+    expect(style.verticalAlign).toBe('middle')
+    wrapper.unmount()
+  })
 })

@@ -39,9 +39,14 @@ import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
 import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import {
+  acknowledgeThreeDVideoFrame,
   acquireThreeDWebRtcTransport,
+  getPendingThreeDVideoFrameGeneration,
+  getThreeDWebRtcState,
   getThreeDWebRtcStream,
+  hasPresentedThreeDVideoFrame,
   releaseThreeDWebRtcTransport,
+  shouldShowThreeDStillFrame,
   threeDTransportMode
 } from '../../../services/threeDWebRtcTransport'
 import { bindView } from '../../../services/socket'
@@ -265,12 +270,41 @@ const videoRef = ref<HTMLVideoElement | null>(null)
 const webRtcStream = computed(() =>
   threeDTransportMode.value === 'webrtc' ? getThreeDWebRtcStream(props.mediaViewId) : null
 )
-
-const resolvedLoadingLabel = computed(() => props.loadingLabel || viewerCopy.value.loadingView)
+const webRtcState = computed(() => getThreeDWebRtcState(props.mediaViewId))
+const pendingVideoFrameGeneration = computed(() =>
+  getPendingThreeDVideoFrameGeneration(props.mediaViewId)
+)
+const hasPresentedWebRtcFrame = computed(() =>
+  hasPresentedThreeDVideoFrame(props.mediaViewId)
+)
+const showWebRtcStillFrame = computed(() =>
+  Boolean(webRtcStream.value && props.imageSrc && shouldShowThreeDStillFrame(props.mediaViewId))
+)
+const showWebRtcVideoPixels = computed(() =>
+  Boolean(webRtcStream.value && hasPresentedWebRtcFrame.value && !showWebRtcStillFrame.value)
+)
 
 const hasImageContent = computed(() =>
-  Boolean(webRtcStream.value || props.imageSrc) || props.imageLayers.some((layer) => Boolean(layer.src))
+  Boolean(props.imageSrc || (webRtcStream.value && hasPresentedWebRtcFrame.value)) ||
+  props.imageLayers.some((layer) => Boolean(layer.src))
 )
+const isConnectingVolumeStream = computed(() =>
+  Boolean(
+    props.mediaViewId &&
+    threeDTransportMode.value === 'webrtc' &&
+    (webRtcState.value === 'connecting' || webRtcState.value === 'connected') &&
+    !hasImageContent.value
+  )
+)
+const shouldShowLoading = computed(() => props.isLoading || isConnectingVolumeStream.value)
+const resolvedLoadingLabel = computed(() => {
+  if (props.loadingLabel) {
+    return props.loadingLabel
+  }
+  return isConnectingVolumeStream.value
+    ? viewerCopy.value.connectingVolumeStream
+    : viewerCopy.value.loadingView
+})
 
 const shouldShowImageOverlays = computed(() => hasImageContent.value)
 const shouldShowCornerInfo = computed(() => props.showCornerInfo && hasImageContent.value)
@@ -580,6 +614,65 @@ onBeforeUnmount(() => {
 })
 
 let acquiredWebRtcViewId: string | null = null
+type FrameCallbackVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: (now: number, metadata: unknown) => void) => number
+  cancelVideoFrameCallback?: (handle: number) => void
+}
+let videoFrameCallbackHandle: number | null = null
+let videoFrameFallbackTimer: number | null = null
+
+function cancelPendingVideoFrameCallback(): void {
+  const video = videoRef.value as FrameCallbackVideo | null
+  if (videoFrameCallbackHandle != null) {
+    video?.cancelVideoFrameCallback?.(videoFrameCallbackHandle)
+    videoFrameCallbackHandle = null
+  }
+  if (videoFrameFallbackTimer != null) {
+    window.clearTimeout(videoFrameFallbackTimer)
+    videoFrameFallbackTimer = null
+  }
+}
+
+async function waitForAnnouncedVideoFrame(
+  viewId: string | null | undefined,
+  frameGeneration: number | null
+): Promise<void> {
+  cancelPendingVideoFrameCallback()
+  if (!viewId || frameGeneration == null) {
+    return
+  }
+  await nextTick()
+  const video = videoRef.value as FrameCallbackVideo | null
+  if (!video) {
+    return
+  }
+  const acknowledge = (): void => {
+    videoFrameCallbackHandle = null
+    if (acknowledgeThreeDVideoFrame(viewId, frameGeneration)) {
+      scheduleStageMetricsUpdate()
+      return
+    }
+    if (getPendingThreeDVideoFrameGeneration(viewId) === frameGeneration) {
+      requestNextVideoFrame()
+    }
+  }
+  const requestNextVideoFrame = (): void => {
+    if (video.requestVideoFrameCallback) {
+      videoFrameCallbackHandle = video.requestVideoFrameCallback(acknowledge)
+      return
+    }
+    // Chromium exposes frame callbacks. Older WebKit clients receive a
+    // conservative delay, then complete both confirmations at once.
+    videoFrameFallbackTimer = window.setTimeout(() => {
+      videoFrameFallbackTimer = null
+      acknowledgeThreeDVideoFrame(viewId, frameGeneration)
+      if (acknowledgeThreeDVideoFrame(viewId, frameGeneration)) {
+        scheduleStageMetricsUpdate()
+      }
+    }, 120)
+  }
+  requestNextVideoFrame()
+}
 
 watch(
   () => [props.mediaViewId, threeDTransportMode.value] as const,
@@ -617,7 +710,16 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => [props.mediaViewId, pendingVideoFrameGeneration.value, webRtcStream.value] as const,
+  ([viewId, frameGeneration]) => {
+    void waitForAnnouncedVideoFrame(viewId, frameGeneration)
+  },
+  { immediate: true }
+)
+
 onBeforeUnmount(() => {
+  cancelPendingVideoFrameCallback()
   if (acquiredWebRtcViewId) {
     releaseThreeDWebRtcTransport(acquiredWebRtcViewId)
     acquiredWebRtcViewId = null
@@ -636,7 +738,7 @@ watch(
 
 <template>
   <div
-    class="viewer-viewport relative h-full w-full overflow-hidden rounded-2xl border border-slate-600/20 bg-[linear-gradient(180deg,rgba(4,8,14,0.98),rgba(2,5,10,1)),radial-gradient(circle_at_top_right,rgba(35,130,210,0.08),transparent_28%)] text-slate-200"
+    class="viewer-viewport relative h-full w-full overflow-hidden rounded-2xl border border-[color:var(--theme-border-soft)] bg-black text-[var(--theme-overlay-text)]"
     :class="[
       viewportClass,
       stageSurfaceClass,
@@ -683,13 +785,31 @@ watch(
         v-if="webRtcStream"
         ref="videoRef"
         class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
-        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
+        :class="[
+          imageClass,
+          {
+            'opacity-[0.88] saturate-[0.9]': softImage,
+            'viewer-image--transport-hidden': !showWebRtcVideoPixels
+          }
+        ]"
         :style="imageStyle"
         autoplay
         muted
         playsinline
         @loadedmetadata="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
         @resize="scheduleStageMetricsUpdate"
+      />
+      <img
+        v-if="showWebRtcStillFrame"
+        ref="imageRef"
+        class="viewer-image pointer-events-none absolute inset-0 z-[1] block h-full w-full select-none object-contain object-center"
+        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
+        :src="imageSrc"
+        :alt="alt"
+        :style="imageStyle"
+        draggable="false"
+        @dragstart.prevent
+        @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
       />
       <img
         v-for="layer in imageLayers"
@@ -796,7 +916,7 @@ watch(
         @select-face="emit('volumeOrientationSelect', $event)"
       />
       <div
-        v-if="isLoading"
+        v-if="shouldShowLoading"
         class="absolute inset-0 z-[5] grid place-items-center bg-[linear-gradient(180deg,rgba(2,5,10,0.92),rgba(2,5,10,0.98))] backdrop-blur-[2px]"
       >
         <div
@@ -805,25 +925,25 @@ watch(
           role="status"
           :aria-label="resolvedLoadingLabel"
         ></div>
-        <div v-else class="w-[min(18rem,calc(100%-2rem))] rounded-2xl border border-white/10 bg-slate-950/75 px-4 py-3 text-sm text-slate-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
+        <div v-else class="viewer-loading-card w-[min(18rem,calc(100%-2rem))] rounded-2xl border px-4 py-3 text-sm shadow-[0_14px_28px_rgba(0,0,0,0.28)]">
           <div class="flex items-center gap-3">
-            <span class="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-sky-300 shadow-[0_0_0_6px_rgba(125,211,252,0.14)]"></span>
+            <span class="viewer-loading-dot h-2.5 w-2.5 shrink-0 animate-pulse rounded-full"></span>
             <span class="min-w-0 flex-1 truncate">{{ resolvedLoadingLabel }}</span>
             <span v-if="normalizedLoadingProgressPercent !== null" class="w-10 shrink-0 text-right text-xs font-semibold text-sky-200">
               {{ normalizedLoadingProgressPercent }}%
             </span>
           </div>
-          <div v-if="normalizedLoadingProgressPercent !== null" class="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div v-if="normalizedLoadingProgressPercent !== null" class="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--theme-border-soft)]">
             <div
-              class="h-full rounded-full bg-sky-300 transition-[width] duration-200 ease-out"
+              class="h-full rounded-full bg-[var(--theme-accent)] transition-[width] duration-200 ease-out"
               :style="{ width: `${normalizedLoadingProgressPercent}%` }"
             ></div>
           </div>
         </div>
       </div>
       <span
-        v-if="!imageSrc && !isLoading"
-        class="absolute left-3 top-3 rounded-full bg-slate-900/80 px-3 py-1 text-xs tracking-[0.14em] text-slate-400"
+        v-if="!hasImageContent && !shouldShowLoading"
+        class="absolute left-3 top-3 rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-solid)] px-3 py-1 text-xs text-[var(--theme-text-muted)]"
       >
         {{ placeholder }}
       </span>
@@ -885,6 +1005,21 @@ watch(
   border-radius: 999px;
   box-shadow: 0 0 0 8px rgba(2, 8, 16, 0.24);
   animation: viewer-loading-spin 780ms linear infinite;
+}
+
+.viewer-loading-card {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 72%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.viewer-image--transport-hidden {
+  opacity: 0 !important;
+}
+
+.viewer-loading-dot {
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--theme-accent) 16%, transparent);
 }
 
 @keyframes viewer-loading-spin {

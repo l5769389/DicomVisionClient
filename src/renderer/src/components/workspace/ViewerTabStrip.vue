@@ -65,7 +65,7 @@ function closeOtherTabsFromMenu(): void {
 </script>
 
 <template>
-  <div class="viewer-tab-strip-shell flex min-w-0 items-end gap-1.5" role="tablist" :aria-label="t('viewerWorkspace')">
+  <div class="viewer-tab-strip-shell flex min-w-0 items-end" role="tablist" :aria-label="t('viewerWorkspace')">
     <VBtn
       v-if="shouldShowScrollControls"
       variant="flat"
@@ -80,7 +80,7 @@ function closeOtherTabsFromMenu(): void {
 
     <div
       ref="tabStripRef"
-      class="tab-strip-scroll flex min-w-0 flex-1 flex-nowrap snap-x snap-mandatory items-end gap-1 overflow-x-auto overflow-y-hidden pr-1 [scrollbar-gutter:stable]"
+      class="tab-strip-scroll flex min-w-0 flex-1 flex-nowrap snap-x snap-mandatory items-end overflow-x-auto overflow-y-hidden [scrollbar-gutter:stable]"
       @scroll="emit('tabStripScroll')"
       @wheel="emit('tabStripWheel', $event)"
     >
@@ -91,7 +91,7 @@ function closeOtherTabsFromMenu(): void {
         role="tab"
         :aria-selected="tab.key === activeTabKey"
         tabindex="0"
-        class="viewer-tab-item group flex max-w-[250px] shrink-0 snap-start items-center gap-2 px-3 py-1.5 transition"
+        class="viewer-tab-item group flex max-w-[250px] shrink-0 snap-start items-center transition"
         :class="tab.key === activeTabKey ? 'viewer-tab-item--active' : 'viewer-tab-item--inactive'"
         @click="emit('activateTab', tab.key)"
         @contextmenu="openTabContextMenu($event, tab.key)"
@@ -152,83 +152,102 @@ function closeOtherTabsFromMenu(): void {
 <style scoped>
 .viewer-tab-strip-shell {
   position: relative;
-  min-height: 39px;
-  padding: 0 6px;
-  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  min-height: 42px;
+  gap: 4px;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-strong) 34%, var(--theme-border-soft));
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-panel-strong-solid) 66%, transparent), transparent 82%),
-    color-mix(in srgb, var(--theme-surface-panel-solid) 68%, transparent);
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, transparent), color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent));
 }
 
 .viewer-tab-strip-shell::after {
   position: absolute;
-  right: 6px;
+  right: 8px;
   bottom: -1px;
-  left: 6px;
+  left: 8px;
   height: 1px;
-  background: color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
+  background: color-mix(in srgb, var(--theme-border-strong) 32%, var(--theme-border-soft));
   content: "";
   pointer-events: none;
 }
 
 .tab-strip-scroll {
-  min-height: 38px;
+  min-height: 37px;
+  gap: 4px;
+  padding-right: 4px;
 }
 
 .viewer-tab-item {
   position: relative;
-  min-width: 112px;
-  min-height: 36px;
+  min-width: 128px;
+  min-height: 37px;
   margin-bottom: 0;
   border: 1px solid transparent;
-  border-bottom-color: transparent;
-  border-radius: 10px 10px 0 0;
-  background: transparent;
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in srgb, var(--theme-surface-card) 42%, transparent);
+  padding: 0 10px 0 12px;
+  gap: 8px;
   color: var(--theme-text-secondary);
   cursor: pointer;
   outline: none;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
 }
 
 .viewer-tab-item::after {
   position: absolute;
+  top: 9px;
+  right: -3px;
+  width: 1px;
+  height: 19px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--theme-border-soft) 84%, transparent);
+  content: "";
+  pointer-events: none;
+}
+
+.viewer-tab-item::before {
+  position: absolute;
   top: 0;
-  right: 12px;
-  left: 12px;
-  height: 3px;
-  border-radius: 0 0 999px 999px;
+  left: 50%;
+  width: 28px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
   background: transparent;
   content: "";
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .viewer-tab-item--active {
-  z-index: 1;
+  z-index: 2;
   margin-bottom: -1px;
-  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-strong));
-  border-top-color: color-mix(in srgb, var(--theme-accent) 86%, var(--theme-border-strong));
-  border-bottom-color: color-mix(in srgb, var(--theme-surface-panel-solid) 96%, black 4%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--theme-accent) 17%, var(--theme-surface-card) 83%), color-mix(in srgb, var(--theme-surface-panel-solid) 92%, var(--theme-accent) 8%));
+  border-color: color-mix(in srgb, var(--theme-border-strong) 72%, var(--theme-border-soft));
+  border-bottom-color: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 96%, transparent);
+  background: var(--theme-surface-card-elevated);
   color: var(--theme-text-primary);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 34%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
-    0 -1px 0 color-mix(in srgb, var(--theme-accent) 44%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+    inset 0 1px 0 color-mix(in srgb, white 12%, transparent),
+    0 -3px 10px rgba(0, 0, 0, 0.12);
+}
+
+.viewer-tab-item--active::before {
+  background: color-mix(in srgb, var(--theme-accent) 72%, white 5%);
 }
 
 .viewer-tab-item--active::after {
-  right: 8px;
-  left: 8px;
-  height: 4px;
-  background: color-mix(in srgb, var(--theme-accent) 92%, white 8%);
-  box-shadow: 0 1px 6px color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  display: none;
 }
 
 .viewer-tab-item--inactive:hover {
-  border-color: color-mix(in srgb, var(--theme-border-soft) 48%, transparent);
-  border-bottom-color: transparent;
-  background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface-panel-strong));
+  border-color: color-mix(in srgb, var(--theme-border-strong) 34%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
   color: var(--theme-text-primary);
+  transform: translateY(-1px);
 }
 
 .viewer-tab-type {
@@ -236,7 +255,7 @@ function closeOtherTabsFromMenu(): void {
 }
 
 .viewer-tab-item--active .viewer-tab-type {
-  color: var(--theme-accent);
+  color: color-mix(in srgb, var(--theme-accent) 76%, var(--theme-text-primary));
 }
 
 .viewer-tab-close-inline {
@@ -252,7 +271,16 @@ function closeOtherTabsFromMenu(): void {
   cursor: pointer;
   transition:
     background 120ms ease,
-    color 120ms ease;
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.viewer-tab-item--inactive .viewer-tab-close-inline {
+  opacity: 0.52;
+}
+
+.viewer-tab-item--inactive:hover .viewer-tab-close-inline {
+  opacity: 1;
 }
 
 .viewer-tab-close-inline:hover {
@@ -263,6 +291,46 @@ function closeOtherTabsFromMenu(): void {
 .viewer-tab-item:focus-visible,
 .viewer-tab-close-inline:focus-visible {
   box-shadow: var(--theme-focus-ring);
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-tab-strip-shell {
+  border-bottom-color: color-mix(in srgb, var(--theme-border-strong) 52%, #c9d7e3);
+  background: linear-gradient(180deg, #edf3f8, #e4edf5);
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-tab-item {
+  background: color-mix(in srgb, #dce7f0 76%, transparent);
+  color: #526579;
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-tab-item--active {
+  border-color: color-mix(in srgb, var(--theme-accent-strong) 22%, #c2d1dd);
+  border-bottom-color: #f4f8fb;
+  background: linear-gradient(180deg, #ffffff, #f4f8fb);
+  color: #17283a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 -3px 10px rgba(56, 84, 111, 0.08);
+}
+
+:global(:root[data-theme="industrial-utility"]) .viewer-tab-strip-shell {
+  border-bottom-color: rgba(142, 157, 170, 0.16);
+  background: linear-gradient(180deg, #11171c, #0d1318);
+}
+
+:global(:root[data-theme="industrial-utility"]) .viewer-tab-item {
+  background: rgba(255, 255, 255, 0.018);
+  color: rgba(220, 233, 240, 0.68);
+}
+
+:global(:root[data-theme="industrial-utility"]) .viewer-tab-item--active {
+  border-color: rgba(142, 157, 170, 0.2);
+  border-bottom-color: #1a2228;
+  background: linear-gradient(180deg, #222c33, #1a2228);
+  color: #eef6f9;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 -3px 9px rgba(0, 0, 0, 0.18);
 }
 
 :global(.viewer-tab-context-menu-overlay) {

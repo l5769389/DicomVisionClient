@@ -2,7 +2,7 @@
 
 [English](./README.en.md)
 
-**DICOM Viewer for Desktop / Web / Mobile**
+**面向桌面、Web 与移动端的远程渲染 DICOM 工作站**
 
 DicomVision 是一套面向医学影像浏览、分析和教学验证场景的 DICOM Viewer。项目采用 C/S 架构：客户端基于 Vue、TypeScript 和 Electron 构建，后端基于 FastAPI、Socket.IO 和医学影像处理栈完成 DICOM 解析、渲染、重建、分析和导出，并将结果实时推送到桌面端、Web 端和移动端界面。
 
@@ -11,18 +11,25 @@ DicomVision 是一套面向医学影像浏览、分析和教学验证场景的 D
 - 在线预览：[https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
 - Client 仓库：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - Server 仓库：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-- 当前发布：[DicomVision v3.1.2](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.2)
+- 当前发布：[DicomVision v3.1.3](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.3)
 
-DicomVision 将重计算任务放在后端执行，前端负责交互、工具组织和结果呈现。这样可以让浏览器、移动端和桌面端复用同一套影像能力，也便于在局域网、云服务器或桌面内置后端环境中部署。
+DicomVision 将 DICOM 解析、重建、渲染和计算密集型分析置于后端，将交互、工作流和结果呈现置于客户端。浏览器、移动端和桌面端因此复用同一套影像能力，并可部署在局域网、云服务器或带内置后端的桌面安装包中。
 
-本项目特别适合客户端显存有限、但仍需要使用统一 DICOM 浏览和后端 2D/3D 渲染能力的场景。对于显存充足且追求本地 GPU 交互性能的工作站，建议优先评估 C3D 等原生方案；对于需要将计算与界面部署在同一进程中的场景，也可以选择 Python/C++ 等前后端不分离的实现。DicomVision 的 C/S 架构主要面向跨端复用、集中式渲染和轻量客户端接入。
+本项目特别适合客户端显存有限、但仍需要稳定使用统一 DICOM 浏览和后端 2D/3D 渲染能力的场景。对于显存充足且以本地 GPU 交互性能为首要目标的工作站，应优先评估 C3D 等原生方案；对于计算和界面必须同进程部署的产品，也可采用 Python/C++ 等前后端不分离的架构。DicomVision 的 C/S 设计侧重跨端复用、集中式渲染与轻量客户端接入。
+
+## 架构与适用范围
+
+- **统一渲染服务**：FastAPI、Socket.IO、VTK 与医学影像处理链路在服务端执行，客户端保持轻量。
+- **双端 3D 传输**：启动时可选择 WebP 静帧或 WebRTC 低延迟预览；交互稳定后保留高质量最终帧。
+- **多端一致工作流**：Electron 桌面端、浏览器和移动端共享视图、工具、PACS 与导出能力。
+- **安全导入**：支持 DICOM 文件、目录、ZIP、7z 与 RAR；压缩包在服务端临时目录中按路径、条目数、解压体积和压缩比限制处理。
 
 ## 核心能力
 
-- **数据导入**：支持 DICOM 文件、文件夹、拖拽导入、浏览器上传、服务端样例数据，以及 PACS DICOMweb/DIMSE 查询和下载。
+- **数据导入**：支持 DICOM 文件、文件夹、拖拽导入、浏览器上传，以及 ZIP、7z、RAR 压缩包；支持服务端样例数据与 PACS DICOMweb/DIMSE 查询和下载。
 - **2D 浏览**：支持窗宽窗位、缩放、平移、滚动、翻转、旋转、伪彩、同步浏览、Compare、Layout、多序列和多视图工作区。
 - **MPR 与 4D**：支持 AX/COR/SAG 三视图、斜切 MPR、十字线同步、MPR 播放、4D phase 播放、FPS 控制和时相同步。
-- **3D 可视化**：支持 VR 体渲染、Surface 渲染、MIP/XRay 类模板、AAA/CT/CTA/MR/CBCT 自适应预设、3D 参数面板、去床板、自由形状裁剪和移动端触控 3D。
+- **3D 可视化**：支持 VR 体渲染、Surface 渲染、MIP/XRay 类模板、AAA/CT/CTA/MR/CBCT 自适应预设、WebRTC 低延迟交互、3D 参数面板、去床板、自由形状裁剪、标准解剖朝向和移动端触控 3D。
 - **PET/CT Fusion**：支持 PET/CT 融合浏览、PET-only、SUV/强度范围控制、手动配准、配准保存、Fusion 四宫格和单视口切换。
 - **测量与标注**：支持线段、矩形、椭圆、角度、曲线、自由形状测量，箭头和文本标注，实时 draft 与 ROI 指标。
 - **分割与 QA**：支持 MPR 阈值分割、球形 VOI、分割 overlay、分割导入导出、MTF/FWHM、水模 QA 和结果报告。

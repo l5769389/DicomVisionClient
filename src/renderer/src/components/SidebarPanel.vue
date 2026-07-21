@@ -216,11 +216,9 @@ function hideSeriesHoverCard(): void {
 .sidebar-source-group {
   overflow: hidden;
   border: 1px solid var(--theme-border-soft);
-  border-radius: 24px;
-  background: var(--theme-surface-panel);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 12px 24px color-mix(in srgb, var(--theme-accent-strong) 8%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface-panel) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
 }
 
 .sidebar-source-divider {
@@ -238,11 +236,11 @@ function hideSeriesHoverCard(): void {
 }
 
 .sidebar-source-group :deep(.quick-actions-card) {
-  padding: 14px !important;
+  padding: 9px !important;
 }
 
 .sidebar-source-group :deep(.pacs-entry-card) {
-  padding: 14px !important;
+  padding: 9px !important;
 }
 
 .hover-series-thumbnail {

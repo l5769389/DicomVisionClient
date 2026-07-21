@@ -4,7 +4,8 @@ import {
   applyViewportCornerInfoPreference,
   createDefaultViewportCornerInfoPreference,
   filterViewportCornerInfoCatalog,
-  normalizeViewportCornerInfoPreference
+  normalizeViewportCornerInfoPreference,
+  stripVolumeCornerInfo
 } from './viewportCornerInfo'
 
 describe('viewportCornerInfo', () => {
@@ -142,6 +143,32 @@ describe('viewportCornerInfo', () => {
       topRight: ['Study UID: 1.2.840.113619.2.55.3'],
       bottomLeft: ['CTDIvol: 12.4mGy', 'Exposure: 210mAs'],
       bottomRight: ['IPP: -180.0, -180.0, 42.5']
+    })
+  })
+
+  it('removes slice-only acquisition details from 3D corner information', () => {
+    const cornerInfo = {
+      topLeft: ['Scanner', 'Im: 12/320'],
+      topRight: ['Patient'],
+      bottomLeft: ['120kV 30mA', '0.6mm', 'WW 400  WL 40', '2026.07.17 09:00:00'],
+      bottomRight: ['Zoom:1.20x', 'X:20 Y:13', 'Rot:0° / Flip:-'],
+      tags: {
+        technique: ['120kV 30mA'],
+        sliceThickness: ['0.6mm'],
+        windowLevel: ['WW 400  WL 40'],
+        imageIndex: ['Im: 12/320'],
+        coordinates: ['X:20 Y:13'],
+        transform2dState: ['Rot:0° / Flip:-'],
+        zoom: ['Zoom:1.20x']
+      }
+    }
+
+    expect(stripVolumeCornerInfo(cornerInfo)).toEqual({
+      topLeft: ['Scanner'],
+      topRight: ['Patient'],
+      bottomLeft: ['2026.07.17 09:00:00'],
+      bottomRight: ['Zoom:1.20x'],
+      tags: { zoom: ['Zoom:1.20x'] }
     })
   })
 })

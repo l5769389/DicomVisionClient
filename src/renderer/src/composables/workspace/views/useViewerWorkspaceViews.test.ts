@@ -1003,6 +1003,94 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     })
   })
 
+  it('preserves the settled 3D image URL for WebRTC metadata-only previews', () => {
+    const createObjectURL = vi.fn(() => 'blob:must-not-be-created')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const { viewerTabs, views } = createVolumeHarness()
+
+    views.updateTabImage(
+      'volume-tab',
+      {
+        viewId: 'volume-view',
+        imageFormat: 'webp',
+        imageTransport: 'webrtc',
+        fastPreview: true,
+        renderIntent: 'geometry-preview',
+        renderRevision: 7,
+        render3dMode: 'surface'
+      },
+      new Uint8Array()
+    )
+
+    expect(viewerTabs.value[0].imageSrc).toBe('blob:volume')
+    expect(viewerTabs.value[0].render3dMode).toBe('surface')
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('preserves Layout and MPR 3D slot images for WebRTC metadata-only previews', () => {
+    const createObjectURL = vi.fn(() => 'blob:must-not-be-created')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const layout = createVolumeHarness({
+      ...createVolumeTab(),
+      key: 'layout-tab',
+      viewType: 'Layout',
+      viewId: '',
+      layoutSlots: [
+        {
+          id: 'slot-1-1',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: 'ct-series',
+          viewType: '3D',
+          sourceViewType: '3D',
+          viewId: 'volume-view',
+          imageSrc: 'blob:layout-volume',
+          ownsImageSrc: true
+        }
+      ]
+    })
+    layout.views.updateTabImage(
+      'layout-tab',
+      {
+        viewId: 'volume-view',
+        imageFormat: 'webp',
+        imageTransport: 'webrtc',
+        fastPreview: true,
+        renderIntent: 'geometry-preview',
+        renderRevision: 8
+      },
+      new Uint8Array()
+    )
+    expect(layout.viewerTabs.value[0].layoutSlots?.[0]).toMatchObject({
+      imageSrc: 'blob:layout-volume',
+      ownsImageSrc: true
+    })
+
+    const mpr = createMprHarness()
+    mpr.viewerTabs.value[0].viewId = 'mpr-volume-view'
+    mpr.viewerTabs.value[0].imageSrc = 'blob:mpr-volume'
+    mpr.views.updateTabImage(
+      'mpr-tab',
+      {
+        viewId: 'mpr-volume-view',
+        imageFormat: 'webp',
+        imageTransport: 'webrtc',
+        fastPreview: true,
+        renderIntent: 'geometry-preview',
+        renderRevision: 9
+      },
+      new Uint8Array()
+    )
+    expect(mpr.viewerTabs.value[0].imageSrc).toBe('blob:mpr-volume')
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+  })
+
   it('removes slice and 2D transform lines from normal and layout 3D corner overlays', () => {
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:volume-corners'),
@@ -1011,12 +1099,15 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     const cornerInfo = {
       topLeft: ['Scanner', 'Im: 12/320', '3D VR'],
       topRight: ['Patient'],
-      bottomLeft: ['W: 400 L: 40'],
+      bottomLeft: ['120kV 30mA', '0.6mm', 'W: 400 L: 40', '2026.07.17 09:00:00'],
       bottomRight: ['Zoom:1.20x', 'X:20 Y:13', 'Rot:0° / Flip:-'],
       tags: {
         imageIndex: ['Im: 12/320'],
         coordinates: ['X:20 Y:13'],
         transform2dState: ['Rot:0° / Flip:-'],
+        technique: ['120kV 30mA'],
+        sliceThickness: ['0.6mm'],
+        windowLevel: ['W: 400 L: 40'],
         zoom: ['Zoom:1.20x']
       }
     }
@@ -1032,11 +1123,15 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     normal.views.updateTabImage('volume-tab', imageUpdate, new Uint8Array([1]))
     expect(normal.viewerTabs.value[0].cornerInfo).toMatchObject({
       topLeft: ['Scanner', '3D VR'],
+      bottomLeft: ['2026.07.17 09:00:00'],
       bottomRight: ['Zoom:1.20x']
     })
     expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('imageIndex')
     expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('coordinates')
     expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('transform2dState')
+    expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('technique')
+    expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('sliceThickness')
+    expect(normal.viewerTabs.value[0].cornerInfo.tags).not.toHaveProperty('windowLevel')
 
     const layout = createVolumeHarness({
       ...createVolumeTab(),
@@ -1062,11 +1157,15 @@ describe('useViewerWorkspaceViews overlay payload preservation', () => {
     const layoutCornerInfo = layout.viewerTabs.value[0].layoutSlots?.[0]?.cornerInfo
     expect(layoutCornerInfo).toMatchObject({
       topLeft: ['Scanner', '3D VR'],
+      bottomLeft: ['2026.07.17 09:00:00'],
       bottomRight: ['Zoom:1.20x']
     })
     expect(layoutCornerInfo?.tags).not.toHaveProperty('imageIndex')
     expect(layoutCornerInfo?.tags).not.toHaveProperty('coordinates')
     expect(layoutCornerInfo?.tags).not.toHaveProperty('transform2dState')
+    expect(layoutCornerInfo?.tags).not.toHaveProperty('technique')
+    expect(layoutCornerInfo?.tags).not.toHaveProperty('sliceThickness')
+    expect(layoutCornerInfo?.tags).not.toHaveProperty('windowLevel')
   })
 
   it('drops stale 3D preview updates by render revision', () => {

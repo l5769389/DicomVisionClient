@@ -5,7 +5,12 @@ import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
-import type { StackTool, StackToolOption } from './toolbarTypes'
+import {
+  isStackToolOptionSelected,
+  resolveStackToolOptionSelectionMode,
+  type StackTool,
+  type StackToolOption
+} from './toolbarTypes'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -81,10 +86,26 @@ function getVolumeOrientationSuffix(option: StackToolOption): string {
 }
 
 function isToolbarOptionActive(option: StackToolOption): boolean {
-  if (props.tool.key === 'volumeOrientation') {
-    return option.checked === true
-  }
-  return props.stackToolSelections[props.tool.key] === option.value || option.checked === true
+  return isStackToolOptionSelected(props.tool, option, props.stackToolSelections[props.tool.key])
+}
+
+const optionSelectionMode = computed(() => resolveStackToolOptionSelectionMode(props.tool))
+
+function optionRole(): 'radio' | 'checkbox' | 'menuitem' {
+  if (optionSelectionMode.value === 'single') return 'radio'
+  if (optionSelectionMode.value === 'multiple') return 'checkbox'
+  return 'menuitem'
+}
+
+function isDestructiveOption(option: StackToolOption): boolean {
+  const value = option.value.toLowerCase()
+  return value.startsWith('clear:')
+    || value.startsWith('delete:')
+    || value === 'reset:all'
+    || value === 'reset:measurements'
+    || value === 'reset:annotations'
+    || value === 'reset:mtf'
+    || value === 'reset:qa-water'
 }
 </script>
 
@@ -127,6 +148,8 @@ function isToolbarOptionActive(option: StackToolOption): boolean {
             v-for="(option, optionIndex) in playbackFpsOptions"
             :key="option.value"
             type="button"
+            role="radio"
+            :aria-checked="optionIndex === playbackSelectedIndex"
             class="viewer-toolbar-menu-content__playback-tick"
             :class="{ 'viewer-toolbar-menu-content__playback-tick--active': optionIndex === playbackSelectedIndex }"
             @click="selectPlaybackIndex(optionIndex)"
@@ -167,23 +190,22 @@ function isToolbarOptionActive(option: StackToolOption): boolean {
         </div>
         <button
           type="button"
-          class="toolbar-menu-option group relative w-full appearance-none overflow-hidden rounded-xl! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+          :role="optionRole()"
+          :aria-checked="optionSelectionMode !== 'none' ? isToolbarOptionActive(option) : undefined"
+          class="toolbar-menu-option group relative min-h-[var(--viewer-tool-option-min-height)] w-full appearance-none overflow-hidden rounded-lg! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
           :class="{
-            'toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': isToolbarOptionActive(option)
+            'toolbar-menu-option--active border-[var(--theme-selection-border)]! bg-[var(--theme-selection-surface)]! text-[var(--theme-text-primary)]! shadow-[var(--theme-selection-shadow)]!': isToolbarOptionActive(option),
+            'toolbar-menu-option--destructive': isDestructiveOption(option)
           }"
           @click="emit('select', option.value)"
         >
-          <div
-            class="toolbar-menu-option__rail pointer-events-none absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-            :class="{ 'opacity-100': isToolbarOptionActive(option) }"
-          />
           <div class="flex items-center justify-between gap-2.5">
             <div class="flex min-w-0 items-center gap-3">
               <div
                 v-if="tool.key === 'pseudocolor' || option.icon"
-                class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
+                class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
                 :class="{
-                  'w-[46px] rounded-xl': tool.key === 'pseudocolor',
+                  'w-[46px] rounded-lg': tool.key === 'pseudocolor',
                   'border-[color:color-mix(in_srgb,var(--theme-accent)_26%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_14%,var(--theme-surface-card-soft)_86%),color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-surface-panel-solid)_90%))]': isToolbarOptionActive(option)
                 }"
               >
@@ -216,12 +238,18 @@ function isToolbarOptionActive(option: StackToolOption): boolean {
               </div>
             </div>
             <span
-              v-if="tool.key === 'compareSync' || tool.key === 'display'"
+              v-if="optionSelectionMode === 'multiple'"
               class="toolbar-menu-option__check grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[color:color-mix(in_srgb,var(--theme-border-soft)_82%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_92%,transparent)] text-[var(--theme-text-muted)]"
               :class="{ 'border-[color:color-mix(in_srgb,var(--theme-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_16%,transparent)] text-[var(--theme-accent)]': option.checked }"
             >
               <AppIcon v-if="option.checked" name="check" :size="14" />
             </span>
+            <AppIcon
+              v-else-if="optionSelectionMode === 'single' && isToolbarOptionActive(option)"
+              name="check"
+              class="toolbar-menu-option__selected-icon shrink-0 text-[var(--theme-accent)]"
+              :size="16"
+            />
             <span
               v-if="option.badge"
               class="toolbar-menu-option__badge shrink-0 rounded-full border border-[color:color-mix(in_srgb,var(--theme-border-soft)_88%,transparent)] bg-[color:color-mix(in_srgb,var(--theme-surface-card-soft)_94%,white_2%)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--theme-text-muted)]"
@@ -239,13 +267,14 @@ function isToolbarOptionActive(option: StackToolOption): boolean {
           v-for="option in tool.footerOptions"
           :key="option.value"
           type="button"
-          class="toolbar-menu-option toolbar-menu-option--footer group relative w-full appearance-none overflow-hidden rounded-xl! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+          class="toolbar-menu-option toolbar-menu-option--footer group relative min-h-[var(--viewer-tool-option-min-height)] w-full appearance-none overflow-hidden rounded-lg! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
+          :class="{ 'toolbar-menu-option--destructive': isDestructiveOption(option) }"
           @click="emit('select', option.value)"
         >
           <div class="flex items-center gap-3">
             <div
               v-if="option.icon"
-              class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
+              class="toolbar-menu-option__icon flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[color:color-mix(in_srgb,var(--theme-border-soft)_86%,transparent)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-surface-card-soft)_92%,white_2%),color-mix(in_srgb,var(--theme-surface-panel-solid)_92%,black_4%))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition group-hover:border-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)]"
             >
               <AppIcon :name="option.icon" :size="menuIconSize + 2" />
             </div>
@@ -310,6 +339,22 @@ function isToolbarOptionActive(option: StackToolOption): boolean {
 
 .toolbar-menu-option--footer {
   color: var(--theme-text-secondary) !important;
+}
+
+.toolbar-menu-option--destructive {
+  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent) !important;
+  color: var(--theme-danger) !important;
+}
+
+.toolbar-menu-option--destructive:hover,
+.toolbar-menu-option--destructive:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-danger) 56%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-danger) 11%, transparent) !important;
+}
+
+.toolbar-menu-option--destructive .toolbar-menu-option__icon {
+  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent) !important;
+  color: var(--theme-danger);
 }
 
 .viewer-toolbar-menu-content__playback-fps {

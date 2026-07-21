@@ -118,8 +118,6 @@ const mdiIconMap: Record<string, string> = {
   'dots-vertical': mdiDotsVertical,
   rotate: mdiRotateRight,
   rotate3d: mdiRotate3dVariant,
-  'render-volume': mdiLayersTriple,
-  'render-surface': mdiShapePolygonPlus,
   'render-mode': mdiLayersTriple,
   'orientation-3d': mdiCubeScan,
   'orientation-face-oblique': mdiCubeScan,
@@ -213,8 +211,15 @@ const mdiIconMap: Record<string, string> = {
 }
 
 const bedIconName = computed(() => (props.name === 'bed-visible' || props.name === 'remove-bed' || props.name === 'bed-hidden' ? props.name : null))
-const isPseudocolorIcon = computed(() => props.name === 'pseudocolor')
-const renderModeLetter = computed(() => (props.name === 'render-volume' ? 'V' : props.name === 'render-surface' ? 'S' : null))
+const renderModeLetter = computed(() => {
+  if (props.name === 'render-volume') {
+    return 'V'
+  }
+  if (props.name === 'render-surface') {
+    return 'S'
+  }
+  return null
+})
 const orientationFaceLetter = computed(() => {
   const match = props.name.match(/^orientation-face-([APLRSI])$/)
   if (match) {
@@ -222,8 +227,8 @@ const orientationFaceLetter = computed(() => {
   }
   return null
 })
-const iconPath = computed(() => (bedIconName.value || isPseudocolorIcon.value || renderModeLetter.value || orientationFaceLetter.value) ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
-const iconSize = computed(() => props.size ?? 24)
+const iconPath = computed(() => (bedIconName.value || renderModeLetter.value || orientationFaceLetter.value) ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
+const iconSize = computed(() => props.size ?? 20)
 </script>
 
 <template>
@@ -232,6 +237,7 @@ const iconSize = computed(() => props.size ?? 24)
     :width="iconSize"
     :height="iconSize"
     viewBox="0 0 24 24"
+    :data-icon-name="props.name"
     focusable="false"
     aria-hidden="true"
   >
@@ -247,23 +253,13 @@ const iconSize = computed(() => props.size ?? 24)
       />
       <path class="app-icon-svg__bed-board" :d="mdiBedEmpty" transform="matrix(0.78 0 0 0.52 2.64 10.55)" />
     </g>
-    <template v-else-if="isPseudocolorIcon">
-      <defs>
-        <radialGradient id="app-icon-pseudocolor-gradient" cx="34%" cy="28%" r="72%">
-          <stop offset="0%" stop-color="#ffffff" />
-          <stop offset="28%" stop-color="#e7ebef" />
-          <stop offset="58%" stop-color="#9fa8b2" />
-          <stop offset="100%" stop-color="#4f5b66" />
-        </radialGradient>
-      </defs>
-      <circle cx="12" cy="12" r="8.25" fill="url(#app-icon-pseudocolor-gradient)" />
-      <circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.1" />
-    </template>
     <text
       v-else-if="renderModeLetter"
       class="app-icon-svg__render-letter"
       x="12"
-      y="16.4"
+      y="16.8"
+      font-size="18"
+      font-weight="600"
       text-anchor="middle"
       :data-render-mode-icon="props.name"
     >{{ renderModeLetter }}</text>
@@ -301,8 +297,8 @@ const iconSize = computed(() => props.size ?? 24)
 .app-icon-svg__render-letter {
   fill: currentColor;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -310,7 +306,7 @@ const iconSize = computed(() => props.size ?? 24)
   fill: currentColor;
   stroke: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 900;
   letter-spacing: 0;
 }

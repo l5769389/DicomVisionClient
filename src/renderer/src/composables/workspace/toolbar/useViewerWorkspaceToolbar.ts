@@ -200,6 +200,7 @@ const measureTool: StackTool = {
   label: 'Measure',
   icon: 'measure',
   kind: 'action',
+  optionSelectionMode: 'single',
   options: [
     { value: 'measure:line', label: 'Line', icon: 'measure-line' },
     { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' },
@@ -215,6 +216,7 @@ const qaTool: StackTool = {
   label: 'QA',
   icon: 'qa',
   kind: 'mode',
+  optionSelectionMode: 'single',
   showSelectedOptionIcon: false,
   options: [
     {
@@ -242,6 +244,7 @@ const pseudocolorTool: StackTool = {
   icon: 'pseudocolor',
   swatchKey: 'bw',
   kind: 'action',
+  optionSelectionMode: 'single',
   options: PSEUDOCOLOR_PRESET_OPTIONS.map((option) => ({
     value: `pseudocolor:${option.key}`,
     label: option.label,
@@ -263,6 +266,7 @@ const pageTool: StackTool = {
   label: 'Page',
   icon: 'page',
   kind: 'action',
+  optionSelectionMode: 'none',
   showSelectedOptionIcon: false,
   options: [
     { value: 'page:previous10', label: 'Previous 10', icon: 'chevron-left' },
@@ -298,6 +302,7 @@ const fusionRegistrationTool: StackTool = {
   label: 'Registration',
   icon: 'crosshair',
   kind: 'action',
+  optionSelectionMode: 'none',
   inlineKind: 'fusionRegistration',
   dockOptions: [
     { value: 'fusionRegistration:toggle', label: 'Manual Registration', icon: 'crosshair' },
@@ -313,6 +318,7 @@ const layoutTool: StackTool = {
   label: 'Layout',
   icon: 'layout',
   kind: 'action',
+  optionSelectionMode: 'single',
   menuKind: 'layout',
   showSelectedOptionIcon: false,
   options: VIEWER_LAYOUT_PRESETS.map((template) => ({
@@ -329,6 +335,7 @@ const mprLayoutTool: StackTool = {
   label: 'MPR Layout',
   icon: 'layout',
   kind: 'action',
+  optionSelectionMode: 'single',
   menuKind: 'mprLayout',
   showSelectedOptionIcon: false,
   options: MPR_LAYOUT_OPTIONS.map((option) => ({
@@ -386,6 +393,7 @@ const exportTool: StackTool = {
   label: 'Export',
   icon: 'export',
   kind: 'action',
+  optionSelectionMode: 'none',
   options: [
     { value: 'png', label: 'PNG', icon: 'export' },
     { value: 'dicom', label: 'DICOM', icon: 'export' },
@@ -399,6 +407,7 @@ const playTool: StackTool = {
   label: 'Play',
   icon: 'play',
   kind: 'action',
+  optionSelectionMode: 'single',
   showSelectedOptionIcon: false,
   options: STACK_PLAYBACK_FPS_OPTIONS.map((fps) => ({
     value: `playbackFps:${fps}`,
@@ -461,6 +470,7 @@ const stackTools: StackTool[] = [
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
+    optionSelectionMode: 'none',
     options: rotateOptions
   },
   pageTool,
@@ -476,6 +486,7 @@ const stackTools: StackTool[] = [
     label: 'Reset',
     icon: 'reset',
     kind: 'action',
+    optionSelectionMode: 'none',
     showSelectedOptionIcon: false,
     options: [
       { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
@@ -700,6 +711,7 @@ const fusionTools: StackTool[] = [
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
+    optionSelectionMode: 'none',
     options: rotateOptions
   },
   pageTool,
@@ -712,6 +724,7 @@ const fusionTools: StackTool[] = [
     label: 'Reset',
     icon: 'reset',
     kind: 'action',
+    optionSelectionMode: 'none',
     showSelectedOptionIcon: false,
     options: [
       { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
@@ -733,6 +746,7 @@ const petTools: StackTool[] = [
     label: 'Rotate',
     icon: 'rotate',
     kind: 'action',
+    optionSelectionMode: 'none',
     options: rotateOptions
   },
   pageTool,
@@ -745,6 +759,7 @@ const petTools: StackTool[] = [
     label: 'Reset',
     icon: 'reset',
     kind: 'action',
+    optionSelectionMode: 'none',
     showSelectedOptionIcon: false,
     options: [
       { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset WW/WL, transforms, pseudocolor, and view state.' },
@@ -772,9 +787,10 @@ const surfaceParamsTool: StackTool = { key: 'surfaceParams', label: 'Surface Par
 const render3dModeTool: StackTool = {
   key: 'render3dMode',
   label: 'Render',
-  icon: 'render-mode',
+  icon: 'render-volume',
   kind: 'action',
-  showSelectedOptionIcon: false,
+  optionSelectionMode: 'single',
+  showSelectedOptionIcon: true,
   options: [
     { value: 'render3dMode:volume', label: 'VR', icon: 'render-volume', description: 'Volume rendering' },
     { value: 'render3dMode:surface', label: 'Surface', icon: 'render-surface', description: 'Bone surface mesh' }
@@ -786,6 +802,7 @@ const volumeOrientationTool: StackTool = {
   label: 'Orientation',
   icon: getVolumeOrientationIcon(DEFAULT_VOLUME_ORIENTATION_FACE),
   kind: 'action',
+  optionSelectionMode: 'single',
   showSelectedOptionIcon: false,
   options: VOLUME_ORIENTATION_FACES.map((face) => ({
     value: `volumeOrientation:${face}`,
@@ -806,6 +823,7 @@ const volumePresetTool: StackTool = {
   label: 'Preset',
   icon: 'volumePreset',
   kind: 'action',
+  optionSelectionMode: 'single',
   options: VOLUME_PRESET_OPTIONS.map((option) => ({ ...option }))
 }
 
@@ -814,6 +832,7 @@ const surfacePresetTool: StackTool = {
   label: 'Surface Preset',
   icon: 'surface-preset',
   kind: 'action',
+  optionSelectionMode: 'single',
   showSelectedOptionIcon: false,
   options: [
     { value: 'surfacePreset:bone', label: 'Bone', icon: 'render-surface' },
@@ -822,13 +841,21 @@ const surfacePresetTool: StackTool = {
   ]
 }
 
-const volumeRemoveBedTool: StackTool = { key: 'volumeRemoveBed', label: 'Remove Bed', icon: 'remove-bed', kind: 'action' }
+const volumeRemoveBedTool: StackTool = {
+  key: 'volumeRemoveBed',
+  label: 'Remove Bed',
+  icon: 'remove-bed',
+  kind: 'action',
+  stateControl: true,
+  stateActive: false
+}
 
 const volumeClipTool: StackTool = {
   key: 'volumeClip',
   label: 'Clip',
   icon: 'volume-clip',
   kind: 'mode',
+  optionSelectionMode: 'single',
   options: [
     { value: 'volumeClip:inside', label: 'Clip Inside', icon: 'volume-clip' },
     { value: 'volumeClip:outside', label: 'Clip Outside', icon: 'volume-clip' },
@@ -841,6 +868,7 @@ const segmentationTool: StackTool = {
   label: '阈值分割',
   icon: 'segmentation',
   kind: 'action',
+  optionSelectionMode: 'single',
   options: [
     {
       value: 'segmentation:threshold',
@@ -875,6 +903,7 @@ const volumeTools: StackTool[] = [
     label: 'Reset',
     icon: 'reset',
     kind: 'action',
+    optionSelectionMode: 'none',
     showSelectedOptionIcon: false,
     options: [
       { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset 3D view parameters and rendering defaults.' },
@@ -901,6 +930,7 @@ const genericToolsWithCrosshair: StackTool[] = [
     label: 'Reset',
     icon: 'reset',
     kind: 'action',
+    optionSelectionMode: 'none',
     showSelectedOptionIcon: false,
     options: [
       { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset crosshair, MIP config, transforms, and pseudocolor.' },
@@ -987,8 +1017,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const explicitWindowSelectionByTargetKey = new Map<string, string>()
   const pendingTransientCallback = ref<(() => void) | null>(null)
 
-  const toolbarIconSize = 18
-  const menuIconSize = 15
+  const toolbarIconSize = 22
+  const menuIconSize = 18
   const toggleIconSize = 11
   const isZh = computed(() => locale.value === 'zh-CN')
 
@@ -1038,6 +1068,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     label: 'Window',
     icon: 'window',
     kind: 'mode',
+    optionSelectionMode: 'single',
     showSelectedOptionIcon: false,
     options: windowPresets.value.map((preset) => ({
       value: formatWindowPresetValue(preset.ww, preset.wl),
@@ -1058,6 +1089,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       label: 'Sync',
       icon: 'sync',
       kind: 'action',
+      optionSelectionMode: 'multiple',
       showSelectedOptionIcon: false,
       options: VIEW_SYNC_OPTION_CONFIGS.map(({ key, value, label, icon, description }) => ({
         value,
@@ -1156,6 +1188,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     label: isZh.value ? '显示' : 'Display',
     icon: 'display',
     kind: 'action',
+    optionSelectionMode: 'multiple',
     showSelectedOptionIcon: false,
     options: [
       {
@@ -1250,7 +1283,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     const mode = activeMprCrosshairMode.value
     const isDoubleOblique = mode === 'double-oblique'
     const title = isZh.value
-      ? `十字线 · ${isDoubleOblique ? 'Double Oblique' : '正交锁定'}`
+      ? `十字线 · ${isDoubleOblique ? '双斜位' : '正交锁定'}`
       : `Crosshair · ${isDoubleOblique ? 'Double Oblique' : 'Orthogonal Lock'}`
     return tools.map((tool) =>
       tool.key === 'crosshair'
@@ -1267,7 +1300,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
               },
               {
                 value: toMprCrosshairModeSelectionValue('double-oblique'),
-                label: 'Double Oblique',
+                label: isZh.value ? '双斜位' : 'Double Oblique',
                 icon: 'crosshair',
                 description: isZh.value ? '允许单独旋转十字线对应切面' : 'Rotate each referenced plane independently',
                 checked: mode === 'double-oblique'
@@ -1363,7 +1396,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       ...tool,
       icon: removeBedEnabled ? 'bed-hidden' : 'bed-visible',
       label,
-      pressed: removeBedEnabled,
+      pressed: undefined,
+      stateControl: true,
+      stateActive: removeBedEnabled,
       title: removeBedEnabled
         ? (isZh.value ? '恢复床板显示' : 'Show Bed')
         : (isZh.value ? '隐藏床板' : 'Hide Bed')
@@ -2079,6 +2114,15 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     })
   }
 
+  function applySelectedRender3dMode(tool: StackTool): void {
+    closeMenus()
+    const selectedOption = getSelectedOption(tool.key)
+    if (!selectedOption) {
+      return
+    }
+    options.emitTriggerViewAction({ action: 'render3dMode', value: selectedOption.value })
+  }
+
   function applySelectedModeTool(tool: StackTool, behavior?: StackToolOptionSelectBehavior): void {
     closeMenusIfNeeded(behavior)
     const selectedOption = getSelectedOption(tool.key)
@@ -2144,7 +2188,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     volumePreset: (tool) => applySelectedViewAction(tool, 'volumePreset'),
     surfacePreset: (tool) => applySelectedViewAction(tool, 'surfacePreset'),
     volumeOrientation: toggleToolMenu,
-    render3dMode: (tool) => applySelectedViewAction(tool, 'render3dMode'),
+    render3dMode: applySelectedRender3dMode,
     volumeRemoveBed: () => {
       closeMenus()
       flashToolActive('volumeRemoveBed', activeToolbarToolKey.value, () => {
@@ -2681,10 +2725,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'volumePreset' || tool.key === 'surfacePreset' || tool.key === 'render3dMode') {
+    if (tool.key === 'render3dMode') {
+      closeMenusIfNeeded(behavior)
+      options.emitTriggerViewAction({ action: 'render3dMode', value: optionValue })
+      return
+    }
+
+    if (tool.key === 'volumePreset' || tool.key === 'surfacePreset') {
       flashToolActive(tool.key, activeToolbarToolKey.value, () => {
         options.emitTriggerViewAction({
-          action: tool.key === 'volumePreset' ? 'volumePreset' : tool.key === 'surfacePreset' ? 'surfacePreset' : 'render3dMode',
+          action: tool.key === 'volumePreset' ? 'volumePreset' : 'surfacePreset',
           value: optionValue
         })
       })

@@ -333,8 +333,9 @@ describe('FourDView', () => {
     expect(dockChildren).toHaveLength(3)
     const dockButtons = wrapper.findAll('.viewer-toolbar-dock__button')
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(dockButtons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
-    expect(dockButtons[4]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(dockButtons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(dockButtons[4]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(dockButtons[4]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
 
     await wrapper.findAll('.viewer-toolbar-dock__status .four-d-phase-button')[1]!.trigger('click')
     expect(wrapper.emitted('phaseChange')).toEqual([[1]])
@@ -364,8 +365,10 @@ describe('FourDView', () => {
     expect(wrapper.find('.viewer-toolbar-dock__status .four-d-phase-runtime').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MTF Curve')
     expect(wrapper.find('[data-testid="four-d-result"]').text()).toBe('MTF result')
-    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(0)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain(
+      'viewer-toolbar-dock__button--panel-open'
+    )
     wrapper.unmount()
   })
 

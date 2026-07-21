@@ -990,7 +990,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         :data-testid="`mpr-threshold-select-${region.id}`"
         @click="selectRegion(region.id)"
       >
-        <div class="grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2">
+        <div class="mpr-segmentation-panel__record-header grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2">
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
             :class="region.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -1029,7 +1029,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           />
           <div
             v-if="selectedRegion?.id === region.id"
-            class="inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5"
+            class="mpr-segmentation-panel__record-mode inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5"
           >
             <button
               class="h-6 rounded px-2 text-[11px] font-semibold transition"
@@ -1049,7 +1049,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             </button>
           </div>
           <button
-            class="mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
+            class="mpr-segmentation-panel__record-delete mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
             type="button"
             :title="panelCopy.deleteRegion"
             :data-testid="`mpr-threshold-delete-${region.id}`"
@@ -1191,7 +1191,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         :data-testid="`mpr-voi-select-${sphere.id}`"
         @click="selectVoi(sphere.id)"
       >
-          <div class="flex min-w-0 items-center gap-2">
+          <div class="mpr-segmentation-panel__record-header mpr-segmentation-panel__record-header--voi grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
             <button
               class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
               :class="sphere.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -1232,7 +1232,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               {{ panelCopy.radius }} {{ formatMetric(sphere.radiusMm) }} mm
             </span>
             <button
-              class="mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
+              class="mpr-segmentation-panel__record-delete mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
               type="button"
               :title="panelCopy.deleteVoi"
               :data-testid="`mpr-voi-delete-${sphere.id}`"
@@ -1482,6 +1482,10 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
 </template>
 
 <style scoped>
+.mpr-segmentation-panel {
+  container-type: inline-size;
+}
+
 .mpr-segmentation-panel--mobile {
   height: 100%;
   min-height: 0;
@@ -1528,6 +1532,40 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
 .mpr-segmentation-panel__metric-cell {
   border-color: var(--theme-border-soft);
   background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+}
+
+@container (max-width: 280px) {
+  .mpr-segmentation-panel__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: 0;
+  }
+}
+
+@container (max-width: 250px) {
+  .mpr-segmentation-panel__record-header:not(.mpr-segmentation-panel__record-header--voi) {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .mpr-segmentation-panel__record-mode {
+    grid-column: 3 / -1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .mpr-segmentation-panel__record-delete {
+    grid-column: -2;
+    grid-row: 1;
+  }
+
+  .mpr-segmentation-panel__record-header--voi {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+  }
+
+  .mpr-segmentation-panel__record-header--voi > :nth-child(4) {
+    grid-column: 3 / -1;
+    grid-row: 2;
+  }
 }
 
 .mpr-segmentation-panel--mobile .mpr-segmentation-panel__metrics {

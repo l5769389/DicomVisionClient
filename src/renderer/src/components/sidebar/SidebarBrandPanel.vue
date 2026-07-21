@@ -13,7 +13,7 @@ const { t } = useUiLocale()
 
 <template>
   <div
-    class="sidebar-brand-card relative overflow-hidden rounded-2xl border p-3"
+    class="sidebar-brand-card relative overflow-hidden border"
     :class="{ 'sidebar-brand-card--compact': compact }"
   >
     <div class="sidebar-brand-card__shine pointer-events-none absolute inset-x-0 top-0 h-px"></div>
@@ -48,6 +48,9 @@ const { t } = useUiLocale()
 
 <style scoped>
 .sidebar-brand-card {
+  min-height: 68px;
+  padding: 9px 10px;
+  border-radius: 10px;
   border-color: var(--theme-border-soft);
   background: var(--theme-surface-panel);
   box-shadow:
@@ -134,13 +137,13 @@ const { t } = useUiLocale()
   position: relative;
   display: grid;
   overflow: hidden;
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
   place-items: center;
   border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border-soft));
   border-width: 1px;
   border-style: solid;
-  border-radius: 16px 11px 16px 11px;
+  border-radius: 12px 8px 12px 8px;
   background:
     linear-gradient(
       145deg,
@@ -259,7 +262,7 @@ const { t } = useUiLocale()
 
 .sidebar-brand-title {
   color: var(--theme-text-primary);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1.05;
@@ -267,13 +270,13 @@ const { t } = useUiLocale()
 
 .sidebar-brand-github {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
   border-width: 1px;
   border-style: solid;
-  border-radius: 999px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card-soft));
   color: color-mix(in srgb, var(--theme-text-primary) 82%, var(--theme-accent) 18%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
@@ -296,7 +299,7 @@ const { t } = useUiLocale()
 
 .sidebar-brand-subtitle {
   color: var(--theme-text-muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1.25;

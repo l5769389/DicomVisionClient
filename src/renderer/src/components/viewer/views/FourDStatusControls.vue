@@ -91,23 +91,21 @@ function selectFps(value: number): void {
             v-for="option in FPS_OPTIONS"
             :key="option"
             type="button"
+            role="radio"
+            :aria-checked="option === normalizedFps"
             class="four-d-fps-option toolbar-menu-option group relative overflow-hidden rounded-2xl! border border-transparent px-3! py-2.5! text-left! text-sm! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
             :class="{
               'four-d-fps-option--active toolbar-menu-option--active border-[color:color-mix(in_srgb,var(--theme-accent)_28%,transparent)]! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_16%,transparent),color-mix(in_srgb,var(--theme-accent)_10%,transparent))]! text-[var(--theme-text-primary)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]!': option === normalizedFps
             }"
             @click="selectFps(option)"
           >
-            <div
-              class="toolbar-menu-option__rail pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-[color:color-mix(in_srgb,var(--theme-accent)_80%,white_8%)] opacity-0 transition"
-              :class="{ 'opacity-100': option === normalizedFps }"
-            />
             <span>FPS {{ option }}</span>
             <AppIcon v-if="option === normalizedFps" name="check" :size="14" />
           </button>
         </div>
       </VMenu>
       <button class="four-d-icon-button" type="button" :disabled="playbackButtonDisabled" :aria-label="playbackButtonLabel" :title="playbackButtonTitle" @click="emit('playbackToggle')">
-        <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
+        <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="20" />
       </button>
       <button
         v-if="showTabStripToggle"

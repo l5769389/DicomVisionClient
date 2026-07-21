@@ -19,6 +19,14 @@ const peers = new Map<string, PeerEntry>()
 const referenceCounts = new Map<string, number>()
 const streams = shallowReactive(new Map<string, MediaStream>())
 const states = shallowReactive(new Map<string, ThreeDWebRtcState>())
+const finalStillViewIds = shallowReactive(new Set<string>())
+const videoReadyViewIds = shallowReactive(new Set<string>())
+const announcedVideoFrameGenerations = new Map<string, number>()
+interface PendingVideoFrame {
+  generation: number
+  remainingFrames: number
+}
+const pendingVideoFrames = shallowReactive(new Map<string, PendingVideoFrame>())
 const configuredTransport = ref<ThreeDTransportMode>('webp')
 export const threeDTransportMode = readonly(configuredTransport)
 let serverConfig: WebRtc3DConfigResponse | null = null
@@ -68,6 +76,10 @@ function disposeLocalPeer(viewId: string): void {
   const entry = peers.get(viewId)
   peers.delete(viewId)
   streams.delete(viewId)
+  finalStillViewIds.delete(viewId)
+  videoReadyViewIds.delete(viewId)
+  announcedVideoFrameGenerations.delete(viewId)
+  pendingVideoFrames.delete(viewId)
   if (entry) {
     entry.peer.ontrack = null
     entry.peer.onconnectionstatechange = null
@@ -202,6 +214,86 @@ export function getThreeDWebRtcState(viewId: string | null | undefined): ThreeDW
   return viewId ? states.get(viewId) ?? 'idle' : 'idle'
 }
 
+export interface ThreeDFrameTransportUpdate {
+  viewId?: string | null
+  imageTransport?: 'webrtc' | 'webp-final' | 'webp' | null
+  fastPreview?: boolean
+}
+
+/**
+ * WebRTC owns interactive 3D pixels. A settled lossless WebP stays above it
+ * until the browser presents the announced preview frame, regardless of
+ * whether that preview came from rotate, pan, zoom, or another operation.
+ */
+export function applyThreeDFrameTransportUpdate(update: ThreeDFrameTransportUpdate): void {
+  const viewId = update.viewId
+  if (!viewId) {
+    return
+  }
+  if (update.imageTransport === 'webp-final') {
+    finalStillViewIds.add(viewId)
+    pendingVideoFrames.delete(viewId)
+  } else if (update.imageTransport === 'webrtc' && update.fastPreview === true) {
+    // Metadata and video travel over different transports. Keep the settled
+    // still above the video until the browser presents the announced frame;
+    // otherwise the decoder's previous mode/clip frame flashes briefly.
+    if (pendingVideoFrames.has(viewId)) {
+      return
+    }
+    if (!finalStillViewIds.has(viewId) && videoReadyViewIds.has(viewId)) {
+      return
+    }
+    const generation = (announcedVideoFrameGenerations.get(viewId) ?? 0) + 1
+    announcedVideoFrameGenerations.set(viewId, generation)
+    pendingVideoFrames.set(viewId, { generation, remainingFrames: 2 })
+  }
+}
+
+export function getPendingThreeDVideoFrameGeneration(
+  viewId: string | null | undefined
+): number | null {
+  return viewId ? pendingVideoFrames.get(viewId)?.generation ?? null : null
+}
+
+export function acknowledgeThreeDVideoFrame(
+  viewId: string | null | undefined,
+  generation: number
+): boolean {
+  if (!viewId) {
+    return false
+  }
+  const pending = pendingVideoFrames.get(viewId)
+  if (!pending || pending.generation !== generation) {
+    return false
+  }
+  if (pending.remainingFrames > 1) {
+    pendingVideoFrames.set(viewId, {
+      generation,
+      remainingFrames: pending.remainingFrames - 1
+    })
+    return false
+  }
+  pendingVideoFrames.delete(viewId)
+  videoReadyViewIds.add(viewId)
+  finalStillViewIds.delete(viewId)
+  return true
+}
+
+export function hasPresentedThreeDVideoFrame(viewId: string | null | undefined): boolean {
+  return Boolean(viewId && videoReadyViewIds.has(viewId))
+}
+
+export function shouldShowThreeDStillFrame(viewId: string | null | undefined): boolean {
+  return Boolean(
+    viewId &&
+    (finalStillViewIds.has(viewId) || !videoReadyViewIds.has(viewId))
+  )
+}
+
+export function shouldShowThreeDFinalStill(viewId: string | null | undefined): boolean {
+  return Boolean(viewId && finalStillViewIds.has(viewId))
+}
+
 export function restartThreeDWebRtcTransports(): void {
   if (configuredTransport.value !== 'webrtc') {
     return
@@ -219,4 +311,8 @@ export function closeAllThreeDWebRtcTransports(): void {
   }
   streams.clear()
   states.clear()
+  finalStillViewIds.clear()
+  videoReadyViewIds.clear()
+  announcedVideoFrameGenerations.clear()
+  pendingVideoFrames.clear()
 }

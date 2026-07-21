@@ -220,7 +220,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 21
+const CURRENT_PREFERENCES_VERSION = 22
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'

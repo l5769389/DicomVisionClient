@@ -197,7 +197,7 @@ const dicomDropPreviewTitle = computed(() => {
   if (dicomDropPreviewKind.value === 'mixed') {
     return isZh.value ? '松开以加载文件和文件夹中的序列' : 'Drop files and folders to load series'
   }
-  return isZh.value ? '松开以加载 DICOM 文件序列' : 'Drop DICOM file to load series'
+  return isZh.value ? '松开以加载 DICOM 或压缩包' : 'Drop DICOM file or archive to load series'
 })
 const dicomDropPreviewHint = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
@@ -206,7 +206,7 @@ const dicomDropPreviewHint = computed(() => {
   if (dicomDropPreviewKind.value === 'mixed') {
     return isZh.value ? '每个拖入路径都会独立解析。' : 'Each dropped path will be parsed independently.'
   }
-  return isZh.value ? '支持单个或多个 DICOM 文件。' : 'Single or multiple DICOM files are supported.'
+  return isZh.value ? '支持 DICOM 文件以及 ZIP、7z、RAR 压缩包。' : 'Supports DICOM files and ZIP, 7z, or RAR archives.'
 })
 const statusToastIcon = computed(() => {
   switch (viewer.statusToast.value?.tone) {

@@ -110,7 +110,60 @@ function mountToolbar(manualRegistration = false, openMenuKey: string | null = n
   })
 }
 
+function mountOperationToolbar(tool: StackTool, selection?: string) {
+  return mount(ViewerToolbar, {
+    props: {
+      activeTab: createFusionTab(false),
+      activeTools: [tool],
+      areToolbarActionsDisabled: false,
+      isPlaying: false,
+      isPlaybackPaused: false,
+      isToolSelected: () => false,
+      openMenuKey: null,
+      stackToolSelections: selection ? { [tool.key]: selection } : {},
+      toolbarIconSize: 20,
+      menuIconSize: 18,
+      toggleIconSize: 11
+    },
+    global: {
+      stubs: {
+        AppIcon: true,
+        FusionPetDisplayTool: true,
+        LayoutMenuPanel: true,
+        MprLayoutMenuPanel: true
+      }
+    }
+  })
+}
+
 describe('ViewerToolbar fusion registration inline tool', () => {
+  it('keeps regular primary icons fixed and only reflects explicitly stateful options', () => {
+    const fixedTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      options: [{ value: 'measure:line', label: 'Line', icon: 'measure-line' }]
+    }
+    const fixed = mountOperationToolbar(fixedTool, 'measure:line')
+    expect(fixed.get('.toolbar-tool-button app-icon-stub').attributes('name')).toBe('measure')
+    expect(fixed.get('.toolbar-tool-button').classes()).toContain('h-12!')
+    expect(fixed.get('.toolbar-tool-button').classes()).toContain('rounded-lg!')
+    fixed.unmount()
+
+    const stateTool: StackTool = {
+      key: 'render3dMode',
+      label: 'Render',
+      icon: 'render-volume',
+      showSelectedOptionIcon: true,
+      options: [
+        { value: 'render3dMode:volume', label: 'VR', icon: 'render-volume' },
+        { value: 'render3dMode:surface', label: 'Surface', icon: 'render-surface' }
+      ]
+    }
+    const stateful = mountOperationToolbar(stateTool, 'render3dMode:surface')
+    expect(stateful.get('.toolbar-tool-button app-icon-stub').attributes('name')).toBe('render-surface')
+    stateful.unmount()
+  })
   it('shows only the registration toggle before manual registration is enabled', async () => {
     const wrapper = mountToolbar(false)
 

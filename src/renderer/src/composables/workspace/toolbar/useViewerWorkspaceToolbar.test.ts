@@ -347,7 +347,9 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(getRemoveBedTool().icon).toBe('bed-visible')
     expect(getRemoveBedTool().label).toBe('去床板')
     expect(getRemoveBedTool().title).toBe('隐藏床板')
-    expect(getRemoveBedTool().pressed).toBe(false)
+    expect(getRemoveBedTool().pressed).toBeUndefined()
+    expect(getRemoveBedTool().stateControl).toBe(true)
+    expect(getRemoveBedTool().stateActive).toBe(false)
 
     harness.activeTab.value = {
       ...harness.activeTab.value!,
@@ -361,7 +363,9 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(getRemoveBedTool().icon).toBe('bed-hidden')
     expect(getRemoveBedTool().label).toBe('已去床板')
     expect(getRemoveBedTool().title).toBe('恢复床板显示')
-    expect(getRemoveBedTool().pressed).toBe(true)
+    expect(getRemoveBedTool().pressed).toBeUndefined()
+    expect(getRemoveBedTool().stateControl).toBe(true)
+    expect(getRemoveBedTool().stateActive).toBe(true)
 
     harness.wrapper.unmount()
   })
@@ -759,13 +763,13 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.wrapper.unmount()
   })
 
-  it('keeps the render-mode primary icon fixed while VR and Surface retain letter option icons', async () => {
+  it('shows the currently selected VR or Surface icon on the render-mode tool', async () => {
     const harness = mountToolbarHarness()
     await nextTick()
 
     const renderTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'render3dMode')!
-    expect(renderTool.icon).toBe('render-mode')
-    expect(renderTool.showSelectedOptionIcon).toBe(false)
+    expect(renderTool.icon).toBe('render-volume')
+    expect(renderTool.showSelectedOptionIcon).toBe(true)
     expect(renderTool.options?.map((option) => option.icon)).toEqual(['render-volume', 'render-surface'])
 
     harness.activeTab.value = {
@@ -773,8 +777,38 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       render3dMode: 'volume'
     }
     await nextTick()
-    expect(harness.toolbar.activeTools.value.find((tool) => tool.key === 'render3dMode')?.icon).toBe('render-mode')
+    expect(harness.toolbar.stackToolSelections.value.render3dMode).toBe('render3dMode:volume')
 
+    harness.activeTab.value = {
+      ...harness.activeTab.value!,
+      render3dMode: 'surface'
+    }
+    await nextTick()
+    expect(harness.toolbar.stackToolSelections.value.render3dMode).toBe('render3dMode:surface')
+
+    harness.wrapper.unmount()
+  })
+
+  it('changes the 3D render mode without replacing the active interaction tool', async () => {
+    const harness = mountToolbarHarness(create3dTab({ render3dMode: 'volume' }))
+    await nextTick()
+
+    const rotateTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'rotate3d')!
+    harness.toolbar.applyTool(rotateTool)
+    expect(harness.activeOperation.value).toBe('stack:rotate3d')
+    expect(harness.toolbar.activeToolbarToolKey.value).toBe('rotate3d')
+    harness.emitSetActiveOperation.mockClear()
+
+    const renderTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'render3dMode')!
+    harness.toolbar.selectToolOption(renderTool, 'render3dMode:surface')
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
+      action: 'render3dMode',
+      value: 'render3dMode:surface'
+    })
+    expect(harness.emitSetActiveOperation).not.toHaveBeenCalled()
+    expect(harness.activeOperation.value).toBe('stack:rotate3d')
+    expect(harness.toolbar.activeToolbarToolKey.value).toBe('rotate3d')
     harness.wrapper.unmount()
   })
 

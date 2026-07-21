@@ -16,7 +16,7 @@ const BACKEND_READY_TIMEOUT_MS = 20000
 const BACKEND_READY_POLL_INTERVAL_MS = 400
 
 type RendererStatusToastTone = 'info' | 'success' | 'warning' | 'error'
-type DesktopSourcePickMode = 'files' | 'folder' | 'mixed'
+type DesktopSourcePickMode = 'files' | 'folder' | 'archive' | 'mixed'
 
 interface RendererStatusToastPayload {
   id: string
@@ -322,7 +322,7 @@ function normalizeDroppedDicomPaths(paths: unknown): string[] {
 }
 
 function normalizeDesktopSourcePickMode(value: unknown): DesktopSourcePickMode {
-  return value === 'files' || value === 'folder' ? value : 'mixed'
+  return value === 'files' || value === 'folder' || value === 'archive' ? value : 'mixed'
 }
 
 function getDicomSourcePickerProperties(mode: DesktopSourcePickMode): OpenDialogOptions['properties'] {
@@ -330,7 +330,10 @@ function getDicomSourcePickerProperties(mode: DesktopSourcePickMode): OpenDialog
     return ['openFile', 'multiSelections']
   }
   if (mode === 'folder') {
-    return ['openDirectory', 'multiSelections']
+    return ['openFile', 'openDirectory', 'multiSelections']
+  }
+  if (mode === 'archive') {
+    return ['openFile', 'multiSelections']
   }
 
   return process.platform === 'darwin'
@@ -343,7 +346,10 @@ function getDicomSourcePickerTitle(mode: DesktopSourcePickMode): string {
     return 'Select DICOM files'
   }
   if (mode === 'folder') {
-    return 'Select DICOM folders'
+    return 'Select DICOM folders or ZIP, 7z, RAR archives'
+  }
+  if (mode === 'archive') {
+    return 'Select ZIP, 7z, or RAR archives'
   }
   return process.platform === 'darwin' ? 'Select DICOM files or folders' : 'Select DICOM files'
 }

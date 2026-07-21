@@ -116,12 +116,15 @@ const hasKeySlices = computed(() => (props.keySliceCount ?? 0) > 0)
 
 .series-list-card--selected::before {
   position: absolute;
-  inset: 7px auto 7px 0;
+  top: 50%;
+  left: 0;
   width: 3px;
+  height: 24px;
   border-radius: 0 2px 2px 0;
   background: var(--theme-accent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 34%, transparent);
   content: "";
+  transform: translateY(-50%);
 }
 
 .series-thumbnail {

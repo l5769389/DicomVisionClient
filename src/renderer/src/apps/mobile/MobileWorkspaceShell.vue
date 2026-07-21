@@ -607,7 +607,14 @@ const scrollTool = computed<MobileToolbarItem>(() => ({ key: 'scroll', icon: 'pa
 const crosshairTool = computed<MobileToolbarItem>(() => ({ key: 'crosshair', icon: 'crosshair', label: isZh.value ? '十字线' : 'Cross' }))
 const measureTool = computed<MobileToolbarItem>(() => ({ key: 'measure', icon: 'measure', label: isZh.value ? '测量' : 'Measure' }))
 const annotateTool = computed<MobileToolbarItem>(() => ({ key: 'annotate', icon: 'annotate', label: isZh.value ? '标注' : 'Annotate' }))
-const colorTool = computed<MobileToolbarItem>(() => ({ key: 'color', icon: activeVolumeTab.value ? 'render-mode' : 'pseudocolor', label: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Color') }))
+const activeVolumeRenderModeIcon = computed(() =>
+  activeVolumeTab.value?.render3dMode === 'surface' ? 'render-surface' : 'render-volume'
+)
+const colorTool = computed<MobileToolbarItem>(() => ({
+  key: 'color',
+  icon: activeVolumeTab.value ? activeVolumeRenderModeIcon.value : 'pseudocolor',
+  label: activeVolumeTab.value ? '3D' : (isZh.value ? '伪彩' : 'Color')
+}))
 const transformTool = computed<MobileToolbarItem>(() => ({ key: 'transform', icon: 'rotate', label: isZh.value ? '变换' : 'Transform' }))
 const volumeOrientationTool = computed<MobileToolbarItem>(() => ({
   key: 'volumeOrientation',
@@ -1051,7 +1058,7 @@ const mobileSheetTabs = computed<Array<{ key: MobileSheetTabKey; icon: string; l
   if (activeVolumeTab.value) {
     tabs.push(
       { key: 'display', icon: 'display', label: isZh.value ? '显示' : 'Display' },
-      { key: 'color', icon: 'render-volume', label: '3D' },
+      { key: 'color', icon: activeVolumeRenderModeIcon.value, label: '3D' },
       { key: 'volumeParams', icon: 'settings', label: isZh.value ? '参数' : 'Params' },
       { key: 'export', icon: 'export', label: isZh.value ? '导出' : 'Export' },
       { key: 'reset', icon: 'reset', label: isZh.value ? '\u91cd\u7f6e' : 'Reset' },
@@ -3036,7 +3043,7 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
     return false
   }
   if (tool.key === 'color') {
-    return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'color'
+    return false
   }
   if (tool.key === 'transform') {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'transform'
@@ -3051,7 +3058,7 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
     return activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'volumeParams'
   }
   if (tool.key === 'volumeRemoveBed') {
-    return activeVolumeTab.value?.volumeRenderOptions?.removeBed === true
+    return false
   }
   if (tool.key === 'volumeClip') {
     return getNormalizedMobileOperation(viewer.activeOperation.value).startsWith('volumeClip:')
@@ -3068,6 +3075,14 @@ function isToolbarItemActive(tool: MobileToolbarItem): boolean {
     return activeFourDTab.value ? (isPlayingFourD.value || fourDPlaybackStarting.value) : isPlayingActiveSlicePlayback.value
   }
   return activeTool.value === tool.key
+}
+
+function isToolbarItemPanelOpen(tool: MobileToolbarItem): boolean {
+  return tool.key === 'color' && activeSheetPresentation.value === 'focused' && activeSheetKind.value === 'color'
+}
+
+function isToolbarItemStateOn(tool: MobileToolbarItem): boolean {
+  return tool.key === 'volumeRemoveBed' && activeVolumeTab.value?.volumeRenderOptions?.removeBed === true
 }
 
 function isToolbarItemDisabled(tool: MobileToolbarItem): boolean {
@@ -3966,12 +3981,17 @@ onBeforeUnmount(() => {
           :key="`primary-${tool.key}`"
           type="button"
           class="mobile-shell__tool"
-          :class="{ 'mobile-shell__tool--active': isToolbarItemActive(tool) }"
+          :class="{
+            'mobile-shell__tool--active': isToolbarItemActive(tool),
+            'mobile-shell__tool--panel-open': isToolbarItemPanelOpen(tool),
+            'mobile-shell__tool--state-on': isToolbarItemStateOn(tool)
+          }"
+          :aria-pressed="tool.key === 'volumeRemoveBed' ? isToolbarItemStateOn(tool) : undefined"
           :disabled="isToolbarItemDisabled(tool)"
           :data-testid="`mobile-tool-${tool.key}`"
           @click="handleToolbarItem(tool)"
         >
-          <AppIcon :name="tool.icon" :size="18" />
+          <AppIcon :name="tool.icon" :size="22" />
           <span>{{ tool.label }}</span>
         </button>
       </div>
@@ -4045,7 +4065,7 @@ onBeforeUnmount(() => {
             @click="tool.onClick"
           >
             <span v-if="tool.icon" class="mobile-shell__inline-tool-icon" aria-hidden="true">
-              <AppIcon :name="tool.icon" :size="15" />
+              <AppIcon :name="tool.icon" :size="22" />
             </span>
             <span v-if="!tool.iconOnly" class="mobile-shell__inline-tool-label">
               <span v-if="tool.orientationLabel" class="mobile-shell__orientation-option-label">
@@ -4096,12 +4116,17 @@ onBeforeUnmount(() => {
           :key="`secondary-${tool.key}`"
           type="button"
           class="mobile-shell__tool"
-          :class="{ 'mobile-shell__tool--active': isToolbarItemActive(tool) }"
+          :class="{
+            'mobile-shell__tool--active': isToolbarItemActive(tool),
+            'mobile-shell__tool--panel-open': isToolbarItemPanelOpen(tool),
+            'mobile-shell__tool--state-on': isToolbarItemStateOn(tool)
+          }"
+          :aria-pressed="tool.key === 'volumeRemoveBed' ? isToolbarItemStateOn(tool) : undefined"
           :disabled="isToolbarItemDisabled(tool)"
           :data-testid="tool.key === 'more' ? 'mobile-more-button' : `mobile-tool-${tool.key}`"
           @click="handleToolbarItem(tool)"
         >
-          <AppIcon :name="tool.icon" :size="18" />
+          <AppIcon :name="tool.icon" :size="22" />
           <span>{{ tool.label }}</span>
         </button>
       </div>
@@ -4351,6 +4376,8 @@ onBeforeUnmount(() => {
                   type="button"
                   class="mobile-shell__action-row"
                   :class="{ 'mobile-shell__action-row--active': selectedWindowPresetId === preset.id }"
+                  role="radio"
+                  :aria-checked="selectedWindowPresetId === preset.id"
                   data-testid="mobile-window-preset"
                   @click="applyWindowPreset(preset)"
                 >
@@ -4359,6 +4386,7 @@ onBeforeUnmount(() => {
                     <strong>{{ getWindowPresetLabel(preset) }}</strong>
                     <small>{{ formatWindowPresetDetail(preset) }}</small>
                   </span>
+                  <AppIcon v-if="selectedWindowPresetId === preset.id" name="check" :size="16" class="mobile-shell__choice-check" />
                 </button>
               </div>
               </section>
@@ -4401,7 +4429,8 @@ onBeforeUnmount(() => {
                   <button
                     type="button"
                     class="mobile-shell__custom-preset-check"
-                    :aria-pressed="selectedCustomPresetIdSet.has(preset.id)"
+                    role="checkbox"
+                    :aria-checked="selectedCustomPresetIdSet.has(preset.id)"
                     data-testid="mobile-window-custom-select"
                     @click.stop="toggleCustomPresetSelection(preset.id)"
                   >
@@ -4434,7 +4463,7 @@ onBeforeUnmount(() => {
                 data-testid="mobile-window-add-custom"
                 @click="openCustomWindowPresetDialog"
               >
-                <AppIcon name="plus" :size="18" />
+                <AppIcon name="plus" :size="20" />
                 <span>
                   <strong>{{ isZh ? '添加窗模板' : 'Add Template' }}</strong>
                   <small>{{ customPresetLimitLabel }}</small>
@@ -4442,11 +4471,11 @@ onBeforeUnmount(() => {
               </button>
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
+                class="mobile-shell__footer-action"
                 data-testid="mobile-window-reset"
                 @click="applyResetOption('window:reset', { keepSheetOpen: true })"
               >
-                <AppIcon name="reset" :size="18" />
+                <AppIcon name="reset" :size="20" />
                 <span>
                   <strong>{{ isZh ? '\u91cd\u7f6e\u7a97\u503c' : 'Reset Window' }}</strong>
                 </span>
@@ -4459,12 +4488,14 @@ onBeforeUnmount(() => {
               v-for="option in displayOverlayOptions"
               :key="option.key"
               type="button"
+              role="switch"
+              :aria-checked="option.enabled"
               class="mobile-shell__display-row"
               :data-testid="`mobile-display-${option.key}`"
               @click="toggleDisplayOverlay(option.key)"
             >
               <span class="mobile-shell__display-leading">
-                <AppIcon :name="option.icon" :size="18" />
+                <AppIcon :name="option.icon" :size="20" />
                 <span>{{ option.label }}</span>
               </span>
               <span class="mobile-shell__switch" :class="{ 'mobile-shell__switch--on': option.enabled }" aria-hidden="true">
@@ -4482,6 +4513,8 @@ onBeforeUnmount(() => {
                   type="button"
                   class="mobile-shell__action-row mobile-shell__action-row--pseudocolor"
                   :class="{ 'mobile-shell__action-row--active': activeFusionPseudocolorKey === preset.key }"
+                  role="radio"
+                  :aria-checked="activeFusionPseudocolorKey === preset.key"
                   data-testid="mobile-fusion-pseudocolor"
                   @click="applyFusionPseudocolor(`fusionPseudocolor:${preset.key}`)"
                 >
@@ -4491,6 +4524,7 @@ onBeforeUnmount(() => {
                     aria-hidden="true"
                   ></span>
                   <span><strong>{{ preset.label }}</strong></span>
+                  <AppIcon v-if="activeFusionPseudocolorKey === preset.key" name="check" :size="16" class="mobile-shell__choice-check" />
                 </button>
                 <button
                   type="button"
@@ -4498,7 +4532,7 @@ onBeforeUnmount(() => {
                   data-testid="mobile-fusion-pet-display-reset"
                   @click="resetFusionPetDisplay"
                 >
-                  <AppIcon name="reset" :size="18" />
+                  <AppIcon name="reset" :size="20" />
                   <span><strong>{{ isZh ? '\u91cd\u7f6e PET \u663e\u793a' : 'Reset PET display' }}</strong></span>
                 </button>
               </template>
@@ -4509,14 +4543,17 @@ onBeforeUnmount(() => {
                   type="button"
                   class="mobile-shell__action-row"
                   :class="{ 'mobile-shell__action-row--active': activeVolumeRenderModeValue === option.value }"
+                  role="radio"
+                  :aria-checked="activeVolumeRenderModeValue === option.value"
                   data-testid="mobile-volume-render-mode"
                   @click="applyVolumeRenderMode(option.value)"
                 >
-                  <AppIcon :name="option.icon" :size="18" />
+                  <AppIcon :name="option.icon" :size="20" />
                   <span>
                     <strong>{{ option.label }}</strong>
                     <small>{{ option.detail }}</small>
                   </span>
+                  <AppIcon v-if="activeVolumeRenderModeValue === option.value" name="check" :size="16" class="mobile-shell__choice-check" />
                 </button>
                 <template
                   v-for="(option, optionIndex) in activeMobileVolumePresetOptions"
@@ -4533,11 +4570,19 @@ onBeforeUnmount(() => {
                     type="button"
                     class="mobile-shell__action-row"
                     :class="{ 'mobile-shell__action-row--active': (option.value.startsWith('surfacePreset:') ? activeSurfacePresetValue : activeVolumePresetValue) === option.value }"
+                    role="radio"
+                    :aria-checked="(option.value.startsWith('surfacePreset:') ? activeSurfacePresetValue : activeVolumePresetValue) === option.value"
                     data-testid="mobile-volume-preset"
                     @click="option.value.startsWith('surfacePreset:') ? applySurfacePreset(option.value) : applyVolumePreset(option.value)"
                   >
-                    <AppIcon :name="option.icon" :size="18" />
+                    <AppIcon :name="option.icon" :size="20" />
                     <span><strong>{{ option.label }}</strong></span>
+                    <AppIcon
+                      v-if="(option.value.startsWith('surfacePreset:') ? activeSurfacePresetValue : activeVolumePresetValue) === option.value"
+                      name="check"
+                      :size="16"
+                      class="mobile-shell__choice-check"
+                    />
                   </button>
                 </template>
               </template>
@@ -4548,6 +4593,8 @@ onBeforeUnmount(() => {
                   type="button"
                   class="mobile-shell__action-row mobile-shell__action-row--pseudocolor"
                   :class="{ 'mobile-shell__action-row--active': activeMobilePseudocolorKey === preset.key }"
+                  role="radio"
+                  :aria-checked="activeMobilePseudocolorKey === preset.key"
                   data-testid="mobile-pseudocolor"
                   @click="applyPseudocolor(`pseudocolor:${preset.key}`)"
                 >
@@ -4557,17 +4604,18 @@ onBeforeUnmount(() => {
                     aria-hidden="true"
                   ></span>
                   <span><strong>{{ preset.label }}</strong></span>
+                  <AppIcon v-if="activeMobilePseudocolorKey === preset.key" name="check" :size="16" class="mobile-shell__choice-check" />
                 </button>
               </template>
             </div>
             <div v-if="!activeVolumeTab && !activeFusionTab" class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
+                class="mobile-shell__footer-action"
                 data-testid="mobile-pseudocolor-reset"
                 @click="resetPseudocolorToDefault"
               >
-                <AppIcon name="reset" :size="18" />
+                <AppIcon name="reset" :size="20" />
                 <span>
                   <strong>{{ isZh ? '\u91cd\u7f6e\u4f2a\u5f69' : 'Reset Pseudocolor' }}</strong>
                   <small>{{ isZh ? '\u6062\u590d\u5230\u8bbe\u7f6e\u4e2d\u7684\u9ed8\u8ba4\u4f2a\u5f69' : 'Restore the default pseudocolor from settings.' }}</small>
@@ -4586,18 +4634,18 @@ onBeforeUnmount(() => {
                 data-testid="mobile-transform"
                 @click="applyTransform(option.value)"
               >
-                <AppIcon :name="option.icon" :size="18" />
+                <AppIcon :name="option.icon" :size="20" />
                 <span><strong>{{ isZh ? option.zh : option.en }}</strong></span>
               </button>
             </div>
             <div class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
+                class="mobile-shell__footer-action"
                 data-testid="mobile-transform-reset"
                 @click="applyResetOption('transform:reset', { keepSheetOpen: true })"
               >
-                <AppIcon name="reset" :size="18" />
+                <AppIcon name="reset" :size="20" />
                 <span>
                   <strong>{{ isZh ? '\u91cd\u7f6e\u53d8\u6362' : 'Reset Transform' }}</strong>
                   <small>{{ isZh ? '\u6062\u590d\u5f53\u524d\u89c6\u56fe\u5e73\u79fb\u3001\u7f29\u653e\u3001\u65cb\u8f6c\u548c\u955c\u50cf' : 'Restore pan, zoom, rotation, and flips.' }}</small>
@@ -4608,7 +4656,7 @@ onBeforeUnmount(() => {
 
           <div v-else-if="activeSheetKind === 'playback'" class="mobile-shell__action-list">
             <button type="button" class="mobile-shell__action-row" data-testid="mobile-playback-toggle" :disabled="!canPlayActive" @click="toggleActivePlayback">
-              <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingActiveSlicePlayback ? 'pause' : 'play')" :size="18" />
+              <AppIcon :name="activeFourDTab ? (isPlayingFourD ? 'pause' : 'play') : (isPlayingActiveSlicePlayback ? 'pause' : 'play')" :size="20" />
               <span><strong>{{ isPlayingActiveSlicePlayback || isPlayingFourD ? (isZh ? '暂停播放' : 'Pause') : (isZh ? '开始播放' : 'Play') }}</strong></span>
             </button>
             <div class="mobile-shell__fps-control" data-testid="mobile-playback-fps-control">
@@ -4645,7 +4693,7 @@ onBeforeUnmount(() => {
                 @click="toggleCompareSync(option.key)"
               >
                 <span class="mobile-shell__display-leading">
-                  <AppIcon :name="option.icon" :size="18" />
+                  <AppIcon :name="option.icon" :size="20" />
                   <span>
                     <strong>{{ option.label }}</strong>
                     <small>{{ option.description }}</small>
@@ -4714,7 +4762,7 @@ onBeforeUnmount(() => {
                 @click="toggleFusionManualRegistration"
               >
                 <span class="mobile-shell__display-leading">
-                  <AppIcon name="crosshair" :size="18" />
+                  <AppIcon name="crosshair" :size="20" />
                   <span>
                     <strong>{{ isZh ? '手动配准' : 'Manual registration' }}</strong>
                     <small>{{ isZh ? '开启后在融合窗格中拖动 PET 层' : 'Drag the PET layer in the fusion pane' }}</small>
@@ -4747,11 +4795,11 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <button type="button" class="mobile-shell__action-row" data-testid="mobile-fusion-registration-reset" :disabled="!activeFusionTab" @click="resetFusionRegistration">
-                <AppIcon name="reset" :size="18" />
+                <AppIcon name="reset" :size="20" />
                 <span><strong>{{ isZh ? '\u91cd\u7f6e\u914d\u51c6' : 'Reset registration' }}</strong></span>
               </button>
               <button type="button" class="mobile-shell__action-row" data-testid="mobile-fusion-registration-save" :disabled="!activeFusionTab" @click="saveFusionRegistration">
-                <AppIcon name="save" :size="18" />
+                <AppIcon name="save" :size="20" />
                 <span><strong>{{ isZh ? '保存配准' : 'Save registration' }}</strong></span>
               </button>
             </template>
@@ -4776,11 +4824,11 @@ onBeforeUnmount(() => {
             <div class="mobile-shell__sheet-footer-actions" data-testid="mobile-sheet-footer-actions">
               <button
                 type="button"
-                class="mobile-shell__footer-action mobile-shell__footer-action--danger"
+                class="mobile-shell__footer-action"
                 data-testid="mobile-mpr-reset"
                 @click="handleResetView({ keepSheetOpen: true })"
               >
-                <AppIcon name="reset" :size="18" />
+                <AppIcon name="reset" :size="20" />
                 <span><strong>{{ isZh ? '\u91cd\u7f6e\u5f53\u524d\u5e73\u9762' : 'Reset Plane' }}</strong></span>
               </button>
             </div>
@@ -4814,7 +4862,7 @@ onBeforeUnmount(() => {
                 :data-testid="`mobile-measure-${tool.toolType}`"
                 @click="setActiveMeasurementTool(tool.toolType)"
               >
-                <AppIcon :name="tool.icon" :size="18" />
+                <AppIcon :name="tool.icon" :size="20" />
                 <span>
                   <strong>{{ isZh ? tool.zh : tool.en }}</strong>
                   <small>{{ isZh ? tool.hintZh : tool.hintEn }}</small>
@@ -4828,7 +4876,7 @@ onBeforeUnmount(() => {
                 data-testid="mobile-measure-clear"
                 @click="applyResetOption('reset:measurements', { keepSheetOpen: true })"
               >
-                <AppIcon name="reset" :size="18" />
+                <AppIcon name="reset" :size="20" />
                 <span>
                   <strong>{{ isZh ? '\u6e05\u9664\u6d4b\u91cf' : 'Clear Measurements' }}</strong>
                   <small>{{ isZh ? '\u79fb\u9664\u5f53\u524d\u89c6\u56fe\u4e2d\u7684\u5168\u90e8\u6d4b\u91cf' : 'Remove all measurements in the current view.' }}</small>
@@ -4846,7 +4894,7 @@ onBeforeUnmount(() => {
               data-testid="mobile-annotate-arrow"
               @click="setActiveMobileTool('annotate')"
             >
-              <AppIcon name="annotate" :size="18" />
+              <AppIcon name="annotate" :size="20" />
               <span>
                 <strong>{{ isZh ? '箭头标注' : 'Arrow Annotation' }}</strong>
                 <small>{{ isZh ? '在当前视图中添加文字标注' : 'Add an annotation in the current viewport' }}</small>
@@ -4860,7 +4908,7 @@ onBeforeUnmount(() => {
               data-testid="mobile-annotate-clear"
               @click="applyResetOption('reset:annotations', { keepSheetOpen: true })"
             >
-              <AppIcon name="reset" :size="18" />
+              <AppIcon name="reset" :size="20" />
               <span>
                 <strong>{{ isZh ? '清除标注' : 'Clear Annotations' }}</strong>
                 <small>{{ isZh ? '移除当前视图中的全部标注' : 'Remove all annotations in the current view' }}</small>
@@ -4880,7 +4928,7 @@ onBeforeUnmount(() => {
               :disabled="!activeStackTab"
               @click="applyQaTool(tool.value)"
             >
-              <AppIcon :name="tool.icon" :size="18" />
+              <AppIcon :name="tool.icon" :size="20" />
               <span>
                 <strong>{{ isZh ? tool.zh : tool.en }}</strong>
                 <small>{{ isZh ? tool.detailZh : tool.detailEn }}</small>
@@ -4935,14 +4983,14 @@ onBeforeUnmount(() => {
               data-testid="mobile-reset-option"
               @click="applyResetOption(option.value)"
             >
-              <AppIcon :name="option.icon" :size="18" />
+              <AppIcon :name="option.icon" :size="20" />
               <span><strong>{{ isZh ? option.zh : option.en }}</strong></span>
             </button>
           </div>
 
           <div v-else-if="activeSheetKind === 'tag'" class="mobile-shell__action-list">
             <button type="button" class="mobile-shell__action-row" data-testid="mobile-open-tag" :disabled="!canOpenTag || !activeSeriesId" @click="openActiveSeriesTag">
-              <AppIcon name="tag" :size="18" />
+              <AppIcon name="tag" :size="20" />
               <span>
                 <strong>{{ isZh ? '查看 DICOM Tag' : 'View DICOM Tags' }}</strong>
                 <small>{{ isZh ? '只读查看当前序列实例标签' : 'Read-only tags for the active series' }}</small>
@@ -5675,7 +5723,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__toolbar {
-  --mobile-toolbar-row-height: 48px;
+  --mobile-toolbar-row-height: var(--viewer-tool-button-size);
   --mobile-inline-tool-height: calc(var(--mobile-toolbar-row-height) - 12px);
   display: grid;
   grid-auto-rows: var(--mobile-toolbar-row-height);
@@ -5694,6 +5742,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__tool {
+  position: relative;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -5702,8 +5751,9 @@ onBeforeUnmount(() => {
   min-width: 0;
   height: 100%;
   min-height: 0;
+  padding: 2px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
-  border-radius: 8px;
+  border-radius: var(--viewer-tool-radius);
   background: color-mix(in srgb, var(--theme-surface-card) 82%, transparent);
   color: var(--theme-text-secondary);
   font-size: 11px;
@@ -5714,6 +5764,39 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border-strong));
   background: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-card));
   color: var(--theme-text-primary);
+}
+
+.mobile-shell__tool--panel-open:not(.mobile-shell__tool--active) {
+  border-color: color-mix(in srgb, var(--theme-border-strong) 72%, var(--theme-border-soft));
+  background: var(--theme-surface-card-elevated-soft);
+  color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-text-primary));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 7%, transparent),
+    0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.mobile-shell__tool--panel-open:not(.mobile-shell__tool--active)::after {
+  position: absolute;
+  right: 50%;
+  bottom: 3px;
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--theme-accent) 78%, white 4%);
+  content: '';
+  transform: translateX(50%);
+  pointer-events: none;
+}
+
+.mobile-shell__tool--state-on:not(.mobile-shell__tool--active) {
+  border-color: color-mix(in srgb, var(--theme-status-success) 68%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-success) 18%, var(--theme-surface-card));
+  color: var(--theme-status-success-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-status-success) 34%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 0 1px color-mix(in srgb, var(--theme-status-success) 18%, transparent),
+    0 8px 18px color-mix(in srgb, var(--theme-status-success) 10%, transparent);
 }
 
 .mobile-shell__inline-tool-panel {
@@ -5727,7 +5810,7 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   padding: 4px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 58%, transparent);
-  border-radius: 10px;
+  border-radius: var(--viewer-tool-radius);
   background: color-mix(in srgb, var(--theme-surface-panel-solid) 82%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
@@ -5873,7 +5956,7 @@ onBeforeUnmount(() => {
 .mobile-shell__inline-tool {
   display: inline-grid;
   flex: 0 0 auto;
-  min-width: 58px;
+  min-width: var(--viewer-tool-button-compact-size);
   height: var(--mobile-inline-tool-height);
   min-height: 0;
   grid-template-columns: auto minmax(0, 1fr);
@@ -5882,7 +5965,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 4px 7px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 42%, transparent);
-  border-radius: 8px;
+  border-radius: var(--viewer-tool-radius);
   background: color-mix(in srgb, var(--theme-surface-card) 46%, transparent);
   color: var(--theme-text-secondary);
   appearance: none;
@@ -5922,16 +6005,16 @@ onBeforeUnmount(() => {
 
 .mobile-shell__inline-tool-icon {
   display: grid;
-  width: 20px;
-  height: 20px;
+  width: var(--viewer-tool-icon-size);
+  height: var(--viewer-tool-icon-size);
   place-items: center;
   justify-self: start;
 }
 
 .mobile-shell__inline-tool-panel--icon-only .mobile-shell__inline-tool-icon {
   justify-self: center;
-  width: 22px;
-  height: 22px;
+  width: var(--viewer-tool-icon-size);
+  height: var(--viewer-tool-icon-size);
 }
 
 .mobile-shell__inline-tool-label {
@@ -6081,7 +6164,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell--active-view .mobile-shell__toolbar {
-  --mobile-toolbar-row-height: 42px;
+  --mobile-toolbar-row-height: var(--viewer-tool-button-size);
   gap: 5px;
   padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 8px);
 }
@@ -6091,7 +6174,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell--active-view .mobile-shell__tool {
-  gap: 2px;
+  gap: 1px;
   font-size: 10px;
 }
 
@@ -6101,7 +6184,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell--active-view .mobile-shell__submenu-back {
-  border-radius: 9px;
+  border-radius: var(--viewer-tool-radius);
 }
 
 .mobile-shell--active-view .mobile-shell__inline-tool-track {
@@ -6114,8 +6197,8 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell--active-view .mobile-shell__inline-tool-icon {
-  width: 21px;
-  height: 21px;
+  width: var(--viewer-tool-icon-size);
+  height: var(--viewer-tool-icon-size);
 }
 
 .mobile-shell--active-view .mobile-shell__inline-tool-label {
@@ -6873,7 +6956,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__action-row {
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr) auto;
 }
 
 .mobile-shell__action-row--no-leading {
@@ -6882,7 +6965,7 @@ onBeforeUnmount(() => {
 
 .mobile-shell__action-row--pseudocolor {
   min-height: 44px;
-  grid-template-columns: minmax(0, 1fr) minmax(132px, 34%);
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 34%) auto;
   padding-block: 6px;
 }
 
@@ -6904,6 +6987,11 @@ onBeforeUnmount(() => {
   isolation: isolate;
 }
 
+.mobile-shell__choice-check {
+  grid-column: -2 / -1;
+  color: var(--theme-accent);
+}
+
 .mobile-shell__action-row--pseudocolor .mobile-shell__swatch::before {
   position: absolute;
   inset: -1px;
@@ -6914,8 +7002,9 @@ onBeforeUnmount(() => {
 }
 
 .mobile-shell__action-row--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 64%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-accent) 17%, var(--theme-surface-card));
+  border-color: var(--theme-selection-border);
+  background: var(--theme-selection-surface);
+  box-shadow: var(--theme-selection-shadow);
 }
 
 .mobile-shell__action-row strong,
@@ -7346,7 +7435,7 @@ onBeforeUnmount(() => {
   }
 
   .mobile-shell__toolbar {
-    --mobile-toolbar-row-height: 38px;
+    --mobile-toolbar-row-height: var(--viewer-tool-button-compact-size);
     padding: 5px 8px calc(env(safe-area-inset-bottom, 0px) + 6px);
   }
 

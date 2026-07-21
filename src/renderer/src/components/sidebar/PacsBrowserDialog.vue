@@ -732,11 +732,12 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                     v-for="profile in enabledProfiles"
                     :key="profile.id"
                     type="button"
+                    role="radio"
+                    :aria-checked="profile.id === selectedProfileId"
                     class="toolbar-menu-option pacs-select-option"
                     :class="{ 'toolbar-menu-option--active pacs-select-option--active': profile.id === selectedProfileId }"
                     @click="selectProfile(profile.id)"
                   >
-                    <span class="pacs-select-option__rail"></span>
                     <span class="min-w-0 flex-1 truncate">{{ profile.name }}</span>
                     <AppIcon v-if="profile.id === selectedProfileId" name="check" :size="14" />
                   </button>
@@ -780,11 +781,12 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                     v-for="option in pacsModalityOptions"
                     :key="option"
                     type="button"
+                    role="radio"
+                    :aria-checked="(option === 'ALL' && !modality) || modality === option"
                     class="toolbar-menu-option pacs-select-option"
                     :class="{ 'toolbar-menu-option--active pacs-select-option--active': (option === 'ALL' && !modality) || modality === option }"
                     @click="selectModality(option)"
                   >
-                    <span class="pacs-select-option__rail"></span>
                     <span class="min-w-0 flex-1 truncate">{{ getModalityOptionLabel(option) }}</span>
                     <AppIcon v-if="(option === 'ALL' && !modality) || modality === option" name="check" :size="14" />
                   </button>
@@ -898,11 +900,12 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
                     v-for="option in PACS_LIMIT_PRESETS"
                     :key="option"
                     type="button"
+                    role="radio"
+                    :aria-checked="limit === option"
                     class="toolbar-menu-option pacs-select-option"
                     :class="{ 'toolbar-menu-option--active pacs-select-option--active': limit === option }"
                     @click="selectLimitValue(option)"
                   >
-                    <span class="pacs-select-option__rail"></span>
                     <span class="min-w-0 flex-1 truncate">{{ option }}</span>
                     <AppIcon v-if="limit === option" name="check" :size="14" />
                   </button>
@@ -1856,19 +1859,6 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
   color: var(--theme-active-foreground);
 }
 
-.pacs-select-option__rail {
-  position: absolute;
-  inset: 9px auto 9px 0;
-  width: 3px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent) 80%, white 8%);
-  opacity: 0;
-}
-
-.pacs-select-option--active .pacs-select-option__rail {
-  opacity: 0.72;
-}
-
 .pacs-mono {
   overflow-wrap: anywhere;
 }
@@ -1956,19 +1946,22 @@ async function downloadSeries(series: PacsSeriesItem): Promise<void> {
 }
 
 .pacs-series-card--active {
-  border-color: var(--theme-active-border);
-  background: var(--theme-active-surface-soft);
-  box-shadow: var(--theme-active-shadow-soft);
+  border-color: var(--theme-selection-border);
+  background: var(--theme-selection-surface);
+  box-shadow: var(--theme-selection-shadow);
 }
 
 .pacs-series-card--active::before {
   position: absolute;
-  inset: 9px auto 9px 0;
+  top: 50%;
+  left: 0;
   width: 3px;
+  height: 24px;
   border-radius: 0 2px 2px 0;
   background: var(--theme-accent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 34%, transparent);
   content: "";
+  transform: translateY(-50%);
 }
 
 .pacs-series-card--active .pacs-preview {

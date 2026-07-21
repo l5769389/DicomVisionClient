@@ -312,11 +312,12 @@ onBeforeUnmount(() => {
             v-for="option in petRangeMaxOptionLabels"
             :key="option"
             type="button"
+            role="radio"
+            :aria-checked="isRangeUpperLimitOptionActive(option)"
             class="fusion-pet-display-tool__menu-option fusion-pet-display-tool__range-option"
             :class="{ 'fusion-pet-display-tool__menu-option--active': isRangeUpperLimitOptionActive(option) }"
             @click="handleRangeUpperLimitOption(option)"
           >
-            <span class="fusion-pet-display-tool__menu-option-rail" />
             <span>{{ option }}</span>
             <AppIcon v-if="isRangeUpperLimitOptionActive(option)" name="check" :size="14" />
           </button>
@@ -348,11 +349,12 @@ onBeforeUnmount(() => {
           v-for="option in fusionPetUnitOptions"
           :key="option.value"
           type="button"
+          role="radio"
+          :aria-checked="selectedUnit === option.value"
           class="fusion-pet-display-tool__menu-option fusion-pet-display-tool__unit-option"
           :class="{ 'fusion-pet-display-tool__menu-option--active': selectedUnit === option.value }"
           @click="handleUnitValue(option.value)"
         >
-          <span class="fusion-pet-display-tool__menu-option-rail" />
           <span>{{ option.label }}</span>
           <AppIcon v-if="selectedUnit === option.value" name="check" :size="14" />
         </button>
@@ -634,17 +636,4 @@ onBeforeUnmount(() => {
   min-height: 34px;
 }
 
-.fusion-pet-display-tool__menu-option-rail {
-  position: absolute;
-  inset: 6px auto 6px 4px;
-  width: 2px;
-  border-radius: 999px;
-  background: var(--theme-accent);
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.fusion-pet-display-tool__menu-option--active .fusion-pet-display-tool__menu-option-rail {
-  opacity: 0.9;
-}
 </style>

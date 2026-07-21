@@ -764,7 +764,7 @@ export function getSeriesDisplayName(series: FolderSeriesItem | null, fallbackSe
     return fallbackSeriesId
   }
 
-  return series.seriesDescription || series.seriesInstanceUid || series.seriesId
+  return series.patientName?.trim() || series.seriesDescription || series.seriesInstanceUid || series.seriesId
 }
 
 export function getViewTypeDisplayLabel(viewType: ViewType, locale: 'zh-CN' | 'en-US' = 'en-US'): string {

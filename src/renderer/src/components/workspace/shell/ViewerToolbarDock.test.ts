@@ -119,7 +119,87 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.toolbar-menu-option').exists()).toBe(false)
   })
 
-  it('keeps only one toolbar button active after a tool is clicked', async () => {
+  it('keeps regular dock icons fixed and reflects only explicitly stateful options', () => {
+    const fixedTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      options: [{ value: 'measure:line', label: 'Line', icon: 'measure-line' }]
+    }
+    const fixed = mountDock({
+      activeTools: [fixedTool],
+      stackToolSelections: { measure: 'measure:line' }
+    })
+    expect(fixed.get('.viewer-toolbar-dock__button svg').attributes('data-icon-name')).toBe('measure')
+    fixed.unmount()
+
+    const stateTool: StackTool = {
+      key: 'render3dMode',
+      label: 'Render',
+      icon: 'render-volume',
+      showSelectedOptionIcon: true,
+      options: [
+        { value: 'render3dMode:volume', label: 'VR', icon: 'render-volume' },
+        { value: 'render3dMode:surface', label: 'Surface', icon: 'render-surface' }
+      ]
+    }
+    const stateful = mountDock({
+      activeTools: [stateTool],
+      stackToolSelections: { render3dMode: 'render3dMode:surface' }
+    })
+    expect(stateful.get('.viewer-toolbar-dock__button svg').attributes('data-icon-name')).toBe('render-surface')
+    stateful.unmount()
+  })
+
+  it('keeps rotate active while the render-mode panel is open', () => {
+    const rotateTool: StackTool = { key: 'rotate3d', label: 'Rotate', icon: 'rotate3d', kind: 'mode' }
+    const renderTool: StackTool = {
+      key: 'render3dMode',
+      label: 'Render',
+      icon: 'render-volume',
+      kind: 'action',
+      options: [
+        { value: 'render3dMode:volume', label: 'VR', icon: 'render-volume' },
+        { value: 'render3dMode:surface', label: 'Surface', icon: 'render-surface' }
+      ]
+    }
+    const wrapper = mountDock({
+      activeTools: [rotateTool, renderTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'rotate3d'),
+      openMenuKey: 'render3dMode',
+      stackToolSelections: { render3dMode: 'render3dMode:volume' }
+    })
+
+    const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
+  })
+
+  it('renders enabled state controls separately from the active interaction', () => {
+    const panTool: StackTool = { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode' }
+    const removeBedTool: StackTool = {
+      key: 'volumeRemoveBed',
+      label: 'Bed Hidden',
+      icon: 'bed-hidden',
+      kind: 'action',
+      stateControl: true,
+      stateActive: true
+    }
+    const wrapper = mountDock({
+      activeTools: [panTool, removeBedTool],
+      isToolSelected: vi.fn((tool: StackTool) => tool.key === 'pan')
+    })
+
+    const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--state-on')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.attributes('aria-pressed')).toBe('true')
+  })
+
+  it('keeps the interaction active while presenting an opened option panel separately', async () => {
     const wrapper = mountDock()
 
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
@@ -130,11 +210,12 @@ describe('ViewerToolbarDock', () => {
 
     const activeButtons = wrapper.findAll('.viewer-toolbar-dock__button--active')
     expect(activeButtons).toHaveLength(1)
-    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
-    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
   })
 
-  it('keeps a clicked option tool active if the menu key is cleared externally', async () => {
+  it('keeps a clicked option panel distinct from the selected interaction', async () => {
     const layoutTool: StackTool = {
       key: 'mprLayout',
       label: 'MPR Layout',
@@ -152,13 +233,14 @@ describe('ViewerToolbarDock', () => {
     await wrapper.setProps({ openMenuKey: 'mprLayout' })
 
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
 
     await wrapper.setProps({ openMenuKey: null })
 
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
-    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[0]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
+    expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MPR Layout')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
   })
@@ -356,6 +438,11 @@ describe('ViewerToolbarDock', () => {
       isToolSelected: vi.fn(() => true)
     })
 
+    await wrapper.find('.viewer-toolbar-dock__button').trigger('click')
+    expect(wrapper.emitted('applyTool')?.[0]).toEqual([
+      volumeClipTool,
+      { keepMenuOpen: true }
+    ])
     expect(wrapper.find('[data-testid="viewer-toolbar-dock-volumeClip-volumeClip-inside"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="viewer-toolbar-dock-volumeClip-volumeClip-reset"]').exists()).toBe(true)
 
@@ -706,6 +793,7 @@ describe('ViewerToolbarDock', () => {
 
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card').text()).not.toContain('Switching clears existing measurements')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-card .dock-info-popover__trigger').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__scope-actions').attributes('role')).toBe('radiogroup')
     expect(wrapper.text()).not.toContain('Measurement & Annotation Settings')
 
     await wrapper.findAll('.viewer-toolbar-dock-panel-content__scope-choice')[1]!.trigger('click')
@@ -948,7 +1036,7 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
-  it('uses the utility panel tool as the single active button while a utility panel is open', () => {
+  it('keeps the selected interaction active while a utility panel is open', () => {
     const mprMipTool: StackTool = { key: 'mprMip', label: 'MIP', icon: 'mip', kind: 'action' }
     const wrapper = mountDock({
       activeTools: [tools[0]!, mprMipTool],
@@ -960,8 +1048,9 @@ describe('ViewerToolbarDock', () => {
 
     const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(buttons[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
-    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('MIP Params')
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock__panel-close').exists()).toBe(false)
@@ -988,11 +1077,12 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(false)
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(buttons[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
-    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
   })
 
-  it('uses the segmentation utility panel as the single active button', () => {
+  it('keeps the interaction active while the segmentation utility panel is open', () => {
     const segmentationTool: StackTool = {
       key: 'segmentation',
       label: 'Segmentation',
@@ -1014,8 +1104,9 @@ describe('ViewerToolbarDock', () => {
 
     const buttons = wrapper.findAll('.viewer-toolbar-dock__button')
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(buttons[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
-    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Segmentation')
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(false)
@@ -1104,9 +1195,10 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__result-panel').exists()).toBe(false)
     expect(wrapper.find('[data-testid="utility-panel"]').exists()).toBe(false)
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[0]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
+    expect(buttons[0]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
     expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
-    expect(buttons[2]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[2]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
   it('does not let a non-current result panel override the current tool panel', () => {
@@ -1126,7 +1218,9 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock-panel-content').exists()).toBe(true)
     expect(wrapper.find('[data-testid="result-panel"]').exists()).toBe(false)
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
-    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[1]!.classes()).toContain('viewer-toolbar-dock__button--panel-open')
+    expect(buttons[1]!.classes()).not.toContain('viewer-toolbar-dock__button--active')
+    expect(buttons[2]!.classes()).toContain('viewer-toolbar-dock__button--active')
   })
 
   it('emits closeResultPanel when a dock tool is clicked', async () => {

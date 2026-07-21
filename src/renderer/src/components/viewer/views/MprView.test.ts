@@ -189,7 +189,7 @@ describe('MprView', () => {
           cornerInfo: {
             topLeft: ['Patient: Demo', 'Im: 4/320'],
             topRight: ['Study: CT', 'X: 12 Y: 24'],
-            bottomLeft: ['Scanner: DV', 'Rot: 0 / Flip: -'],
+            bottomLeft: ['Scanner: DV', '120kV 30mA', '0.6mm', 'W: 400 L: 40', 'Rot: 0 / Flip: -'],
             bottomRight: ['Zoom: 1.00x']
           }
         }),

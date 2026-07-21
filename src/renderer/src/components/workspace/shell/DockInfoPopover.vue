@@ -143,16 +143,26 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dock-info-popover__trigger {
-  display: inline-grid;
-  width: 24px;
-  height: 24px;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
-  place-items: center;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: 4px;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: var(--theme-text-muted);
+  line-height: 0;
+  vertical-align: middle;
   transition: background 140ms ease, color 140ms ease;
+}
+
+.dock-info-popover__trigger :deep(.app-icon-svg) {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .dock-info-popover__trigger:hover,

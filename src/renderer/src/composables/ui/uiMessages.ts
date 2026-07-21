@@ -192,6 +192,7 @@ export interface ViewerCopy {
   loadingMprView: string
   loadingStackView: string
   loadingVolumeView: string
+  connectingVolumeStream: string
   stackPlaceholder: string
   volumePlaceholder: string
   viewportPreview: (label: string) => string
@@ -307,6 +308,10 @@ export interface MprProjectionCopy {
   nativeMpr: string
   slabProjection: string
   algorithm: string
+  maximum: string
+  minimum: string
+  average: string
+  sum: string
   maximumDesc: string
   minimumDesc: string
   averageDesc: string
@@ -340,14 +345,16 @@ export const uiMessages = {
       inputPath: '输入路径',
       uploadDicom: '上传 DICOM',
       uploadFolder: '上传文件夹',
-      uploadFolderHint: '保留目录结构，适合整套检查。',
+      uploadFolderHint: '保留目录结构，适合整套检查；压缩包请使用“上传压缩包”。',
+      uploadArchive: '上传压缩包',
+      uploadArchiveHint: '支持 ZIP、7z、RAR，服务端会安全解压并识别其中的 DICOM。',
       uploadFiles: '上传文件',
       uploadFilesHint: '选择一个或多个 DICOM 文件。',
       loadFolder: '加载文件夹',
       quickPreview: '快速浏览',
       webSampleHint: 'Web 版本当前会直接加载服务端本地配置的示例 DICOM 目录。',
       webPathHint: 'Web 版本通过远程后端工作，加载序列时请输入服务端可访问的目录路径。',
-      webUploadHint: 'Web 版本会将浏览器选择的 DICOM 文件上传到后端解析。',
+      webUploadHint: 'Web 版本支持上传 DICOM 文件、文件夹或 ZIP、7z、RAR 压缩包，服务端会安全解析。',
       seriesList: '序列列表',
       seriesListSubtitle: '当前已加载的可用 DICOM 序列',
       loadingSeries: '正在加载序列...',
@@ -361,11 +368,11 @@ export const uiMessages = {
       viewerWorkspace: '影像工作区',
       waitingSeries: '等待载入序列',
       dropQuickPreview: '释放以快速浏览',
-      waitingSeriesDesc: '选择“上传 DICOM/加载文件夹”载入影像，或直接拖拽 DICOM 文件、文件夹到窗口；加载后双击序列快速浏览，也可右键序列选择浏览方式。',
+      waitingSeriesDesc: '选择“上传 DICOM/加载文件夹”载入影像，或直接拖拽 DICOM 文件、文件夹、ZIP、7z、RAR 到窗口；加载后双击序列快速浏览，也可右键序列选择浏览方式。',
       dropQuickPreviewDesc: '松开鼠标后将直接在右侧打开该序列的快速浏览。',
       loadingView: '正在加载视图...',
       openView: '开始浏览 DICOM',
-      openViewDesc: '选择“上传 DICOM/加载文件夹”或拖拽载入影像；加载后双击序列快速浏览，也可以右键序列选择 2D、3D、MPR 等浏览方式。',
+      openViewDesc: '选择“上传 DICOM/加载文件夹”或拖拽 DICOM、文件夹、ZIP、7z、RAR 载入影像；加载后双击序列快速浏览，也可以右键序列选择 2D、3D、MPR 等浏览方式。',
       emptyDropQuickPreviewDesc: '当前右侧为空白区域，松开后将直接打开该序列的 2D 快速浏览。',
       scrollTabsLeft: '向左滚动标签页',
       scrollTabsRight: '向右滚动标签页',
@@ -560,6 +567,7 @@ export const uiMessages = {
       loadingMprView: '正在加载 MPR 视图...',
       loadingStackView: '正在加载 2D 视图...',
       loadingVolumeView: '正在加载 3D 视图...',
+      connectingVolumeStream: '正在连接 3D 实时影像...',
       stackPlaceholder: '单视口预览',
       volumePlaceholder: '3D 视图预留区域',
       viewportPreview: (label: string) => `${label} 预览`,
@@ -673,6 +681,10 @@ export const uiMessages = {
       nativeMpr: '原生 MPR',
       slabProjection: '厚层投影',
       algorithm: '算法',
+      maximum: '最大密度',
+      minimum: '最小密度',
+      average: '平均密度',
+      sum: '累加投影',
       maximumDesc: '突出高密度结构。',
       minimumDesc: '突出低密度结构。',
       averageDesc: '将厚层混合为更柔和的预览。',
@@ -704,14 +716,16 @@ export const uiMessages = {
       inputPath: 'Input Path',
       uploadDicom: 'Upload DICOM',
       uploadFolder: 'Upload Folder',
-      uploadFolderHint: 'Preserve folder structure for a full study.',
+      uploadFolderHint: 'Preserve folder structure for a full study. Use Upload Archive for compressed data.',
+      uploadArchive: 'Upload Archive',
+      uploadArchiveHint: 'Supports ZIP, 7z, and RAR. The server extracts and scans DICOM files safely.',
       uploadFiles: 'Upload Files',
       uploadFilesHint: 'Choose one or more DICOM files.',
       loadFolder: 'Load Folder',
       quickPreview: 'Quick Preview',
       webSampleHint: 'The web build currently loads the sample DICOM directory configured on the server.',
       webPathHint: 'The web build works through the remote backend. Enter a server-accessible directory path to load series.',
-      webUploadHint: 'The web build uploads browser-selected DICOM files to the backend for parsing.',
+      webUploadHint: 'The web build supports DICOM files, folders, and ZIP, 7z, or RAR archives. The server parses them safely.',
       seriesList: 'Series List',
       seriesListSubtitle: 'Loaded DICOM series available in the workspace',
       loadingSeries: 'Loading series...',
@@ -725,11 +739,11 @@ export const uiMessages = {
       viewerWorkspace: 'Viewer Workspace',
       waitingSeries: 'Waiting For Series',
       dropQuickPreview: 'Release To Quick Preview',
-      waitingSeriesDesc: 'Load DICOM images with Upload DICOM / Load Folder, or drag files and folders into the window. After loading, double-click a series for quick preview or right-click it to choose a view.',
+      waitingSeriesDesc: 'Load DICOM images with Upload DICOM / Load Folder, or drag DICOM files, folders, ZIP, 7z, or RAR archives into the window. After loading, double-click a series for quick preview or right-click it to choose a view.',
       dropQuickPreviewDesc: 'Release now to open a 2D quick preview for this series on the right.',
       loadingView: 'Loading view...',
       openView: 'Start Reviewing DICOM',
-      openViewDesc: 'Load images with Upload DICOM / Load Folder or drag them into the window. Then double-click a series for quick preview, or right-click it to choose 2D, 3D, MPR, and other views.',
+      openViewDesc: 'Load images with Upload DICOM / Load Folder or drag DICOM files, folders, ZIP, 7z, or RAR archives into the window. Then double-click a series for quick preview, or right-click it to choose 2D, 3D, MPR, and other views.',
       emptyDropQuickPreviewDesc: 'The right side is empty. Release now to open this series in 2D quick preview.',
       scrollTabsLeft: 'Scroll Tabs Left',
       scrollTabsRight: 'Scroll Tabs Right',
@@ -924,6 +938,7 @@ export const uiMessages = {
       loadingMprView: 'Loading MPR view...',
       loadingStackView: 'Loading 2D view...',
       loadingVolumeView: 'Loading 3D view...',
+      connectingVolumeStream: 'Connecting to the live 3D stream...',
       stackPlaceholder: 'Single viewport preview',
       volumePlaceholder: '3D view placeholder',
       viewportPreview: (label: string) => `${label} preview`,
@@ -1037,6 +1052,10 @@ export const uiMessages = {
       nativeMpr: 'Native MPR',
       slabProjection: 'Slab projection',
       algorithm: 'Algorithm',
+      maximum: 'Maximum',
+      minimum: 'Minimum',
+      average: 'Average',
+      sum: 'Sum',
       maximumDesc: 'Highlight high-density structures.',
       minimumDesc: 'Highlight low-density structures.',
       averageDesc: 'Blend the slab into a softer preview.',

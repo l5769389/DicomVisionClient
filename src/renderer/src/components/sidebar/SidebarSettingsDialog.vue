@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { PSEUDOCOLOR_PRESET_OPTIONS } from '../../constants/pseudocolor'
+import { UI_THEME_PRESETS, type UiThemePreset } from '../../constants/uiThemes'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import { DEFAULT_DICOM_DEIDENTIFY_FIELD_KEYS, MAX_CUSTOM_WINDOW_PRESETS, MAX_HANGING_PROTOCOL_RULES, type AppLocale, type DicomDeidentifyFieldKey, type DicomTagDisplayMode, type HangingProtocolRule, type MeasurementLineStyle, type QaWaterMetricPreference, useUiPreferences } from '../../composables/ui/useUiPreferences'
 import { useExportSettings } from '../../composables/settings/useExportSettings'
@@ -129,15 +130,6 @@ interface RoiStatOption {
   enabled: boolean
 }
 
-interface ThemePreset {
-  id: string
-  labelZh: string
-  labelEn: string
-  summaryZh: string
-  summaryEn: string
-  preview: string
-}
-
 interface ColorPreset {
   value: string
   label: string
@@ -200,32 +192,7 @@ const SETTINGS_SECTION_SEARCH_ALIASES: Record<SettingsSection, string[]> = {
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 
-const themePresets: ThemePreset[] = [
-  {
-    id: 'industrial-utility',
-    labelZh: '工业实用风（默认）',
-    labelEn: 'Industrial Utility (Default)',
-    summaryZh: '深色控制台配色，强调边界、禁用态和高频操作识别。',
-    summaryEn: 'Dark console styling with clearer control boundaries, disabled states, and action contrast.',
-    preview: 'linear-gradient(135deg,#05080b 0%,#111820 42%,#202a32 72%,#6fa9c4 100%)'
-  },
-  {
-    id: 'aurora',
-    labelZh: '冷蓝深色',
-    labelEn: 'Aurora Dark',
-    summaryZh: '深蓝背景配冷蓝高亮，保留原始界面的柔和层次。',
-    summaryEn: 'Deep navy surfaces with cool blue highlights and the original softer layering.',
-    preview: 'linear-gradient(135deg,#07111d 0%,#0d1b2d 48%,#16324d 78%,#66d0ff 100%)'
-  },
-  {
-    id: 'clinical-light',
-    labelZh: '临床浅色',
-    labelEn: 'Clinical Light',
-    summaryZh: '浅灰白界面配冷蓝强调，适合明亮环境和演示场景。',
-    summaryEn: 'Light gray clinical surfaces with restrained blue accents for bright rooms and demos.',
-    preview: 'linear-gradient(135deg,#f7fbff 0%,#e8f1f8 42%,#d7e5f2 72%,#6aaed6 100%)'
-  }
-]
+const themePresets = UI_THEME_PRESETS
 
 const scaleBarColorPresets: ColorPreset[] = [
   { value: '#f8fafc', label: 'White' },
@@ -822,11 +789,11 @@ const canOpenTagEditSaveLocation = computed(() => {
   return Boolean(tagEditSaveDefaultLocationLabel.value)
 })
 
-function getThemeSummary(theme: ThemePreset): string {
+function getThemeSummary(theme: UiThemePreset): string {
   return isZh.value ? theme.summaryZh : theme.summaryEn
 }
 
-function getThemeLabel(theme: ThemePreset): string {
+function getThemeLabel(theme: UiThemePreset): string {
   return isZh.value ? theme.labelZh : theme.labelEn
 }
 
@@ -2074,7 +2041,7 @@ onBeforeUnmount(() => {
       class="settings-dialog-backdrop fixed inset-0 z-[1300] flex items-center justify-center bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--theme-accent)_16%,transparent),transparent_38%),rgba(3,8,15,0.42)] px-4 py-6 backdrop-blur-[8px]"
       @click.self="emit('close')"
     >
-      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1320px] flex-col overflow-hidden rounded-[34px] border shadow-[0_36px_96px_rgba(0,0,0,0.5)]" @click="handleSettingsShellClick">
+      <div class="settings-dialog-shell theme-shell-panel relative flex h-[min(92vh,860px)] w-full max-w-[1280px] flex-col overflow-hidden border shadow-[0_30px_76px_rgba(0,0,0,0.46)]" @click="handleSettingsShellClick">
         <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--theme-accent)_14%,transparent),transparent_26%),radial-gradient(circle_at_bottom_left,color-mix(in_srgb,var(--theme-accent-warm)_12%,transparent),transparent_22%)]"></div>
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-[color:color-mix(in_srgb,var(--theme-text-primary)_40%,transparent)] to-transparent"></div>
 
@@ -2099,28 +2066,31 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="relative grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)]">
-          <aside class="theme-shell-panel-soft settings-nav-scroll min-h-0 overflow-auto border-b px-5 py-5 lg:border-b-0 lg:border-r">
-            <label class="settings-nav-search mb-4 flex min-h-12 items-center gap-2 rounded-2xl border px-3">
-              <AppIcon name="search" :size="16" />
-              <input
-                v-model="settingsNavSearch"
-                type="text"
-                class="settings-nav-search__input min-w-0 flex-1 text-sm font-medium text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
-                :placeholder="isZh ? '搜索设置 / Search' : 'Search settings'"
-              />
-              <button
-                v-if="settingsNavSearch"
-                type="button"
-                class="grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
-                :aria-label="isZh ? '清空搜索' : 'Clear search'"
-                @click="settingsNavSearch = ''"
-              >
-                <AppIcon name="close" :size="13" />
-              </button>
-            </label>
+        <div class="relative grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[268px_minmax(0,1fr)]">
+          <aside class="theme-shell-panel-soft flex min-h-0 flex-col overflow-hidden border-b lg:border-b-0 lg:border-r">
+            <div class="settings-nav-search-wrap shrink-0 px-3 py-3">
+              <label class="settings-nav-search flex min-h-10 items-center gap-2 border px-3">
+                <AppIcon name="search" :size="16" />
+                <input
+                  v-model="settingsNavSearch"
+                  type="text"
+                  class="settings-nav-search__input min-w-0 flex-1 text-sm font-medium text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
+                  :placeholder="isZh ? '搜索设置 / Search' : 'Search settings'"
+                />
+                <button
+                  v-if="settingsNavSearch"
+                  type="button"
+                  class="grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
+                  :aria-label="isZh ? '清空搜索' : 'Clear search'"
+                  @click="settingsNavSearch = ''"
+                >
+                  <AppIcon name="close" :size="13" />
+                </button>
+              </label>
+            </div>
 
-            <div class="space-y-4">
+            <div class="settings-nav-scroll min-h-0 flex-1 overflow-auto px-3 pb-3">
+              <div class="settings-nav-groups">
               <div
                 v-if="filteredNavigationGroups.length === 0"
                 class="rounded-2xl border border-dashed border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-6 text-center"
@@ -2133,24 +2103,26 @@ onBeforeUnmount(() => {
               <template v-else>
                 <div v-for="group in filteredNavigationGroups" :key="group.key" class="settings-nav-group">
                   <div
-                    class="settings-nav-item group flex w-full cursor-pointer items-start gap-3 rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                    class="settings-nav-item group flex w-full cursor-pointer items-center gap-2.5 border px-2.5 py-2 text-left transition duration-150"
                     :class="isNavigationGroupActive(group) ? 'settings-nav-item--active' : 'settings-nav-item--inactive'"
                     role="button"
                     tabindex="0"
+                    :aria-current="isNavigationGroupActive(group) ? 'page' : undefined"
+                    :aria-expanded="group.items.length > 1 ? isNavigationGroupExpanded(group) : undefined"
                     @click="handleNavigationGroupClick(group)"
                     @keydown.enter.prevent="handleNavigationGroupClick(group)"
                     @keydown.space.prevent="handleNavigationGroupClick(group)"
                   >
-                    <div class="settings-nav-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition" :class="isNavigationGroupActive(group) ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'">
+                    <div class="settings-nav-icon flex h-8 w-8 shrink-0 items-center justify-center border transition" :class="isNavigationGroupActive(group) ? 'border-[var(--theme-border-strong)] bg-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'">
                       <AppIcon :name="group.icon" :size="18" />
                     </div>
                     <div class="min-w-0">
                       <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ group.title }}</div>
-                      <div class="mt-1 text-xs leading-5" :class="isNavigationGroupActive(group) ? 'text-[var(--theme-text-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ group.subtitle }}</div>
+                      <div class="mt-0.5 truncate text-[11px] leading-4" :class="isNavigationGroupActive(group) ? 'text-[var(--theme-text-secondary)]' : 'text-[var(--theme-text-muted)]'">{{ group.subtitle }}</div>
                     </div>
                     <span
                       v-if="group.items.length > 1"
-                      class="settings-nav-chevron ml-auto mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-xl border transition"
+                      class="settings-nav-chevron ml-auto grid h-7 w-7 shrink-0 place-items-center border transition"
                       :class="isNavigationGroupExpanded(group) ? 'settings-nav-chevron--open' : 'settings-nav-chevron--closed'"
                       aria-hidden="true"
                     >
@@ -2158,13 +2130,14 @@ onBeforeUnmount(() => {
                     </span>
                   </div>
 
-                  <div v-if="shouldShowNavigationGroupItems(group)" class="settings-nav-sublist mt-2 grid gap-1.5 pl-4">
+                  <div v-if="shouldShowNavigationGroupItems(group)" class="settings-nav-sublist mt-1 grid gap-0.5 pl-3">
                     <button
                       v-for="section in group.items"
                       :key="section.key"
                       type="button"
-                      class="settings-nav-subitem flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-left transition duration-150"
+                      class="settings-nav-subitem flex w-full items-center gap-2.5 border px-3 py-1.5 text-left transition duration-150"
                       :class="section.key === activeSection ? 'settings-nav-subitem--active' : 'settings-nav-subitem--inactive'"
+                      :aria-current="section.key === activeSection ? 'page' : undefined"
                       @click="activeSection = section.key"
                     >
                       <span class="settings-nav-subitem__dot h-2 w-2 shrink-0 rounded-full"></span>
@@ -2173,13 +2146,14 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </template>
+              </div>
             </div>
           </aside>
 
-          <section class="flex min-h-0 flex-col overflow-hidden px-6 py-5 lg:px-7">
-            <div v-if="activeSection !== 'displayCornerInfo'" class="mb-5 flex shrink-0 items-end justify-between gap-4">
+          <section class="settings-content-pane flex min-h-0 flex-col overflow-hidden px-5 py-4 lg:px-7">
+            <div v-if="activeSection !== 'displayCornerInfo'" class="settings-section-header mb-4 flex w-full shrink-0 items-end justify-between gap-4">
               <div class="min-w-0">
-                <div class="text-2xl font-semibold tracking-[0.04em] text-[var(--theme-text-primary)]">{{ currentSectionTitle }}</div>
+                <div class="text-xl font-semibold text-[var(--theme-text-primary)]">{{ currentSectionTitle }}</div>
                 <div v-if="currentSectionSubtitle" class="mt-1 text-sm text-[var(--theme-text-muted)]">{{ currentSectionSubtitle }}</div>
               </div>
               <div class="hidden items-center gap-2 md:flex">
@@ -2188,10 +2162,10 @@ onBeforeUnmount(() => {
             </div>
 
             <div ref="settingsContentScrollRef" class="settings-content-scroll min-h-0 flex-1 overflow-auto pr-2">
-              <div class="space-y-5 pb-12">
+              <div class="settings-content-inner space-y-4 pb-10">
                 <template v-if="activeSection === 'language'">
                   <div class="grid gap-5 xl:grid-cols-[minmax(280px,0.72fr)_minmax(0,1.28fr)]">
-                    <div class="theme-card-soft rounded-[28px] p-5">
+                    <div class="settings-primary-card theme-card-soft rounded-[28px] p-4">
                       <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
                         <AppIcon name="language" :size="18" />
                         <span class="text-lg font-semibold">{{ copy.languageTitle }}</span>
@@ -2199,30 +2173,40 @@ onBeforeUnmount(() => {
                       <div class="grid gap-3">
                         <button
                           type="button"
-                          class="rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                          class="settings-language-option rounded-[22px] border px-3.5 py-3 text-left transition duration-150"
+                          role="radio"
+                          :aria-checked="globalLocale === 'zh-CN'"
                           :class="globalLocale === 'zh-CN' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
                           @click="handleLocaleChange('zh-CN')"
                         >
                           <div class="flex items-center justify-between gap-3">
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.zhCn }}</div>
-                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">zh-CN</span>
+                            <span class="flex items-center gap-2">
+                              <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">zh-CN</span>
+                              <AppIcon v-if="globalLocale === 'zh-CN'" name="check" :size="16" class="text-[var(--theme-accent)]" />
+                            </span>
                           </div>
                         </button>
                         <button
                           type="button"
-                          class="rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                          class="settings-language-option rounded-[22px] border px-3.5 py-3 text-left transition duration-150"
+                          role="radio"
+                          :aria-checked="globalLocale === 'en-US'"
                           :class="globalLocale === 'en-US' ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
                           @click="handleLocaleChange('en-US')"
                         >
                           <div class="flex items-center justify-between gap-3">
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ copy.enUs }}</div>
-                            <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">en-US</span>
+                            <span class="flex items-center gap-2">
+                              <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">en-US</span>
+                              <AppIcon v-if="globalLocale === 'en-US'" name="check" :size="16" class="text-[var(--theme-accent)]" />
+                            </span>
                           </div>
                         </button>
                       </div>
                     </div>
 
-                    <div class="theme-card-soft rounded-[28px] p-5">
+                    <div class="settings-primary-card theme-card-soft rounded-[28px] p-4">
                       <div class="mb-4 flex items-center gap-2 text-[var(--theme-text-primary)]">
                         <AppIcon name="palette" :size="18" />
                         <span class="text-lg font-semibold">{{ copy.themePresetTitle }}</span>
@@ -2232,18 +2216,22 @@ onBeforeUnmount(() => {
                           v-for="theme in themePresets"
                           :key="theme.id"
                           type="button"
-                          class="flex items-center gap-4 rounded-[22px] border px-4 py-4 text-left transition duration-150"
+                          class="settings-theme-option flex items-center gap-3 border px-3.5 py-3 text-left transition duration-150"
+                          role="radio"
+                          :aria-checked="themeId === theme.id"
                           :class="themeId === theme.id ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:bg-[var(--theme-surface-card-soft)]'"
                           @click="themeId = theme.id"
                         >
-                          <span class="h-12 w-20 shrink-0 rounded-2xl border border-[var(--theme-border-soft)]" :style="{ background: theme.preview }"></span>
+                          <span class="h-10 w-16 shrink-0 rounded-lg border border-[var(--theme-border-soft)]" :style="{ background: theme.preview }"></span>
                           <div class="min-w-0">
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ getThemeLabel(theme) }}</div>
                             <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">{{ getThemeSummary(theme) }}</div>
                           </div>
+                          <AppIcon v-if="themeId === theme.id" name="check" :size="16" class="ml-auto shrink-0 text-[var(--theme-accent)]" />
                         </button>
                       </div>
                     </div>
+
                   </div>
                 </template>
 
@@ -2305,13 +2293,18 @@ onBeforeUnmount(() => {
                               v-for="preset in systemWindowPresets"
                               :key="preset.id"
                               type="button"
+                              role="radio"
+                              :aria-checked="selectedWindowPresetId === preset.id"
                               class="rounded-[22px] border p-4 text-left transition duration-150"
                               :class="selectedWindowPresetId === preset.id ? 'border-[var(--theme-border-strong)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_18%,transparent),color-mix(in_srgb,var(--theme-accent-warm)_10%,transparent))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
                               @click="selectedWindowPresetId = preset.id"
                             >
-                              <div class="min-w-0">
-                                <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ getWindowPresetLabel(preset) }}</div>
-                                <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">WW {{ preset.ww }} / WL {{ preset.wl }}</div>
+                              <div class="flex min-w-0 items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                  <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ getWindowPresetLabel(preset) }}</div>
+                                  <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">WW {{ preset.ww }} / WL {{ preset.wl }}</div>
+                                </div>
+                                <AppIcon v-if="selectedWindowPresetId === preset.id" name="check" :size="16" class="shrink-0 text-[var(--theme-accent)]" />
                               </div>
                             </button>
                           </div>
@@ -2338,17 +2331,25 @@ onBeforeUnmount(() => {
                             >
                               <button
                                 type="button"
+                                role="checkbox"
                                 class="grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition"
                                 :class="selectedCustomPresetIdSet.has(preset.id) ? 'border-[var(--theme-accent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_18%,transparent)] text-[var(--theme-accent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-transparent hover:border-[var(--theme-border-strong)]'"
-                                :aria-pressed="selectedCustomPresetIdSet.has(preset.id)"
+                                :aria-checked="selectedCustomPresetIdSet.has(preset.id)"
                                 @click.stop="toggleCustomPresetSelection(preset.id)"
                               >
                                 <AppIcon name="check" :size="16" />
                               </button>
-                              <button type="button" class="min-w-0 flex-1 text-left" @click="selectedWindowPresetId = preset.id">
+                              <button
+                                type="button"
+                                role="radio"
+                                :aria-checked="selectedWindowPresetId === preset.id"
+                                class="min-w-0 flex-1 text-left"
+                                @click="selectedWindowPresetId = preset.id"
+                              >
                                 <div class="truncate text-sm font-semibold text-[var(--theme-text-primary)]">{{ getWindowPresetLabel(preset) }}</div>
                                 <div class="mt-1 text-xs text-[var(--theme-text-secondary)]">WW {{ preset.ww }} / WL {{ preset.wl }}</div>
                               </button>
+                              <AppIcon v-if="selectedWindowPresetId === preset.id" name="check" :size="16" class="shrink-0 text-[var(--theme-accent)]" />
                             </div>
                           </div>
                           <div v-else class="rounded-[20px] border border-dashed border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-4 py-4 text-xs leading-6 text-[var(--theme-text-secondary)]">
@@ -2652,7 +2653,8 @@ onBeforeUnmount(() => {
                             :key="option.value"
                             type="button"
                             class="settings-choice-card group min-h-[82px] rounded-[6px] border px-5 py-4 text-left transition duration-150"
-                            :aria-pressed="isDicomTagDisplayModeActive(option.value)"
+                            role="radio"
+                            :aria-checked="isDicomTagDisplayModeActive(option.value)"
                             :class="{ 'settings-choice-card--active': isDicomTagDisplayModeActive(option.value) }"
                             @click="handleSelectDicomTagDisplayMode(option.value)"
                           >
@@ -2685,6 +2687,8 @@ onBeforeUnmount(() => {
                         <div class="grid gap-3 lg:grid-cols-2">
                           <button
                             type="button"
+                            role="radio"
+                            :aria-checked="dicomTagEditSavePreference.locationMode === 'default'"
                             class="settings-choice-card group min-h-[92px] rounded-[6px] border px-5 py-4 text-left transition duration-150"
                             :class="{ 'settings-choice-card--active': dicomTagEditSavePreference.locationMode === 'default' }"
                             @click="handleSelectDefaultTagEditSaveLocation"
@@ -2705,6 +2709,8 @@ onBeforeUnmount(() => {
 
                           <button
                             type="button"
+                            role="radio"
+                            :aria-checked="dicomTagEditSavePreference.locationMode === 'custom'"
                             class="settings-choice-card group min-h-[92px] rounded-[6px] border px-5 py-4 text-left transition duration-150 disabled:cursor-not-allowed disabled:opacity-60"
                             :disabled="!canPickTagEditSaveLocation"
                             :class="{ 'settings-choice-card--active': dicomTagEditSavePreference.locationMode === 'custom' }"
@@ -2800,8 +2806,9 @@ onBeforeUnmount(() => {
                             v-for="option in dicomDeidentifyOptions"
                             :key="option.key"
                             type="button"
+                            role="checkbox"
                             class="group min-h-[128px] rounded-[22px] border px-4 py-4 text-left transition duration-150"
-                            :aria-pressed="isDicomDeidentifyFieldSelected(option.key)"
+                            :aria-checked="isDicomDeidentifyFieldSelected(option.key)"
                             :class="isDicomDeidentifyFieldSelected(option.key) ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-border-strong))] bg-[color:color-mix(in_srgb,var(--theme-accent)_11%,var(--theme-surface-card))]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)]'"
                             @click="toggleDicomDeidentifyField(option.key)"
                           >
@@ -3329,6 +3336,8 @@ onBeforeUnmount(() => {
                       <div class="grid gap-4 xl:grid-cols-2">
                         <button
                           type="button"
+                          role="radio"
+                          :aria-checked="viewerToolbarPlacement === 'top'"
                           class="settings-toolbar-layout-choice"
                           :class="{ 'settings-toolbar-layout-choice--active': viewerToolbarPlacement === 'top' }"
                           data-testid="settings-toolbar-layout-top"
@@ -3353,6 +3362,8 @@ onBeforeUnmount(() => {
 
                         <button
                           type="button"
+                          role="radio"
+                          :aria-checked="viewerToolbarPlacement === 'right'"
                           class="settings-toolbar-layout-choice"
                           :class="{ 'settings-toolbar-layout-choice--active': viewerToolbarPlacement === 'right' }"
                           data-testid="settings-toolbar-layout-right"
@@ -3385,7 +3396,7 @@ onBeforeUnmount(() => {
                     <div v-if="activeSection === 'displayScaleBar'" class="theme-card-soft rounded-[24px] p-4">
                       <div class="mb-4">
                         <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                          <AppIcon name="measure" :size="18" />
+                          <AppIcon name="measure" :size="20" />
                           <span class="text-sm font-semibold">{{ copy.scaleBarTitle }}</span>
                         </div>
                         <div class="mt-1 max-w-3xl text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.scaleBarDesc }}</div>
@@ -3473,7 +3484,7 @@ onBeforeUnmount(() => {
                       <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                            <AppIcon name="measure-line" :size="18" />
+                            <AppIcon name="measure-line" :size="20" />
                             <span class="text-sm font-semibold">{{ copy.measurementStyleTitle }}</span>
                           </div>
                           <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ copy.measurementStyleDesc }}</div>
@@ -3486,7 +3497,7 @@ onBeforeUnmount(() => {
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '测量' : 'Measurement' }}</div>
                             <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '设置测量线条颜色、线宽、线型和预览。' : 'Configure measurement colors, line width, line style, and preview.' }}</div>
                           </div>
-                          <AppIcon name="measure-line" :size="18" class="text-[var(--theme-text-muted)]" />
+                          <AppIcon name="measure-line" :size="20" class="text-[var(--theme-text-muted)]" />
                         </div>
 
                       <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(260px,0.75fr)]">
@@ -3611,7 +3622,7 @@ onBeforeUnmount(() => {
                             <div class="text-sm font-semibold text-[var(--theme-text-primary)]">{{ isZh ? '标注' : 'Annotation' }}</div>
                             <div class="mt-1 text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '设置箭头标注的颜色、尺寸和预览。' : 'Configure arrow annotation color, size, and preview.' }}</div>
                           </div>
-                          <AppIcon name="annotate" :size="18" class="text-[var(--theme-text-muted)]" />
+                          <AppIcon name="annotate" :size="20" class="text-[var(--theme-text-muted)]" />
                         </div>
 
                       <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.75fr)]">
@@ -3667,7 +3678,7 @@ onBeforeUnmount(() => {
                       <section class="mt-4 rounded-[20px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-4">
                         <div class="mb-3 flex flex-col gap-1">
                           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--theme-text-muted)]">{{ isZh ? '绘制作用范围' : 'Drawing Scope' }}</div>
-                          <div class="text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '控制新建测量、标注、水模和 MTF 绘制显示在当前影像还是整个 series。' : 'Control whether new measurement, annotation, water QA and MTF drawings apply to the current image or the whole series.' }}</div>
+                          <div class="text-xs leading-5 text-[var(--theme-text-secondary)]">{{ isZh ? '控制新建测量、标注、水模和 MTF 绘制显示在当前影像还是整个序列。' : 'Control whether new measurement, annotation, water QA and MTF drawings apply to the current image or the whole series.' }}</div>
                         </div>
                         <div class="grid gap-3 lg:grid-cols-4">
                           <div
@@ -3682,21 +3693,27 @@ onBeforeUnmount(() => {
                             <div class="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
+                                role="radio"
+                                :aria-checked="drawingScopePreference[row.key] === 'image'"
                                 class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
                                 :data-testid="`settings-drawing-scope-${row.key}-image`"
-                                :class="drawingScopePreference[row.key] === 'image' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                                :class="drawingScopePreference[row.key] === 'image' ? 'border-[var(--theme-selection-border)] bg-[var(--theme-selection-surface)] text-[var(--theme-text-primary)] shadow-[var(--theme-selection-shadow)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
                                 @click="updateDrawingScopePreference(row.key, 'image')"
                               >
                                 {{ isZh ? '当前影像' : 'Image' }}
+                                <AppIcon v-if="drawingScopePreference[row.key] === 'image'" name="check" :size="14" class="ml-2 inline-block text-[var(--theme-accent)]" />
                               </button>
                               <button
                                 type="button"
+                                role="radio"
+                                :aria-checked="drawingScopePreference[row.key] === 'series'"
                                 class="rounded-[14px] border px-3 py-2 text-xs font-semibold transition"
                                 :data-testid="`settings-drawing-scope-${row.key}-series`"
-                                :class="drawingScopePreference[row.key] === 'series' ? 'border-[var(--theme-border-strong)] bg-[var(--theme-active-pill-bg)] text-[var(--theme-text-primary)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
+                                :class="drawingScopePreference[row.key] === 'series' ? 'border-[var(--theme-selection-border)] bg-[var(--theme-selection-surface)] text-[var(--theme-text-primary)] shadow-[var(--theme-selection-shadow)]' : 'border-[var(--theme-border-soft)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)]'"
                                 @click="updateDrawingScopePreference(row.key, 'series')"
                               >
-                                {{ isZh ? '整个 series' : 'Series' }}
+                                {{ isZh ? '整个序列' : 'Series' }}
+                                <AppIcon v-if="drawingScopePreference[row.key] === 'series'" name="check" :size="14" class="ml-2 inline-block text-[var(--theme-accent)]" />
                               </button>
                             </div>
                           </div>
@@ -3708,7 +3725,7 @@ onBeforeUnmount(() => {
                       <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                            <AppIcon name="segmentation" :size="18" />
+                            <AppIcon name="segmentation" :size="20" />
                             <span class="text-sm font-semibold">{{ isZh ? '分割样式' : 'Segmentation Style' }}</span>
                           </div>
                           <div class="mt-2 text-xs leading-5 text-[var(--theme-text-secondary)]">
@@ -3785,7 +3802,7 @@ onBeforeUnmount(() => {
                       <div v-if="activeSection === 'displayPseudocolor'" class="theme-card-soft rounded-[24px] p-4">
                         <div class="mb-4 flex items-center justify-between gap-3">
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
-                            <AppIcon name="pseudocolor" :size="18" />
+                            <AppIcon name="pseudocolor" :size="20" />
                             <span class="text-sm font-semibold">{{ copy.pseudocolor }}</span>
                           </div>
                           <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">
@@ -3852,6 +3869,32 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.settings-dialog-shell {
+  border-radius: 16px;
+}
+
+.settings-content-pane {
+  background: color-mix(in srgb, var(--theme-surface-panel-solid) 72%, transparent);
+}
+
+.settings-section-header,
+.settings-content-inner {
+  max-width: 1000px;
+}
+
+.settings-nav-groups {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-nav-search-wrap {
+  position: relative;
+  z-index: 1;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
+  background: var(--theme-surface-panel-solid);
+  box-shadow: 0 7px 12px color-mix(in srgb, var(--theme-surface-panel-solid) 92%, transparent);
+}
+
 .settings-nav-scroll,
 .settings-content-scroll {
   scrollbar-width: thin;
@@ -3876,8 +3919,9 @@ onBeforeUnmount(() => {
 }
 
 .settings-nav-search {
+  border-radius: 8px;
   border-color: color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
-  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 94%, transparent);
   color: var(--theme-text-secondary);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
 }
@@ -3909,55 +3953,48 @@ onBeforeUnmount(() => {
 .settings-nav-item {
   position: relative;
   overflow: hidden;
-  border-radius: var(--industrial-radius-control, 4px) !important;
-  box-shadow: var(
-    --industrial-control-shadow,
-    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 4%, transparent),
-    0 4px 10px rgba(0, 0, 0, 0.16)
-  ) !important;
+  min-height: 48px;
+  border-radius: 8px !important;
+  outline: none;
+  box-shadow: none !important;
+}
+
+.settings-nav-item:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--theme-selection-shadow),
+    0 0 0 2px color-mix(in srgb, var(--theme-accent) 28%, transparent) !important;
 }
 
 .settings-nav-item::before {
   position: absolute;
-  inset: 8px auto 8px 0;
+  top: 50%;
+  left: 0;
   width: 3px;
+  height: 24px;
   border-radius: 0 2px 2px 0;
   background: transparent;
   content: "";
+  transform: translateY(-50%);
 }
 
 .settings-nav-item--active {
-  border-color: var(--industrial-active-border, color-mix(in srgb, var(--theme-accent) 34%, transparent)) !important;
-  background: var(
-    --industrial-active-surface,
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card) 91%),
-      color-mix(in srgb, var(--theme-accent-strong) 7%, var(--theme-surface-card-soft) 93%)
-    )
-  ) !important;
-  color: var(--theme-active-foreground) !important;
-  box-shadow: var(
-    --industrial-active-shadow,
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 12%, transparent),
-    0 0 0 1px rgba(0, 0, 0, 0.2),
-    0 6px 14px rgba(0, 0, 0, 0.18)
-  ) !important;
+  border-color: var(--theme-selection-border) !important;
+  background: var(--theme-selection-surface) !important;
+  color: var(--theme-text-primary) !important;
+  box-shadow: var(--theme-selection-shadow) !important;
 }
 
 .settings-nav-item--inactive {
-  border-color: color-mix(in srgb, var(--theme-text-muted) 10%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, transparent) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 2%, transparent),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.28) !important;
-  opacity: 0.68;
+  border-color: transparent !important;
+  background: transparent !important;
+  opacity: 0.78;
 }
 
 .settings-nav-item--inactive:hover {
-  border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-surface-card) 76%, var(--theme-accent) 4%) !important;
-  opacity: 0.92;
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent) !important;
+  opacity: 1;
 }
 
 .settings-nav-item--active::before {
@@ -3966,24 +4003,25 @@ onBeforeUnmount(() => {
 }
 
 .settings-nav-icon {
-  border-radius: var(--industrial-radius-chip, 4px) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 82%, transparent) !important;
+  border-radius: 7px !important;
+  background: transparent !important;
   box-shadow: none !important;
 }
 
 .settings-nav-item--active .settings-nav-icon {
-  border-color: color-mix(in srgb, var(--theme-accent) 34%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-panel-strong-solid)) !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent) !important;
   color: var(--theme-active-foreground) !important;
 }
 
 .settings-nav-item--inactive .settings-nav-icon {
-  border-color: color-mix(in srgb, var(--theme-text-muted) 12%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 86%, transparent) !important;
-  color: color-mix(in srgb, var(--theme-text-muted) 76%, transparent) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--theme-text-secondary) !important;
 }
 
 .settings-nav-chevron {
+  border-radius: 7px;
   border-color: color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
   color: var(--theme-text-secondary);
 }
@@ -4000,10 +4038,13 @@ onBeforeUnmount(() => {
 }
 
 .settings-nav-sublist {
-  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, transparent);
+  margin-left: 15px;
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 64%, transparent);
 }
 
 .settings-nav-subitem {
+  min-height: 34px;
+  border-radius: 6px;
   border-color: transparent;
   background: transparent;
 }
@@ -4016,8 +4057,47 @@ onBeforeUnmount(() => {
 .settings-nav-subitem--active,
 .settings-nav-subitem--active:hover,
 .settings-nav-subitem--active:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border-soft));
-  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card));
+  border-color: transparent;
+  background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
+}
+
+.settings-primary-card,
+.settings-content-inner .theme-card-soft {
+  border-radius: 12px !important;
+}
+
+.settings-language-option,
+.settings-theme-option {
+  border-radius: 8px !important;
+  outline: none;
+}
+
+.settings-language-option:focus-visible,
+.settings-theme-option:focus-visible {
+  outline: none;
+  box-shadow: var(--theme-focus-ring);
+}
+
+.settings-language-option[aria-checked="true"],
+.settings-theme-option[aria-checked="true"] {
+  border-color: var(--theme-selection-border) !important;
+  background: var(--theme-selection-surface) !important;
+  box-shadow: var(--theme-selection-shadow);
+}
+
+@media (max-width: 1023px) {
+  .settings-dialog-shell {
+    border-radius: 12px;
+  }
+
+  .settings-nav-scroll {
+    max-height: 38vh;
+  }
+
+  .settings-section-header,
+  .settings-content-inner {
+    max-width: none;
+  }
 }
 
 .settings-nav-subitem__dot {
@@ -4052,19 +4132,14 @@ onBeforeUnmount(() => {
 .settings-choice-card--active,
 .settings-choice-card--active:hover,
 .settings-choice-card--active:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card)),
-      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel-solid))
-    );
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  border-color: var(--theme-selection-border);
+  background: var(--theme-selection-surface);
+  box-shadow: var(--theme-selection-shadow);
 }
 
 .settings-choice-card__check {
+  order: 2;
+  margin-left: auto;
   border-color: color-mix(in srgb, var(--theme-text-muted) 68%, transparent);
   background: transparent;
   color: transparent;
@@ -4110,22 +4185,15 @@ onBeforeUnmount(() => {
 
 .settings-toolbar-layout-choice:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 34%, transparent);
+  box-shadow: var(--theme-focus-ring);
 }
 
 .settings-toolbar-layout-choice--active,
 .settings-toolbar-layout-choice--active:hover,
 .settings-toolbar-layout-choice--active:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border-strong));
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface-card)),
-      color-mix(in srgb, var(--theme-accent-strong) 8%, var(--theme-surface-panel-solid))
-    );
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+  border-color: var(--theme-selection-border);
+  background: var(--theme-selection-surface);
+  box-shadow: var(--theme-selection-shadow);
 }
 
 .settings-toolbar-layout-choice__header {

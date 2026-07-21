@@ -45,17 +45,23 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
   })
 
   it('displays standalone Stack and PET tabs as 2D while keeping internal view types', () => {
-    const stackSeries = { seriesId: 'ct-series', seriesDescription: 'AC for PET' } as FolderSeriesItem
-    const petSeries = { seriesId: 'pet-series', seriesDescription: 'PET FDG SUV' } as FolderSeriesItem
+    const stackSeries = { seriesId: 'ct-series', patientName: 'Patient CT', seriesDescription: 'AC for PET' } as FolderSeriesItem
+    const petSeries = { seriesId: 'pet-series', patientName: 'Patient PET', seriesDescription: 'PET FDG SUV' } as FolderSeriesItem
 
     const stackTab = createTab(stackSeries, 'Stack')
     const petTab = createTab(petSeries, 'PET')
 
-    expect(stackTab.title).toBe('AC for PET · 2D')
+    expect(stackTab.title).toBe('Patient CT · 2D')
     expect(stackTab.viewType).toBe('Stack')
-    expect(petTab.title).toBe('PET FDG SUV · 2D')
+    expect(petTab.title).toBe('Patient PET · 2D')
     expect(petTab.viewType).toBe('PET')
-    expect(buildTabTitle(petSeries, 'PET', 'fallback')).toBe('PET FDG SUV · 2D')
+    expect(buildTabTitle(petSeries, 'PET', 'fallback')).toBe('Patient PET · 2D')
+  })
+
+  it('falls back to the series display name when the patient name is absent', () => {
+    const series = { seriesId: 'ct-series', seriesDescription: 'CT Head' } as FolderSeriesItem
+
+    expect(buildTabTitle(series, 'Stack', 'fallback')).toBe('CT Head · 2D')
   })
 
   it('uses 2D Compare as the user-facing label for CompareStack', () => {

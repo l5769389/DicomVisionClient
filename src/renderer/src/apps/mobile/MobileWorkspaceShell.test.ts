@@ -497,7 +497,7 @@ function mountShell() {
   return mount(MobileWorkspaceShell, {
     global: {
       stubs: {
-        AppIcon: { props: ['name'], template: '<span class="app-icon-stub">{{ name }}</span>' },
+        AppIcon: { props: ['name', 'size'], template: '<span class="app-icon-stub" :data-size="size">{{ name }}</span>' },
         MtfCurveDialog: {
           props: ['isOpen', 'mtfItem'],
           emits: ['close'],
@@ -1071,8 +1071,7 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.find('[data-testid="mobile-window-custom-dialog"]').exists()).toBe(false)
 
     expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).toContain('mobile-shell__footer-action')
-    expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).toContain('mobile-shell__footer-action--danger')
-    expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).not.toContain('mobile-shell__footer-action--warning')
+    expect(wrapper.get('[data-testid="mobile-window-reset"]').classes()).not.toContain('mobile-shell__footer-action--danger')
     expect(wrapper.get('[data-testid="mobile-window-reset"] .app-icon-stub').text()).toBe('reset')
     expect(wrapper.find('[data-testid="mobile-window-reset"] small').exists()).toBe(false)
     mockViewer.triggerViewAction.mockClear()
@@ -1088,7 +1087,7 @@ describe('MobileWorkspaceShell', () => {
 
     await wrapper.get('[data-testid="mobile-sheet-tab-transform"]').trigger('click')
     expect(wrapper.get('[data-testid="mobile-transform-reset"]').classes()).toContain('mobile-shell__footer-action')
-    expect(wrapper.get('[data-testid="mobile-transform-reset"]').classes()).toContain('mobile-shell__footer-action--danger')
+    expect(wrapper.get('[data-testid="mobile-transform-reset"]').classes()).not.toContain('mobile-shell__footer-action--danger')
     expect(wrapper.get('[data-testid="mobile-transform-reset"] .app-icon-stub').text()).toBe('reset')
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-transform-reset"]').trigger('click')
@@ -1433,7 +1432,11 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.findAll('[data-testid="mobile-export-format"]')).toHaveLength(2)
     await wrapper.get('.mobile-shell__sheet-close').trigger('click')
 
+    expect(wrapper.get('[data-testid="mobile-tool-color"] .app-icon-stub').text()).toBe('render-volume')
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
+    expect(wrapper.get('[data-testid="mobile-tool-rotate3d"]').classes()).toContain('mobile-shell__tool--active')
+    expect(wrapper.get('[data-testid="mobile-tool-color"]').classes()).not.toContain('mobile-shell__tool--active')
+    expect(wrapper.get('[data-testid="mobile-tool-color"]').classes()).toContain('mobile-shell__tool--panel-open')
     expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
     const modeButtons = wrapper.findAll('[data-testid="mobile-volume-render-mode"]')
     expect(modeButtons[0].classes()).toContain('mobile-shell__action-row--active')
@@ -1455,7 +1458,9 @@ describe('MobileWorkspaceShell', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').text()).toContain('已去床板')
     expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"] .app-icon-stub').text()).toBe('bed-hidden')
-    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').classes()).toContain('mobile-shell__tool--active')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').classes()).not.toContain('mobile-shell__tool--active')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').classes()).toContain('mobile-shell__tool--state-on')
+    expect(wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').attributes('aria-pressed')).toBe('true')
 
     mockViewer.triggerViewAction.mockClear()
     await wrapper.get('[data-testid="mobile-tool-volumeRemoveBed"]').trigger('click')
@@ -1489,6 +1494,7 @@ describe('MobileWorkspaceShell', () => {
 
     const wrapper = mountShell()
 
+    expect(wrapper.get('[data-testid="mobile-tool-color"] .app-icon-stub').text()).toBe('render-surface')
     await wrapper.get('[data-testid="mobile-tool-color"]').trigger('click')
 
     expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)

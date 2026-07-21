@@ -1110,6 +1110,7 @@ export interface ViewColorInfo {
 
 export interface ViewImageResponse {
   imageFormat?: ViewerImageTransportFormat
+  imageTransport?: 'webrtc' | 'webp-final' | 'webp'
   fastPreview?: boolean
   fastPreviewFullResolution?: boolean
   metadataMode?: string

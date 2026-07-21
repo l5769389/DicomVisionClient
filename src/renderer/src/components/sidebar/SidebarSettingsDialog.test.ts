@@ -111,6 +111,16 @@ describe('SidebarSettingsDialog toolbar layout settings', () => {
     preferences.viewerToolbarPlacement.value = 'top'
   })
 
+  it('keeps the settings search outside the independently scrolling navigation list', () => {
+    const wrapper = mountSettingsDialog()
+
+    expect(wrapper.find('.settings-nav-search-wrap').exists()).toBe(true)
+    expect(wrapper.find('.settings-nav-scroll').exists()).toBe(true)
+    expect(wrapper.find('.settings-nav-scroll').find('.settings-nav-search-wrap').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('shows toolbar layout skeleton cards and switches placement', async () => {
     const preferences = useUiPreferences()
     const wrapper = mountSettingsDialog()
@@ -216,12 +226,11 @@ describe('SidebarSettingsDialog image transport settings', () => {
     preferences.setLocale('en-US')
   })
 
-  it('does not expose the fixed WebP transport as a user setting', async () => {
+  it('does not expose the server-controlled 3D transport as a user setting', async () => {
     const wrapper = mountSettingsDialog()
 
-    expect(wrapper.text()).not.toContain('Image Format')
-    expect(wrapper.find('[data-testid="settings-image-format-png"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="settings-image-format-webp"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-3d-transport-webp"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-3d-transport-webrtc"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

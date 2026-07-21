@@ -26,6 +26,7 @@ import {
 } from '../../../types/viewer'
 import { DEFAULT_MPR_LAYOUT_KEY } from '../../../composables/workspace/layout/mprLayoutOptions'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import { stripVolumeCornerInfo } from '../../../composables/ui/viewportCornerInfo'
 import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 
 type MprDisplayViewportKey = MprViewportKey | 'volume'
@@ -277,6 +278,10 @@ function getItemImage(item: MprViewportLayoutItem): string {
   return viewportKey ? getViewportImage(viewportKey) : props.activeTab.imageSrc
 }
 
+function getItemMediaViewId(item: MprViewportLayoutItem): string | null {
+  return item.kind === 'volume' ? props.activeTab.viewId || null : null
+}
+
 function isItemLoading(item: MprViewportLayoutItem): boolean {
   const viewportKey = asMprViewportKey(item)
   return viewportKey ? isViewportLoading(viewportKey) : Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc
@@ -335,23 +340,7 @@ function getItemCornerInfo(item: MprViewportLayoutItem): CornerInfo {
     return props.getCornerInfo(viewportKey)
   }
 
-  const cornerInfo = props.activeTab.cornerInfo
-  const tags = { ...(cornerInfo.tags ?? {}) }
-  delete tags.imageIndex
-  delete tags.coordinates
-  delete tags.transform2dState
-  const isVolumeOnlyLine = (line: string): boolean =>
-    /^Im:\s*/i.test(line) ||
-    /^(?:Cursor\s+)?X:\s*-?\d+\s+Y:\s*-?\d+$/i.test(line) ||
-    /^Rot:\s*-?\d+(?:\.\d+)?°?\s*\/\s*Flip:/i.test(line)
-  return {
-    ...cornerInfo,
-    topLeft: cornerInfo.topLeft.filter((line) => !isVolumeOnlyLine(line)),
-    topRight: cornerInfo.topRight.filter((line) => !isVolumeOnlyLine(line)),
-    bottomLeft: cornerInfo.bottomLeft.filter((line) => !isVolumeOnlyLine(line)),
-    bottomRight: cornerInfo.bottomRight.filter((line) => !isVolumeOnlyLine(line)),
-    tags
-  }
+  return stripVolumeCornerInfo(props.activeTab.cornerInfo)
 }
 
 function getItemDraftMeasurementMode(item: MprViewportLayoutItem): DraftMeasurementMode | null {
@@ -548,6 +537,7 @@ watch(
       :draft-annotation="getItemDraftAnnotation(item)"
       :render-surface-active="isViewportActive(item.key)"
       :image-src="getItemImage(item)"
+      :media-view-id="getItemMediaViewId(item)"
       :active-operation="props.activeOperation"
       :is-loading="isItemLoading(item)"
       :loading-label="getItemLoadingLabel(item)"

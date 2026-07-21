@@ -41,7 +41,7 @@ const pointRows = computed(() =>
 const scopeLabel = computed(() => {
   const scope = props.measurement?.scope ?? 'image'
   if (isZh.value) {
-    return scope === 'series' ? '整个 series' : '当前影像'
+    return scope === 'series' ? '整个序列' : '当前影像'
   }
   return scope === 'series' ? 'Series' : 'Current image'
 })

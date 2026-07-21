@@ -19,7 +19,13 @@ import {
   normalizePseudocolorPresetKey
 } from '../../../constants/pseudocolor'
 import type { DrawingScope, ViewerTabItem } from '../../../types/viewer'
-import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from './toolbarTypes'
+import {
+  isStackToolOptionSelected,
+  resolveStackToolOptionSelectionMode,
+  type StackTool,
+  type StackToolOption,
+  type StackToolOptionSelectBehavior
+} from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { useUiPreferences, type DrawingScopePreference } from '../../../composables/ui/useUiPreferences'
 
@@ -42,7 +48,6 @@ const emit = defineEmits<{
 
 const { locale, toolbarCopy: copy } = useUiLocale()
 const { drawingScopePreference, setDrawingScopePreference } = useUiPreferences()
-const UNSELECTED_ACTION_MENU_TOOL_KEYS = new Set(['rotate', 'export', 'reset'])
 const customWindowWidth = ref('')
 const customWindowLevel = ref('')
 const petDraftWindowMax = ref(DEFAULT_FUSION_PET_WINDOW_MAX)
@@ -78,7 +83,7 @@ const drawingScopeCopy = computed(() => ({
   measurement: isZh.value ? '新建测量的显示范围。' : 'Default visibility for new measurements.',
   annotation: isZh.value ? '新建标注的显示范围。' : 'Default visibility for new annotations.',
   image: isZh.value ? '当前影像' : 'Image',
-  series: isZh.value ? '整个 series' : 'Series'
+  series: isZh.value ? '整个序列' : 'Series'
 }))
 const transformActionCopy = computed(() => ({
   resetPan: isZh.value ? '重置平移' : 'Reset Pan',
@@ -99,12 +104,12 @@ const annotationActionCopy = computed(() => ({
 const dockDrawingScopeCopy = computed(() => ({
   ...drawingScopeCopy.value,
   title: isZh.value ? '作用范围' : 'Scope',
-  measurement: isZh.value ? '新建测量结果显示在当前影像或整个 series；切换会清空已有测量。' : 'New measurements are shown on the current image or the whole series. Switching clears existing measurements.',
-  annotation: isZh.value ? '新建标注显示在当前影像或整个 series；切换会清空已有标注。' : 'New annotations are shown on the current image or the whole series. Switching clears existing annotations.',
-  qaWater: isZh.value ? '新建水模 QA 结果基于当前影像或整个 series；切换会清空已有 QA 结果。' : 'New water phantom QA results use the current image or the whole series. Switching clears existing QA results.',
-  mtf: isZh.value ? '新建 MTF 绘制显示在当前影像或整个 series；切换会清空已有 MTF 结果。' : 'New MTF drawings are shown on the current image or the whole series. Switching clears existing MTF results.',
+  measurement: isZh.value ? '新建测量结果显示在当前影像或整个序列；切换会清空已有测量。' : 'New measurements are shown on the current image or the whole series. Switching clears existing measurements.',
+  annotation: isZh.value ? '新建标注显示在当前影像或整个序列；切换会清空已有标注。' : 'New annotations are shown on the current image or the whole series. Switching clears existing annotations.',
+  qaWater: isZh.value ? '新建水模 QA 结果基于当前影像或整个序列；切换会清空已有 QA 结果。' : 'New water phantom QA results use the current image or the whole series. Switching clears existing QA results.',
+  mtf: isZh.value ? '新建 MTF 绘制显示在当前影像或整个序列；切换会清空已有 MTF 结果。' : 'New MTF drawings are shown on the current image or the whole series. Switching clears existing MTF results.',
   image: isZh.value ? '当前影像' : 'Image',
-  series: isZh.value ? '整个 series' : 'Series'
+  series: isZh.value ? '整个序列' : 'Series'
 }))
 
 const petDisplayCopy = computed(() => ({
@@ -179,13 +184,26 @@ function getActiveLayoutColumns(activeTab: ViewerTabItem): number {
 }
 
 function isOptionActive(option: StackToolOption): boolean {
-  if (UNSELECTED_ACTION_MENU_TOOL_KEYS.has(props.tool.key)) {
-    return false
-  }
-  if (props.tool.key === 'volumeOrientation') {
-    return option.checked === true
-  }
-  return props.stackToolSelections[props.tool.key] === option.value || option.checked === true
+  return isStackToolOptionSelected(props.tool, option, props.stackToolSelections[props.tool.key])
+}
+
+const optionSelectionMode = computed(() => resolveStackToolOptionSelectionMode(props.tool))
+
+function optionRole(): 'radio' | 'checkbox' | 'menuitem' {
+  if (optionSelectionMode.value === 'single') return 'radio'
+  if (optionSelectionMode.value === 'multiple') return 'checkbox'
+  return 'menuitem'
+}
+
+function isDestructiveAction(action: StackToolOption): boolean {
+  const value = action.value.toLowerCase()
+  return value.startsWith('clear:')
+    || value.startsWith('delete:')
+    || value === 'reset:all'
+    || value === 'reset:measurements'
+    || value === 'reset:annotations'
+    || value === 'reset:mtf'
+    || value === 'reset:qa-water'
 }
 
 function isVolumeOrientationOption(option: StackToolOption): boolean {
@@ -645,7 +663,7 @@ onBeforeUnmount(() => {
           data-testid="fusion-registration-dock-toggle"
           @click="emit('select', 'fusionRegistration:toggle')"
         >
-          <AppIcon name="crosshair" :size="18" />
+          <AppIcon name="crosshair" :size="20" />
           <span>{{ isFusionRegistrationActive ? fusionRegistrationCopy.disable : fusionRegistrationCopy.enable }}</span>
         </button>
 
@@ -659,7 +677,6 @@ onBeforeUnmount(() => {
             :data-testid="`fusion-registration-dock-action-${option.value.replace('fusionRegistration:', '')}`"
             @click="emit('select', option.value)"
           >
-            <span class="viewer-toolbar-dock-panel-content__option-rail" aria-hidden="true"></span>
             <span class="viewer-toolbar-dock-panel-content__option-icon">
               <AppIcon :name="option.icon ?? 'settings'" :size="menuIconSize + 2" />
             </span>
@@ -683,6 +700,8 @@ onBeforeUnmount(() => {
                 v-for="option in petPseudocolorOptions"
                 :key="option.value"
                 type="button"
+                role="radio"
+                :aria-checked="option.key === selectedPetPseudocolor"
                 class="viewer-toolbar-dock-panel-content__pet-pseudocolor-option"
                 :class="{ 'viewer-toolbar-dock-panel-content__pet-pseudocolor-option--active': option.key === selectedPetPseudocolor }"
                 @click="selectPetPseudocolor(option.value)"
@@ -733,6 +752,8 @@ onBeforeUnmount(() => {
                   v-for="option in petRangeMaxOptions"
                   :key="option"
                   type="button"
+                  role="radio"
+                  :aria-checked="Math.abs(petRangeUpperLimit - option) < 0.001"
                   :class="{ 'viewer-toolbar-dock-panel-content__pet-range-max-option--active': Math.abs(petRangeUpperLimit - option) < 0.001 }"
                   @click="setPetRangeUpperLimit(option)"
                 >
@@ -752,6 +773,8 @@ onBeforeUnmount(() => {
                 v-for="option in petUnitOptions"
                 :key="option.value"
                 type="button"
+                role="radio"
+                :aria-checked="selectedPetUnit === option.value"
                 class="viewer-toolbar-dock-panel-content__chip"
                 :class="{ 'viewer-toolbar-dock-panel-content__chip--active': selectedPetUnit === option.value }"
                 @click="selectPetUnit(option.value)"
@@ -770,7 +793,7 @@ onBeforeUnmount(() => {
             @click="emit('select', petResetEventValue)"
           >
             <span class="viewer-toolbar-dock-panel-content__danger-action-icon">
-              <AppIcon name="reset" :size="16" />
+              <AppIcon name="reset" :size="20" />
             </span>
             <span class="viewer-toolbar-dock-panel-content__danger-action-copy">
               <span class="viewer-toolbar-dock-panel-content__danger-action-label">
@@ -791,7 +814,7 @@ onBeforeUnmount(() => {
           :title="isPlaying ? copy.pausePlayback : isPlaybackPaused ? copy.resumePlayback : tool.label"
           @click="isPlaying || isPlaybackPaused ? emit('pausePlayback', { keepMenuOpen: true }) : emit('applyTool', tool, { keepMenuOpen: true })"
         >
-          <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
+          <AppIcon :name="isPlaying ? 'pause' : 'play'" :size="20" />
           <span>{{ isPlaying ? copy.pausePlayback : isPlaybackPaused ? copy.resumePlayback : tool.label }}</span>
         </button>
         <button
@@ -801,7 +824,7 @@ onBeforeUnmount(() => {
           :title="copy.stopPlayback"
           @click="emit('endPlayback', { keepMenuOpen: true })"
         >
-          <AppIcon name="stop" :size="17" />
+          <AppIcon name="stop" :size="20" />
           <span>{{ copy.stopPlayback }}</span>
         </button>
       </div>
@@ -821,6 +844,8 @@ onBeforeUnmount(() => {
             v-for="(option, optionIndex) in playbackFpsOptions"
             :key="option.value"
             type="button"
+            role="radio"
+            :aria-checked="optionIndex === playbackFpsIndex"
             class="viewer-toolbar-dock-panel-content__fps-tick"
             :class="{ 'viewer-toolbar-dock-panel-content__fps-tick--active': optionIndex === playbackFpsIndex }"
             @click="selectPlaybackFpsIndex(optionIndex)"
@@ -883,6 +908,8 @@ onBeforeUnmount(() => {
               v-for="tick in activeZoomRangeControl.ticks"
               :key="tick.value"
               type="button"
+              role="radio"
+              :aria-checked="isZoomSliderTickActive(tick.value)"
               class="viewer-toolbar-dock-panel-content__zoom-tick"
               :class="{ 'viewer-toolbar-dock-panel-content__zoom-tick--active': isZoomSliderTickActive(tick.value) }"
               @click="selectZoomSliderTick(tick.value)"
@@ -960,22 +987,32 @@ onBeforeUnmount(() => {
               <DockInfoPopover :text="drawingScopeDescription" />
             </div>
           </div>
-          <div class="viewer-toolbar-dock-panel-content__scope-actions">
+          <div
+            class="viewer-toolbar-dock-panel-content__scope-actions"
+            role="radiogroup"
+            :aria-label="dockDrawingScopeCopy.title"
+          >
             <button
               type="button"
               class="viewer-toolbar-dock-panel-content__scope-choice"
               :class="{ 'viewer-toolbar-dock-panel-content__scope-choice--active': drawingScopePreference[drawingScopeToolKey] === 'image' }"
+              role="radio"
+              :aria-checked="drawingScopePreference[drawingScopeToolKey] === 'image'"
               @click="updateDockDrawingScope('image')"
             >
-              {{ dockDrawingScopeCopy.image }}
+              <span>{{ dockDrawingScopeCopy.image }}</span>
+              <AppIcon v-if="drawingScopePreference[drawingScopeToolKey] === 'image'" name="check" :size="14" />
             </button>
             <button
               type="button"
               class="viewer-toolbar-dock-panel-content__scope-choice"
               :class="{ 'viewer-toolbar-dock-panel-content__scope-choice--active': drawingScopePreference[drawingScopeToolKey] === 'series' }"
+              role="radio"
+              :aria-checked="drawingScopePreference[drawingScopeToolKey] === 'series'"
               @click="updateDockDrawingScope('series')"
             >
-              {{ dockDrawingScopeCopy.series }}
+              <span>{{ dockDrawingScopeCopy.series }}</span>
+              <AppIcon v-if="drawingScopePreference[drawingScopeToolKey] === 'series'" name="check" :size="14" />
             </button>
           </div>
         </section>
@@ -999,14 +1036,16 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="viewer-toolbar-dock-panel-content__option"
+              :role="optionRole()"
+              :aria-checked="optionSelectionMode !== 'none' ? isOptionActive(option) : undefined"
               :class="{
                 'viewer-toolbar-dock-panel-content__option--active': isOptionActive(option),
-                'viewer-toolbar-dock-panel-content__option--disabled': option.disabled
+                'viewer-toolbar-dock-panel-content__option--disabled': option.disabled,
+                'viewer-toolbar-dock-panel-content__option--destructive': isDestructiveAction(option)
               }"
               :disabled="option.disabled"
               @click="emit('select', option.value)"
             >
-              <span class="viewer-toolbar-dock-panel-content__option-rail" aria-hidden="true"></span>
               <span
                 v-if="tool.key === 'pseudocolor' || option.icon"
                 class="viewer-toolbar-dock-panel-content__option-icon"
@@ -1041,14 +1080,14 @@ onBeforeUnmount(() => {
                 </span>
               </span>
               <span
-                v-if="tool.key === 'compareSync' || tool.key === 'display'"
+                v-if="optionSelectionMode === 'multiple'"
                 class="viewer-toolbar-dock-panel-content__check"
                 :class="{ 'viewer-toolbar-dock-panel-content__check--active': option.checked }"
               >
                 <AppIcon v-if="option.checked" name="check" :size="14" />
               </span>
               <AppIcon
-                v-else-if="isOptionActive(option)"
+                v-else-if="optionSelectionMode === 'single' && isOptionActive(option)"
                 name="check"
                 class="viewer-toolbar-dock-panel-content__selected-icon"
                 :size="15"
@@ -1067,13 +1106,16 @@ onBeforeUnmount(() => {
             :key="action.value"
             type="button"
             class="viewer-toolbar-dock-panel-content__danger-action"
-            :class="{ 'viewer-toolbar-dock-panel-content__measure-reset': action.value === 'reset:measurements' }"
+            :class="{
+              'viewer-toolbar-dock-panel-content__measure-reset': action.value === 'reset:measurements',
+              'viewer-toolbar-dock-panel-content__danger-action--destructive': isDestructiveAction(action)
+            }"
             :data-testid="getFooterActionTestId(action)"
             :disabled="action.disabled"
             @click="emit('select', action.value)"
           >
             <span class="viewer-toolbar-dock-panel-content__danger-action-icon">
-              <AppIcon :name="action.icon ?? 'settings'" :size="16" />
+              <AppIcon :name="action.icon ?? 'settings'" :size="20" />
             </span>
             <span class="viewer-toolbar-dock-panel-content__danger-action-copy">
               <span class="viewer-toolbar-dock-panel-content__danger-action-label">
@@ -1659,15 +1701,23 @@ onBeforeUnmount(() => {
 .viewer-toolbar-dock-panel-content__scope-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.viewer-toolbar-dock-panel-content__scope-choice {
-  min-height: 34px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--theme-surface-card-soft) 64%, transparent);
+}
+
+.viewer-toolbar-dock-panel-content__scope-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--theme-text-secondary);
+  padding: 0 10px;
   font-size: 12px;
   font-weight: 800;
   transition:
@@ -1675,6 +1725,10 @@ onBeforeUnmount(() => {
     background 150ms ease,
     color 150ms ease,
     box-shadow 150ms ease;
+}
+
+.viewer-toolbar-dock-panel-content__scope-choice + .viewer-toolbar-dock-panel-content__scope-choice {
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
 }
 
 .viewer-toolbar-dock-panel-content__scope-choice:hover,
@@ -1686,10 +1740,10 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content__scope-choice--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 54%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card));
+  border-color: var(--theme-selection-border);
+  background: var(--theme-selection-surface);
   color: var(--theme-text-primary);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  box-shadow: var(--theme-selection-shadow);
 }
 
 .viewer-toolbar-dock-panel-content__custom-window-description {
@@ -1877,12 +1931,13 @@ onBeforeUnmount(() => {
 .viewer-toolbar-dock-panel-content__danger-action {
   display: grid;
   min-width: 0;
+  min-height: var(--viewer-tool-option-min-height);
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 11px;
-  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
+  border: 1px solid var(--theme-border-soft);
+  border-radius: var(--viewer-tool-radius);
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
   padding: 10px 12px;
   color: var(--theme-text-primary);
   text-align: left;
@@ -1895,9 +1950,10 @@ onBeforeUnmount(() => {
 
 .viewer-toolbar-dock-panel-content__danger-action:hover,
 .viewer-toolbar-dock-panel-content__danger-action:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
+  border-color: var(--theme-hover-border);
+  background: var(--theme-hover-surface);
   outline: none;
+  box-shadow: var(--theme-focus-ring);
 }
 
 .viewer-toolbar-dock-panel-content__danger-action:disabled {
@@ -1910,8 +1966,25 @@ onBeforeUnmount(() => {
   width: 36px;
   height: 36px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
-  border-radius: 12px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: var(--viewer-tool-radius);
+  background: color-mix(in srgb, var(--theme-surface-card) 78%, transparent);
+  color: var(--theme-text-secondary);
+}
+
+.viewer-toolbar-dock-panel-content__danger-action--destructive {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
+}
+
+.viewer-toolbar-dock-panel-content__danger-action--destructive:hover,
+.viewer-toolbar-dock-panel-content__danger-action--destructive:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
+}
+
+.viewer-toolbar-dock-panel-content__danger-action--destructive .viewer-toolbar-dock-panel-content__danger-action-icon {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
   background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
   color: var(--theme-status-danger-text);
 }
@@ -1956,14 +2029,13 @@ onBeforeUnmount(() => {
   position: relative;
   display: grid;
   min-width: 0;
-  height: 64px;
-  min-height: 64px;
+  min-height: var(--viewer-tool-option-min-height);
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   overflow: hidden;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: var(--viewer-tool-radius);
   background: transparent;
   padding: 10px 12px;
   color: var(--theme-text-secondary);
@@ -1984,28 +2056,32 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content__option--active {
-  border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-soft));
-  background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface-card));
+  border-color: var(--theme-selection-border);
+  background: var(--theme-selection-surface);
   color: var(--theme-text-primary);
+  box-shadow: var(--theme-selection-shadow);
+}
+
+.viewer-toolbar-dock-panel-content__option--destructive {
+  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent);
+  color: var(--theme-danger);
+}
+
+.viewer-toolbar-dock-panel-content__option--destructive:hover,
+.viewer-toolbar-dock-panel-content__option--destructive:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-danger) 56%, transparent);
+  background: color-mix(in srgb, var(--theme-danger) 11%, transparent);
+  color: var(--theme-danger);
+}
+
+.viewer-toolbar-dock-panel-content__option--destructive .viewer-toolbar-dock-panel-content__option-icon {
+  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent);
+  color: var(--theme-danger);
 }
 
 .viewer-toolbar-dock-panel-content__option--disabled {
   cursor: not-allowed;
   opacity: 0.48;
-}
-
-.viewer-toolbar-dock-panel-content__option-rail {
-  position: absolute;
-  inset-block: 10px;
-  left: 0;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--theme-accent);
-  opacity: 0;
-}
-
-.viewer-toolbar-dock-panel-content__option--active .viewer-toolbar-dock-panel-content__option-rail {
-  opacity: 1;
 }
 
 .viewer-toolbar-dock-panel-content__option-icon,
@@ -2020,7 +2096,7 @@ onBeforeUnmount(() => {
   width: 36px;
   height: 36px;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--viewer-tool-radius);
   color: var(--theme-text-primary);
 }
 
@@ -2156,11 +2232,11 @@ onBeforeUnmount(() => {
 .viewer-toolbar-dock-panel-content__secondary-action {
   display: inline-flex;
   min-width: 0;
-  min-height: 40px;
+  min-height: var(--viewer-tool-option-min-height);
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 14px;
+  border-radius: var(--viewer-tool-radius);
   font-size: 12px;
   font-weight: 800;
 }

@@ -10,6 +10,7 @@ import {
   pacsProfilePresetConnectionPatch
 } from '../../composables/pacs/pacsProfileUtils'
 import { PSEUDOCOLOR_PRESET_OPTIONS, getPseudocolorGradient } from '../../constants/pseudocolor'
+import { UI_THEME_PRESETS } from '../../constants/uiThemes'
 import {
   useUiPreferences,
   type AppLocale,
@@ -119,17 +120,6 @@ type MobileSettingsPanelKey =
   | 'pacs'
   | 'playback'
 
-interface ThemeOption {
-  accent: string
-  id: string
-  panel: string
-  rail: string
-  surface: string
-  text: string
-  zh: string
-  en: string
-}
-
 interface ColorPreset {
   value: string
   label: string
@@ -173,38 +163,7 @@ const editingPacsProfileId = ref<string | null>(null)
 const testingPacsProfileIds = ref<string[]>([])
 const pacsTestResults = ref<Record<string, PacsTestResult>>({})
 
-const themeOptions: ThemeOption[] = [
-  {
-    accent: '#6fa9c4',
-    id: 'industrial-utility',
-    panel: '#111923',
-    rail: 'linear-gradient(90deg,#101820,#263746,#6fa9c4)',
-    surface: '#17222d',
-    text: '#f5f9fc',
-    zh: '工业实用风',
-    en: 'Industrial'
-  },
-  {
-    accent: '#66d0ff',
-    id: 'aurora',
-    panel: '#07111d',
-    rail: 'linear-gradient(90deg,#07111d,#12345a,#66d0ff)',
-    surface: '#10243b',
-    text: '#e6f6ff',
-    zh: '冷蓝深色',
-    en: 'Aurora'
-  },
-  {
-    accent: '#2f84c6',
-    id: 'clinical-light',
-    panel: '#f7fbff',
-    rail: 'linear-gradient(90deg,#edf7ff,#cfe3f2,#2f84c6)',
-    surface: '#dcecf8',
-    text: '#24384d',
-    zh: '临床浅色',
-    en: 'Clinical'
-  }
-]
+const themeOptions = UI_THEME_PRESETS
 
 const mprViewportOptions: Array<{ key: MprViewportKey; label: string; desc: string }> = [
   { key: 'mpr-ax', label: 'AX', desc: 'Axial' },
@@ -304,7 +263,7 @@ const lineStyleOptions: Array<{ value: MeasurementLineStyle; zh: string; en: str
 
 const selectedThemeLabel = computed(() => {
   const theme = themeOptions.find((item) => item.id === themeId.value)
-  return theme ? (isZh.value ? theme.zh : theme.en) : themeId.value
+  return theme ? (isZh.value ? theme.labelZh : theme.labelEn) : themeId.value
 })
 const selectedWindowPresetLabel = computed(() => {
   const preset = windowPresets.value.find((item) => item.id === selectedWindowPresetId.value)
@@ -845,11 +804,11 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               <span
                 class="mobile-settings__theme-preview"
                 :style="{
-                  '--mobile-theme-accent': theme.accent,
-                  '--mobile-theme-panel': theme.panel,
-                  '--mobile-theme-rail': theme.rail,
-                  '--mobile-theme-surface': theme.surface,
-                  '--mobile-theme-text': theme.text
+                  '--mobile-theme-accent': theme.mobile.accent,
+                  '--mobile-theme-panel': theme.mobile.panel,
+                  '--mobile-theme-rail': theme.mobile.rail,
+                  '--mobile-theme-surface': theme.mobile.surface,
+                  '--mobile-theme-text': theme.mobile.text
                 }"
               >
                 <span class="mobile-settings__theme-preview-rail"></span>
@@ -860,8 +819,8 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
                 <span class="mobile-settings__theme-preview-accent"></span>
               </span>
               <span class="mobile-settings__theme-body">
-                <strong>{{ isZh ? theme.zh : theme.en }}</strong>
-                <small>{{ theme.id === 'clinical-light' ? (isZh ? '浅色' : 'Light') : (isZh ? '深色' : 'Dark') }}</small>
+                <strong>{{ isZh ? theme.labelZh : theme.labelEn }}</strong>
+                <small>{{ isZh ? theme.toneZh : theme.toneEn }}</small>
               </span>
               <span v-if="themeId === theme.id" class="mobile-settings__theme-check" aria-hidden="true">
                 <AppIcon name="check" :size="14" />
@@ -882,7 +841,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               data-testid="mobile-settings-stack-tool"
               @click="setStackDefaultTool(tool.key)"
             >
-              <AppIcon :name="tool.icon" :size="16" />
+              <AppIcon :name="tool.icon" :size="20" />
               <span>{{ isZh ? tool.zh : tool.en }}</span>
             </button>
           </div>
@@ -897,7 +856,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               data-testid="mobile-settings-mpr-tool"
               @click="setMprDefaultTool(tool.key)"
             >
-              <AppIcon :name="tool.icon" :size="16" />
+              <AppIcon :name="tool.icon" :size="20" />
               <span>{{ isZh ? tool.zh : tool.en }}</span>
             </button>
           </div>
@@ -912,7 +871,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
               data-testid="mobile-settings-volume-tool"
               @click="setVolumeDefaultTool(tool.key)"
             >
-              <AppIcon :name="tool.icon" :size="16" />
+              <AppIcon :name="tool.icon" :size="20" />
               <span>{{ isZh ? tool.zh : tool.en }}</span>
             </button>
           </div>
@@ -1356,7 +1315,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
                     data-testid="mobile-settings-drawing-scope-series"
                     @click="updateDrawingScopePreference(row.key, 'series')"
                   >
-                    {{ isZh ? '整个 series' : 'Series' }}
+                    {{ isZh ? '整个序列' : 'Series' }}
                   </button>
                 </div>
               </div>
@@ -1911,7 +1870,7 @@ function orientationLockIcon(lock: MobileOrientationLock): string {
 .mobile-settings__switch-row,
 .mobile-settings__reset-row,
 .mobile-settings__note-card {
-  min-height: 44px;
+  min-height: var(--viewer-tool-button-compact-size);
 }
 
 .mobile-settings__segmented button.active,

@@ -3,7 +3,7 @@ import { APP_BACKEND_CONFIG, DESKTOP_DEV_BACKEND_ORIGIN } from '@shared/appConfi
 type ViewerPlatform = 'desktop' | 'web'
 type WebAppMode = 'demo-web' | 'web'
 type FolderSourceMode = 'desktop-picker' | 'web-upload' | 'server-sample'
-export type WebUploadPickMode = 'files' | 'folder'
+export type WebUploadPickMode = 'files' | 'folder' | 'archive'
 
 export interface DicomUploadItem {
   file: File
@@ -40,7 +40,8 @@ export interface ViewerRuntimeApi {
   resolveDroppedDicomSources: (drop: DicomDropInput) => Promise<DicomLoadSource[]>
 }
 
-const WEB_FILE_INPUT_ACCEPT = '.dcm,.dicom,application/dicom,*/*'
+const WEB_FILE_INPUT_ACCEPT = '.dcm,.dicom,.zip,.7z,.rar,application/dicom,application/zip,application/x-7z-compressed,application/vnd.rar,*/*'
+const WEB_ARCHIVE_INPUT_ACCEPT = '.zip,.7z,.rar,application/zip,application/x-7z-compressed,application/vnd.rar'
 
 interface WebFileSystemEntry {
   fullPath?: string
@@ -212,9 +213,23 @@ function joinUploadPath(...parts: string[]): string {
   return normalizeRelativeUploadPath(parts.filter(Boolean).join('/'))
 }
 
-function toUploadItems(files: File[]): DicomUploadItem[] {
+const NON_DICOM_UPLOAD_SUFFIXES = new Set([
+  '.bz2', '.csv', '.db', '.gz', '.html', '.htm', '.json', '.log', '.md',
+  '.pdf', '.tar', '.tgz', '.txt', '.webp', '.xml', '.xz', '.yaml', '.yml',
+  '.zst'
+])
+
+export function isDicomUploadCandidate(file: File, relativePath = getFileRelativePath(file)): boolean {
+  const fileName = relativePath.split('/').pop()?.trim() ?? ''
+  const extensionIndex = fileName.lastIndexOf('.')
+  const suffix = extensionIndex > 0 ? fileName.slice(extensionIndex).toLowerCase() : ''
+  const pathSegments = relativePath.split('/').filter(Boolean)
+  return Boolean(file && file.size > 0 && fileName && !fileName.startsWith('.') && !pathSegments.includes('__MACOSX') && !NON_DICOM_UPLOAD_SUFFIXES.has(suffix))
+}
+
+export function toUploadItems(files: File[]): DicomUploadItem[] {
   return files
-    .filter((file) => file && file.size > 0)
+    .filter((file) => isDicomUploadCandidate(file))
     .map((file) => ({
       file,
       relativePath: getFileRelativePath(file)
@@ -226,7 +241,7 @@ function readFileSystemFile(entry: WebFileSystemFileEntry, parentPath: string): 
     entry.file(
       (file) => {
         const relativePath = normalizeRelativeUploadPath(entry.fullPath) || joinUploadPath(parentPath, entry.name || file.name)
-        resolve(file.size > 0 ? { file, relativePath: relativePath || file.name || 'dicom-file' } : null)
+        resolve(isDicomUploadCandidate(file, relativePath) ? { file, relativePath: relativePath || file.name || 'dicom-file' } : null)
       },
       () => resolve(null)
     )
@@ -290,11 +305,11 @@ async function resolveWebDroppedUploadItems(drop: DicomDropInput): Promise<Dicom
   return toUploadItems(drop.files)
 }
 
-function pickFilesFromBrowser(options: { directory: boolean }): Promise<DicomUploadItem[] | null> {
+function pickFilesFromBrowser(options: { directory: boolean; archivesOnly?: boolean }): Promise<DicomUploadItem[] | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = WEB_FILE_INPUT_ACCEPT
+    input.accept = options.archivesOnly ? WEB_ARCHIVE_INPUT_ACCEPT : WEB_FILE_INPUT_ACCEPT
     input.multiple = true
     input.style.position = 'fixed'
     input.style.left = '-9999px'
@@ -328,7 +343,7 @@ async function chooseWebUploadFiles(mode: WebUploadPickMode = 'files'): Promise<
     return null
   }
 
-  const files = await pickFilesFromBrowser({ directory: mode === 'folder' })
+  const files = await pickFilesFromBrowser({ directory: mode === 'folder', archivesOnly: mode === 'archive' })
   return files?.length ? { kind: 'files', files } : null
 }
 

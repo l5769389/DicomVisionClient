@@ -34,13 +34,13 @@ const connectionStateLabel = computed(() => {
 </script>
 
 <template>
-  <div class="theme-shell-panel mt-auto flex min-h-14 items-center justify-between gap-3 rounded-2xl border px-3 py-2.5">
-    <div class="min-w-0 flex items-center gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-2xl border" :class="connectionToneClass">
+  <div class="sidebar-status-footer theme-shell-panel mt-auto flex items-center justify-between gap-2 border px-2.5 py-2">
+    <div class="min-w-0 flex items-center gap-2.5">
+      <div class="flex h-8 w-8 items-center justify-center rounded-lg border" :class="connectionToneClass">
         <AppIcon :name="connectionIcon" :size="18" />
       </div>
       <div class="min-w-0">
-        <div class="mb-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--theme-text-muted)]">{{ t('connection') }}</div>
+        <div class="mb-0.5 text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ t('connection') }}</div>
         <div class="flex min-w-0 items-center gap-2 text-xs text-[var(--theme-text-secondary)]">
           <span class="h-2.5 w-2.5 shrink-0 rounded-full" :class="connectionDotClass"></span>
           <span class="truncate">{{ connectionStateLabel }}</span>
@@ -48,12 +48,20 @@ const connectionStateLabel = computed(() => {
       </div>
     </div>
     <div class="flex items-center gap-2">
-      <VBtn variant="flat" class="theme-button-secondary h-11! w-11! min-w-0! rounded-2xl! border!" :aria-label="t('openSettings')" @click="emit('openMenu')">
+      <VBtn variant="flat" class="theme-button-secondary h-9! w-9! min-w-0! rounded-lg! border!" :aria-label="t('openSettings')" @click="emit('openMenu')">
         <AppIcon name="menu" :size="19" />
       </VBtn>
-      <VBtn variant="flat" class="theme-button-secondary h-11! w-11! min-w-0! rounded-2xl! border!" :aria-label="t('collapseSidebar')" @click="emit('toggleSidebar')">
+      <VBtn variant="flat" class="theme-button-secondary h-9! w-9! min-w-0! rounded-lg! border!" :aria-label="t('collapseSidebar')" @click="emit('toggleSidebar')">
         <AppIcon name="chevron-left" :size="20" />
       </VBtn>
     </div>
   </div>
 </template>
+
+<style scoped>
+.sidebar-status-footer {
+  min-height: 52px;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 4%, transparent);
+}
+</style>

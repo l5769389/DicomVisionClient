@@ -78,6 +78,43 @@ type CornerInfoLineMap = Record<ViewportCornerInfoItemKey, string[]>
 export const VIEWPORT_CORNER_POSITIONS: CornerPosition[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']
 export const MAX_VIEWPORT_CORNER_ITEMS_PER_POSITION = 6
 
+const VOLUME_HIDDEN_CORNER_TAGS: ViewportCornerInfoItemKey[] = [
+  'imageIndex',
+  'coordinates',
+  'transform2dState',
+  'windowLevel',
+  'sliceThickness',
+  'technique'
+]
+
+export function stripVolumeCornerInfo(cornerInfo: CornerInfo): CornerInfo {
+  const tags = { ...(cornerInfo.tags ?? {}) }
+  const hiddenLines = new Set(
+    VOLUME_HIDDEN_CORNER_TAGS.flatMap((key) => tags[key] ?? [])
+  )
+  for (const key of VOLUME_HIDDEN_CORNER_TAGS) {
+    delete tags[key]
+  }
+
+  const isVolumeHiddenLine = (line: string): boolean =>
+    hiddenLines.has(line) ||
+    /^Im:\s*/i.test(line) ||
+    /^(?:Cursor\s+)?X:\s*(?:-?\d+|--)\s+Y:\s*(?:-?\d+|--)(?:\s+.+)?$/i.test(line) ||
+    /^Rot:\s*-?\d+(?:\.\d+)?°?\s*\/\s*Flip:/i.test(line) ||
+    /^(?:W:\s*-?\d+(?:\.\d+)?\s+L:|WW\s+-?\d+(?:\.\d+)?\s+WL\s+)/i.test(line) ||
+    /^-?\d+(?:\.\d+)?\s*mm$/i.test(line) ||
+    /(?:^|\s)-?\d+(?:\.\d+)?\s*(?:kV|mA)(?:\s|$)/i.test(line)
+
+  return {
+    ...cornerInfo,
+    topLeft: cornerInfo.topLeft.filter((line) => !isVolumeHiddenLine(line)),
+    topRight: cornerInfo.topRight.filter((line) => !isVolumeHiddenLine(line)),
+    bottomLeft: cornerInfo.bottomLeft.filter((line) => !isVolumeHiddenLine(line)),
+    bottomRight: cornerInfo.bottomRight.filter((line) => !isVolumeHiddenLine(line)),
+    tags
+  }
+}
+
 export const VIEWPORT_CORNER_INFO_CATALOG: ViewportCornerInfoCatalogItem[] = [
   {
     key: 'manufacturerModel',

@@ -3,7 +3,6 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
 import FusionPetDisplayTool from './FusionPetDisplayTool.vue'
-import PseudocolorBand from './PseudocolorBand.vue'
 import ViewerToolbarMenuContent from './ViewerToolbarMenuContent.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
@@ -117,13 +116,13 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
 
 <template>
   <VCard
-    class="viewer-toolbar-card flex min-h-9 w-full shrink-0 items-center justify-start overflow-visible rounded-xl!"
+    class="viewer-toolbar-card flex min-h-12 w-full shrink-0 items-center justify-start overflow-visible rounded-lg!"
     :class="[
       embedded ? 'border-0! bg-transparent! p-0! shadow-none!' : 'viewer-toolbar-card--standalone border-0! px-2! py-1! shadow-none!',
       areToolbarActionsDisabled ? 'viewer-toolbar-card--locked' : ''
     ]"
   >
-    <div class="viewer-toolbar-tools flex min-w-0 flex-1 flex-nowrap items-center justify-start gap-1.5 overflow-x-auto overflow-y-visible">
+    <div class="viewer-toolbar-tools flex min-w-0 flex-1 flex-nowrap items-center justify-start gap-1 overflow-x-auto overflow-y-visible">
       <div
         v-for="tool in activeTools"
         :key="tool.key"
@@ -131,10 +130,10 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
         :class="[
           tool.key === 'play'
             ? supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)
-              ? 'toolbar-tool-group--compound rounded-xl'
+              ? 'toolbar-tool-group--compound rounded-lg'
               : ''
             : tool.options
-              ? 'toolbar-tool-group--compound rounded-xl'
+              ? 'toolbar-tool-group--compound rounded-lg'
               : '',
           tool.key === 'layout' || tool.key === 'mprLayout'
             ? hasSyncBesideLayout(activeTab.viewType)
@@ -160,10 +159,10 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
             variant="flat"
             type="button"
             data-testid="fusion-registration-toggle"
-            class="fusion-registration-tool__button fusion-registration-tool__button--toggle inline-flex! h-9! w-9! min-w-0! items-center! justify-center! border! transition hover:brightness-110"
+            class="fusion-registration-tool__button fusion-registration-tool__button--toggle inline-flex! h-12! w-12! min-w-0! items-center! justify-center! border! transition hover:brightness-110"
             :active="activeTab.fusionManualRegistration === true"
             :class="[
-              activeTab.fusionManualRegistration === true ? 'rounded-l-xl! rounded-r-none! border-r-0!' : 'rounded-xl!',
+              activeTab.fusionManualRegistration === true ? 'rounded-l-lg! rounded-r-none! border-r-0!' : 'rounded-lg!',
               { 'fusion-registration-tool__button--active': activeTab.fusionManualRegistration === true }
             ]"
             :disabled="areToolbarActionsDisabled"
@@ -188,7 +187,7 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
                 variant="flat"
                 type="button"
                 data-testid="fusion-registration-menu-button"
-                class="fusion-registration-tool__button fusion-registration-tool__menu-button inline-flex! h-9! w-6! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l-white/10! px-0! transition hover:brightness-110"
+                class="fusion-registration-tool__button fusion-registration-tool__menu-button inline-flex! h-12! w-5! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-lg! border-y! border-r! border-l-white/10! px-0! transition hover:brightness-110"
                 :disabled="areToolbarActionsDisabled"
                 :aria-expanded="openMenuKey === tool.key"
                 :title="copy.toolOptions('Registration Actions')"
@@ -220,7 +219,7 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
         <template v-else-if="tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused)">
           <VBtn
             variant="flat"
-            class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-l-xl! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
+            class="toolbar-playback-button toolbar-playback-button--pause inline-flex! h-12! w-12! min-w-0! items-center! justify-center! rounded-l-lg! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_84%,white_10%),var(--theme-accent-strong))]! text-[var(--theme-accent-contrast)]! shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110"
             :title="isPlaying ? copy.pausePlayback : copy.resumePlayback"
             @click="emit('pausePlayback')"
           >
@@ -239,7 +238,7 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
               <VBtn
                 v-bind="menuProps"
                 variant="flat"
-                class="toolbar-playback-button toolbar-playback-fps-button inline-flex! h-9! min-w-0! items-center! justify-center! rounded-none! border-l! border-white/8! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-surface-card)_42%),color-mix(in_srgb,var(--theme-accent-strong)_46%,var(--theme-surface-panel-solid)_54%))]! px-2.5! text-[var(--theme-accent-contrast)]! transition hover:brightness-110"
+                class="toolbar-playback-button toolbar-playback-fps-button inline-flex! h-12! min-w-0! items-center! justify-center! rounded-none! border-l! border-white/8! bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-accent)_58%,var(--theme-surface-card)_42%),color-mix(in_srgb,var(--theme-accent-strong)_46%,var(--theme-surface-panel-solid)_54%))]! px-2.5! text-[var(--theme-accent-contrast)]! transition hover:brightness-110"
                 :aria-expanded="openMenuKey === tool.key"
                 :title="copy.toolOptions('FPS')"
               >
@@ -259,7 +258,7 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
           </VMenu>
           <VBtn
             variant="flat"
-            class="toolbar-playback-button toolbar-playback-button--stop inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-r-xl! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
+            class="toolbar-playback-button toolbar-playback-button--stop inline-flex! h-12! w-12! min-w-0! items-center! justify-center! rounded-r-lg! border-l! border-white/8! bg-[linear-gradient(180deg,rgba(174,67,67,0.94),rgba(135,38,38,0.94))]! text-[var(--theme-text-primary)]! transition hover:brightness-110"
             :title="copy.stopPlayback"
             @click="emit('endPlayback')"
           >
@@ -271,22 +270,22 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
           <VBtn
             variant="flat"
             type="button"
-            class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
+            class="theme-button-secondary inline-flex! h-12! w-12! min-w-0! items-center! justify-center! rounded-lg! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
             :disabled="areToolbarActionsDisabled && !(tool.key === 'play' && supportsPlayback(activeTab.viewType) && (isPlaying || isPlaybackPaused))"
-            :active="tool.pressed === true || isToolSelected(tool) || openMenuKey === tool.key"
-            :class="{ 'toolbar-tool-button': true, 'rounded-r-none! border-r-0!': Boolean(tool.options), 'toolbar-tool-button--active': tool.pressed === true || isToolSelected(tool) || openMenuKey === tool.key }"
+            :active="isToolSelected(tool)"
+            :class="{
+              'toolbar-tool-button': true,
+              'rounded-r-none! border-r-0!': Boolean(tool.options),
+              'toolbar-tool-button--active': isToolSelected(tool),
+              'toolbar-tool-button--panel-open': openMenuKey === tool.key,
+              'toolbar-tool-button--state-on': tool.stateControl === true && tool.stateActive === true
+            }"
             :title="tool.title ?? tool.label"
-              :aria-pressed="tool.pressed"
+            :aria-pressed="tool.stateControl === true ? tool.stateActive === true : tool.pressed"
             @click.stop="emit('applyTool', tool)"
           >
-            <PseudocolorBand
-              v-if="tool.key === 'pseudocolor'"
-              compact
-              :preset="tool.options?.find((item) => item.value === stackToolSelections[tool.key])?.swatchKey ?? tool.swatchKey ?? 'bw'"
-            />
             <AppIcon
-              v-else
-              :name="tool.options && tool.showSelectedOptionIcon !== false ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
+              :name="tool.options && tool.showSelectedOptionIcon === true ? (tool.options.find((item) => item.value === stackToolSelections[tool.key])?.icon ?? tool.icon) : tool.icon"
               :size="toolbarIconSize"
             />
           </VBtn>
@@ -304,7 +303,7 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
               <VBtn
                 v-bind="menuProps"
                 variant="flat"
-                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-9! w-5! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-xl! border-y! border-r! border-l! border-l-white/10! px-0! transition hover:brightness-110"
+                class="toolbar-tool-menu-button theme-button-secondary inline-flex! h-12! w-5! min-w-0! items-center! justify-center! rounded-l-none! rounded-r-lg! border-y! border-r! border-l! border-l-white/10! px-0! transition hover:brightness-110"
                 :disabled="areToolbarActionsDisabled"
                 :aria-expanded="openMenuKey === tool.key"
                 :title="copy.toolOptions(tool.label)"
@@ -326,12 +325,12 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
     </div>
     <div
       v-if="showTabStripToggle"
-      class="toolbar-tab-strip-toggle ml-2 flex h-9 shrink-0 items-center border-l border-[color:color-mix(in_srgb,var(--theme-border-strong)_58%,transparent)] pl-2"
+      class="toolbar-tab-strip-toggle ml-2 flex h-12 shrink-0 items-center border-l border-[color:color-mix(in_srgb,var(--theme-border-strong)_58%,transparent)] pl-2"
     >
       <VBtn
         variant="flat"
         type="button"
-        class="theme-button-secondary inline-flex! h-9! w-9! min-w-0! items-center! justify-center! rounded-xl! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
+        class="theme-button-secondary inline-flex! h-12! w-12! min-w-0! items-center! justify-center! rounded-lg! border! shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_rgba(0,0,0,0.14)] transition hover:brightness-110"
         :title="isTabStripCollapsed ? copy.showTabs : copy.hideTabs"
         :aria-label="isTabStripCollapsed ? copy.showTabs : copy.hideTabs"
         @click="emit('toggleTabStrip')"
@@ -400,12 +399,44 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
   flex: 0 0 auto;
 }
 
+.viewer-toolbar-card {
+  min-height: calc(var(--viewer-tool-button-size) + 8px) !important;
+}
+
+.toolbar-tool-button,
+.fusion-registration-tool__button--toggle,
+.toolbar-playback-button--pause,
+.toolbar-playback-button--stop,
+.toolbar-tab-strip-toggle > .v-btn {
+  width: var(--viewer-tool-button-size) !important;
+  min-width: var(--viewer-tool-button-size) !important;
+  height: var(--viewer-tool-button-size) !important;
+  padding: 0 !important;
+}
+
+.toolbar-tool-menu-button,
+.fusion-registration-tool__menu-button,
+.toolbar-playback-fps-button {
+  height: var(--viewer-tool-button-size) !important;
+}
+
+.toolbar-tool-button .app-icon-svg,
+.fusion-registration-tool__button--toggle .app-icon-svg,
+.toolbar-playback-button .app-icon-svg {
+  width: var(--viewer-tool-icon-size);
+  height: var(--viewer-tool-icon-size);
+}
+
+.toolbar-tab-strip-toggle {
+  height: var(--viewer-tool-button-size) !important;
+}
+
 .fusion-registration-tool {
   position: relative;
   display: inline-flex;
   align-items: center;
   overflow: visible;
-  border-radius: 0.75rem;
+  border-radius: var(--viewer-tool-radius);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card) 48%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 68%, transparent));
   box-shadow:

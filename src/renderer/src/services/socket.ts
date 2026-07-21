@@ -47,6 +47,31 @@ interface SocketErrorPayload {
   message?: string
 }
 
+export interface WebRtcIceServerConfig {
+  urls: string | string[]
+  username?: string
+  credential?: string
+}
+
+export interface WebRtc3DConfigResponse {
+  ok?: boolean
+  message?: string
+  transport?: 'webp' | 'webrtc'
+  iceServers?: WebRtcIceServerConfig[]
+  videoCodecs?: string[]
+  videoCodec?: string
+  videoBitrateBps?: number
+  videoFps?: number
+}
+
+export interface WebRtc3DAnswerResponse {
+  ok?: boolean
+  message?: string
+  viewId?: string
+  sdp?: string
+  type?: RTCSdpType
+}
+
 interface BindViewPayload {
   viewId: string
   render?: boolean
@@ -118,6 +143,7 @@ export type ViewOperationInput = Omit<ViewOperationPayload, 'viewId'>
 export interface ServerToClientEvents {
   connected: (payload: { sid: string; workspaceId?: string }) => void
   image_update: (...args: ImageUpdateSocketArgs) => void
+  image_update_metadata: (payload: Partial<ViewImageResponse>) => void
   mpr_state_update: (payload: Partial<ViewImageResponse>) => void
   image_error: (payload?: SocketErrorPayload) => void
   render_error: (payload?: SocketErrorPayload) => void
@@ -138,6 +164,12 @@ interface ClientToServerEvents {
   four_d_playback_start: (payload: FourDPlaybackStartRequest) => void
   four_d_playback_stop: (payload: FourDPlaybackStopRequest) => void
   four_d_playback_fps: (payload: FourDPlaybackFpsRequest) => void
+  webrtc_3d_config: (payload: Record<string, never>, callback: (response: WebRtc3DConfigResponse) => void) => void
+  webrtc_3d_offer: (
+    payload: { viewId: string; sdp: string; type: RTCSdpType },
+    callback: (response: WebRtc3DAnswerResponse) => void
+  ) => void
+  webrtc_3d_close: (payload: { viewId: string }, callback?: (response: SocketAckPayload) => void) => void
 }
 
 export type ViewerSocket = Socket<ServerToClientEvents, ClientToServerEvents>
@@ -167,6 +199,54 @@ export function connectSocket(origin: string): ViewerSocket {
 
 export function getSocket(): ViewerSocket | null {
   return socket
+}
+
+export function requestWebRtc3DConfig(): Promise<WebRtc3DConfigResponse> {
+  if (!socket?.connected) {
+    return Promise.reject(new Error('Socket is not connected'))
+  }
+  return new Promise((resolve, reject) => {
+    socket!
+      .timeout(VIEW_OPERATION_ACK_TIMEOUT_MS)
+      .emit('webrtc_3d_config', {}, (error: Error | null, response?: WebRtc3DConfigResponse) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve(response ?? { ok: false, message: 'Missing WebRTC configuration response' })
+      })
+  })
+}
+
+export function sendWebRtc3DOffer(
+  viewId: string,
+  description: RTCSessionDescriptionInit
+): Promise<WebRtc3DAnswerResponse> {
+  if (!socket?.connected || !description.sdp || !description.type) {
+    return Promise.reject(new Error('Socket is not connected or WebRTC offer is incomplete'))
+  }
+  return new Promise((resolve, reject) => {
+    socket!
+      .timeout(VIEW_OPERATION_ACK_TIMEOUT_MS)
+      .emit(
+        'webrtc_3d_offer',
+        { viewId, sdp: description.sdp!, type: description.type! },
+        (error: Error | null, response?: WebRtc3DAnswerResponse) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve(response ?? { ok: false, message: 'Missing WebRTC answer' })
+        }
+      )
+  })
+}
+
+export function closeWebRtc3DTransport(viewId: string): void {
+  if (!socket?.connected) {
+    return
+  }
+  socket.emit('webrtc_3d_close', { viewId })
 }
 
 export function bindView(viewId: string, imageFormat: ViewerImageTransportFormat = VIEWER_IMAGE_TRANSPORT_FORMAT): void {

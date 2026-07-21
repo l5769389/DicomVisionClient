@@ -134,6 +134,23 @@ describe('MprSegmentationPanel', () => {
     document.body.innerHTML = ''
   })
 
+  it('marks threshold and VOI record headers for compact dock layout', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createMixedConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('.mpr-segmentation-panel__record-header').exists()).toBe(true)
+    expect(wrapper.find('.mpr-segmentation-panel__record-header--voi').exists()).toBe(true)
+    expect(wrapper.findAll('.mpr-segmentation-panel__record-delete')).toHaveLength(2)
+  })
+
   it('emits depth move updates immediately and preserves the draft through stale props', async () => {
     const wrapper = mount(MprSegmentationPanel, {
       props: {

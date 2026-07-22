@@ -17,7 +17,9 @@ const toolLabelMap: Record<MeasurementDraft['toolType'], { zh: string; en: strin
   ellipse: { zh: '椭圆', en: 'Ellipse' },
   angle: { zh: '角度', en: 'Angle' },
   curve: { zh: '曲线', en: 'Curve' },
-  freeform: { zh: '自由手绘', en: 'Freehand' }
+  freeform: { zh: '自由手绘', en: 'Freehand' },
+  'alignment-horizontal': { zh: '相对水平偏角', en: 'Deviation from Horizontal' },
+  'alignment-vertical': { zh: '相对垂直偏角', en: 'Deviation from Vertical' }
 }
 
 const toolLabel = computed(() => {

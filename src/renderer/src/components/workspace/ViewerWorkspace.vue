@@ -33,6 +33,7 @@ import {
   type AnnotationScreenPoint
 } from '../../composables/annotations/annotationGeometry'
 import { getSmoothCurveSegments } from '../../composables/measurements/measurementGeometry'
+import { isTwoPointLineMeasurement } from '../../composables/measurements/measurementToolRules'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
@@ -688,7 +689,7 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
     context.lineWidth = 5
 
     const drawShape = (): void => {
-      if (measurement.toolType === 'line' && points.length >= 2) {
+      if (isTwoPointLineMeasurement(measurement.toolType) && points.length >= 2) {
         context.beginPath()
         context.moveTo(points[0].x, points[0].y)
         context.lineTo(points[1].x, points[1].y)

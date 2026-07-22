@@ -4,20 +4,25 @@ import {
   getMeasurementPointRequirement,
   hasRequiredMeasurementPoints,
   isMeasurementToolType,
-  isPointSequenceMeasurement
+  isPointSequenceMeasurement,
+  isTwoPointLineMeasurement
 } from './measurementToolRules'
 
 describe('measurementToolRules', () => {
   it('recognizes measurement and point-sequence tools', () => {
     expect(isMeasurementToolType('line')).toBe(true)
+    expect(isMeasurementToolType('alignment-horizontal')).toBe(true)
     expect(isMeasurementToolType('freeform')).toBe(true)
     expect(isMeasurementToolType('mtf')).toBe(false)
     expect(isPointSequenceMeasurement('curve')).toBe(true)
     expect(isPointSequenceMeasurement('rect')).toBe(false)
+    expect(isTwoPointLineMeasurement('alignment-vertical')).toBe(true)
+    expect(isTwoPointLineMeasurement('angle')).toBe(false)
   })
 
   it('resolves minimum point requirements', () => {
     expect(getMeasurementPointRequirement('line')).toEqual({ minPoints: 2, acceptsMorePoints: false })
+    expect(getMeasurementPointRequirement('alignment-horizontal')).toEqual({ minPoints: 2, acceptsMorePoints: false })
     expect(getMeasurementPointRequirement('angle')).toEqual({ minPoints: 3, acceptsMorePoints: false })
     expect(getMeasurementPointRequirement('curve')).toEqual({ minPoints: 2, acceptsMorePoints: true })
     expect(getMeasurementPointRequirement('freeform')).toEqual({ minPoints: 3, acceptsMorePoints: true })

@@ -874,6 +874,7 @@ watch(
         :draft-measurement="draftMeasurement"
         :measurements="measurements"
         :image-frame="measurementFrame"
+        :viewport-transform="viewportTransform"
         :hide-draft-handles="hideDraftHandles"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"

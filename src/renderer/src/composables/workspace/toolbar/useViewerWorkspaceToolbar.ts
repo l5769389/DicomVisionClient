@@ -116,6 +116,14 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'dicom-gsps': { description: '保存标注和测量，供支持 GSPS 的 Viewer 叠加显示' },
   'dicom-sr': { description: '结构化测量报告' },
   'measure:angle': { label: '角度' },
+  'measure:alignment-horizontal': {
+    label: '相对水平偏角',
+    description: '仅用于 2D CT；沿真实边缘绘线，测量它相对 DICOM 物理水平方向的偏角'
+  },
+  'measure:alignment-vertical': {
+    label: '相对垂直偏角',
+    description: '仅用于 2D CT；沿真实边缘绘线，测量它相对 DICOM 物理垂直方向的偏角'
+  },
   'measure:curve': { label: '曲线' },
   'measure:ellipse': { label: '椭圆' },
   'measure:freeform': { label: '自由手绘' },
@@ -206,6 +214,18 @@ const measureTool: StackTool = {
     { value: 'measure:rect', label: 'Rect', icon: 'measure-rect' },
     { value: 'measure:ellipse', label: 'Ellipse', icon: 'measure-ellipse' },
     { value: 'measure:angle', label: 'Angle', icon: 'measure-angle' },
+    {
+      value: 'measure:alignment-horizontal',
+      label: 'Deviation from Horizontal',
+      icon: 'measure-angle',
+      description: '2D CT only. Draw along a real edge and compare it with the physical DICOM horizontal axis.'
+    },
+    {
+      value: 'measure:alignment-vertical',
+      label: 'Deviation from Vertical',
+      icon: 'measure-angle',
+      description: '2D CT only. Draw along a real edge and compare it with the physical DICOM vertical axis.'
+    },
     { value: 'measure:curve', label: 'Curve', icon: 'measure-curve' },
     { value: 'measure:freeform', label: 'Freeform', icon: 'measure-freeform' }
   ]
@@ -551,6 +571,21 @@ function withSupportedExportOptions(tool: StackTool, viewType: ViewerTabItem['vi
   return {
     ...tool,
     options: tool.options?.filter((option) => option.value !== 'dicom-sr' && option.value !== 'dicom-gsps')
+  }
+}
+
+function withSupportedAlignmentMeasurementOptions(
+  tool: StackTool,
+  viewType: ViewerTabItem['viewType'] | undefined
+): StackTool {
+  if (tool.key !== 'measure' || viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout') {
+    return tool
+  }
+  return {
+    ...tool,
+    options: tool.options?.filter(
+      (option) => option.value !== 'measure:alignment-horizontal' && option.value !== 'measure:alignment-vertical'
+    )
   }
 }
 
@@ -1445,6 +1480,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     )
       .map((tool) => withActiveZoomRangeControl(tool))
       .map((tool) => withSupportedExportOptions(tool, viewType))
+      .map((tool) => withSupportedAlignmentMeasurementOptions(tool, viewType))
       .map((tool) => localizeToolbarTool(tool, isZh.value))
       .map((tool) => withDynamicVolumeToolState(tool))
       .map((tool) => withDynamicVolumeOrientationToolState(tool))

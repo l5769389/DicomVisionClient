@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppIcon from '../../AppIcon.vue'
-import type { DraftMeasurementMode, MeasurementDraft, MeasurementDraftPoint, MeasurementOverlay, MeasurementToolType } from '../../../types/viewer'
+import type {
+  DraftMeasurementMode,
+  MeasurementDraft,
+  MeasurementDraftPoint,
+  MeasurementOverlay,
+  MeasurementToolType,
+  ViewTransformInfo
+} from '../../../types/viewer'
 import { useUiPreferences } from '../../../composables/ui/useUiPreferences'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { getSmoothCurveSegments, isValidMeasurement } from '../../../composables/measurements/measurementGeometry'
 import {
   getFinalizedPointSequencePoints,
-  isPointSequenceMeasurement
+  isPointSequenceMeasurement,
+  isTwoPointLineMeasurement
 } from '../../../composables/measurements/measurementToolRules'
 import {
   getOverlayHandlePointsFromRectBounds,
@@ -15,6 +23,7 @@ import {
   toOverlayScreenPoint,
   type OverlayScreenPoint
 } from './overlayGeometry'
+import { buildAlignmentGuideGeometry, type AlignmentGuideGeometry } from './alignmentGuideGeometry'
 
 interface RenderedMeasurement {
   key: string
@@ -28,6 +37,7 @@ interface RenderedMeasurement {
   rectBounds: { left: number; top: number; width: number; height: number } | null
   smoothPathD: string
   closesSmoothPath: boolean
+  alignmentGuide: AlignmentGuideGeometry | null
   mode: 'committed' | 'selected' | 'moving' | 'draft'
 }
 
@@ -56,13 +66,15 @@ const props = withDefaults(
       width: number
       height: number
     }
+    viewportTransform?: ViewTransformInfo | null
   }>(),
   {
     draftMeasurementMode: null,
     draftMeasurement: null,
     focusState: 'neutral',
     hideDraftHandles: false,
-    measurements: () => []
+    measurements: () => [],
+    viewportTransform: null
   }
 )
 
@@ -97,7 +109,7 @@ function getLabelPosition(
   const minY = props.imageFrame.top + 8
   const maxY = Math.max(props.imageFrame.top + props.imageFrame.height - 16, minY)
 
-  if ((toolType === 'line' || toolType === 'curve') && screenPoints.length >= 2) {
+  if ((isTwoPointLineMeasurement(toolType) || toolType === 'curve') && screenPoints.length >= 2) {
     const anchor = screenPoints[screenPoints.length - 1]
     return {
       x: clamp(anchor.x + 12, minX, maxX),
@@ -231,6 +243,7 @@ function buildRenderedMeasurement(
         ? getSmoothPathD(screenPoints, closesSmoothPath)
         : '',
     closesSmoothPath,
+    alignmentGuide: buildAlignmentGuideGeometry(toolType, screenPoints, props.viewportTransform),
     labelStyle: labelLines.length && labelPosition
       ? {
           left: `${Math.round(labelPosition.x)}px`,
@@ -437,7 +450,28 @@ function isKeyValueLabelLine(line: string): boolean {
       preserveAspectRatio="none"
     >
       <template v-for="measurement in allRenderedMeasurements" :key="measurement.key">
-        <g v-if="measurement.toolType === 'line' && measurement.screenPoints.length >= 2">
+        <g v-if="isTwoPointLineMeasurement(measurement.toolType) && measurement.screenPoints.length >= 2">
+          <line
+            v-if="measurement.alignmentGuide"
+            class="alignment-reference-line"
+            :x1="measurement.alignmentGuide.x1"
+            :y1="measurement.alignmentGuide.y1"
+            :x2="measurement.alignmentGuide.x2"
+            :y2="measurement.alignmentGuide.y2"
+            :stroke="getInnerStroke(measurement)"
+            :stroke-width="Math.max(1, getInnerStrokeWidth() * 0.7)"
+            stroke-dasharray="5 5"
+            opacity="0.78"
+          />
+          <path
+            v-if="measurement.alignmentGuide?.arcPath"
+            class="alignment-angle-arc"
+            :d="measurement.alignmentGuide.arcPath"
+            fill="none"
+            :stroke="getInnerStroke(measurement)"
+            :stroke-width="Math.max(1.25, getInnerStrokeWidth() * 0.8)"
+            stroke-linecap="round"
+          />
           <line
             :x1="measurement.screenPoints[0].x"
             :y1="measurement.screenPoints[0].y"

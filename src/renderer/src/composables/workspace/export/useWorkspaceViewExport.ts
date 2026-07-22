@@ -8,6 +8,7 @@ import type {
   ViewerTabItem
 } from '../../../types/viewer'
 import { getSmoothCurveSegments } from '../../measurements/measurementGeometry'
+import { isTwoPointLineMeasurement } from '../../measurements/measurementToolRules'
 import { applyViewportCornerInfoPreference } from '../../ui/viewportCornerInfo'
 import type { WorkspaceExportCopy } from '../../ui/uiMessages'
 import { useUiPreferences } from '../../ui/useUiPreferences'
@@ -103,7 +104,7 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
     context.lineWidth = 5
 
     const drawShape = (): void => {
-      if (measurement.toolType === 'line' && points.length >= 2) {
+      if (isTwoPointLineMeasurement(measurement.toolType) && points.length >= 2) {
         context.beginPath()
         context.moveTo(points[0].x, points[0].y)
         context.lineTo(points[1].x, points[1].y)

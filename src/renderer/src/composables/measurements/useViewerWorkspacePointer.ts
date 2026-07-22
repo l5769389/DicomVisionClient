@@ -41,7 +41,8 @@ import {
 import {
   getFinalizedPointSequencePoints,
   isMeasurementToolType,
-  isPointSequenceMeasurement
+  isPointSequenceMeasurement,
+  isTwoPointLineMeasurement
 } from './measurementToolRules'
 import { resolveMtfDraftMode } from './mtfInteractionMachine'
 import {
@@ -119,7 +120,7 @@ interface PointerComposableState {
   handleViewportPointerUp: (event: PointerEvent) => void
   setActiveViewport: (viewportKey: string) => void
   stopViewportDrag: (pointerTarget?: EventTarget | null) => void
-  updateDraftMeasurementLabelLines: (viewportKey: string, labelLines: string[]) => void
+  updateDraftMeasurementLabelLines: (viewportKey: string, labelLines: string[], toolType?: MeasurementToolType) => void
   viewportCursorClasses: Ref<Partial<Record<string, string>>>
 }
 
@@ -1135,9 +1136,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return resolveMtfDraftMode(mtfInteraction.value, viewportKey, Boolean(draft.mtfId))
   }
 
-  function updateDraftMeasurementLabelLines(viewportKey: string, labelLines: string[]): void {
+  function updateDraftMeasurementLabelLines(
+    viewportKey: string,
+    labelLines: string[],
+    toolType?: MeasurementToolType
+  ): void {
     const draft = draftMeasurements.value[viewportKey]
-    if (!draft) {
+    if (!draft || (toolType && draft.toolType !== toolType)) {
       return
     }
 
@@ -1879,7 +1884,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return false
     }
 
-    if (toolType === 'line') {
+    if (isTwoPointLineMeasurement(toolType)) {
       commitMeasurementDraftFromClick(viewportKey, toolType, {
         ...createMeasurementDraft(toolType, [anchorPoint, point]),
         labelLines: existingDraft.labelLines
@@ -2594,7 +2599,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return false
     }
 
-    if (toolType === 'line' && !isValidMeasurement(toolType, draft.points)) {
+    if (isTwoPointLineMeasurement(toolType) && !isValidMeasurement(toolType, draft.points)) {
       return false
     }
 

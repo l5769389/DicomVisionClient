@@ -1,7 +1,21 @@
 import type { MeasurementDraftPoint, MeasurementToolType } from '../../types/viewer'
 
-const MEASUREMENT_TOOL_TYPES = new Set<MeasurementToolType>(['line', 'rect', 'ellipse', 'angle', 'curve', 'freeform'])
+const MEASUREMENT_TOOL_TYPES = new Set<MeasurementToolType>([
+  'line',
+  'rect',
+  'ellipse',
+  'angle',
+  'curve',
+  'freeform',
+  'alignment-horizontal',
+  'alignment-vertical'
+])
 const POINT_SEQUENCE_TOOL_TYPES = new Set<MeasurementToolType>(['curve', 'freeform'])
+const TWO_POINT_LINE_TOOL_TYPES = new Set<MeasurementToolType>([
+  'line',
+  'alignment-horizontal',
+  'alignment-vertical'
+])
 
 export interface MeasurementPointRequirement {
   minPoints: number
@@ -14,6 +28,10 @@ export function isMeasurementToolType(toolType: string | undefined): toolType is
 
 export function isPointSequenceMeasurement(toolType: MeasurementToolType): boolean {
   return POINT_SEQUENCE_TOOL_TYPES.has(toolType)
+}
+
+export function isTwoPointLineMeasurement(toolType: MeasurementToolType): boolean {
+  return TWO_POINT_LINE_TOOL_TYPES.has(toolType)
 }
 
 export function getFinalizedPointSequencePoints(points: MeasurementDraftPoint[]): MeasurementDraftPoint[] {

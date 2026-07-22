@@ -959,7 +959,7 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.findAll('.mobile-shell__tool--active')).toHaveLength(1)
     expect(wrapper.get('[data-testid="mobile-tool-measure"]').classes()).toContain('mobile-shell__tool--active')
 
-    for (const toolType of ['line', 'rect', 'ellipse', 'angle', 'curve', 'freeform']) {
+    for (const toolType of ['line', 'alignment-horizontal', 'alignment-vertical', 'rect', 'ellipse', 'angle', 'curve', 'freeform']) {
       expect(wrapper.find(`[data-testid="mobile-tool-measure-${toolType}"]`).exists()).toBe(true)
     }
 
@@ -973,6 +973,19 @@ describe('MobileWorkspaceShell', () => {
     expect(wrapper.find('[data-testid="mobile-inline-tool-panel"]').exists()).toBe(false)
     expect(mockViewer.setActiveOperation).toHaveBeenLastCalledWith(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.pan}`)
     expect(wrapper.get('[data-testid="mobile-tool-pan"]').classes()).toContain('mobile-shell__tool--active')
+  })
+
+  it('hides 2D alignment angle tools from the MPR measurement panel', async () => {
+    mockViewer.seriesList.value = [createSeries()]
+    mockViewer.selectedSeriesId.value = 'series-1'
+    mockViewer.__setActiveTab(createMprTab())
+
+    const wrapper = mountShell()
+    await wrapper.get('[data-testid="mobile-tool-measure"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mobile-tool-measure-line"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-tool-measure-alignment-horizontal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-tool-measure-alignment-vertical"]').exists()).toBe(false)
   })
 
   it('keeps Stack primary tools common and moves measure, annotate, export, and QA into the lower/more tiers', async () => {

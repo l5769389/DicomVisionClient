@@ -110,6 +110,22 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
 }
 
 describe('useViewerWorkspaceToolbar surface mode', () => {
+  it('offers alignment angle only for ordinary 2D stack-like views', async () => {
+    const harness = mountToolbarHarness(create3dTab({ viewType: 'Stack', viewId: 'stack-view' }))
+    await nextTick()
+
+    const stackMeasure = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
+    expect(stackMeasure.options?.map((option) => option.value)).toContain('measure:alignment-horizontal')
+    expect(stackMeasure.options?.map((option) => option.value)).toContain('measure:alignment-vertical')
+
+    harness.activeTab.value = create3dTab({ viewType: 'MPR', viewId: 'mpr-view' })
+    await nextTick()
+    const mprMeasure = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
+    expect(mprMeasure.options?.map((option) => option.value)).not.toContain('measure:alignment-horizontal')
+    expect(mprMeasure.options?.map((option) => option.value)).not.toContain('measure:alignment-vertical')
+    harness.wrapper.unmount()
+  })
+
   it('preserves raw wheel deltas so the core can distinguish trackpads from mouse wheels', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),

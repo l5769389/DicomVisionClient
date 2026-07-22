@@ -1,6 +1,6 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { offMeasurementDraft, onMeasurementDraft } from '../../../services/socket'
-import type { MeasurementDraftPayload, ViewerTabItem, WorkspaceReadyPayload } from '../../../types/viewer'
+import type { MeasurementDraftPayload, MeasurementToolType, ViewerTabItem, WorkspaceReadyPayload } from '../../../types/viewer'
 
 interface ViewerWorkspaceShellOptions {
   activeTab: ComputedRef<ViewerTabItem | null>
@@ -12,7 +12,7 @@ interface ViewerWorkspaceShellOptions {
   closeMenus: () => void
   cleanupPointerInteractions: () => void
   emitWorkspaceReady: (payload: WorkspaceReadyPayload) => void
-  updateDraftMeasurementLabelLines: (viewportKey: string, labelLines: string[]) => void
+  updateDraftMeasurementLabelLines: (viewportKey: string, labelLines: string[], toolType?: MeasurementToolType) => void
 }
 
 export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
@@ -156,7 +156,7 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
     if (!payload?.viewportKey) {
       return
     }
-    options.updateDraftMeasurementLabelLines(payload.viewportKey, payload.labelLines ?? [])
+    options.updateDraftMeasurementLabelLines(payload.viewportKey, payload.labelLines ?? [], payload.toolType)
   }
 
   onMounted(() => {

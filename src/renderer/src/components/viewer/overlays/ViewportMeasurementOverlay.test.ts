@@ -26,23 +26,46 @@ describe('ViewportMeasurementOverlay', () => {
         measurements: [
           {
             measurementId: 'offscreen-line',
-            toolType: 'line',
+            toolType: 'alignment-horizontal',
             points: [
               { x: -0.25, y: 0.2 },
               { x: 1.25, y: 0.8 }
             ],
-            labelLines: ['150 px']
+            labelLines: ['ΔH 12.4°']
           }
         ]
       }
     })
 
-    const line = wrapper.find('line')
+    const line = wrapper.findAll('line').find((candidate) => !candidate.classes().includes('alignment-reference-line'))!
     expect(line.attributes('x1')).toBe('-50')
     expect(line.attributes('y1')).toBe('20')
     expect(line.attributes('x2')).toBe('250')
     expect(line.attributes('y2')).toBe('80')
     wrapper.unmount()
+  })
+
+  it('renders the physical reference axis and angle arc with the current display transform', () => {
+    const wrapper = mount(ViewportMeasurementOverlay, {
+      props: {
+        imageFrame: { left: 0, top: 0, width: 200, height: 100 },
+        viewportTransform: { rotationDegrees: 90, horFlip: false, verFlip: false },
+        measurements: [
+          {
+            measurementId: 'rotated-alignment',
+            toolType: 'alignment-horizontal',
+            points: [{ x: 0.2, y: 0.2 }, { x: 0.5, y: 0.7 }],
+            labelLines: ['ΔH 39.8°', '63.2 mm']
+          }
+        ]
+      }
+    })
+
+    const reference = wrapper.get('.alignment-reference-line')
+    expect(Number(reference.attributes('x1'))).toBeCloseTo(40)
+    expect(Number(reference.attributes('x2'))).toBeCloseTo(40)
+    expect(wrapper.find('.alignment-angle-arc').exists()).toBe(true)
+    expect(wrapper.text()).toContain('ΔH 39.8°')
   })
 
   it('renders committed measurement and selected draft together', () => {

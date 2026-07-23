@@ -1,0 +1,164 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish or validate'
+        required: true
+        default: 'v3.0.0'
+      release_mode:
+        description: 'Use signed for official releases, unsigned for local validation artifacts'
+        required: true
+        type: choice
+        default: unsigned
+        options:
+          - unsigned
+          - signed
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14-xlarge
+          - arch: x64
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Resolve release settings
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+            mode="${{ inputs.release_mode }}"
+          else
+            tag="${{ github.ref_name }}"
+            mode="signed"
+          fi
+          if [[ -z "$tag" || "$tag" != v* ]]; then
+            echo "Release tag must use the vX.Y.Z format. Received: $tag" >&2
+            exit 1
+          fi
+          if [ "$mode" = "signed" ]; then
+            sign_mode="required"
+            notarize_mode="required"
+          else
+            sign_mode="never"
+            notarize_mode="never"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "sign_mode=$sign_mode" >> "$GITHUB_OUTPUT"
+          echo "notarize_mode=$notarize_mode" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout client
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+          path: DicomVisionClient
+
+      - name: Checkout server
+        uses: actions/checkout@v4
+        with:
+          repository: l5769389/DicomVisionServer
+          ref: main
+          path: DicomVisionServer
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: DicomVisionClient/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install server dependencies
+        shell: bash
+        working-directory: DicomVisionServer
+        run: uv sync --frozen
+
+      - name: Install client dependencies
+        shell: bash
+        working-directory: DicomVisionClient
+        run: npm ci
+
+      - name: Import Developer ID certificate
+        if: steps.release.outputs.mode == 'signed'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${MACOS_CERTIFICATE_P12:-}"
+          test -n "${MACOS_CERTIFICATE_PASSWORD:-}"
+          keychain_password="${MACOS_KEYCHAIN_PASSWORD:-temporary-ci-keychain-password}"
+          certificate_path="$RUNNER_TEMP/dicomvision-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/dicomvision-signing.keychain-db"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+
+      - name: Build macOS package
+        shell: bash
+        working-directory: DicomVisionClient
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          CSC_NAME: ${{ secrets.MACOS_CSC_NAME }}
+        run: |
+          set -euo pipefail
+          npm run release:mac:${{ matrix.arch }} -- --sign "${{ steps.release.outputs.sign_mode }}" --notarize "${{ steps.release.outputs.notarize_mode }}"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DicomVision-mac-${{ matrix.arch }}-${{ steps.release.outputs.mode }}
+          path: |
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-mac-${{ matrix.arch }}.dmg
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-mac-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || steps.release.outputs.mode == 'signed'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: DicomVision ${{ steps.release.outputs.tag }}
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-mac-${{ matrix.arch }}.dmg
+            DicomVisionClient/dist-electron/DicomVision-${{ steps.release.outputs.version }}-mac-${{ matrix.arch }}.zip

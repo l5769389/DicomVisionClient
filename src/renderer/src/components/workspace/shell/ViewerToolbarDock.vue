@@ -480,13 +480,11 @@ watch(
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 0;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card-soft) 60%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 82%, transparent));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 16px 34px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
   transition:
     width 150ms ease,
     min-width 150ms ease,
@@ -729,7 +727,6 @@ watch(
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
   overflow: hidden;
   padding: 8px;
   transition:

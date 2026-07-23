@@ -41,6 +41,12 @@ let backendReady = false
 let backendStarting = false
 let backendStartupError: string | null = null
 
+const configuredUserDataDir = process.env.DICOM_VISION_USER_DATA_DIR?.trim()
+if (configuredUserDataDir) {
+  mkdirSync(configuredUserDataDir, { recursive: true })
+  app.setPath('userData', configuredUserDataDir)
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
   app.quit()

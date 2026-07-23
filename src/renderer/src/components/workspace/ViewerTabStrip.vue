@@ -164,17 +164,6 @@ function closeOtherTabsFromMenu(): void {
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, transparent), color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent));
 }
 
-.viewer-tab-strip-shell::after {
-  position: absolute;
-  right: 8px;
-  bottom: -1px;
-  left: 8px;
-  height: 1px;
-  background: color-mix(in srgb, var(--theme-border-strong) 32%, var(--theme-border-soft));
-  content: "";
-  pointer-events: none;
-}
-
 .tab-strip-scroll {
   --tab-scroll-edge-left: transparent;
   --tab-scroll-edge-right: transparent;

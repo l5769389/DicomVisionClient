@@ -39,7 +39,8 @@ import {
   resolveComparePaneKey,
   resolveFusionPaneKey,
   resolveOperationTargets,
-  resolveViewIdForTabViewport
+  resolveViewIdForTabViewport,
+  usesContinuousDragPreview
 } from '../views/viewerViewportTargets'
 import { withViewSyncValue } from '../sync/viewSyncConfig'
 import {
@@ -74,7 +75,10 @@ import {
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
 import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from './layoutDropSeries'
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
-import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
+import {
+  createMprInteractionOperationScheduler,
+  resolveViewDragPreviewFeedbackMode
+} from './mprInteractionOperationScheduler'
 import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
@@ -3816,6 +3820,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       tab.viewType === '3D' ||
       isMprVolumeViewport(tab, payload.viewportKey) ||
       isLayoutVolumeViewport(tab, payload.viewportKey)
+    const continuousPreviewContext = usesContinuousDragPreview(tab, payload.viewportKey)
     const hasDragInteractionId =
       supportsInteractionSession && typeof resolvedInteractionId === 'string' && resolvedInteractionId.length > 0
     const hasRotate3dInteractionId =
@@ -3847,11 +3852,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const usesCadencePreview =
-      payload.opType === VIEW_OPERATION_TYPES.pan ||
-      payload.opType === VIEW_OPERATION_TYPES.zoom ||
-      payload.opType === VIEW_OPERATION_TYPES.rotate3d
-
     if (isMprLikeViewType(tab.viewType) && !isMprVolumeViewport(tab, payload.viewportKey)) {
       emitMprViewOperation(payload.viewportKey, {
         opType: payload.opType,
@@ -3861,13 +3861,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...canvasPositionPayload,
         ...interactionPayload,
         ...zoomAnchorPayload,
-        previewFeedbackMode: usesCadencePreview ? 'cadence' : undefined
+        previewFeedbackMode: resolveViewDragPreviewFeedbackMode(payload.opType, continuousPreviewContext)
       })
       clearCompletedInteraction()
       return
     }
-
-    const isVolumeDrag = isVolumeViewport
 
     resolveOperationTargets(tab, payload.viewportKey, payload.opType).forEach((target) => {
       emitScheduledViewOperation({
@@ -3879,7 +3877,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...canvasPositionPayload,
         ...interactionPayload,
         ...zoomAnchorPayload,
-        previewFeedbackMode: isVolumeDrag && usesCadencePreview ? 'cadence' : undefined
+        previewFeedbackMode: resolveViewDragPreviewFeedbackMode(payload.opType, continuousPreviewContext)
       })
     })
     clearCompletedInteraction()

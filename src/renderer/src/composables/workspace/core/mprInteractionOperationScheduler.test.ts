@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DRAG_ACTION_TYPES, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
+import {
+  createMprInteractionOperationScheduler,
+  resolveViewDragPreviewFeedbackMode
+} from './mprInteractionOperationScheduler'
 
 describe('view interaction operation scheduler', () => {
+  it('uses local cadence for ordinary 2D window-level drags', () => {
+    expect(resolveViewDragPreviewFeedbackMode(VIEW_OPERATION_TYPES.window, false)).toBe('cadence')
+    expect(resolveViewDragPreviewFeedbackMode(VIEW_OPERATION_TYPES.pan, false)).toBeUndefined()
+    expect(resolveViewDragPreviewFeedbackMode(VIEW_OPERATION_TYPES.pan, true)).toBe('cadence')
+  })
+
   it('caps interactive moves at 16ms before backend preview feedback', () => {
     let now = 0
     const timers: Array<{ callback: () => void; delay: number }> = []
@@ -794,6 +803,40 @@ describe('view interaction operation scheduler', () => {
     scheduler.recordBackendPreview('volume-view', null)
     scheduler.emit('volume-view', {
       opType: VIEW_OPERATION_TYPES.rotate3d,
+      actionType: DRAG_ACTION_TYPES.move,
+      previewFeedbackMode: 'cadence',
+      x: 8,
+      y: 4
+    })
+
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(timers).toHaveLength(0)
+  })
+
+  it('keeps window-level moves flowing when backend preview feedback is delayed', () => {
+    let now = 0
+    const timers: Array<{ callback: () => void; delay: number }> = []
+    const emit = vi.fn()
+    const scheduler = createMprInteractionOperationScheduler({
+      clearTimeout: vi.fn(),
+      emit,
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        timers.push({ callback, delay })
+        return timers.length as unknown as ReturnType<typeof window.setTimeout>
+      }
+    })
+
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.window,
+      actionType: DRAG_ACTION_TYPES.move,
+      previewFeedbackMode: 'cadence',
+      x: 4,
+      y: 2
+    })
+    now = 16
+    scheduler.emit('mpr-ax', {
+      opType: VIEW_OPERATION_TYPES.window,
       actionType: DRAG_ACTION_TYPES.move,
       previewFeedbackMode: 'cadence',
       x: 8,

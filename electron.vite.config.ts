@@ -8,6 +8,15 @@ import {
   resolveRendererModulePreloadDependencies
 } from './vite.renderer.shared'
 
+const configuredRendererPort = Number.parseInt(process.env.DICOM_VISION_RENDERER_PORT ?? '', 10)
+const rendererServer = Number.isInteger(configuredRendererPort) && configuredRendererPort > 0
+  ? {
+      host: '127.0.0.1',
+      port: configuredRendererPort,
+      strictPort: true
+    }
+  : undefined
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()]
@@ -16,6 +25,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
+    ...(rendererServer ? { server: rendererServer } : {}),
     build: {
       modulePreload: {
         resolveDependencies: resolveRendererModulePreloadDependencies

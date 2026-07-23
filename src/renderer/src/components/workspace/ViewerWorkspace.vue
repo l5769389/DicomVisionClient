@@ -2664,7 +2664,7 @@ onBeforeUnmount(() => {
       >
         <div
           ref="viewportHostRef"
-          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden rounded-[20px] border p-2"
+          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden p-2"
         >
         <div
           v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && (activeVolumeRenderConfig || activeSurfaceRenderConfig)"
@@ -3203,32 +3203,28 @@ onBeforeUnmount(() => {
 <style scoped>
 .workspace-window-controls {
   position: absolute;
-  top: 3px;
-  right: 6px;
+  top: 10px;
+  right: 14px;
   z-index: 1201;
   display: flex;
+  gap: 4px;
   box-sizing: border-box;
-  width: 106px;
-  height: 36px;
+  width: auto;
+  height: 30px;
   align-items: center;
   justify-content: center;
-  padding: 1px;
-  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 44%, var(--theme-border-soft));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 96%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 0;
   -webkit-app-region: no-drag;
 }
 
 .workspace-window-control-button {
   display: inline-grid;
   position: relative;
-  width: 34px;
-  height: 32px;
+  width: 32px;
+  height: 30px;
   place-items: center;
   padding: 0;
   border: 0;
-  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 62%, transparent);
   border-radius: 6px;
   background: transparent;
   color: var(--theme-text-secondary);
@@ -3239,22 +3235,14 @@ onBeforeUnmount(() => {
   -webkit-app-region: no-drag;
 }
 
-.workspace-window-control-button:first-child {
-  border-left: 0;
-}
-
 .workspace-window-control-button:hover {
-  background: var(--theme-hover-surface);
+  background: color-mix(in srgb, var(--theme-hover-surface) 82%, transparent);
   color: var(--theme-text-primary);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 32%, transparent);
 }
 
 .workspace-window-control-button--danger:hover {
-  background: var(--theme-danger-surface);
+  background: color-mix(in srgb, var(--theme-danger-surface) 88%, transparent);
   color: var(--theme-danger-text);
-  box-shadow:
-    inset 0 0 0 1px var(--theme-danger-border),
-    0 6px 14px color-mix(in srgb, var(--theme-status-danger) 20%, transparent);
 }
 
 .workspace-window-control-button:active {

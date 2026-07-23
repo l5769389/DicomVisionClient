@@ -155,6 +155,7 @@ function createPointerHarness(
   }> = []
 
   const emitActiveViewportChange = vi.fn()
+  const emitMeasurementDraft = vi.fn()
   const emitMprCrosshair = vi.fn()
   const emitVolumeClip = vi.fn()
   const emitViewportDrag = vi.fn()
@@ -166,7 +167,7 @@ function createPointerHarness(
     emitOperationChange: (value) => {
       activeOperation.value = value
     },
-    emitMeasurementDraft: vi.fn(),
+    emitMeasurementDraft,
     emitMeasurementCreate: (payload) => {
       createdMeasurements.push(payload)
       committedMeasurements = upsertMeasurement(committedMeasurements, payload)
@@ -197,6 +198,7 @@ function createPointerHarness(
     copySelectedFreeform,
     createdMeasurements,
     emitActiveViewportChange,
+    emitMeasurementDraft,
     emitMprCrosshair,
     emitVolumeClip,
     emitViewportDrag,
@@ -212,6 +214,25 @@ afterEach(() => {
 })
 
 describe('useViewerWorkspacePointer', () => {
+  it('updates a measurement draft and emits a move before pointer release', () => {
+    const { emitMeasurementDraft, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:measure:line'
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.05, y: 0.85 }, { pointerId: 30 }), 'single')
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.25, y: 0.7 }, { pointerId: 30 }))
+
+    expect(pointer.draftMeasurements.value.single?.points).toEqual([
+      { x: 0.05, y: 0.85 },
+      { x: 0.25, y: 0.7 }
+    ])
+    expect(emitMeasurementDraft).toHaveBeenCalledWith(expect.objectContaining({
+      phase: DRAG_ACTION_TYPES.move,
+      toolType: 'line',
+      viewportKey: 'single'
+    }))
+  })
+
   it('finishes a copied point-sequence draft with Escape after moving it', () => {
     const { copySelectedFreeform, pointer, viewport } = createPointerHarness()
     const copiedId = copySelectedFreeform()

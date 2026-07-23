@@ -535,6 +535,133 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
     vi.unstubAllGlobals()
   })
 
+  it('updates live window values in every desktop viewport family', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:window-preview-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+
+    const cases: Array<{
+      label: string
+      tab: ViewerTabItem
+      viewId: string
+      readWindowLabel: (tab: ViewerTabItem) => string | null | undefined
+    }> = [
+      {
+        label: '2D',
+        tab: createStackTab(),
+        viewId: 'stack-view',
+        readWindowLabel: (tab) => tab.windowLabel
+      },
+      {
+        label: 'PET',
+        tab: createPetTab(),
+        viewId: 'pet-view',
+        readWindowLabel: (tab) => tab.windowLabel
+      },
+      {
+        label: '3D',
+        tab: createVolumeTab(),
+        viewId: 'volume-view',
+        readWindowLabel: (tab) => tab.windowLabel
+      },
+      {
+        label: 'MPR',
+        tab: createMprTab(),
+        viewId: 'mpr-ax-view',
+        readWindowLabel: (tab) => tab.windowLabel
+      },
+      {
+        label: '4D',
+        tab: {
+          ...createMprTab(),
+          key: 'four-d-tab',
+          viewType: '4D'
+        },
+        viewId: 'mpr-ax-view',
+        readWindowLabel: (tab) => tab.windowLabel
+      },
+      {
+        label: '2D compare',
+        tab: {
+          ...createStackTab(),
+          key: 'compare-tab',
+          viewType: 'CompareStack',
+          viewId: '',
+          compareViewIds: {
+            'compare-a': 'compare-a-view',
+            'compare-b': 'compare-b-view'
+          }
+        },
+        viewId: 'compare-a-view',
+        readWindowLabel: (tab) => tab.compareWindowLabels?.['compare-a']
+      },
+      {
+        label: 'layout stack slot',
+        tab: {
+          ...createStackTab(),
+          key: 'layout-tab',
+          viewType: 'Layout',
+          viewId: '',
+          layoutSlots: [{
+            id: 'slot-stack',
+            row: 0,
+            column: 0,
+            rowSpan: 1,
+            columnSpan: 1,
+            viewType: 'Stack',
+            viewId: 'layout-stack-view'
+          }]
+        },
+        viewId: 'layout-stack-view',
+        readWindowLabel: (tab) => tab.layoutSlots?.[0]?.windowLabel
+      },
+      {
+        label: 'layout volume slot',
+        tab: {
+          ...createVolumeTab(),
+          key: 'layout-volume-tab',
+          viewType: 'Layout',
+          viewId: '',
+          layoutSlots: [{
+            id: 'slot-volume',
+            row: 0,
+            column: 0,
+            rowSpan: 1,
+            columnSpan: 1,
+            viewType: '3D',
+            viewId: 'layout-volume-view'
+          }]
+        },
+        viewId: 'layout-volume-view',
+        readWindowLabel: (tab) => tab.layoutSlots?.[0]?.windowLabel
+      },
+      {
+        label: 'PET/CT fusion CT pane',
+        tab: createFusionTab(),
+        viewId: 'overlay-view',
+        readWindowLabel: (tab) => tab.fusionWindowLabels?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+      }
+    ]
+
+    cases.forEach(({ label, tab, viewId, readWindowLabel }) => {
+      const { viewerTabs, views } = createLifecycleHarness([tab], tab.key)
+      views.updateTabImage(
+        tab.key,
+        {
+          viewId,
+          imageFormat: 'png',
+          renderIntent: 'pixel-only',
+          window_info: { ww: 640, wl: 80 }
+        },
+        new Uint8Array([1, 2, 3])
+      )
+
+      expect(readWindowLabel(viewerTabs.value[0]), label).toBe('WW 640  WL 80')
+    })
+  })
+
   it('opens a 3D tab by creating a backend view and selecting the volume viewport', async () => {
     postApiMock.mockResolvedValueOnce({ viewId: 'created-volume-view' })
     const series = createSeriesItem('open-series')

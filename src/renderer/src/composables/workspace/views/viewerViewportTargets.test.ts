@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import type { ViewerTabItem } from '../../../types/viewer'
+import { resolveViewDragPreviewFeedbackMode } from '../core/mprInteractionOperationScheduler'
 import {
   resolveCompareOperationPaneKeys,
   resolveCompareOperationViewIds,
   resolveComparePaneKey,
   resolveOperationTargets,
   resolveMprViewportKey,
-  resolveViewIdForTabViewport
+  resolveViewIdForTabViewport,
+  usesContinuousDragPreview
 } from './viewerViewportTargets'
 
 function createTab(overrides: Partial<ViewerTabItem>): ViewerTabItem {
@@ -188,4 +190,102 @@ describe('viewer viewport targets', () => {
       'layout-view-a'
     ])
   })
+
+  it.each([
+    ['2D', createTab({ viewType: 'Stack', viewId: 'stack-view' }), 'single', false],
+    ['PET', createTab({ viewType: 'PET', viewId: 'pet-view' }), 'single', false],
+    ['3D', createTab({ viewType: '3D', viewId: 'volume-view' }), 'volume', true],
+    [
+      'MPR plane',
+      createTab({
+        viewType: 'MPR',
+        viewportViewIds: { 'mpr-ax': 'mpr-ax-view', 'mpr-cor': '', 'mpr-sag': '' }
+      }),
+      'mpr-ax',
+      true
+    ],
+    [
+      'MPR volume',
+      createTab({
+        viewType: 'MPR',
+        viewId: 'mpr-volume-view',
+        viewportViewIds: { 'mpr-ax': 'mpr-ax-view', 'mpr-cor': '', 'mpr-sag': '' }
+      }),
+      'volume',
+      true
+    ],
+    [
+      '4D',
+      createTab({
+        viewType: '4D',
+        viewportViewIds: { 'mpr-ax': 'four-d-ax-view', 'mpr-cor': '', 'mpr-sag': '' }
+      }),
+      'mpr-ax',
+      true
+    ],
+    [
+      '2D compare',
+      createTab({
+        viewType: 'CompareStack',
+        compareViewIds: { 'compare-a': 'compare-a-view', 'compare-b': 'compare-b-view' }
+      }),
+      'compare-a',
+      false
+    ],
+    [
+      'layout stack slot',
+      createTab({
+        viewType: 'Layout',
+        layoutSlots: [{
+          id: 'slot-stack',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          viewType: 'Stack',
+          viewId: 'layout-stack-view'
+        }]
+      }),
+      'slot-stack',
+      false
+    ],
+    [
+      'layout volume slot',
+      createTab({
+        viewType: 'Layout',
+        layoutSlots: [{
+          id: 'slot-volume',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          viewType: '3D',
+          viewId: 'layout-volume-view'
+        }]
+      }),
+      'slot-volume',
+      true
+    ],
+    [
+      'PET/CT fusion CT pane',
+      createTab({
+        viewType: 'PETCTFusion',
+        fusionViewIds: { 'fusion-overlay-ax': 'fusion-overlay-view' }
+      }),
+      'fusion-overlay-ax',
+      false
+    ]
+  ] as const)(
+    'routes %s window drags through cadence feedback',
+    (_label, tab, viewportKey, expectedContinuousPreview) => {
+      expect(resolveOperationTargets(tab, viewportKey, VIEW_OPERATION_TYPES.window)).not.toHaveLength(0)
+      expect(usesContinuousDragPreview(tab, viewportKey)).toBe(expectedContinuousPreview)
+      expect(
+        resolveViewDragPreviewFeedbackMode(
+          VIEW_OPERATION_TYPES.window,
+          usesContinuousDragPreview(tab, viewportKey)
+        )
+      ).toBe('cadence')
+    }
+  )
 })

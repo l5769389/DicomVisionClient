@@ -304,7 +304,9 @@ describe('ViewerToolbarDock', () => {
     expect(actionZone.exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__options-scroll--window').exists()).toBe(true)
 
-    await wrapper.find('[data-testid="viewer-toolbar-dock-window-window-reset"]').trigger('click')
+    const reset = wrapper.get('[data-testid="viewer-toolbar-dock-window-window-reset"]')
+    expect(reset.classes()).toContain('viewer-toolbar-dock-panel-content__danger-action--destructive')
+    await reset.trigger('click')
 
     expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([tools[1], 'window:reset', { keepMenuOpen: true }])
   })
@@ -609,6 +611,9 @@ describe('ViewerToolbarDock', () => {
       if (tool.key === 'reset') {
         expect(wrapper.find('.viewer-toolbar-dock-panel-content__action-zone').exists()).toBe(false)
         expect(wrapper.find('.viewer-toolbar-dock-panel-content__danger-action').exists()).toBe(false)
+        expect(wrapper.get('.viewer-toolbar-dock-panel-content__option').classes()).toContain(
+          'viewer-toolbar-dock-panel-content__option--destructive'
+        )
       }
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
       expect(wrapper.find('.viewer-toolbar-dock-panel-content__selected-icon').exists()).toBe(false)
@@ -711,6 +716,7 @@ describe('ViewerToolbarDock', () => {
 
     const reset = wrapper.get('[data-testid="viewer-toolbar-dock-pseudocolor-pseudocolor-reset"]')
     expect(reset.text()).toContain('Reset Pseudocolor')
+    expect(reset.classes()).toContain('viewer-toolbar-dock-panel-content__danger-action--destructive')
     await reset.trigger('click')
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([
       pseudocolorTool,
@@ -741,6 +747,7 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').text()).toContain('Reset Rotation')
     expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').classes()).toContain('viewer-toolbar-dock-panel-content__danger-action')
+    expect(wrapper.find('[data-testid="viewer-toolbar-dock-rotate-reset"]').classes()).toContain('viewer-toolbar-dock-panel-content__danger-action--destructive')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(false)
   })
 
@@ -769,11 +776,37 @@ describe('ViewerToolbarDock', () => {
       stackToolSelections: { measure: 'measure:line' }
     })
 
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').exists()).toBe(true)
+    const reset = wrapper.get('[data-testid="viewer-toolbar-dock-measure-reset-measurements"]')
+    expect(reset.classes()).toContain('viewer-toolbar-dock-panel-content__danger-action--destructive')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__options-scroll--measure').exists()).toBe(true)
-    await wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').trigger('click')
+    expect(wrapper.get('[data-testid="viewer-toolbar-dock-measure-options"]').attributes('data-testid')).toBe(
+      'viewer-toolbar-dock-measure-options'
+    )
+    await reset.trigger('click')
 
     expect(wrapper.emitted('selectToolOption')?.[0]).toEqual([measureTool, 'reset:measurements', { keepMenuOpen: true }])
+  })
+
+  it('keeps measurement results out of the tool panel to avoid an empty embedded region', () => {
+    const measureTool: StackTool = {
+      key: 'measure',
+      label: 'Measure',
+      icon: 'measure',
+      kind: 'mode',
+      options: [{ value: 'measure:line', label: 'Line', icon: 'measure-line' }]
+    }
+    const wrapper = mountDock({
+      activeTools: [measureTool],
+      isToolSelected: vi.fn(() => true),
+      openMenuKey: 'measure',
+      resultPanelOpen: true,
+      resultPanelTitle: 'Measurements',
+      resultPanelToolKey: 'measure',
+      stackToolSelections: { measure: 'measure:line' }
+    })
+
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content--measure').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock__embedded-result-panel').exists()).toBe(false)
   })
 
   it('renders scope copy without the settings jump button and clears measurements when scope changes', async () => {
@@ -825,6 +858,9 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Annotate')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__action-zone').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__option').exists()).toBe(false)
+    expect(wrapper.get('.viewer-toolbar-dock-panel-content__danger-action').classes()).toContain(
+      'viewer-toolbar-dock-panel-content__danger-action--destructive'
+    )
 
     await wrapper.find('[data-testid="viewer-toolbar-dock-annotate-reset-annotations"]').trigger('click')
 
@@ -924,7 +960,9 @@ describe('ViewerToolbarDock', () => {
       { keepMenuOpen: true }
     ])
 
-    await wrapper.find('[data-testid="viewer-toolbar-dock-pet-display-reset"]').trigger('click')
+    const resetPetDisplay = wrapper.get('[data-testid="viewer-toolbar-dock-pet-display-reset"]')
+    expect(resetPetDisplay.classes()).toContain('viewer-toolbar-dock-panel-content__danger-action--destructive')
+    await resetPetDisplay.trigger('click')
     expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
       expect.objectContaining({ key: 'fusionPetDisplay' }),
       'petDisplay:reset',
@@ -1030,7 +1068,9 @@ describe('ViewerToolbarDock', () => {
 
     expect(wrapper.find('.viewer-toolbar-dock__active-tool-panel').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock__panel-title').text()).toContain('Measure')
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content__measure-reset').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="viewer-toolbar-dock-measure-reset-measurements"]').classes()).toContain(
+      'viewer-toolbar-dock-panel-content__danger-action--destructive'
+    )
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__option--active').exists()).toBe(true)
     expect(wrapper.findAll('.viewer-toolbar-dock__button--active')).toHaveLength(1)
     expect(wrapper.findAll('.viewer-toolbar-dock__button')[1]!.classes()).toContain('viewer-toolbar-dock__button--active')

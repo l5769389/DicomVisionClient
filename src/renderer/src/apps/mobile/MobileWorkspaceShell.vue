@@ -230,16 +230,16 @@ const MOBILE_MEASUREMENT_TOOLS: MobileMeasurementTool[] = [
     icon: 'measure-angle',
     zh: '相对水平偏角',
     en: 'Deviation from Horizontal',
-    hintZh: '仅用于 2D CT；沿床板或模体边缘拖动，测量相对 DICOM 物理水平的偏角',
-    hintEn: '2D CT only. Drag along an edge to measure deviation from the physical DICOM horizontal axis'
+    hintZh: '沿床板或模体边缘拖动，测量相对 DICOM 物理水平的偏角',
+    hintEn: 'Drag along an edge to measure deviation from the physical DICOM horizontal axis'
   },
   {
     toolType: 'alignment-vertical',
     icon: 'measure-angle',
     zh: '相对垂直偏角',
     en: 'Deviation from Vertical',
-    hintZh: '仅用于 2D CT；沿床板或模体边缘拖动，测量相对 DICOM 物理垂直的偏角',
-    hintEn: '2D CT only. Drag along an edge to measure deviation from the physical DICOM vertical axis'
+    hintZh: '沿床板或模体边缘拖动，测量相对 DICOM 物理垂直的偏角',
+    hintEn: 'Drag along an edge to measure deviation from the physical DICOM vertical axis'
   },
   {
     toolType: 'rect',

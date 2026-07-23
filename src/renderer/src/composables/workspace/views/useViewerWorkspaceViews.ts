@@ -1514,7 +1514,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ...item,
         viewType: '4D',
         title: buildTabTitle(series, '4D', item.seriesId),
-        seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+        seriesTitle: getSeriesDisplayName(series, item.seriesId),
         viewId: '',
         imageSrc: '',
         sliceLabel: '',
@@ -3990,8 +3990,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? {
                 ...item,
                 viewType,
-                title: buildTabTitle(options.selectedSeries.value, viewType, item.seriesId),
-                seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+                title: buildTabTitle(series, viewType, item.seriesId),
+                seriesTitle: getSeriesDisplayName(series, item.seriesId),
                 tagIndex: initialIndex,
                 tagTotal: Math.max(1, series.instanceCount),
                 tagItems: [],
@@ -4006,6 +4006,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
         options.activeViewportKey.value = 'single'
         options.activeTabKey.value = tabKey
+        // Tag data is refreshed in place. Keep the current table mounted so switching
+        // instances never replaces it with the workspace-wide loading screen.
+        options.isViewLoading.value = false
         await loadTagTab(tabKey, initialIndex)
         return
       }

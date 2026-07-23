@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isStackToolOptionSelected,
   resolveStackToolOptionSelectionMode,
+  usesStackToolOptionDangerTone,
   type StackTool,
   type StackToolOption
 } from './toolbarTypes'
@@ -46,5 +47,13 @@ describe('toolbar option selection semantics', () => {
     expect(resolveStackToolOptionSelectionMode({ key: 'compareSync', label: 'Sync', icon: 'sync' })).toBe('multiple')
     expect(resolveStackToolOptionSelectionMode({ key: 'export', label: 'Export', icon: 'export' })).toBe('none')
     expect(resolveStackToolOptionSelectionMode({ key: 'window', label: 'Window', icon: 'window' })).toBe('single')
+  })
+
+  it('uses one danger tone for reset, clear, and delete actions', () => {
+    for (const value of ['reset:view', 'window:reset', 'clear:measurements', 'delete:preset']) {
+      expect(usesStackToolOptionDangerTone(option(value))).toBe(true)
+    }
+
+    expect(usesStackToolOptionDangerTone(option('measure:line'))).toBe(false)
   })
 })

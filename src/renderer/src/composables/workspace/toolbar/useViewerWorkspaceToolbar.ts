@@ -118,11 +118,11 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'measure:angle': { label: '角度' },
   'measure:alignment-horizontal': {
     label: '相对水平偏角',
-    description: '仅用于 2D CT；沿真实边缘绘线，测量它相对 DICOM 物理水平方向的偏角'
+    description: '沿真实边缘绘线，测量它相对 DICOM 物理水平方向的偏角'
   },
   'measure:alignment-vertical': {
     label: '相对垂直偏角',
-    description: '仅用于 2D CT；沿真实边缘绘线，测量它相对 DICOM 物理垂直方向的偏角'
+    description: '沿真实边缘绘线，测量它相对 DICOM 物理垂直方向的偏角'
   },
   'measure:curve': { label: '曲线' },
   'measure:ellipse': { label: '椭圆' },
@@ -218,13 +218,13 @@ const measureTool: StackTool = {
       value: 'measure:alignment-horizontal',
       label: 'Deviation from Horizontal',
       icon: 'measure-angle',
-      description: '2D CT only. Draw along a real edge and compare it with the physical DICOM horizontal axis.'
+      description: 'Draw along a real edge and compare it with the physical DICOM horizontal axis.'
     },
     {
       value: 'measure:alignment-vertical',
       label: 'Deviation from Vertical',
       icon: 'measure-angle',
-      description: '2D CT only. Draw along a real edge and compare it with the physical DICOM vertical axis.'
+      description: 'Draw along a real edge and compare it with the physical DICOM vertical axis.'
     },
     { value: 'measure:curve', label: 'Curve', icon: 'measure-curve' },
     { value: 'measure:freeform', label: 'Freeform', icon: 'measure-freeform' }

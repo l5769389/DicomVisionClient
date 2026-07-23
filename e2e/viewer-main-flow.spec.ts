@@ -313,6 +313,82 @@ test('loads a real DICOM sample and renders the first 2D view', async ({ page },
   await expectSlice(page, isMobile, SAMPLE_REPRESENTATIVE_SLICE)
 })
 
+test('desktop measurement menu flexes before its option list scrolls and shares one reset tone', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-chrome', 'Desktop right-dock layout only')
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await loadRealDicomSample(page, false)
+
+  await page
+    .locator(
+      '.viewer-toolbar-dock__button[title*="Measure"], .viewer-toolbar-dock__button[title*="测量"]'
+    )
+    .first()
+    .click()
+
+  const optionList = page.getByTestId('viewer-toolbar-dock-measure-options')
+  const clearMeasurements = page.getByTestId('viewer-toolbar-dock-measure-reset-measurements')
+  const scopeCard = page.locator('.viewer-toolbar-dock-panel-content__scope-card')
+  await expect(optionList).toBeVisible()
+  await expect(scopeCard).toBeVisible()
+  await expect(clearMeasurements).toBeVisible()
+
+  const tallLayout = await optionList.evaluate((element) => {
+    const rowHeights = [
+      ...element.querySelectorAll<HTMLElement>('.viewer-toolbar-dock-panel-content__option')
+    ].map((row) => row.getBoundingClientRect().height)
+    return {
+      clientHeight: element.clientHeight,
+      rowHeights,
+      scrollHeight: element.scrollHeight
+    }
+  })
+  expect(tallLayout.scrollHeight).toBeLessThanOrEqual(tallLayout.clientHeight + 1)
+  expect(tallLayout.rowHeights.length).toBeGreaterThanOrEqual(8)
+  expect(Math.min(...tallLayout.rowHeights)).toBeGreaterThanOrEqual(48)
+  expect(
+    Math.max(...tallLayout.rowHeights) - Math.min(...tallLayout.rowHeights)
+  ).toBeLessThanOrEqual(1)
+
+  const clearTone = await clearMeasurements.evaluate((element) => {
+    const buttonStyle = getComputedStyle(element)
+    const iconStyle = getComputedStyle(
+      element.querySelector<HTMLElement>('.viewer-toolbar-dock-panel-content__danger-action-icon')!
+    )
+    return {
+      backgroundColor: buttonStyle.backgroundColor,
+      borderColor: buttonStyle.borderColor,
+      iconColor: iconStyle.color
+    }
+  })
+
+  await page.setViewportSize({ width: 1440, height: 650 })
+  await expect.poll(
+    async () => optionList.evaluate((element) => element.scrollHeight > element.clientHeight)
+  ).toBe(true)
+  const compactRowHeights = await optionList
+    .locator('.viewer-toolbar-dock-panel-content__option')
+    .evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height))
+  expect(Math.min(...compactRowHeights)).toBeGreaterThanOrEqual(48)
+  await expect(scopeCard).toBeVisible()
+  await expect(clearMeasurements).toBeVisible()
+
+  await selectWindowTool(page, false)
+  const resetWindow = page.getByTestId('viewer-toolbar-dock-window-window-reset')
+  await expect(resetWindow).toBeVisible()
+  const resetTone = await resetWindow.evaluate((element) => {
+    const buttonStyle = getComputedStyle(element)
+    const iconStyle = getComputedStyle(
+      element.querySelector<HTMLElement>('.viewer-toolbar-dock-panel-content__danger-action-icon')!
+    )
+    return {
+      backgroundColor: buttonStyle.backgroundColor,
+      borderColor: buttonStyle.borderColor,
+      iconColor: iconStyle.color
+    }
+  })
+  expect(resetTone).toEqual(clearTone)
+})
+
 test('renders real DICOM MPR geometry and keeps shared cursor state synchronized', async ({ page }, testInfo) => {
   const isMobile = testInfo.project.name === 'mobile-chrome'
   await openRealDicomMpr(page, isMobile)

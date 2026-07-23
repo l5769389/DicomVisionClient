@@ -1109,6 +1109,12 @@ describe('MobileWorkspaceShell', () => {
 
     await wrapper.get('[data-testid="mobile-sheet-tab-measure"]').trigger('click')
     expect(wrapper.find('[data-testid="mobile-measure-line"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mobile-measure-alignment-horizontal"] small').text()).toBe(
+      '沿床板或模体边缘拖动，测量相对 DICOM 物理水平的偏角'
+    )
+    expect(wrapper.get('[data-testid="mobile-measure-alignment-vertical"] small').text()).toBe(
+      '沿床板或模体边缘拖动，测量相对 DICOM 物理垂直的偏角'
+    )
     expect(wrapper.get('[data-testid="mobile-measure-clear"]').classes()).toContain('mobile-shell__footer-action')
     expect(wrapper.get('[data-testid="mobile-measure-clear"] .app-icon-stub').text()).toBe('reset')
     mockViewer.triggerViewAction.mockClear()

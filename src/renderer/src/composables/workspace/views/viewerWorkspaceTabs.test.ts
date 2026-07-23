@@ -64,6 +64,15 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
     expect(buildTabTitle(series, 'Stack', 'fallback')).toBe('CT Head · 2D')
   })
 
+  it('keeps the patient name as the primary label for every tab type', () => {
+    const series = { seriesId: 'ct-series', patientName: 'Patient One', seriesDescription: 'Head CT' } as FolderSeriesItem
+
+    expect(createTab(series, 'Tag').seriesTitle).toBe('Patient One')
+    expect(createTab(series, 'Tag').title).toBe('Patient One · Tag')
+    expect(createTab(series, '4D').seriesTitle).toBe('Patient One')
+    expect(createTab(series, '4D').title).toBe('Patient One · 4D')
+  })
+
   it('uses 2D Compare as the user-facing label for CompareStack', () => {
     expect(getViewTypeDisplayLabel('CompareStack')).toBe('2D Compare')
     expect(getViewTypeDisplayLabel('CompareStack', 'zh-CN')).toBe('2D 对比')

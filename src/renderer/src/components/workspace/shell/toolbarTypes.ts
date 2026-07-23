@@ -91,6 +91,14 @@ export function isStackToolOptionSelected(
   return selectedValue === option.value
 }
 
+export function usesStackToolOptionDangerTone(option: Pick<StackToolOption, 'value'>): boolean {
+  const value = option.value.toLowerCase()
+  return value.startsWith('reset:')
+    || value.endsWith(':reset')
+    || value.startsWith('clear:')
+    || value.startsWith('delete:')
+}
+
 export interface StackToolOptionSelectBehavior {
   keepMenuOpen?: boolean
 }

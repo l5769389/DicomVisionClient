@@ -50,6 +50,7 @@ if (process.platform !== 'darwin') {
 
 const args = parseArgs()
 
+run('npm', ['run', 'generate:brand-assets'])
 run('npm', ['run', 'build'])
 
 if (args.serverBundlePath.trim()) {

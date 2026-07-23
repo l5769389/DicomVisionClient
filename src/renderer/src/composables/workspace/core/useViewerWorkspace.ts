@@ -4772,11 +4772,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return []
       }
       if (source.kind === 'files') {
-        showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
-          progressPercent: 100,
-          progressLabel: locale.value === 'zh-CN' ? `${loadedSeries.length} 个序列` : `${loadedSeries.length} series`,
-          durationMs: 3600
-        })
+        // The progress toast is only transport feedback. Once the study is ready,
+        // remove it immediately rather than leaving a redundant completion banner.
+        dismissStatusToast()
       }
 
       message.value = ''

@@ -111,18 +111,36 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
 
 describe('useViewerWorkspaceToolbar surface mode', () => {
   it('offers alignment angle only for ordinary 2D stack-like views', async () => {
+    const preferences = useUiPreferences()
+    const previousLocale = preferences.locale.value
+    preferences.setLocale('en-US')
     const harness = mountToolbarHarness(create3dTab({ viewType: 'Stack', viewId: 'stack-view' }))
     await nextTick()
 
     const stackMeasure = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
     expect(stackMeasure.options?.map((option) => option.value)).toContain('measure:alignment-horizontal')
     expect(stackMeasure.options?.map((option) => option.value)).toContain('measure:alignment-vertical')
+    const horizontal = stackMeasure.options?.find((option) => option.value === 'measure:alignment-horizontal')
+    const vertical = stackMeasure.options?.find((option) => option.value === 'measure:alignment-vertical')
+    expect(horizontal?.description).toBe('Draw along a real edge and compare it with the physical DICOM horizontal axis.')
+    expect(vertical?.description).toBe('Draw along a real edge and compare it with the physical DICOM vertical axis.')
+
+    preferences.setLocale('zh-CN')
+    await nextTick()
+    const localizedMeasure = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
+    expect(localizedMeasure.options?.find((option) => option.value === 'measure:alignment-horizontal')?.description).toBe(
+      '沿真实边缘绘线，测量它相对 DICOM 物理水平方向的偏角'
+    )
+    expect(localizedMeasure.options?.find((option) => option.value === 'measure:alignment-vertical')?.description).toBe(
+      '沿真实边缘绘线，测量它相对 DICOM 物理垂直方向的偏角'
+    )
 
     harness.activeTab.value = create3dTab({ viewType: 'MPR', viewId: 'mpr-view' })
     await nextTick()
     const mprMeasure = harness.toolbar.activeTools.value.find((tool) => tool.key === 'measure')!
     expect(mprMeasure.options?.map((option) => option.value)).not.toContain('measure:alignment-horizontal')
     expect(mprMeasure.options?.map((option) => option.value)).not.toContain('measure:alignment-vertical')
+    preferences.setLocale(previousLocale)
     harness.wrapper.unmount()
   })
 

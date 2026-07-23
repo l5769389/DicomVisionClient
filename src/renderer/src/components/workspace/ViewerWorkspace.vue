@@ -40,6 +40,7 @@ import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useVi
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import ViewerTabStrip from './ViewerTabStrip.vue'
+import AppIcon from '../AppIcon.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
 import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
 import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
@@ -101,6 +102,7 @@ const props = defineProps<{
   isViewLoading: boolean
   message: string
   selectedSeriesId: string
+  showWindowControls: boolean
   viewerPlatform: 'desktop' | 'web'
   viewerTabs: ViewerTabItem[]
 }>()
@@ -177,6 +179,7 @@ const emit = defineEmits<{
   }]
   fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
+  windowControl: [control: 'minimize' | 'fullscreen' | 'close']
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
@@ -199,6 +202,7 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { locale, t, overlayCopy, workspaceExportCopy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 const {
   exportPreference,
   drawingScopePreference,
@@ -2554,7 +2558,37 @@ onBeforeUnmount(() => {
 <template>
   <main
     class="viewer-workspace-shell theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    :style="{ '--workspace-window-controls-reserve': showWindowControls ? '118px' : '0px' }"
   >
+    <div v-if="showWindowControls" class="workspace-window-controls" :aria-label="isZh ? '窗口控制' : 'Window controls'">
+      <button
+        type="button"
+        class="workspace-window-control-button"
+        :aria-label="isZh ? '最小化' : 'Minimize'"
+        :data-tooltip="isZh ? '最小化' : 'Minimize'"
+        @click="emit('windowControl', 'minimize')"
+      >
+        <AppIcon name="minimize" :size="16" />
+      </button>
+      <button
+        type="button"
+        class="workspace-window-control-button"
+        :aria-label="isZh ? '切换全屏' : 'Toggle full screen'"
+        :data-tooltip="isZh ? '切换全屏' : 'Toggle full screen'"
+        @click="emit('windowControl', 'fullscreen')"
+      >
+        <AppIcon name="fullscreen" :size="16" />
+      </button>
+      <button
+        type="button"
+        class="workspace-window-control-button workspace-window-control-button--danger"
+        :aria-label="isZh ? '关闭' : 'Close'"
+        :data-tooltip="isZh ? '关闭' : 'Close'"
+        @click="emit('windowControl', 'close')"
+      >
+        <AppIcon name="close" :size="16" />
+      </button>
+    </div>
     <div
       v-if="!hasSelectedSeries"
       class="viewer-workspace-empty grid h-full place-items-center rounded-[20px] border border-transparent p-8 text-center transition duration-150"
@@ -2613,7 +2647,7 @@ onBeforeUnmount(() => {
         @toggle-tab-strip="toggleTabStripCollapsed"
       />
 
-      <div v-if="isViewLoading" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
+      <div v-if="isViewLoading && activeTab?.viewType !== 'Tag'" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
         <div class="flex items-center gap-3 text-sm text-[var(--theme-text-secondary)]">
           <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]"></span>
           <span>{{ t('loadingView') }}</span>
@@ -3167,6 +3201,112 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.workspace-window-controls {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  z-index: 1201;
+  display: flex;
+  box-sizing: border-box;
+  width: 106px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 44%, var(--theme-border-soft));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 96%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  -webkit-app-region: no-drag;
+}
+
+.workspace-window-control-button {
+  display: inline-grid;
+  position: relative;
+  width: 34px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 62%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-window-control-button:first-child {
+  border-left: 0;
+}
+
+.workspace-window-control-button:hover {
+  background: var(--theme-hover-surface);
+  color: var(--theme-text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 32%, transparent);
+}
+
+.workspace-window-control-button--danger:hover {
+  background: var(--theme-danger-surface);
+  color: var(--theme-danger-text);
+  box-shadow:
+    inset 0 0 0 1px var(--theme-danger-border),
+    0 6px 14px color-mix(in srgb, var(--theme-status-danger) 20%, transparent);
+}
+
+.workspace-window-control-button:active {
+  transform: scale(0.94);
+}
+
+.workspace-window-control-button::after {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 70;
+  max-width: 154px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, var(--theme-border-soft));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 98%, transparent);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  color: var(--theme-text-primary);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -3px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  white-space: nowrap;
+}
+
+.workspace-window-control-button:last-child::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-3px);
+}
+
+.workspace-window-control-button:hover::after,
+.workspace-window-control-button:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.workspace-window-control-button:last-child:hover::after,
+.workspace-window-control-button:last-child:focus-visible::after {
+  transform: translateY(0);
+}
+
+.workspace-window-control-button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--theme-accent);
+}
+
 .viewer-workspace-empty.theme-shell-panel-soft {
   border-color: transparent !important;
   background: transparent !important;

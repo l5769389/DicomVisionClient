@@ -262,6 +262,27 @@ function createStackTab(): ViewerTabItem {
   } as ViewerTabItem
 }
 
+function createTagTab(): ViewerTabItem {
+  return {
+    key: 'tag-tab',
+    seriesId: 'ct-series',
+    seriesTitle: 'Patient CT',
+    title: 'Patient CT · Tag',
+    viewType: 'Tag',
+    viewId: '',
+    imageSrc: '',
+    sliceLabel: '',
+    windowLabel: '',
+    cornerInfo: createEmptyCornerInfo(),
+    orientation: createEmptyOrientationInfo(),
+    tagIndex: 0,
+    tagTotal: 3,
+    tagItems: [{ tag: '(0010,0010)', name: 'Patient Name', keyword: 'PatientName', vr: 'PN', value: 'Patient CT' }],
+    tagIsLoading: false,
+    tagLoadError: null
+  } as ViewerTabItem
+}
+
 function createVolumeTab(): ViewerTabItem {
   const cornerInfo = createEmptyCornerInfo()
   return {
@@ -610,6 +631,37 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
       'mpr-ax-view',
       'layout-view'
     ])
+  })
+
+  it('keeps the previous Tag instance visible while the next instance is loading', async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined
+    const pendingResponse = new Promise((resolve) => {
+      resolveRequest = resolve
+    })
+    postApiMock.mockReturnValue(pendingResponse)
+    const tagTab = createTagTab()
+    const { viewerTabs, views } = createLifecycleHarness([tagTab], tagTab.key)
+
+    const request = views.setTagTabIndex(tagTab.key, 1)
+
+    expect(viewerTabs.value[0]).toMatchObject({
+      tagIndex: 0,
+      tagIsLoading: true,
+      tagItems: [{ value: 'Patient CT' }]
+    })
+
+    resolveRequest?.({
+      index: 1,
+      total: 3,
+      items: [{ tag: '(0008,0060)', name: 'Modality', keyword: 'Modality', vr: 'CS', value: 'CT' }]
+    })
+    await request
+
+    expect(viewerTabs.value[0]).toMatchObject({
+      tagIndex: 1,
+      tagIsLoading: false,
+      tagItems: [{ value: 'CT' }]
+    })
   })
 
   it('keeps a live 3D backend view when converting a volume tab to Layout', async () => {

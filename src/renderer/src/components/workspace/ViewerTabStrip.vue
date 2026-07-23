@@ -69,18 +69,22 @@ function closeOtherTabsFromMenu(): void {
     <VBtn
       v-if="shouldShowScrollControls"
       variant="flat"
-      class="tab-scroll-button theme-button-secondary inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-lg! border! transition"
+      class="tab-scroll-button tab-scroll-button--left theme-button-secondary"
       :class="canScrollTabsLeft ? 'hover:border-[var(--theme-border-strong)]' : 'cursor-default opacity-50'"
       :aria-label="t('scrollTabsLeft')"
       :disabled="!canScrollTabsLeft"
       @click="emit('scrollTabs', 'left')"
     >
-      <AppIcon name="chevron-left" :size="16" />
+      <AppIcon name="chevron-left" :size="15" />
     </VBtn>
 
     <div
       ref="tabStripRef"
       class="tab-strip-scroll flex min-w-0 flex-1 flex-nowrap snap-x snap-mandatory items-end overflow-x-auto overflow-y-hidden [scrollbar-gutter:stable]"
+      :class="{
+        'tab-strip-scroll--can-scroll-left': canScrollTabsLeft,
+        'tab-strip-scroll--can-scroll-right': canScrollTabsRight
+      }"
       @scroll="emit('tabStripScroll')"
       @wheel="emit('tabStripWheel', $event)"
     >
@@ -109,13 +113,13 @@ function closeOtherTabsFromMenu(): void {
     <VBtn
       v-if="shouldShowScrollControls"
       variant="flat"
-      class="tab-scroll-button theme-button-secondary inline-flex! h-8! w-8! min-w-0! shrink-0 items-center! justify-center! rounded-lg! border! transition"
+      class="tab-scroll-button tab-scroll-button--right theme-button-secondary"
       :class="canScrollTabsRight ? 'hover:border-[var(--theme-border-strong)]' : 'cursor-default opacity-50'"
       :aria-label="t('scrollTabsRight')"
       :disabled="!canScrollTabsRight"
       @click="emit('scrollTabs', 'right')"
     >
-      <AppIcon name="chevron-right" :size="16" />
+      <AppIcon name="chevron-right" :size="15" />
     </VBtn>
 
     <div v-if="contextTab" class="fixed z-[2200] h-0 w-0" :style="tabContextMenuAnchorStyle">
@@ -153,8 +157,8 @@ function closeOtherTabsFromMenu(): void {
 .viewer-tab-strip-shell {
   position: relative;
   min-height: 42px;
-  gap: 4px;
-  padding: 4px 8px 0;
+  gap: 8px;
+  padding: 4px calc(6px + var(--workspace-window-controls-reserve, 0px)) 0 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-strong) 34%, var(--theme-border-soft));
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-panel-strong-solid) 72%, transparent), color-mix(in srgb, var(--theme-surface-panel-solid) 88%, transparent));
@@ -172,18 +176,79 @@ function closeOtherTabsFromMenu(): void {
 }
 
 .tab-strip-scroll {
+  --tab-scroll-edge-left: transparent;
+  --tab-scroll-edge-right: transparent;
+  position: relative;
   min-height: 37px;
-  gap: 4px;
-  padding-right: 4px;
+  gap: 3px;
+  padding: 0 1px;
+  background:
+    linear-gradient(90deg, var(--tab-scroll-edge-left) 0%, color-mix(in srgb, var(--tab-scroll-edge-left) 76%, transparent) 44%, transparent 100%) left center / 34px 100% no-repeat,
+    linear-gradient(270deg, var(--tab-scroll-edge-right) 0%, color-mix(in srgb, var(--tab-scroll-edge-right) 76%, transparent) 44%, transparent 100%) right center / 34px 100% no-repeat;
+  isolation: isolate;
+}
+
+.tab-strip-scroll--can-scroll-left {
+  --tab-scroll-edge-left: var(--theme-surface-panel-strong-solid);
+}
+
+.tab-strip-scroll--can-scroll-right {
+  --tab-scroll-edge-right: var(--theme-surface-panel-strong-solid);
+}
+
+.tab-scroll-button {
+  position: relative;
+  z-index: 3;
+  display: inline-grid !important;
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 84%, transparent) !important;
+  border-radius: 7px !important;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 76%, transparent) !important;
+  color: var(--theme-text-secondary) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
+    0 5px 14px color-mix(in srgb, black 18%, transparent) !important;
+}
+
+.tab-scroll-button--left {
+  margin-right: 1px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
+    8px 0 16px color-mix(in srgb, black 18%, transparent) !important;
+}
+
+.tab-scroll-button--right {
+  margin-left: 1px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
+    -8px 0 16px color-mix(in srgb, black 18%, transparent) !important;
+}
+
+.tab-scroll-button:not(:disabled):hover {
+  border-color: var(--theme-hover-border) !important;
+  background: var(--theme-hover-surface) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+.tab-scroll-button:focus-visible {
+  box-shadow: var(--theme-focus-ring) !important;
+}
+
+.tab-scroll-button:disabled {
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 48%, transparent) !important;
 }
 
 .viewer-tab-item {
   position: relative;
-  min-width: 128px;
+  min-width: 118px;
   min-height: 37px;
   margin-bottom: 0;
   border: 1px solid transparent;
-  border-radius: 12px 12px 0 0;
+  border-radius: 10px 10px 0 0;
   background: color-mix(in srgb, var(--theme-surface-card) 42%, transparent);
   padding: 0 10px 0 12px;
   gap: 8px;
@@ -194,8 +259,20 @@ function closeOtherTabsFromMenu(): void {
     border-color 140ms ease,
     background 140ms ease,
     color 140ms ease,
-    box-shadow 140ms ease,
-    transform 140ms ease;
+    box-shadow 140ms ease;
+}
+
+@media (max-width: 1180px) {
+  .viewer-tab-item {
+    min-width: 106px;
+    padding-right: 7px;
+    padding-left: 9px;
+    gap: 6px;
+  }
+
+  .viewer-tab-type {
+    display: none;
+  }
 }
 
 .viewer-tab-item::after {
@@ -225,7 +302,6 @@ function closeOtherTabsFromMenu(): void {
 
 .viewer-tab-item--active {
   z-index: 2;
-  margin-bottom: -1px;
   border-color: color-mix(in srgb, var(--theme-border-strong) 72%, var(--theme-border-soft));
   border-bottom-color: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 96%, transparent);
   background: var(--theme-surface-card-elevated);
@@ -247,7 +323,6 @@ function closeOtherTabsFromMenu(): void {
   border-color: color-mix(in srgb, var(--theme-border-strong) 34%, transparent);
   background: color-mix(in srgb, var(--theme-surface-card) 72%, transparent);
   color: var(--theme-text-primary);
-  transform: translateY(-1px);
 }
 
 .viewer-tab-type {

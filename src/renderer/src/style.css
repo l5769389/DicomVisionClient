@@ -64,6 +64,7 @@
     --viewer-tool-icon-size: 22px;
     --viewer-tool-radius: 8px;
     --viewer-tool-option-min-height: 46px;
+    --viewer-measure-option-min-height: 48px;
     --theme-text-primary: #f5f7fb;
     --theme-text-secondary: rgba(224, 232, 240, 0.84);
     --theme-text-muted: rgba(156, 172, 190, 0.88);

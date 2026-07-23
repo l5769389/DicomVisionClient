@@ -94,7 +94,7 @@ const activePanelTool = computed(() => {
 })
 const shouldEmbedResultInActiveTool = computed(() => {
   const panelToolKey = activePanelTool.value?.key
-  return props.resultPanelOpen === true && Boolean(panelToolKey) && panelToolKey === props.resultPanelToolKey
+  return props.resultPanelOpen === true && panelToolKey !== 'measure' && Boolean(panelToolKey) && panelToolKey === props.resultPanelToolKey
 })
 const shouldShowUtilityPanel = computed(() =>
   props.utilityPanelOpen === true && (!activePanelTool.value || activePanelTool.value.key === props.utilityPanelToolKey)
@@ -829,6 +829,11 @@ watch(
 
 .viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--with-actions {
   flex: 1 1 auto;
+}
+
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--measure {
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--fusionPetDisplay {

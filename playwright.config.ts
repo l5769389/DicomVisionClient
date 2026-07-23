@@ -1,9 +1,12 @@
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
 const clientRoot = dirname(fileURLToPath(import.meta.url))
-const serverRoot = resolve(clientRoot, '../DicomVisionServer')
+const pairedServerDirectory = basename(clientRoot).replace('Client', 'Server')
+const serverRoot = resolve(
+  process.env.DICOM_VISION_E2E_SERVER_ROOT ?? resolve(clientRoot, '..', pairedServerDirectory)
+)
 const sampleDicomPath = resolve(clientRoot, 'test-results/e2e-dicom-series')
 const prepareDicomFixtureScript = resolve(clientRoot, 'e2e/prepare-dicom-fixture.mjs')
 const e2eBackendPort = 18080

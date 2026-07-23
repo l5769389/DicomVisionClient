@@ -58,7 +58,7 @@
     },
     "mac": {
       "category": "public.app-category.medical",
-      "icon": "build/icon.png",
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -100,6 +100,7 @@
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
     "build:web": "vite build --config vite.web.config.ts",
+    "generate:brand-assets": "swift scripts/generate-brand-assets.swift",
     "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
     "package:mac": "node scripts/package-mac.mjs",
     "package:server": "node scripts/stage-server-bundle.mjs",

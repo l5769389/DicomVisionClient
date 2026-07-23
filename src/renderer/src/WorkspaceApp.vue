@@ -127,10 +127,6 @@ const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
 const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' && Boolean(window.viewerApi))
-const windowControlsLabel = computed(() => (isZh.value ? '窗口控制' : 'Window controls'))
-const minimizeWindowLabel = computed(() => (isZh.value ? '最小化' : 'Minimize'))
-const toggleFullScreenLabel = computed(() => (isZh.value ? '切换全屏' : 'Toggle full screen'))
-const closeWindowLabel = computed(() => (isZh.value ? '关闭' : 'Close'))
 const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Close notification'))
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
@@ -394,6 +390,18 @@ const closeWindow = (): void => {
   void window.viewerApi?.closeWindow()
 }
 
+const handleWindowControl = (control: 'minimize' | 'fullscreen' | 'close'): void => {
+  if (control === 'minimize') {
+    minimizeWindow()
+    return
+  }
+  if (control === 'fullscreen') {
+    toggleWindowFullScreen()
+    return
+  }
+  closeWindow()
+}
+
 const isExternalFileDragEvent = (event: DragEvent): boolean => {
   const types = Array.from(event.dataTransfer?.types ?? [])
   return types.includes('Files')
@@ -489,17 +497,6 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       @drop="handleDicomFileDrop"
     >
       <div class="window-drag-region" aria-hidden="true"></div>
-      <div v-if="hasDesktopWindowControls" class="app-window-controls" :aria-label="windowControlsLabel">
-        <button type="button" class="app-window-control-button" :title="minimizeWindowLabel" :aria-label="minimizeWindowLabel" @click="minimizeWindow">
-          <ShellIcon name="minimize" :size="14" />
-        </button>
-        <button type="button" class="app-window-control-button" :title="toggleFullScreenLabel" :aria-label="toggleFullScreenLabel" @click="toggleWindowFullScreen">
-          <ShellIcon name="fullscreen" :size="16" />
-        </button>
-        <button type="button" class="app-window-control-button app-window-control-button--danger" :title="closeWindowLabel" :aria-label="closeWindowLabel" @click="closeWindow">
-          <ShellIcon name="close" :size="15" />
-        </button>
-      </div>
       <div
         class="app-main-layout grid h-screen max-h-screen overflow-hidden bg-transparent pt-2 pr-4 pb-4 pl-2"
         :data-sidebar-collapsed="effectiveSidebarCollapsed ? 'true' : 'false'"
@@ -543,6 +540,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
           :selected-series-id="viewer.selectedSeriesId.value"
+          :show-window-controls="hasDesktopWindowControls"
           :viewer-platform="viewer.viewerPlatform"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
@@ -584,6 +582,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @viewport-wheel="viewer.handleViewportWheel"
           @workspace-ready="viewer.setViewerStage"
           @open-settings="openSidebarSettings"
+          @window-control="handleWindowControl"
         />
       </div>
       <footer v-if="shouldShowIcpFooter" class="app-icp-footer">
@@ -923,67 +922,10 @@ const handleDicomFileDrop = (event: DragEvent): void => {
   }
 }
 
-.app-window-controls {
-  position: fixed;
-  top: 6px;
-  right: 14px;
-  z-index: 1200;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 80%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 82%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 10px 24px rgba(0, 0, 0, 0.16);
-  -webkit-app-region: no-drag;
-  backdrop-filter: blur(14px);
-}
-
-.app-window-control-button {
-  display: inline-flex;
-  width: 28px;
-  height: 26px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--theme-text-secondary);
-  cursor: pointer;
-  font: inherit;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease,
-    transform 120ms ease;
-  -webkit-app-region: no-drag;
-}
-
-.app-window-control-button:hover {
-  border-color: var(--theme-hover-border);
-  background: var(--theme-hover-surface);
-  color: var(--theme-text-primary);
-}
-
-.app-window-control-button:focus-visible,
 .app-status-toast__detail--button:focus-visible,
 .app-status-toast__close:focus-visible {
   outline: none;
   box-shadow: var(--theme-focus-ring);
-}
-
-.app-window-control-button:active {
-  transform: translateY(1px);
-}
-
-.app-window-control-button--danger:hover {
-  border-color: var(--theme-danger-border);
-  background: var(--theme-danger-surface);
-  color: var(--theme-danger-text);
 }
 
 .dicom-file-drop-overlay {

@@ -22,6 +22,7 @@ import type { DrawingScope, ViewerTabItem } from '../../../types/viewer'
 import {
   isStackToolOptionSelected,
   resolveStackToolOptionSelectionMode,
+  usesStackToolOptionDangerTone,
   type StackTool,
   type StackToolOption,
   type StackToolOptionSelectBehavior
@@ -193,17 +194,6 @@ function optionRole(): 'radio' | 'checkbox' | 'menuitem' {
   if (optionSelectionMode.value === 'single') return 'radio'
   if (optionSelectionMode.value === 'multiple') return 'checkbox'
   return 'menuitem'
-}
-
-function isDestructiveAction(action: StackToolOption): boolean {
-  const value = action.value.toLowerCase()
-  return value.startsWith('clear:')
-    || value.startsWith('delete:')
-    || value === 'reset:all'
-    || value === 'reset:measurements'
-    || value === 'reset:annotations'
-    || value === 'reset:mtf'
-    || value === 'reset:qa-water'
 }
 
 function isVolumeOrientationOption(option: StackToolOption): boolean {
@@ -788,7 +778,7 @@ onBeforeUnmount(() => {
         <div class="viewer-toolbar-dock-panel-content__action-zone viewer-toolbar-dock-panel-content__pet-action-zone">
           <button
             type="button"
-            class="viewer-toolbar-dock-panel-content__danger-action"
+            class="viewer-toolbar-dock-panel-content__danger-action viewer-toolbar-dock-panel-content__danger-action--destructive"
             data-testid="viewer-toolbar-dock-pet-display-reset"
             @click="emit('select', petResetEventValue)"
           >
@@ -1001,7 +991,6 @@ onBeforeUnmount(() => {
               @click="updateDockDrawingScope('image')"
             >
               <span>{{ dockDrawingScopeCopy.image }}</span>
-              <AppIcon v-if="drawingScopePreference[drawingScopeToolKey] === 'image'" name="check" :size="14" />
             </button>
             <button
               type="button"
@@ -1012,12 +1001,12 @@ onBeforeUnmount(() => {
               @click="updateDockDrawingScope('series')"
             >
               <span>{{ dockDrawingScopeCopy.series }}</span>
-              <AppIcon v-if="drawingScopePreference[drawingScopeToolKey] === 'series'" name="check" :size="14" />
             </button>
           </div>
         </section>
         <div
           class="viewer-toolbar-dock-panel-content__options-scroll"
+          :data-testid="tool.key === 'measure' ? 'viewer-toolbar-dock-measure-options' : undefined"
           :class="{
             'viewer-toolbar-dock-panel-content__options-scroll--window': tool.key === 'window',
             'viewer-toolbar-dock-panel-content__options-scroll--measure': tool.key === 'measure'
@@ -1041,7 +1030,7 @@ onBeforeUnmount(() => {
               :class="{
                 'viewer-toolbar-dock-panel-content__option--active': isOptionActive(option),
                 'viewer-toolbar-dock-panel-content__option--disabled': option.disabled,
-                'viewer-toolbar-dock-panel-content__option--destructive': isDestructiveAction(option)
+                'viewer-toolbar-dock-panel-content__option--destructive': usesStackToolOptionDangerTone(option)
               }"
               :disabled="option.disabled"
               @click="emit('select', option.value)"
@@ -1107,8 +1096,7 @@ onBeforeUnmount(() => {
             type="button"
             class="viewer-toolbar-dock-panel-content__danger-action"
             :class="{
-              'viewer-toolbar-dock-panel-content__measure-reset': action.value === 'reset:measurements',
-              'viewer-toolbar-dock-panel-content__danger-action--destructive': isDestructiveAction(action)
+              'viewer-toolbar-dock-panel-content__danger-action--destructive': usesStackToolOptionDangerTone(action)
             }"
             :data-testid="getFooterActionTestId(action)"
             :disabled="action.disabled"
@@ -1304,7 +1292,8 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-.viewer-toolbar-dock-panel-content__options-scroll--window {
+.viewer-toolbar-dock-panel-content__options-scroll--window,
+.viewer-toolbar-dock-panel-content__options-scroll--measure {
   flex: 1 1 auto;
   max-height: none;
   overflow-y: auto;
@@ -1313,11 +1302,8 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content__options-scroll--measure {
-  flex: 1 1 auto;
-  max-height: none;
-  overflow-y: auto;
-  padding-right: 2px;
-  scrollbar-width: thin;
+  align-content: stretch;
+  grid-auto-rows: minmax(var(--viewer-measure-option-min-height), 1fr);
 }
 
 .viewer-toolbar-dock-panel-content__measure-guide {
@@ -1701,20 +1687,22 @@ onBeforeUnmount(() => {
 .viewer-toolbar-dock-panel-content__scope-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
-  border-radius: 12px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--theme-surface-card-soft) 64%, transparent);
 }
 
 .viewer-toolbar-dock-panel-content__scope-choice {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 34px;
+  justify-content: center;
+  min-height: 36px;
   border: 0;
-  border-radius: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--theme-text-secondary);
   padding: 0 10px;
@@ -1727,8 +1715,10 @@ onBeforeUnmount(() => {
     box-shadow 150ms ease;
 }
 
-.viewer-toolbar-dock-panel-content__scope-choice + .viewer-toolbar-dock-panel-content__scope-choice {
-  border-left: 1px solid color-mix(in srgb, var(--theme-border-soft) 86%, transparent);
+.viewer-toolbar-dock-panel-content__scope-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .viewer-toolbar-dock-panel-content__scope-choice:hover,
@@ -1740,10 +1730,9 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content__scope-choice--active {
-  border-color: var(--theme-selection-border);
   background: var(--theme-selection-surface);
   color: var(--theme-text-primary);
-  box-shadow: var(--theme-selection-shadow);
+  box-shadow: inset 0 0 0 1px var(--theme-selection-border);
 }
 
 .viewer-toolbar-dock-panel-content__custom-window-description {
@@ -1869,65 +1858,6 @@ onBeforeUnmount(() => {
   color: var(--theme-text-muted);
 }
 
-.viewer-toolbar-dock-panel-content__measure-reset {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
-  padding: 10px 12px;
-  color: var(--theme-text-primary);
-  text-align: left;
-  transition:
-    border-color 150ms ease,
-    background 150ms ease,
-    color 150ms ease;
-}
-
-.viewer-toolbar-dock-panel-content__measure-reset:hover,
-.viewer-toolbar-dock-panel-content__measure-reset:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
-  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
-  outline: none;
-}
-
-.viewer-toolbar-dock-panel-content__measure-reset-icon {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
-  color: var(--theme-status-danger-text);
-}
-
-.viewer-toolbar-dock-panel-content__measure-reset-copy {
-  min-width: 0;
-}
-
-.viewer-toolbar-dock-panel-content__measure-reset-label,
-.viewer-toolbar-dock-panel-content__measure-reset-description {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.viewer-toolbar-dock-panel-content__measure-reset-label {
-  font-size: 13px;
-  font-weight: 850;
-}
-
-.viewer-toolbar-dock-panel-content__measure-reset-description {
-  margin-top: 2px;
-  color: var(--theme-text-muted);
-  font-size: 11px;
-}
-
 .viewer-toolbar-dock-panel-content__danger-action {
   display: grid;
   min-width: 0;
@@ -2047,6 +1977,12 @@ onBeforeUnmount(() => {
     opacity 150ms ease;
 }
 
+.viewer-toolbar-dock-panel-content__options-scroll--measure .viewer-toolbar-dock-panel-content__option {
+  min-height: var(--viewer-measure-option-min-height);
+  height: 100%;
+  padding-block: 5px;
+}
+
 .viewer-toolbar-dock-panel-content__option:hover,
 .viewer-toolbar-dock-panel-content__option:focus-visible {
   border-color: color-mix(in srgb, var(--theme-accent) 22%, transparent);
@@ -2063,20 +1999,22 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content__option--destructive {
-  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent);
-  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
 }
 
 .viewer-toolbar-dock-panel-content__option--destructive:hover,
 .viewer-toolbar-dock-panel-content__option--destructive:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-danger) 56%, transparent);
-  background: color-mix(in srgb, var(--theme-danger) 11%, transparent);
-  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
 }
 
 .viewer-toolbar-dock-panel-content__option--destructive .viewer-toolbar-dock-panel-content__option-icon {
-  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent);
-  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
+  color: var(--theme-status-danger-text);
 }
 
 .viewer-toolbar-dock-panel-content__option--disabled {

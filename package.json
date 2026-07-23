@@ -118,6 +118,7 @@
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^3.0.0",
+    "@electron/notarize": "^2.5.0",
     "@mdi/js": "^7.4.47",
     "@playwright/test": "^1.61.1",
     "@swc/core": "^1.11.24",

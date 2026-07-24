@@ -82,6 +82,7 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   fusionRegistrationSave: '保存配准',
   fusionRegistrationLoad: '加载配准',
   layout: '布局',
+  montage: '序列平铺',
   measure: '测量',
   mprLayout: 'MPR 布局',
   mprMip: 'MIP',
@@ -350,6 +351,13 @@ const layoutTool: StackTool = {
   }))
 }
 
+const montageTool: StackTool = {
+  key: 'montage',
+  label: 'Series Montage',
+  icon: 'series',
+  kind: 'action'
+}
+
 const mprLayoutTool: StackTool = {
   key: 'mprLayout',
   label: 'MPR Layout',
@@ -482,6 +490,7 @@ const annotateTool: StackTool = {
 
 const stackTools: StackTool[] = [
   layoutTool,
+  montageTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   { key: 'window', label: 'Window', icon: 'window', kind: 'mode' },
@@ -517,6 +526,18 @@ const stackTools: StackTool[] = [
     ]
   }
 ]
+
+const montageTools: StackTool[] = ['window', 'pan', 'zoom', 'pseudocolor', 'reset']
+  .map((key) => stackTools.find((tool) => tool.key === key))
+  .filter((tool): tool is StackTool => Boolean(tool))
+  .map((tool) =>
+    tool.key === 'reset'
+      ? {
+          ...tool,
+          options: tool.options?.filter((option) => option.value === 'reset:view')
+        }
+      : tool
+  )
 
 function withoutMtfResetOption(tool: StackTool): StackTool {
   if (tool.key !== 'reset') {
@@ -773,6 +794,7 @@ const fusionTools: StackTool[] = [
 ]
 
 const petTools: StackTool[] = [
+  montageTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
   fusionPetDisplayTool,
@@ -998,7 +1020,11 @@ interface ViewerWorkspaceToolbarOptions {
   emitCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   emitOpenLayoutView: (template: ViewerLayoutTemplate) => void | Promise<void>
   emitViewportWheel: (payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }) => void
-  emitOpenSeriesView: (seriesId: string, viewType: 'Tag') => void
+  emitOpenSeriesView: (
+    seriesId: string,
+    viewType: 'Tag' | 'Montage',
+    options?: { montageSliceIndex?: number }
+  ) => void
   exportCurrentView: (format: ViewerExportFormat, viewportKey?: string) => void
   activeViewportKey: Ref<string>
   cleanupPointerInteractions: () => void
@@ -1232,7 +1258,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         icon: 'info',
         checked: getActiveDisplayOverlayVisible('cornerInfo')
       },
-      ...(!isActiveRender3dViewport()
+      ...(!isActiveRender3dViewport() && options.activeTab.value?.viewType !== 'Montage'
         ? [
             {
               value: toDisplayOverlaySelectionValue('scaleBar'),
@@ -1242,7 +1268,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
             }
           ]
         : []),
-      ...(options.activeTab.value?.viewType !== 'PETCTFusion' && options.activeTab.value?.viewType !== '3D'
+      ...(options.activeTab.value?.viewType !== 'PETCTFusion' &&
+      options.activeTab.value?.viewType !== '3D' &&
+      options.activeTab.value?.viewType !== 'Montage'
         ? [
             {
               value: toDisplayOverlaySelectionValue('pseudocolorBar'),
@@ -1290,7 +1318,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsDisplayTool(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'PET' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion' || viewType === 'Layout' || viewType === '3D'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'Montage' || viewType === 'MPR' || viewType === '4D' || viewType === 'PETCTFusion' || viewType === 'Layout' || viewType === '3D'
   }
 
   function withDisplayTool(tools: StackTool[]): StackTool[] {
@@ -1298,7 +1326,14 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return tools
     }
 
-    const insertAfterKey = tools.some((tool) => tool.key === 'export') ? 'export' : tools.some((tool) => tool.key === 'window') ? 'window' : 'layout'
+    const insertAfterKey =
+      options.activeTab.value?.viewType === 'Montage' && tools.some((tool) => tool.key === 'zoom')
+        ? 'zoom'
+        : tools.some((tool) => tool.key === 'export')
+          ? 'export'
+          : tools.some((tool) => tool.key === 'window')
+            ? 'window'
+            : 'layout'
     const result: StackTool[] = []
     for (const tool of tools) {
       result.push(tool)
@@ -1357,6 +1392,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         return stackTools
       case 'PET':
         return petTools
+      case 'Montage':
+        return montageTools
       case 'PETCTFusion':
         return fusionTools
       case 'CompareStack':
@@ -1606,6 +1643,16 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (!tab) {
       return null
     }
+    if (tab.viewType === 'Montage') {
+      return {
+        rotationDegrees: 0,
+        horFlip: false,
+        verFlip: false,
+        zoom: tab.montageTransformState?.zoom ?? 1,
+        offsetX: tab.montageTransformState?.offsetX ?? 0,
+        offsetY: tab.montageTransformState?.offsetY ?? 0
+      }
+    }
     if (tab.viewType === 'Layout') {
       return getActiveLayoutSlot(tab)?.transformState ?? tab.transformState ?? null
     }
@@ -1690,6 +1737,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
     const info = tab.initialWindowInfo
     return info ? formatWindowPresetValue(info.ww, info.wl) : null
+  }
+
+  function getWindowResetSelectionValue(tab: ViewerTabItem): string | null {
+    const targetKey = getWindowSelectionTargetKey(tab)
+    const explicitValue = explicitWindowSelectionByTargetKey.get(targetKey)
+    if (explicitValue && parseWindowPresetValue(explicitValue)) {
+      return explicitValue
+    }
+    const initialValue = getInitialWindowSelectionValue(tab)
+    if (initialValue && parseWindowPresetValue(initialValue)) {
+      return initialValue
+    }
+    if (tab.viewType === 'Montage' && tab.currentWindowInfo) {
+      return formatWindowPresetValue(tab.currentWindowInfo.ww, tab.currentWindowInfo.wl)
+    }
+    return null
   }
 
   function getActiveSeriesIdForTab(tab: ViewerTabItem | null | undefined): string {
@@ -2276,6 +2339,17 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         options.emitOpenSeriesView(seriesId, 'Tag')
       }
     },
+    montage: () => {
+      closeMenus()
+      const tab = options.activeTab.value
+      if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'PET')) {
+        return
+      }
+      const sliceInfo = getCurrentSliceNavigationInfo()
+      options.emitOpenSeriesView(tab.seriesId, 'Montage', {
+        montageSliceIndex: Math.max(0, (sliceInfo?.current ?? 1) - 1)
+      })
+    },
     export: (tool) => {
       if (getValidExportTargetViewportKeys(options.activeTab.value).length > 0) {
         toggleToolMenu(tool)
@@ -2663,9 +2737,8 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         if (options.activeOperation.value !== `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`) {
           options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`)
         }
-        const targetKey = getWindowSelectionTargetKey(activeTab)
-        const resetValue = explicitWindowSelectionByTargetKey.get(targetKey) ?? getInitialWindowSelectionValue(activeTab)
-        if (!resetValue || !parseWindowPresetValue(resetValue)) {
+        const resetValue = getWindowResetSelectionValue(activeTab)
+        if (!resetValue) {
           closeMenusIfNeeded(behavior)
           return
         }
@@ -2739,25 +2812,18 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         ...stackToolSelections.value,
         reset: 'reset:view'
       }
-      flashToolActive(tool.key, activeToolbarToolKey.value, () => {
-        if (optionValue === 'reset:measurements') {
-          options.emitTriggerViewAction({ action: 'clearMeasurements' })
-          return
-        }
-        if (optionValue === 'reset:mtf') {
-          options.emitTriggerViewAction({ action: 'clearMtf' })
-          return
-        }
-        if (optionValue === 'reset:annotations') {
-          options.emitTriggerViewAction({ action: 'clearAnnotations' })
-          return
-        }
-        if (optionValue === 'reset:all') {
-          options.emitTriggerViewAction({ action: 'resetAll' })
-          return
-        }
+      if (optionValue === 'reset:measurements') {
+        options.emitTriggerViewAction({ action: 'clearMeasurements' })
+      } else if (optionValue === 'reset:mtf') {
+        options.emitTriggerViewAction({ action: 'clearMtf' })
+      } else if (optionValue === 'reset:annotations') {
+        options.emitTriggerViewAction({ action: 'clearAnnotations' })
+      } else if (optionValue === 'reset:all') {
+        options.emitTriggerViewAction({ action: 'resetAll' })
+      } else {
         options.emitTriggerViewAction({ action: 'reset' })
-      })
+      }
+      flashToolActive(tool.key, activeToolbarToolKey.value)
       return
     }
 

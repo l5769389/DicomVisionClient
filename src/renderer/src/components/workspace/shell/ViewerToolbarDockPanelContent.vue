@@ -1919,6 +1919,37 @@ onBeforeUnmount(() => {
   color: var(--theme-status-danger-text);
 }
 
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__danger-action--destructive {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 28%, var(--theme-border-soft));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-status-danger) 10%, #f8fbfd),
+      color-mix(in srgb, var(--theme-status-danger) 7%, var(--theme-surface-card-soft))
+    );
+  color: var(--theme-text-primary);
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__danger-action--destructive:hover,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__danger-action--destructive:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 44%, var(--theme-border-strong));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-status-danger) 15%, #f8fbfd),
+      color-mix(in srgb, var(--theme-status-danger) 10%, var(--theme-surface-card-soft))
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--theme-status-danger) 12%, transparent),
+    0 5px 14px color-mix(in srgb, var(--theme-status-danger) 10%, transparent);
+}
+
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__danger-action--destructive .viewer-toolbar-dock-panel-content__danger-action-icon {
+  border-color: color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-status-danger) 9%, #f8fbfd);
+  color: color-mix(in srgb, var(--theme-status-danger) 78%, #7f1d1d);
+}
+
 .viewer-toolbar-dock-panel-content__danger-action-copy {
   min-width: 0;
 }

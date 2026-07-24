@@ -13,6 +13,7 @@ import type {
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementOverlay,
+  MontageTransformInfo,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
   MprSegmentationConfigActionType,
@@ -22,6 +23,7 @@ import type {
   ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType,
+  WindowLevelInfo,
   WorkspaceReadyPayload
 } from '../../types/viewer'
 import {
@@ -70,11 +72,13 @@ import {
   DicomTagView,
   FourDView,
   LayoutView,
+  MontageView,
   MprView,
   PetCtFusionView,
   StackView,
   VolumeView
 } from './asyncWorkspaceViews'
+import { buildViewportFrameStyle, resolveViewportFrameAspectRatio } from '../../composables/workspace/layout/viewportSizing'
 
 const MprMipConfigPanel = defineAsyncComponent(() => import('./MprMipConfigPanel.vue'))
 const MprSegmentationPanel = defineAsyncComponent(() => import('./MprSegmentationPanel.vue'))
@@ -183,7 +187,17 @@ const emit = defineEmits<{
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
-  openSeriesView: [seriesId: string, viewType: ViewType]
+  openSeriesView: [seriesId: string, viewType: ViewType, options?: { montageSliceIndex?: number }]
+  openKeySlice: [seriesId: string, sliceIndex: number]
+  montageStateChange: [payload: {
+    tabKey: string
+    columnCount?: number
+    selectedSliceIndex?: number
+    scrollTop?: number
+    transform?: MontageTransformInfo
+    windowInfo?: WindowLevelInfo
+    commonInfoExpanded?: boolean
+  }]
   openLayoutView: [template: ViewerLayoutTemplate]
   openSettings: [sectionKey?: string]
   layoutSlotDicomDrop: [payload: { tabKey: string; slotId: string; drop: DicomDropInput }]
@@ -213,6 +227,7 @@ const {
   roiStatOptions,
   setWorkspaceDockPreference,
   viewerToolbarPlacement,
+  viewportAutoFitEnabled,
   viewportCornerInfoPreference,
   workspaceDockPreference
 } = useUiPreferences()
@@ -350,7 +365,7 @@ const {
   emitCompareSyncChange: (payload) => emit('compareSyncChange', payload),
   emitOpenLayoutView: (template) => emit('openLayoutView', template),
   emitViewportWheel: (payload) => emit('viewportWheel', payload),
-  emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
+  emitOpenSeriesView: (seriesId, viewType, openOptions) => emit('openSeriesView', seriesId, viewType, openOptions),
   exportCurrentView: (format, viewportKey) => {
     void handleExportCurrentView(format, viewportKey)
   },
@@ -415,6 +430,17 @@ const activeMprLayoutKey = computed(() => {
   }
   return selectedLayout ?? mprDefaultLayoutKey.value ?? DEFAULT_MPR_LAYOUT_KEY
 })
+const viewportFrameAspectRatio = computed(() =>
+  resolveViewportFrameAspectRatio(activeTabRef.value, activeMprLayoutKey.value)
+)
+const isViewportFrameAutoFit = computed(() =>
+  viewportAutoFitEnabled.value ||
+  activeTabRef.value?.viewType === 'Tag' ||
+  activeTabRef.value?.viewType === '4D'
+)
+const viewportFrameStyle = computed(() =>
+  buildViewportFrameStyle(isViewportFrameAutoFit.value, viewportFrameAspectRatio.value)
+)
 
 const isVolumeConfigPanelAvailable = computed(() => {
   if (!activeTabRef.value) {
@@ -2471,7 +2497,7 @@ watch(
 )
 
 watch(
-  () => [viewerToolbarPlacement.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
+  () => [viewerToolbarPlacement.value, viewportAutoFitEnabled.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
   () => {
     void nextTick().then(() => {
       notifyWorkspaceReady()
@@ -2663,7 +2689,6 @@ onBeforeUnmount(() => {
         :style="workspaceContentStyle"
       >
         <div
-          ref="viewportHostRef"
           class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden p-2"
         >
         <div
@@ -2711,6 +2736,13 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <div
+          ref="viewportHostRef"
+          class="viewer-viewport-frame-shell"
+          :class="{ 'viewer-viewport-frame-shell--fixed': !isViewportFrameAutoFit }"
+          :style="viewportFrameStyle"
+          :data-viewport-auto-fit="isViewportFrameAutoFit ? 'true' : 'false'"
+        >
         <CompareStackView
           v-if="activeTab.viewType === 'CompareStack'"
           :active-tab="activeTab"
@@ -2812,6 +2844,20 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
+        />
+
+        <MontageView
+          v-else-if="activeTab.viewType === 'Montage'"
+          :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :starred-slice-indexes="getStarredSliceIndexes(activeTab.seriesId)"
+          @open-slice="emit('openKeySlice', $event.seriesId, $event.sliceIndex)"
+          @state-change="emit('montageStateChange', $event)"
+          @toggle-slice-star="toggleSliceStar(activeTab.seriesId, $event.sliceIndex)"
+          @pointer-down="handleViewportPointerDown"
+          @pointer-move="handleViewportPointerMove"
+          @pointer-up="handleViewportPointerUp"
+          @pointer-cancel="handleViewportPointerCancel"
         />
 
         <MprView
@@ -2935,6 +2981,8 @@ onBeforeUnmount(() => {
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
           :toolbar-placement="viewerToolbarPlacement"
+          :viewport-auto-fit-enabled="viewportAutoFitEnabled"
+          :viewport-aspect-ratio="viewportFrameAspectRatio ?? 1"
           :result-panel-icon="resultPanelIcon"
           :result-panel-open="activeResultPanelKind === 'mtfCurve'"
           :result-panel-title="resultPanelTitle"
@@ -2995,6 +3043,7 @@ onBeforeUnmount(() => {
           @index-change="emit('tagIndexChange', $event)"
         />
 
+        </div>
         </div>
 
         <div
@@ -3201,6 +3250,25 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.viewer-viewport-frame-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.theme-viewport-surface {
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+
+.viewer-viewport-frame-shell--fixed {
+  width: min(100cqw, calc(100cqh * var(--viewer-fixed-aspect-ratio, 1)));
+  height: min(100cqh, calc(100cqw / var(--viewer-fixed-aspect-ratio, 1)));
+}
+
 .workspace-window-controls {
   position: absolute;
   top: 10px;

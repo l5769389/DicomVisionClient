@@ -197,8 +197,11 @@ interface StoredCustomWindowPreset {
 interface UiPreferencesState {
   version: number
   locale: AppLocale
+  hasSelectedInitialLocale: boolean
   themeId: string
   viewerToolbarPlacement: ViewerToolbarPlacement
+  viewportAutoFitEnabled: boolean
+  montageColumnCount: number
   selectedPseudocolorKey: string
   mprDefaultLayoutKey: MprDefaultLayoutKey
   dicomTagDisplayMode: DicomTagDisplayMode
@@ -220,7 +223,7 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 22
+const CURRENT_PREFERENCES_VERSION = 26
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
@@ -415,7 +418,7 @@ function createDefaultWorkspaceDockPreference(): WorkspaceDockPreference {
   return {
     leftWidth: 320,
     leftCollapsed: false,
-    rightToolbarWidth: 224,
+    rightToolbarWidth: 280,
     rightToolbarCollapsed: false,
     rightResultWidth: 344,
     rightResultCollapsed: false
@@ -515,8 +518,11 @@ function createDefaultState(): UiPreferencesState {
   return {
     version: CURRENT_PREFERENCES_VERSION,
     locale: 'zh-CN',
+    hasSelectedInitialLocale: false,
     themeId: DEFAULT_THEME_ID,
     viewerToolbarPlacement: DEFAULT_VIEWER_TOOLBAR_PLACEMENT,
+    viewportAutoFitEnabled: true,
+    montageColumnCount: 4,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
     mprDefaultLayoutKey: DEFAULT_MPR_LAYOUT_KEY,
     dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
@@ -862,6 +868,19 @@ function normalizeWorkspaceDockPreference(value: unknown): WorkspaceDockPreferen
   }
 }
 
+function migrateWorkspaceDockPreference(
+  storedVersion: number,
+  value: WorkspaceDockPreference
+): WorkspaceDockPreference {
+  if (storedVersion >= 26 || value.rightToolbarWidth > 224) {
+    return value
+  }
+  return {
+    ...value,
+    rightToolbarWidth: createDefaultWorkspaceDockPreference().rightToolbarWidth
+  }
+}
+
 function normalizeMprSegmentationStylePreference(value: unknown): MprSegmentationStylePreference {
   const defaults = createDefaultMprSegmentationStylePreference()
   const record = value && typeof value === 'object' ? (value as Partial<MprSegmentationStylePreference>) : null
@@ -1021,8 +1040,11 @@ function normalizeWindowPresetId(value: unknown, customWindowPresets: StoredCust
 function applyState(nextState: UiPreferencesState): void {
   state.version = nextState.version
   state.locale = nextState.locale
+  state.hasSelectedInitialLocale = nextState.hasSelectedInitialLocale
   state.themeId = nextState.themeId
   state.viewerToolbarPlacement = nextState.viewerToolbarPlacement
+  state.viewportAutoFitEnabled = nextState.viewportAutoFitEnabled
+  state.montageColumnCount = nextState.montageColumnCount
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
   state.mprDefaultLayoutKey = nextState.mprDefaultLayoutKey
   state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
@@ -1049,8 +1071,11 @@ function serializeState(): UiPreferencesState {
   return {
     version: CURRENT_PREFERENCES_VERSION,
     locale: state.locale,
+    hasSelectedInitialLocale: state.hasSelectedInitialLocale,
     themeId: state.themeId,
     viewerToolbarPlacement: state.viewerToolbarPlacement,
+    viewportAutoFitEnabled: state.viewportAutoFitEnabled,
+    montageColumnCount: state.montageColumnCount,
     selectedPseudocolorKey: state.selectedPseudocolorKey,
     mprDefaultLayoutKey: state.mprDefaultLayoutKey,
     dicomTagDisplayMode: state.dicomTagDisplayMode,
@@ -1171,12 +1196,20 @@ async function hydrateState(): Promise<void> {
       }
 
       const storedVersion = Math.floor(normalizeNumber(parsed.version, 0))
+      const hasExplicitInitialLocaleFlag = typeof parsed.hasSelectedInitialLocale === 'boolean'
       const customWindowPresets = normalizeCustomWindowPresets(parsed.customWindowPresets)
+      const workspaceDockPreference = migrateWorkspaceDockPreference(
+        storedVersion,
+        normalizeWorkspaceDockPreference(parsed.workspaceDockPreference)
+      )
       applyState({
         version: CURRENT_PREFERENCES_VERSION,
         locale: normalizeLocale(parsed.locale),
+        hasSelectedInitialLocale: hasExplicitInitialLocaleFlag ? parsed.hasSelectedInitialLocale === true : true,
         themeId: normalizeThemeId(parsed.themeId),
         viewerToolbarPlacement: normalizeViewerToolbarPlacement(parsed.viewerToolbarPlacement),
+        viewportAutoFitEnabled: parsed.viewportAutoFitEnabled !== false,
+        montageColumnCount: Math.min(6, Math.max(2, normalizeInteger(parsed.montageColumnCount, 4))),
         selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
         mprDefaultLayoutKey: normalizeMprDefaultLayoutKey(parsed.mprDefaultLayoutKey),
         dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
@@ -1189,7 +1222,7 @@ async function hydrateState(): Promise<void> {
         ),
         measurementStylePreference: normalizeMeasurementStylePreference(parsed.measurementStylePreference),
         drawingScopePreference: normalizeDrawingScopePreference(parsed.drawingScopePreference),
-        workspaceDockPreference: normalizeWorkspaceDockPreference(parsed.workspaceDockPreference),
+        workspaceDockPreference,
         mprSegmentationStylePreference: normalizeMprSegmentationStylePreference(parsed.mprSegmentationStylePreference),
         dicomTagEditSavePreference: normalizeDicomTagEditSavePreference(parsed.dicomTagEditSavePreference),
         dicomDeidentifyPreference: normalizeDicomDeidentifyPreference(parsed.dicomDeidentifyPreference),
@@ -1240,6 +1273,7 @@ export function useUiPreferences() {
   ])
 
   const locale = computed(() => state.locale)
+  const hasSelectedInitialLocale = computed(() => state.hasSelectedInitialLocale)
   const themeId = computed({
     get: () => state.themeId,
     set: (value: string) => {
@@ -1251,6 +1285,20 @@ export function useUiPreferences() {
     get: () => state.viewerToolbarPlacement,
     set: (value: ViewerToolbarPlacement) => {
       state.viewerToolbarPlacement = normalizeViewerToolbarPlacement(value)
+      void persistState()
+    }
+  })
+  const viewportAutoFitEnabled = computed({
+    get: () => state.viewportAutoFitEnabled,
+    set: (value: boolean) => {
+      state.viewportAutoFitEnabled = value !== false
+      void persistState()
+    }
+  })
+  const montageColumnCount = computed({
+    get: () => state.montageColumnCount,
+    set: (value: number) => {
+      state.montageColumnCount = Math.min(6, Math.max(2, normalizeInteger(value, 4)))
       void persistState()
     }
   })
@@ -1283,9 +1331,16 @@ export function useUiPreferences() {
     }
   })
 
-  function setLocale(locale: AppLocale): void {
+  function setLocale(locale: AppLocale, options: { markInitialSelection?: boolean } = {}): void {
     state.locale = locale
+    if (options.markInitialSelection) {
+      state.hasSelectedInitialLocale = true
+    }
     void persistState()
+  }
+
+  function confirmInitialLocale(locale: AppLocale): void {
+    setLocale(locale, { markInitialSelection: true })
   }
 
   function setMprDefaultLayoutKey(value: MprDefaultLayoutKey): void {
@@ -1456,8 +1511,11 @@ export function useUiPreferences() {
     dicomDeidentifyPreference: computed(() => state.dicomDeidentifyPreference),
     dicomTagEditSavePreference: computed(() => state.dicomTagEditSavePreference),
     getWindowPresetLabel,
+    hasSelectedInitialLocale,
     locale,
     viewerToolbarPlacement,
+    viewportAutoFitEnabled,
+    montageColumnCount,
     dicomTagDisplayMode,
     exportPreference: computed(() => state.exportPreference),
     hangingProtocolRules: computed(() => state.hangingProtocolRules),
@@ -1480,6 +1538,7 @@ export function useUiPreferences() {
     setHangingProtocolRules,
     setPacsPreference,
     setLocale,
+    confirmInitialLocale,
     setDrawingScopePreference,
     setMeasurementStylePreference,
     setMprSegmentationStylePreference,

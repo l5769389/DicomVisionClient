@@ -411,6 +411,7 @@ const {
   selectedPseudocolorKey,
   selectedWindowPresetId,
   viewerToolbarPlacement,
+  viewportAutoFitEnabled,
   viewportCornerInfoPreference,
   setCrosshairConfigs,
   setDicomDeidentifyPreference,
@@ -1851,6 +1852,7 @@ function resetDisplaySubSection(section: SettingsSection): void {
   }
   if (section === 'displayToolbarLayout') {
     viewerToolbarPlacement.value = 'right'
+    viewportAutoFitEnabled.value = true
     return
   }
   if (section === 'displayScaleBar') {
@@ -2105,6 +2107,7 @@ onBeforeUnmount(() => {
                   <div
                     class="settings-nav-item group flex w-full cursor-pointer items-center gap-2.5 border px-2.5 py-2 text-left transition duration-150"
                     :class="isNavigationGroupActive(group) ? 'settings-nav-item--active' : 'settings-nav-item--inactive'"
+                    :data-testid="`settings-group-${group.key}`"
                     role="button"
                     tabindex="0"
                     :aria-current="isNavigationGroupActive(group) ? 'page' : undefined"
@@ -2137,6 +2140,7 @@ onBeforeUnmount(() => {
                       type="button"
                       class="settings-nav-subitem flex w-full items-center gap-2.5 border px-3 py-1.5 text-left transition duration-150"
                       :class="section.key === activeSection ? 'settings-nav-subitem--active' : 'settings-nav-subitem--inactive'"
+                      :data-testid="`settings-section-${section.key}`"
                       :aria-current="section.key === activeSection ? 'page' : undefined"
                       @click="activeSection = section.key"
                     >
@@ -3391,6 +3395,37 @@ onBeforeUnmount(() => {
                           </span>
                         </button>
                       </div>
+
+                      <button
+                        type="button"
+                        role="switch"
+                        class="mt-4 flex min-h-[74px] w-full items-center justify-between gap-4 rounded-[18px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] px-4 py-3 text-left"
+                        :aria-checked="viewportAutoFitEnabled"
+                        data-testid="settings-viewport-auto-fit"
+                        @click="viewportAutoFitEnabled = !viewportAutoFitEnabled"
+                      >
+                        <span class="min-w-0">
+                          <span class="block text-sm font-semibold text-[var(--theme-text-primary)]">
+                            {{ isZh ? '窗口大小自适应' : 'Adapt Viewports to Window' }}
+                          </span>
+                          <span class="mt-1 block text-xs leading-5 text-[var(--theme-text-secondary)]">
+                            {{
+                              isZh
+                                ? '开启时影像布局填满窗口；关闭后按视图行列比例居中显示并保留空白区域。'
+                                : 'Fill the available window when enabled. When disabled, center the viewport at its layout aspect ratio.'
+                            }}
+                          </span>
+                        </span>
+                        <span
+                          class="relative h-6 w-11 shrink-0 rounded-full border transition"
+                          :class="viewportAutoFitEnabled ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]' : 'border-[var(--theme-border-strong)] bg-[var(--theme-surface-card)]'"
+                        >
+                          <span
+                            class="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition"
+                            :class="viewportAutoFitEnabled ? 'left-6' : 'left-1'"
+                          ></span>
+                        </span>
+                      </button>
                     </div>
 
                     <div v-if="activeSection === 'displayScaleBar'" class="theme-card-soft rounded-[24px] p-4">

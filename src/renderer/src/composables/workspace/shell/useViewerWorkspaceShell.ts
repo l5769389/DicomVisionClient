@@ -41,8 +41,9 @@ export function useViewerWorkspaceShell(options: ViewerWorkspaceShellOptions) {
       options.activeTab.value?.viewType === 'PETCTFusion' ||
       options.activeTab.value?.viewType === 'Layout'
     const activeViewport = options.viewportHostRef.value?.querySelector<HTMLElement>('[data-active-render-surface="true"]')
+    const imagingStage = options.viewportHostRef.value?.querySelector<HTMLElement>('[data-imaging-stage="true"]')
     const stageElement =
-      isMultiViewport ? options.viewportHostRef.value ?? null : activeViewport ?? null
+      isMultiViewport ? imagingStage ?? options.viewportHostRef.value ?? null : activeViewport ?? null
     const viewportElements = Object.fromEntries(
       Array.from(options.viewportHostRef.value?.querySelectorAll<HTMLElement>('[data-active-render-surface][data-viewport-key]') ?? []).map((element) => [
         element.dataset.viewportKey ?? '',

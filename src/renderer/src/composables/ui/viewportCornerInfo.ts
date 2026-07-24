@@ -568,7 +568,7 @@ function isViewportLocationLine(line: string): boolean {
 }
 
 function isWindowLine(line: string): boolean {
-  return /^W:\s*/i.test(line)
+  return /^(?:W|WW|窗宽)\s*:?\s*-?\d+(?:\.\d+)?\s*(?:\/|\s+|，|,)*\s*(?:L|WL|窗位)\s*:?\s*-?\d+(?:\.\d+)?/i.test(line)
 }
 
 function isZoomLine(line: string): boolean {

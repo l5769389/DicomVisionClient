@@ -1,12 +1,12 @@
 export const APP_BACKEND_CONFIG = {
   desktop: {
     devHost: '127.0.0.1',
-    // This client is the WebRTC worktree and intentionally runs alongside
-    // the stable client/server pair on 5173/8000.
-    devPort: 8100
+    // The viewport/montage worktree owns a separate backend so it can run
+    // alongside main (8000) and pre-release (8100).
+    devPort: 8200
   },
   web: {
-    devOrigin: 'http://127.0.0.1:8100',
+    devOrigin: 'http://127.0.0.1:8200',
     prodOrigin: 'https://dicomvisionserver.onrender.com'
   }
 } as const

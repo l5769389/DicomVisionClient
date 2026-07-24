@@ -1034,6 +1034,8 @@ export interface ApiOperations {
   CreateModifyDicomTagJobApiV1DicomModifyTagJobsPost: { method: 'POST'; path: '/api/v1/dicom/modifyTag/jobs'; request: DicomTagModifyRequest; response: unknown }
   GetModifyDicomTagJobApiV1DicomModifyTagJobsJobIdGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}'; request: never; response: DicomTagModifyJobStatusResponse }
   GetModifyDicomTagJobArtifactApiV1DicomModifyTagJobsJobIdArtifactGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}/artifact'; request: never; response: unknown }
+  GetMontageCornerInfoApiV1DicomMontageCornerInfoGet: { method: 'GET'; path: '/api/v1/dicom/montage/corner-info'; request: never; response: CornerInfoResponse }
+  GetMontageTileApiV1DicomMontageTileGet: { method: 'GET'; path: '/api/v1/dicom/montage/tile'; request: never; response: unknown }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
   GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }
   UploadDicomFilesApiV1DicomUploadPost: { method: 'POST'; path: '/api/v1/dicom/upload'; request: never; response: LoadFolderResponse }

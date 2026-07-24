@@ -8,6 +8,7 @@ import type { ViewerTabItem } from '../../../types/viewer'
 import {
   isStackToolOptionSelected,
   resolveStackToolOptionSelectionMode,
+  usesStackToolOptionDangerTone,
   type StackTool,
   type StackToolOption
 } from './toolbarTypes'
@@ -97,16 +98,6 @@ function optionRole(): 'radio' | 'checkbox' | 'menuitem' {
   return 'menuitem'
 }
 
-function isDestructiveOption(option: StackToolOption): boolean {
-  const value = option.value.toLowerCase()
-  return value.startsWith('clear:')
-    || value.startsWith('delete:')
-    || value === 'reset:all'
-    || value === 'reset:measurements'
-    || value === 'reset:annotations'
-    || value === 'reset:mtf'
-    || value === 'reset:qa-water'
-}
 </script>
 
 <template>
@@ -195,7 +186,7 @@ function isDestructiveOption(option: StackToolOption): boolean {
           class="toolbar-menu-option group relative min-h-[var(--viewer-tool-option-min-height)] w-full appearance-none overflow-hidden rounded-lg! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
           :class="{
             'toolbar-menu-option--active border-[var(--theme-selection-border)]! bg-[var(--theme-selection-surface)]! text-[var(--theme-text-primary)]! shadow-[var(--theme-selection-shadow)]!': isToolbarOptionActive(option),
-            'toolbar-menu-option--destructive': isDestructiveOption(option)
+            'toolbar-menu-option--destructive': usesStackToolOptionDangerTone(option)
           }"
           @click="emit('select', option.value)"
         >
@@ -268,7 +259,7 @@ function isDestructiveOption(option: StackToolOption): boolean {
           :key="option.value"
           type="button"
           class="toolbar-menu-option toolbar-menu-option--footer group relative min-h-[var(--viewer-tool-option-min-height)] w-full appearance-none overflow-hidden rounded-lg! border border-transparent bg-transparent px-2.5! py-1.5! text-left! text-[13px]! text-[var(--theme-text-secondary)]! transition duration-150 hover:border-[color:color-mix(in_srgb,var(--theme-accent)_20%,transparent)]! hover:bg-[color:color-mix(in_srgb,var(--theme-accent)_9%,transparent)]!"
-          :class="{ 'toolbar-menu-option--destructive': isDestructiveOption(option) }"
+          :class="{ 'toolbar-menu-option--destructive': usesStackToolOptionDangerTone(option) }"
           @click="emit('select', option.value)"
         >
           <div class="flex items-center gap-3">
@@ -342,19 +333,21 @@ function isDestructiveOption(option: StackToolOption): boolean {
 }
 
 .toolbar-menu-option--destructive {
-  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent) !important;
-  color: var(--theme-danger) !important;
+  border-color: color-mix(in srgb, var(--theme-status-danger) 30%, var(--theme-border-soft)) !important;
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, var(--theme-surface-card)) !important;
+  color: var(--theme-text-primary) !important;
 }
 
 .toolbar-menu-option--destructive:hover,
 .toolbar-menu-option--destructive:focus-visible {
-  border-color: color-mix(in srgb, var(--theme-danger) 56%, transparent) !important;
-  background: color-mix(in srgb, var(--theme-danger) 11%, transparent) !important;
+  border-color: color-mix(in srgb, var(--theme-status-danger) 48%, var(--theme-border-strong)) !important;
+  background: color-mix(in srgb, var(--theme-status-danger) 13%, var(--theme-surface-card)) !important;
 }
 
 .toolbar-menu-option--destructive .toolbar-menu-option__icon {
-  border-color: color-mix(in srgb, var(--theme-danger) 34%, transparent) !important;
-  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-status-danger) 32%, var(--theme-border-soft)) !important;
+  background: color-mix(in srgb, var(--theme-status-danger) 10%, transparent) !important;
+  color: var(--theme-status-danger-text);
 }
 
 .viewer-toolbar-menu-content__playback-fps {

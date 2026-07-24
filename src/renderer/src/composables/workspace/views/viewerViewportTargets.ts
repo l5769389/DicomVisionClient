@@ -27,7 +27,18 @@ export function isMprLikeViewType(viewType: ViewerTabItem['viewType'] | undefine
 }
 
 export function isStackLikeViewType(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-  return viewType === 'Stack' || viewType === 'PET' || viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion'
+  return viewType === 'Stack' || viewType === 'PET' || viewType === 'Montage' || viewType === 'CompareStack' || viewType === 'Layout' || viewType === 'PETCTFusion'
+}
+
+export function usesContinuousDragPreview(tab: ViewerTabItem, viewportKey: string): boolean {
+  if (tab.viewType === '3D' || isMprLikeViewType(tab.viewType)) {
+    return true
+  }
+  if (tab.viewType !== 'Layout') {
+    return false
+  }
+  const slot = tab.layoutSlots?.find((item) => item.id === viewportKey)
+  return Boolean(slot?.viewId && (slot.viewType === '3D' || slot.sourceViewType === '3D'))
 }
 
 export function resolveMprViewportKey(viewportKey: string): MprViewportKey {

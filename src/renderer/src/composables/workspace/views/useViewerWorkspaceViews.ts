@@ -88,7 +88,7 @@ import {
   getOwnedLayoutSlotImageSrcs
 } from '../layout/viewerLayoutSlotSeeds'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
-import { isSeriesViewSupported, resolvePrimaryTwoDimensionalViewType } from './seriesViewSupport'
+import { isPetSeries, isSeriesViewSupported, resolvePrimaryTwoDimensionalViewType } from './seriesViewSupport'
 import {
   FourDPhaseRenderTracker,
   MPR_VIEWPORT_KEYS,
@@ -611,7 +611,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const renderTabScheduler = createRenderTabScheduler({
     renderNow: renderTabNow
   })
-  const { locale, selectedPseudocolorKey } = useUiPreferences()
+  const { locale, montageColumnCount, selectedPseudocolorKey } = useUiPreferences()
   let tabActivationHistory: string[] = []
 
   function withRuntimeCornerInfo(
@@ -1514,7 +1514,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ...item,
         viewType: '4D',
         title: buildTabTitle(series, '4D', item.seriesId),
-        seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+        seriesTitle: getSeriesDisplayName(series, item.seriesId),
         viewId: '',
         imageSrc: '',
         sliceLabel: '',
@@ -3884,6 +3884,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     options.selectedSeriesId.value = seriesId
     const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    const isPetBackedView = viewType === 'PET' || (viewType === 'Montage' && isPetSeries(targetSeries))
     if (!isSeriesViewSupported(targetSeries, viewType)) {
       options.message.value = viewMessage(`当前序列不支持 ${viewType} 视图。`, `${viewType} view is not supported for this series.`)
       return
@@ -3932,7 +3933,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await nextTick()
         await renderTab(existingTab.key, true)
       }
-      if ((viewType === 'Stack' || viewType === 'PET') && (!existingTab.imageSrc || petPseudocolorMigrated)) {
+      if ((viewType === 'Stack' || viewType === 'PET' || viewType === 'Montage') && (!existingTab.imageSrc || petPseudocolorMigrated)) {
         options.activeViewportKey.value = 'single'
         options.isViewLoading.value = false
         await nextTick()
@@ -3990,8 +3991,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             ? {
                 ...item,
                 viewType,
-                title: buildTabTitle(options.selectedSeries.value, viewType, item.seriesId),
-                seriesTitle: series.seriesDescription || series.seriesInstanceUid || series.seriesId,
+                title: buildTabTitle(series, viewType, item.seriesId),
+                seriesTitle: getSeriesDisplayName(series, item.seriesId),
                 tagIndex: initialIndex,
                 tagTotal: Math.max(1, series.instanceCount),
                 tagItems: [],
@@ -4006,6 +4007,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
         options.activeViewportKey.value = 'single'
         options.activeTabKey.value = tabKey
+        // Tag data is refreshed in place. Keep the current table mounted so switching
+        // instances never replaces it with the workspace-wide loading screen.
+        options.isViewLoading.value = false
         await loadTagTab(tabKey, initialIndex)
         return
       }
@@ -4018,7 +4022,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         null,
         viewType !== 'MPR' && viewType !== '3D'
       )
-      const initialPseudocolorPreset = viewType === 'PET'
+      const initialPseudocolorPreset = isPetBackedView
         ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
         : normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
       let nextViewId = ''
@@ -4046,7 +4050,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const { postApi } = await loadTypedApi()
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
           seriesId,
-          viewType
+          viewType: viewType === 'Montage' ? (isPetBackedView ? 'PET' : 'Stack') : viewType
         })
         nextViewId = data.viewId
       }
@@ -4092,7 +4096,23 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               transformState: defaultTransformState,
               viewportTransformStates: createEmptyMprTransformStates(),
               pseudocolorPreset: initialPseudocolorPreset,
-              petInfo: viewType === 'PET' ? createDefaultPetInfo(seriesId) : item.petInfo ?? null,
+              petInfo: isPetBackedView ? createDefaultPetInfo(seriesId) : item.petInfo ?? null,
+              montageColumnCount: viewType === 'Montage' ? montageColumnCount.value : item.montageColumnCount,
+              montageSelectedSliceIndex: viewType === 'Montage' ? (item.montageSelectedSliceIndex ?? 0) : item.montageSelectedSliceIndex,
+              montageSliceCount: viewType === 'Montage' ? Math.max(0, Number(targetSeries?.instanceCount ?? 0)) : item.montageSliceCount,
+              montageScrollTop: viewType === 'Montage' ? (item.montageScrollTop ?? 0) : item.montageScrollTop,
+              montageScrollRequestRevision:
+                viewType === 'Montage'
+                  ? (item.montageScrollRequestRevision ?? 0)
+                  : item.montageScrollRequestRevision,
+              montageTransformState:
+                viewType === 'Montage'
+                  ? (item.montageTransformState ?? { zoom: 1, offsetX: 0, offsetY: 0 })
+                  : item.montageTransformState,
+              montageCommonInfoExpanded:
+                viewType === 'Montage'
+                  ? (item.montageCommonInfoExpanded ?? false)
+                  : item.montageCommonInfoExpanded,
               viewportPseudocolorPresets:
                 viewType === 'MPR'
                   ? {
@@ -4114,7 +4134,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
       if (viewType !== 'MPR' && nextViewId) {
         await bindViewSilentlyWithAck(nextViewId)
-        if (viewType === 'PET') {
+        if (isPetBackedView) {
           await emitInitialPetConfigOperation(nextViewId, initialPseudocolorPreset)
         } else {
           await emitInitialPseudocolorOperation(nextViewId, initialPseudocolorPreset)

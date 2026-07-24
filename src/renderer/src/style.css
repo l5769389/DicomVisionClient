@@ -3,9 +3,13 @@
 @layer base {
   :root {
     --font-ui:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Text",
+      "PingFang SC",
+      "Hiragino Sans GB",
       "Inter",
       "Aptos",
-      "SF Pro Text",
       "Segoe UI Variable Text",
       "Segoe UI",
       "HarmonyOS Sans SC",
@@ -13,24 +17,25 @@
       "Noto Sans SC",
       "Noto Sans CJK SC",
       "Source Han Sans SC",
-      "PingFang SC",
-      "Hiragino Sans GB",
       "Microsoft YaHei UI",
       "Microsoft YaHei",
       sans-serif;
     --font-display:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Display",
+      "PingFang SC",
+      "Hiragino Sans GB",
       "Inter Display",
       "Inter",
       "Aptos Display",
       "Aptos",
-      "SF Pro Display",
       "Segoe UI Variable Display",
       "Segoe UI",
       "HarmonyOS Sans SC",
       "MiSans",
       "Noto Sans SC",
       "Source Han Sans SC",
-      "PingFang SC",
       "Microsoft YaHei UI",
       sans-serif;
     --font-data:
@@ -64,6 +69,7 @@
     --viewer-tool-icon-size: 22px;
     --viewer-tool-radius: 8px;
     --viewer-tool-option-min-height: 46px;
+    --viewer-measure-option-min-height: 48px;
     --theme-text-primary: #f5f7fb;
     --theme-text-secondary: rgba(224, 232, 240, 0.84);
     --theme-text-muted: rgba(156, 172, 190, 0.88);
@@ -2027,8 +2033,7 @@
   }
 
   :root[data-theme="industrial-utility"] .theme-viewport-surface {
-    border-color: rgba(126, 142, 154, 0.16) !important;
-    border-radius: var(--industrial-radius-panel) !important;
+    border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
   }
@@ -2049,7 +2054,6 @@
   }
 
   :root[data-theme="industrial-utility"] .stack-slice-panel {
-    border-color: rgba(126, 142, 154, 0.12) !important;
     background: transparent !important;
     box-shadow: none !important;
   }

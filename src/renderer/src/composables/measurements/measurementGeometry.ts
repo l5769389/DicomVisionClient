@@ -6,7 +6,7 @@ import {
   isPointInsideRectRoi,
   updateEditedRectRoiPoints
 } from './rectRoiGeometry'
-import { hasRequiredMeasurementPoints } from './measurementToolRules'
+import { hasRequiredMeasurementPoints, isTwoPointLineMeasurement } from './measurementToolRules'
 
 const DISTINCT_POINT_EPSILON = 0.001
 const MEASUREMENT_HIT_RADIUS_PX = 14
@@ -273,7 +273,7 @@ export function isMeasurementHit(
     return { hit: true, handleIndex, score: 0 }
   }
 
-  if (measurement.toolType === 'line' && measurement.points.length >= 2) {
+  if (isTwoPointLineMeasurement(measurement.toolType) && measurement.points.length >= 2) {
     const distance = pointToSegmentDistanceSquared(point, measurement.points[0], measurement.points[1], rect)
     const hitRadius = MEASUREMENT_HIT_RADIUS_PX * 1.35
     return {
@@ -433,7 +433,7 @@ export function updateEditedMeasurementPoints(
   selectedHandleIndex: number,
   nextPoint: MeasurementDraftPoint
 ): MeasurementDraftPoint[] {
-  if (toolType === 'line' || toolType === 'angle' || toolType === 'curve' || toolType === 'freeform') {
+  if (isTwoPointLineMeasurement(toolType) || toolType === 'angle' || toolType === 'curve' || toolType === 'freeform') {
     return points.map((point, index) => (index === selectedHandleIndex ? nextPoint : point))
   }
   if ((toolType === 'rect' || toolType === 'ellipse') && points.length >= 2) {

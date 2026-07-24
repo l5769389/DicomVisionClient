@@ -37,7 +37,7 @@ describe('measurementGeometry', () => {
     ).toBe(false)
 
     expect(
-      isValidMeasurement('line', [
+      isValidMeasurement('alignment-horizontal', [
         { x: 0.1, y: 0.1 },
         { x: 0.4, y: 0.3 }
       ])

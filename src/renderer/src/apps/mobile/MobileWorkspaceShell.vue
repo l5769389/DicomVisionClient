@@ -226,6 +226,22 @@ const MOBILE_MEASUREMENT_TOOLS: MobileMeasurementTool[] = [
     hintEn: 'Drag to create a line measurement'
   },
   {
+    toolType: 'alignment-horizontal',
+    icon: 'measure-angle',
+    zh: '相对水平偏角',
+    en: 'Deviation from Horizontal',
+    hintZh: '沿床板或模体边缘拖动，测量相对 DICOM 物理水平的偏角',
+    hintEn: 'Drag along an edge to measure deviation from the physical DICOM horizontal axis'
+  },
+  {
+    toolType: 'alignment-vertical',
+    icon: 'measure-angle',
+    zh: '相对垂直偏角',
+    en: 'Deviation from Vertical',
+    hintZh: '沿床板或模体边缘拖动，测量相对 DICOM 物理垂直的偏角',
+    hintEn: 'Drag along an edge to measure deviation from the physical DICOM vertical axis'
+  },
+  {
     toolType: 'rect',
     icon: 'measure-rect',
     zh: '矩形',
@@ -758,6 +774,16 @@ const activeMobileVolumePresetOptions = computed<Array<{ value: string; icon: st
   activeVolumeTab.value?.render3dMode === 'surface' ? SURFACE_PRESET_OPTIONS : VOLUME_PRESET_OPTIONS
 )
 
+const activeMobileMeasurementTools = computed(() => {
+  const viewType = viewer.activeTab.value?.viewType
+  const supportsAlignment = viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout'
+  return supportsAlignment
+    ? MOBILE_MEASUREMENT_TOOLS
+    : MOBILE_MEASUREMENT_TOOLS.filter(
+        (tool) => tool.toolType !== 'alignment-horizontal' && tool.toolType !== 'alignment-vertical'
+      )
+})
+
 function createVolumeOrientationInlineLabel(face: VolumeOrientationFace): { initial: string; suffix: string } {
   const label = VOLUME_ORIENTATION_FACE_NAMES[face].en
   return {
@@ -777,7 +803,7 @@ function shouldShowMobileVolumePresetGroupLabel(option: { group?: string }, opti
 
 const activeInlineTools = computed<MobileInlineActionItem[]>(() => {
   if (activeInlineToolPanel.value === 'measure') {
-    return MOBILE_MEASUREMENT_TOOLS.map((tool) => ({
+    return activeMobileMeasurementTools.value.map((tool) => ({
       key: getMobileInlineActionKey('measure', tool.toolType),
       icon: tool.icon,
       label: isZh.value ? tool.zh : tool.en,
@@ -4854,7 +4880,7 @@ onBeforeUnmount(() => {
           <div v-else-if="activeSheetKind === 'measure'" class="mobile-shell__sheet-panel">
             <div class="mobile-shell__sheet-scroll mobile-shell__action-list">
               <button
-                v-for="tool in MOBILE_MEASUREMENT_TOOLS"
+                v-for="tool in activeMobileMeasurementTools"
                 :key="tool.toolType"
                 type="button"
                 class="mobile-shell__action-row"

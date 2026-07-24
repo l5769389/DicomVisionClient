@@ -281,7 +281,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           @update-annotation-text="emit('updateAnnotationText', $event)"
         />
 
-        <div v-if="!isScrollSynced" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
+        <div v-if="!isScrollSynced" class="compare-stack-slice-panel flex min-h-0 flex-col items-center px-1 py-2">
           <span class="compare-stack-slice-label grid min-h-8 w-full place-items-center break-all text-center text-[9px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
           <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[pane.key] }}</span>
           <div class="my-2 flex min-h-0 flex-1 items-center">
@@ -306,7 +306,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
       </section>
       </div>
 
-      <div v-if="isScrollSynced && syncedSliderPane" class="theme-card-soft flex min-h-0 flex-col items-center rounded-xl border px-1 py-2">
+      <div v-if="isScrollSynced && syncedSliderPane" class="compare-stack-slice-panel flex min-h-0 flex-col items-center px-1 py-2">
         <span class="compare-stack-slice-label grid min-h-8 w-full place-items-center break-all text-center text-[9px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
         <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[COMPARE_STACK_SOURCE_PANE_KEY] }}</span>
         <div class="my-2 flex min-h-0 flex-1 items-center">

@@ -41,6 +41,12 @@ let backendReady = false
 let backendStarting = false
 let backendStartupError: string | null = null
 
+const configuredUserDataDir = process.env.DICOM_VISION_USER_DATA_DIR?.trim()
+if (configuredUserDataDir) {
+  mkdirSync(configuredUserDataDir, { recursive: true })
+  app.setPath('userData', configuredUserDataDir)
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
   app.quit()
@@ -60,13 +66,23 @@ function resolvePreloadPath(): string {
 }
 
 function resolveAppIconPath(): string | undefined {
-  const iconFileName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
-  const candidates = [
-    join(process.cwd(), 'build', iconFileName),
-    join(app.getAppPath(), 'build', iconFileName),
-    join(process.resourcesPath, 'build', iconFileName),
-    join(process.resourcesPath, iconFileName)
+  const iconFileNames =
+    process.platform === 'win32'
+      ? ['icon.ico', 'icon.png']
+      : process.platform === 'darwin'
+        // Electron's runtime image loader accepts PNG reliably on macOS. The
+        // packaged app still uses build/icon.icns through electron-builder.
+        ? ['icon.png']
+        : ['icon.png', 'icon.ico']
+  const directories = [
+    join(process.cwd(), 'build'),
+    join(app.getAppPath(), 'build'),
+    join(process.resourcesPath, 'build'),
+    process.resourcesPath
   ]
+  const candidates = directories.flatMap((directory) =>
+    iconFileNames.map((fileName) => join(directory, fileName))
+  )
 
   return candidates.find((candidate) => existsSync(candidate))
 }
@@ -559,6 +575,11 @@ app.on('open-file', (event, path) => {
 if (hasSingleInstanceLock) {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.dicomvision.app')
+
+  const appIconPath = resolveAppIconPath()
+  if (process.platform === 'darwin' && appIconPath) {
+    app.dock?.setIcon(appIconPath)
+  }
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

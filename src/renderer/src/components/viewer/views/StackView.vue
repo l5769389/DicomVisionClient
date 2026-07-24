@@ -237,7 +237,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       @update-annotation-text="emit('updateAnnotationText', $event)"
     />
 
-    <div v-if="showSliceSlider" class="stack-slice-panel theme-shell-panel-strong flex min-h-0 flex-col items-center rounded-xl border px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+    <div v-if="showSliceSlider" class="stack-slice-panel flex min-h-0 flex-col items-center px-1.5 py-2.5">
       <span class="stack-slice-label grid min-h-8 w-full place-items-center break-all text-center text-[10px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-secondary)]">{{ viewerCopy.slice }}</span>
       <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-muted)]">{{ sliderValue }}</span>
       <div class="stack-slice-star-tools mt-2 flex flex-col items-center gap-1">

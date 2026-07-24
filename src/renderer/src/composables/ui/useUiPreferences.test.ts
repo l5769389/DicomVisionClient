@@ -101,10 +101,13 @@ describe('useUiPreferences', () => {
     })
 
     expect(preferences.locale.value).toBe('en-US')
+    expect(preferences.hasSelectedInitialLocale.value).toBe(true)
     expect(preferences.themeId.value).toBe('clinical-light')
     expect(document.documentElement.dataset.theme).toBe('clinical-light')
     expect(document.documentElement.style.colorScheme).toBe('light')
     expect(preferences.viewerToolbarPlacement.value).toBe('right')
+    expect(preferences.viewportAutoFitEnabled.value).toBe(true)
+    expect(preferences.montageColumnCount.value).toBe(4)
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
     expect(preferences.mprDefaultLayoutKey.value).toBe('quad')
     expect(preferences.dicomTagDisplayMode.value).toBe('flat')
@@ -147,7 +150,7 @@ describe('useUiPreferences', () => {
     expect(preferences.workspaceDockPreference.value).toEqual({
       leftWidth: 320,
       leftCollapsed: false,
-      rightToolbarWidth: 224,
+      rightToolbarWidth: 280,
       rightToolbarCollapsed: false,
       rightResultWidth: 344,
       rightResultCollapsed: false
@@ -168,6 +171,8 @@ describe('useUiPreferences', () => {
     const preferences = await loadPreferences()
 
     preferences.viewerToolbarPlacement.value = 'right'
+    preferences.viewportAutoFitEnabled.value = false
+    preferences.montageColumnCount.value = 6
     preferences.setMprDefaultLayoutKey('mpr-3d')
     preferences.dicomTagDisplayMode.value = 'flat'
     preferences.setHangingProtocolRules([
@@ -236,6 +241,8 @@ describe('useUiPreferences', () => {
 
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
     expect(saved.viewerToolbarPlacement).toBe('right')
+    expect(saved.viewportAutoFitEnabled).toBe(false)
+    expect(saved.montageColumnCount).toBe(6)
     expect(saved).not.toHaveProperty('viewerImageFormatPreference')
     expect(saved.mprDefaultLayoutKey).toBe('mpr-3d')
     expect(saved.dicomTagDisplayMode).toBe('flat')
@@ -381,6 +388,36 @@ describe('useUiPreferences', () => {
     })
 
     expect(preferences.viewerToolbarPlacement.value).toBe('right')
+  })
+
+  it('tracks first-run locale selection without interrupting migrated users', async () => {
+    const freshPreferences = await loadPreferences()
+    expect(freshPreferences.locale.value).toBe('zh-CN')
+    expect(freshPreferences.hasSelectedInitialLocale.value).toBe(false)
+
+    freshPreferences.confirmInitialLocale('en-US')
+    await flushPreferences()
+
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(saved.locale).toBe('en-US')
+    expect(saved.hasSelectedInitialLocale).toBe(true)
+
+    const migratedPreferences = await loadPreferences({
+      version: 24,
+      locale: 'zh-CN'
+    })
+    expect(migratedPreferences.hasSelectedInitialLocale.value).toBe(true)
+  })
+
+  it('migrates the old right dock default width to the wider workspace dock', async () => {
+    const preferences = await loadPreferences({
+      version: 25,
+      workspaceDockPreference: {
+        rightToolbarWidth: 224
+      }
+    })
+
+    expect(preferences.workspaceDockPreference.value.rightToolbarWidth).toBe(280)
   })
 
   it('ignores the legacy viewer image format preference', async () => {

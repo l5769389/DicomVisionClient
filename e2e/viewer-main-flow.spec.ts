@@ -8,6 +8,15 @@ const SAMPLE_REPRESENTATIVE_SLICE = 15
 
 async function loadRealDicomSample(page: Page, isMobile: boolean): Promise<Locator> {
   await page.goto(isMobile ? '/m' : '/')
+  const initialLocaleDialog = page.locator('.app-initial-locale')
+  if (!isMobile) {
+    await initialLocaleDialog.waitFor({ state: 'visible', timeout: 5000 }).then(async () => {
+      await initialLocaleDialog.getByRole('button', { name: /简体中文/ }).click()
+      await expect(initialLocaleDialog).toBeHidden()
+    }).catch(() => {
+      // Existing preferences skip the first-run language chooser.
+    })
+  }
 
   if (isMobile) {
     await page.getByTestId('mobile-load-demo').click()
@@ -276,11 +285,15 @@ async function resetView(page: Page, isMobile: boolean): Promise<void> {
 
   await page
     .locator(
-      '.viewer-toolbar-dock__button[title*="Reset"], .viewer-toolbar-dock__button[title*="重置"]'
+      '.viewer-toolbar-dock__tools .viewer-toolbar-dock__button[title*="Reset"], .viewer-toolbar-dock__tools .viewer-toolbar-dock__button[title*="重置"]'
     )
     .first()
     .click()
-  await page.getByRole('button', { name: /重置视图|Reset View/i }).click()
+  const dockResetOption = page.locator('.viewer-toolbar-dock-panel-content__option', {
+    hasText: /重置视图|Reset View/i
+  })
+  await expect(dockResetOption.first()).toBeVisible()
+  await dockResetOption.first().click({ position: { x: 24, y: 24 } })
 }
 
 async function rotateViewClockwise(page: Page, isMobile: boolean): Promise<void> {
@@ -311,6 +324,82 @@ test('loads a real DICOM sample and renders the first 2D view', async ({ page },
   await expect(image).toBeVisible()
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0)
   await expectSlice(page, isMobile, SAMPLE_REPRESENTATIVE_SLICE)
+})
+
+test('desktop measurement menu flexes before its option list scrolls and shares one reset tone', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-chrome', 'Desktop right-dock layout only')
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await loadRealDicomSample(page, false)
+
+  await page
+    .locator(
+      '.viewer-toolbar-dock__button[title*="Measure"], .viewer-toolbar-dock__button[title*="测量"]'
+    )
+    .first()
+    .click()
+
+  const optionList = page.getByTestId('viewer-toolbar-dock-measure-options')
+  const clearMeasurements = page.getByTestId('viewer-toolbar-dock-measure-reset-measurements')
+  const scopeCard = page.locator('.viewer-toolbar-dock-panel-content__scope-card')
+  await expect(optionList).toBeVisible()
+  await expect(scopeCard).toBeVisible()
+  await expect(clearMeasurements).toBeVisible()
+
+  const tallLayout = await optionList.evaluate((element) => {
+    const rowHeights = [
+      ...element.querySelectorAll<HTMLElement>('.viewer-toolbar-dock-panel-content__option')
+    ].map((row) => row.getBoundingClientRect().height)
+    return {
+      clientHeight: element.clientHeight,
+      rowHeights,
+      scrollHeight: element.scrollHeight
+    }
+  })
+  expect(tallLayout.scrollHeight).toBeLessThanOrEqual(tallLayout.clientHeight + 1)
+  expect(tallLayout.rowHeights.length).toBeGreaterThanOrEqual(8)
+  expect(Math.min(...tallLayout.rowHeights)).toBeGreaterThanOrEqual(48)
+  expect(
+    Math.max(...tallLayout.rowHeights) - Math.min(...tallLayout.rowHeights)
+  ).toBeLessThanOrEqual(1)
+
+  const clearTone = await clearMeasurements.evaluate((element) => {
+    const buttonStyle = getComputedStyle(element)
+    const iconStyle = getComputedStyle(
+      element.querySelector<HTMLElement>('.viewer-toolbar-dock-panel-content__danger-action-icon')!
+    )
+    return {
+      backgroundColor: buttonStyle.backgroundColor,
+      borderColor: buttonStyle.borderColor,
+      iconColor: iconStyle.color
+    }
+  })
+
+  await page.setViewportSize({ width: 1440, height: 650 })
+  await expect.poll(
+    async () => optionList.evaluate((element) => element.scrollHeight > element.clientHeight)
+  ).toBe(true)
+  const compactRowHeights = await optionList
+    .locator('.viewer-toolbar-dock-panel-content__option')
+    .evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height))
+  expect(Math.min(...compactRowHeights)).toBeGreaterThanOrEqual(48)
+  await expect(scopeCard).toBeVisible()
+  await expect(clearMeasurements).toBeVisible()
+
+  await selectWindowTool(page, false)
+  const resetWindow = page.getByTestId('viewer-toolbar-dock-window-window-reset')
+  await expect(resetWindow).toBeVisible()
+  const resetTone = await resetWindow.evaluate((element) => {
+    const buttonStyle = getComputedStyle(element)
+    const iconStyle = getComputedStyle(
+      element.querySelector<HTMLElement>('.viewer-toolbar-dock-panel-content__danger-action-icon')!
+    )
+    return {
+      backgroundColor: buttonStyle.backgroundColor,
+      borderColor: buttonStyle.borderColor,
+      iconColor: iconStyle.color
+    }
+  })
+  expect(resetTone).toEqual(clearTone)
 })
 
 test('renders real DICOM MPR geometry and keeps shared cursor state synchronized', async ({ page }, testInfo) => {
@@ -554,4 +643,155 @@ test('window interaction renders a new image and reset renders restored state', 
   await resetView(page, isMobile)
   await expect.poll(() => image.getAttribute('src'), { timeout: 15_000 }).not.toBe(windowedSrc)
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0)
+})
+
+test('desktop fixed viewport ratio and virtual montage work across window sizes', async ({ page }, testInfo) => {
+  test.setTimeout(60_000)
+  test.skip(testInfo.project.name === 'mobile-chrome', 'Desktop and Web feature only')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loadRealDicomSample(page, false)
+
+  const frame = page.locator('.viewer-viewport-frame-shell')
+  await expect(frame).toHaveAttribute('data-viewport-auto-fit', 'true')
+
+  await page.getByRole('button', { name: /打开设置|Open Settings/i }).first().click()
+  await page.getByTestId('settings-group-display').click()
+  await page.getByTestId('settings-section-displayToolbarLayout').click()
+  const autoFitSwitch = page.getByTestId('settings-viewport-auto-fit')
+  await expect(autoFitSwitch).toHaveAttribute('aria-checked', 'true')
+  await autoFitSwitch.click()
+  await expect(autoFitSwitch).toHaveAttribute('aria-checked', 'false')
+  await page.locator('.settings-dialog-header button').click()
+
+  await expect(frame).toHaveAttribute('data-viewport-auto-fit', 'false')
+  for (const viewportSize of [
+    { width: 1440, height: 900 },
+    { width: 1100, height: 650 }
+  ]) {
+    await page.setViewportSize(viewportSize)
+    const geometry = await frame.evaluate((element) => {
+      const frameBounds = element.getBoundingClientRect()
+      const hostBounds = element.parentElement!.getBoundingClientRect()
+      return {
+        frameHeight: frameBounds.height,
+        frameWidth: frameBounds.width,
+        horizontalOffset: frameBounds.left - hostBounds.left,
+        hostHeight: hostBounds.height,
+        hostWidth: hostBounds.width,
+        verticalOffset: frameBounds.top - hostBounds.top
+      }
+    })
+    expect(Math.abs(geometry.frameWidth - geometry.frameHeight)).toBeLessThanOrEqual(2)
+    expect(geometry.frameWidth).toBeLessThanOrEqual(geometry.hostWidth + 1)
+    expect(geometry.frameHeight).toBeLessThanOrEqual(geometry.hostHeight + 1)
+    expect(Math.abs(geometry.horizontalOffset - (geometry.hostWidth - geometry.frameWidth) / 2)).toBeLessThanOrEqual(2)
+    expect(Math.abs(geometry.verticalOffset - (geometry.hostHeight - geometry.frameHeight) / 2)).toBeLessThanOrEqual(2)
+  }
+
+  const requestedTiles = new Set<string>()
+  page.on('request', (request) => {
+    if (request.url().includes('/api/v1/dicom/montage/tile')) {
+      requestedTiles.add(request.url())
+    }
+  })
+  await setSlice(page, false, 3)
+  await expectSlice(page, false, 3)
+  await page
+    .locator('.viewer-toolbar-dock__button[title*="序列平铺"], .viewer-toolbar-dock__button[title*="Series Montage"]')
+    .first()
+    .click()
+  await expect(page.locator('.montage-view')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('[data-slice-index="2"]')).toHaveClass(/montage-view__tile--selected/)
+  await expect(page.locator('.montage-view__slice-info')).toHaveCount(0)
+  await expect(page.locator('.montage-view__common-info')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.montage-view__scroller')).toHaveAttribute('data-total-slices', String(SAMPLE_TOTAL_SLICES))
+  await expect.poll(() => page.locator('.montage-view__tile').count()).toBeLessThan(SAMPLE_TOTAL_SLICES)
+  await expect.poll(() => requestedTiles.size, { timeout: 30_000 }).toBeGreaterThan(0)
+  expect(requestedTiles.size).toBeLessThan(SAMPLE_TOTAL_SLICES)
+  await expect.poll(() => page.locator('.montage-view__image').count(), { timeout: 30_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(() => page.locator('.montage-view__image').first().evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(0)
+  await expect(page.locator('.montage-view__error')).toHaveCount(0)
+  const initiallyRequestedTileCount = requestedTiles.size
+
+  const montageImages = page.locator('.montage-view__image')
+  const initialMontageTransform = await montageImages.first().evaluate((image) => getComputedStyle(image).transform)
+  await page
+    .locator('.viewer-toolbar-dock__button[title*="窗宽窗位"], .viewer-toolbar-dock__button[title*="Window"]')
+    .first()
+    .click()
+  const customWindowForm = page.locator('.viewer-toolbar-dock-panel-content__custom-window')
+  await expect(customWindowForm).toBeVisible()
+  await customWindowForm.locator('input').nth(0).fill('650')
+  await customWindowForm.locator('input').nth(1).fill('80')
+  await customWindowForm.locator('button[type="submit"]').click()
+  await expect(page.locator('.montage-view__subtitle')).toContainText(/WW\s+650\s*\/\s*WL\s+80/)
+  await expect.poll(() =>
+    [...requestedTiles].some((url) => url.includes('ww=650') && url.includes('wl=80'))
+  ).toBe(true)
+  const windowStatusBeforeDrag = await page.locator('.montage-view__subtitle').textContent()
+  await dragOnStage(page, page.locator('.montage-view__scroller'), 80, -20)
+  await expect
+    .poll(() => page.locator('.montage-view__subtitle').textContent())
+    .not.toBe(windowStatusBeforeDrag)
+  await expect(page.locator('.montage-view__subtitle')).toContainText(/WW\s+-?\d+\s*\/\s*WL\s+-?\d+/)
+
+  await page
+    .locator('.viewer-toolbar-dock__button[title*="平移"], .viewer-toolbar-dock__button[title*="Pan"]')
+    .first()
+    .click()
+  await dragOnStage(page, page.locator('.montage-view__scroller'), 80, 20)
+  const pannedMontageTransforms = await montageImages.evaluateAll((images) =>
+    images.map((image) => getComputedStyle(image).transform)
+  )
+  expect(new Set(pannedMontageTransforms).size).toBe(1)
+  expect(pannedMontageTransforms[0]).not.toBe(initialMontageTransform)
+  await resetView(page, false)
+  await expect
+    .poll(() => montageImages.first().evaluate((image) => getComputedStyle(image).transform))
+    .toBe(initialMontageTransform)
+
+  await page
+    .locator('.viewer-toolbar-dock__button[title*="缩放"], .viewer-toolbar-dock__button[title*="Zoom"]')
+    .first()
+    .click()
+  await dragOnStage(page, page.locator('.montage-view__scroller'), 0, -80)
+  await expect(page.locator('.montage-view__subtitle')).not.toContainText(/(?:缩放|Zoom)/)
+  const montageTransforms = await montageImages.evaluateAll((images) =>
+    images.map((image) => getComputedStyle(image).transform)
+  )
+  expect(new Set(montageTransforms).size).toBe(1)
+  expect(montageTransforms[0]).not.toBe(initialMontageTransform)
+  await resetView(page, false)
+  await expect
+    .poll(() => montageImages.first().evaluate((image) => getComputedStyle(image).transform))
+    .toBe(initialMontageTransform)
+
+  await page.locator('.montage-view__column-button', { hasText: '2' }).click()
+  await expect.poll(() =>
+    page.locator('.montage-view__grid').evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length
+    )
+  ).toBe(2)
+
+  const montageScroller = page.locator('.montage-view__scroller')
+  await montageScroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect(page.locator(`[data-slice-index="${SAMPLE_TOTAL_SLICES - 1}"]`)).toBeVisible()
+  await expect
+    .poll(() =>
+      page
+        .locator(`[data-slice-index="${SAMPLE_TOTAL_SLICES - 1}"] img`)
+        .evaluate((image: HTMLImageElement) => image.naturalWidth)
+    )
+    .toBeGreaterThan(0)
+  await expect.poll(() => requestedTiles.size).toBeGreaterThan(initiallyRequestedTileCount)
+  await expect.poll(async () => Number(await montageScroller.getAttribute('data-rendered-row-start'))).toBeGreaterThan(0)
+
+  await page.locator(`[data-slice-index="${SAMPLE_TOTAL_SLICES - 1}"]`).dblclick()
+  await expect(page.locator('.montage-view')).toBeHidden({ timeout: 30_000 })
+  await expectSlice(page, false, SAMPLE_TOTAL_SLICES)
 })

@@ -39,7 +39,8 @@ import {
   resolveComparePaneKey,
   resolveFusionPaneKey,
   resolveOperationTargets,
-  resolveViewIdForTabViewport
+  resolveViewIdForTabViewport,
+  usesContinuousDragPreview
 } from '../views/viewerViewportTargets'
 import { withViewSyncValue } from '../sync/viewSyncConfig'
 import {
@@ -74,10 +75,18 @@ import {
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
 import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from './layoutDropSeries'
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
-import { createMprInteractionOperationScheduler } from './mprInteractionOperationScheduler'
+import {
+  createMprInteractionOperationScheduler,
+  resolveViewDragPreviewFeedbackMode
+} from './mprInteractionOperationScheduler'
 import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
-import { resolveInitialSeriesViewType } from '../views/seriesViewSupport'
+import { resolveInitialSeriesViewType, resolvePrimaryTwoDimensionalViewType } from '../views/seriesViewSupport'
+import {
+  DEFAULT_MONTAGE_TRANSFORM,
+  normalizeMontageTransform,
+  resetMontageTransform
+} from '../views/montageTransform'
 import {
   viewerRuntime,
   type BackendStatus,
@@ -136,6 +145,7 @@ import type {
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
+  MontageTransformInfo,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
   MprCrosshairMode,
@@ -150,6 +160,7 @@ import type {
   ViewerMtfItem,
   ViewerTabItem,
   ViewType,
+  WindowLevelInfo,
   SurfaceRenderConfig,
   VolumeClipMode,
   VolumeRenderConfig,
@@ -264,6 +275,15 @@ interface ViewerWorkspaceState {
   handleFourDPhaseChange: (payload: { tabKey: string; phaseIndex: number }) => void
   handleFourDFpsChange: (payload: { tabKey: string; fps: number }) => void
   handleFourDPlaybackChange: (payload: { tabKey: string; isPlaying: boolean }) => void
+  handleMontageStateChange: (payload: {
+    tabKey: string
+    columnCount?: number
+    selectedSliceIndex?: number
+    scrollTop?: number
+    transform?: MontageTransformInfo
+    windowInfo?: WindowLevelInfo
+    commonInfoExpanded?: boolean
+  }) => void
   handleCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   handleViewportLayoutChange: (payload?: { layoutKey?: MprLayoutKey | null }) => Promise<void>
   handleLayoutSlotDicomDrop: (payload: { tabKey: string; slotId: string; drop: DicomDropInput }) => Promise<void>
@@ -344,6 +364,7 @@ interface LoadFolderSeriesOptions {
 
 interface OpenSeriesViewOptions {
   useHangingProtocol?: boolean
+  montageSliceIndex?: number
 }
 
 interface DicomUploadToastProgress {
@@ -1134,6 +1155,71 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
   }
 
+  function normalizeMontageWindowInfo(windowInfo: WindowLevelInfo | null | undefined): WindowLevelInfo | null {
+    const ww = Number(windowInfo?.ww)
+    const wl = Number(windowInfo?.wl)
+    return Number.isFinite(ww) && Number.isFinite(wl)
+      ? { ww: Math.max(1, ww), wl }
+      : null
+  }
+
+  function applyMontageWindowInfoToTab(
+    tab: ViewerTabItem,
+    windowInfo: WindowLevelInfo,
+    options: { seedInitial?: boolean } = {}
+  ): ViewerTabItem {
+    const ww = Math.max(1, Number(windowInfo.ww))
+    const wl = Number(windowInfo.wl)
+    if (!Number.isFinite(ww) || !Number.isFinite(wl)) {
+      return tab
+    }
+    const nextWindowInfo = { ww, wl }
+    const initialWindowInfo = options.seedInitial === false
+      ? tab.initialWindowInfo
+      : normalizeMontageWindowInfo(tab.initialWindowInfo) ?? nextWindowInfo
+    return {
+      ...tab,
+      initialWindowInfo,
+      currentWindowInfo: nextWindowInfo,
+      windowLabel: `WW ${Math.round(ww)} / WL ${Math.round(wl)}`,
+      cornerInfo: {
+        ...tab.cornerInfo,
+        tags: {
+          ...(tab.cornerInfo.tags ?? {}),
+          windowLevel: [`W: ${Math.round(ww)} L: ${Math.round(wl)}`]
+        }
+      }
+    }
+  }
+
+  function resetMontageDisplayState(tab: ViewerTabItem): ViewerTabItem {
+    const resetWindowInfo =
+      normalizeMontageWindowInfo(tab.initialWindowInfo) ??
+      normalizeMontageWindowInfo(tab.currentWindowInfo)
+    const resetPseudocolorPreset = tab.petInfo
+      ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+      : DEFAULT_PSEUDOCOLOR_PRESET
+    const nextTab: ViewerTabItem = {
+      ...tab,
+      montageTransformState: DEFAULT_MONTAGE_TRANSFORM,
+      pseudocolorPreset: resetPseudocolorPreset
+    }
+    return resetWindowInfo
+      ? applyMontageWindowInfoToTab(nextTab, resetWindowInfo, { seedInitial: true })
+      : {
+          ...nextTab,
+          currentWindowInfo: null,
+          windowLabel: '',
+          cornerInfo: {
+            ...nextTab.cornerInfo,
+            tags: {
+              ...(nextTab.cornerInfo.tags ?? {}),
+              windowLevel: []
+            }
+          }
+        }
+  }
+
   function triggerViewAction(payload: ViewerToolbarActionPayload): void {
     const tab = activeTab.value
     if (!tab) {
@@ -1188,7 +1274,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'PETCTFusion' && tab.viewType !== 'Layout' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
+    if (payload.action === 'displayOverlay' && tab.viewType !== 'Stack' && tab.viewType !== 'PET' && tab.viewType !== 'Montage' && tab.viewType !== 'PETCTFusion' && tab.viewType !== 'Layout' && tab.viewType !== '3D' && !isMprLikeViewType(tab.viewType)) {
       return
     }
 
@@ -1392,6 +1478,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'transformReset') {
       const transformScope = payload.transformScope ?? 'all'
+      if (tab.viewType === 'Montage') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                montageTransformState: resetMontageTransform(
+                  item.montageTransformState,
+                  transformScope
+                )
+              }
+            : item
+        )
+        return
+      }
       const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
       if (!targets.length) {
         return
@@ -1434,6 +1534,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'transformZoomPreset') {
       const nextZoom = Math.max(0.1, Math.min(10, Number(payload.transformZoom ?? 1)))
+      if (tab.viewType === 'Montage') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key
+            ? {
+                ...item,
+                montageTransformState: normalizeMontageTransform({
+                  ...(item.montageTransformState ?? DEFAULT_MONTAGE_TRANSFORM),
+                  zoom: nextZoom
+                })
+              }
+            : item
+        )
+        return
+      }
       const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.transform2d)
       if (!targets.length) {
         return
@@ -1931,6 +2045,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'pseudocolor' && payload.value) {
       const presetKey = normalizePseudocolorPresetKey(payload.value)
+      if (tab.viewType === 'Montage') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key && item.viewType === 'Montage'
+            ? {
+                ...item,
+                pseudocolorPreset: presetKey
+              }
+            : item
+        )
+        return
+      }
       const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.pseudocolor)
       if (!targets.length) {
         return
@@ -1954,8 +2079,23 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const [wwRaw, wlRaw] = payload.value.split('|')
       const ww = Number.parseFloat(wwRaw)
       const wl = Number.parseFloat(wlRaw)
+      if (!Number.isFinite(ww) || !Number.isFinite(wl)) {
+        return
+      }
+      if (tab.viewType === 'Montage') {
+        const nextWindowInfo = {
+          ww: Math.max(1, ww),
+          wl
+        }
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key && item.viewType === 'Montage'
+            ? applyMontageWindowInfoToTab(item, nextWindowInfo, { seedInitial: false })
+            : item
+        )
+        return
+      }
       const viewId = getActiveViewIdForTab(tab)
-      if (!viewId || !Number.isFinite(ww) || !Number.isFinite(wl)) {
+      if (!viewId) {
         return
       }
 
@@ -1971,6 +2111,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'reset' || payload.action === 'resetAll') {
+      if (tab.viewType === 'Montage') {
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.key === tab.key && item.viewType === 'Montage'
+            ? resetMontageDisplayState(item)
+            : item
+        )
+        return
+      }
       if (isMprLikeViewType(tab.viewType)) {
         const viewportKey = activeViewportKey.value as MprViewportKey
         const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
@@ -2024,7 +2172,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
 
       viewerTabs.value = viewerTabs.value.map((item) =>
-        item.key === tab.key ? resetTabViewStateTargets(item, targets, DEFAULT_VIEW_TRANSFORM) : item
+        item.key === tab.key
+          ? {
+              ...resetTabViewStateTargets(item, targets, DEFAULT_VIEW_TRANSFORM),
+              ...(item.viewType === 'Montage'
+                ? { montageTransformState: DEFAULT_MONTAGE_TRANSFORM }
+                : {})
+            }
+          : item
       )
 
       targets.forEach((target) => {
@@ -3816,6 +3971,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       tab.viewType === '3D' ||
       isMprVolumeViewport(tab, payload.viewportKey) ||
       isLayoutVolumeViewport(tab, payload.viewportKey)
+    const continuousPreviewContext = usesContinuousDragPreview(tab, payload.viewportKey)
     const hasDragInteractionId =
       supportsInteractionSession && typeof resolvedInteractionId === 'string' && resolvedInteractionId.length > 0
     const hasRotate3dInteractionId =
@@ -3847,11 +4003,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    const usesCadencePreview =
-      payload.opType === VIEW_OPERATION_TYPES.pan ||
-      payload.opType === VIEW_OPERATION_TYPES.zoom ||
-      payload.opType === VIEW_OPERATION_TYPES.rotate3d
-
     if (isMprLikeViewType(tab.viewType) && !isMprVolumeViewport(tab, payload.viewportKey)) {
       emitMprViewOperation(payload.viewportKey, {
         opType: payload.opType,
@@ -3861,13 +4012,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...canvasPositionPayload,
         ...interactionPayload,
         ...zoomAnchorPayload,
-        previewFeedbackMode: usesCadencePreview ? 'cadence' : undefined
+        previewFeedbackMode: resolveViewDragPreviewFeedbackMode(payload.opType, continuousPreviewContext)
       })
       clearCompletedInteraction()
       return
     }
-
-    const isVolumeDrag = isVolumeViewport
 
     resolveOperationTargets(tab, payload.viewportKey, payload.opType).forEach((target) => {
       emitScheduledViewOperation({
@@ -3879,7 +4028,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         ...canvasPositionPayload,
         ...interactionPayload,
         ...zoomAnchorPayload,
-        previewFeedbackMode: isVolumeDrag && usesCadencePreview ? 'cadence' : undefined
+        previewFeedbackMode: resolveViewDragPreviewFeedbackMode(payload.opType, continuousPreviewContext)
       })
     })
     clearCompletedInteraction()
@@ -4520,6 +4669,21 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (viewType !== 'Stack' || options.useHangingProtocol === false) {
       await views.openSeriesView(seriesId, viewType)
+      if (viewType === 'Montage' && Number.isFinite(options.montageSliceIndex)) {
+        const requestedIndex = Math.max(0, Math.trunc(Number(options.montageSliceIndex)))
+        viewerTabs.value = viewerTabs.value.map((item) =>
+          item.viewType === 'Montage' && item.seriesId === seriesId
+            ? {
+                ...item,
+                montageSelectedSliceIndex: Math.min(
+                  requestedIndex,
+                  Math.max(0, Number(item.montageSliceCount ?? 1) - 1)
+                ),
+                montageScrollRequestRevision: (item.montageScrollRequestRevision ?? 0) + 1
+              }
+            : item
+        )
+      }
       return
     }
 
@@ -4540,11 +4704,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     await ensureBackendConnection()
     const targetIndex = Number.isFinite(sliceIndex) ? Math.max(0, Math.trunc(sliceIndex)) : 0
-    await views.openSeriesView(seriesId, 'Stack')
+    const series = seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    const targetViewType = resolvePrimaryTwoDimensionalViewType(series)
+    await views.openSeriesView(seriesId, targetViewType)
     await nextTick()
 
     const tab = activeTab.value
-    if (!tab || tab.viewType !== 'Stack' || tab.seriesId !== seriesId) {
+    if (!tab || (tab.viewType !== 'Stack' && tab.viewType !== 'PET') || tab.seriesId !== seriesId) {
       return
     }
 
@@ -4555,6 +4721,47 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (delta !== 0) {
       handleViewportWheel({ viewportKey: 'single', deltaY: delta, exact: true })
     }
+  }
+
+  function handleMontageStateChange(payload: {
+    tabKey: string
+    columnCount?: number
+    selectedSliceIndex?: number
+    scrollTop?: number
+    transform?: MontageTransformInfo
+    windowInfo?: WindowLevelInfo
+    commonInfoExpanded?: boolean
+  }): void {
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      if (item.key !== payload.tabKey || item.viewType !== 'Montage') {
+        return item
+      }
+      const sliceCount = Math.max(0, Math.trunc(Number(item.montageSliceCount ?? 0)))
+      const nextItem = {
+        ...item,
+        ...(Number.isFinite(payload.columnCount)
+          ? { montageColumnCount: Math.min(6, Math.max(2, Math.trunc(Number(payload.columnCount)))) }
+          : {}),
+        ...(Number.isFinite(payload.selectedSliceIndex)
+          ? {
+              montageSelectedSliceIndex: Math.min(
+                Math.max(0, Math.trunc(Number(payload.selectedSliceIndex))),
+                Math.max(0, sliceCount - 1)
+              )
+            }
+          : {}),
+        ...(Number.isFinite(payload.scrollTop)
+          ? { montageScrollTop: Math.max(0, Number(payload.scrollTop)) }
+          : {}),
+        ...(payload.transform
+          ? { montageTransformState: normalizeMontageTransform(payload.transform) }
+          : {}),
+        ...(typeof payload.commonInfoExpanded === 'boolean'
+          ? { montageCommonInfoExpanded: payload.commonInfoExpanded }
+          : {})
+      }
+      return payload.windowInfo ? applyMontageWindowInfoToTab(nextItem, payload.windowInfo) : nextItem
+    })
   }
 
   async function openViewWithHangingProtocol(viewType: ViewType): Promise<void> {
@@ -4772,11 +4979,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return []
       }
       if (source.kind === 'files') {
-        showStatusToast(workspaceStatusCopy.value.uploadDicomComplete, 'success', {
-          progressPercent: 100,
-          progressLabel: locale.value === 'zh-CN' ? `${loadedSeries.length} 个序列` : `${loadedSeries.length} series`,
-          durationMs: 3600
-        })
+        // The progress toast is only transport feedback. Once the study is ready,
+        // remove it immediately rather than leaving a redundant completion banner.
+        dismissStatusToast()
       }
 
       message.value = ''
@@ -4905,6 +5110,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     handleFourDPhaseChange,
     handleFourDFpsChange,
     handleFourDPlaybackChange,
+    handleMontageStateChange,
     handleFusionConfigChange,
     handleFusionRegistrationDrag,
     handleMprCrosshair,

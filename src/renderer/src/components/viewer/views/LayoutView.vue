@@ -477,8 +477,8 @@ watch(
 
             <div
               v-if="showSliceSlider"
-              class="layout-view__slider flex min-h-0 flex-col items-center rounded-xl border px-1 py-2"
-              :class="isSingleStackLayout ? 'layout-view__slider--single stack-slice-panel theme-shell-panel-strong' : 'theme-card-soft'"
+              class="layout-view__slider flex min-h-0 flex-col items-center px-1 py-2"
+              :class="isSingleStackLayout ? 'layout-view__slider--single stack-slice-panel' : ''"
             >
               <span class="layout-view__slice-label grid min-h-8 w-full place-items-center break-all text-center text-[9px] font-semibold uppercase leading-[1.12] tracking-[0.16em] text-[var(--theme-text-muted)]">{{ viewerCopy.slice }}</span>
               <span class="mt-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">{{ sliderValues[slot.id] ?? 1 }}</span>

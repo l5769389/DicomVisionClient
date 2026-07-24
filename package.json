@@ -100,6 +100,7 @@
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
     "build:web": "vite build --config vite.web.config.ts",
+    "generate:brand-assets": "swift scripts/generate-brand-assets.swift",
     "generate:installer-assets": "node scripts/generate-installer-assets.mjs",
     "package:mac": "node scripts/package-mac.mjs",
     "package:server": "node scripts/stage-server-bundle.mjs",
@@ -117,6 +118,7 @@
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^3.0.0",
+    "@electron/notarize": "^2.5.0",
     "@mdi/js": "^7.4.47",
     "@playwright/test": "^1.61.1",
     "@swc/core": "^1.11.24",

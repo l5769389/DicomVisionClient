@@ -81,13 +81,11 @@ const { overlayCopy, toolbarCopy } = useUiLocale()
   flex-direction: column;
   align-self: stretch;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 0;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card-soft) 62%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 84%, transparent));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 16px 34px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 .viewer-result-dock--collapsed {

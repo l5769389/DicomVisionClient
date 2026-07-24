@@ -114,7 +114,7 @@ export function isSeriesViewSupported(series: FolderSeriesItem | null | undefine
   if (viewType === 'PET') {
     return Boolean(series && hasRenderablePixelGrid(series) && !isTagPreferredSeries(series) && isPetSeries(series))
   }
-  if (viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout') {
+  if (viewType === 'Stack' || viewType === 'Montage' || viewType === 'CompareStack' || viewType === 'Layout') {
     return Boolean(series && hasRenderablePixelGrid(series) && !isTagPreferredSeries(series))
   }
   return false

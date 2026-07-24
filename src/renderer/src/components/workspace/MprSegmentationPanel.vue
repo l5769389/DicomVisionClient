@@ -823,6 +823,10 @@ function getVoiMetricRows(sphere: MprVoiSphere): Array<{ key: string; label: str
 function formatEffectiveThreshold(region: MprThresholdRegion): string {
   return formatMetric(region.stats?.effectiveThresholdHu ?? region.thresholdHu)
 }
+
+function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['thresholdMode']): boolean {
+  return region.thresholdMode === mode
+}
 </script>
 
 <template>
@@ -836,9 +840,9 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
     ]"
     :style="panelRootStyle"
   >
-    <div class="-mx-3 mb-2.5 flex items-center justify-between gap-3 rounded-t-xl border-b border-white/10 bg-white/[0.055] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(0,0,0,0.22)]">
+    <div class="mpr-segmentation-panel__chrome -mx-3 mb-2.5 flex items-center justify-between gap-3 rounded-t-xl border-b border-white/10 bg-white/[0.055] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(0,0,0,0.22)]">
       <div
-        class="flex min-w-0 flex-1 select-none items-center gap-2"
+        class="mpr-segmentation-panel__heading flex min-w-0 flex-1 select-none items-center gap-2"
         :class="props.embedded ? '' : 'cursor-move'"
         :data-testid="props.embedded ? undefined : 'mpr-segmentation-panel-drag-handle'"
         @pointerdown="beginPanelDrag"
@@ -851,11 +855,11 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             <span class="h-1 w-1 rounded-full bg-current"></span>
           </span>
         </span>
-        <div class="min-w-0">
+        <div class="mpr-segmentation-panel__heading-copy min-w-0">
           <div v-if="!props.embedded" class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--theme-text-muted)]">{{ panelCopy.eyebrow }}</div>
           <div class="mt-0.5 flex min-w-0 items-center gap-2">
             <span
-              class="leading-4 text-[var(--theme-text-primary)]"
+              class="mpr-segmentation-panel__heading-title leading-4 text-[var(--theme-text-primary)]"
               :class="props.embedded ? 'text-[13px] font-semibold' : 'truncate text-[12px] font-medium'"
             >
               {{ props.embedded ? panelCopy.eyebrow : panelCopy.title }}
@@ -871,7 +875,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           </div>
         </div>
       </div>
-      <div class="flex shrink-0 items-center gap-2">
+      <div class="mpr-segmentation-panel__top-actions flex shrink-0 items-center gap-2">
         <input
           ref="importInputRef"
           class="hidden"
@@ -881,9 +885,10 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           @change="handleImportFileChange"
         />
         <button
-          class="inline-flex h-8 items-center gap-2 px-0 text-[11px] font-semibold transition"
+          class="mpr-segmentation-panel__preview-toggle inline-flex h-8 items-center gap-2 px-0 text-[11px] font-semibold transition"
           :class="displayedConfig.enabled ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
           type="button"
+          :title="panelCopy.preview"
           :aria-pressed="displayedConfig.enabled"
           @click="emitPatch({ enabled: !displayedConfig.enabled }, 'end')"
         >
@@ -896,7 +901,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               :class="displayedConfig.enabled ? 'left-[13px]' : 'left-0.5 opacity-70'"
             ></span>
           </span>
-          <span>{{ panelCopy.preview }}</span>
+          <span class="mpr-segmentation-panel__preview-label">{{ panelCopy.preview }}</span>
         </button>
         <button
           class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] text-[var(--theme-text-secondary)] transition hover:border-[var(--theme-border-strong)] hover:text-[var(--theme-text-primary)]"
@@ -931,30 +936,32 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
 
     <div
       v-if="props.embedded"
-      class="mb-2 grid grid-cols-2 gap-1 rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] p-1"
+      class="mpr-segmentation-panel__mode-tabs mb-2 grid grid-cols-2 gap-1 rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] p-1"
       data-testid="mpr-segmentation-mode-tabs"
     >
       <button
         type="button"
-        class="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-semibold transition"
+        class="mpr-segmentation-panel__mode-tab inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-semibold transition"
         :class="embeddedMode === 'segmentation:threshold' ? 'bg-[var(--theme-accent)] text-white shadow-sm' : 'text-[var(--theme-text-secondary)] hover:bg-[var(--theme-hover-surface)] hover:text-[var(--theme-text-primary)]'"
+        :title="isZh ? '阈值分割' : 'Threshold'"
         data-testid="mpr-segmentation-mode-threshold"
         @click="selectSegmentationMode('segmentation:threshold')"
       >
         <AppIcon name="segmentation-threshold" :size="14" />
-        <span>{{ isZh ? '阈值分割' : 'Threshold' }}</span>
-        <span class="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{{ regions.length }}</span>
+        <span class="mpr-segmentation-panel__mode-label">{{ isZh ? '阈值分割' : 'Threshold' }}</span>
+        <span class="mpr-segmentation-panel__mode-count rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{{ regions.length }}</span>
       </button>
       <button
         type="button"
-        class="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-semibold transition"
+        class="mpr-segmentation-panel__mode-tab inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-semibold transition"
         :class="embeddedMode === 'segmentation:voi' ? 'bg-[var(--theme-accent)] text-white shadow-sm' : 'text-[var(--theme-text-secondary)] hover:bg-[var(--theme-hover-surface)] hover:text-[var(--theme-text-primary)]'"
+        title="VOI"
         data-testid="mpr-segmentation-mode-voi"
         @click="selectSegmentationMode('segmentation:voi')"
       >
         <AppIcon name="segmentation-voi" :size="14" />
-        <span>VOI</span>
-        <span class="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{{ voiSpheres.length }}</span>
+        <span class="mpr-segmentation-panel__mode-label">VOI</span>
+        <span class="mpr-segmentation-panel__mode-count rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">{{ voiSpheres.length }}</span>
       </button>
     </div>
 
@@ -990,7 +997,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         :data-testid="`mpr-threshold-select-${region.id}`"
         @click="selectRegion(region.id)"
       >
-        <div class="mpr-segmentation-panel__record-header grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2">
+        <div class="mpr-segmentation-panel__record-header grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-2">
           <button
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition"
             :class="region.enabled ? 'border-cyan-300/45 bg-cyan-400/20 text-cyan-100' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] text-[var(--theme-text-muted)]'"
@@ -1018,7 +1025,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             />
           </label>
           <input
-            class="h-7 min-w-0 rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
+            class="mpr-segmentation-panel__description-input h-7 min-w-0 rounded-md border border-white/10 bg-black/16 px-2 text-[12px] font-semibold text-[var(--theme-text-primary)] outline-none transition placeholder:text-[var(--theme-text-muted)] focus:border-cyan-200/55"
             type="text"
             :aria-label="panelCopy.description"
             :placeholder="descriptionPlaceholder"
@@ -1027,27 +1034,6 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             @click.stop
             @input.stop="updateRegionLabel(region, ($event.target as HTMLInputElement).value)"
           />
-          <div
-            v-if="selectedRegion?.id === region.id"
-            class="mpr-segmentation-panel__record-mode inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5"
-          >
-            <button
-              class="h-6 rounded px-2 text-[11px] font-semibold transition"
-              :class="region.thresholdMode === 'hu' ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
-              type="button"
-              @click.stop="updateThresholdMode(region, 'hu')"
-            >
-              HU
-            </button>
-            <button
-              class="h-6 rounded px-2 text-[11px] font-semibold transition"
-              :class="region.thresholdMode === 'percentile' ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
-              type="button"
-              @click.stop="updateThresholdMode(region, 'percentile')"
-            >
-              %
-            </button>
-          </div>
           <button
             class="mpr-segmentation-panel__record-delete mpr-segmentation-panel__icon-action mpr-segmentation-panel__icon-action--danger"
             type="button"
@@ -1086,11 +1072,29 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         >
           <div
             v-if="region.thresholdMode === 'percentile'"
-            class="grid grid-cols-[4rem_1fr_4.5rem] items-center gap-2"
+            class="mpr-segmentation-panel__adjust-row mpr-segmentation-panel__adjust-row--threshold"
           >
-            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.percent }}</span>
+            <span class="mpr-segmentation-panel__adjust-label text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.percent }}</span>
+            <div class="mpr-segmentation-panel__record-mode inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5">
+              <button
+                class="h-6 rounded px-2 text-[11px] font-semibold transition"
+                :class="isThresholdMode(region, 'hu') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                type="button"
+                @click.stop="updateThresholdMode(region, 'hu')"
+              >
+                HU
+              </button>
+              <button
+                class="h-6 rounded px-2 text-[11px] font-semibold transition"
+                :class="isThresholdMode(region, 'percentile') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                type="button"
+                @click.stop="updateThresholdMode(region, 'percentile')"
+              >
+                %
+              </button>
+            </div>
             <input
-              class="w-full accent-[var(--theme-accent)]"
+              class="mpr-segmentation-panel__adjust-slider"
               type="range"
               min="0"
               max="100"
@@ -1100,7 +1104,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               @change.stop="updateThresholdPercentile(region, ($event.target as HTMLInputElement).value, 'end')"
             />
             <input
-              class="rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
+              class="mpr-segmentation-panel__adjust-input rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
               type="number"
               min="0"
               max="100"
@@ -1112,11 +1116,29 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
           </div>
           <div
             v-else
-            class="grid grid-cols-[4rem_1fr_4.5rem] items-center gap-2"
+            class="mpr-segmentation-panel__adjust-row mpr-segmentation-panel__adjust-row--threshold"
           >
-            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">HU</span>
+            <span class="mpr-segmentation-panel__adjust-label text-[12px] font-semibold text-[var(--theme-text-secondary)]">HU</span>
+            <div class="mpr-segmentation-panel__record-mode inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5">
+              <button
+                class="h-6 rounded px-2 text-[11px] font-semibold transition"
+                :class="isThresholdMode(region, 'hu') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                type="button"
+                @click.stop="updateThresholdMode(region, 'hu')"
+              >
+                HU
+              </button>
+              <button
+                class="h-6 rounded px-2 text-[11px] font-semibold transition"
+                :class="isThresholdMode(region, 'percentile') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                type="button"
+                @click.stop="updateThresholdMode(region, 'percentile')"
+              >
+                %
+              </button>
+            </div>
             <input
-              class="w-full accent-[var(--theme-accent)]"
+              class="mpr-segmentation-panel__adjust-slider"
               type="range"
               :min="MPR_SEGMENTATION_HU_LIMITS.min"
               :max="MPR_SEGMENTATION_HU_LIMITS.max"
@@ -1126,7 +1148,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               @change.stop="updateThreshold(region, ($event.target as HTMLInputElement).value, 'end')"
             />
             <input
-              class="rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
+              class="mpr-segmentation-panel__adjust-input rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
               type="number"
               :min="MPR_SEGMENTATION_HU_LIMITS.min"
               :max="MPR_SEGMENTATION_HU_LIMITS.max"
@@ -1137,10 +1159,10 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
             />
           </div>
 
-          <div class="grid grid-cols-[4rem_1fr_4.5rem_1.75rem] items-center gap-2">
-            <span class="text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.depth }}</span>
+          <div class="mpr-segmentation-panel__adjust-row mpr-segmentation-panel__adjust-row--with-unit">
+            <span class="mpr-segmentation-panel__adjust-label text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.depth }}</span>
             <input
-              class="w-full accent-[var(--theme-accent)]"
+              class="mpr-segmentation-panel__adjust-slider"
               type="range"
               :min="MPR_SEGMENTATION_DEPTH_LIMITS.min"
               :max="MPR_SEGMENTATION_DEPTH_LIMITS.max"
@@ -1150,7 +1172,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               @change.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'end')"
             />
             <input
-              class="rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
+              class="mpr-segmentation-panel__adjust-input rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
               type="number"
               :min="MPR_SEGMENTATION_DEPTH_LIMITS.min"
               :max="MPR_SEGMENTATION_DEPTH_LIMITS.max"
@@ -1159,7 +1181,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
               @input.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'move')"
               @change.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'end')"
             />
-            <span class="text-[11px] font-semibold text-[var(--theme-text-muted)]">mm</span>
+            <span class="mpr-segmentation-panel__adjust-unit text-[11px] font-semibold text-[var(--theme-text-muted)]">mm</span>
           </div>
         </div>
       </div>
@@ -1267,7 +1289,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         @click="clearCurrentModeItems"
       >
         <AppIcon :name="currentModeClearIcon" :size="14" />
-        <span>{{ currentModeClearLabel }}</span>
+        <span class="mpr-segmentation-panel__clear-label">{{ currentModeClearLabel }}</span>
       </button>
       <button
         class="mpr-segmentation-panel__clear-button mpr-segmentation-panel__clear-button--danger"
@@ -1277,7 +1299,7 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
         @click="clearAll"
       >
         <AppIcon name="trash" :size="14" />
-        <span>{{ panelCopy.clearAll }}</span>
+        <span class="mpr-segmentation-panel__clear-label">{{ panelCopy.clearAll }}</span>
       </button>
     </div>
 
@@ -1486,6 +1508,122 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
   container-type: inline-size;
 }
 
+.mpr-segmentation-panel__chrome,
+.mpr-segmentation-panel__heading,
+.mpr-segmentation-panel__heading-copy,
+.mpr-segmentation-panel__mode-tab {
+  min-width: 0;
+}
+
+.mpr-segmentation-panel__heading-copy {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.mpr-segmentation-panel__heading-title,
+.mpr-segmentation-panel__preview-label,
+.mpr-segmentation-panel__mode-label,
+.mpr-segmentation-panel__clear-label,
+.mpr-segmentation-panel__metric-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpr-segmentation-panel__heading-title,
+.mpr-segmentation-panel__preview-label,
+.mpr-segmentation-panel__mode-label {
+  min-width: 0;
+}
+
+.mpr-segmentation-panel__top-actions {
+  max-width: 72%;
+}
+
+.mpr-segmentation-panel__preview-toggle {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.mpr-segmentation-panel__preview-label {
+  max-width: 4.5rem;
+}
+
+.mpr-segmentation-panel__mode-tab {
+  overflow: hidden;
+}
+
+.mpr-segmentation-panel__mode-count {
+  flex-shrink: 0;
+}
+
+.mpr-segmentation-panel__record-header > input {
+  min-width: 0;
+}
+
+.mpr-segmentation-panel__adjust-row {
+  display: grid;
+  grid-template-areas: 'label slider input';
+  grid-template-columns: minmax(2.25rem, 3.5rem) minmax(6rem, 1fr) minmax(3.5rem, 4.5rem);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mpr-segmentation-panel__adjust-row--with-unit {
+  grid-template-areas: 'label slider input unit';
+  grid-template-columns: minmax(2.25rem, 3.5rem) minmax(6rem, 1fr) minmax(3.5rem, 4.5rem) auto;
+}
+
+.mpr-segmentation-panel__adjust-row--threshold {
+  grid-template-areas: 'label mode slider input';
+  grid-template-columns: minmax(2.25rem, 3.5rem) auto minmax(6rem, 1fr) minmax(3.5rem, 4.5rem);
+}
+
+.mpr-segmentation-panel__adjust-label {
+  grid-area: label;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpr-segmentation-panel__adjust-slider {
+  grid-area: slider;
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--theme-accent);
+}
+
+.mpr-segmentation-panel__adjust-input {
+  grid-area: input;
+  width: 100%;
+  min-width: 0;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.mpr-segmentation-panel__adjust-input::-webkit-outer-spin-button,
+.mpr-segmentation-panel__adjust-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.mpr-segmentation-panel__adjust-unit {
+  grid-area: unit;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.mpr-segmentation-panel__record-mode {
+  grid-area: mode;
+}
+
+:global(:root[data-theme="clinical-light"]) .mpr-segmentation-panel__adjust-input {
+  background: color-mix(in srgb, var(--theme-surface-card) 92%, #ffffff);
+  border-color: color-mix(in srgb, var(--theme-border-soft) 82%, var(--theme-accent));
+  color: var(--theme-text-primary);
+}
+
 .mpr-segmentation-panel--mobile {
   height: 100%;
   min-height: 0;
@@ -1534,6 +1672,151 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
   background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
 }
 
+@container (max-width: 360px) {
+  .mpr-segmentation-panel__chrome {
+    gap: 0.5rem;
+  }
+
+  .mpr-segmentation-panel__top-actions {
+    gap: 0.25rem;
+    max-width: 68%;
+  }
+
+  .mpr-segmentation-panel__preview-label {
+    max-width: 3.25rem;
+  }
+
+  .mpr-segmentation-panel__mode-tab {
+    gap: 0.375rem;
+    padding-inline: 0.375rem;
+  }
+
+  .mpr-segmentation-panel__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: 0;
+  }
+
+  .mpr-segmentation-panel__metric-cell {
+    padding-inline: 0.5rem;
+  }
+
+  .mpr-segmentation-panel__adjust-row {
+    grid-template-columns: minmax(1.875rem, 2.75rem) minmax(4.75rem, 1fr) minmax(3.25rem, 4rem);
+    gap: 0.375rem;
+  }
+
+  .mpr-segmentation-panel__adjust-row--with-unit {
+    grid-template-columns: minmax(1.875rem, 2.75rem) minmax(4.75rem, 1fr) minmax(3.25rem, 4rem) auto;
+  }
+
+  .mpr-segmentation-panel__adjust-row--threshold {
+    grid-template-areas:
+      'label mode . input'
+      'slider slider slider slider';
+    grid-template-columns: max-content max-content minmax(0, 1fr) minmax(3.25rem, 4.25rem);
+    row-gap: 0.25rem;
+  }
+
+  .mpr-segmentation-panel__adjust-input {
+    padding-inline: 0.45rem;
+  }
+
+  .mpr-segmentation-panel__top-actions > button:not(.mpr-segmentation-panel__preview-toggle) {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .mpr-segmentation-panel__record-header:not(.mpr-segmentation-panel__record-header--voi) {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .mpr-segmentation-panel__record-header:not(.mpr-segmentation-panel__record-header--voi) .mpr-segmentation-panel__description-input {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .mpr-segmentation-panel__record-header:not(.mpr-segmentation-panel__record-header--voi) .mpr-segmentation-panel__record-delete {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}
+
+@container (max-width: 320px) {
+  .mpr-segmentation-panel__top-actions {
+    gap: 0.25rem;
+  }
+
+  .mpr-segmentation-panel__preview-label,
+  .mpr-segmentation-panel__mode-label {
+    display: none;
+  }
+
+  .mpr-segmentation-panel__mode-tab {
+    min-height: 2.25rem;
+    gap: 0.25rem;
+  }
+
+  .mpr-segmentation-panel__footer {
+    gap: 0.375rem;
+  }
+
+  .mpr-segmentation-panel__clear-button {
+    flex: 0 1 50%;
+    min-width: 2.25rem;
+    padding-inline: 0.5rem;
+  }
+
+  .mpr-segmentation-panel__adjust-row {
+    grid-template-areas:
+      'label input'
+      'slider slider';
+    grid-template-columns: minmax(2rem, 1fr) minmax(3.75rem, 5rem);
+    row-gap: 0.25rem;
+  }
+
+  .mpr-segmentation-panel__adjust-row--with-unit {
+    grid-template-areas:
+      'label input unit'
+      'slider slider slider';
+    grid-template-columns: minmax(2rem, 1fr) minmax(3.75rem, 5rem) auto;
+  }
+
+  .mpr-segmentation-panel__adjust-row--threshold {
+    grid-template-areas:
+      'label mode . input'
+      'slider slider slider slider';
+    grid-template-columns: max-content max-content minmax(0, 1fr) minmax(3.25rem, 4rem);
+  }
+
+  .mpr-segmentation-panel__adjust-slider {
+    min-height: 1.375rem;
+  }
+
+  .mpr-segmentation-panel__top-actions > button:not(.mpr-segmentation-panel__preview-toggle) {
+    width: 1.625rem;
+    height: 1.625rem;
+  }
+}
+
+@container (max-width: 270px) {
+  .mpr-segmentation-panel__clear-label {
+    display: none;
+  }
+
+  .mpr-segmentation-panel__clear-button {
+    flex-basis: auto;
+    width: 2.25rem;
+  }
+}
+
+@container (max-width: 240px) {
+  .mpr-segmentation-panel__heading-title {
+    display: none;
+  }
+}
+
 @container (max-width: 280px) {
   .mpr-segmentation-panel__metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1544,17 +1827,11 @@ function formatEffectiveThreshold(region: MprThresholdRegion): string {
 @container (max-width: 250px) {
   .mpr-segmentation-panel__record-header:not(.mpr-segmentation-panel__record-header--voi) {
     grid-template-columns: auto auto minmax(0, 1fr) auto;
-    align-items: start;
+    align-items: center;
   }
 
-  .mpr-segmentation-panel__record-mode {
-    grid-column: 3 / -1;
-    grid-row: 2;
-    justify-self: start;
-  }
-
-  .mpr-segmentation-panel__record-delete {
-    grid-column: -2;
+  .mpr-segmentation-panel__record-header:not(.mpr-segmentation-panel__record-header--voi) .mpr-segmentation-panel__record-delete {
+    grid-column: 4;
     grid-row: 1;
   }
 

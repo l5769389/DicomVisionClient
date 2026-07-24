@@ -966,15 +966,11 @@ async function handleContextAction(action: ContextAction): Promise<void> {
     </div>
 
     <div class="tag-view-content min-h-0 flex-1 px-4 py-3">
-      <div v-if="activeTab.tagIsLoading" class="tag-state tag-state--loading grid h-full min-h-[260px] place-items-center rounded-[18px] border border-white/8 bg-white/4 text-sm text-slate-300">
-        {{ copy.loading }}
-      </div>
-
-      <div v-else-if="activeTab.tagLoadError" class="tag-state tag-state--error grid h-full min-h-[260px] place-items-center rounded-[18px] border border-rose-300/18 bg-rose-400/8 px-6 text-center text-sm text-rose-100">
+      <div v-if="activeTab.tagLoadError && !activeTab.tagItems?.length" class="tag-state tag-state--error grid h-full min-h-[260px] place-items-center rounded-[18px] border border-rose-300/18 bg-rose-400/8 px-6 text-center text-sm text-rose-100">
         {{ activeTab.tagLoadError }}
       </div>
 
-      <div v-else-if="activeTab.tagItems?.length" class="tag-table-shell flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div v-else-if="activeTab.tagItems?.length" class="tag-table-shell flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" :aria-busy="activeTab.tagIsLoading || undefined">
         <template v-if="isTreeTagDisplayMode">
           <div class="tag-tree-head grid grid-cols-[minmax(420px,1fr)_90px_minmax(280px,1fr)] gap-4 border-b px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em]">
             <span>{{ isZh ? '树 / 标签 / 名称' : 'Tree / Tag / Name' }}</span>
@@ -1130,9 +1126,11 @@ async function handleContextAction(action: ContextAction): Promise<void> {
         </div>
       </div>
 
-      <div v-else class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center rounded-[18px] border border-dashed border-white/10 bg-white/3 text-sm text-slate-400">
+      <div v-else-if="!activeTab.tagIsLoading" class="tag-state tag-state--empty grid h-full min-h-[260px] place-items-center rounded-[18px] border border-dashed border-white/10 bg-white/3 text-sm text-slate-400">
         {{ copy.empty }}
       </div>
+
+      <div v-else class="h-full min-h-[260px]" aria-busy="true"></div>
     </div>
 
     <VDialog v-model="isTagEditDialogOpen" max-width="660" persistent>

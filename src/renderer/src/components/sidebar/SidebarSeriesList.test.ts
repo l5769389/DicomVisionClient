@@ -402,6 +402,27 @@ describe('SidebarSeriesList compatibility check', () => {
     wrapper.unmount()
   })
 
+  it('opens montage directly from the series context menu', async () => {
+    const wrapper = mountSidebar([createSeries({ instanceCount: 24 })])
+
+    await wrapper.find('.series-card-stub').trigger('contextmenu', {
+      clientX: 20,
+      clientY: 30
+    })
+    await nextTick()
+
+    const montageAction = wrapper
+      .findAll('button.series-context-menu__item')
+      .find((button) => button.text().includes('Series Montage') || button.text().includes('GRID'))
+    expect(montageAction).toBeTruthy()
+    expect(montageAction?.attributes('disabled')).toBeUndefined()
+
+    await montageAction!.trigger('click')
+
+    expect(wrapper.emitted('openSeriesView')).toEqual([['series-1', 'Montage']])
+    wrapper.unmount()
+  })
+
   it('opens the series source folder from the desktop context menu', async () => {
     const openPathInFileManager = vi.fn().mockResolvedValue(true)
     ;(window as Window & { viewerApi?: unknown }).viewerApi = {

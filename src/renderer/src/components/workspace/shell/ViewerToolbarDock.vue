@@ -94,7 +94,7 @@ const activePanelTool = computed(() => {
 })
 const shouldEmbedResultInActiveTool = computed(() => {
   const panelToolKey = activePanelTool.value?.key
-  return props.resultPanelOpen === true && Boolean(panelToolKey) && panelToolKey === props.resultPanelToolKey
+  return props.resultPanelOpen === true && panelToolKey !== 'measure' && Boolean(panelToolKey) && panelToolKey === props.resultPanelToolKey
 })
 const shouldShowUtilityPanel = computed(() =>
   props.utilityPanelOpen === true && (!activePanelTool.value || activePanelTool.value.key === props.utilityPanelToolKey)
@@ -470,6 +470,8 @@ watch(
 
 <style scoped>
 .viewer-toolbar-dock {
+  --viewer-tool-button-size: 42px;
+  --viewer-tool-radius: 7px;
   container-type: inline-size;
   display: flex;
   flex-direction: column;
@@ -480,13 +482,11 @@ watch(
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 88%, transparent);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 0;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--theme-surface-card-soft) 60%, transparent), color-mix(in srgb, var(--theme-surface-panel-strong-solid) 82%, transparent));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 16px 34px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
   transition:
     width 150ms ease,
     min-width 150ms ease,
@@ -527,7 +527,7 @@ watch(
   gap: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
   overflow: hidden;
-  padding: 6px;
+  padding: 5px;
 }
 
 .viewer-toolbar-dock--collapsed .viewer-toolbar-dock__tools-region {
@@ -546,7 +546,7 @@ watch(
   grid-template-columns: repeat(auto-fit, minmax(var(--viewer-tool-button-size), 1fr));
   justify-content: stretch;
   align-content: flex-start;
-  gap: 4px;
+  gap: 3px;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: color-mix(in srgb, var(--theme-border-strong) 72%, transparent) transparent;
@@ -616,14 +616,19 @@ watch(
 }
 
 @container (max-width: 220px) {
+  .viewer-toolbar-dock__body {
+    --viewer-tool-button-size: 40px;
+    --viewer-tool-radius: 7px;
+  }
+
   .viewer-toolbar-dock__tools-region {
     max-height: min(480px, 64vh);
-    padding: 5px;
+    padding: 4px;
   }
 
   .viewer-toolbar-dock__tools {
     grid-template-columns: repeat(auto-fit, minmax(var(--viewer-tool-button-size), 1fr));
-    gap: 4px;
+    gap: 3px;
   }
 
   .viewer-toolbar-dock__tool-group {
@@ -635,6 +640,17 @@ watch(
     min-width: var(--viewer-tool-button-size);
     height: var(--viewer-tool-button-size);
     border-radius: var(--viewer-tool-radius);
+  }
+}
+
+@container (max-width: 190px) {
+  .viewer-toolbar-dock__body {
+    --viewer-tool-button-size: 38px;
+    --viewer-tool-radius: 6px;
+  }
+
+  .viewer-toolbar-dock__tools-region {
+    padding: 3px;
   }
 }
 
@@ -729,7 +745,6 @@ watch(
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 74%, transparent);
   overflow: hidden;
   padding: 8px;
   transition:
@@ -829,6 +844,11 @@ watch(
 
 .viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--with-actions {
   flex: 1 1 auto;
+}
+
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--measure {
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--fusionPetDisplay {

@@ -5,6 +5,7 @@ import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
 type TimerHandle = ReturnType<typeof window.setTimeout>
 
 type SchedulableViewOperation = Pick<ViewOperationInput, 'actionType' | 'line' | 'opType' | 'previewFeedbackMode'>
+type PreviewFeedbackMode = SchedulableViewOperation['previewFeedbackMode']
 
 interface ScheduledViewOperation<TPayload extends SchedulableViewOperation> {
   operationKey: string
@@ -52,6 +53,26 @@ const FRONTEND_RENDER_MARGIN_MS = 4
 const MATCHED_FEEDBACK_OPERATION_TYPES = new Set<ViewOperationType>([
   ...STACK_DRAG_OPERATIONS
 ])
+
+export function resolveViewDragPreviewFeedbackMode(
+  opType: ViewOperationType,
+  continuousPreviewContext: boolean
+): PreviewFeedbackMode {
+  if (opType === VIEW_OPERATION_TYPES.window) {
+    return 'cadence'
+  }
+  if (
+    continuousPreviewContext &&
+    (
+      opType === VIEW_OPERATION_TYPES.pan ||
+      opType === VIEW_OPERATION_TYPES.zoom ||
+      opType === VIEW_OPERATION_TYPES.rotate3d
+    )
+  ) {
+    return 'cadence'
+  }
+  return undefined
+}
 
 function getOperationQueueKey(operationKey: string, payload: SchedulableViewOperation): string | null {
   if (!INTERACTIVE_MOVE_OPERATION_TYPES.has(payload.opType)) {

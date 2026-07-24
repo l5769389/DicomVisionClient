@@ -13,6 +13,7 @@ import type {
   MeasurementDraft,
   MeasurementDraftPoint,
   MeasurementOverlay,
+  MontageTransformInfo,
   MprLayoutKey,
   MprCrosshairInteractionPayload,
   MprSegmentationConfigActionType,
@@ -22,6 +23,7 @@ import type {
   ViewerLayoutTemplate,
   ViewerTabItem,
   ViewType,
+  WindowLevelInfo,
   WorkspaceReadyPayload
 } from '../../types/viewer'
 import {
@@ -33,12 +35,14 @@ import {
   type AnnotationScreenPoint
 } from '../../composables/annotations/annotationGeometry'
 import { getSmoothCurveSegments } from '../../composables/measurements/measurementGeometry'
+import { isTwoPointLineMeasurement } from '../../composables/measurements/measurementToolRules'
 import { useViewerWorkspacePointer } from '../../composables/measurements/useViewerWorkspacePointer'
 import { filterMeasurementDraftByPreferences, filterMeasurementOverlayByPreferences } from '../../composables/measurements/measurementLabelPreferences'
 import { useViewerWorkspaceShell } from '../../composables/workspace/shell/useViewerWorkspaceShell'
 import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorkspaceHotkeys'
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import ViewerTabStrip from './ViewerTabStrip.vue'
+import AppIcon from '../AppIcon.vue'
 import ViewerToolbar from './shell/ViewerToolbar.vue'
 import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
 import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
@@ -68,11 +72,13 @@ import {
   DicomTagView,
   FourDView,
   LayoutView,
+  MontageView,
   MprView,
   PetCtFusionView,
   StackView,
   VolumeView
 } from './asyncWorkspaceViews'
+import { buildViewportFrameStyle, resolveViewportFrameAspectRatio } from '../../composables/workspace/layout/viewportSizing'
 
 const MprMipConfigPanel = defineAsyncComponent(() => import('./MprMipConfigPanel.vue'))
 const MprSegmentationPanel = defineAsyncComponent(() => import('./MprSegmentationPanel.vue'))
@@ -100,6 +106,7 @@ const props = defineProps<{
   isViewLoading: boolean
   message: string
   selectedSeriesId: string
+  showWindowControls: boolean
   viewerPlatform: 'desktop' | 'web'
   viewerTabs: ViewerTabItem[]
 }>()
@@ -176,10 +183,21 @@ const emit = defineEmits<{
   }]
   fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
+  windowControl: [control: 'minimize' | 'fullscreen' | 'close']
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]
   quickPreviewSeriesDrop: [seriesId: string]
   quickPreviewSelectedSeries: []
-  openSeriesView: [seriesId: string, viewType: ViewType]
+  openSeriesView: [seriesId: string, viewType: ViewType, options?: { montageSliceIndex?: number }]
+  openKeySlice: [seriesId: string, sliceIndex: number]
+  montageStateChange: [payload: {
+    tabKey: string
+    columnCount?: number
+    selectedSliceIndex?: number
+    scrollTop?: number
+    transform?: MontageTransformInfo
+    windowInfo?: WindowLevelInfo
+    commonInfoExpanded?: boolean
+  }]
   openLayoutView: [template: ViewerLayoutTemplate]
   openSettings: [sectionKey?: string]
   layoutSlotDicomDrop: [payload: { tabKey: string; slotId: string; drop: DicomDropInput }]
@@ -198,6 +216,7 @@ const isViewLoadingRef = computed(() => props.isViewLoading)
 const selectedSeriesIdRef = computed(() => props.selectedSeriesId)
 const viewerTabsRef = computed(() => props.viewerTabs)
 const { locale, t, overlayCopy, workspaceExportCopy } = useUiLocale()
+const isZh = computed(() => locale.value === 'zh-CN')
 const {
   exportPreference,
   drawingScopePreference,
@@ -208,6 +227,7 @@ const {
   roiStatOptions,
   setWorkspaceDockPreference,
   viewerToolbarPlacement,
+  viewportAutoFitEnabled,
   viewportCornerInfoPreference,
   workspaceDockPreference
 } = useUiPreferences()
@@ -345,7 +365,7 @@ const {
   emitCompareSyncChange: (payload) => emit('compareSyncChange', payload),
   emitOpenLayoutView: (template) => emit('openLayoutView', template),
   emitViewportWheel: (payload) => emit('viewportWheel', payload),
-  emitOpenSeriesView: (seriesId, viewType) => emit('openSeriesView', seriesId, viewType),
+  emitOpenSeriesView: (seriesId, viewType, openOptions) => emit('openSeriesView', seriesId, viewType, openOptions),
   exportCurrentView: (format, viewportKey) => {
     void handleExportCurrentView(format, viewportKey)
   },
@@ -410,6 +430,17 @@ const activeMprLayoutKey = computed(() => {
   }
   return selectedLayout ?? mprDefaultLayoutKey.value ?? DEFAULT_MPR_LAYOUT_KEY
 })
+const viewportFrameAspectRatio = computed(() =>
+  resolveViewportFrameAspectRatio(activeTabRef.value, activeMprLayoutKey.value)
+)
+const isViewportFrameAutoFit = computed(() =>
+  viewportAutoFitEnabled.value ||
+  activeTabRef.value?.viewType === 'Tag' ||
+  activeTabRef.value?.viewType === '4D'
+)
+const viewportFrameStyle = computed(() =>
+  buildViewportFrameStyle(isViewportFrameAutoFit.value, viewportFrameAspectRatio.value)
+)
 
 const isVolumeConfigPanelAvailable = computed(() => {
   if (!activeTabRef.value) {
@@ -688,7 +719,7 @@ function drawMeasurements(context: CanvasRenderingContext2D, measurements: Measu
     context.lineWidth = 5
 
     const drawShape = (): void => {
-      if (measurement.toolType === 'line' && points.length >= 2) {
+      if (isTwoPointLineMeasurement(measurement.toolType) && points.length >= 2) {
         context.beginPath()
         context.moveTo(points[0].x, points[0].y)
         context.lineTo(points[1].x, points[1].y)
@@ -2466,7 +2497,7 @@ watch(
 )
 
 watch(
-  () => [viewerToolbarPlacement.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
+  () => [viewerToolbarPlacement.value, viewportAutoFitEnabled.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
   () => {
     void nextTick().then(() => {
       notifyWorkspaceReady()
@@ -2553,7 +2584,37 @@ onBeforeUnmount(() => {
 <template>
   <main
     class="viewer-workspace-shell theme-shell-panel relative min-h-0 min-w-0 overflow-hidden rounded-[24px] border p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_rgba(0,0,0,0.28)]"
+    :style="{ '--workspace-window-controls-reserve': showWindowControls ? '118px' : '0px' }"
   >
+    <div v-if="showWindowControls" class="workspace-window-controls" :aria-label="isZh ? '窗口控制' : 'Window controls'">
+      <button
+        type="button"
+        class="workspace-window-control-button"
+        :aria-label="isZh ? '最小化' : 'Minimize'"
+        :data-tooltip="isZh ? '最小化' : 'Minimize'"
+        @click="emit('windowControl', 'minimize')"
+      >
+        <AppIcon name="minimize" :size="16" />
+      </button>
+      <button
+        type="button"
+        class="workspace-window-control-button"
+        :aria-label="isZh ? '切换全屏' : 'Toggle full screen'"
+        :data-tooltip="isZh ? '切换全屏' : 'Toggle full screen'"
+        @click="emit('windowControl', 'fullscreen')"
+      >
+        <AppIcon name="fullscreen" :size="16" />
+      </button>
+      <button
+        type="button"
+        class="workspace-window-control-button workspace-window-control-button--danger"
+        :aria-label="isZh ? '关闭' : 'Close'"
+        :data-tooltip="isZh ? '关闭' : 'Close'"
+        @click="emit('windowControl', 'close')"
+      >
+        <AppIcon name="close" :size="16" />
+      </button>
+    </div>
     <div
       v-if="!hasSelectedSeries"
       class="viewer-workspace-empty grid h-full place-items-center rounded-[20px] border border-transparent p-8 text-center transition duration-150"
@@ -2612,7 +2673,7 @@ onBeforeUnmount(() => {
         @toggle-tab-strip="toggleTabStripCollapsed"
       />
 
-      <div v-if="isViewLoading" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
+      <div v-if="isViewLoading && activeTab?.viewType !== 'Tag'" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
         <div class="flex items-center gap-3 text-sm text-[var(--theme-text-secondary)]">
           <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]"></span>
           <span>{{ t('loadingView') }}</span>
@@ -2628,8 +2689,7 @@ onBeforeUnmount(() => {
         :style="workspaceContentStyle"
       >
         <div
-          ref="viewportHostRef"
-          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden rounded-[20px] border p-2"
+          class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden p-2"
         >
         <div
           v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && (activeVolumeRenderConfig || activeSurfaceRenderConfig)"
@@ -2676,6 +2736,13 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <div
+          ref="viewportHostRef"
+          class="viewer-viewport-frame-shell"
+          :class="{ 'viewer-viewport-frame-shell--fixed': !isViewportFrameAutoFit }"
+          :style="viewportFrameStyle"
+          :data-viewport-auto-fit="isViewportFrameAutoFit ? 'true' : 'false'"
+        >
         <CompareStackView
           v-if="activeTab.viewType === 'CompareStack'"
           :active-tab="activeTab"
@@ -2777,6 +2844,20 @@ onBeforeUnmount(() => {
           @update-annotation-color="handleAnnotationColorUpdate"
           @update-annotation-size="handleAnnotationSizeUpdate"
           @update-annotation-text="handleAnnotationTextUpdate"
+        />
+
+        <MontageView
+          v-else-if="activeTab.viewType === 'Montage'"
+          :active-tab="activeTab"
+          :active-operation="props.activeOperation"
+          :starred-slice-indexes="getStarredSliceIndexes(activeTab.seriesId)"
+          @open-slice="emit('openKeySlice', $event.seriesId, $event.sliceIndex)"
+          @state-change="emit('montageStateChange', $event)"
+          @toggle-slice-star="toggleSliceStar(activeTab.seriesId, $event.sliceIndex)"
+          @pointer-down="handleViewportPointerDown"
+          @pointer-move="handleViewportPointerMove"
+          @pointer-up="handleViewportPointerUp"
+          @pointer-cancel="handleViewportPointerCancel"
         />
 
         <MprView
@@ -2900,6 +2981,8 @@ onBeforeUnmount(() => {
           :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
           :toolbar-placement="viewerToolbarPlacement"
+          :viewport-auto-fit-enabled="viewportAutoFitEnabled"
+          :viewport-aspect-ratio="viewportFrameAspectRatio ?? 1"
           :result-panel-icon="resultPanelIcon"
           :result-panel-open="activeResultPanelKind === 'mtfCurve'"
           :result-panel-title="resultPanelTitle"
@@ -2960,6 +3043,7 @@ onBeforeUnmount(() => {
           @index-change="emit('tagIndexChange', $event)"
         />
 
+        </div>
         </div>
 
         <div
@@ -3166,6 +3250,119 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.viewer-viewport-frame-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.theme-viewport-surface {
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+
+.viewer-viewport-frame-shell--fixed {
+  width: min(100cqw, calc(100cqh * var(--viewer-fixed-aspect-ratio, 1)));
+  height: min(100cqh, calc(100cqw / var(--viewer-fixed-aspect-ratio, 1)));
+}
+
+.workspace-window-controls {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 1201;
+  display: flex;
+  gap: 4px;
+  box-sizing: border-box;
+  width: auto;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-window-control-button {
+  display: inline-grid;
+  position: relative;
+  width: 32px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-window-control-button:hover {
+  background: color-mix(in srgb, var(--theme-hover-surface) 82%, transparent);
+  color: var(--theme-text-primary);
+}
+
+.workspace-window-control-button--danger:hover {
+  background: color-mix(in srgb, var(--theme-danger-surface) 88%, transparent);
+  color: var(--theme-danger-text);
+}
+
+.workspace-window-control-button:active {
+  transform: scale(0.94);
+}
+
+.workspace-window-control-button::after {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 70;
+  max-width: 154px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-strong) 72%, var(--theme-border-soft));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 98%, transparent);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  color: var(--theme-text-primary);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -3px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  white-space: nowrap;
+}
+
+.workspace-window-control-button:last-child::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-3px);
+}
+
+.workspace-window-control-button:hover::after,
+.workspace-window-control-button:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.workspace-window-control-button:last-child:hover::after,
+.workspace-window-control-button:last-child:focus-visible::after {
+  transform: translateY(0);
+}
+
+.workspace-window-control-button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--theme-accent);
+}
+
 .viewer-workspace-empty.theme-shell-panel-soft {
   border-color: transparent !important;
   background: transparent !important;

@@ -1,4 +1,4 @@
-import { cp, rm } from 'node:fs/promises'
+import { chmod, cp, rm } from 'node:fs/promises'
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -62,5 +62,10 @@ function resolveServerBundlePath(candidatePath) {
 const sourceBundlePath = resolveServerBundlePath(parseArgs().bundlePath)
 await rm(targetBundlePath, { recursive: true, force: true })
 await cp(sourceBundlePath, targetBundlePath, { recursive: true })
+
+const macExecutablePath = resolve(targetBundlePath, 'DicomVisionServer')
+if (existsSync(macExecutablePath)) {
+  await chmod(macExecutablePath, 0o755)
+}
 
 console.log(`Staged server bundle: ${sourceBundlePath} -> ${targetBundlePath}`)

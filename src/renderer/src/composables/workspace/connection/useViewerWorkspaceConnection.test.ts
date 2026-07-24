@@ -59,6 +59,7 @@ function createConnectionHarness() {
     onDisconnected: vi.fn(),
     onReconnecting: vi.fn(),
     onImageUpdate: vi.fn(),
+    onImageMetadataUpdate: vi.fn(),
     onMprStateUpdate: vi.fn(),
     onViewProgress: vi.fn(),
     onHoverInfo: vi.fn(),

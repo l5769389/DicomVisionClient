@@ -97,6 +97,36 @@ function mountTabStrip(viewerTabs: ViewerTabItem[]) {
 }
 
 describe('ViewerTabStrip context menu', () => {
+  it('keeps every tab in the same layout class while changing the active tab', async () => {
+    const wrapper = mountTabStrip([createTab('tab-1', 'Series A'), createTab('tab-2', 'Series B')])
+    const [firstTab, secondTab] = wrapper.findAll('.viewer-tab-item')
+
+    expect(firstTab!.classes()).toContain('viewer-tab-item--active')
+    expect(secondTab!.classes()).toContain('viewer-tab-item--inactive')
+
+    await secondTab!.trigger('click')
+    expect(wrapper.emitted('activateTab')).toEqual([['tab-2']])
+    expect(firstTab!.classes()).toContain('viewer-tab-item')
+    expect(secondTab!.classes()).toContain('viewer-tab-item')
+  })
+
+  it('keeps tab navigation at opposite ends of the strip', async () => {
+    const wrapper = mountTabStrip([createTab('tab-1', 'Series A'), createTab('tab-2', 'Series B')])
+    await wrapper.setProps({ canScrollTabsLeft: true, canScrollTabsRight: true })
+
+    const buttons = wrapper.findAll('.tab-scroll-button.v-btn-stub')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]!.classes()).toContain('tab-scroll-button--left')
+    expect(buttons[1]!.classes()).toContain('tab-scroll-button--right')
+    expect(buttons[0]!.element.compareDocumentPosition(wrapper.find('.tab-strip-scroll').element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.find('.tab-strip-scroll').element.compareDocumentPosition(buttons[1]!.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await buttons[0]!.trigger('click')
+    await buttons[1]!.trigger('click')
+
+    expect(wrapper.emitted('scrollTabs')).toEqual([['left'], ['right']])
+  })
+
   it('emits close for the tab selected by right click', async () => {
     const wrapper = mountTabStrip([createTab('tab-1', 'Series A'), createTab('tab-2', 'Series B')])
 

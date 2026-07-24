@@ -149,6 +149,9 @@ describe('MprSegmentationPanel', () => {
     expect(wrapper.find('.mpr-segmentation-panel__record-header').exists()).toBe(true)
     expect(wrapper.find('.mpr-segmentation-panel__record-header--voi').exists()).toBe(true)
     expect(wrapper.findAll('.mpr-segmentation-panel__record-delete')).toHaveLength(2)
+    expect(wrapper.find('.mpr-segmentation-panel__heading-title').exists()).toBe(true)
+    expect(wrapper.find('.mpr-segmentation-panel__preview-toggle').exists()).toBe(true)
+    expect(wrapper.find('.mpr-segmentation-panel__preview-label').exists()).toBe(true)
   })
 
   it('emits depth move updates immediately and preserves the draft through stale props', async () => {
@@ -375,6 +378,8 @@ describe('MprSegmentationPanel', () => {
     expect(wrapper.find('[data-testid="mpr-segmentation-mode-tabs"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mpr-segmentation-mode-threshold"]').text()).toContain('阈值分割')
     expect(wrapper.find('[data-testid="mpr-segmentation-mode-voi"]').text()).toContain('VOI')
+    expect(wrapper.find('[data-testid="mpr-segmentation-mode-threshold"] .mpr-segmentation-panel__mode-label').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mpr-segmentation-mode-threshold"] .mpr-segmentation-panel__mode-count').text()).toBe('1')
     expect(wrapper.find('[data-testid="mpr-threshold-select-r1"]').isVisible()).toBe(true)
 
     await wrapper.find('[data-testid="mpr-segmentation-mode-voi"]').trigger('click')
@@ -408,10 +413,18 @@ describe('MprSegmentationPanel', () => {
     expect(clearAll.classes()).toContain('mpr-segmentation-panel__clear-button--danger')
     expect(clearAll.attributes('class')).not.toContain('text-rose')
     expect(clearAll.attributes('class')).not.toContain('border-white')
+    expect(clearCurrent.find('.mpr-segmentation-panel__clear-label').exists()).toBe(true)
+    expect(clearAll.find('.mpr-segmentation-panel__clear-label').exists()).toBe(true)
     expect(wrapper.get('[data-testid="mpr-segmentation-record-list"]').classes()).toContain('overflow-y-auto')
     expect(wrapper.get('[data-testid="mpr-threshold-metrics-r1"]').classes()).toContain('mpr-segmentation-panel__metrics')
     expect(wrapper.get('[data-testid="mpr-threshold-metrics-r1"]').find('.mpr-segmentation-panel__metric-label').exists()).toBe(true)
     expect(wrapper.get('[data-testid="mpr-threshold-metrics-r1"]').find('.mpr-segmentation-panel__metric-value').exists()).toBe(true)
+    expect(wrapper.findAll('.mpr-segmentation-panel__adjust-row')).toHaveLength(2)
+    expect(wrapper.find('.mpr-segmentation-panel__adjust-row--with-unit').exists()).toBe(true)
+    expect(wrapper.find('.mpr-segmentation-panel__adjust-row--threshold .mpr-segmentation-panel__record-mode').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="mpr-threshold-label-r1"]').classes()).toContain('mpr-segmentation-panel__description-input')
+    expect(wrapper.find('.mpr-segmentation-panel__adjust-slider').exists()).toBe(true)
+    expect(wrapper.find('.mpr-segmentation-panel__adjust-input').exists()).toBe(true)
   })
 
   it('clears only the active mobile segmentation mode and keeps the other mode intact', async () => {

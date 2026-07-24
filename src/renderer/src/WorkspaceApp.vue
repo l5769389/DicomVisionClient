@@ -4,7 +4,7 @@ import { VApp, VMain } from 'vuetify/components'
 import dicomFileIcon from './assets/dicom-action-icons/dicom-file.svg?raw'
 import folderIcon from './assets/dicom-action-icons/open-folder.svg?raw'
 import { useUiLocale } from './composables/ui/useUiLocale'
-import { useUiPreferences } from './composables/ui/useUiPreferences'
+import { useUiPreferences, type AppLocale } from './composables/ui/useUiPreferences'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 import type { DicomDropInput } from './platform/runtime'
 import { isFourDSeriesItem } from './types/viewer'
@@ -106,7 +106,12 @@ const ViewerWorkspace = defineAsyncComponent({
 
 const viewer = useViewerWorkspace()
 const { locale } = useUiLocale()
-const { workspaceDockPreference, setWorkspaceDockPreference } = useUiPreferences()
+const {
+  confirmInitialLocale,
+  hasSelectedInitialLocale,
+  workspaceDockPreference,
+  setWorkspaceDockPreference
+} = useUiPreferences()
 type AppStatusToastTone = 'info' | 'success' | 'warning' | 'error'
 type DicomDropPreviewKind = 'file' | 'folder' | 'mixed'
 const SIDEBAR_MIN_WIDTH = 280
@@ -128,6 +133,7 @@ const isSelectedSeriesFourD = computed(() =>
 )
 const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' && Boolean(window.viewerApi))
 const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Close notification'))
+const shouldShowInitialLocaleDialog = computed(() => !hasSelectedInitialLocale.value)
 const isDicomFileDropActive = ref(false)
 const dicomDropPreviewKind = ref<DicomDropPreviewKind>('file')
 const sidebarPanelRef = ref<{ openSettings?: (sectionKey?: string | null) => void } | null>(null)
@@ -177,6 +183,11 @@ function startSidebarResize(event: PointerEvent): void {
 function openSidebarSettings(sectionKey?: string): void {
   sidebarPanelRef.value?.openSettings?.(sectionKey ?? null)
 }
+
+function handleInitialLocaleSelect(nextLocale: AppLocale): void {
+  confirmInitialLocale(nextLocale)
+}
+
 const dicomDropPreviewEyebrow = computed(() => {
   if (dicomDropPreviewKind.value === 'folder') {
     return isZh.value ? 'DICOM 文件夹' : 'DICOM Folder'
@@ -547,9 +558,11 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @close-tab="viewer.closeTab"
           @close-other-tabs="viewer.closeOtherTabs"
           @open-layout-view="viewer.openLayoutView"
+          @open-key-slice="viewer.openKeySlice"
           @layout-slot-dicom-drop="handleLayoutSlotDicomDrop"
           @layout-slot-series-drop="handleLayoutSlotSeriesDrop"
           @open-series-view="viewer.openSeriesView"
+          @montage-state-change="viewer.handleMontageStateChange"
           @set-active-operation="viewer.setActiveOperation"
           @hover-viewport-change="viewer.handleHoverViewportChange"
           @trigger-view-action="viewer.triggerViewAction"
@@ -594,6 +607,36 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           <div class="dicom-file-drop-overlay__eyebrow">{{ dicomDropPreviewEyebrow }}</div>
           <div class="dicom-file-drop-overlay__title">{{ dicomDropPreviewTitle }}</div>
           <div class="dicom-file-drop-overlay__hint">{{ dicomDropPreviewHint }}</div>
+        </div>
+      </div>
+      <div
+        v-if="shouldShowInitialLocaleDialog"
+        class="app-initial-locale"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="app-initial-locale-title"
+      >
+        <div class="app-initial-locale__panel">
+          <div class="app-initial-locale__mark">DV</div>
+          <div class="app-initial-locale__eyebrow">DicomVision</div>
+          <h2 id="app-initial-locale-title" class="app-initial-locale__title">
+            选择界面语言 / Choose language
+          </h2>
+          <p class="app-initial-locale__desc">
+            首次启动前请选择界面语言。你之后也可以在设置中随时修改。
+            <br />
+            Choose the interface language. You can change it later in Settings.
+          </p>
+          <div class="app-initial-locale__actions">
+            <button type="button" class="app-initial-locale__button" @click="handleInitialLocaleSelect('zh-CN')">
+              <span>简体中文</span>
+              <small>推荐中文用户使用</small>
+            </button>
+            <button type="button" class="app-initial-locale__button" @click="handleInitialLocaleSelect('en-US')">
+              <span>English</span>
+              <small>Use English interface</small>
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -963,6 +1006,119 @@ const handleDicomFileDrop = (event: DragEvent): void => {
     inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent),
     0 30px 78px rgba(0, 0, 0, 0.46);
   text-align: center;
+}
+
+.app-initial-locale {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--theme-accent) 18%, transparent), transparent 34%),
+    var(--theme-overlay-backdrop);
+  -webkit-app-region: no-drag;
+  backdrop-filter: blur(8px);
+}
+
+.app-initial-locale__panel {
+  width: min(520px, calc(100vw - 48px));
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border-soft));
+  border-radius: 26px;
+  padding: 30px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-surface-panel-strong-solid) 95%, white 3%),
+      color-mix(in srgb, var(--theme-surface-panel-solid) 94%, black 5%)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 30px 90px rgba(0, 0, 0, 0.52);
+  text-align: center;
+}
+
+.app-initial-locale__mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  margin: 0 auto 14px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 46%, var(--theme-border-soft));
+  border-radius: 16px;
+  color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 14%, transparent);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.app-initial-locale__eyebrow {
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.app-initial-locale__title {
+  margin: 8px 0 0;
+  color: var(--theme-text-primary);
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.app-initial-locale__desc {
+  margin: 12px auto 22px;
+  color: var(--theme-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.app-initial-locale__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.app-initial-locale__button {
+  display: grid;
+  gap: 5px;
+  min-height: 84px;
+  align-content: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 18px;
+  padding: 14px;
+  color: var(--theme-text-primary);
+  background: color-mix(in srgb, var(--theme-surface-card) 88%, transparent);
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.app-initial-locale__button:hover,
+.app-initial-locale__button:focus-visible {
+  border-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-card));
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.app-initial-locale__button span {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.app-initial-locale__button small {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .app-initial-locale__actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .dicom-file-drop-overlay__icon {

@@ -23,6 +23,7 @@ import type {
   ViewerTabItem
 } from '../../../types/viewer'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
+import { buildViewportFrameStyle } from '../../../composables/workspace/layout/viewportSizing'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -51,6 +52,8 @@ const props = defineProps<{
   toolbarIconSize: number
   toggleIconSize: number
   toolbarPlacement?: 'top' | 'right'
+  viewportAutoFitEnabled?: boolean
+  viewportAspectRatio?: number
   activeMprMipConfig?: MprMipConfig | null
   isMprMipPanelOpen?: boolean
   isSlicePlaybackPaused?: boolean
@@ -104,6 +107,10 @@ const fps = ref(props.activeTab.fourDPlaybackFps ?? 2)
 const { viewerCopy } = useUiLocale()
 const copy = computed(() => viewerCopy.value)
 const isRightToolbarLayout = computed(() => props.toolbarPlacement === 'right')
+const viewportFrameAutoFit = computed(() => props.viewportAutoFitEnabled !== false)
+const viewportFrameStyle = computed(() =>
+  buildViewportFrameStyle(viewportFrameAutoFit.value, props.viewportAspectRatio ?? 1)
+)
 
 const phaseItems = computed<FourDPhaseItem[]>(() => {
   if (props.activeTab.fourDPhaseItems?.length) {
@@ -401,7 +408,13 @@ watch(
       class="four-d-content grid min-h-0 gap-2"
       :class="isRightToolbarLayout ? 'four-d-content--right' : 'four-d-content--top'"
     >
-      <div class="relative min-h-0">
+      <div class="four-d-viewport-host min-h-0">
+        <div
+          class="four-d-viewport-frame relative min-h-0"
+          :class="{ 'four-d-viewport-frame--fixed': !viewportFrameAutoFit }"
+          :style="viewportFrameStyle"
+          data-imaging-stage="true"
+        >
         <MprView
           :active-tab="activeTab"
           :active-operation="interactionLocked ? '' : activeOperation"
@@ -455,6 +468,7 @@ watch(
             </div>
             <div class="four-d-state-card__meta">{{ interactionLockMeta }}</div>
           </div>
+        </div>
         </div>
       </div>
 
@@ -571,6 +585,24 @@ watch(
 
 .four-d-content--right {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.four-d-viewport-host {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  container-type: size;
+}
+
+.four-d-viewport-frame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.four-d-viewport-frame--fixed {
+  width: min(100cqw, calc(100cqh * var(--viewer-fixed-aspect-ratio, 1)));
+  height: min(100cqh, calc(100cqw / var(--viewer-fixed-aspect-ratio, 1)));
 }
 
 @media (max-width: 1280px) {

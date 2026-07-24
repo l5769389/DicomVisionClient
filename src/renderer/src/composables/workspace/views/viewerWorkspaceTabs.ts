@@ -771,6 +771,9 @@ export function getViewTypeDisplayLabel(viewType: ViewType, locale: 'zh-CN' | 'e
   if (viewType === 'Stack' || viewType === 'PET') {
     return '2D'
   }
+  if (viewType === 'Montage') {
+    return locale === 'zh-CN' ? '序列平铺' : 'Series Montage'
+  }
   if (viewType === 'CompareStack') {
     return locale === 'zh-CN' ? '2D 对比' : '2D Compare'
   }
@@ -891,7 +894,18 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fourDPhaseCache: {},
     fourDIsPlaying: false,
     fourDIsPreloading: false,
-    imageUpdateRevisions: {}
+    imageUpdateRevisions: {},
+    montageColumnCount: 4,
+    montageSelectedSliceIndex: 0,
+    montageSliceCount: 0,
+    montageScrollTop: 0,
+    montageScrollRequestRevision: 0,
+    montageTransformState: {
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0
+    },
+    montageCommonInfoExpanded: false
   }
 }
 

@@ -55,6 +55,7 @@ const DEIDENTIFY_EXPORT_ROOT = 'DicomVisionDeidentified'
 
 type SeriesContextAction =
   | 'Stack'
+  | 'Montage'
   | 'MPR'
   | '3D'
   | '4D'
@@ -351,6 +352,13 @@ const contextMenuActions = computed<SeriesContextMenuActionItem[]>(() => [
     disabled: !isPrimaryTwoDimensionalViewSupported(contextSeries.value)
   },
   {
+    key: 'Montage' as const,
+    title: isZh.value ? '序列平铺' : 'Series Montage',
+    subtitle: isZh.value ? '连续显示全部二维切片' : 'Tile all 2D slices',
+    badge: isZh.value ? '平铺' : 'GRID',
+    disabled: !isPrimaryTwoDimensionalViewSupported(contextSeries.value)
+  },
+  {
     key: 'MPR' as const,
     title: 'MPR',
     subtitle: isZh.value ? '多平面重建' : 'Multi-planar reconstruction',
@@ -547,7 +555,7 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   if (!series) {
     return
   }
-  if (action === 'Stack' && !isPrimaryTwoDimensionalViewSupported(series)) {
+  if ((action === 'Stack' || action === 'Montage') && !isPrimaryTwoDimensionalViewSupported(series)) {
     return
   }
   if ((action === 'MPR' || action === '3D' || action === '4D' || action === 'Tag') && !isSeriesViewSupported(series, action)) {
@@ -1057,6 +1065,7 @@ function handleSeriesDragEnd(): void {
                 :key="action.key"
                 class="series-context-menu__item h-auto! w-full! min-w-0! justify-start! rounded-[14px]! px-0! py-0! normal-case! tracking-normal!"
                 :class="{ 'series-context-menu__item--danger': action.danger, 'series-context-menu__item--disabled': action.disabled }"
+                :data-testid="`series-context-${String(action.key).toLowerCase()}`"
                 variant="flat"
                 :ripple="false"
                 :disabled="action.disabled"

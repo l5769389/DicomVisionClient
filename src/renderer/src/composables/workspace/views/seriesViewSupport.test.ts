@@ -40,6 +40,7 @@ describe('series view support', () => {
     expect(isSeriesVolumeViewSupported(series)).toBe(true)
     expect(isSeriesViewSupported(series, '3D')).toBe(true)
     expect(isSeriesViewSupported(series, 'MPR')).toBe(true)
+    expect(isSeriesViewSupported(series, 'Montage')).toBe(true)
   })
 
   it('disables 3D and MPR for single-frame report-like images', () => {
@@ -67,6 +68,7 @@ describe('series view support', () => {
     })
 
     expect(isSeriesViewSupported(series, 'Stack')).toBe(false)
+    expect(isSeriesViewSupported(series, 'Montage')).toBe(false)
     expect(isSeriesViewSupported(series, '3D')).toBe(false)
     expect(isSeriesViewSupported(series, 'MPR')).toBe(false)
     expect(isSeriesViewSupported(series, 'Tag')).toBe(true)

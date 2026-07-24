@@ -178,6 +178,27 @@ function createFourDProps(overrides: Partial<InstanceType<typeof FourDView>['$pr
 }
 
 describe('FourDView', () => {
+  it('constrains only the imaging stage when window adaptation is disabled', () => {
+    const wrapper = mount(FourDView, {
+      props: {
+        ...createFourDProps({
+          viewportAutoFitEnabled: false,
+          viewportAspectRatio: 3
+        })
+      },
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    const stage = wrapper.find('[data-imaging-stage="true"]')
+    expect(stage.classes()).toContain('four-d-viewport-frame--fixed')
+    expect(stage.attributes('style')).toContain('--viewer-fixed-aspect-ratio: 3')
+    expect(wrapper.find('.four-d-phase-runtime').exists()).toBe(true)
+    expect(wrapper.find('.four-d-phase-runtime').element.closest('[data-imaging-stage="true"]')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('requests backend playback start when play is toggled on', async () => {
     const wrapper = mount(FourDView, {
       props: {

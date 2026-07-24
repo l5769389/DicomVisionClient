@@ -88,4 +88,48 @@ describe('useViewerWorkspaceShell', () => {
 
     wrapper.unmount()
   })
+
+  it('reports a dedicated imaging stage instead of 4D peripheral controls', async () => {
+    const readyPayloads: WorkspaceReadyPayload[] = []
+    const activeTab = ref<ViewerTabItem | null>({
+      ...createFusionTab(),
+      key: 'four-d-tab',
+      viewType: '4D'
+    } as ViewerTabItem)
+    const activeViewportKey = ref('mpr-ax')
+
+    const Harness = defineComponent({
+      setup() {
+        const viewportHostRef = ref<HTMLElement | null>(null)
+        useViewerWorkspaceShell({
+          activeTab: computed(() => activeTab.value),
+          activeTabKey: computed(() => activeTab.value?.key ?? ''),
+          activeViewportKey,
+          cleanupPointerInteractions: vi.fn(),
+          closeMenus: vi.fn(),
+          emitWorkspaceReady: (payload) => readyPayloads.push(payload),
+          isViewLoading: computed(() => false),
+          updateDraftMeasurementLabelLines: vi.fn(),
+          viewerTabs: computed(() => activeTab.value ? [activeTab.value] : []),
+          viewportHostRef
+        })
+        return { viewportHostRef }
+      },
+      template: `
+        <div ref="viewportHostRef">
+          <div data-imaging-stage="true">
+            <div data-active-render-surface="true" data-viewport-key="mpr-ax"></div>
+          </div>
+          <div data-testid="timeline"></div>
+        </div>
+      `
+    })
+
+    const wrapper = mount(Harness)
+    await nextTick()
+
+    expect(readyPayloads.at(-1)?.element).toBe(wrapper.find('[data-imaging-stage="true"]').element)
+    expect(readyPayloads.at(-1)?.viewportElements?.['mpr-ax']).toBeDefined()
+    wrapper.unmount()
+  })
 })

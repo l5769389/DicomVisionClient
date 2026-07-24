@@ -1107,6 +1107,12 @@ export interface ViewTransformInfo {
   offsetY?: number | null
 }
 
+export interface MontageTransformInfo {
+  zoom: number
+  offsetX: number
+  offsetY: number
+}
+
 export interface WindowLevelInfo {
   ww: number
   wl: number
@@ -1304,10 +1310,18 @@ export interface ViewerTabItem {
   fourDIsPreloading?: boolean
   loadingProgress?: ViewProgressInfo | null
   imageUpdateRevisions?: Record<string, number>
+  montageColumnCount?: number
+  montageSelectedSliceIndex?: number
+  montageSliceCount?: number
+  montageScrollTop?: number
+  montageScrollRequestRevision?: number
+  montageTransformState?: MontageTransformInfo
+  montageCommonInfoExpanded?: boolean
 }
 
 export type StackViewerTabItem = ViewerTabItem & { viewType: 'Stack' }
 export type PetViewerTabItem = ViewerTabItem & { viewType: 'PET' }
+export type MontageViewerTabItem = ViewerTabItem & { viewType: 'Montage' }
 export type CompareStackViewerTabItem = ViewerTabItem & { viewType: 'CompareStack' }
 export type MprViewerTabItem = ViewerTabItem & { viewType: 'MPR' }
 export type VolumeViewerTabItem = ViewerTabItem & { viewType: '3D' }
@@ -1319,6 +1333,7 @@ export type LayoutViewerTabItem = ViewerTabItem & { viewType: 'Layout' }
 export type DiscriminatedViewerTabItem =
   | StackViewerTabItem
   | PetViewerTabItem
+  | MontageViewerTabItem
   | CompareStackViewerTabItem
   | MprViewerTabItem
   | VolumeViewerTabItem
@@ -1384,4 +1399,4 @@ export interface ViewerLayoutTemplate {
 }
 
 export type ConnectionState = 'idle' | 'starting' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-export type ViewType = 'Stack' | 'PET' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'PETCTFusion' | 'Tag' | 'Layout'
+export type ViewType = 'Stack' | 'PET' | 'Montage' | 'CompareStack' | 'MPR' | '3D' | '4D' | 'PETCTFusion' | 'Tag' | 'Layout'

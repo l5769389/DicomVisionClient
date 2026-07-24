@@ -61,6 +61,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     activeOperation.value = value
   })
   const emitOpenLayoutView = vi.fn()
+  const emitOpenSeriesView = vi.fn()
   const emitTriggerViewAction = vi.fn()
   const emitViewportWheel = vi.fn()
   const exportCurrentView = vi.fn()
@@ -78,7 +79,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
           cleanupPointerInteractions,
           emitCompareSyncChange: vi.fn(),
           emitOpenLayoutView,
-          emitOpenSeriesView: vi.fn(),
+          emitOpenSeriesView,
           emitSetActiveOperation,
           emitTriggerViewAction,
           emitViewportWheel,
@@ -99,6 +100,7 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
     activeViewportKey,
     cleanupPointerInteractions,
     emitOpenLayoutView,
+    emitOpenSeriesView,
     emitSetActiveOperation,
     emitTriggerViewAction,
     emitViewportWheel,
@@ -110,6 +112,46 @@ function mountToolbarHarness(initialTab: ViewerTabItem = create3dTab()) {
 }
 
 describe('useViewerWorkspaceToolbar surface mode', () => {
+  it('opens or focuses montage from 2D at the current slice and limits montage tools', async () => {
+    const harness = mountToolbarHarness(create3dTab({
+      key: 'series-1::stack',
+      title: 'Series 1 / Stack',
+      viewType: 'Stack',
+      viewId: 'stack-view',
+      sliceLabel: '7 / 24'
+    }))
+    await nextTick()
+
+    const montageTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'montage')
+    expect(montageTool?.label).toBe('序列平铺')
+    harness.toolbar.applyTool(montageTool!)
+    expect(harness.emitOpenSeriesView).toHaveBeenCalledWith('series-1', 'Montage', {
+      montageSliceIndex: 6
+    })
+
+    harness.activeTab.value = create3dTab({
+      key: 'series-1::montage',
+      title: 'Series 1 / Montage',
+      viewType: 'Montage',
+      viewId: 'montage-driver'
+    })
+    await nextTick()
+    expect(harness.toolbar.activeTools.value.map((tool) => tool.key)).toEqual([
+      'window',
+      'pan',
+      'zoom',
+      'display',
+      'pseudocolor',
+      'reset'
+    ])
+    expect(
+      harness.toolbar.activeTools.value
+        .find((tool) => tool.key === 'display')
+        ?.options?.map((option) => option.value)
+    ).toEqual(['display:cornerInfo'])
+    harness.wrapper.unmount()
+  })
+
   it('offers alignment angle only for ordinary 2D stack-like views', async () => {
     const preferences = useUiPreferences()
     const previousLocale = preferences.locale.value
@@ -1457,6 +1499,29 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
 
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '350|30' })
     expect(harness.toolbar.stackToolSelections.value.window).toBe('350|30')
+    harness.wrapper.unmount()
+  })
+
+  it('resets montage window to the stored initial window instead of silently no-oping', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::montage',
+      title: 'Series 1 / Montage',
+      viewType: 'Montage',
+      viewId: 'montage-driver',
+      initialWindowInfo: { ww: 400, wl: 40 },
+      currentWindowInfo: { ww: 80, wl: 40 },
+      montageSliceCount: 24,
+      montageSelectedSliceIndex: 0
+    })
+    await nextTick()
+
+    const windowTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'window')!
+    harness.emitTriggerViewAction.mockClear()
+    harness.toolbar.selectToolOption(windowTool, 'window:reset', { keepMenuOpen: true })
+
+    expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({ action: 'windowPreset', value: '400|40' })
+    expect(harness.toolbar.stackToolSelections.value.window).toBe('400|40')
     harness.wrapper.unmount()
   })
 

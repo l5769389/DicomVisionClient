@@ -151,6 +151,17 @@ describe('ViewerToolbarDock', () => {
     stateful.unmount()
   })
 
+  it('keeps the configured icon size independent from the compressed dock button chrome', () => {
+    const wrapper = mountDock({
+      toolbarIconSize: 23
+    })
+
+    const icon = wrapper.get('.viewer-toolbar-dock__button svg')
+    expect(icon.attributes('width')).toBe('23')
+    expect(icon.attributes('height')).toBe('23')
+    expect(icon.attributes('data-icon-name')).toBe('pan')
+  })
+
   it('keeps rotate active while the render-mode panel is open', () => {
     const rotateTool: StackTool = { key: 'rotate3d', label: 'Rotate', icon: 'rotate3d', kind: 'mode' }
     const renderTool: StackTool = {

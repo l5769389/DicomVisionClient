@@ -470,6 +470,8 @@ watch(
 
 <style scoped>
 .viewer-toolbar-dock {
+  --viewer-tool-button-size: 42px;
+  --viewer-tool-radius: 7px;
   container-type: inline-size;
   display: flex;
   flex-direction: column;
@@ -525,7 +527,7 @@ watch(
   gap: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 76%, transparent);
   overflow: hidden;
-  padding: 6px;
+  padding: 5px;
 }
 
 .viewer-toolbar-dock--collapsed .viewer-toolbar-dock__tools-region {
@@ -544,7 +546,7 @@ watch(
   grid-template-columns: repeat(auto-fit, minmax(var(--viewer-tool-button-size), 1fr));
   justify-content: stretch;
   align-content: flex-start;
-  gap: 4px;
+  gap: 3px;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: color-mix(in srgb, var(--theme-border-strong) 72%, transparent) transparent;
@@ -614,14 +616,19 @@ watch(
 }
 
 @container (max-width: 220px) {
+  .viewer-toolbar-dock__body {
+    --viewer-tool-button-size: 40px;
+    --viewer-tool-radius: 7px;
+  }
+
   .viewer-toolbar-dock__tools-region {
     max-height: min(480px, 64vh);
-    padding: 5px;
+    padding: 4px;
   }
 
   .viewer-toolbar-dock__tools {
     grid-template-columns: repeat(auto-fit, minmax(var(--viewer-tool-button-size), 1fr));
-    gap: 4px;
+    gap: 3px;
   }
 
   .viewer-toolbar-dock__tool-group {
@@ -633,6 +640,17 @@ watch(
     min-width: var(--viewer-tool-button-size);
     height: var(--viewer-tool-button-size);
     border-radius: var(--viewer-tool-radius);
+  }
+}
+
+@container (max-width: 190px) {
+  .viewer-toolbar-dock__body {
+    --viewer-tool-button-size: 38px;
+    --viewer-tool-radius: 6px;
+  }
+
+  .viewer-toolbar-dock__tools-region {
+    padding: 3px;
   }
 }
 

@@ -6,6 +6,8 @@ import type {
   MprCrosshairInfo as BackendMprCrosshairInfo,
   MprCursorInfo as BackendMprCursorInfo,
   MprFrameInfo as BackendMprFrameInfo,
+  PetInfo as BackendPetInfo,
+  PetUnitAvailability as BackendPetUnitAvailability,
   MprSegmentationConfig as BackendMprSegmentationConfig,
   MprPlaneInfo as BackendMprPlaneInfo,
   OperationAcceptedResponse as BackendOperationAcceptedResponse,
@@ -187,10 +189,12 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  petPanePseudocolorPreset?: string
   petUnit?: string
   petUnitLabel?: string
   petWindowMin?: number | null
   petWindowMax?: number | null
+  fusionWindowTarget?: 'ct' | 'pet'
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
@@ -231,14 +235,8 @@ export interface ViewerImageLayer {
   style?: Record<string, string>
 }
 
-export interface PetInfo {
-  seriesId: string
-  petUnit?: string
-  petUnitLabel?: string
-  petWindowMin?: number | null
-  petWindowMax?: number | null
-  pseudocolorPreset?: string
-}
+export type PetInfo = BackendPetInfo
+export type PetUnitAvailability = BackendPetUnitAvailability
 
 export type Vec3 = [number, number, number]
 export type Vec4 = [number, number, number, number]
@@ -310,13 +308,36 @@ export interface MprSegmentationVoiBox {
 }
 
 export interface MprThresholdRegionStats {
+  status?: 'ready' | 'empty' | 'error'
+  message?: string | null
+  valueMean?: number | null
+  valueMin?: number | null
+  valueMax?: number | null
+  valueStdDev?: number | null
   huMean: number | null
   huMin: number | null
   huMax: number | null
   huStdDev: number | null
   volumeCm3: number
   sampleCount: number
+  effectiveThresholdValue?: number | null
   effectiveThresholdHu: number | null
+  intensityContext?: MprIntensityContext
+  uptakePeak?: number | null
+  uptakePeakReason?: string | null
+  mtvCm3?: number | null
+  tlg?: number | null
+  tlgAvailable?: boolean
+  tlgReason?: string | null
+}
+
+export interface MprIntensityContext {
+  modality?: string
+  valueType?: string
+  unit?: string
+  label?: string
+  quantitative?: boolean
+  warnings?: string[]
 }
 
 export interface MprThresholdRegionBox {
@@ -335,8 +356,11 @@ export interface MprThresholdRegion {
   enabled: boolean
   label: string
   thresholdHu: number
-  thresholdMode: 'hu' | 'percentile'
+  thresholdValue?: number | null
+  thresholdMode: 'hu' | 'absolute' | 'percentile' | 'percentMax'
+  thresholdPercentMax?: number | null
   thresholdPercentile: number
+  componentMode?: 'all' | 'hotspotConnected'
   color: string
   box: MprThresholdRegionBox
   stats?: MprThresholdRegionStats | null
@@ -353,12 +377,17 @@ export interface MprVoiSphere {
 }
 
 export interface MprVoiSphereStats {
+  valueMean?: number | null
+  valueMin?: number | null
+  valueMax?: number | null
+  valueStdDev?: number | null
   huMean: number | null
   huMin: number | null
   huMax: number | null
   huStdDev: number | null
   volumeCm3: number
   sampleCount: number
+  intensityContext?: MprIntensityContext
 }
 
 export interface MprSegmentationConfig extends Omit<
@@ -373,14 +402,26 @@ export interface MprSegmentationConfig extends Omit<
   thresholdRegions: MprThresholdRegion[]
   voiSpheres: MprVoiSphere[]
   voiSphere?: MprVoiSphere | null
+  lowerValue?: number | null
+  upperValue?: number | null
   lowerHu?: number | null
   upperHu?: number | null
+  intensityContext?: MprIntensityContext
   opacity?: number
   color?: string
   voiBox?: MprSegmentationVoiBox | null
 }
 
 export type MprSegmentationOperationConfig = MprSegmentationConfig
+
+export type MprSegmentationPanelSelectedKind = 'threshold' | 'voi' | null
+
+export interface MprSegmentationPanelState {
+  selectedKind: MprSegmentationPanelSelectedKind
+  expandedRegionId: string | null
+  expandedVoiId: string | null
+  scrollTop: number
+}
 
 export interface MprSegmentationOverlayRect {
   xMin: number
@@ -389,10 +430,25 @@ export interface MprSegmentationOverlayRect {
   yMax: number
 }
 
+export interface MprSegmentationOverlayPoint {
+  x: number
+  y: number
+}
+
+export interface MprSegmentationOverlayWorldPoint {
+  x: number
+  y: number
+  z: number
+}
+
 export interface MprSegmentationOverlayRegion {
   regionId: string
   visible: boolean
   rect: MprSegmentationOverlayRect | null
+  guidePoints?: MprSegmentationOverlayPoint[]
+  guideWorldPoints?: MprSegmentationOverlayWorldPoint[]
+  guideAuthoritative?: boolean
+  guideIntersectsPlane?: boolean
   sampleRevision?: number
   samples?: MprSegmentationOverlaySamples | null
 }
@@ -446,6 +502,40 @@ export function createDefaultMprSegmentationConfig(): MprSegmentationConfig {
     thresholdRegions: [],
     voiSpheres: [],
     voiSphere: null
+  }
+}
+
+export function createDefaultMprSegmentationPanelState(): MprSegmentationPanelState {
+  return {
+    selectedKind: 'threshold',
+    expandedRegionId: null,
+    expandedVoiId: null,
+    scrollTop: 0
+  }
+}
+
+export function normalizeMprSegmentationPanelState(
+  value?: Partial<MprSegmentationPanelState> | null,
+  fallback: MprSegmentationPanelState = createDefaultMprSegmentationPanelState()
+): MprSegmentationPanelState {
+  const selectedKind = value?.selectedKind === 'voi' || value?.selectedKind === 'threshold'
+    ? value.selectedKind
+    : value?.selectedKind === null
+      ? null
+      : fallback.selectedKind
+  return {
+    selectedKind,
+    expandedRegionId: typeof value?.expandedRegionId === 'string'
+      ? value.expandedRegionId
+      : value?.expandedRegionId === null
+        ? null
+        : fallback.expandedRegionId,
+    expandedVoiId: typeof value?.expandedVoiId === 'string'
+      ? value.expandedVoiId
+      : value?.expandedVoiId === null
+        ? null
+        : fallback.expandedVoiId,
+    scrollTop: Math.max(0, Math.round(clampNumber(value?.scrollTop, 0, Number.MAX_SAFE_INTEGER, fallback.scrollTop)))
   }
 }
 
@@ -503,6 +593,9 @@ function normalizeUnitVec3(value: unknown, fallback: Vec3): Vec3 {
 }
 
 function normalizeNullableMetric(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null
+  }
   const numericValue = Number(value)
   return Number.isFinite(numericValue) ? numericValue : null
 }
@@ -515,19 +608,43 @@ export function normalizeMprThresholdRegionStats(value?: Partial<MprThresholdReg
   if (!value) {
     return null
   }
+  const valueMean = normalizeNullableMetric(value.valueMean ?? value.huMean)
+  const valueMin = normalizeNullableMetric(value.valueMin ?? value.huMin)
+  const valueMax = normalizeNullableMetric(value.valueMax ?? value.huMax)
+  const valueStdDev = normalizeNullableMetric(value.valueStdDev ?? value.huStdDev)
+  const effectiveThresholdValue = normalizeNullableMetric(value.effectiveThresholdValue ?? value.effectiveThresholdHu)
+  const inferredStatus = value.status === 'ready' || value.status === 'empty' || value.status === 'error'
+    ? value.status
+    : Number(value.sampleCount ?? 0) > 0
+      ? 'ready'
+      : 'empty'
   return {
-    huMean: normalizeNullableMetric(value.huMean),
-    huMin: normalizeNullableMetric(value.huMin),
-    huMax: normalizeNullableMetric(value.huMax),
-    huStdDev: normalizeNullableMetric(value.huStdDev),
+    status: inferredStatus,
+    ...(Object.prototype.hasOwnProperty.call(value, 'message') ? { message: value.message ?? null } : {}),
+    huMean: normalizeNullableMetric(value.huMean ?? valueMean),
+    huMin: normalizeNullableMetric(value.huMin ?? valueMin),
+    huMax: normalizeNullableMetric(value.huMax ?? valueMax),
+    huStdDev: normalizeNullableMetric(value.huStdDev ?? valueStdDev),
     volumeCm3: clampNumber(value.volumeCm3, 0, Number.MAX_SAFE_INTEGER, 0),
     sampleCount: Math.round(clampNumber(value.sampleCount, 0, Number.MAX_SAFE_INTEGER, 0)),
-    effectiveThresholdHu: normalizeNullableMetric(value.effectiveThresholdHu)
+    effectiveThresholdHu: normalizeNullableMetric(value.effectiveThresholdHu ?? effectiveThresholdValue),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueMean') ? { valueMean } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueMin') ? { valueMin } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueMax') ? { valueMax } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueStdDev') ? { valueStdDev } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'effectiveThresholdValue') ? { effectiveThresholdValue } : {}),
+    ...(value.intensityContext ? { intensityContext: value.intensityContext } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'uptakePeak') ? { uptakePeak: normalizeNullableMetric(value.uptakePeak) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'uptakePeakReason') ? { uptakePeakReason: value.uptakePeakReason ?? null } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'mtvCm3') ? { mtvCm3: normalizeNullableMetric(value.mtvCm3) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'tlg') ? { tlg: normalizeNullableMetric(value.tlg) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'tlgAvailable') ? { tlgAvailable: value.tlgAvailable === true } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'tlgReason') ? { tlgReason: value.tlgReason ?? null } : {})
   }
 }
 
-function normalizeMprThresholdMode(value: unknown): 'hu' | 'percentile' {
-  return value === 'percentile' ? 'percentile' : 'hu'
+function normalizeMprThresholdMode(value: unknown): MprThresholdRegion['thresholdMode'] {
+  return value === 'percentMax' || value === 'percentile' || value === 'absolute' ? value : 'hu'
 }
 
 export function normalizeMprThresholdRegionBox(value?: Partial<MprThresholdRegionBox> | null): MprThresholdRegionBox | null {
@@ -555,16 +672,36 @@ export function normalizeMprThresholdRegion(value?: Partial<MprThresholdRegion> 
   if (!id || !box) {
     return null
   }
+  const thresholdValue = Number(value.thresholdValue ?? value.thresholdHu)
+  const normalizedThresholdValue = Number.isFinite(thresholdValue)
+    ? thresholdValue
+    : DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU
+  const legacyThresholdHu = Number(value.thresholdHu)
+  const normalizedLegacyThresholdHu = Math.round(
+    clampNumber(
+      legacyThresholdHu,
+      MPR_SEGMENTATION_HU_LIMITS.min,
+      MPR_SEGMENTATION_HU_LIMITS.max,
+      DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU
+    )
+  )
   return {
     id,
     enabled: value.enabled !== false,
     label: typeof value.label === 'string' ? value.label.trim() : '',
-    thresholdHu: Math.round(clampNumber(value.thresholdHu, MPR_SEGMENTATION_HU_LIMITS.min, MPR_SEGMENTATION_HU_LIMITS.max, DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU)),
+    thresholdHu: normalizedLegacyThresholdHu,
     thresholdMode: normalizeMprThresholdMode(value.thresholdMode),
     thresholdPercentile: clampNumber(value.thresholdPercentile, 0, 100, 80),
+    componentMode: value.componentMode === 'all' ? 'all' : 'hotspotConnected',
     color: normalizeHexColor(value.color, DEFAULT_MPR_SEGMENTATION_COLOR),
     box,
-    stats: normalizeMprThresholdRegionStats(value.stats)
+    stats: normalizeMprThresholdRegionStats(value.stats),
+    ...(Object.prototype.hasOwnProperty.call(value, 'thresholdValue') || ['absolute', 'percentMax'].includes(String(value.thresholdMode))
+      ? { thresholdValue: normalizedThresholdValue }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'thresholdPercentMax') || value.thresholdMode === 'percentMax'
+      ? { thresholdPercentMax: clampNumber(value.thresholdPercentMax, 0, 100, 40) }
+      : {})
   }
 }
 
@@ -601,13 +738,22 @@ export function normalizeMprVoiSphereStats(value?: Partial<MprVoiSphereStats> | 
   if (!value) {
     return null
   }
+  const valueMean = normalizeNullableMetric(value.valueMean ?? value.huMean)
+  const valueMin = normalizeNullableMetric(value.valueMin ?? value.huMin)
+  const valueMax = normalizeNullableMetric(value.valueMax ?? value.huMax)
+  const valueStdDev = normalizeNullableMetric(value.valueStdDev ?? value.huStdDev)
   return {
-    huMean: normalizeNullableMetric(value.huMean),
-    huMin: normalizeNullableMetric(value.huMin),
-    huMax: normalizeNullableMetric(value.huMax),
-    huStdDev: normalizeNullableMetric(value.huStdDev),
+    huMean: normalizeNullableMetric(value.huMean ?? valueMean),
+    huMin: normalizeNullableMetric(value.huMin ?? valueMin),
+    huMax: normalizeNullableMetric(value.huMax ?? valueMax),
+    huStdDev: normalizeNullableMetric(value.huStdDev ?? valueStdDev),
     volumeCm3: clampNumber(value.volumeCm3, 0, Number.MAX_SAFE_INTEGER, 0),
-    sampleCount: Math.round(clampNumber(value.sampleCount, 0, Number.MAX_SAFE_INTEGER, 0))
+    sampleCount: Math.round(clampNumber(value.sampleCount, 0, Number.MAX_SAFE_INTEGER, 0)),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueMean') ? { valueMean } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueMin') ? { valueMin } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueMax') ? { valueMax } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, 'valueStdDev') ? { valueStdDev } : {}),
+    ...(value.intensityContext ? { intensityContext: value.intensityContext } : {})
   }
 }
 
@@ -694,7 +840,14 @@ export function normalizeMprSegmentationConfig(
     selectedVoiId,
     thresholdRegions: regions,
     voiSpheres,
-    voiSphere: legacyVoiSphere
+    voiSphere: legacyVoiSphere,
+    ...(Object.prototype.hasOwnProperty.call(value ?? {}, 'lowerValue')
+      ? { lowerValue: normalizeNullableMetric(value?.lowerValue) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(value ?? {}, 'upperValue')
+      ? { upperValue: normalizeNullableMetric(value?.upperValue) }
+      : {}),
+    ...(value?.intensityContext ? { intensityContext: value.intensityContext } : {})
   }
 }
 
@@ -706,11 +859,8 @@ function nearlyEqualSegmentationVec3(left: Vec3, right: Vec3, epsilon = 1e-3): b
   return left.every((value, index) => nearlyEqualSegmentationNumber(value, right[index], epsilon))
 }
 
-function isSameMprThresholdRegionGeometry(left: MprThresholdRegion, right: MprThresholdRegion): boolean {
+function isSameMprThresholdRegionBox(left: MprThresholdRegion, right: MprThresholdRegion): boolean {
   return left.enabled === right.enabled &&
-    left.thresholdHu === right.thresholdHu &&
-    left.thresholdMode === right.thresholdMode &&
-    nearlyEqualSegmentationNumber(left.thresholdPercentile, right.thresholdPercentile) &&
     left.box.sourceViewport === right.box.sourceViewport &&
     nearlyEqualSegmentationVec3(left.box.centerWorld, right.box.centerWorld) &&
     nearlyEqualSegmentationVec3(left.box.rowWorld, right.box.rowWorld) &&
@@ -719,6 +869,52 @@ function isSameMprThresholdRegionGeometry(left: MprThresholdRegion, right: MprTh
     nearlyEqualSegmentationNumber(left.box.widthMm, right.box.widthMm) &&
     nearlyEqualSegmentationNumber(left.box.heightMm, right.box.heightMm) &&
     nearlyEqualSegmentationNumber(left.box.depthMm, right.box.depthMm)
+}
+
+function getMprThresholdStatsMode(region: MprThresholdRegion): 'absolute' | 'hu' | 'relative' {
+  if (region.thresholdMode === 'percentMax' || region.thresholdMode === 'percentile') {
+    return 'relative'
+  }
+  return region.thresholdMode
+}
+
+function getMprThresholdRelativePercent(region: MprThresholdRegion): number {
+  return region.thresholdMode === 'percentMax'
+    ? region.thresholdPercentMax ?? 40
+    : region.thresholdPercentile
+}
+
+function isSameMprThresholdRegionStatsTarget(left: MprThresholdRegion, right: MprThresholdRegion): boolean {
+  if (!isSameMprThresholdRegionBox(left, right)) {
+    return false
+  }
+  if ((left.componentMode ?? 'hotspotConnected') !== (right.componentMode ?? 'hotspotConnected')) {
+    return false
+  }
+  const leftMode = getMprThresholdStatsMode(left)
+  const rightMode = getMprThresholdStatsMode(right)
+  if (leftMode !== rightMode) {
+    return false
+  }
+  if (leftMode === 'relative') {
+    return nearlyEqualSegmentationNumber(
+      getMprThresholdRelativePercent(left),
+      getMprThresholdRelativePercent(right)
+    )
+  }
+  return nearlyEqualSegmentationNumber(
+    left.thresholdValue ?? left.thresholdHu,
+    right.thresholdValue ?? right.thresholdHu
+  )
+}
+
+function isSameMprThresholdRegionGeometry(left: MprThresholdRegion, right: MprThresholdRegion): boolean {
+  return isSameMprThresholdRegionBox(left, right) &&
+    nearlyEqualSegmentationNumber(left.thresholdValue ?? left.thresholdHu, right.thresholdValue ?? right.thresholdHu) &&
+    left.thresholdMode === right.thresholdMode &&
+    nearlyEqualSegmentationNumber(left.thresholdPercentMax ?? 40, right.thresholdPercentMax ?? 40) &&
+    nearlyEqualSegmentationNumber(left.thresholdPercentile, right.thresholdPercentile) &&
+    (left.componentMode ?? 'hotspotConnected') === (right.componentMode ?? 'hotspotConnected')
 }
 
 function isSameMprVoiSphereGeometry(left: MprVoiSphere, right: MprVoiSphere): boolean {
@@ -738,12 +934,19 @@ export function mergeMprSegmentationPreviewConfig(
   const incomingVoiSpheresById = new Map(incomingConfig.voiSpheres.map((sphere) => [sphere.id, sphere]))
   const nextThresholdRegions = currentConfig.thresholdRegions.map((region) => {
     const incomingRegion = incomingRegionsById.get(region.id)
-    if (!incomingRegion || !isSameMprThresholdRegionGeometry(region, incomingRegion)) {
+    const sameGeometry = incomingRegion ? isSameMprThresholdRegionGeometry(region, incomingRegion) : false
+    const sameStatsTarget = incomingRegion ? isSameMprThresholdRegionStatsTarget(region, incomingRegion) : false
+    if (!incomingRegion || (!sameGeometry && !sameStatsTarget)) {
       return region
     }
     return {
       ...region,
-      stats: incomingRegion.stats ?? null
+      thresholdMode: sameStatsTarget ? incomingRegion.thresholdMode : region.thresholdMode,
+      thresholdValue: sameStatsTarget ? incomingRegion.thresholdValue ?? region.thresholdValue : region.thresholdValue,
+      thresholdPercentMax: sameStatsTarget ? incomingRegion.thresholdPercentMax ?? region.thresholdPercentMax : region.thresholdPercentMax,
+      thresholdPercentile: sameStatsTarget ? incomingRegion.thresholdPercentile : region.thresholdPercentile,
+      componentMode: sameStatsTarget ? incomingRegion.componentMode : region.componentMode,
+      stats: incomingRegion.stats ?? (sameStatsTarget ? region.stats ?? null : null)
     }
   })
   const nextVoiSpheres = currentConfig.voiSpheres.map((sphere) => {
@@ -753,7 +956,7 @@ export function mergeMprSegmentationPreviewConfig(
     }
     return {
       ...sphere,
-      stats: incomingSphere.stats ?? null
+      stats: incomingSphere.stats ?? sphere.stats ?? null
     }
   })
   const nextSelectedVoiId = currentConfig.selectedVoi && currentConfig.selectedVoiId && nextVoiSpheres.some((sphere) => sphere.id === currentConfig.selectedVoiId)
@@ -771,7 +974,8 @@ export function mergeMprSegmentationPreviewConfig(
     selectedVoiId: nextSelectedVoiId,
     voiSpheres: nextVoiSpheres,
     voiSphere: nextVoiSphere,
-    thresholdRegions: nextThresholdRegions
+    thresholdRegions: nextThresholdRegions,
+    ...(incomingConfig.intensityContext ? { intensityContext: incomingConfig.intensityContext } : {})
   }
 }
 
@@ -995,6 +1199,16 @@ export type MprCursorInfo = BackendMprCursorInfo
 export type MprFrameInfo = BackendMprFrameInfo
 export interface MprPlaneInfo extends BackendMprPlaneInfo {
   pixelSpacingNormalMm: number
+  volumeBoundsWorld?: [
+    Vec3,
+    Vec3,
+    Vec3,
+    Vec3,
+    Vec3,
+    Vec3,
+    Vec3,
+    Vec3
+  ] | null
   imageToCanvasMatrix?: [[number, number, number], [number, number, number], [number, number, number]] | null
 }
 export type ScaleBarInfo = BackendScaleBarInfo
@@ -1203,6 +1417,7 @@ export interface ViewerTabItem {
   currentWindowInfo?: WindowLevelInfo | null
   compareSeriesIds?: Record<CompareStackPaneKey, string>
   compareSeriesTitles?: Record<CompareStackPaneKey, string>
+  compareSeriesModalities?: Partial<Record<CompareStackPaneKey, string>>
   compareViewIds?: Partial<Record<CompareStackPaneKey, string>>
   compareImages?: Partial<Record<CompareStackPaneKey, string>>
   compareSliceLabels?: Partial<Record<CompareStackPaneKey, string>>
@@ -1214,6 +1429,7 @@ export interface ViewerTabItem {
   compareOrientations?: Partial<Record<CompareStackPaneKey, OrientationInfo>>
   compareTransformStates?: Partial<Record<CompareStackPaneKey, ViewTransformInfo>>
   comparePseudocolorPresets?: Partial<Record<CompareStackPaneKey, string>>
+  comparePetInfos?: Partial<Record<CompareStackPaneKey, PetInfo | null>>
   fusionSeriesIds?: { ctSeriesId: string; petSeriesId: string }
   fusionSeriesDescriptions?: { ct?: string | null; pet?: string | null }
   fusionViewIds?: Partial<Record<FusionPaneKey, string>>
@@ -1283,6 +1499,7 @@ export interface ViewerTabItem {
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null
   viewportSegmentationOverlays?: Partial<Record<MprViewportKey, MprSegmentationOverlay | null>>
+  mprSegmentationPanelState?: MprSegmentationPanelState | null
   mprCrosshairMode?: MprCrosshairMode
   volumePreset?: string
   volumeRenderConfig?: VolumeRenderConfig | null
@@ -1387,6 +1604,7 @@ export interface ViewerLayoutSlot {
   scaleBar?: ScaleBarInfo | null
   transformState?: ViewTransformInfo | null
   pseudocolorPreset?: string | null
+  petInfo?: PetInfo | null
 }
 
 export interface ViewerLayoutTemplate {

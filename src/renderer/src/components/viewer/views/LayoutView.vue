@@ -123,7 +123,16 @@ function getSlotTitle(slot: ViewerLayoutSlot, index: number): string {
 }
 
 function isStackSlot(slot: ViewerLayoutSlot): boolean {
-  return Boolean(slot.viewId && (slot.viewType === 'Stack' || slot.sourceViewType === 'Stack' || slot.sourceViewType === 'CompareStack'))
+  return Boolean(
+    slot.viewId &&
+      (
+        slot.viewType === 'Stack' ||
+        slot.viewType === 'PET' ||
+        slot.sourceViewType === 'Stack' ||
+        slot.sourceViewType === 'PET' ||
+        slot.sourceViewType === 'CompareStack'
+      )
+  )
 }
 
 function isVolumeSlot(slot: ViewerLayoutSlot): boolean {
@@ -410,6 +419,7 @@ watch(
             :active-operation="activeOperation"
             :placeholder="getLayoutPlaceholder()"
             :corner-info="getVolumeCornerInfo(slot)"
+            :pet-corner-info="Boolean(slot.petInfo)"
             :orientation="slot.orientation ?? activeTab.orientation"
             :scale-bar="null"
             :show-corner-info="activeTab.showCornerInfo !== false"
@@ -443,6 +453,7 @@ watch(
               :placeholder="getLayoutPlaceholder()"
               :annotations="getAnnotations(slot.id)"
               :corner-info="slot.cornerInfo ?? activeTab.cornerInfo"
+              :pet-corner-info="Boolean(slot.petInfo)"
               :cursor-class="getCursorClass(slot.id)"
               :draft-annotation="getDraftAnnotation(slot.id)"
               :draft-measurement-mode="getDraftMeasurementMode(slot.id)"

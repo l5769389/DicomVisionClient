@@ -59,16 +59,14 @@ const { locale } = useUiLocale()
 const { montageColumnCount, viewportCornerInfoPreference } = useUiPreferences()
 const isZh = computed(() => locale.value === 'zh-CN')
 const scroller = ref<HTMLElement | null>(null)
-const commonInfoContent = ref<HTMLElement | null>(null)
 const columnCount = ref(Math.max(2, Math.min(6, props.activeTab.montageColumnCount ?? montageColumnCount.value)))
 const selectedSliceIndex = ref(Math.max(0, props.activeTab.montageSelectedSliceIndex ?? 0))
 const montageTransform = ref(normalizeMontageTransform(props.activeTab.montageTransformState))
 const localWindowInfo = ref<WindowLevelInfo | null>(resolveTabWindowInfo(props.activeTab))
 const windowPreviewOrigin = ref<WindowLevelInfo | null>(null)
 const headerCornerInfo = ref<CornerInfo | null>(null)
-const commonInfoExpanded = ref(props.activeTab.montageCommonInfoExpanded === true)
-const commonInfoOverflowing = ref(false)
 const commonInfoTooltip = ref<{ label: string; left: number; top: number } | null>(null)
+const pinnedCommonInfoId = ref<string | null>(null)
 const tileStates = ref<Record<number, MontageTileState>>({})
 const backendRevision = ref(0)
 const scrollerWidth = ref(0)
@@ -104,7 +102,8 @@ const POINTER_DRAG_THRESHOLD = 4
 const WINDOW_DRAG_REFERENCE_WIDTH = 400
 const WINDOW_DRAG_MAX_SENSITIVITY = 2
 const WINDOW_DRAG_MIN_SENSITIVITY = 0.01
-const WINDOW_WIDTH_MIN = 1
+const CT_WINDOW_WIDTH_MIN = 1
+const PET_WINDOW_WIDTH_MIN = 0.000001
 const SLICE_CORNER_KEYS = new Set<ViewportCornerInfoItemKey>([
   'viewportLocation',
   'imageIndex',
@@ -141,6 +140,8 @@ const tileLoader = createMontageTileLoader({
 })
 
 const sliceCount = computed(() => Math.max(0, Math.trunc(props.activeTab.montageSliceCount ?? 0)))
+const isPetMontage = computed(() => Boolean(props.activeTab.petInfo))
+const minimumWindowWidth = computed(resolveMinimumWindowWidth)
 const showCornerInfo = computed(() => props.activeTab.showCornerInfo !== false)
 const starredSliceIndexSet = computed(() => new Set(props.starredSliceIndexes))
 const displayCornerInfo = computed(() => mergeCornerInfo(props.activeTab.cornerInfo, headerCornerInfo.value))
@@ -156,9 +157,9 @@ const windowPreviewFilter = computed(() => {
   if (!origin || !current) {
     return 'none'
   }
-  const contrast = clampCssFilterValue(origin.ww / Math.max(WINDOW_WIDTH_MIN, current.ww), 0.25, 4)
+  const contrast = clampCssFilterValue(origin.ww / Math.max(minimumWindowWidth.value, current.ww), 0.25, 4)
   const brightness = clampCssFilterValue(
-    1 + (origin.wl - current.wl) / Math.max(WINDOW_WIDTH_MIN, current.ww),
+    1 + (origin.wl - current.wl) / Math.max(minimumWindowWidth.value, current.ww),
     0.35,
     2.5
   )
@@ -168,6 +169,13 @@ const windowPreviewFilter = computed(() => {
   return `contrast(${contrast.toFixed(3)}) brightness(${brightness.toFixed(3)})`
 })
 const windowStatusLabel = computed(() => {
+  if (isPetMontage.value) {
+    const windowInfo = activeWindowInfo.value
+    const minimum = windowInfo ? windowInfo.wl - windowInfo.ww / 2 : props.activeTab.petInfo?.petWindowMin
+    const maximum = windowInfo ? windowInfo.wl + windowInfo.ww / 2 : props.activeTab.petInfo?.petWindowMax
+    const unit = props.activeTab.petInfo?.petUnitLabel ?? props.activeTab.petInfo?.petUnit ?? 'PET'
+    return `${formatPetValue(minimum)}–${formatPetValue(maximum)} ${unit}`
+  }
   const ww = activeWindowInfo.value?.ww
   const wl = activeWindowInfo.value?.wl
   if (ww != null || wl != null) {
@@ -190,7 +198,6 @@ const commonCornerItems = computed<CommonCornerInfoItem[]>(() => {
   if (!showCornerInfo.value) {
     return []
   }
-  const seenLines = new Set<string>()
   return configuredCornerKeys.value
     .filter((key) => !SLICE_CORNER_KEYS.has(key) && !RUNTIME_CORNER_KEYS.has(key))
     .flatMap((key) =>
@@ -200,13 +207,6 @@ const commonCornerItems = computed<CommonCornerInfoItem[]>(() => {
         label: getCornerInfoItemLabel(key)
       }))
     )
-    .filter((item) => {
-      if (seenLines.has(item.line)) {
-        return false
-      }
-      seenLines.add(item.line)
-      return true
-    })
 })
 const rowCount = computed(() => Math.ceil(sliceCount.value / columnCount.value))
 const activePointerOperation = computed<'window' | 'pan' | 'zoom' | null>(() => {
@@ -305,6 +305,9 @@ function buildTileRequest(index: number): MontageTileRequest {
   if (props.activeTab.pseudocolorPreset) {
     params.set('pseudocolorPreset', props.activeTab.pseudocolorPreset)
   }
+  if (props.activeTab.petInfo?.petUnit) {
+    params.set('petUnit', props.activeTab.petInfo.petUnit)
+  }
   return {
     index,
     url: resolveBackendAssetUrl(`/api/v1/dicom/montage/tile?${params.toString()}`),
@@ -398,15 +401,6 @@ function measureScroller(): void {
   scrollerWidth.value = element.clientWidth
   scrollerHeight.value = element.clientHeight
   scrollerScrollTop.value = element.scrollTop
-}
-
-function measureCommonInfoOverflow(): void {
-  const element = commonInfoContent.value
-  commonInfoOverflowing.value = Boolean(
-    element &&
-    !commonInfoExpanded.value &&
-    element.scrollHeight > element.clientHeight + 1
-  )
 }
 
 function handleScrollerScroll(): void {
@@ -617,8 +611,24 @@ function applyWindowDrag(
   deltaY: number
 ): WindowLevelInfo {
   const sensitivity = getWindowDragSensitivity(origin.ww)
+  if (isPetMontage.value) {
+    const minimum = origin.wl - origin.ww / 2
+    const maximum = origin.wl + origin.ww / 2
+    const rangeSensitivity = Math.max(
+      PET_WINDOW_WIDTH_MIN,
+      Math.abs(origin.ww) / WINDOW_DRAG_REFERENCE_WIDTH
+    )
+    const nextMaximum = Math.max(
+      minimum + PET_WINDOW_WIDTH_MIN,
+      maximum + (deltaX - deltaY) * rangeSensitivity
+    )
+    return {
+      ww: nextMaximum - minimum,
+      wl: (nextMaximum + minimum) / 2
+    }
+  }
   return {
-    ww: Math.max(WINDOW_WIDTH_MIN, origin.ww + deltaX * sensitivity),
+    ww: Math.max(CT_WINDOW_WIDTH_MIN, origin.ww + deltaX * sensitivity),
     wl: origin.wl - deltaY * sensitivity
   }
 }
@@ -740,19 +750,20 @@ function handleTileDoubleClick(event: MouseEvent, index: number): void {
   openSlice(index)
 }
 
-function toggleCommonInfoExpanded(): void {
-  commonInfoExpanded.value = !commonInfoExpanded.value
-  emit('stateChange', {
-    tabKey: props.activeTab.key,
-    commonInfoExpanded: commonInfoExpanded.value
-  })
-  void nextTick(measureCommonInfoOverflow)
-}
-
 function formatWindowStatus(ww: number | null | undefined, wl: number | null | undefined): string {
   const formatValue = (value: number | null | undefined) =>
     value != null && Number.isFinite(value) ? String(Math.round(value)) : '—'
   return `WW ${formatValue(ww)} / WL ${formatValue(wl)}`
+}
+
+function formatPetValue(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '—'
+  }
+  if (Math.abs(value) < 10) {
+    return value.toFixed(2)
+  }
+  return Number(value.toFixed(2)).toString()
 }
 
 function formatWindowLine(line: string | null | undefined): string | null {
@@ -774,20 +785,55 @@ function getCornerInfoItemLabel(key: ViewportCornerInfoItemKey): string {
   return item ? getViewportCornerInfoItemLabel(item, isZh.value ? 'zh-CN' : 'en-US') : key
 }
 
-function showCommonInfoTooltip(event: MouseEvent, label: string): void {
+function isCommonInfoLineTruncated(element: HTMLElement): boolean {
+  return element.scrollWidth > element.clientWidth + 1
+}
+
+function showCommonInfoTooltip(event: MouseEvent, item: CommonCornerInfoItem): void {
+  if (!isCommonInfoLineTruncated(event.currentTarget as HTMLElement)) {
+    if (pinnedCommonInfoId.value !== item.id) {
+      hideCommonInfoTooltip()
+    }
+    return
+  }
   const offsetX = 12
   const offsetY = 14
   const maxLeft = Math.max(8, window.innerWidth - 140)
   const maxTop = Math.max(8, window.innerHeight - 48)
   commonInfoTooltip.value = {
-    label,
+    label: `${item.label}: ${item.line}`,
     left: Math.min(maxLeft, Math.max(8, event.clientX + offsetX)),
     top: Math.min(maxTop, Math.max(8, event.clientY + offsetY))
   }
 }
 
-function hideCommonInfoTooltip(): void {
+function hideCommonInfoTooltip(force = false): void {
+  if (!force && pinnedCommonInfoId.value) {
+    return
+  }
   commonInfoTooltip.value = null
+}
+
+function toggleCommonInfoTooltip(event: MouseEvent, item: CommonCornerInfoItem): void {
+  event.stopPropagation()
+  const element = event.currentTarget as HTMLElement
+  if (!isCommonInfoLineTruncated(element)) {
+    pinnedCommonInfoId.value = null
+    hideCommonInfoTooltip(true)
+    return
+  }
+  if (pinnedCommonInfoId.value === item.id) {
+    pinnedCommonInfoId.value = null
+    hideCommonInfoTooltip(true)
+    return
+  }
+  pinnedCommonInfoId.value = item.id
+  showCommonInfoTooltip(event, item)
+}
+
+function handleDocumentPointerDown(): void {
+  pinnedCommonInfoId.value = null
+  hideCommonInfoTooltip(true)
 }
 
 function parseWindowInfoFromLine(line: string | null | undefined): WindowLevelInfo | null {
@@ -804,7 +850,7 @@ function parseWindowInfoFromLine(line: string | null | undefined): WindowLevelIn
   const ww = Number(match[1])
   const wl = Number(match[2])
   return Number.isFinite(ww) && Number.isFinite(wl)
-    ? { ww: Math.max(WINDOW_WIDTH_MIN, ww), wl }
+    ? { ww: Math.max(resolveMinimumWindowWidth(), ww), wl }
     : null
 }
 
@@ -812,8 +858,12 @@ function normalizeWindowInfo(value: WindowLevelInfo | null | undefined): WindowL
   const ww = Number(value?.ww)
   const wl = Number(value?.wl)
   return Number.isFinite(ww) && Number.isFinite(wl)
-    ? { ww: Math.max(WINDOW_WIDTH_MIN, ww), wl }
+    ? { ww: Math.max(resolveMinimumWindowWidth(), ww), wl }
     : null
+}
+
+function resolveMinimumWindowWidth(): number {
+  return props.activeTab.petInfo ? PET_WINDOW_WIDTH_MIN : CT_WINDOW_WIDTH_MIN
 }
 
 function mergeCornerInfo(base: CornerInfo, extra: CornerInfo | null): CornerInfo {
@@ -854,9 +904,19 @@ function resolveWindowInfoFromCornerInfo(cornerInfo: CornerInfo): WindowLevelInf
 }
 
 function resolveTabWindowInfo(tab: ViewerTabItem): WindowLevelInfo | null {
+  const petWindowMin = Number(tab.petInfo?.petWindowMin)
+  const petWindowMax = Number(tab.petInfo?.petWindowMax)
+  const petWindowInfo =
+    Number.isFinite(petWindowMin) && Number.isFinite(petWindowMax) && petWindowMax > petWindowMin
+      ? {
+          ww: petWindowMax - petWindowMin,
+          wl: (petWindowMax + petWindowMin) / 2
+        }
+      : null
   return (
     normalizeWindowInfo(tab.currentWindowInfo) ??
     normalizeWindowInfo(tab.initialWindowInfo) ??
+    petWindowInfo ??
     parseWindowInfoFromLine(resolveViewportCornerInfoLineMap(tab.cornerInfo).windowLevel[0]) ??
     parseWindowInfoFromLine(tab.windowLabel)
   )
@@ -959,14 +1019,12 @@ watch(
     selectedSliceIndex.value = Math.max(0, props.activeTab.montageSelectedSliceIndex ?? 0)
     montageTransform.value = normalizeMontageTransform(props.activeTab.montageTransformState)
     localWindowInfo.value = resolveTabWindowInfo(props.activeTab)
-    commonInfoExpanded.value = props.activeTab.montageCommonInfoExpanded === true
     void nextTick(() => {
       if (scroller.value) {
         scroller.value.scrollTop = Math.max(0, props.activeTab.montageScrollTop ?? 0)
       }
       measureScroller()
       void prepareInitialVisibleContent()
-      measureCommonInfoOverflow()
     })
   }
 )
@@ -1028,14 +1086,6 @@ watch(
 )
 
 watch(
-  () => props.activeTab.montageCommonInfoExpanded,
-  (value) => {
-    commonInfoExpanded.value = value === true
-    void nextTick(measureCommonInfoOverflow)
-  }
-)
-
-watch(
   () => props.activeTab.montageScrollRequestRevision,
   (_value, previousValue) => {
     if (previousValue == null) {
@@ -1049,7 +1099,6 @@ watch(showCornerInfo, (enabled) => {
   if (!enabled) {
     hideCommonInfoTooltip()
   }
-  void nextTick(measureCommonInfoOverflow)
 })
 
 watch(
@@ -1058,6 +1107,9 @@ watch(
     localWindowInfo.value?.ww ?? props.activeTab.currentWindowInfo?.ww ?? props.activeTab.initialWindowInfo?.ww,
     localWindowInfo.value?.wl ?? props.activeTab.currentWindowInfo?.wl ?? props.activeTab.initialWindowInfo?.wl,
     props.activeTab.pseudocolorPreset,
+    props.activeTab.petInfo?.petUnit,
+    props.activeTab.petInfo?.petWindowMin,
+    props.activeTab.petInfo?.petWindowMax,
     backendRevision.value
   ],
   () => {
@@ -1065,24 +1117,17 @@ watch(
   }
 )
 
-watch(commonCornerItems, () => {
-  void nextTick(measureCommonInfoOverflow)
-})
-
 onMounted(() => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
   stopWatchingApiBaseUrl = onApiBaseURLChange(() => {
     backendRevision.value += 1
   })
   if (typeof ResizeObserver === 'function') {
     resizeObserver = new ResizeObserver(() => {
       measureScroller()
-      measureCommonInfoOverflow()
     })
     if (scroller.value) {
       resizeObserver.observe(scroller.value)
-    }
-    if (commonInfoContent.value) {
-      resizeObserver.observe(commonInfoContent.value)
     }
   } else {
     window.addEventListener('resize', measureScroller)
@@ -1092,13 +1137,13 @@ onMounted(() => {
   }
   measureScroller()
   void prepareInitialVisibleContent()
-  void nextTick(measureCommonInfoOverflow)
   if ((props.activeTab.montageScrollRequestRevision ?? 0) > 0) {
     void nextTick(() => scrollSliceIntoView(selectedSliceIndex.value))
   }
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
   if (displayRefreshTimer) {
     clearVisibleTileRefreshTimer()
   }
@@ -1159,32 +1204,20 @@ onBeforeUnmount(() => {
         <div class="montage-view__common-info-label">
           {{ isZh ? '影像信息' : 'Image info' }}
         </div>
-        <div
-          ref="commonInfoContent"
-          class="montage-view__common-info-content"
-          :class="{ 'montage-view__common-info-content--expanded': commonInfoExpanded }"
-        >
+        <div class="montage-view__common-info-content">
           <span
             v-for="item in commonCornerItems"
             :key="item.id"
             class="montage-view__common-info-line"
-            :aria-label="item.label"
-            :data-tooltip="item.label"
-            :title="item.label"
-            @mouseenter="showCommonInfoTooltip($event, item.label)"
-            @mousemove="showCommonInfoTooltip($event, item.label)"
-            @mouseleave="hideCommonInfoTooltip"
+            :aria-label="`${item.label}: ${item.line}`"
+            :data-tooltip="`${item.label}: ${item.line}`"
+            @click="toggleCommonInfoTooltip($event, item)"
+            @mouseenter="showCommonInfoTooltip($event, item)"
+            @mousemove="showCommonInfoTooltip($event, item)"
+            @mouseleave="hideCommonInfoTooltip()"
+            @pointerdown.stop
           >{{ item.line }}</span>
         </div>
-        <button
-          v-if="commonInfoExpanded || commonInfoOverflowing"
-          type="button"
-          class="montage-view__common-info-toggle"
-          @pointerdown.stop
-          @click="toggleCommonInfoExpanded"
-        >
-          {{ commonInfoExpanded ? (isZh ? '收起' : 'Less') : (isZh ? '更多' : 'More') }}
-        </button>
       </div>
     </header>
 
@@ -1354,20 +1387,17 @@ onBeforeUnmount(() => {
 .montage-view__common-info-content {
   display: flex;
   min-width: 0;
-  max-height: 30px;
   flex: 1;
   flex-wrap: wrap;
   gap: 2px 12px;
-  overflow: hidden;
   font: 500 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.montage-view__common-info-content--expanded {
-  max-height: none;
-}
-
 .montage-view__common-info-line {
-  max-width: min(520px, 48%);
+  display: block;
+  min-width: 0;
+  max-width: min(520px, 46%);
+  flex: 1 1 min(240px, 46%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

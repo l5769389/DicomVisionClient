@@ -378,7 +378,7 @@ describe('MontageView', () => {
     expect(resetWrapper.emitted('stateChange')).toBeUndefined()
   })
 
-  it('keeps montage corner information in the shared header with tag-label tooltips', async () => {
+  it('keeps montage corner information in the shared header and expands only truncated lines', async () => {
     const wrapper = mountMontage()
 
     expect(wrapper.find('.montage-view__subtitle').text()).toContain('WW 400 / WL 40')
@@ -389,10 +389,28 @@ describe('MontageView', () => {
     expect(wrapper.find('.montage-view__common-info').text()).toContain('SIEMENS / SOMATOM')
     expect(wrapper.find('.montage-view__common-info').text()).not.toContain('W: 400 L: 40')
     const sliceThicknessLine = wrapper.findAll('.montage-view__common-info-line').find((line) => line.text() === '0.6mm')
-    expect(sliceThicknessLine?.attributes('data-tooltip')).toBe('层厚')
+    expect(sliceThicknessLine?.attributes('data-tooltip')).toBe('层厚: 0.6mm')
+    Object.defineProperties(sliceThicknessLine?.element, {
+      clientWidth: { configurable: true, value: 40 },
+      scrollWidth: { configurable: true, value: 120 }
+    })
     await sliceThicknessLine?.trigger('mouseenter', { clientX: 120, clientY: 40 })
-    expect(wrapper.find('.montage-view__tag-tooltip').text()).toBe('层厚')
+    expect(wrapper.find('.montage-view__tag-tooltip').text()).toBe('层厚: 0.6mm')
     await sliceThicknessLine?.trigger('mouseleave')
+    expect(wrapper.find('.montage-view__tag-tooltip').exists()).toBe(false)
+
+    const modelLine = wrapper.findAll('.montage-view__common-info-line').find((line) => line.text() === 'SIEMENS / SOMATOM')
+    Object.defineProperties(modelLine?.element, {
+      clientWidth: { configurable: true, value: 180 },
+      scrollWidth: { configurable: true, value: 180 }
+    })
+    await modelLine?.trigger('mouseenter', { clientX: 120, clientY: 40 })
+    expect(wrapper.find('.montage-view__tag-tooltip').exists()).toBe(false)
+
+    await sliceThicknessLine?.trigger('click', { clientX: 120, clientY: 40 })
+    expect(wrapper.find('.montage-view__tag-tooltip').text()).toBe('层厚: 0.6mm')
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await wrapper.vm.$nextTick()
     expect(wrapper.find('.montage-view__tag-tooltip').exists()).toBe(false)
     expect(wrapper.findAll('.montage-view__slice-info')).toHaveLength(0)
     const requestsBeforeHover = getCornerInfoRequests().length

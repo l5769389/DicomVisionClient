@@ -250,6 +250,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           :placeholder="comparePlaceholder"
           :annotations="getAnnotations(pane.key)"
           :corner-info="activeTab.compareCornerInfos?.[pane.key] ?? activeTab.cornerInfo"
+          :pet-corner-info="Boolean(activeTab.comparePetInfos?.[pane.key])"
           :cursor-class="getCursorClass(pane.key)"
           :draft-annotation="getDraftAnnotation(pane.key)"
           :draft-measurement-mode="getDraftMeasurementMode(pane.key)"

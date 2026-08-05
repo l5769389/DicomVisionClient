@@ -16,6 +16,7 @@ import type {
   ViewerTabItem
 } from '../../../types/viewer'
 import {
+  FUSION_CT_AXIAL_PANE_KEY,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PANE_KEYS,
   FUSION_PET_AXIAL_PANE_KEY,
@@ -146,7 +147,6 @@ let manualRegistrationMoveRaf: number | null = null
 let pendingManualRegistrationMoveEvent: PointerEvent | null = null
 let lastManualRightClick: { at: number; clientX: number; clientY: number } | null = null
 
-const FUSION_LIGHT_STAGE_SURFACE_CLASS = 'viewer-stage-surface--white'
 const MANUAL_RIGHT_DOUBLE_CLICK_INTERVAL_MS = 420
 const MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX = 4
 const MANUAL_ROTATION_MIN_RADIUS_PX = 18
@@ -683,17 +683,8 @@ function isFusionPetStandalonePane(paneKey: FusionPaneKey): boolean {
   return paneKey === FUSION_PET_AXIAL_PANE_KEY || paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY
 }
 
-function getFusionPaneStageSurfaceClass(paneKey: FusionPaneKey): string {
-  return isFusionPetStandalonePane(paneKey) ? FUSION_LIGHT_STAGE_SURFACE_CLASS : ''
-}
-
-function getFusionPaneSurfaceStyle(paneKey: FusionPaneKey): Record<string, string> {
-  return isFusionPetStandalonePane(paneKey)
-    ? {
-        background: '#fff',
-        backgroundImage: 'none'
-      }
-    : {}
+function getFusionPanePseudocolorPreset(paneKey: FusionPaneKey): string {
+  return props.activeTab.fusionPseudocolorPresets?.[paneKey] ?? props.activeTab.pseudocolorPreset
 }
 
 function hasFusionPaneVisualContent(pane: FusionPaneView): boolean {
@@ -1188,7 +1179,6 @@ watch(
           'pet-ct-fusion-view__pane--expanded': expandedFusionPaneKey === pane.key,
           'pet-ct-fusion-view__pane--hidden-by-expanded': expandedFusionPaneKey != null && expandedFusionPaneKey !== pane.key
         }"
-        :style="getFusionPaneSurfaceStyle(pane.key)"
       >
         <div v-if="!hasFusionPaneVisualContent(pane)" class="pointer-events-none absolute left-3 top-2 z-10 rounded-md bg-black/35 px-2 py-1 text-[11px] font-semibold text-white/85">
           {{ pane.title }}
@@ -1199,6 +1189,7 @@ watch(
           :alt="pane.title"
           :annotations="getAnnotations(pane.key)"
           :corner-info="activeTab.fusionCornerInfos?.[pane.key] ?? activeTab.cornerInfo"
+          :pet-corner-info="pane.key !== FUSION_CT_AXIAL_PANE_KEY"
           :cursor-class="manualRegistrationEnabled && pane.key === FUSION_OVERLAY_AXIAL_PANE_KEY ? 'cursor-move' : getCursorClass(pane.key)"
           :draft-annotation="getDraftAnnotation(pane.key)"
           :draft-measurement="getDraftMeasurement(pane.key)"
@@ -1208,17 +1199,16 @@ watch(
           :image-style="getFusionPaneImageStyle(pane.key)"
           :is-active="activeViewportKey === pane.key"
           :is-loading="!hasFusionPaneVisualContent(pane)"
-          :light-surface="isFusionPetStandalonePane(pane.key)"
           :loading-label="getPaneLoadingLabel(pane.key)"
           :loading-progress-percent="getPaneLoadingProgressPercent(pane.key)"
           :measurements="getMeasurements(pane.key)"
           :orientation="getFusionPaneOrientation(pane)"
           :placeholder="placeholderLabel"
+          :pseudocolor-preset="getFusionPanePseudocolorPreset(pane.key)"
           :render-surface-active="true"
           :scale-bar="activeTab.fusionScaleBars?.[pane.key] ?? null"
           :show-corner-info="shouldShowFusionPaneCornerInfo(pane)"
           :show-scale-bar="shouldShowFusionPaneScaleBar(pane)"
-          :stage-surface-class="getFusionPaneStageSurfaceClass(pane.key)"
           :viewport-transform="activeTab.fusionTransformStates?.[pane.key] ?? activeTab.transformState ?? null"
           :viewport-key="pane.key"
           @click-viewport="emit('viewportClick', $event)"
@@ -1279,19 +1269,6 @@ watch(
 
 .pet-ct-fusion-view__pane--hidden-by-expanded {
   display: none;
-}
-
-.pet-ct-fusion-view__pane--pet-standalone {
-  background: #fff !important;
-  background-image: none !important;
-}
-
-.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-viewport),
-.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-stage-surface--white),
-.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-stage-surface--light),
-.pet-ct-fusion-view__pane--pet-standalone .pet-ct-fusion-view__stage {
-  background: #fff !important;
-  background-image: none !important;
 }
 
 .pet-ct-fusion-view__registration-banner {
@@ -1396,20 +1373,8 @@ watch(
     0 0 5px rgba(0, 0, 0, 0.62);
 }
 
-.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-corner-block) {
-  color: #182334;
-  font-weight: 750;
-  text-shadow:
-    0 1px 1px rgba(255, 255, 255, 0.86),
-    0 0 3px rgba(15, 23, 42, 0.22);
-}
-
 .pet-ct-fusion-view__stage :deep(.viewer-corner-overlay--custom-color .viewer-corner-block) {
   color: var(--viewer-corner-custom-dark-color);
-}
-
-.pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-corner-overlay--custom-color .viewer-corner-block) {
-  color: var(--viewer-corner-custom-light-color);
 }
 
 .pet-ct-fusion-view__pane--pet-standalone :deep(.viewer-orientation-label) {

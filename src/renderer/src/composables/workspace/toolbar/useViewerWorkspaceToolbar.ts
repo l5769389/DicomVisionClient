@@ -1,6 +1,10 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
-import { PSEUDOCOLOR_PRESET_OPTIONS, toPseudocolorSelectionValue } from '../../../constants/pseudocolor'
+import {
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+  PSEUDOCOLOR_PRESET_OPTIONS,
+  toPseudocolorSelectionValue
+} from '../../../constants/pseudocolor'
 import { useUiLocale } from '../../ui/useUiLocale'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import { VOLUME_PRESET_OPTIONS, createDefaultVolumeRenderConfig, normalizeVolumePresetKey } from '../volume/volumeRenderConfig'
@@ -62,8 +66,8 @@ import {
 } from '../../../types/viewer'
 import type { StackTool, StackToolOption, StackToolOptionSelectBehavior } from '../../../components/workspace/shell/toolbarTypes'
 
-const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'volumeClip', 'qa', 'mtf', 'annotate'])
-const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'volumeClip', 'page', 'measure', 'qa', 'mtf', 'annotate', 'segmentation'])
+const MODE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'petIntensity', 'crosshair', 'rotate3d', 'volumeClip', 'qa', 'mtf', 'annotate'])
+const SELECTABLE_TOOL_KEYS = new Set(['pan', 'zoom', 'window', 'petIntensity', 'crosshair', 'rotate3d', 'volumeClip', 'page', 'measure', 'qa', 'mtf', 'annotate', 'segmentation'])
 const DEFAULT_QA_OPERATION = 'qa:mtf'
 const WATER_PHANTOM_QA_OPERATION = 'qa:water-phantom'
 const STACK_PLAYBACK_DEFAULT_FPS = 5
@@ -77,7 +81,9 @@ const ZH_TOOL_LABELS: Record<string, string> = {
   fusionManualRegistration: '配准',
   fusionRegistration: '配准',
   fusionPseudocolor: 'PET 伪彩',
-  fusionPetDisplay: 'PET 显示',
+  petIntensity: 'PET 强度范围',
+  petPseudocolor: 'PET 伪彩',
+  petQuantification: 'PET 定量',
   fusionRegistrationReset: '重置配准',
   fusionRegistrationSave: '保存配准',
   fusionRegistrationLoad: '加载配准',
@@ -143,6 +149,7 @@ const ZH_OPTION_COPY: Record<string, Partial<StackToolOption>> = {
   'pseudocolor:bwinverse': { label: '反相黑白' },
   'pseudocolor:cardiac': { label: '心脏' },
   'pseudocolor:hotiron': { label: '热铁' },
+  'pseudocolor:hotmetal': { label: '热金属' },
   'pseudocolor:rainbow': { label: '彩虹' },
   'pseudocolor:reset': { label: '重置伪彩', description: '恢复设置中选择的默认伪彩。' },
   'qa:mtf': {
@@ -298,15 +305,15 @@ const pageTool: StackTool = {
 }
 
 function toFusionPseudocolorSelectionValue(value: string | null | undefined): string {
-  return `fusionPseudocolor:${String(value ?? 'petct-rainbow').replace(/^pseudocolor:/, '')}`
+  return `fusionPseudocolor:${String(value ?? DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET).replace(/^pseudocolor:/, '')}`
 }
 
-const fusionPetDisplayTool: StackTool = {
-  key: 'fusionPetDisplay',
-  label: 'PET',
-  icon: 'pseudocolor',
-  kind: 'action',
-  inlineKind: 'fusionPetDisplay',
+const petIntensityTool: StackTool = {
+  key: 'petIntensity',
+  label: 'PET Intensity',
+  icon: 'window',
+  kind: 'mode',
+  inlineKind: 'petIntensity',
   showSelectedOptionIcon: false,
   dockOptions: [
     {
@@ -316,6 +323,26 @@ const fusionPetDisplayTool: StackTool = {
       description: 'Restore PET display range and unit.'
     }
   ]
+}
+
+const petPseudocolorTool: StackTool = {
+  key: 'petPseudocolor',
+  label: 'PET Pseudocolor',
+  icon: 'pseudocolor',
+  kind: 'action',
+  inlineKind: 'petPseudocolor',
+  showSelectedOptionIcon: false,
+  dockOptions: [{ value: 'petPseudocolor:panel', label: 'PET Pseudocolor', icon: 'pseudocolor' }]
+}
+
+const petQuantificationTool: StackTool = {
+  key: 'petQuantification',
+  label: 'PET Quantification',
+  icon: 'tag',
+  kind: 'action',
+  inlineKind: 'petQuantification',
+  showSelectedOptionIcon: false,
+  dockOptions: [{ value: 'petQuantification:panel', label: 'PET Quantification', icon: 'tag' }]
 }
 
 const fusionRegistrationTool: StackTool = {
@@ -460,10 +487,12 @@ const transformResetDockOptions: StackToolOption[] = [
   }
 ]
 
-const ZOOM_RANGE_MIN = 0.25
-const ZOOM_RANGE_MAX = 10
-const ZOOM_RANGE_STEP = 0.05
-const ZOOM_RANGE_TICKS = [1, 2, 5, 10].map((value) => ({ value, label: `${value}x` }))
+// PET can be reconstructed on a very small matrix.  Its physical fit zoom in
+// a desktop viewport may therefore exceed the former 10x cap.
+const ZOOM_RANGE_MIN = 0.01
+const ZOOM_RANGE_MAX = 64
+const ZOOM_RANGE_STEP = 0.01
+const ZOOM_RANGE_TICKS = [0.1, 1, 2, 5, 10, 20, 40, 64].map((value) => ({ value, label: `${value}x` }))
 
 const zoomDockOptions: StackToolOption[] = transformResetDockOptions
 
@@ -789,15 +818,18 @@ const fusionTools: StackTool[] = [
       { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
     ]
   }),
-  fusionPetDisplayTool,
+  petIntensityTool,
+  petPseudocolorTool,
+  petQuantificationTool,
   fusionRegistrationTool
 ]
 
 const petTools: StackTool[] = [
+  layoutTool,
   montageTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
   { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
-  fusionPetDisplayTool,
+  petIntensityTool,
   {
     key: 'rotate',
     label: 'Rotate',
@@ -807,6 +839,9 @@ const petTools: StackTool[] = [
     options: rotateOptions
   },
   pageTool,
+  playTool,
+  petPseudocolorTool,
+  petQuantificationTool,
   annotateTool,
   measureTool,
   exportTool,
@@ -825,6 +860,43 @@ const petTools: StackTool[] = [
       { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements and annotations.' }
     ]
   })
+]
+
+const fusionCtTools: StackTool[] = fusionTools.filter(
+  (tool) => !['petIntensity', 'petPseudocolor', 'petQuantification', 'fusionRegistration'].includes(tool.key)
+)
+
+const fusionPetAxialTools: StackTool[] = petTools.filter(
+  (tool) => !['layout', 'montage', 'play'].includes(tool.key)
+).map((tool): StackTool => ['petIntensity', 'petPseudocolor', 'petQuantification'].includes(tool.key)
+  ? { ...tool, petScope: 'fusion-pane' as const }
+  : tool)
+
+const fusionPetMipTools: StackTool[] = [
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
+  { ...petIntensityTool, petScope: 'fusion-pane' },
+  { ...petPseudocolorTool, petScope: 'fusion-pane' },
+  { ...petQuantificationTool, petScope: 'fusion-pane' },
+  exportTool,
+  tagTool,
+  withoutMtfResetOption({
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    optionSelectionMode: 'none',
+    options: [{ value: 'reset:view', label: 'Reset View', icon: 'reset' }]
+  })
+]
+
+const fusionOverlayTools: StackTool[] = [
+  ...fusionTools
+    .filter((tool) => tool.key !== 'fusionRegistration')
+    .map((tool): StackTool => ['petIntensity', 'petPseudocolor', 'petQuantification'].includes(tool.key)
+      ? { ...tool, petScope: 'fusion-overlay' as const }
+      : tool),
+  fusionRegistrationTool
 ]
 
 const genericTools: StackTool[] = [
@@ -969,6 +1041,42 @@ const volumeTools: StackTool[] = [
   }
 ]
 
+const petVolumeRenderModeTool: StackTool = {
+  key: 'render3dMode',
+  label: 'PET Render',
+  icon: 'render-volume',
+  kind: 'action',
+  optionSelectionMode: 'single',
+  showSelectedOptionIcon: true,
+  options: [
+    { value: 'render3dMode:volume', label: 'PET VR', icon: 'render-volume', description: 'Quantitative PET volume rendering' },
+    { value: 'volumeBlendMode:mip', label: 'PET MIP', icon: 'mip', description: 'Maximum intensity projection' }
+  ]
+}
+
+const petVolumeTools: StackTool[] = [
+  layoutTool,
+  { key: 'rotate3d', label: '3D Rotate', icon: 'rotate3d', kind: 'mode', dockOptions: rotate3dDockOptions },
+  volumeOrientationTool,
+  { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
+  { key: 'zoom', label: 'Zoom', icon: 'zoom', kind: 'mode', dockOptions: zoomDockOptions },
+  petVolumeRenderModeTool,
+  volumeClipTool,
+  petIntensityTool,
+  petPseudocolorTool,
+  petQuantificationTool,
+  exportTool,
+  tagTool,
+  {
+    key: 'reset',
+    label: 'Reset',
+    icon: 'reset',
+    kind: 'action',
+    optionSelectionMode: 'none',
+    options: [{ value: 'reset:view', label: 'Reset View', icon: 'reset' }]
+  }
+]
+
 const genericToolsWithCrosshair: StackTool[] = [
   mprLayoutTool,
   { key: 'pan', label: 'Pan', icon: 'pan', kind: 'mode', dockOptions: transformResetDockOptions },
@@ -1002,6 +1110,27 @@ const genericToolsWithCrosshair: StackTool[] = [
 const mprToolsWithSegmentation: StackTool[] = genericToolsWithCrosshair.flatMap((tool) =>
   tool.key === 'mprMip' ? [tool, segmentationTool] : [tool]
 )
+
+const petMprTools: StackTool[] = genericToolsWithCrosshair
+  .filter((tool) => !['window', 'pseudocolor'].includes(tool.key))
+  .flatMap((tool) => {
+    if (tool.key === 'mprMip') {
+      return [tool, segmentationTool]
+    }
+    if (tool.key === 'zoom') {
+      return [tool, petIntensityTool, petPseudocolorTool, petQuantificationTool]
+    }
+    return [tool]
+  })
+
+const petMprWithVolumeTools: StackTool[] = petMprTools.flatMap((tool) => {
+  if (tool.key === 'rotate3d') {
+    return [tool, volumeOrientationTool]
+  }
+  return tool.key === 'mprMip'
+    ? [tool, petVolumeRenderModeTool, volumeClipTool]
+    : [tool]
+})
 
 const mprWithVolumeTools: StackTool[] = genericToolsWithCrosshair.flatMap((tool) => {
   if (tool.key === 'rotate3d') {
@@ -1038,6 +1167,79 @@ interface StoredToolbarState {
   selections: Partial<Record<string, string>>
 }
 
+export type ViewerToolCapabilityProfile =
+  | 'stack-ct'
+  | 'stack-pet'
+  | 'montage-ct'
+  | 'montage-pet'
+  | 'compare-ct'
+  | 'compare-pet'
+  | 'layout-ct'
+  | 'layout-pet'
+  | 'volume-ct'
+  | 'volume-pet'
+  | 'mpr-ct'
+  | 'mpr-pet'
+  | 'fusion-ct'
+  | 'fusion-pet'
+  | 'fusion-pet-mip'
+  | 'fusion-overlay'
+  | 'four-d-ct'
+  | 'four-d-pet-unsupported'
+  | 'generic'
+
+function isPetModality(value: string | null | undefined): boolean {
+  const modality = String(value ?? '').trim().toUpperCase()
+  return modality === 'PT' || modality === 'PET'
+}
+
+export function resolveViewerToolCapabilityProfile(
+  tab: ViewerTabItem | null | undefined,
+  activeViewportKey: string
+): ViewerToolCapabilityProfile {
+  if (!tab) {
+    return 'generic'
+  }
+  const tabIsPet = Boolean(tab.petInfo)
+  switch (tab.viewType) {
+    case 'PET':
+      return 'stack-pet'
+    case 'Stack':
+      return tabIsPet ? 'stack-pet' : 'stack-ct'
+    case 'Montage':
+      return tabIsPet ? 'montage-pet' : 'montage-ct'
+    case 'CompareStack': {
+      const paneKey = activeViewportKey === COMPARE_STACK_TARGET_PANE_KEY
+        ? COMPARE_STACK_TARGET_PANE_KEY
+        : COMPARE_STACK_SOURCE_PANE_KEY
+      return tab.comparePetInfos?.[paneKey] || isPetModality(tab.compareSeriesModalities?.[paneKey])
+        ? 'compare-pet'
+        : 'compare-ct'
+    }
+    case 'Layout': {
+      const slot = (tab.layoutSlots ?? []).find((item) => item.id === activeViewportKey && item.viewId)
+        ?? (tab.layoutSlots ?? []).find((item) => Boolean(item.viewId))
+      if (slot?.viewType === '3D' || slot?.sourceViewType === '3D') {
+        return slot.petInfo ? 'volume-pet' : 'volume-ct'
+      }
+      return slot?.petInfo ? 'layout-pet' : 'layout-ct'
+    }
+    case 'MPR':
+      return tabIsPet ? 'mpr-pet' : 'mpr-ct'
+    case '3D':
+      return tabIsPet ? 'volume-pet' : 'volume-ct'
+    case '4D':
+      return tabIsPet ? 'four-d-pet-unsupported' : 'four-d-ct'
+    case 'PETCTFusion':
+      if (activeViewportKey === FUSION_CT_AXIAL_PANE_KEY) return 'fusion-ct'
+      if (activeViewportKey === FUSION_PET_AXIAL_PANE_KEY) return 'fusion-pet'
+      if (activeViewportKey === FUSION_PET_CORONAL_MIP_PANE_KEY) return 'fusion-pet-mip'
+      return 'fusion-overlay'
+    default:
+      return 'generic'
+  }
+}
+
 export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions) {
   const { locale } = useUiLocale()
   const { getWindowPresetLabel, mprDefaultLayoutKey, selectedPseudocolorKey, selectedWindowPresetId, windowPresets } = useUiPreferences()
@@ -1060,7 +1262,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     qa: DEFAULT_QA_OPERATION,
     play: `playbackFps:${STACK_PLAYBACK_DEFAULT_FPS}`,
     pseudocolor: toPseudocolorSelectionValue(selectedPseudocolorKey.value),
-    fusionPseudocolor: toFusionPseudocolorSelectionValue('petct-rainbow'),
+    fusionPseudocolor: toFusionPseudocolorSelectionValue(DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET),
     export: 'png',
     exportTarget: '',
     render3dMode: 'render3dMode:volume',
@@ -1314,6 +1516,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }))
 
   function withDynamicWindowTool(tools: StackTool[]): StackTool[] {
+    const profile = resolveViewerToolCapabilityProfile(options.activeTab.value, options.activeViewportKey.value)
+    if (profile === 'stack-pet' || profile === 'montage-pet' || profile === 'compare-pet' || profile === 'layout-pet' || profile === 'volume-pet' || profile === 'mpr-pet' || profile === 'fusion-pet' || profile === 'fusion-pet-mip') {
+      return tools
+    }
     return tools.map((tool) => (tool.key === 'window' ? windowTool.value : tool))
   }
 
@@ -1386,25 +1592,49 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getBaseToolsForActiveTab(): StackTool[] {
-    const viewType = options.activeTab.value?.viewType
-    switch (viewType) {
-      case 'Stack':
+    const profile = resolveViewerToolCapabilityProfile(options.activeTab.value, options.activeViewportKey.value)
+    switch (profile) {
+      case 'stack-ct':
         return stackTools
-      case 'PET':
+      case 'stack-pet':
         return petTools
-      case 'Montage':
+      case 'montage-ct':
         return montageTools
-      case 'PETCTFusion':
-        return fusionTools
-      case 'CompareStack':
+      case 'montage-pet':
+        return montageTools
+          .filter((tool) => !['window', 'pseudocolor'].includes(tool.key))
+          .flatMap((tool) => tool.key === 'zoom' ? [tool, petIntensityTool, petPseudocolorTool, petQuantificationTool] : [tool])
+      case 'fusion-ct':
+        return fusionCtTools
+      case 'fusion-pet':
+        return fusionPetAxialTools
+      case 'fusion-pet-mip':
+        return fusionPetMipTools
+      case 'fusion-overlay':
+        return fusionOverlayTools
+      case 'compare-ct':
         return withSyncToolAfterLayout(compareStackTools)
-      case 'MPR':
+      case 'compare-pet':
+        return withSyncToolAfterLayout(compareStackTools
+          .filter((tool) => !['window', 'pseudocolor'].includes(tool.key))
+          .flatMap((tool) => tool.key === 'zoom' ? [tool, petIntensityTool, petPseudocolorTool, petQuantificationTool] : [tool]))
+      case 'mpr-ct':
         return isActiveMpr3dLayout.value ? mprWithVolumeTools : mprToolsWithSegmentation
-      case '4D':
+      case 'mpr-pet':
+        return isActiveMpr3dLayout.value ? petMprWithVolumeTools : petMprTools
+      case 'four-d-ct':
         return genericToolsWithCrosshair
-      case 'Layout':
-        return isActiveLayoutVolumeSlot() ? volumeTools : withSyncToolAfterLayout(layoutStackTools)
-      case '3D':
+      case 'four-d-pet-unsupported':
+        return []
+      case 'layout-ct':
+        return withSyncToolAfterLayout(layoutStackTools)
+      case 'layout-pet':
+        return withSyncToolAfterLayout(layoutStackTools
+          .filter((tool) => !['window', 'pseudocolor', 'qa'].includes(tool.key))
+          .flatMap((tool) => tool.key === 'zoom' ? [tool, petIntensityTool, petPseudocolorTool, petQuantificationTool] : [tool]))
+      case 'volume-pet':
+        return petVolumeTools
+      case 'volume-ct':
         return volumeTools
       default:
         return genericTools
@@ -1440,6 +1670,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   function withRenderModeTools(tools: StackTool[]): StackTool[] {
     const tab = options.activeTab.value
+    const profile = resolveViewerToolCapabilityProfile(tab, options.activeViewportKey.value)
+    if (profile === 'volume-pet' || profile === 'mpr-pet') {
+      return tools
+    }
     if (!tab || tab.render3dMode !== 'surface' || !isActiveRender3dViewport()) {
       return tools
     }
@@ -1504,6 +1738,26 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
   }
 
+  function getActivePetInfo(): ViewerTabItem['petInfo'] {
+    const tab = options.activeTab.value
+    if (!tab) {
+      return null
+    }
+    if (tab.viewType === 'Layout') {
+      return getActiveLayoutSlot(tab)?.petInfo ?? null
+    }
+    if (tab.viewType === 'CompareStack') {
+      return tab.comparePetInfos?.[resolveActiveComparePaneKey(tab)] ?? null
+    }
+    return tab.petInfo ?? null
+  }
+
+  function withActivePetToolContext(tool: StackTool): StackTool {
+    return ['petIntensity', 'petPseudocolor', 'petQuantification'].includes(tool.key)
+      ? { ...tool, petInfo: getActivePetInfo() }
+      : tool
+  }
+
   const activeTools = computed(() => {
     const viewType = options.activeTab.value?.viewType
     return withDisplayTool(
@@ -1521,6 +1775,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       .map((tool) => localizeToolbarTool(tool, isZh.value))
       .map((tool) => withDynamicVolumeToolState(tool))
       .map((tool) => withDynamicVolumeOrientationToolState(tool))
+      .map((tool) => withActivePetToolContext(tool))
   })
 
   const areToolbarActionsDisabled = computed(
@@ -1544,6 +1799,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   const activeSurfaceRenderConfig = computed<SurfaceRenderConfig | null>(() => {
     const tab = options.activeTab.value
     if (!tab || !isActiveRender3dViewport()) {
+      return null
+    }
+    const profile = resolveViewerToolCapabilityProfile(tab, options.activeViewportKey.value)
+    if (profile === 'volume-pet' || profile === 'mpr-pet') {
       return null
     }
     if (tab.render3dMode !== 'surface') {
@@ -1572,6 +1831,9 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   })
 
   function getModeOperationValue(toolKey: string): string {
+    if (toolKey === 'petIntensity') {
+      return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.window}`
+    }
     if (toolKey === 'page') {
       return `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`
     }
@@ -1599,7 +1861,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function supportsSlicePlayback(viewType: ViewerTabItem['viewType'] | undefined): boolean {
-    return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
+    return viewType === 'Stack' || viewType === 'PET' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
   }
 
   function getActiveLayoutSlot(tab: ViewerTabItem): NonNullable<ViewerTabItem['layoutSlots']>[number] | null {
@@ -1766,6 +2028,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function getDefaultToolbarToolKey(viewType: ViewerTabItem['viewType'] | undefined): string {
+    const profile = resolveViewerToolCapabilityProfile(options.activeTab.value, options.activeViewportKey.value)
+    if (profile.includes('pet') || profile === 'fusion-overlay') {
+      return 'petIntensity'
+    }
     if (viewType === 'MPR' || viewType === '4D') {
       return 'crosshair'
     }
@@ -2114,7 +2380,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     }
     return normalizeMprSegmentationConfig({
       ...current,
-      enabled: current.enabled
+      enabled: true
     })
   }
 
@@ -2660,12 +2926,28 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       return
     }
 
-    if (tool.key === 'fusionPetDisplay') {
+    if (tool.key === 'petIntensity' || tool.key === 'petPseudocolor' || tool.key === 'petQuantification') {
+      if (optionValue.startsWith('petPseudocolor:')) {
+        options.emitTriggerViewAction({ action: 'petPseudocolor', value: optionValue })
+        return
+      }
       if (optionValue.startsWith('fusionPetPseudocolor:')) {
         options.emitTriggerViewAction({
           action: 'fusionPseudocolor',
           value: optionValue.replace(/^fusionPetPseudocolor:/, 'fusionPseudocolor:')
         })
+        return
+      }
+      if (optionValue.startsWith('fusionPetPanePseudocolor:')) {
+        options.emitTriggerViewAction({ action: 'fusionPetPanePseudocolor', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('fusionWindowTarget:')) {
+        options.emitTriggerViewAction({ action: 'fusionWindowTarget', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('fusionAlpha:')) {
+        options.emitTriggerViewAction({ action: 'fusionAlpha', value: optionValue })
         return
       }
       if (optionValue.startsWith('fusionPetUnit:')) {
@@ -2676,12 +2958,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         options.emitTriggerViewAction({ action: 'fusionPetWindow', value: optionValue })
         return
       }
+      if (optionValue.startsWith('fusionPetControlWindowMax:')) {
+        options.emitTriggerViewAction({ action: 'fusionPetControlWindowMax', value: optionValue })
+        return
+      }
       if (optionValue.startsWith('petUnit:')) {
         options.emitTriggerViewAction({ action: 'petUnit', value: optionValue })
         return
       }
       if (optionValue.startsWith('petWindow:')) {
         options.emitTriggerViewAction({ action: 'petWindow', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('petControlWindowMax:')) {
+        options.emitTriggerViewAction({ action: 'petControlWindowMax', value: optionValue })
         return
       }
       if (optionValue === 'petDisplay:reset') {
@@ -2829,7 +3119,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
     if (tool.key === 'render3dMode') {
       closeMenusIfNeeded(behavior)
-      options.emitTriggerViewAction({ action: 'render3dMode', value: optionValue })
+      options.emitTriggerViewAction({
+        action: optionValue.startsWith('volumeBlendMode:') ? 'volumeBlendMode' : 'render3dMode',
+        value: optionValue
+      })
       return
     }
 
@@ -2928,7 +3221,10 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         }
       }
 
-      const matchedToolKey = getOperationToolKey(value)
+      const rawMatchedToolKey = getOperationToolKey(value)
+      const matchedToolKey = rawMatchedToolKey === 'window' && isToolAvailable('petIntensity')
+        ? 'petIntensity'
+        : rawMatchedToolKey
       if (SELECTABLE_TOOL_KEYS.has(matchedToolKey)) {
         if (!isToolAvailable(matchedToolKey)) {
           return
@@ -2996,17 +3292,26 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   )
 
   watch(
-    () => [options.activeTab.value?.render3dMode, options.activeViewportKey.value, isActiveMpr3dLayout.value] as const,
+    () => [
+      options.activeTab.value?.render3dMode,
+      options.activeTab.value?.volumeRenderConfig?.blendMode,
+      options.activeViewportKey.value,
+      isActiveMpr3dLayout.value
+    ] as const,
     (value) => {
-      const [render3dMode] = value
+      const [render3dMode, blendMode] = value
       if (!isActiveRender3dViewport()) {
         return
       }
+      const profile = resolveViewerToolCapabilityProfile(options.activeTab.value, options.activeViewportKey.value)
+      const isPetVolume = profile === 'volume-pet' || profile === 'mpr-pet'
       stackToolSelections.value = {
         ...stackToolSelections.value,
-        render3dMode: `render3dMode:${render3dMode === 'surface' ? 'surface' : 'volume'}`
+        render3dMode: isPetVolume && blendMode === 'mip'
+          ? 'volumeBlendMode:mip'
+          : `render3dMode:${!isPetVolume && render3dMode === 'surface' ? 'surface' : 'volume'}`
       }
-      if (render3dMode === 'surface') {
+      if (!isPetVolume && render3dMode === 'surface') {
         const activeToolUnavailable = !isToolAvailable(activeToolbarToolKey.value)
         const activeOperationToolKey = getOperationToolKey(options.activeOperation.value)
         if (activeToolUnavailable || activeOperationToolKey === 'window') {
@@ -3094,7 +3399,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
 
   watch(
     () => options.activeTab.value?.viewType === 'PETCTFusion'
-      ? options.activeTab.value.fusionInfo?.petPseudocolorPreset ?? 'petct-rainbow'
+      ? options.activeTab.value.fusionInfo?.petPseudocolorPreset ?? DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
       : null,
     (value) => {
       if (!value) {

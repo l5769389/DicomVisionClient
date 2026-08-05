@@ -892,13 +892,14 @@ describe('ViewerToolbarDock', () => {
     ])
   })
 
-  it('shows PET display controls instead of CT window templates for standalone PET tabs', async () => {
-    const petDisplayTool: StackTool = {
-      key: 'fusionPetDisplay',
-      label: 'PET',
-      icon: 'pseudocolor',
-      kind: 'action',
-      inlineKind: 'fusionPetDisplay',
+  it('splits PET intensity, pseudocolor, and quantification from CT window templates', async () => {
+    vi.useFakeTimers()
+    const petIntensityTool: StackTool = {
+      key: 'petIntensity',
+      label: 'PET Intensity',
+      icon: 'window',
+      kind: 'mode',
+      inlineKind: 'petIntensity',
       dockOptions: [
         {
           value: 'petDisplay:reset',
@@ -919,28 +920,70 @@ describe('ViewerToolbarDock', () => {
         petUnitLabel: 'g/ml (SUVbw)',
         petWindowMin: 0,
         petWindowMax: 8,
-        pseudocolorPreset: 'bwinverse'
+        pseudocolorPreset: 'bwinverse',
+        unitOptions: [
+          { unit: 'SUVbw', label: 'g/ml (SUVbw)', available: true },
+          { unit: 'kBqml', label: 'kBq/ml', available: true },
+          {
+            unit: 'SUL',
+            label: 'g/ml* (SUL, Janmahasatian)',
+            available: false,
+            reason: 'Requires valid sex, height and weight'
+          }
+        ]
       }
     } as ViewerTabItem
     const wrapper = mountDock({
       activeTab: petTab,
-      activeTools: [petDisplayTool],
+      activeTools: [petIntensityTool],
       isToolSelected: vi.fn(() => false),
-      openMenuKey: 'fusionPetDisplay'
+      openMenuKey: 'petIntensity'
     })
 
-    expect(wrapper.find('.viewer-toolbar-dock-panel-content--fusionPetDisplay').exists()).toBe(true)
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content--petIntensity').exists()).toBe(true)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__custom-window').exists()).toBe(false)
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__options-scroll--window').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Pseudocolor')
     expect(wrapper.find('.viewer-toolbar-dock-panel-content__pet-pseudocolor-option').exists()).toBe(false)
-    expect(wrapper.text()).toContain('Intensity Range')
+    expect(wrapper.text()).toContain('Current Display Upper')
     expect(wrapper.text()).toContain('Unit')
 
-    await wrapper.find('.viewer-toolbar-dock-panel-content__pet-range-track input').setValue('12.5')
+    const petRangeSlider = wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input')
+    petRangeSlider.element.value = '12.5'
+    await petRangeSlider.trigger('input')
+    expect(petRangeSlider.element.value).toBe('12.5')
+    expect(wrapper.emitted('selectToolOption')).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(90)
     expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
-      expect.objectContaining({ key: 'fusionPetDisplay' }),
+      expect.objectContaining({ key: 'petIntensity' }),
       'petWindow:0:12.5',
+      { keepMenuOpen: true }
+    ])
+
+    const currentUpperInput = wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-current-upper-input')
+    await currentUpperInput.setValue('6.25')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petWindow:0:12.5',
+      { keepMenuOpen: true }
+    ])
+    await vi.advanceTimersByTimeAsync(300)
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petWindow:0:6.25',
+      { keepMenuOpen: true }
+    ])
+    expect(currentUpperInput.element.value).toBe('6.25')
+
+    // Keep the user's editing text intact.  A PET display upper can be a
+    // sub-unit SUV value, and rewriting `.08` to `0.08` while typing makes
+    // decimal entry frustrating even though both represent the same value.
+    await currentUpperInput.setValue('.08')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(currentUpperInput.element.value).toBe('.08')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petWindow:0:0.08',
       { keepMenuOpen: true }
     ])
 
@@ -950,23 +993,90 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input').element.value).toBe('40')
     expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input').element.max).toBe('40')
     expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
-      expect.objectContaining({ key: 'fusionPetDisplay' }),
-      'petWindow:0:12.5',
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petControlWindowMax:40',
       { keepMenuOpen: true }
     ])
 
+    const rangeMaxTwentyButton = wrapper
+      .findAll<HTMLButtonElement>('.viewer-toolbar-dock-panel-content__pet-range-max button')
+      .find((button) => button.text().trim() === '20')
+    await rangeMaxTwentyButton?.trigger('click')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input').element.value).toBe('20')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input').element.max).toBe('20')
+    expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input').element.value).toBe('0.08')
+    expect(rangeMaxTwentyButton?.attributes('aria-checked')).toBe('true')
+    expect(rangeMaxTwentyButton?.classes()).toContain('viewer-toolbar-dock-panel-content__pet-range-max-option--active')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petControlWindowMax:20',
+      { keepMenuOpen: true }
+    ])
+
+    const intensityUnitButtons = wrapper.findAll('.viewer-toolbar-dock-panel-content__chip')
+    const intensityKbqButton = intensityUnitButtons.find((button) => button.text().includes('kBq/ml'))
+    expect(intensityKbqButton).toBeDefined()
+    await intensityKbqButton!.trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petUnit:kBqml',
+      { keepMenuOpen: true }
+    ])
+    const unavailableSulButton = intensityUnitButtons.find((button) => button.text().includes('SUL'))
+    expect(unavailableSulButton?.attributes('disabled')).toBeDefined()
+    expect(unavailableSulButton?.attributes('title')).toBe('Requires valid sex, height and weight')
+    const emissionsBeforeUnavailableClick = wrapper.emitted('selectToolOption')?.length ?? 0
+    await unavailableSulButton?.trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.length ?? 0).toBe(emissionsBeforeUnavailableClick)
+
     const updatedRangeMaxInput = wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input')
-    await updatedRangeMaxInput.setValue('1000')
+    await updatedRangeMaxInput.setValue('1000000000001')
     await updatedRangeMaxInput.trigger('change')
     expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-max-input').element.value).toBe('30')
     expect(wrapper.find<HTMLInputElement>('.viewer-toolbar-dock-panel-content__pet-range-track input').element.max).toBe('30')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petIntensity' }),
+      'petControlWindowMax:30',
+      { keepMenuOpen: true }
+    ])
 
-    const unitButtons = wrapper.findAll('.viewer-toolbar-dock-panel-content__chip')
+    const pseudocolorWrapper = mountDock({
+      activeTab: petTab,
+      activeTools: [{
+        key: 'petPseudocolor',
+        label: 'PET Pseudocolor',
+        icon: 'pseudocolor',
+        kind: 'action',
+        inlineKind: 'petPseudocolor'
+      }],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'petPseudocolor'
+    })
+    expect(pseudocolorWrapper.text()).toContain('Pseudocolor')
+    expect(pseudocolorWrapper.find('.viewer-toolbar-dock-panel-content__pet-pseudocolor-option').exists()).toBe(true)
+    expect(pseudocolorWrapper.text()).not.toContain('Intensity Range')
+    expect(pseudocolorWrapper.text()).not.toContain('Unit')
+
+    const quantificationWrapper = mountDock({
+      activeTab: petTab,
+      activeTools: [{
+        key: 'petQuantification',
+        label: 'PET Quantification',
+        icon: 'pet-quantification',
+        kind: 'action',
+        inlineKind: 'petQuantification'
+      }],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'petQuantification'
+    })
+    expect(quantificationWrapper.text()).toContain('Unit')
+    expect(quantificationWrapper.text()).not.toContain('Intensity Range')
+    const unitButtons = quantificationWrapper.findAll('.viewer-toolbar-dock-panel-content__chip')
     const kbqButton = unitButtons.find((button) => button.text().includes('kBq/ml'))
     expect(kbqButton).toBeDefined()
     await kbqButton!.trigger('click')
-    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
-      expect.objectContaining({ key: 'fusionPetDisplay' }),
+    expect(quantificationWrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petQuantification' }),
       'petUnit:kBqml',
       { keepMenuOpen: true }
     ])
@@ -975,10 +1085,11 @@ describe('ViewerToolbarDock', () => {
     expect(resetPetDisplay.classes()).toContain('viewer-toolbar-dock-panel-content__danger-action--destructive')
     await resetPetDisplay.trigger('click')
     expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
-      expect.objectContaining({ key: 'fusionPetDisplay' }),
+      expect.objectContaining({ key: 'petIntensity' }),
       'petDisplay:reset',
       { keepMenuOpen: true }
     ])
+    vi.useRealTimers()
   })
 
   it('uses a discrete slider for playback FPS in the right dock panel', async () => {

@@ -531,8 +531,8 @@ function isPrimaryPane(paneKey: FusionPaneKey): boolean {
   return activePaneKey.value === paneKey
 }
 
-function shouldUseLightSurface(paneKey: FusionPaneKey): boolean {
-  return isPetStandalonePane(paneKey) && isPrimaryPane(paneKey)
+function getPanePseudocolorPreset(paneKey: FusionPaneKey): string | null {
+  return fusionTab.value?.fusionPseudocolorPresets?.[paneKey] ?? fusionTab.value?.pseudocolorPreset ?? null
 }
 
 function getPaneCursorClass(paneKey: FusionPaneKey): string {
@@ -1051,16 +1051,15 @@ watch(
         :is-active="shouldShowActiveStyle(pane.key)"
         compact-loading
         :is-loading="isPaneLoading(pane.key)"
-        :light-surface="shouldUseLightSurface(pane.key)"
         :loading-label="getPaneLoadingLabel(pane)"
         :measurements="getMeasurements(pane.key)"
         :orientation="getOrientation(pane.key)"
         :placeholder="pane.title"
+        :pseudocolor-preset="getPanePseudocolorPreset(pane.key)"
         :render-surface-active="true"
         :scale-bar="isPrimaryPane(pane.key) ? fusionTab?.fusionScaleBars?.[pane.key] ?? null : null"
         :show-corner-info="isPrimaryPane(pane.key) && fusionTab?.showCornerInfo !== false && hasFusionPaneContent(pane.key)"
         :show-scale-bar="isPrimaryPane(pane.key) && fusionTab?.showScaleBar !== false && hasFusionPaneContent(pane.key)"
-        :stage-surface-class="shouldUseLightSurface(pane.key) ? 'viewer-stage-surface--white' : ''"
         :viewport-transform="fusionTab?.fusionTransformStates?.[pane.key] ?? fusionTab?.transformState ?? null"
         @click-viewport="emit('activeViewportChange', $event)"
         @copy-annotation="emit('copyAnnotation', $event)"
@@ -1279,16 +1278,6 @@ watch(
     0 0 5px rgba(0, 0, 0, 0.64);
 }
 
-.mobile-petct-fusion-viewport__pane--pet :deep(.viewer-corner-block) {
-  color: #182334;
-  text-shadow:
-    0 1px 1px rgba(255, 255, 255, 0.86),
-    0 0 3px rgba(15, 23, 42, 0.22);
-}
-
-.mobile-petct-fusion-viewport__pane--pet :deep(.viewer-corner-overlay--custom-color .viewer-corner-block) {
-  color: var(--viewer-corner-custom-light-color);
-}
 
 .mobile-petct-fusion-viewport__pane--pet :deep(.viewer-orientation-label) {
   color: #b91c1c;

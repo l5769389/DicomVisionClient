@@ -120,7 +120,6 @@ import {
   DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
-  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET,
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
@@ -129,6 +128,7 @@ import {
   createDefaultVolumeRenderOptions,
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
+  createDefaultMprSegmentationPanelState,
   isStaleMprSegmentationPreviewConfig,
   isFourDSeriesItem,
   mergeMprSegmentationPreviewConfig,
@@ -157,6 +157,7 @@ import {
   type IncomingMprViewportUpdate
 } from './mprInteractionGuard'
 import { createViewSizeUpdateDeduper } from './viewSizeUpdateDeduper'
+import { parseSliceLabel } from '../slices/useKeySliceStars'
 
 let typedApiModulePromise: Promise<typeof import('../../../services/typedApi')> | null = null
 
@@ -508,7 +509,11 @@ function normalizeImageUpdateRenderIntent(payload: Partial<ViewImageResponse>): 
   ) {
     return 'geometry-preview'
   }
-  if (metadataMode === 'mpr-segmentation-preview' || metadataMode === 'fusion-registration-layer-preview') {
+  if (
+    metadataMode === 'mpr-segmentation-preview' ||
+    metadataMode === 'mpr-model-rotate-preview' ||
+    metadataMode === 'fusion-registration-layer-preview'
+  ) {
     return 'overlay-preview'
   }
 
@@ -611,7 +616,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const renderTabScheduler = createRenderTabScheduler({
     renderNow: renderTabNow
   })
-  const { locale, montageColumnCount, selectedPseudocolorKey } = useUiPreferences()
+  const {
+    locale,
+    montageColumnCount,
+    defaultCtPseudocolorKey,
+    defaultPetPseudocolorKey
+  } = useUiPreferences()
   let tabActivationHistory: string[] = []
 
   function withRuntimeCornerInfo(
@@ -802,6 +812,35 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
+  function transferTabRenderResourcesToLayout(tab: ViewerTabItem, layoutSlots: ViewerLayoutSlot[]): void {
+    const retainedViewIds = new Set(
+      layoutSlots
+        .map((slot) => slot.viewId ?? '')
+        .filter((viewId): viewId is string => Boolean(viewId))
+    )
+    const sourceViewIds = [
+      tab.viewId,
+      ...Object.values(tab.compareViewIds ?? {}),
+      ...Object.values(tab.fusionViewIds ?? {}),
+      ...Object.values(tab.viewportViewIds ?? {}),
+      ...getFourDPhaseBackendViewIds(tab),
+      ...getLayoutSlotViewIds(tab)
+    ].filter((viewId): viewId is string => Boolean(viewId))
+    const discardedViewIds = [...new Set(sourceViewIds)].filter((viewId) => !retainedViewIds.has(viewId))
+    if (discardedViewIds.length) {
+      releaseBackendViews(discardedViewIds)
+      discardedViewIds.forEach((viewId) => viewSizeCache.delete(viewId))
+    }
+    revokeObjectUrlIfNeeded(tab.imageSrc)
+    Object.values(tab.compareImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fusionImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fusionLayerImages ?? {}).forEach((layerImages) => revokeObjectUrlIfNeeded(layerImages?.pet))
+    Object.values(tab.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    Object.values(tab.fourDPhaseCache ?? {}).forEach((phaseCache) => {
+      Object.values(phaseCache.viewportImages ?? {}).forEach(revokeObjectUrlIfNeeded)
+    })
+  }
+
   function resolveSeriesLayoutPreviewSrc(series: FolderSeriesItem): string {
     const phasePreview = series.fourDPhases?.find((phase) => phase.imageSrc || phase.viewportImages?.['mpr-ax'])
     return resolveBackendAssetUrl(
@@ -825,7 +864,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   function isLayoutStackSlot(slot: ViewerLayoutSlot): boolean {
     return Boolean(
       slot.seriesId &&
-        (slot.viewType === 'Stack' || slot.sourceViewType === 'Stack' || slot.sourceViewType === 'CompareStack')
+        (
+          slot.viewType === 'Stack' ||
+          slot.viewType === 'PET' ||
+          slot.sourceViewType === 'Stack' ||
+          slot.sourceViewType === 'PET' ||
+          slot.sourceViewType === 'CompareStack'
+        )
     )
   }
 
@@ -847,10 +892,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return slot
     }
 
+    const series = options.seriesList.value.find((item) => item.seriesId === slot.seriesId)
+    const isPetSlot = !isVolumeSlot && isPetSeries(series)
     const { postApi } = await loadTypedApi()
     const data = await postApi('CreateViewApiV1ViewCreatePost', {
       seriesId: slot.seriesId,
-      viewType: isVolumeSlot ? '3D' : 'Stack'
+      viewType: isVolumeSlot ? '3D' : isPetSlot ? 'PET' : 'Stack'
     })
     if (isVolumeSlot) {
       return {
@@ -862,11 +909,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       }
     }
 
-    const pseudocolorPreset = normalizePseudocolorPresetKey(slot.pseudocolorPreset ?? selectedPseudocolorKey.value)
+    const pseudocolorPreset = normalizePseudocolorPresetKey(
+      slot.pseudocolorPreset ??
+      (isPetSlot ? defaultPetPseudocolorKey.value : defaultCtPseudocolorKey.value)
+    )
     return {
       ...slot,
-      viewType: 'Stack',
-      sourceViewType: slot.sourceViewType ?? 'Stack',
+      viewType: isPetSlot ? 'PET' : 'Stack',
+      sourceViewType: isPetSlot ? 'PET' : slot.sourceViewType ?? 'Stack',
       viewportKey: slot.viewportKey ?? 'single',
       viewId: data.viewId,
       pseudocolorPreset,
@@ -884,11 +934,29 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         if (!slot.viewId || !isLayoutStackSlot(slot)) {
           return
         }
-        await emitViewOperationWithAck({
-          viewId: slot.viewId,
-          opType: VIEW_OPERATION_TYPES.pseudocolor,
-          pseudocolorPreset: normalizePseudocolorPresetKey(presetOverride ?? slot.pseudocolorPreset ?? selectedPseudocolorKey.value)
-        })
+        const preset = normalizePseudocolorPresetKey(
+          presetOverride ??
+          slot.pseudocolorPreset ??
+          (slot.viewType === 'PET' || slot.sourceViewType === 'PET'
+            ? defaultPetPseudocolorKey.value
+            : defaultCtPseudocolorKey.value)
+        )
+        await emitViewOperationWithAck(
+          slot.viewType === 'PET' || slot.sourceViewType === 'PET'
+            ? {
+                viewId: slot.viewId,
+                opType: VIEW_OPERATION_TYPES.petConfig,
+                pseudocolorPreset: preset,
+                petWindowMin: slot.petInfo?.petWindowMin ?? undefined,
+                petWindowMax: slot.petInfo?.petWindowMax ?? undefined,
+                petUnit: slot.petInfo?.petUnit
+              }
+            : {
+                viewId: slot.viewId,
+                opType: VIEW_OPERATION_TYPES.pseudocolor,
+                pseudocolorPreset: preset
+              }
+        )
       })
     )
   }
@@ -911,7 +979,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
-  async function emitInitialPetConfigOperation(viewId: string, preset: string): Promise<void> {
+  async function emitInitialPetConfigOperation(
+    viewId: string,
+    preset: string,
+    petInfo?: ViewerTabItem['petInfo'] | null
+  ): Promise<void> {
     const normalizedPreset = normalizePseudocolorPresetKey(preset)
     if (!viewId) {
       return
@@ -920,41 +992,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       viewId,
       opType: VIEW_OPERATION_TYPES.petConfig,
       pseudocolorPreset: normalizedPreset,
-      petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
-      petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+      petWindowMin: petInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN,
+      petWindowMax: petInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX,
+      petUnit: petInfo?.petUnit
     })
-  }
-
-  function normalizeStandalonePetPseudocolorPreset(): string {
-    return DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
-  }
-
-  async function migrateStandalonePetPseudocolorIfNeeded(tab: ViewerTabItem): Promise<boolean> {
-    if (tab.viewType !== 'PET') {
-      return false
-    }
-    const nextPreset = normalizeStandalonePetPseudocolorPreset()
-    if (tab.pseudocolorPreset === nextPreset && tab.petInfo?.pseudocolorPreset === nextPreset) {
-      return false
-    }
-
-    options.viewerTabs.value = options.viewerTabs.value.map((item) =>
-      item.key === tab.key
-        ? {
-            ...item,
-            pseudocolorPreset: nextPreset,
-            petInfo: {
-              ...createDefaultPetInfo(item.seriesId),
-              ...(item.petInfo ?? {}),
-              pseudocolorPreset: nextPreset
-            }
-          }
-        : item
-    )
-    if (tab.viewId) {
-      await emitInitialPetConfigOperation(tab.viewId, nextPreset)
-    }
-    return true
   }
 
   function findTabByViewId(viewId: string): ViewerTabItem | undefined {
@@ -1146,9 +1187,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const { postApi } = await loadTypedApi()
     const entries = await Promise.all(
       COMPARE_STACK_PANE_KEYS.map(async (viewportKey) => {
+        const series = options.seriesList.value.find((item) => item.seriesId === seriesByPane[viewportKey])
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
           seriesId: seriesByPane[viewportKey],
-          viewType: 'Stack'
+          viewType: isPetSeries(series) ? 'PET' : 'Stack'
         })
         return [viewportKey, data.viewId] as const
       })
@@ -1298,9 +1340,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     )
   }
 
-  function createComparePseudocolorPresetMap(preset: string): Record<CompareStackPaneKey, string> {
+  function createComparePseudocolorPresetMap(
+    preset: string,
+    modalities?: Partial<Record<CompareStackPaneKey, string>>
+  ): Record<CompareStackPaneKey, string> {
     const normalizedPreset = normalizePseudocolorPresetKey(preset)
-    return createComparePaneRecord(() => normalizedPreset)
+    return createComparePaneRecord((paneKey) => {
+      const modality = String(modalities?.[paneKey] ?? '').trim().toUpperCase()
+      return modality === 'PT' || modality === 'PET'
+        ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+        : normalizedPreset
+    })
   }
 
   async function emitComparePseudocolorOperations(
@@ -2021,6 +2071,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         : null
       if (layoutSlot) {
         const isVolumeLayoutSlot = layoutSlot.viewType === '3D' || layoutSlot.sourceViewType === '3D'
+        const rawLayoutPetInfo =
+          payload.petInfo ??
+          ((payload as { pet_info?: unknown }).pet_info ?? null)
+        const layoutPetInfo = rawLayoutPetInfo
+          ? normalizePetInfoPayload(
+              rawLayoutPetInfo,
+              layoutSlot.petInfo ?? createDefaultPetInfo(layoutSlot.seriesId ?? item.seriesId)
+            )
+          : layoutSlot.petInfo ?? null
         const expectedLayoutPseudocolorPreset = normalizePseudocolorPresetKey(
           layoutSlot.pseudocolorPreset ?? item.pseudocolorPreset
         )
@@ -2039,6 +2098,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
         return withRenderRevision({
           ...item,
+          petInfo: layoutSlot.id === options.activeViewportKey.value ? layoutPetInfo : item.petInfo,
           volumePreset: isVolumeLayoutSlot ? volumePreset : item.volumePreset,
           volumeRenderConfig: isVolumeLayoutSlot ? volumeRenderConfig : item.volumeRenderConfig,
           render3dMode: isVolumeLayoutSlot ? render3dMode : item.render3dMode,
@@ -2065,6 +2125,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               revokeObjectUrlIfNeeded(slot.imageSrc)
             }
             const slotTransformState = hasTransformPayload ? transformState : slot.transformState ?? transformState
+            const slotWindowLabel = layoutPetInfo
+              ? formatStandalonePetWindowLabel(layoutPetInfo) ?? windowLabel
+              : windowLabel
+            const slotPixelWindowLabel = layoutPetInfo ? slotWindowLabel : pixelWindowLabel
             const slotCornerFallback = withRuntimeCornerInfo(
               mergeCornerInfo(layoutSeriesCornerInfo, sliceCornerInfo),
               slotTransformState,
@@ -2073,28 +2137,32 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               !isVolumeLayoutSlot,
               payload.viewId
             )
-            const nextSlotCornerInfo = hasCornerInfoPayload
+            const rawNextSlotCornerInfo = hasCornerInfoPayload
               ? slotCornerFallback
               : mergePixelRuntimeCornerInfo(
                   slot.cornerInfo,
-                  pixelWindowLabel,
+                  slotPixelWindowLabel,
                   slotCornerFallback,
                   slotTransformState,
                   !isVolumeLayoutSlot
                 )
+            const nextSlotCornerInfo = layoutPetInfo && !isVolumeLayoutSlot
+              ? normalizePetWindowCornerInfo(rawNextSlotCornerInfo, slotWindowLabel)
+              : rawNextSlotCornerInfo
             return {
               ...slot,
               imageSrc: getIncomingImageSrc(slot.imageSrc),
               ownsImageSrc: preserveCurrentImageSource ? slot.ownsImageSrc : true,
               sliceLabel,
-              windowLabel,
+              windowLabel: slotWindowLabel,
               initialWindowInfo: rememberInitialWindowInfo(slot.initialWindowInfo, ww, wl) ?? null,
               currentWindowInfo: resolveCurrentWindowInfo(slot.currentWindowInfo, slot.initialWindowInfo, ww, wl),
               scaleBar: hasScaleBarPayload ? scaleBar : slot.scaleBar ?? null,
               cornerInfo: isVolumeLayoutSlot ? stripVolumeCornerInfo(nextSlotCornerInfo) : nextSlotCornerInfo,
               orientation: hasOrientationPayload ? orientationInfo : slot.orientation ?? orientationInfo,
               transformState: slotTransformState,
-              pseudocolorPreset: layoutPseudocolorPreset
+              pseudocolorPreset: layoutPseudocolorPreset,
+              petInfo: layoutPetInfo
             }
           })
         })
@@ -2113,6 +2181,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const comparePseudocolorPreset = normalizePseudocolorPresetKey(
           payload.color?.pseudocolorPreset ?? item.comparePseudocolorPresets?.[compareViewportKey] ?? item.pseudocolorPreset
         )
+        const rawComparePetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
+        const comparePetInfo = rawComparePetInfo
+          ? normalizePetInfoPayload(
+              rawComparePetInfo,
+              item.comparePetInfos?.[compareViewportKey] ?? createDefaultPetInfo(compareSeriesId)
+            )
+          : item.comparePetInfos?.[compareViewportKey] ?? null
         if (payload.color?.pseudocolorPreset && comparePseudocolorPreset !== expectedComparePseudocolorPreset) {
           revokeIncomingImageSrcIfNeeded()
           return item
@@ -2124,6 +2199,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const compareTransformState = hasTransformPayload
           ? transformState
           : item.compareTransformStates?.[compareViewportKey] ?? transformState
+        const compareWindowLabel = comparePetInfo
+          ? formatStandalonePetWindowLabel(comparePetInfo) ?? windowLabel
+          : windowLabel
+        const comparePixelWindowLabel = comparePetInfo ? compareWindowLabel : pixelWindowLabel
         const compareCornerFallback = withRuntimeCornerInfo(
           mergeCornerInfo(compareSeriesCornerInfo, sliceCornerInfo),
           compareTransformState,
@@ -2132,9 +2211,25 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           true,
           payload.viewId
         )
+        const rawCompareCornerInfo = hasCornerInfoPayload
+          ? compareCornerFallback
+          : mergePixelRuntimeCornerInfo(
+              item.compareCornerInfos?.[compareViewportKey],
+              comparePixelWindowLabel,
+              compareCornerFallback,
+              compareTransformState
+            )
+        const compareCornerInfo = comparePetInfo
+          ? normalizePetWindowCornerInfo(rawCompareCornerInfo, compareWindowLabel)
+          : rawCompareCornerInfo
 
         return withRenderRevision({
           ...item,
+          petInfo: compareViewportKey === options.activeViewportKey.value ? comparePetInfo : item.petInfo,
+          comparePetInfos: {
+            ...(item.comparePetInfos ?? {}),
+            [compareViewportKey]: comparePetInfo
+          },
           compareImages: {
             ...(item.compareImages ?? createEmptyCompareImages()),
             [compareViewportKey]: getIncomingImageSrc(currentImage)
@@ -2145,7 +2240,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           compareWindowLabels: {
             ...(item.compareWindowLabels ?? createEmptyCompareWindowLabels()),
-            [compareViewportKey]: windowLabel
+            [compareViewportKey]: compareWindowLabel
           },
           compareInitialWindowInfos: {
             ...(item.compareInitialWindowInfos ?? createEmptyCompareInitialWindowInfos()),
@@ -2168,14 +2263,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           compareCornerInfos: {
             ...(item.compareCornerInfos ?? createEmptyCompareCornerInfos()),
-            [compareViewportKey]: hasCornerInfoPayload
-              ? compareCornerFallback
-              : mergePixelRuntimeCornerInfo(
-                  item.compareCornerInfos?.[compareViewportKey],
-                  pixelWindowLabel,
-                  compareCornerFallback,
-                  compareTransformState
-                )
+            [compareViewportKey]: compareCornerInfo
           },
           compareOrientations: {
             ...(item.compareOrientations ?? createEmptyCompareOrientations()),
@@ -2222,6 +2310,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         const fusionProjection = normalizeFusionProjectionInfo(rawFusionProjection)
         const rawFusionComposite = payload.fusionComposite ?? ((payload as { fusion_composite?: unknown }).fusion_composite ?? null)
         const fusionComposite = normalizeFusionCompositeInfoPayload(rawFusionComposite, fusionInfo)
+        const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
+        const fusionPetInfo = rawPetInfo
+          ? normalizePetInfoPayload(rawPetInfo, item.petInfo ?? createDefaultPetInfo(fusionInfo.petSeriesId))
+          : item.petInfo ?? null
         const acceptedRevision = item.fusionInfo?.revision ?? null
         const isStaleFusionImage = acceptedRevision != null && fusionInfo.revision < acceptedRevision
         if (isStaleFusionImage) {
@@ -2275,11 +2367,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ? fusionCornerFallback
           : mergePixelRuntimeCornerInfo(
               item.fusionCornerInfos?.[fusionViewportKey],
-              pixelWindowLabel,
+              fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY ? pixelWindowLabel : formatFusionPetWindowLabel(fusionInfo),
               fusionCornerFallback,
               fusionTransformState
             )
         const fusionCornerInfo = normalizeFusionPetCornerInfo(mergedFusionCornerInfo, fusionInfo, fusionViewportKey)
+        const fusionWindowLabel = fusionViewportKey === FUSION_CT_AXIAL_PANE_KEY
+          ? windowLabel
+          : formatFusionPetWindowLabel(fusionInfo) ?? windowLabel
         if (shouldKeepCurrentPrimaryImage) {
           revokeIncomingImageSrcIfNeeded()
         } else if (!preserveCurrentImageSource) {
@@ -2294,6 +2389,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return withRenderRevision({
           ...item,
           fusionInfo,
+          petInfo: fusionPetInfo,
           fusionImages: {
             ...(item.fusionImages ?? createEmptyFusionImages()),
             [fusionViewportKey]: nextPrimaryImage
@@ -2316,7 +2412,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           fusionWindowLabels: {
             ...(item.fusionWindowLabels ?? createEmptyFusionWindowLabels()),
-            [fusionViewportKey]: windowLabel
+            [fusionViewportKey]: fusionWindowLabel
           },
           fusionInitialWindowInfos: {
             ...(item.fusionInitialWindowInfos ?? createEmptyFusionInitialWindowInfos()),
@@ -2615,10 +2711,31 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           false,
           payload.viewId
         )
+        const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
+        const nextPetInfo = rawPetInfo
+          ? normalizePetInfoPayload(rawPetInfo, item.petInfo ?? createDefaultPetInfo(item.seriesId))
+          : item.petInfo ?? null
+        const mprWindowLabel = nextPetInfo
+          ? formatStandalonePetWindowLabel(nextPetInfo) ?? windowLabel
+          : windowLabel
+        const mprPixelWindowLabel = nextPetInfo ? mprWindowLabel : pixelWindowLabel
+        const rawViewportCornerInfo = !hasCornerInfoPayload
+          ? mergePixelRuntimeCornerInfo(
+              item.viewportCornerInfos?.[viewportKey],
+              mprPixelWindowLabel,
+              viewportCornerFallback,
+              viewportTransformState,
+              false
+            )
+          : viewportCornerFallback
+        const viewportCornerInfo = nextPetInfo
+          ? normalizePetWindowCornerInfo(rawViewportCornerInfo, mprWindowLabel)
+          : rawViewportCornerInfo
 
         return withRenderRevision({
           ...item,
-          windowLabel,
+          petInfo: nextPetInfo,
+          windowLabel: mprWindowLabel,
           initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
           currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
           mprCursor: shouldApplyMprMetadataFromImage ? mprCursor ?? item.mprCursor ?? null : item.mprCursor ?? null,
@@ -2674,15 +2791,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           },
           viewportCornerInfos: {
             ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-            [viewportKey]: !hasCornerInfoPayload
-              ? mergePixelRuntimeCornerInfo(
-                  item.viewportCornerInfos?.[viewportKey],
-                  pixelWindowLabel,
-                  viewportCornerFallback,
-                  viewportTransformState,
-                  false
-                )
-              : viewportCornerFallback
+            [viewportKey]: viewportCornerInfo
           },
           viewportOrientations: {
             ...(item.viewportOrientations ?? createEmptyMprOrientations()),
@@ -2734,11 +2843,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
       const previousPetInfo = item.petInfo ?? createDefaultPetInfo(item.seriesId)
       const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
-      const normalizedPetInfo = item.viewType === 'PET'
+      const hasPetInfoPayload = typeof rawPetInfo === 'object' && rawPetInfo != null
+      const normalizedPetInfo = (item.viewType === 'PET' || (item.viewType === '3D' && rawPetInfo))
         ? normalizePetInfoPayload(rawPetInfo, previousPetInfo)
         : null
-      const singlePseudocolorPreset = item.viewType === 'PET'
-        ? normalizeStandalonePetPseudocolorPreset()
+      const singlePseudocolorPreset = (item.viewType === 'PET' || (item.viewType === '3D' && normalizedPetInfo))
+        ? normalizePseudocolorPresetKey(normalizedPetInfo?.pseudocolorPreset ?? pseudocolorPreset)
         : pseudocolorPreset
       const petInfo = normalizedPetInfo
         ? {
@@ -2746,6 +2856,10 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             pseudocolorPreset: singlePseudocolorPreset
           }
         : item.petInfo ?? null
+      const singleWindowLabel = petInfo
+        ? formatStandalonePetWindowLabel(petInfo) ?? windowLabel
+        : windowLabel
+      const singlePixelWindowLabel = petInfo ? singleWindowLabel : pixelWindowLabel
       const singleTransformState = hasTransformPayload ? transformState : item.transformState ?? transformState
       const isVolumeView = item.viewType === '3D'
       const singleCornerFallback = withRuntimeCornerInfo(
@@ -2760,13 +2874,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? singleCornerFallback
         : mergePixelRuntimeCornerInfo(
             item.cornerInfo,
-            pixelWindowLabel,
+            singlePixelWindowLabel,
             singleCornerFallback,
             singleTransformState,
             !isVolumeView
           )
       const singleCornerInfo = item.viewType === 'PET'
-        ? normalizeStandalonePetCornerInfo(baseSingleCornerInfo, petInfo ?? previousPetInfo)
+        ? normalizeStandalonePetCornerInfo(
+            baseSingleCornerInfo,
+            petInfo ?? previousPetInfo,
+            { preserveExistingPetWindowLabel: hasCornerInfoPayload && !hasPetInfoPayload }
+          )
         : isVolumeView
           ? stripVolumeCornerInfo(baseSingleCornerInfo)
           : baseSingleCornerInfo
@@ -2780,7 +2898,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         viewId: payload.viewId ?? item.viewId,
         imageSrc: getIncomingImageSrc(item.imageSrc),
         sliceLabel,
-        windowLabel,
+        windowLabel: singleWindowLabel,
         initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
         currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
         measurements: hasMeasurementsPayload
@@ -2897,7 +3015,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           (isStaleMprSegmentationPreview && hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload)) ||
           incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
         )
+      const shouldClearMprSegmentationProgress =
+        mprSegmentationPayload != null &&
+        !mprSegmentationConfig.thresholdRegions.some((region) => region.enabled && region.stats == null)
       const mprCrosshairMode = payload.mprCrosshairMode === 'double-oblique' ? 'double-oblique' : item.mprCrosshairMode ?? 'orthogonal'
+      const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
+      const nextPetInfo = rawPetInfo
+        ? normalizePetInfoPayload(rawPetInfo, item.petInfo ?? createDefaultPetInfo(item.seriesId))
+        : item.petInfo ?? null
+      const stateWindowLabel = nextPetInfo
+        ? formatStandalonePetWindowLabel(nextPetInfo) ?? windowLabel
+        : windowLabel
+      const statePixelWindowLabel = nextPetInfo ? stateWindowLabel : pixelWindowLabel
 
       let nextFourDPhaseCache = item.fourDPhaseCache
       if (item.viewType === '4D' && fourDViewportMatch) {
@@ -3010,10 +3139,21 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const stateCornerInfo = stateCornerInfoBase
         ? withRuntimeCornerInfo(stateCornerInfoBase, viewportTransformState, null, null, false, payload.viewId)
         : null
+      const rawViewportCornerInfo = stateCornerInfo ?? mergePixelRuntimeCornerInfo(
+        item.viewportCornerInfos?.[viewportKey],
+        statePixelWindowLabel,
+        mergeTransformCornerInfoTag(createEmptyCornerInfo(), viewportTransformState, false),
+        viewportTransformState,
+        false
+      )
+      const viewportCornerInfo = nextPetInfo
+        ? normalizePetWindowCornerInfo(rawViewportCornerInfo, stateWindowLabel)
+        : rawViewportCornerInfo
 
       return {
         ...item,
-        windowLabel,
+        petInfo: nextPetInfo,
+        windowLabel: stateWindowLabel,
         initialWindowInfo: rememberInitialWindowInfo(item.initialWindowInfo, ww, wl) ?? null,
         currentWindowInfo: resolveCurrentWindowInfo(item.currentWindowInfo, item.initialWindowInfo, ww, wl),
         mprCursor: mprCursor ?? item.mprCursor ?? null,
@@ -3034,13 +3174,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         },
         viewportCornerInfos: {
           ...(item.viewportCornerInfos ?? createEmptyMprCornerInfos()),
-          [viewportKey]: stateCornerInfo ?? mergePixelRuntimeCornerInfo(
-            item.viewportCornerInfos?.[viewportKey],
-            pixelWindowLabel,
-            mergeTransformCornerInfoTag(createEmptyCornerInfo(), viewportTransformState, false),
-            viewportTransformState,
-            false
-          )
+          [viewportKey]: viewportCornerInfo
         },
         viewportScaleBars: {
           ...(item.viewportScaleBars ?? createEmptyMprScaleBars()),
@@ -3080,6 +3214,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
             wl
           )
         },
+        viewportLoadingProgress: shouldClearMprSegmentationProgress
+          ? MPR_VIEWPORT_KEYS.reduce<Partial<Record<MprViewportKey, ViewProgressInfo | null>>>(
+              (progress, key) => {
+                progress[key] = null
+                return progress
+              },
+              { ...(item.viewportLoadingProgress ?? {}) }
+            )
+          : item.viewportLoadingProgress,
         mprMipConfig,
         mprSegmentationConfig,
         mprCrosshairMode,
@@ -3265,8 +3408,26 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
   }
 
-  function normalizeStandalonePetCornerInfo(cornerInfo: CornerInfo, petInfo: PetInfo): CornerInfo {
-    return normalizePetWindowCornerInfo(cornerInfo, formatStandalonePetWindowLabel(petInfo))
+  function findExistingPetWindowLabel(cornerInfo: CornerInfo): string | null {
+    const candidates = [
+      ...(cornerInfo.tags?.windowLevel ?? []),
+      ...cornerInfo.bottomLeft,
+      ...cornerInfo.bottomRight,
+      ...cornerInfo.topLeft,
+      ...cornerInfo.topRight
+    ]
+    return candidates.find((line) => /^(?:SUV|PET)\s*:/i.test(line.trim())) ?? null
+  }
+
+  function normalizeStandalonePetCornerInfo(
+    cornerInfo: CornerInfo,
+    petInfo: PetInfo,
+    options: { preserveExistingPetWindowLabel?: boolean } = {}
+  ): CornerInfo {
+    const label = options.preserveExistingPetWindowLabel === true
+      ? findExistingPetWindowLabel(cornerInfo) ?? formatStandalonePetWindowLabel(petInfo)
+      : formatStandalonePetWindowLabel(petInfo)
+    return normalizePetWindowCornerInfo(cornerInfo, label)
   }
 
   function normalizeFusionPetCornerInfo(cornerInfo: CornerInfo, fusionInfo: FusionInfo, paneKey: FusionPaneKey): CornerInfo {
@@ -3293,6 +3454,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
     const paneRoleCandidate = record.paneRole ?? record.pane_role
     const petPresetCandidate = record.petPseudocolorPreset ?? record.pet_pseudocolor_preset
+    const petPanePresetCandidate = record.petPanePseudocolorPreset ?? record.pet_pane_pseudocolor_preset
     const petUnitCandidate = record.petUnit ?? record.pet_unit
     const petUnitLabelCandidate = record.petUnitLabel ?? record.pet_unit_label
     const petUnit = typeof petUnitCandidate === 'string' ? petUnitCandidate : fallback.petUnit
@@ -3314,10 +3476,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       petPseudocolorPreset: typeof petPresetCandidate === 'string'
         ? normalizeFusionPetPseudocolorPresetKey(petPresetCandidate)
         : fallback.petPseudocolorPreset,
+      petPanePseudocolorPreset: typeof petPanePresetCandidate === 'string'
+        ? normalizePseudocolorPresetKey(petPanePresetCandidate)
+        : fallback.petPanePseudocolorPreset,
       petUnit,
       petUnitLabel,
       petWindowMin: petWindow.min,
       petWindowMax: petWindow.max,
+      fusionWindowTarget: (record.fusionWindowTarget ?? record.fusion_window_target) === 'pet'
+        ? 'pet'
+        : fallback.fusionWindowTarget ?? 'ct',
       alpha: numberOrFallback(record.alpha, fallback.alpha),
       revision: numberOrFallback(record.revision, fallback.revision),
       registration: {
@@ -3407,10 +3575,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   function normalizePetInfoPayload(value: unknown, fallback: PetInfo): PetInfo {
     if (typeof value !== 'object' || value == null) {
-      return {
-        ...fallback,
-        pseudocolorPreset: normalizeStandalonePetPseudocolorPreset()
-      }
+      return fallback
     }
 
     const record = value as Record<string, unknown>
@@ -3418,19 +3583,100 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     const petWindowMax = record.petWindowMax ?? record.pet_window_max
     const numberOrFallback = (candidate: unknown, fallbackValue: number | null | undefined): number | null | undefined =>
       typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
+    const stringValue = (camel: string, snake: string, fallbackValue?: string): string | undefined => {
+      const candidate = record[camel] ?? record[snake]
+      return typeof candidate === 'string' ? candidate : fallbackValue
+    }
+    const booleanValue = (camel: string, snake: string, fallbackValue?: boolean): boolean | undefined => {
+      const candidate = record[camel] ?? record[snake]
+      return typeof candidate === 'boolean' ? candidate : fallbackValue
+    }
+    const rawOptions = record.unitOptions ?? record.unit_options
+    const unitOptions = Array.isArray(rawOptions)
+      ? rawOptions
+          .filter((option): option is Record<string, unknown> => typeof option === 'object' && option != null)
+          .map((option) => ({
+            unit: String(option.unit ?? ''),
+            label: String(option.label ?? option.unit ?? ''),
+            available: option.available === true,
+            reason: typeof option.reason === 'string' ? option.reason : null,
+            provenance: typeof option.provenance === 'string' ? option.provenance : null,
+            scale: typeof option.scale === 'number' && Number.isFinite(option.scale) ? option.scale : null,
+            offset: typeof option.offset === 'number' && Number.isFinite(option.offset) ? option.offset : null,
+            autoWindowMin: numberOrFallback(option.autoWindowMin ?? option.auto_window_min, null),
+            autoWindowMax: numberOrFallback(option.autoWindowMax ?? option.auto_window_max, null),
+            controlWindowMax: numberOrFallback(option.controlWindowMax ?? option.control_window_max, null)
+          }))
+          .filter((option) => option.unit)
+      : fallback.unitOptions
+    const rawWarnings = record.warnings
     return {
       seriesId: typeof (record.seriesId ?? record.series_id) === 'string'
         ? String(record.seriesId ?? record.series_id)
         : fallback.seriesId,
-      petUnit: typeof (record.petUnit ?? record.pet_unit) === 'string'
-        ? String(record.petUnit ?? record.pet_unit)
-        : fallback.petUnit,
-      petUnitLabel: typeof (record.petUnitLabel ?? record.pet_unit_label) === 'string'
-        ? String(record.petUnitLabel ?? record.pet_unit_label)
-        : fallback.petUnitLabel,
+      sourceUnit: stringValue('sourceUnit', 'source_unit', fallback.sourceUnit),
+      sourceUnitLabel: stringValue('sourceUnitLabel', 'source_unit_label', fallback.sourceUnitLabel),
+      petUnit: stringValue('petUnit', 'pet_unit', fallback.petUnit),
+      petUnitLabel: stringValue('petUnitLabel', 'pet_unit_label', fallback.petUnitLabel),
+      unitOptions,
+      quantitative: booleanValue('quantitative', 'quantitative', fallback.quantitative),
+      quantificationStatus: stringValue(
+        'quantificationStatus',
+        'quantification_status',
+        fallback.quantificationStatus
+      ) as PetInfo['quantificationStatus'],
+      dicomUnits: stringValue('dicomUnits', 'dicom_units', fallback.dicomUnits ?? undefined) ?? null,
+      dicomSuvType: stringValue('dicomSuvType', 'dicom_suv_type', fallback.dicomSuvType ?? undefined) ?? null,
+      mappingProvenance: stringValue(
+        'mappingProvenance',
+        'mapping_provenance',
+        fallback.mappingProvenance ?? undefined
+      ) ?? null,
+      supportStatus: stringValue(
+        'supportStatus',
+        'support_status',
+        fallback.supportStatus
+      ) as PetInfo['supportStatus'],
+      supportReason: stringValue('supportReason', 'support_reason', fallback.supportReason ?? undefined) ?? null,
+      photometricInterpretation: stringValue(
+        'photometricInterpretation',
+        'photometric_interpretation',
+        fallback.photometricInterpretation ?? undefined
+      ) ?? null,
+      warnings: Array.isArray(rawWarnings)
+        ? rawWarnings.filter((warning): warning is string => typeof warning === 'string')
+        : fallback.warnings,
       petWindowMin: numberOrFallback(petWindowMin, fallback.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN),
       petWindowMax: numberOrFallback(petWindowMax, fallback.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX),
-      pseudocolorPreset: normalizeStandalonePetPseudocolorPreset()
+      autoWindowMin: numberOrFallback(record.autoWindowMin ?? record.auto_window_min, fallback.autoWindowMin),
+      autoWindowMax: numberOrFallback(record.autoWindowMax ?? record.auto_window_max, fallback.autoWindowMax),
+      controlWindowMax: numberOrFallback(
+        record.controlWindowMax ?? record.control_window_max,
+        fallback.controlWindowMax
+      ),
+      rangeIsAutoSuggestion: booleanValue(
+        'rangeIsAutoSuggestion',
+        'range_is_auto_suggestion',
+        fallback.rangeIsAutoSuggestion
+      ),
+      pseudocolorPreset: normalizePseudocolorPresetKey(
+        stringValue('pseudocolorPreset', 'pseudocolor_preset', fallback.pseudocolorPreset)
+      ),
+      lutId: stringValue('lutId', 'lut_id', fallback.lutId ?? undefined) ?? null,
+      lutVersion: stringValue('lutVersion', 'lut_version', fallback.lutVersion ?? undefined) ?? null,
+      lutHash: stringValue('lutHash', 'lut_hash', fallback.lutHash ?? undefined) ?? null,
+      petPanePseudocolorPreset: stringValue(
+        'petPanePseudocolorPreset',
+        'pet_pane_pseudocolor_preset',
+        fallback.petPanePseudocolorPreset ?? undefined
+      ) ?? null,
+      fusionOverlayPseudocolorPreset: stringValue(
+        'fusionOverlayPseudocolorPreset',
+        'fusion_overlay_pseudocolor_preset',
+        fallback.fusionOverlayPseudocolorPreset ?? undefined
+      ) ?? null,
+      tracerName: stringValue('tracerName', 'tracer_name', fallback.tracerName ?? undefined) ?? null,
+      isFdg: booleanValue('isFdg', 'is_fdg', fallback.isFdg)
     }
   }
 
@@ -3884,7 +4130,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     options.selectedSeriesId.value = seriesId
     const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
-    const isPetBackedView = viewType === 'PET' || (viewType === 'Montage' && isPetSeries(targetSeries))
+    const sourcePetTab =
+      viewType === 'Montage'
+        ? options.viewerTabs.value.find(
+            (item) =>
+              item.key === options.activeTabKey.value &&
+              item.seriesId === seriesId &&
+              (item.viewType === 'PET' || Boolean(item.petInfo))
+          ) ?? null
+        : null
+    const isPetBackedView =
+      viewType === 'PET' ||
+      ((viewType === 'Montage' || viewType === 'MPR' || viewType === '3D') && isPetSeries(targetSeries))
     if (!isSeriesViewSupported(targetSeries, viewType)) {
       options.message.value = viewMessage(`当前序列不支持 ${viewType} 视图。`, `${viewType} view is not supported for this series.`)
       return
@@ -3903,9 +4160,6 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           : Boolean(existingTab?.viewId)
     if (hasExistingView && existingTab) {
       options.activeTabKey.value = existingTab.key
-      const petPseudocolorMigrated = viewType === 'PET'
-        ? await migrateStandalonePetPseudocolorIfNeeded(existingTab)
-        : false
       if (viewType === '4D') {
         options.activeViewportKey.value = 'mpr-ax'
         options.isViewLoading.value = true
@@ -3933,7 +4187,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await nextTick()
         await renderTab(existingTab.key, true)
       }
-      if ((viewType === 'Stack' || viewType === 'PET' || viewType === 'Montage') && (!existingTab.imageSrc || petPseudocolorMigrated)) {
+      if ((viewType === 'Stack' || viewType === 'PET' || viewType === 'Montage') && !existingTab.imageSrc) {
         options.activeViewportKey.value = 'single'
         options.isViewLoading.value = false
         await nextTick()
@@ -4023,8 +4277,22 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         viewType !== 'MPR' && viewType !== '3D'
       )
       const initialPseudocolorPreset = isPetBackedView
-        ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
-        : normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+        ? normalizePseudocolorPresetKey(
+            sourcePetTab?.petInfo?.pseudocolorPreset ??
+            sourcePetTab?.pseudocolorPreset ??
+            defaultPetPseudocolorKey.value
+          )
+        : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value)
+      const initialPetInfo = isPetBackedView
+        ? {
+            ...createDefaultPetInfo(seriesId),
+            ...(sourcePetTab?.petInfo ?? {}),
+            pseudocolorPreset: initialPseudocolorPreset
+          }
+        : null
+      const inheritedMontageSliceIndex = sourcePetTab
+        ? (parseSliceLabel(sourcePetTab.sliceLabel)?.index ?? 0)
+        : 0
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
 
@@ -4096,9 +4364,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               transformState: defaultTransformState,
               viewportTransformStates: createEmptyMprTransformStates(),
               pseudocolorPreset: initialPseudocolorPreset,
-              petInfo: isPetBackedView ? createDefaultPetInfo(seriesId) : item.petInfo ?? null,
+              petInfo: initialPetInfo ?? item.petInfo ?? null,
               montageColumnCount: viewType === 'Montage' ? montageColumnCount.value : item.montageColumnCount,
-              montageSelectedSliceIndex: viewType === 'Montage' ? (item.montageSelectedSliceIndex ?? 0) : item.montageSelectedSliceIndex,
+              montageSelectedSliceIndex:
+                viewType === 'Montage'
+                  ? (sourcePetTab ? inheritedMontageSliceIndex : (item.montageSelectedSliceIndex ?? 0))
+                  : item.montageSelectedSliceIndex,
               montageSliceCount: viewType === 'Montage' ? Math.max(0, Number(targetSeries?.instanceCount ?? 0)) : item.montageSliceCount,
               montageScrollTop: viewType === 'Montage' ? (item.montageScrollTop ?? 0) : item.montageScrollTop,
               montageScrollRequestRevision:
@@ -4123,6 +4394,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                   : createEmptyMprPseudocolorPresets(),
               mprMipConfig: createDefaultMprMipConfig(),
               mprSegmentationConfig: createDefaultMprSegmentationConfig(),
+              mprSegmentationPanelState: createDefaultMprSegmentationPanelState(),
               volumePreset: viewType === '3D' ? undefined : 'volumePreset:bone',
               volumeRenderConfig: viewType === '3D' ? null : createDefaultVolumeRenderConfig('bone'),
               render3dMode: 'volume',
@@ -4135,7 +4407,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       if (viewType !== 'MPR' && nextViewId) {
         await bindViewSilentlyWithAck(nextViewId)
         if (isPetBackedView) {
-          await emitInitialPetConfigOperation(nextViewId, initialPseudocolorPreset)
+          await emitInitialPetConfigOperation(nextViewId, initialPseudocolorPreset, initialPetInfo)
         } else {
           await emitInitialPseudocolorOperation(nextViewId, initialPseudocolorPreset)
         }
@@ -4145,11 +4417,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       options.activeTabKey.value = tabKey
       if (viewType === 'MPR') {
         options.isViewLoading.value = false
-        await waitForMprViewportLayout(nextViewportViewIds)
         await bindMprViewIdsSilentlyWithAck(nextViewportViewIds)
+        const hasInitialMprLayout = await waitForMprViewportLayout(nextViewportViewIds)
         await Promise.all(
-          Object.values(nextViewportViewIds).map((viewId) => emitInitialPseudocolorOperation(viewId, initialPseudocolorPreset))
+          Object.values(nextViewportViewIds).map((viewId) =>
+            isPetBackedView
+              ? emitInitialPetConfigOperation(viewId, initialPseudocolorPreset, initialPetInfo)
+              : emitInitialPseudocolorOperation(viewId, initialPseudocolorPreset)
+          )
         )
+        if (hasInitialMprLayout) {
+          await renderMprViewIds(nextViewportViewIds, true, true)
+        }
       } else if (viewType === '3D') {
         options.isViewLoading.value = false
       } else {
@@ -4313,7 +4592,12 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     options.selectedSeriesId.value = sourceSeriesId
     const tabKey = createCompareStackTabKey(sourceSeriesId, targetSeriesId)
-    const initialPseudocolorPreset = normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+    const initialPseudocolorPreset = normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value)
+    const compareSeriesModalities = createComparePaneRecord((paneKey) =>
+      paneKey === COMPARE_STACK_SOURCE_PANE_KEY
+        ? String(sourceSeries.modality ?? '')
+        : String(targetSeries.modality ?? '')
+    )
     const existingTab = options.viewerTabs.value.find((item) => item.key === tabKey)
     const hasExistingViews = COMPARE_STACK_PANE_KEYS.every((viewportKey) => Boolean(existingTab?.compareViewIds?.[viewportKey]))
 
@@ -4328,7 +4612,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           ...item,
           pseudocolorPreset: initialPseudocolorPreset,
           compareImages: createEmptyCompareImages(),
-          comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset)
+          compareSeriesModalities,
+          comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset, compareSeriesModalities)
         }
       })
       options.activeTabKey.value = existingTab.key
@@ -4337,7 +4622,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       await waitForCompareViewportLayout(existingTab.compareViewIds ?? {})
       await renderTab(existingTab.key, true)
       const refreshedTab = options.viewerTabs.value.find((item) => item.key === existingTab.key) ?? existingTab
-      await emitComparePseudocolorOperations(refreshedTab.compareViewIds ?? {}, refreshedTab, initialPseudocolorPreset)
+      await emitComparePseudocolorOperations(refreshedTab.compareViewIds ?? {}, refreshedTab)
       return
     }
 
@@ -4353,7 +4638,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           paneKey === COMPARE_STACK_SOURCE_PANE_KEY
             ? getSeriesDisplayName(sourceSeries, sourceSeriesId)
             : getSeriesDisplayName(targetSeries, targetSeriesId)
-        )
+        ),
+        compareSeriesModalities
       }
       options.viewerTabs.value = [...options.viewerTabs.value, tab]
     }
@@ -4391,6 +4677,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
                   ? getSeriesDisplayName(sourceSeries, sourceSeriesId)
                   : getSeriesDisplayName(targetSeries, targetSeriesId)
               ),
+              compareSeriesModalities,
               compareViewIds: nextCompareViewIds,
               compareImages: createEmptyCompareImages(),
               compareSliceLabels: createEmptyCompareSliceLabels(),
@@ -4404,7 +4691,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               ),
               compareOrientations: createEmptyCompareOrientations(),
               compareTransformStates: createEmptyCompareTransformStates(),
-              comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset),
+              comparePseudocolorPresets: createComparePseudocolorPresetMap(initialPseudocolorPreset, compareSeriesModalities),
+              comparePetInfos: {},
               compareSyncScroll: item.compareSyncScroll ?? COMPARE_SYNC_DEFAULTS.scroll,
               compareSyncWindow: item.compareSyncWindow ?? COMPARE_SYNC_DEFAULTS.window,
               compareSyncPseudocolor: item.compareSyncPseudocolor ?? COMPARE_SYNC_DEFAULTS.pseudocolor,
@@ -4420,7 +4708,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       await renderTab(tabKey, true)
       const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
       if (refreshedTab) {
-        await emitComparePseudocolorOperations(nextCompareViewIds, refreshedTab, initialPseudocolorPreset)
+        await emitComparePseudocolorOperations(nextCompareViewIds, refreshedTab)
       }
       options.message.value = ''
     } catch (error) {
@@ -4446,14 +4734,14 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       cloneLayoutImageSrc,
       options.activeViewportKey.value
     )
-    const layoutSlots = await hydrateLayoutSlots(seededLayoutSlots, activeTab?.viewType !== 'Layout')
+    const layoutSlots = await hydrateLayoutSlots(seededLayoutSlots, false)
     const title = `${getSeriesDisplayName(sourceSeries, sourceSeries.seriesId)} - Layout ${layoutTemplate.label}`
     let nextTabKey = ''
 
     if (activeTab) {
       nextTabKey = createInlineLayoutTabKey(activeTab)
       if (activeTab.viewType !== 'Layout') {
-        releaseTabRenderResources(activeTab)
+        transferTabRenderResourcesToLayout(activeTab, layoutSlots)
       } else {
         releaseDiscardedLayoutSlotViews(activeTab.layoutSlots, layoutSlots)
       }
@@ -4531,8 +4819,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         }),
         seriesId: payload.series.seriesId,
         seriesTitle,
-        viewType: 'Stack',
-        sourceViewType: 'Stack',
+        viewType: isPetSeries(payload.series) ? 'PET' : 'Stack',
+        sourceViewType: isPetSeries(payload.series) ? 'PET' : 'Stack',
         viewportKey: 'single',
         imageSrc: '',
         ownsImageSrc: false,
@@ -4543,7 +4831,11 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         orientation: createEmptyOrientationInfo(),
         scaleBar: null,
         transformState: createDefaultTransformInfo(),
-        pseudocolorPreset: normalizePseudocolorPresetKey(selectedPseudocolorKey.value)
+        pseudocolorPreset: normalizePseudocolorPresetKey(
+          isPetSeries(payload.series)
+            ? defaultPetPseudocolorKey.value
+            : defaultCtPseudocolorKey.value
+        )
       },
       true
     )

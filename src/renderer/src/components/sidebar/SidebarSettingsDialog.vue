@@ -408,7 +408,8 @@ const {
   removeCustomWindowPresets,
   roiStatOptions,
   scaleBarPreference,
-  selectedPseudocolorKey,
+  defaultCtPseudocolorKey,
+  defaultPetPseudocolorKey,
   selectedWindowPresetId,
   viewerToolbarPlacement,
   viewportAutoFitEnabled,
@@ -1835,7 +1836,8 @@ function resetWindowPresetSection(): void {
 
 function resetDisplaySubSection(section: SettingsSection): void {
   if (section === 'displayPseudocolor') {
-    selectedPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
+    defaultCtPseudocolorKey.value = DEFAULT_PSEUDOCOLOR_KEY
+    defaultPetPseudocolorKey.value = 'hotiron'
     return
   }
   if (section === 'displayRoi') {
@@ -3838,7 +3840,7 @@ onBeforeUnmount(() => {
                         <div class="mb-4 flex items-center justify-between gap-3">
                           <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
                             <AppIcon name="pseudocolor" :size="20" />
-                            <span class="text-sm font-semibold">{{ copy.pseudocolor }}</span>
+                            <span class="text-sm font-semibold">{{ isZh ? 'CT / 普通灰阶默认伪彩' : 'CT / grayscale default' }}</span>
                           </div>
                           <span class="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel)] px-2.5 py-1 text-[10px] font-semibold text-[var(--theme-text-secondary)]">
                             {{ PSEUDOCOLOR_PRESET_OPTIONS.length }}
@@ -3850,19 +3852,52 @@ onBeforeUnmount(() => {
                             :key="option.key"
                             type="button"
                             class="relative rounded-[18px] border px-3 py-3 text-left transition duration-150"
-                            :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
-                            @click="selectedPseudocolorKey = option.key"
+                            :class="defaultCtPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
+                            @click="defaultCtPseudocolorKey = option.key"
                           >
                             <span
                               class="settings-pseudocolor-band block h-8 rounded-[12px] border shadow-inner"
-                              :class="selectedPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'"
+                              :class="defaultCtPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'"
                               :style="{ '--settings-pseudocolor-gradient': option.gradient }"
                             ></span>
                             <span class="mt-3 flex items-center justify-between gap-3">
-                              <span class="truncate text-sm font-semibold" :class="selectedPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
+                              <span class="truncate text-sm font-semibold" :class="defaultCtPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
                               <span
                                 class="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] border transition"
-                                :class="selectedPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_12px_color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] text-transparent'"
+                                :class="defaultCtPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_12px_color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] text-transparent'"
+                              >
+                                <AppIcon name="check" :size="13" />
+                              </span>
+                            </span>
+                          </button>
+                        </div>
+                        <div class="my-5 border-t border-[var(--theme-border-soft)]"></div>
+                        <div class="mb-4 flex items-center justify-between gap-3">
+                          <div class="flex items-center gap-2 text-[var(--theme-text-primary)]">
+                            <AppIcon name="pseudocolor" :size="20" />
+                            <span class="text-sm font-semibold">{{ isZh ? 'PET 默认伪彩' : 'PET default' }}</span>
+                          </div>
+                          <span class="text-xs text-[var(--theme-text-secondary)]">{{ isZh ? '新视图与重置时生效' : 'Used for new views and reset' }}</span>
+                        </div>
+                        <div class="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                          <button
+                            v-for="option in PSEUDOCOLOR_PRESET_OPTIONS"
+                            :key="`pet-${option.key}`"
+                            type="button"
+                            class="relative rounded-[18px] border px-3 py-3 text-left transition duration-150"
+                            :class="defaultPetPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_20%,var(--theme-surface-card)),color-mix(in_srgb,var(--theme-accent-warm)_10%,var(--theme-surface-card)))] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-accent)_60%,transparent),0_0_0_3px_color-mix(in_srgb,var(--theme-accent)_18%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] opacity-80 hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-card-soft)] hover:opacity-100'"
+                            @click="defaultPetPseudocolorKey = option.key"
+                          >
+                            <span
+                              class="settings-pseudocolor-band block h-8 rounded-[12px] border shadow-inner"
+                              :class="defaultPetPseudocolorKey === option.key ? 'border-[color:color-mix(in_srgb,var(--theme-accent)_64%,white_16%)]' : 'border-[var(--theme-border-soft)]'"
+                              :style="{ '--settings-pseudocolor-gradient': option.gradient }"
+                            ></span>
+                            <span class="mt-3 flex items-center justify-between gap-3">
+                              <span class="truncate text-sm font-semibold" :class="defaultPetPseudocolorKey === option.key ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'">{{ option.label }}</span>
+                              <span
+                                class="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] border transition"
+                                :class="defaultPetPseudocolorKey === option.key ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)] text-white shadow-[0_0_12px_color-mix(in_srgb,var(--theme-accent)_38%,transparent)]' : 'border-[var(--theme-border-soft)] bg-[var(--theme-surface-panel-strong)] text-transparent'"
                               >
                                 <AppIcon name="check" :size="13" />
                               </span>

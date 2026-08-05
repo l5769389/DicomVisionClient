@@ -20,6 +20,34 @@ vi.mock('../../../composables/ui/useUiPreferences', () => ({
   })
 }))
 
+function createCanvasContextMock(options: {
+  clearRect?: ReturnType<typeof vi.fn>
+  fillRect?: ReturnType<typeof vi.fn>
+} = {}): CanvasRenderingContext2D {
+  return {
+    clearRect: options.clearRect ?? vi.fn(),
+    fillRect: options.fillRect ?? vi.fn(),
+    setTransform: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    globalAlpha: 1,
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    lineCap: 'butt',
+    lineJoin: 'miter'
+  } as unknown as CanvasRenderingContext2D
+}
+
 const coronalPlane: MprPlaneInfo = {
   viewport: 'mpr-cor',
   centerWorld: [0, 0, 0],
@@ -252,6 +280,51 @@ describe('ViewportVoiOverlay', () => {
     expect(Number.parseFloat(regionRect.attributes('height') ?? '')).toBeCloseTo(20)
   })
 
+  it('uses authoritative backend guide points for the threshold envelope', () => {
+    const config = createSegmentationConfig()
+    config.thresholdRegions[0] = {
+      ...config.thresholdRegions[0]!,
+      box: {
+        ...config.thresholdRegions[0]!.box,
+        sourceViewport: 'mpr-cor'
+      }
+    }
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config,
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane,
+        segmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: true,
+              rect: null,
+              guidePoints: [
+                { x: 0.2, y: 0.2 },
+                { x: 0.8, y: 0.2 },
+                { x: 0.8, y: 0.6 },
+                { x: 0.2, y: 0.6 }
+              ],
+              guideAuthoritative: true,
+              guideIntersectsPlane: true
+            }
+          ]
+        }
+      }
+    })
+
+    const guide = wrapper.find('polygon[data-region-id="r1"]')
+    expect(guide.exists()).toBe(true)
+    expect(guide.attributes('points')).toBe('20,20 80,20 80,60 20,60')
+    expect(wrapper.find('rect[data-region-id="r1"]').exists()).toBe(false)
+    expect(wrapper.findAll('circle')).toHaveLength(0)
+  })
+
   it('selects a VOI before exposing active viewport edit handles', async () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {
@@ -388,13 +461,7 @@ describe('ViewportVoiOverlay', () => {
       })
     const getContext = vi
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue({
-        clearRect: vi.fn(),
-        fillRect,
-        setTransform: vi.fn(),
-        globalAlpha: 1,
-        fillStyle: ''
-      } as unknown as CanvasRenderingContext2D)
+      .mockReturnValue(createCanvasContextMock({ fillRect }))
 
     try {
       const wrapper = mount(ViewportVoiOverlay, {
@@ -465,13 +532,7 @@ describe('ViewportVoiOverlay', () => {
       })
     const getContext = vi
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue({
-        clearRect,
-        fillRect: vi.fn(),
-        setTransform: vi.fn(),
-        globalAlpha: 1,
-        fillStyle: ''
-      } as unknown as CanvasRenderingContext2D)
+      .mockReturnValue(createCanvasContextMock({ clearRect }))
 
     try {
       const wrapper = mount(ViewportVoiOverlay, {
@@ -553,13 +614,9 @@ describe('ViewportVoiOverlay', () => {
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
       .mockImplementation(function (this: HTMLCanvasElement) {
         const isActiveCanvas = this.getAttribute('data-testid') === 'viewport-segmentation-active-highlight'
-        return {
-          clearRect: isActiveCanvas ? activeClearRect : stableClearRect,
-          fillRect: vi.fn(),
-          setTransform: vi.fn(),
-          globalAlpha: 1,
-          fillStyle: ''
-        } as unknown as CanvasRenderingContext2D
+        return createCanvasContextMock({
+          clearRect: isActiveCanvas ? activeClearRect : stableClearRect
+        })
       })
 
     try {
@@ -761,6 +818,66 @@ describe('ViewportVoiOverlay', () => {
       }),
       'end'
     ])
+  })
+
+  it('uses PET threshold defaults when the MPR tab is PET-backed before config metadata arrives', async () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createEmptyConfig(),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane,
+        petSegmentation: true
+      }
+    })
+    const overlay = prepareOverlayElement(wrapper)
+    wrapper.find('svg rect').element.dispatchEvent(createPointerEvent('pointerdown', 20, 20))
+    overlay.dispatchEvent(createPointerEvent('pointermove', 70, 70))
+    overlay.dispatchEvent(createPointerEvent('pointerup', 70, 70))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [
+          expect.objectContaining({
+            thresholdHu: 0,
+            thresholdValue: 0,
+            thresholdMode: 'percentMax',
+            thresholdPercentMax: 40
+          })
+        ]
+      }),
+      'end'
+    ])
+  })
+
+  it('keeps threshold drawing local until the pointer is released', async () => {
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config: createEmptyConfig(),
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane,
+        petSegmentation: true
+      }
+    })
+    const overlay = prepareOverlayElement(wrapper)
+    wrapper.find('svg rect').element.dispatchEvent(createPointerEvent('pointerdown', 20, 20))
+    overlay.dispatchEvent(createPointerEvent('pointermove', 70, 70))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('configChange')?.at(-1)?.[1]).toBe('local')
+
+    overlay.dispatchEvent(createPointerEvent('pointerup', 70, 70))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('configChange')?.at(-1)?.[1]).toBe('end')
   })
 
   it('blocks creating a threshold rectangle after the maximum count is reached', async () => {

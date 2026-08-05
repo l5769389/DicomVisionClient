@@ -51,6 +51,7 @@ import {
 } from '../../../services/threeDWebRtcTransport'
 import { bindView } from '../../../services/socket'
 import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
+import { getPseudocolorBackgroundColor, isPseudocolorBackgroundLight } from '../../../constants/pseudocolor'
 
 const props = withDefaults(
   defineProps<{
@@ -86,10 +87,13 @@ const props = withDefaults(
     mprSegmentationDefaultVoiColor?: string
     mprSegmentationConfig?: MprSegmentationConfig | null
     mprSegmentationOverlay?: MprSegmentationOverlay | null
+    mprSegmentationPet?: boolean
+    petCornerInfo?: boolean
     orientation: OrientationInfo
     placeholder: string
     pseudocolorPreset?: string | null
     pseudocolorWindowInfo?: WindowLevelInfo | null
+    pseudocolorValueDecimalPlaces?: number | null
     renderSurfaceActive?: boolean
     scaleBar?: ScaleBarInfo | null
     showCornerInfo?: boolean
@@ -130,9 +134,12 @@ const props = withDefaults(
     mprSegmentationDefaultVoiColor: DEFAULT_MPR_VOI_COLOR,
     mprSegmentationConfig: null,
     mprSegmentationOverlay: null,
+    mprSegmentationPet: false,
+    petCornerInfo: false,
     qaWaterAnalysis: null,
     pseudocolorPreset: null,
     pseudocolorWindowInfo: null,
+    pseudocolorValueDecimalPlaces: null,
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
@@ -193,6 +200,8 @@ const emit = defineEmits<{
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const imageRef = ref<HTMLImageElement | null>(null)
+const displayedImageSrc = ref(props.imageSrc)
+const pendingImageSrc = ref<string | null>(null)
 const { viewerCopy } = useUiLocale()
 const stageSize = ref({
   width: 0,
@@ -211,6 +220,26 @@ function createEmptyImageFrame(): OverlayImageFrame {
 
 const imageFrame = ref<OverlayImageFrame>(createEmptyImageFrame())
 let lastValidImageFrame: OverlayImageFrame | null = null
+
+function imageFramesEqual(left: OverlayImageFrame, right: OverlayImageFrame): boolean {
+  return (
+    left.left === right.left &&
+    left.top === right.top &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.naturalWidth === right.naturalWidth &&
+    left.naturalHeight === right.naturalHeight
+  )
+}
+
+function commitImageFrame(nextFrame: OverlayImageFrame): void {
+  if (!imageFramesEqual(imageFrame.value, nextFrame)) {
+    imageFrame.value = nextFrame
+  }
+  if (isValidImageFrame(nextFrame)) {
+    lastValidImageFrame = nextFrame
+  }
+}
 
 function isValidImageFrame(frame: OverlayImageFrame | null): frame is OverlayImageFrame {
   return Boolean(
@@ -285,7 +314,7 @@ const showWebRtcVideoPixels = computed(() =>
 )
 
 const hasImageContent = computed(() =>
-  Boolean(props.imageSrc || (webRtcStream.value && hasPresentedWebRtcFrame.value)) ||
+  Boolean(displayedImageSrc.value || props.imageSrc || (webRtcStream.value && hasPresentedWebRtcFrame.value)) ||
   props.imageLayers.some((layer) => Boolean(layer.src))
 )
 const isConnectingVolumeStream = computed(() =>
@@ -314,11 +343,18 @@ const shouldShowPseudocolorBar = computed(() =>
   props.showPseudocolorBar && hasImageContent.value && props.viewportKey !== 'volume' && Boolean(props.pseudocolorPreset)
 )
 const isLightSurface = computed(() =>
-  props.lightSurface || LIGHT_SURFACE_CLASS_PATTERN.test(props.stageSurfaceClass)
+  props.lightSurface ||
+  LIGHT_SURFACE_CLASS_PATTERN.test(props.stageSurfaceClass) ||
+  (Boolean(props.pseudocolorPreset) && isPseudocolorBackgroundLight(props.pseudocolorPreset))
 )
 const scaleBarColorOverride = computed(() => (isLightSurface.value ? LIGHT_SURFACE_SCALE_BAR_COLOR : null))
 const lightSurfaceStyle = computed(() =>
-  isLightSurface.value
+  props.pseudocolorPreset
+    ? {
+        background: getPseudocolorBackgroundColor(props.pseudocolorPreset),
+        backgroundImage: 'none'
+      }
+    : isLightSurface.value
     ? {
         background: '#fff',
         backgroundImage: 'none'
@@ -373,7 +409,7 @@ function getHoverImageRect(): DOMRect | null {
     return getContainedImageRect(video.getBoundingClientRect(), video.videoWidth, video.videoHeight)
   }
   const image = imageRef.value
-  if (image && props.imageSrc) {
+  if (image && displayedImageSrc.value) {
     return getRenderedImageRect(image)
   }
 
@@ -504,18 +540,14 @@ function updateStageMetricsNow(): void {
   if (video && webRtcStream.value && video.videoWidth > 0 && video.videoHeight > 0) {
     const videoRect = getContainedImageRect(video.getBoundingClientRect(), video.videoWidth, video.videoHeight)
     const nextFrame = buildImageFrame(stageRect, videoRect, video.videoWidth, video.videoHeight)
-    imageFrame.value = nextFrame
-    if (isValidImageFrame(nextFrame)) {
-      lastValidImageFrame = nextFrame
-    }
+    commitImageFrame(nextFrame)
     return
   }
 
-  if (!image || !props.imageSrc) {
+  if (!image || !displayedImageSrc.value) {
     const fallbackFrame = getFallbackImageFrame(stageRect)
     if (hasImageContent.value && isValidImageFrame(fallbackFrame)) {
-      imageFrame.value = fallbackFrame
-      lastValidImageFrame = fallbackFrame
+      commitImageFrame(fallbackFrame)
       return
     }
     if (hasImageContent.value && stageRect.width > 0 && stageRect.height > 0) {
@@ -527,26 +559,22 @@ function updateStageMetricsNow(): void {
         naturalWidth: toStablePixel(stageRect.width),
         naturalHeight: toStablePixel(stageRect.height)
       }
-      imageFrame.value = nextFrame
-      lastValidImageFrame = nextFrame
+      commitImageFrame(nextFrame)
       return
     }
     lastValidImageFrame = null
-    imageFrame.value = createEmptyImageFrame()
+    commitImageFrame(createEmptyImageFrame())
     return
   }
 
   if (image.naturalWidth > 0 && image.naturalHeight > 0) {
     const imageRect = getRenderedImageRect(image)
     const nextFrame = buildImageFrame(stageRect, imageRect, image.naturalWidth, image.naturalHeight)
-    imageFrame.value = nextFrame
-    if (isValidImageFrame(nextFrame)) {
-      lastValidImageFrame = nextFrame
-    }
+    commitImageFrame(nextFrame)
     return
   }
 
-  imageFrame.value = getFallbackImageFrame(stageRect) ?? createEmptyImageFrame()
+  commitImageFrame(getFallbackImageFrame(stageRect) ?? createEmptyImageFrame())
 }
 
 function scheduleStageMetricsUpdate(): void {
@@ -612,6 +640,44 @@ onBeforeUnmount(() => {
   observedImage = null
   window.removeEventListener('resize', scheduleStageMetricsUpdate)
 })
+
+function handlePendingImageLoad(event: Event): void {
+  const image = event.currentTarget as HTMLImageElement | null
+  const loadedSrc = image?.getAttribute('src') ?? ''
+  if (!loadedSrc || loadedSrc !== pendingImageSrc.value || loadedSrc !== props.imageSrc) {
+    return
+  }
+  displayedImageSrc.value = loadedSrc
+  pendingImageSrc.value = null
+}
+
+function handlePendingImageError(event: Event): void {
+  const image = event.currentTarget as HTMLImageElement | null
+  if (image?.getAttribute('src') === pendingImageSrc.value) {
+    pendingImageSrc.value = null
+  }
+}
+
+watch(
+  () => props.imageSrc,
+  (nextImageSrc) => {
+    if (!nextImageSrc) {
+      pendingImageSrc.value = null
+      displayedImageSrc.value = ''
+      return
+    }
+    if (!displayedImageSrc.value) {
+      displayedImageSrc.value = nextImageSrc
+      pendingImageSrc.value = null
+      return
+    }
+    if (nextImageSrc === displayedImageSrc.value) {
+      pendingImageSrc.value = null
+      return
+    }
+    pendingImageSrc.value = nextImageSrc
+  }
+)
 
 let acquiredWebRtcViewId: string | null = null
 type FrameCallbackVideo = HTMLVideoElement & {
@@ -770,16 +836,27 @@ watch(
       :data-viewport-key="viewportKey"
     >
       <img
-        v-if="!webRtcStream && imageSrc"
+        v-if="!webRtcStream && displayedImageSrc"
         ref="imageRef"
         class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
         :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
-        :src="imageSrc"
+        :src="displayedImageSrc"
         :alt="alt"
         :style="imageStyle"
         draggable="false"
         @dragstart.prevent
         @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
+      />
+      <img
+        v-if="!webRtcStream && pendingImageSrc"
+        :key="pendingImageSrc"
+        class="viewer-image-preload pointer-events-none absolute h-px w-px opacity-0"
+        :src="pendingImageSrc"
+        alt=""
+        draggable="false"
+        aria-hidden="true"
+        @load="handlePendingImageLoad"
+        @error="handlePendingImageError"
       />
       <video
         v-if="webRtcStream"
@@ -846,6 +923,7 @@ watch(
         :mpr-plane="mprPlane"
         :default-threshold-color="mprSegmentationDefaultThresholdColor"
         :default-voi-color="mprSegmentationDefaultVoiColor"
+        :pet-segmentation="mprSegmentationPet"
         :segmentation-overlay="mprSegmentationOverlay"
         :viewport-transform="viewportTransform"
         :viewport-key="viewportKey"
@@ -865,6 +943,7 @@ watch(
         :stage-height="stageSize.height"
         :pseudocolor-preset="pseudocolorPreset"
         :window-info="pseudocolorWindowInfo"
+        :value-decimal-places="pseudocolorValueDecimalPlaces"
         :light-surface="isLightSurface"
       />
       <ViewportMeasurementOverlay
@@ -909,7 +988,13 @@ watch(
         :analysis="qaWaterAnalysis ?? null"
         :image-frame="imageFrame"
       />
-      <ViewportCornerOverlay v-if="shouldShowCornerInfo" :corner-info="cornerInfo" :viewport-key="viewportKey" />
+      <ViewportCornerOverlay
+        v-if="shouldShowCornerInfo"
+        :corner-info="cornerInfo"
+        :pet="petCornerInfo"
+        :pseudocolor-preset="pseudocolorPreset"
+        :viewport-key="viewportKey"
+      />
       <ViewportOrientationOverlay v-if="shouldShowImageOverlays" :orientation="orientation" />
       <VolumeOrientationCube
         v-if="shouldShowImageOverlays && showVolumeOrientationCube && orientation.volumeQuaternion"

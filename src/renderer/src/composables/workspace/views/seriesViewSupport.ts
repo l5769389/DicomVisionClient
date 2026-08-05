@@ -106,7 +106,7 @@ export function isSeriesViewSupported(series: FolderSeriesItem | null | undefine
     return Boolean(series)
   }
   if (viewType === '4D') {
-    return isFourDSeriesItem(series)
+    return !isPetSeries(series) && isFourDSeriesItem(series)
   }
   if (viewType === '3D' || viewType === 'MPR') {
     return isSeriesVolumeViewSupported(series)

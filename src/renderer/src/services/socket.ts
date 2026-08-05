@@ -123,9 +123,13 @@ export interface ViewOperationPayload {
   fusionPetUnit?: string
   fusionPetWindowMin?: number
   fusionPetWindowMax?: number
+  fusionPetControlWindowMax?: number
   petUnit?: string
   petWindowMin?: number
   petWindowMax?: number
+  petControlWindowMax?: number
+  fusionPetPanePseudocolorPreset?: string
+  fusionWindowTarget?: 'ct' | 'pet'
   fusionRegistrationFile?: Record<string, unknown>
   sourceViewId?: string
   hor_flip?: boolean

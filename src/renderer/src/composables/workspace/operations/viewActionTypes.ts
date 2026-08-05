@@ -1,5 +1,5 @@
 import type { DragActionType } from '@shared/viewerConstants'
-import type { MprCrosshairMode, MprMipConfig, MprSegmentationConfig, MprSegmentationConfigActionType } from '../../../types/viewer'
+import type { MprCrosshairMode, MprMipConfig, MprSegmentationConfig, MprSegmentationConfigActionType, MprSegmentationPanelState } from '../../../types/viewer'
 
 export type ViewerDisplayOverlayKey = 'cornerInfo' | 'scaleBar' | 'pseudocolorBar' | 'sliceSlider' | 'crosshair' | 'volumeOrientationCube'
 export type ViewerTransformResetScope = 'all' | 'pan' | 'zoom'
@@ -15,6 +15,7 @@ export type ViewerToolbarAction =
   | 'volumePreset'
   | 'surfacePreset'
   | 'render3dMode'
+  | 'volumeBlendMode'
   | 'volumeRenderOptions'
   | 'volumeClipReset'
   | 'rotate'
@@ -22,17 +23,24 @@ export type ViewerToolbarAction =
   | 'windowPreset'
   | 'mprMipConfig'
   | 'mprSegmentation'
+  | 'mprSegmentationPanelState'
   | 'mprCrosshairMode'
   | 'fusionManualRegistration'
   | 'fusionRegistrationReset'
   | 'fusionRegistrationSave'
   | 'fusionRegistrationLoad'
   | 'fusionPseudocolor'
+  | 'fusionPetPanePseudocolor'
+  | 'fusionWindowTarget'
+  | 'fusionAlpha'
+  | 'petPseudocolor'
   | 'fusionPetUnit'
   | 'fusionPetWindow'
+  | 'fusionPetControlWindowMax'
   | 'fusionPetDisplayReset'
   | 'petUnit'
   | 'petWindow'
+  | 'petControlWindowMax'
   | 'petDisplayReset'
   | 'mprCrosshairReset'
   | 'rotate3dReset'
@@ -50,6 +58,7 @@ export interface ViewerToolbarActionPayload {
   value?: string
   config?: MprMipConfig
   segmentationConfig?: MprSegmentationConfig
+  segmentationPanelState?: Partial<MprSegmentationPanelState>
   mode?: MprCrosshairMode
   registrationFile?: Record<string, unknown>
 }

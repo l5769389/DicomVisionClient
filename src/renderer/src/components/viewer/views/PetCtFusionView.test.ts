@@ -236,19 +236,17 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
-  it('uses a white viewport surface for standalone PET fusion panes', () => {
+  it('passes each fusion pane LUT to the common viewport surface', () => {
     const wrapper = mountFusionView()
 
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBe('viewer-stage-surface--white')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBe('viewer-stage-surface--white')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).attributes('data-light-surface')).toBe('true')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`).attributes('data-light-surface')).toBe('true')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).classes()).toContain('viewer-viewport--light-surface')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`).classes()).toContain('viewer-viewport--light-surface')
+    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBeUndefined()
+    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBeUndefined()
+    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).attributes('data-light-surface')).toBe('false')
+    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`).attributes('data-light-surface')).toBe('false')
     expect(wrapper.find(`[data-fusion-pane-key="${FUSION_PET_AXIAL_PANE_KEY}"]`).classes()).toContain('pet-ct-fusion-view__pane--pet-standalone')
     expect(wrapper.find(`[data-fusion-pane-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`).classes()).toContain('pet-ct-fusion-view__pane--pet-standalone')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBe('')
-    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_CT_AXIAL_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBe('')
+    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBeUndefined()
+    expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_CT_AXIAL_PANE_KEY}"]`).attributes('data-stage-surface-class')).toBeUndefined()
     expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`).attributes('data-light-surface')).toBe('false')
     expect(wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_CT_AXIAL_PANE_KEY}"]`).attributes('data-light-surface')).toBe('false')
     expect(wrapper.find(`[data-fusion-pane-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`).classes()).not.toContain('pet-ct-fusion-view__pane--pet-standalone')

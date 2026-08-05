@@ -325,6 +325,44 @@ describe('ViewportVoiOverlay', () => {
     expect(wrapper.findAll('circle')).toHaveLength(0)
   })
 
+  it('does not fall back to the physical rect when an authoritative guide has no contour', () => {
+    const config = createSegmentationConfig()
+    config.thresholdRegions[0] = {
+      ...config.thresholdRegions[0]!,
+      box: {
+        ...config.thresholdRegions[0]!.box,
+        sourceViewport: 'mpr-cor'
+      }
+    }
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config,
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane,
+        segmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: false,
+              rect: null,
+              guidePoints: [],
+              guideAuthoritative: true,
+              guideIntersectsPlane: false
+            }
+          ]
+        }
+      }
+    })
+
+    expect(wrapper.find('polygon[data-region-id="r1"]').exists()).toBe(false)
+    expect(wrapper.find('rect[data-region-id="r1"]').exists()).toBe(false)
+    expect(wrapper.findAll('circle')).toHaveLength(0)
+  })
+
   it('selects a VOI before exposing active viewport edit handles', async () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {

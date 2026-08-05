@@ -235,16 +235,16 @@ const regionProjections = computed<RegionProjectionItem[]>(() => {
         props.imageFrame,
         props.viewportTransform
       )
-      const useAuthoritativeGuide = Boolean(overlayRegion?.guideAuthoritative && guideProjection?.visible)
-      const projection = useAuthoritativeGuide ? guideProjection : physicalProjection
+      const hasAuthoritativeGuide = Boolean(overlayRegion?.guideAuthoritative)
+      const projection = hasAuthoritativeGuide ? guideProjection : physicalProjection
       if (!projection?.visible) {
         return []
       }
       return [
         {
           region,
-          editableGeometry: !useAuthoritativeGuide && region.box.sourceViewport === viewportKey,
-          authoritativeGuide: useAuthoritativeGuide,
+          editableGeometry: !hasAuthoritativeGuide && region.box.sourceViewport === viewportKey,
+          authoritativeGuide: hasAuthoritativeGuide,
           projection
         }
       ]

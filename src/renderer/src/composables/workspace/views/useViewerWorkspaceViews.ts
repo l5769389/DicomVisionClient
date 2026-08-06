@@ -134,6 +134,7 @@ import {
   mergeMprSegmentationPreviewConfig,
   normalizeMprMipConfig,
   normalizeMprSegmentationConfig,
+  normalizeMprThresholdRegionBox,
   normalizeVolumeRenderOptions
 } from '../../../types/viewer'
 import {
@@ -184,6 +185,7 @@ import type {
   FourDPhasesResponse,
   MeasurementOverlay,
   MprSegmentationOverlay,
+  MprThresholdRegionBox,
   MprViewportKey,
   PetInfo,
   ViewImageResponse,
@@ -279,6 +281,23 @@ function getMprSegmentationOverlayPayload(payload: Partial<ViewImageResponse>) {
 function hasMprSegmentationOverlayPayload(payload: Partial<ViewImageResponse>): boolean {
   return Object.prototype.hasOwnProperty.call(payload, 'mprSegmentationOverlay') ||
     Object.prototype.hasOwnProperty.call(payload, 'mpr_segmentation_overlay')
+}
+
+function getMprSegmentationDisplayBoxesByRegionId(
+  overlay: MprSegmentationOverlay | null | undefined
+): Map<string, MprThresholdRegionBox> | undefined {
+  const regions = overlay?.regions ?? []
+  if (!regions.length) {
+    return undefined
+  }
+  const boxesByRegionId = new Map<string, MprThresholdRegionBox>()
+  regions.forEach((region) => {
+    const displayBox = normalizeMprThresholdRegionBox(region.displayBox)
+    if (displayBox) {
+      boxesByRegionId.set(region.regionId, displayBox)
+    }
+  })
+  return boxesByRegionId.size > 0 ? boxesByRegionId : undefined
 }
 
 function getMprCrosshairPayload(payload: Partial<ViewImageResponse>) {
@@ -1980,6 +1999,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       )
       const mprSegmentationOverlayPayload = allowSegmentationOverlayUpdate ? getMprSegmentationOverlayPayload(payload) : null
       const hasMprSegmentationOverlayUpdate = allowSegmentationOverlayUpdate && hasMprSegmentationOverlayPayload(payload)
+      const mprSegmentationDisplayBoxesByRegionId = hasMprSegmentationOverlayUpdate
+        ? getMprSegmentationDisplayBoxesByRegionId(mprSegmentationOverlayPayload)
+        : undefined
       const isStaleMprSegmentationPreview =
         mprSegmentationPayload != null &&
         isStaleMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
@@ -2035,7 +2057,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? currentMprSegmentationConfig
         : isStaleMprSegmentationPreview
           ? currentMprSegmentationConfig
-          : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+          : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig, {
+              displayBoxesByRegionId: mprSegmentationDisplayBoxesByRegionId
+            })
       const shouldAcceptMprSegmentationOverlay =
         hasMprSegmentationOverlayUpdate &&
         (
@@ -3004,6 +3028,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       )
       const mprSegmentationOverlayPayload = getMprSegmentationOverlayPayload(payload)
       const hasMprSegmentationOverlayUpdate = hasMprSegmentationOverlayPayload(payload)
+      const mprSegmentationDisplayBoxesByRegionId = hasMprSegmentationOverlayUpdate
+        ? getMprSegmentationDisplayBoxesByRegionId(mprSegmentationOverlayPayload)
+        : undefined
       const isStaleMprSegmentationPreview =
         mprSegmentationPayload != null &&
         isStaleMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
@@ -3011,7 +3038,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         ? currentMprSegmentationConfig
         : isStaleMprSegmentationPreview
           ? currentMprSegmentationConfig
-          : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
+          : mergeMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig, {
+              displayBoxesByRegionId: mprSegmentationDisplayBoxesByRegionId
+            })
       const shouldAcceptMprSegmentationOverlay =
         hasMprSegmentationOverlayUpdate &&
         (

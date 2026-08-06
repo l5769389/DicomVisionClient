@@ -886,6 +886,10 @@ function getMprThresholdRelativePercent(region: MprThresholdRegion): number {
     : region.thresholdPercentile
 }
 
+function withMprThresholdRegionBox(region: MprThresholdRegion, box?: MprThresholdRegionBox | null): MprThresholdRegion {
+  return box ? { ...region, box } : region
+}
+
 function isSameMprThresholdRegionStatsTarget(left: MprThresholdRegion, right: MprThresholdRegion): boolean {
   if (!isSameMprThresholdRegionBox(left, right)) {
     return false
@@ -927,7 +931,8 @@ function isSameMprVoiSphereGeometry(left: MprVoiSphere, right: MprVoiSphere): bo
 
 export function mergeMprSegmentationPreviewConfig(
   currentConfig: MprSegmentationConfig,
-  incomingConfig: MprSegmentationConfig
+  incomingConfig: MprSegmentationConfig,
+  options: { displayBoxesByRegionId?: Map<string, MprThresholdRegionBox> } = {}
 ): MprSegmentationConfig {
   if (isStaleMprSegmentationPreviewConfig(currentConfig, incomingConfig)) {
     return currentConfig
@@ -936,8 +941,11 @@ export function mergeMprSegmentationPreviewConfig(
   const incomingVoiSpheresById = new Map(incomingConfig.voiSpheres.map((sphere) => [sphere.id, sphere]))
   const nextThresholdRegions = currentConfig.thresholdRegions.map((region) => {
     const incomingRegion = incomingRegionsById.get(region.id)
-    const sameGeometry = incomingRegion ? isSameMprThresholdRegionGeometry(region, incomingRegion) : false
-    const sameStatsTarget = incomingRegion ? isSameMprThresholdRegionStatsTarget(region, incomingRegion) : false
+    const incomingComparisonRegion = incomingRegion
+      ? withMprThresholdRegionBox(incomingRegion, options.displayBoxesByRegionId?.get(region.id))
+      : null
+    const sameGeometry = incomingComparisonRegion ? isSameMprThresholdRegionGeometry(region, incomingComparisonRegion) : false
+    const sameStatsTarget = incomingComparisonRegion ? isSameMprThresholdRegionStatsTarget(region, incomingComparisonRegion) : false
     if (!incomingRegion || (!sameGeometry && !sameStatsTarget)) {
       return region
     }

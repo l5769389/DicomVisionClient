@@ -5,7 +5,8 @@ import {
   normalizeMprSegmentationConfig,
   recolorMprSegmentationConfig,
   resolveMprLegacyVoiSphere,
-  type MprThresholdRegion
+  type MprThresholdRegion,
+  type MprThresholdRegionBox
 } from './viewer'
 
 function createRegion(depthMm = 1, sampleCount = 0): MprThresholdRegion {
@@ -361,6 +362,46 @@ describe('normalizeMprSegmentationConfig', () => {
     expect(mergeMprSegmentationPreviewConfig(current, incoming).thresholdRegions[0]).toEqual({
       ...currentRegion,
       stats: incomingRegion.stats
+    })
+  })
+
+  it('merges stats through backend display boxes when source geometry differs after rotation', () => {
+    const displayBox: MprThresholdRegionBox = {
+      centerWorld: [10, 20, 30],
+      rowWorld: [0, 0.70710678, 0.70710678],
+      colWorld: [0.70710678, 0, -0.70710678],
+      normalWorld: [-0.5, 0.5, -0.70710678],
+      widthMm: 20,
+      heightMm: 30,
+      depthMm: 3,
+      sourceViewport: 'mpr-ax'
+    }
+    const sourceRegion = createRegion(3, 8)
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 4,
+      selectedRegionId: 'r1',
+      thresholdRegions: [
+        {
+          ...createRegion(3),
+          box: displayBox
+        }
+      ]
+    })
+    const incoming = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 4,
+      selectedRegionId: 'r1',
+      thresholdRegions: [sourceRegion]
+    })
+
+    const merged = mergeMprSegmentationPreviewConfig(current, incoming, {
+      displayBoxesByRegionId: new Map([['r1', displayBox]])
+    })
+
+    expect(merged.thresholdRegions[0]).toEqual({
+      ...current.thresholdRegions[0],
+      stats: incoming.thresholdRegions[0]?.stats
     })
   })
 

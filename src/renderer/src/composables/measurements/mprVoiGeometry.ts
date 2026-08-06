@@ -443,7 +443,7 @@ function dedupeWorldPoints(points: Vec3[]): Vec3[] {
   return result
 }
 
-function getBoxPlaneIntersectionPoints(box: MprThresholdRegionBox, plane: MprPlaneInfo): Vec3[] {
+export function getThresholdRegionBoxPlaneIntersectionPoints(box: MprThresholdRegionBox, plane: MprPlaneInfo): Vec3[] {
   const corners = getBoxCorners(box)
   const normal = plane.normalWorld as Vec3
   const center = plane.centerWorld as Vec3
@@ -666,7 +666,7 @@ export function projectThresholdRegionBoxToPlane(
   const distanceToPlaneMm = dotVec3(delta, plane.normalWorld as Vec3)
   const intersectsPlane = Math.abs(distanceToPlaneMm) <= halfPlaneNormalExtentMm + 1e-6
   const projectionPoints = intersectsPlane
-    ? getBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToNormalizedImage(plane, point))
+    ? getThresholdRegionBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToNormalizedImage(plane, point))
     : getBoxCorners(box).map((point) => worldPointToNormalizedImage(plane, point))
   const rect = buildRectFromPoints(projectionPoints)
   if (!rect) {
@@ -706,7 +706,7 @@ export function projectThresholdRegionBoxToCanvasPlane(
     }
   }
   const projectionPoints = baseProjection.intersectsPlane
-    ? getBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
+    ? getThresholdRegionBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
     : getBoxCorners(box).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
   const rect = buildRectFromPoints(projectionPoints)
   if (!rect) {

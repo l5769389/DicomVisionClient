@@ -2375,12 +2375,18 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
     if (value === 'segmentation:threshold') {
       return normalizeMprSegmentationConfig({
         ...current,
-        enabled: true
+        enabled: true,
+        selectedRegionId: null,
+        selectedVoi: false,
+        selectedVoiId: null
       })
     }
     return normalizeMprSegmentationConfig({
       ...current,
-      enabled: true
+      enabled: true,
+      selectedRegionId: null,
+      selectedVoi: false,
+      selectedVoiId: null
     })
   }
 
@@ -2400,7 +2406,7 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
       segmentation: value
     }
     options.emitSetActiveOperation(`${STACK_OPERATION_PREFIX}${value}`)
-    updateActiveMprSegmentationConfig(nextConfig, 'end')
+    updateActiveMprSegmentationConfig(nextConfig, 'local')
   }
 
   function activateSegmentationSelectionMode(value: 'segmentation:threshold' | 'segmentation:voi'): void {

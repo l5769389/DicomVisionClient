@@ -1352,6 +1352,32 @@ function formatThresholdSummary(region: MprThresholdRegion): string {
   return `${intensityUnitLabel.value} > ${formatMetric(getThresholdValue(region))}`
 }
 
+function getThresholdSummaryUnitParts(): { primary: string; secondary: string } {
+  const label = intensityUnitLabel.value.trim()
+  const match = label.match(/^(.*?)\s*(\([^)]*\))$/)
+  if (!match) {
+    return { primary: label, secondary: '' }
+  }
+  const primary = match[1]?.trim() || label
+  return { primary, secondary: match[2] ?? '' }
+}
+
+function formatThresholdPanelSummaryPrimary(region: MprThresholdRegion): string {
+  const unitParts = getThresholdSummaryUnitParts()
+  if (isRelativeThresholdMode(region)) {
+    const suffix = isPetSegmentation.value
+      ? (isZh.value ? '% 区域最大摄取值' : '% regional maximum')
+      : '% / HU'
+    const effectiveThreshold = region.stats ? ` ~ ${formatEffectiveThreshold(region)} ${unitParts.primary}` : ''
+    return `${getThresholdPercent(region).toFixed(1)}${suffix}${effectiveThreshold}`
+  }
+  return `${unitParts.primary} > ${formatMetric(getThresholdValue(region))}`
+}
+
+function formatThresholdPanelSummarySecondary(): string {
+  return getThresholdSummaryUnitParts().secondary
+}
+
 function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['thresholdMode']): boolean {
   return region.thresholdMode === mode
 }
@@ -1575,10 +1601,30 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
           </button>
         </div>
         <div
-          class="mt-2 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-2 text-[11px] leading-4 text-[var(--theme-text-secondary)]"
+          class="mt-2 min-h-[3rem] rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-2 text-[11px] leading-4 text-[var(--theme-text-secondary)]"
           :data-testid="`mpr-threshold-summary-${region.id}`"
         >
-          {{ formatThresholdSummary(region) }}
+          <span
+            class="block"
+            :data-testid="`mpr-threshold-summary-primary-${region.id}`"
+          >
+            {{ formatThresholdPanelSummaryPrimary(region) }}
+          </span>
+          <span
+            v-if="formatThresholdPanelSummarySecondary()"
+            class="block"
+            :data-testid="`mpr-threshold-summary-secondary-${region.id}`"
+          >
+            {{ formatThresholdPanelSummarySecondary() }}
+          </span>
+          <span
+            v-else
+            class="block"
+            aria-hidden="true"
+            :data-testid="`mpr-threshold-summary-secondary-${region.id}`"
+          >
+            &nbsp;
+          </span>
         </div>
 
         <div

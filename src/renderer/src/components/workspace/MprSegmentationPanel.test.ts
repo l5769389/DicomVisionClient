@@ -216,6 +216,83 @@ describe('MprSegmentationPanel', () => {
     expect(emptyState).not.toContain('HU > 阈值')
   })
 
+  it('keeps PET threshold summary at two rows while stats update', async () => {
+    const intensityContext = {
+      modality: 'PT',
+      valueType: 'SUVbw',
+      unit: 'SUVbw',
+      label: 'g/ml (SUVbw)',
+      quantitative: true
+    }
+    const loadingRegion = createRegion({
+      thresholdMode: 'percentMax',
+      thresholdPercentMax: 7,
+      thresholdValue: 0.1,
+      thresholdHu: 0.1,
+      stats: null
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createConfig(loadingRegion),
+          intensityContext
+        },
+        petInfo: {
+          seriesId: 'pet-series',
+          sourceUnit: 'BQML',
+          sourceUnitLabel: 'BQML',
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          quantitative: true
+        },
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const summary = wrapper.get('[data-testid="mpr-threshold-summary-r1"]')
+    expect(summary.attributes('class')).toContain('min-h-[3rem]')
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-primary-r1"]').text()).toBe('7.0% 区域最大摄取值')
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-secondary-r1"]').text()).toBe('(SUVbw)')
+
+    const readyRegion = createRegion({
+      thresholdMode: 'percentMax',
+      thresholdPercentMax: 7,
+      thresholdValue: 0.1,
+      thresholdHu: 0.1,
+      stats: {
+        status: 'ready',
+        huMean: null,
+        huMin: null,
+        huMax: null,
+        huStdDev: null,
+        valueMean: 0.24,
+        valueMin: 0.1,
+        valueMax: 1.47,
+        valueStdDev: 0.21,
+        volumeCm3: 0.35,
+        mtvCm3: 0.35,
+        sampleCount: 1746,
+        effectiveThresholdHu: null,
+        effectiveThresholdValue: 0.1,
+        intensityContext
+      }
+    })
+    await wrapper.setProps({
+      config: {
+        ...createConfig(readyRegion),
+        intensityContext
+      }
+    })
+
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-primary-r1"]').text()).toBe('7.0% 区域最大摄取值 ~ 0.10 g/ml')
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-secondary-r1"]').text()).toBe('(SUVbw)')
+  })
+
   it('restores the selected threshold region from the saved panel state', async () => {
     const r1 = createRegion({ id: 'r1' })
     const r2 = createRegion({ id: 'r2', label: '2' })

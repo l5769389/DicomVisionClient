@@ -1516,7 +1516,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:threshold')
     expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
       action: 'mprSegmentation',
-      actionType: 'end',
+      actionType: 'local',
       segmentationConfig: {
         enabled: true,
         clientRevision: 0,
@@ -1535,7 +1535,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:voi')
     expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
       action: 'mprSegmentation',
-      actionType: 'end',
+      actionType: 'local',
       segmentationConfig: {
         enabled: true,
         clientRevision: 0,
@@ -1548,6 +1548,63 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       }
     })
 
+    harness.wrapper.unmount()
+  })
+
+  it('opens segmentation locally without preserving a selected rotated region', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR',
+      mprSegmentationConfig: {
+        enabled: true,
+        clientRevision: 12,
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null,
+        thresholdRegions: [
+          {
+            id: 'r1',
+            enabled: true,
+            label: '1',
+            thresholdHu: 300,
+            thresholdMode: 'hu',
+            thresholdPercentile: 80,
+            color: '#ff4df8',
+            componentMode: 'hotspotConnected',
+            box: {
+              centerWorld: [1, 2, 3],
+              rowWorld: [0, 1, 0],
+              colWorld: [0, 0, 1],
+              normalWorld: [1, 0, 0],
+              widthMm: 20,
+              heightMm: 30,
+              depthMm: 5,
+              sourceViewport: 'mpr-ax'
+            },
+            stats: null
+          }
+        ],
+        voiSpheres: [],
+        voiSphere: null
+      }
+    })
+    await nextTick()
+
+    const segmentationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'segmentation')!
+    harness.toolbar.applyTool(segmentationTool)
+
+    expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'local',
+      segmentationConfig: expect.objectContaining({
+        clientRevision: 12,
+        selectedRegionId: null,
+        selectedVoi: false,
+        selectedVoiId: null
+      })
+    }))
     harness.wrapper.unmount()
   })
 

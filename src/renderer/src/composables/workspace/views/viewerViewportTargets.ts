@@ -72,6 +72,31 @@ export function resolveViewIdForTabViewport(tab: ViewerTabItem, viewportKey: str
   return tab.viewId
 }
 
+export function resolveMprResetOperationViewIds(tab: ViewerTabItem, viewportKey: string): string[] {
+  if (!isMprLikeViewType(tab.viewType)) {
+    return []
+  }
+  const viewId = resolveViewIdForTabViewport(tab, viewportKey)
+  return viewId ? [viewId] : []
+}
+
+export function resolveRotate3dResetViewId(tab: ViewerTabItem, viewportKey: string): string {
+  if (isMprLikeViewType(tab.viewType)) {
+    if (isMprViewportKey(viewportKey)) {
+      const activeViewId = tab.viewportViewIds?.[viewportKey]
+      if (activeViewId) {
+        return activeViewId
+      }
+    }
+    return (
+      Object.values(tab.viewportViewIds ?? {}).find(
+        (viewId): viewId is string => Boolean(viewId)
+      ) ?? ''
+    )
+  }
+  return tab.viewType === '3D' ? tab.viewId : ''
+}
+
 export function hasOperableView(tab: ViewerTabItem): boolean {
   if (isMprLikeViewType(tab.viewType)) {
     return Object.values(tab.viewportViewIds ?? {}).some(Boolean) || Boolean(tab.viewType === 'MPR' && tab.viewId)
@@ -103,9 +128,27 @@ export function resolveCompareOperationPaneKeys(
     return [paneKey]
   }
 
-  return paneKey === COMPARE_STACK_SOURCE_PANE_KEY
+  const orderedPaneKeys = paneKey === COMPARE_STACK_SOURCE_PANE_KEY
     ? [COMPARE_STACK_SOURCE_PANE_KEY, COMPARE_STACK_TARGET_PANE_KEY]
     : [COMPARE_STACK_TARGET_PANE_KEY, COMPARE_STACK_SOURCE_PANE_KEY]
+  const operation = String(opType)
+  if (
+    operation !== 'window' &&
+    operation !== 'pseudocolor' &&
+    operation !== 'petConfig'
+  ) {
+    return orderedPaneKeys
+  }
+
+  const sourceModality = String(tab.compareSeriesModalities?.[paneKey] ?? '').trim().toUpperCase()
+  if (!sourceModality) {
+    return orderedPaneKeys
+  }
+  const isPetModality = (modality: string): boolean => modality === 'PT' || modality === 'PET'
+  return orderedPaneKeys.filter((candidatePaneKey) => {
+    const candidateModality = String(tab.compareSeriesModalities?.[candidatePaneKey] ?? '').trim().toUpperCase()
+    return candidateModality && isPetModality(candidateModality) === isPetModality(sourceModality)
+  })
 }
 
 export function resolveCompareOperationViewIds(

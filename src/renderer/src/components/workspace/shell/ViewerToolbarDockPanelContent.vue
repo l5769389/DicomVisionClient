@@ -12,11 +12,15 @@ import {
   DEFAULT_PET_RANGE_UPPER_LIMIT,
   DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS,
+  MAX_PET_RANGE_UPPER_LIMIT,
+  PSEUDOCOLOR_PRESET_OPTIONS,
+  buildPetRangeUpperLimitOptions,
   getFusionPetPseudocolorGradient,
   getPseudocolorGradient,
   normalizePetRangeUpperLimit,
   normalizeFusionPetPseudocolorPresetKey,
-  normalizePseudocolorPresetKey
+  normalizePseudocolorPresetKey,
+  resolvePetRangeUpperLimit
 } from '../../../constants/pseudocolor'
 import type { DrawingScope, ViewerTabItem } from '../../../types/viewer'
 import {
@@ -54,10 +58,26 @@ const customWindowLevel = ref('')
 const petDraftWindowMax = ref(DEFAULT_FUSION_PET_WINDOW_MAX)
 const petRangeUpperLimit = ref(DEFAULT_PET_RANGE_UPPER_LIMIT)
 const petRangeUpperLimitInput = ref(String(DEFAULT_PET_RANGE_UPPER_LIMIT))
+const petCurrentUpperInput = ref('')
+const isEditingPetCurrentUpper = ref(false)
+// Preserve the text the user actually typed (for example `.08`), even after
+// the debounced value has been sent to the renderer.  Formatting belongs to
+// display labels, not to an input that is still under the user's control.
+const hasPetCurrentUpperUserText = ref(false)
 const zoomSliderDraftValue = ref<number | null>(null)
 let zoomSliderTimer: ReturnType<typeof window.setTimeout> | null = null
 let pendingZoomSliderValue: number | null = null
 const ZOOM_SLIDER_DEBOUNCE_MS = 50
+const PET_RANGE_EMIT_DEBOUNCE_MS = 80
+const PET_CURRENT_UPPER_INPUT_DEBOUNCE_MS = 300
+const PET_RANGE_OPTIMISTIC_TTL_MS = 1600
+const PET_RANGE_OPTION_ACTIVE_TOLERANCE = 0.005
+let petRangeEmitTimer: ReturnType<typeof window.setTimeout> | null = null
+let pendingPetWindowMax: number | null = null
+let optimisticPetWindowMax: number | null = null
+let optimisticPetWindowMaxUntil = 0
+let optimisticPetWindowSignature = ''
+let petCurrentUpperInputTimer: ReturnType<typeof window.setTimeout> | null = null
 const isZh = computed(() => locale.value === 'zh-CN')
 const customWindowCopy = computed(() => ({
   title: isZh.value ? '临时窗值' : 'Custom Window',
@@ -115,12 +135,17 @@ const dockDrawingScopeCopy = computed(() => ({
 
 const petDisplayCopy = computed(() => ({
   pseudocolor: isZh.value ? '伪彩' : 'Pseudocolor',
-  range: isZh.value ? '强度范围' : 'Intensity Range',
+  panePseudocolor: isZh.value ? 'PET 独立窗格伪彩' : 'PET Pane Pseudocolor',
+  overlayPseudocolor: isZh.value ? '融合覆盖层伪彩' : 'Fusion Overlay Pseudocolor',
+  windowTarget: isZh.value ? '融合调窗目标' : 'Fusion Window Target',
+  currentDisplayUpper: isZh.value ? '当前显示上限' : 'Current Display Upper',
   upper: isZh.value ? '上限' : 'Upper',
   unit: isZh.value ? '单位' : 'Unit',
   reset: isZh.value ? '重置 PET 显示' : 'Reset PET Display',
   resetDesc: isZh.value ? '恢复 PET 强度范围和单位。' : 'Restore PET range and unit.',
-  rangeMax: isZh.value ? '范围上限' : 'Range Max'
+  rangeMax: isZh.value ? '控制上限' : 'Control Upper Limit',
+  opacity: isZh.value ? 'PET 覆盖层透明度' : 'PET Overlay Opacity',
+  warnings: isZh.value ? '定量提示' : 'Quantification Notes'
 }))
 
 const isFusionRegistrationActive = computed(() =>
@@ -160,15 +185,6 @@ const fusionRegistrationActionCopy = computed<Record<string, { label: string; de
 const fusionRegistrationActions = computed(() =>
   (props.tool.options ?? []).filter((option) => option.value !== 'fusionRegistration:toggle')
 )
-const petUnitOptions = [
-  { value: 'SUVbw', label: 'g/ml (SUVbw)' },
-  { value: 'SUVbsa', label: 'cm2/ml' },
-  { value: 'SUL', label: 'g/ml* (SUL)' },
-  { value: 'kBqml', label: 'kBq/ml' },
-  { value: 'percentIDg', label: '%ID/g' },
-  { value: 'source', label: 'Source' }
-]
-const petRangeMaxOptions = [5, 10, 20, 30, 40]
 
 function getActiveLayoutRows(activeTab: ViewerTabItem): number {
   if (activeTab.viewType === 'Layout') {
@@ -343,26 +359,88 @@ function applyCustomWindow(): void {
   emit('select', `${width}|${level}`)
 }
 
-const petDisplayInfo = computed(() =>
-  props.activeTab.viewType === 'PET'
-    ? props.activeTab.petInfo
-    : props.activeTab.fusionInfo
+const petDisplayInfo = computed(() => props.tool.petInfo ?? props.activeTab.petInfo ?? null)
+const petDisplayScope = computed(() =>
+  props.tool.petScope ?? (props.activeTab.viewType === 'PETCTFusion' ? 'fusion-overlay' : 'standalone')
 )
-const isStandalonePetDisplay = computed(() => props.activeTab.viewType === 'PET')
+const isStandalonePetDisplay = computed(() => props.activeTab.viewType !== 'PETCTFusion')
+const isFusionPanePetDisplay = computed(() => petDisplayScope.value === 'fusion-pane')
+const isFusionOverlayPetDisplay = computed(() => petDisplayScope.value === 'fusion-overlay')
+const showsPetIntensity = computed(() => props.tool.key === 'petIntensity')
+const showsPetPseudocolor = computed(() => props.tool.key === 'petPseudocolor')
+const showsPetQuantification = computed(() => props.tool.key === 'petQuantification')
 const petWindowEventPrefix = computed(() => (isStandalonePetDisplay.value ? 'petWindow' : 'fusionPetWindow'))
+const petControlWindowEventPrefix = computed(() =>
+  isStandalonePetDisplay.value ? 'petControlWindowMax' : 'fusionPetControlWindowMax'
+)
 const petUnitEventPrefix = computed(() => (isStandalonePetDisplay.value ? 'petUnit' : 'fusionPetUnit'))
 const petResetEventValue = computed(() => (isStandalonePetDisplay.value ? 'petDisplay:reset' : 'fusionPetDisplay:reset'))
-const selectedPetUnit = computed(() => petDisplayInfo.value?.petUnit ?? 'SUVbw')
-const selectedPetUnitLabel = computed(() => petUnitOptions.find((option) => option.value === selectedPetUnit.value)?.label ?? selectedPetUnit.value)
+const selectedPetUnit = computed(() => petDisplayInfo.value?.petUnit ?? 'source')
+const petRangeMaxOptions = computed(() =>
+  buildPetRangeUpperLimitOptions(
+    Number(petDisplayInfo.value?.autoWindowMax ?? resolvePetWindowMax()),
+    selectedPetUnit.value
+  )
+)
+const petUnitOptions = computed(() => {
+  const backendOptions = petDisplayInfo.value?.unitOptions ?? []
+  if (backendOptions.length > 0) {
+    return backendOptions.map((option) => ({
+      value: option.unit,
+      label: option.label,
+      available: option.available,
+      reason: option.reason ?? ''
+    }))
+  }
+  return [
+    {
+      value: 'source',
+      label: petDisplayInfo.value?.sourceUnitLabel ?? 'Source',
+      available: true,
+      reason: 'PET quantitative metadata is still loading'
+    }
+  ]
+})
+const selectedPetUnitLabel = computed(() => petUnitOptions.value.find((option) => option.value === selectedPetUnit.value)?.label ?? selectedPetUnit.value)
 const selectedPetPseudocolor = computed(() =>
-  isStandalonePetDisplay.value
-    ? normalizePseudocolorPresetKey(props.activeTab.petInfo?.pseudocolorPreset ?? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET)
+  isStandalonePetDisplay.value || isFusionPanePetDisplay.value
+    ? normalizePseudocolorPresetKey(petDisplayInfo.value?.pseudocolorPreset ?? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET)
     : normalizeFusionPetPseudocolorPresetKey(props.activeTab.fusionInfo?.petPseudocolorPreset ?? DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET)
+)
+const selectedPetPanePseudocolor = computed(() =>
+  normalizePseudocolorPresetKey(
+    props.activeTab.fusionInfo?.petPanePseudocolorPreset ??
+    petDisplayInfo.value?.petPanePseudocolorPreset ??
+    DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+  )
+)
+const selectedVisiblePetPseudocolor = computed(() =>
+  isFusionPanePetDisplay.value ? selectedPetPanePseudocolor.value : selectedPetPseudocolor.value
+)
+const selectedFusionWindowTarget = computed(() => props.activeTab.fusionInfo?.fusionWindowTarget ?? 'ct')
+const fusionPetPanePseudocolorOptions = computed(() =>
+  PSEUDOCOLOR_PRESET_OPTIONS
+    .filter((option) => ['bw', 'bwinverse', 'hotiron', 'hotmetal', 'pet', 'rainbow', 'blackbody'].includes(option.key))
+    .map((option) => ({
+      value: `fusionPetPanePseudocolor:${option.key}`,
+      key: option.key,
+      label: option.label,
+      gradient: option.gradient
+    }))
 )
 const petPseudocolorOptions = computed(() =>
   isStandalonePetDisplay.value
-    ? []
-    : FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.map((option) => ({
+    ? PSEUDOCOLOR_PRESET_OPTIONS
+        .filter((option) => ['bw', 'bwinverse', 'hotiron', 'hotmetal', 'pet', 'rainbow', 'blackbody'].includes(option.key))
+        .map((option) => ({
+          value: `petPseudocolor:${option.key}`,
+          key: option.key,
+          label: option.label,
+          gradient: option.gradient
+        }))
+    : isFusionPanePetDisplay.value
+      ? fusionPetPanePseudocolorOptions.value
+      : FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS.map((option) => ({
         value: `fusionPetPseudocolor:${option.key}`,
         key: option.key,
         label: option.label,
@@ -370,10 +448,14 @@ const petPseudocolorOptions = computed(() =>
       }))
 )
 const petRangeGradient = computed(() =>
-  isStandalonePetDisplay.value
-    ? getPseudocolorGradient(DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET)
+  isStandalonePetDisplay.value || isFusionPanePetDisplay.value
+    ? getPseudocolorGradient(selectedPetPseudocolor.value)
     : getFusionPetPseudocolorGradient(selectedPetPseudocolor.value)
 )
+const fusionAlphaPercent = computed(() =>
+  Math.round(Math.max(0, Math.min(1, Number(props.activeTab.fusionInfo?.alpha ?? 0.52))) * 100)
+)
+const petQuantificationWarnings = computed(() => petDisplayInfo.value?.warnings ?? [])
 const petWindowMaxLabel = computed(() => petDraftWindowMax.value.toFixed(petDraftWindowMax.value < 10 ? 2 : 0))
 
 function isLikelyCtWindowLeakedIntoPetRange(minValue: number, maxValue: number): boolean {
@@ -396,9 +478,54 @@ function setPetDraftWindowMax(value: number): void {
   petDraftWindowMax.value = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, Math.min(value, upperLimit))
 }
 
+function markOptimisticPetWindowMax(value: number): void {
+  optimisticPetWindowMax = Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value)
+  optimisticPetWindowMaxUntil = Date.now() + PET_RANGE_OPTIMISTIC_TTL_MS
+  optimisticPetWindowSignature = `${props.activeTab.key}:${selectedPetUnit.value}:${petWindowEventPrefix.value}`
+}
+
 function emitPetWindowMax(value: number): void {
+  clearPendingPetRangeEmit()
+  pendingPetWindowMax = null
   setPetDraftWindowMax(value)
+  markOptimisticPetWindowMax(petDraftWindowMax.value)
   emit('select', `${petWindowEventPrefix.value}:${DEFAULT_FUSION_PET_WINDOW_MIN}:${petDraftWindowMax.value}`)
+}
+
+function isPetRangeOptionActive(option: number): boolean {
+  return Math.abs(petRangeUpperLimit.value - option) <= PET_RANGE_OPTION_ACTIVE_TOLERANCE
+}
+
+function clearPendingPetRangeEmit(): void {
+  if (petRangeEmitTimer !== null) {
+    window.clearTimeout(petRangeEmitTimer)
+    petRangeEmitTimer = null
+  }
+}
+
+function flushPendingPetWindowMax(): void {
+  clearPendingPetRangeEmit()
+  if (pendingPetWindowMax === null) {
+    return
+  }
+  emitPetWindowMax(pendingPetWindowMax)
+  pendingPetWindowMax = null
+}
+
+function queuePetWindowMax(value: number): void {
+  setPetDraftWindowMax(value)
+  markOptimisticPetWindowMax(petDraftWindowMax.value)
+  pendingPetWindowMax = petDraftWindowMax.value
+  if (petRangeEmitTimer !== null) {
+    return
+  }
+  petRangeEmitTimer = window.setTimeout(() => {
+    petRangeEmitTimer = null
+    if (pendingPetWindowMax !== null) {
+      emitPetWindowMax(pendingPetWindowMax)
+      pendingPetWindowMax = null
+    }
+  }, PET_RANGE_EMIT_DEBOUNCE_MS)
 }
 
 function formatPetRangeUpperLimit(value: number): string {
@@ -410,15 +537,49 @@ function handlePetRangeInput(event: Event): void {
   if (!Number.isFinite(value)) {
     return
   }
+  queuePetWindowMax(value)
+}
+
+function clearPetCurrentUpperInputTimer(): void {
+  if (petCurrentUpperInputTimer !== null) {
+    window.clearTimeout(petCurrentUpperInputTimer)
+    petCurrentUpperInputTimer = null
+  }
+}
+
+function commitPetCurrentUpperInput(): void {
+  clearPetCurrentUpperInputTimer()
+  const value = Number.parseFloat(petCurrentUpperInput.value.trim())
+  if (!Number.isFinite(value)) {
+    return
+  }
   emitPetWindowMax(value)
+}
+
+function handlePetCurrentUpperInput(event: Event): void {
+  petCurrentUpperInput.value = (event.target as HTMLInputElement | null)?.value ?? ''
+  hasPetCurrentUpperUserText.value = true
+  clearPetCurrentUpperInputTimer()
+  petCurrentUpperInputTimer = window.setTimeout(() => {
+    petCurrentUpperInputTimer = null
+    commitPetCurrentUpperInput()
+  }, PET_CURRENT_UPPER_INPUT_DEBOUNCE_MS)
+}
+
+function beginPetCurrentUpperEdit(): void {
+  isEditingPetCurrentUpper.value = true
+}
+
+function finishPetCurrentUpperEdit(): void {
+  commitPetCurrentUpperInput()
+  isEditingPetCurrentUpper.value = false
 }
 
 function setPetRangeUpperLimit(value: string | number): void {
   const nextValue = normalizePetRangeUpperLimit(value)
   petRangeUpperLimit.value = nextValue
   petRangeUpperLimitInput.value = formatPetRangeUpperLimit(nextValue)
-  setPetDraftWindowMax(petDraftWindowMax.value)
-  emitPetWindowMax(petDraftWindowMax.value)
+  emit('select', `${petControlWindowEventPrefix.value}:${nextValue}`)
 }
 
 function handlePetRangeUpperLimitInput(event: Event): void {
@@ -433,7 +594,18 @@ function selectPetPseudocolor(value: string): void {
   emit('select', value)
 }
 
+function handleFusionAlphaInput(event: Event): void {
+  const percent = Number((event.target as HTMLInputElement | null)?.value)
+  if (Number.isFinite(percent)) {
+    emit('select', `fusionAlpha:${Math.max(0, Math.min(100, percent)) / 100}`)
+  }
+}
+
 function selectPetUnit(value: string): void {
+  const option = petUnitOptions.value.find((candidate) => candidate.value === value)
+  if (!option?.available) {
+    return
+  }
   emit('select', `${petUnitEventPrefix.value}:${value}`)
 }
 
@@ -593,12 +765,49 @@ function getFooterActionTestId(option: StackToolOption): string {
 }
 
 watch(
-  () => [props.activeTab.key, props.activeTab.viewType, petDisplayInfo.value?.petWindowMin, petDisplayInfo.value?.petWindowMax] as const,
-  () => {
+  () => [
+    props.activeTab.key,
+    props.activeTab.viewType,
+    petDisplayInfo.value?.petWindowMin,
+    petDisplayInfo.value?.petWindowMax,
+    petDisplayInfo.value?.autoWindowMax,
+    petDisplayInfo.value?.controlWindowMax,
+    selectedPetUnit.value
+  ] as const,
+  (_current, previous) => {
+    const unitChanged = previous != null && previous[6] !== selectedPetUnit.value
     const nextMax = resolvePetWindowMax()
-    petRangeUpperLimit.value = Math.max(DEFAULT_PET_RANGE_UPPER_LIMIT, Math.ceil(nextMax))
+    const currentSignature = `${props.activeTab.key}:${selectedPetUnit.value}:${petWindowEventPrefix.value}`
+    if (unitChanged || (optimisticPetWindowSignature && optimisticPetWindowSignature !== currentSignature)) {
+      optimisticPetWindowMax = null
+      optimisticPetWindowSignature = ''
+    }
+    if (optimisticPetWindowMax !== null) {
+      if (Math.abs(nextMax - optimisticPetWindowMax) < 0.05) {
+        optimisticPetWindowMax = null
+        optimisticPetWindowSignature = ''
+      } else if (Date.now() < optimisticPetWindowMaxUntil) {
+        return
+      } else {
+        optimisticPetWindowMax = null
+        optimisticPetWindowSignature = ''
+      }
+    }
+    petRangeUpperLimit.value = resolvePetRangeUpperLimit(
+      Number(petDisplayInfo.value?.controlWindowMax ?? nextMax),
+      petDisplayInfo.value?.autoWindowMax,
+      selectedPetUnit.value
+    )
     petRangeUpperLimitInput.value = formatPetRangeUpperLimit(petRangeUpperLimit.value)
     petDraftWindowMax.value = nextMax
+    if (unitChanged) {
+      clearPetCurrentUpperInputTimer()
+      isEditingPetCurrentUpper.value = false
+      hasPetCurrentUpperUserText.value = false
+      petCurrentUpperInput.value = petWindowMaxLabel.value
+    } else if (!isEditingPetCurrentUpper.value && !hasPetCurrentUpperUserText.value) {
+      petCurrentUpperInput.value = petWindowMaxLabel.value
+    }
   },
   { immediate: true }
 )
@@ -608,10 +817,16 @@ watch(
   () => {
     zoomSliderDraftValue.value = null
     pendingZoomSliderValue = null
+    pendingPetWindowMax = null
+    optimisticPetWindowMax = null
+    optimisticPetWindowSignature = ''
     if (zoomSliderTimer !== null) {
       window.clearTimeout(zoomSliderTimer)
       zoomSliderTimer = null
     }
+    clearPendingPetRangeEmit()
+    clearPetCurrentUpperInputTimer()
+    hasPetCurrentUpperUserText.value = false
   }
 )
 
@@ -620,6 +835,8 @@ onBeforeUnmount(() => {
     window.clearTimeout(zoomSliderTimer)
     zoomSliderTimer = null
   }
+  clearPendingPetRangeEmit()
+  clearPetCurrentUpperInputTimer()
 })
 </script>
 
@@ -680,20 +897,22 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <template v-else-if="tool.key === 'fusionPetDisplay'">
+    <template v-else-if="tool.key === 'petIntensity' || tool.key === 'petPseudocolor' || tool.key === 'petQuantification'">
       <div class="viewer-toolbar-dock-panel-content__pet-display">
         <div class="viewer-toolbar-dock-panel-content__pet-display-scroll">
-          <section v-if="!isStandalonePetDisplay" class="viewer-toolbar-dock-panel-content__pet-section">
-            <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.pseudocolor }}</div>
+          <section v-if="showsPetPseudocolor" class="viewer-toolbar-dock-panel-content__pet-section">
+            <div class="viewer-toolbar-dock-panel-content__section-label">
+              {{ isFusionOverlayPetDisplay ? petDisplayCopy.overlayPseudocolor : petDisplayCopy.pseudocolor }}
+            </div>
             <div class="viewer-toolbar-dock-panel-content__pet-pseudocolor-grid">
               <button
                 v-for="option in petPseudocolorOptions"
                 :key="option.value"
                 type="button"
                 role="radio"
-                :aria-checked="option.key === selectedPetPseudocolor"
+                :aria-checked="option.key === selectedVisiblePetPseudocolor"
                 class="viewer-toolbar-dock-panel-content__pet-pseudocolor-option"
-                :class="{ 'viewer-toolbar-dock-panel-content__pet-pseudocolor-option--active': option.key === selectedPetPseudocolor }"
+                :class="{ 'viewer-toolbar-dock-panel-content__pet-pseudocolor-option--active': option.key === selectedVisiblePetPseudocolor }"
                 @click="selectPetPseudocolor(option.value)"
               >
                 <span
@@ -701,15 +920,62 @@ onBeforeUnmount(() => {
                   :style="{ '--pet-pseudocolor-gradient': option.gradient }"
                 ></span>
                 <span>{{ option.label }}</span>
-                <AppIcon v-if="option.key === selectedPetPseudocolor" name="check" :size="14" />
+                <AppIcon v-if="option.key === selectedVisiblePetPseudocolor" name="check" :size="14" />
               </button>
             </div>
           </section>
 
-          <section class="viewer-toolbar-dock-panel-content__pet-section">
+          <section v-if="showsPetIntensity && isFusionOverlayPetDisplay" class="viewer-toolbar-dock-panel-content__pet-section">
+            <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.windowTarget }}</div>
+            <div class="viewer-toolbar-dock-panel-content__pet-unit-grid">
+              <button
+                v-for="target in ['ct', 'pet']"
+                :key="target"
+                type="button"
+                role="radio"
+                :aria-checked="selectedFusionWindowTarget === target"
+                class="viewer-toolbar-dock-panel-content__chip"
+                :class="{ 'viewer-toolbar-dock-panel-content__chip--active': selectedFusionWindowTarget === target }"
+                @click="emit('select', `fusionWindowTarget:${target}`)"
+              >
+                {{ target.toUpperCase() }}
+              </button>
+            </div>
+            <div class="viewer-toolbar-dock-panel-content__pet-section-header mt-3">
+              <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.opacity }}</div>
+              <strong>{{ fusionAlphaPercent }}%</strong>
+            </div>
+            <input
+              class="w-full"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              :value="fusionAlphaPercent"
+              :aria-label="petDisplayCopy.opacity"
+              @input="handleFusionAlphaInput"
+            />
+          </section>
+
+          <section v-if="showsPetIntensity" class="viewer-toolbar-dock-panel-content__pet-section">
             <div class="viewer-toolbar-dock-panel-content__pet-section-header">
-              <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.range }}</div>
-              <strong>{{ petWindowMaxLabel }}</strong>
+              <label class="viewer-toolbar-dock-panel-content__pet-current-upper">
+                <span class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.currentDisplayUpper }}</span>
+                <input
+                  class="viewer-toolbar-dock-panel-content__pet-current-upper-input"
+                  type="number"
+                  inputmode="decimal"
+                  min="0"
+                  :max="petRangeUpperLimit"
+                  step="any"
+                  :value="petCurrentUpperInput"
+                  :aria-label="petDisplayCopy.currentDisplayUpper"
+                  @focus="beginPetCurrentUpperEdit"
+                  @input="handlePetCurrentUpperInput"
+                  @blur="finishPetCurrentUpperEdit"
+                  @keydown.enter.prevent="finishPetCurrentUpperEdit"
+                />
+              </label>
             </div>
             <div class="viewer-toolbar-dock-panel-content__pet-range-track" :style="{ '--pet-range-gradient': petRangeGradient }">
               <input
@@ -720,6 +986,7 @@ onBeforeUnmount(() => {
                 :value="petDraftWindowMax"
                 :aria-label="petDisplayCopy.upper"
                 @input="handlePetRangeInput"
+                @change="flushPendingPetWindowMax"
               />
             </div>
             <div class="viewer-toolbar-dock-panel-content__pet-range-max">
@@ -729,7 +996,7 @@ onBeforeUnmount(() => {
                 type="number"
                 inputmode="decimal"
                 min="1"
-                max="999"
+                :max="MAX_PET_RANGE_UPPER_LIMIT"
                 step="any"
                 :value="petRangeUpperLimitInput"
                 :aria-label="petDisplayCopy.rangeMax"
@@ -737,14 +1004,14 @@ onBeforeUnmount(() => {
                 @change="commitPetRangeUpperLimitInput"
                 @keydown.enter.prevent="commitPetRangeUpperLimitInput"
               />
-              <div>
+              <div class="viewer-toolbar-dock-panel-content__pet-range-max-options">
                 <button
                   v-for="option in petRangeMaxOptions"
                   :key="option"
                   type="button"
                   role="radio"
-                  :aria-checked="Math.abs(petRangeUpperLimit - option) < 0.001"
-                  :class="{ 'viewer-toolbar-dock-panel-content__pet-range-max-option--active': Math.abs(petRangeUpperLimit - option) < 0.001 }"
+                  :aria-checked="isPetRangeOptionActive(option)"
+                  :class="{ 'viewer-toolbar-dock-panel-content__pet-range-max-option--active': isPetRangeOptionActive(option) }"
                   @click="setPetRangeUpperLimit(option)"
                 >
                   {{ option }}
@@ -753,7 +1020,7 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <section class="viewer-toolbar-dock-panel-content__pet-section">
+          <section v-if="showsPetIntensity || showsPetQuantification" class="viewer-toolbar-dock-panel-content__pet-section">
             <div class="viewer-toolbar-dock-panel-content__pet-section-header">
               <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.unit }}</div>
               <strong>{{ selectedPetUnitLabel }}</strong>
@@ -767,15 +1034,26 @@ onBeforeUnmount(() => {
                 :aria-checked="selectedPetUnit === option.value"
                 class="viewer-toolbar-dock-panel-content__chip"
                 :class="{ 'viewer-toolbar-dock-panel-content__chip--active': selectedPetUnit === option.value }"
+                :disabled="!option.available"
+                :title="option.available ? option.label : option.reason"
                 @click="selectPetUnit(option.value)"
               >
                 {{ option.label }}
               </button>
             </div>
           </section>
+          <section
+            v-if="showsPetQuantification && petQuantificationWarnings.length"
+            class="viewer-toolbar-dock-panel-content__pet-section"
+          >
+            <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.warnings }}</div>
+            <ul class="space-y-1 text-[11px] text-[var(--theme-text-secondary)]">
+              <li v-for="warning in petQuantificationWarnings" :key="warning">{{ warning }}</li>
+            </ul>
+          </section>
         </div>
 
-        <div class="viewer-toolbar-dock-panel-content__action-zone viewer-toolbar-dock-panel-content__pet-action-zone">
+        <div v-if="showsPetIntensity" class="viewer-toolbar-dock-panel-content__action-zone viewer-toolbar-dock-panel-content__pet-action-zone">
           <button
             type="button"
             class="viewer-toolbar-dock-panel-content__danger-action viewer-toolbar-dock-panel-content__danger-action--destructive"
@@ -1142,7 +1420,9 @@ onBeforeUnmount(() => {
 }
 
 .viewer-toolbar-dock-panel-content--window,
-.viewer-toolbar-dock-panel-content--fusionPetDisplay {
+.viewer-toolbar-dock-panel-content--petIntensity,
+.viewer-toolbar-dock-panel-content--petPseudocolor,
+.viewer-toolbar-dock-panel-content--petQuantification {
   min-height: 100%;
   overflow: hidden;
 }
@@ -1441,6 +1721,42 @@ onBeforeUnmount(() => {
   font-weight: 850;
 }
 
+.viewer-toolbar-dock-panel-content__pet-current-upper {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.viewer-toolbar-dock-panel-content__pet-current-upper > .viewer-toolbar-dock-panel-content__section-label {
+  margin-top: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.viewer-toolbar-dock-panel-content__pet-current-upper-input {
+  width: 5.5rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 76%, transparent);
+  padding: 4px 7px;
+  color: var(--theme-text-primary);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+  outline: none;
+  appearance: textfield;
+  text-align: right;
+}
+
+.viewer-toolbar-dock-panel-content__pet-current-upper-input:focus {
+  border-color: color-mix(in srgb, var(--theme-accent) 44%, var(--theme-border-strong));
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card));
+}
+
 .viewer-toolbar-dock-panel-content__pet-pseudocolor-grid,
 .viewer-toolbar-dock-panel-content__pet-unit-grid {
   display: grid;
@@ -1536,15 +1852,24 @@ onBeforeUnmount(() => {
 
 .viewer-toolbar-dock-panel-content__pet-range-max {
   display: grid;
-  grid-template-columns: auto minmax(0, 64px) minmax(0, 1fr);
+  grid-template-areas:
+    "label input"
+    "options options";
+  grid-template-columns: minmax(0, 1fr) minmax(4rem, 5.5rem);
   align-items: center;
-  gap: 8px;
+  gap: 8px 10px;
   color: var(--theme-text-muted);
   font-size: 10.5px;
   font-weight: 800;
 }
 
+.viewer-toolbar-dock-panel-content__pet-range-max > span {
+  grid-area: label;
+  min-width: 0;
+}
+
 .viewer-toolbar-dock-panel-content__pet-range-max-input {
+  grid-area: input;
   width: 100%;
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
@@ -1563,15 +1888,15 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface-card));
 }
 
-.viewer-toolbar-dock-panel-content__pet-range-max div {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+.viewer-toolbar-dock-panel-content__pet-range-max-options {
+  grid-area: options;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
 }
 
 .viewer-toolbar-dock-panel-content__pet-range-max button {
-  min-width: 30px;
+  min-width: 0;
   min-height: 24px;
   border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
   border-radius: 999px;
@@ -1782,7 +2107,9 @@ onBeforeUnmount(() => {
 .viewer-toolbar-dock-panel-content__custom-window-field input::-webkit-outer-spin-button,
 .viewer-toolbar-dock-panel-content__custom-window-field input::-webkit-inner-spin-button,
 .viewer-toolbar-dock-panel-content__pet-range-max-input::-webkit-outer-spin-button,
-.viewer-toolbar-dock-panel-content__pet-range-max-input::-webkit-inner-spin-button {
+.viewer-toolbar-dock-panel-content__pet-range-max-input::-webkit-inner-spin-button,
+.viewer-toolbar-dock-panel-content__pet-current-upper-input::-webkit-outer-spin-button,
+.viewer-toolbar-dock-panel-content__pet-current-upper-input::-webkit-inner-spin-button {
   margin: 0;
   -webkit-appearance: none;
   appearance: none;
@@ -1794,7 +2121,8 @@ onBeforeUnmount(() => {
 }
 
 :global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__custom-window-field input,
-:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input {
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-current-upper-input {
   border-color: color-mix(in srgb, var(--theme-border-strong) 72%, #94a3b8);
   background: #ffffff;
   color: #0f172a;
@@ -1804,12 +2132,14 @@ onBeforeUnmount(() => {
 }
 
 :global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__custom-window-field input::placeholder,
-:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input::placeholder {
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input::placeholder,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-current-upper-input::placeholder {
   color: color-mix(in srgb, var(--theme-text-muted) 78%, transparent);
 }
 
 :global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__custom-window-field input:focus,
-:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input:focus {
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-range-max-input:focus,
+:global(:root[data-theme="clinical-light"]) .viewer-toolbar-dock-panel-content__pet-current-upper-input:focus {
   border-color: color-mix(in srgb, var(--theme-accent) 56%, var(--theme-border-strong));
   background: #ffffff;
   box-shadow:
@@ -2325,8 +2655,14 @@ onBeforeUnmount(() => {
   font-weight: 900;
 }
 
-.viewer-toolbar-dock-panel-content__chip:hover,
-.viewer-toolbar-dock-panel-content__chip:focus-visible,
+.viewer-toolbar-dock-panel-content__chip:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.35);
+  opacity: 0.42;
+}
+
+.viewer-toolbar-dock-panel-content__chip:not(:disabled):hover,
+.viewer-toolbar-dock-panel-content__chip:not(:disabled):focus-visible,
 .viewer-toolbar-dock-panel-content__primary-action:hover,
 .viewer-toolbar-dock-panel-content__secondary-action:not(:disabled):hover {
   border-color: var(--theme-hover-border);

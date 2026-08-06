@@ -31,17 +31,17 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
     expect(resolveFusionPaneSeriesId(FUSION_OVERLAY_AXIAL_PANE_KEY, undefined, 'fallback')).toBe('fallback')
   })
 
-  it('uses grayscale PET panes and PET-CT pseudocolor for the overlay by default', () => {
+  it('uses HotIron for PET panes and the PET-CT overlay by default', () => {
     const presets = createEmptyFusionPseudocolorPresets()
 
     expect(presets[FUSION_CT_AXIAL_PANE_KEY]).toBe('bw')
-    expect(presets[FUSION_PET_AXIAL_PANE_KEY]).toBe('bwinverse')
-    expect(presets[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('petct-rainbow')
-    expect(presets[FUSION_PET_CORONAL_MIP_PANE_KEY]).toBe('bwinverse')
+    expect(presets[FUSION_PET_AXIAL_PANE_KEY]).toBe('hotiron')
+    expect(presets[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('hotiron')
+    expect(presets[FUSION_PET_CORONAL_MIP_PANE_KEY]).toBe('hotiron')
   })
 
   it('uses the fusion PET-only pseudocolor by default for standalone PET tabs', () => {
-    expect(createDefaultPetInfo('pet-series').pseudocolorPreset).toBe('bwinverse')
+    expect(createDefaultPetInfo('pet-series').pseudocolorPreset).toBe('hotiron')
   })
 
   it('displays standalone Stack and PET tabs as 2D while keeping internal view types', () => {

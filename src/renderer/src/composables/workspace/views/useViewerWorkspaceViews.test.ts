@@ -348,7 +348,8 @@ function createLifecycleHarness(
   initialTabs: ViewerTabItem[],
   activeTabKeyValue: string,
   seriesItems: FolderSeriesItem[] = [createSeriesItem('ct-series')],
-  selectedSeriesIdValue = seriesItems[0]?.seriesId ?? ''
+  selectedSeriesIdValue = seriesItems[0]?.seriesId ?? '',
+  viewerStageElement: HTMLElement | null = null
 ) {
   const viewerTabs = ref<ViewerTabItem[]>(initialTabs)
   const activeTabKey = ref(activeTabKeyValue)
@@ -376,7 +377,7 @@ function createLifecycleHarness(
     seriesList,
     stripHoverCornerInfo: (cornerInfo) => cornerInfo,
     viewportElements: ref({}),
-    viewerStage: ref(null),
+    viewerStage: ref(viewerStageElement),
     viewerTabs,
     withHoverCornerInfo: (cornerInfo) => cornerInfo
   })
@@ -547,6 +548,7 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
       tab: ViewerTabItem
       viewId: string
       readWindowLabel: (tab: ViewerTabItem) => string | null | undefined
+      expectedWindowLabel?: string
     }> = [
       {
         label: '2D',
@@ -558,7 +560,8 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
         label: 'PET',
         tab: createPetTab(),
         viewId: 'pet-view',
-        readWindowLabel: (tab) => tab.windowLabel
+        readWindowLabel: (tab) => tab.windowLabel,
+        expectedWindowLabel: 'SUV:0.00--1.00g/ml'
       },
       {
         label: '3D',
@@ -641,11 +644,12 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
         label: 'PET/CT fusion CT pane',
         tab: createFusionTab(),
         viewId: 'overlay-view',
-        readWindowLabel: (tab) => tab.fusionWindowLabels?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+        readWindowLabel: (tab) => tab.fusionWindowLabels?.[FUSION_OVERLAY_AXIAL_PANE_KEY],
+        expectedWindowLabel: 'PET:0.00--1.00'
       }
     ]
 
-    cases.forEach(({ label, tab, viewId, readWindowLabel }) => {
+    cases.forEach(({ label, tab, viewId, readWindowLabel, expectedWindowLabel = 'WW 640  WL 80' }) => {
       const { viewerTabs, views } = createLifecycleHarness([tab], tab.key)
       views.updateTabImage(
         tab.key,
@@ -658,7 +662,7 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
         new Uint8Array([1, 2, 3])
       )
 
-      expect(readWindowLabel(viewerTabs.value[0]), label).toBe('WW 640  WL 80')
+      expect(readWindowLabel(viewerTabs.value[0]), label).toBe(expectedWindowLabel)
     })
   })
 
@@ -687,6 +691,69 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
       viewId: 'created-volume-view',
       viewType: '3D'
     })
+  })
+
+  it('sends the initial PET display config before rendering the first MPR frame', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    const stage = document.createElement('div')
+    ;(['mpr-ax', 'mpr-cor', 'mpr-sag'] as const).forEach((viewportKey, index) => {
+      const element = document.createElement('div')
+      element.dataset.activeRenderSurface = 'true'
+      element.dataset.viewportKey = viewportKey
+      element.getBoundingClientRect = vi.fn(() => ({
+        width: 640 + index,
+        height: 420 + index,
+        top: 0,
+        left: 0,
+        right: 640 + index,
+        bottom: 420 + index,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      }))
+      stage.appendChild(element)
+    })
+    document.body.appendChild(stage)
+
+    const createdViewIds = ['mpr-ax-view', 'mpr-cor-view', 'mpr-sag-view']
+    postApiMock.mockImplementation(async (operation: string) => {
+      if (operation === 'CreateViewApiV1ViewCreatePost') {
+        return { viewId: createdViewIds.shift() }
+      }
+      return { success: true }
+    })
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT'
+    } as FolderSeriesItem
+    const { views } = createLifecycleHarness([], '', [petSeries], 'pet-series', stage)
+
+    await views.openSeriesView('pet-series', 'MPR')
+
+    const petConfigOrders = emitViewOperationWithAckMock.mock.invocationCallOrder.slice(0, 3)
+    const lastPetConfigOrder = Math.max(...petConfigOrders)
+    const setSizeCalls = postApiMock.mock.calls
+      .map((call, index) => ({ call, order: postApiMock.mock.invocationCallOrder[index] }))
+      .filter(({ call }) => call[0] === 'SetViewSizeApiV1ViewSetSizePost')
+
+    expect(setSizeCalls).toHaveLength(3)
+    expect(Math.min(...setSizeCalls.map(({ order }) => order))).toBeGreaterThan(lastPetConfigOrder)
+    expect(setSizeCalls.map(({ call }) => call[1])).toEqual([
+      expect.objectContaining({ viewId: 'mpr-ax-view', size: { width: 640, height: 420 } }),
+      expect.objectContaining({ viewId: 'mpr-cor-view', size: { width: 641, height: 421 } }),
+      expect.objectContaining({ viewId: 'mpr-sag-view', size: { width: 642, height: 422 } })
+    ])
+    expect(
+      (emitViewOperationWithAckMock.mock.calls as unknown as Array<[Record<string, unknown>]>).map(([payload]) => payload)
+    ).toEqual([
+      expect.objectContaining({ viewId: 'mpr-ax-view', opType: 'petConfig' }),
+      expect.objectContaining({ viewId: 'mpr-cor-view', opType: 'petConfig' }),
+      expect.objectContaining({ viewId: 'mpr-sag-view', opType: 'petConfig' })
+    ])
   })
 
   it('switches between 2D and 3D tabs without releasing backend views', () => {
@@ -823,17 +890,65 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
       viewType: '3D',
       sourceViewType: '3D',
       viewportKey: 'volume',
-      viewId: 'layout-volume-view'
+      viewId: 'volume-view'
     })
     expect(activeTabKey.value).toBe('volume-tab::Layout')
     expect(activeViewportKey.value).toBe('slot-1-1')
-    expect(postApiMock).toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', {
-      seriesId: 'ct-series',
-      viewType: '3D'
+    expect(postApiMock).not.toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', expect.anything())
+    expect(postApiMock).not.toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'volume-view' })
+  })
+
+  it('transfers the current PET view and display state into Layout without rebuilding it', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
     })
-    await vi.waitFor(() => {
-      expect(postApiMock).toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'volume-view' })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('blob cloning unavailable in this test')
+    }))
+    const petTab = createPetTab('rainbow')
+    petTab.sliceLabel = '62 / 104'
+    petTab.transformState = {
+      rotationDegrees: 90,
+      horFlip: false,
+      verFlip: true,
+      zoom: 2.5,
+      offsetX: 14,
+      offsetY: -8
+    }
+    petTab.petInfo = {
+      ...petTab.petInfo!,
+      petUnit: 'SUVbw',
+      petWindowMin: 0,
+      petWindowMax: 6.25,
+      pseudocolorPreset: 'rainbow'
+    }
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT',
+      instanceCount: 104
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness([petTab], petTab.key, [petSeries])
+
+    await views.openLayoutView(createUniformLayoutTemplate(1, 2))
+
+    const slot = viewerTabs.value[0]?.layoutSlots?.[0]
+    expect(slot).toMatchObject({
+      viewId: 'pet-view',
+      viewType: 'PET',
+      sourceViewType: 'PET',
+      sliceLabel: '62 / 104',
+      pseudocolorPreset: 'rainbow',
+      transformState: petTab.transformState,
+      petInfo: {
+        petUnit: 'SUVbw',
+        petWindowMin: 0,
+        petWindowMax: 6.25
+      }
     })
+    expect(viewerTabs.value[0]?.layoutSlots?.[1]?.viewId).toBeFalsy()
+    expect(postApiMock).not.toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', expect.anything())
+    expect(postApiMock).not.toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'pet-view' })
   })
 
   it('closes a 3D tab, releases its backend view, and ignores late image updates', async () => {
@@ -1488,7 +1603,7 @@ describe('useViewerWorkspaceViews PET standalone pseudocolor updates', () => {
     vi.unstubAllGlobals()
   })
 
-  it('uses the fusion PET-only preset even when standalone PET payloads return another pseudocolor', () => {
+  it('keeps a selectable standalone PET pseudocolor returned by the backend', () => {
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:pet-bwinverse'),
       revokeObjectURL: vi.fn()
@@ -1510,8 +1625,8 @@ describe('useViewerWorkspaceViews PET standalone pseudocolor updates', () => {
     )
 
     const tab = viewerTabs.value[0]
-    expect(tab.pseudocolorPreset).toBe('bwinverse')
-    expect(tab.petInfo?.pseudocolorPreset).toBe('bwinverse')
+    expect(tab.pseudocolorPreset).toBe('rainbow')
+    expect(tab.petInfo?.pseudocolorPreset).toBe('rainbow')
   })
 
   it('keeps PET-only range lines while filtering CT window lines from standalone PET corner info', () => {
@@ -1784,6 +1899,54 @@ describe('useViewerWorkspaceViews MPR segmentation preview updates', () => {
     expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.samples?.points).toEqual([1.5, 2.5, 512])
   })
 
+  it('accepts stale segmentation preview world guides before samples are available', () => {
+    const { viewerTabs, views } = createMprHarness()
+    const guideWorldPoints = [
+      { x: -1, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
+      { x: 1, y: 2, z: 0 },
+      { x: -1, y: 2, z: 0 }
+    ]
+
+    views.updateTabImage(
+      'mpr-tab',
+      {
+        viewId: 'mpr-ax-view',
+        imageFormat: 'png',
+        mprSegmentationConfig: {
+          enabled: true,
+          clientRevision: 3,
+          selectedRegionId: 'r1',
+          selectedVoi: false,
+          selectedVoiId: null,
+          thresholdRegions: [],
+          voiSpheres: [],
+          voiSphere: null
+        },
+        mprSegmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: true,
+              rect: null,
+              guideWorldPoints,
+              guideAuthoritative: true,
+              guideIntersectsPlane: true,
+              sampleRevision: 10
+            }
+          ]
+        }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.mprSegmentationConfig?.clientRevision).toBe(4)
+    expect(tab.mprSegmentationConfig?.thresholdRegions).toHaveLength(1)
+    expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.guideWorldPoints).toEqual(guideWorldPoints)
+    expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.guideAuthoritative).toBe(true)
+  })
+
   it('preserves segmentation overlay samples when an image update has no segmentation payload', () => {
     let urlIndex = 0
     vi.stubGlobal('URL', {
@@ -1972,6 +2135,48 @@ describe('useViewerWorkspaceViews MPR segmentation preview updates', () => {
     expect(tab.viewportCrosshairs?.['mpr-ax']).toEqual(nextCrosshair)
     expect(tab.viewportCornerInfos?.['mpr-ax']?.tags?.transform2dState).toBeUndefined()
     expect(tab.viewportSegmentationOverlays?.['mpr-ax']).toEqual(existingOverlay)
+  })
+
+  it('accepts MPR model-rotate preview segmentation guide overlays', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:mpr-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createMprHarness()
+    const guidePoints = [
+      { x: 0.2, y: 0.25 },
+      { x: 0.8, y: 0.25 },
+      { x: 0.75, y: 0.7 },
+      { x: 0.25, y: 0.65 }
+    ]
+
+    views.updateTabImage(
+      'mpr-tab',
+      {
+        viewId: 'mpr-ax-view',
+        imageFormat: 'jpeg',
+        metadataMode: 'mpr-model-rotate-preview',
+        mprSegmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: true,
+              rect: null,
+              guidePoints,
+              guideAuthoritative: true,
+              guideIntersectsPlane: true,
+              sampleRevision: 12
+            }
+          ]
+        }
+      },
+      new Uint8Array([7, 8, 9])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.guidePoints).toEqual(guidePoints)
+    expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.guideAuthoritative).toBe(true)
   })
 
   it.each(['png', 'jpeg', 'webp'] as const)('preserves MPR measurements when a %s image update omits overlay fields', (imageFormat) => {

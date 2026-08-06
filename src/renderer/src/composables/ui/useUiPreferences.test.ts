@@ -109,6 +109,8 @@ describe('useUiPreferences', () => {
     expect(preferences.viewportAutoFitEnabled.value).toBe(true)
     expect(preferences.montageColumnCount.value).toBe(4)
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
+    expect(preferences.defaultCtPseudocolorKey.value).toBe('rainbow')
+    expect(preferences.defaultPetPseudocolorKey.value).toBe('hotiron')
     expect(preferences.mprDefaultLayoutKey.value).toBe('quad')
     expect(preferences.dicomTagDisplayMode.value).toBe('flat')
     expect(preferences.dicomDeidentifyPreference.value.selectedFieldKeys).toEqual(['patientIdentity', 'privateTags'])
@@ -173,6 +175,8 @@ describe('useUiPreferences', () => {
     preferences.viewerToolbarPlacement.value = 'right'
     preferences.viewportAutoFitEnabled.value = false
     preferences.montageColumnCount.value = 6
+    preferences.defaultCtPseudocolorKey.value = 'hotiron'
+    preferences.defaultPetPseudocolorKey.value = 'pet'
     preferences.setMprDefaultLayoutKey('mpr-3d')
     preferences.dicomTagDisplayMode.value = 'flat'
     preferences.setHangingProtocolRules([
@@ -243,6 +247,9 @@ describe('useUiPreferences', () => {
     expect(saved.viewerToolbarPlacement).toBe('right')
     expect(saved.viewportAutoFitEnabled).toBe(false)
     expect(saved.montageColumnCount).toBe(6)
+    expect(saved.selectedPseudocolorKey).toBe('hotiron')
+    expect(saved.defaultCtPseudocolorKey).toBe('hotiron')
+    expect(saved.defaultPetPseudocolorKey).toBe('pet')
     expect(saved).not.toHaveProperty('viewerImageFormatPreference')
     expect(saved.mprDefaultLayoutKey).toBe('mpr-3d')
     expect(saved.dicomTagDisplayMode).toBe('flat')

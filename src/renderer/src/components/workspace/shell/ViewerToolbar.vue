@@ -2,7 +2,6 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { VBtn, VCard, VMenu } from 'vuetify/components'
 import AppIcon from '../../AppIcon.vue'
-import FusionPetDisplayTool from './FusionPetDisplayTool.vue'
 import ViewerToolbarMenuContent from './ViewerToolbarMenuContent.vue'
 import type { ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from './toolbarTypes'
@@ -144,14 +143,8 @@ function shouldCloseToolMenuOnContentClick(tool: StackTool): boolean {
           tool.key === 'tag' ? 'toolbar-tool-group--secondary-action' : ''
         ]"
       >
-        <FusionPetDisplayTool
-          v-if="tool.inlineKind === 'fusionPetDisplay'"
-          :active-tab="activeTab"
-          :disabled="areToolbarActionsDisabled"
-          @select="emit('selectToolOption', tool, $event)"
-        />
         <div
-          v-else-if="tool.inlineKind === 'fusionRegistration'"
+          v-if="tool.inlineKind === 'fusionRegistration'"
           class="fusion-registration-tool"
           :class="{ 'fusion-registration-tool--disabled': areToolbarActionsDisabled }"
         >

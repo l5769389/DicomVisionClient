@@ -295,6 +295,8 @@ describe('ViewerCanvasStage layout metrics', () => {
     naturalHeight = 0
     await wrapper.setProps({ imageSrc: 'blob:frame-2' })
     await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-2')
     raf.flush()
     await nextTick()
 
@@ -351,11 +353,15 @@ describe('ViewerCanvasStage layout metrics', () => {
 
     naturalWidth = 50
     naturalHeight = 100
-    await wrapper.find('img.viewer-image').trigger('load')
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    await wrapper.get('img.viewer-image').trigger('load')
     await nextTick()
     raf.flush()
     await nextTick()
 
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-2')
+    expect(wrapper.find('img.viewer-image-preload').exists()).toBe(false)
     expect(readOverlayFrame(wrapper)).toMatchObject({
       left: 75,
       top: 0,
@@ -365,6 +371,27 @@ describe('ViewerCanvasStage layout metrics', () => {
       naturalHeight: 100
     })
 
+    wrapper.unmount()
+  })
+
+  it('never presents a stale replacement when windowing produces a newer frame', async () => {
+    const wrapper = mountStage('blob:frame-1')
+    await wrapper.setProps({ imageSrc: 'blob:frame-2' })
+    await nextTick()
+    const stalePreload = wrapper.get('img.viewer-image-preload')
+
+    await wrapper.setProps({ imageSrc: 'blob:frame-3' })
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-3')
+
+    await stalePreload.trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-3')
     wrapper.unmount()
   })
 

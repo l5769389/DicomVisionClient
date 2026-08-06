@@ -5,7 +5,8 @@ import {
   normalizeMprSegmentationConfig,
   recolorMprSegmentationConfig,
   resolveMprLegacyVoiSphere,
-  type MprThresholdRegion
+  type MprThresholdRegion,
+  type MprThresholdRegionBox
 } from './viewer'
 
 function createRegion(depthMm = 1, sampleCount = 0): MprThresholdRegion {
@@ -17,6 +18,7 @@ function createRegion(depthMm = 1, sampleCount = 0): MprThresholdRegion {
     thresholdMode: 'hu',
     thresholdPercentile: 80,
     color: '#ff4df8',
+    componentMode: 'hotspotConnected',
     box: {
       centerWorld: [0, 0, 0],
       rowWorld: [0, 1, 0],
@@ -36,6 +38,44 @@ function createRegion(depthMm = 1, sampleCount = 0): MprThresholdRegion {
           volumeCm3: 1.25,
           sampleCount,
           effectiveThresholdHu: 300
+        }
+      : null
+  }
+}
+
+function createPetRegion(percentMax = 40, sampleCount = 0): MprThresholdRegion {
+  return {
+    ...createRegion(5),
+    thresholdHu: 0,
+    thresholdValue: 0,
+    thresholdMode: 'percentMax',
+    thresholdPercentMax: percentMax,
+    thresholdPercentile: 80,
+    componentMode: 'hotspotConnected',
+    stats: sampleCount > 0
+      ? {
+          status: 'ready',
+          valueMean: 0.12,
+          valueMin: 0.04,
+          valueMax: 0.3,
+          valueStdDev: 0.02,
+          huMean: 0.12,
+          huMin: 0.04,
+          huMax: 0.3,
+          huStdDev: 0.02,
+          volumeCm3: 2.5,
+          sampleCount,
+          effectiveThresholdValue: 0.12,
+          effectiveThresholdHu: 0.12,
+          mtvCm3: 2.5,
+          uptakePeak: 0.22,
+          intensityContext: {
+            modality: 'PT',
+            valueType: 'SUV',
+            unit: 'g/ml',
+            label: 'g/ml (SUVbw)',
+            quantitative: true
+          }
         }
       : null
   }
@@ -176,6 +216,7 @@ describe('normalizeMprSegmentationConfig', () => {
           thresholdMode: 'percentile',
           thresholdPercentile: 99.5,
           color: '#ff4df8',
+          componentMode: 'hotspotConnected',
           box: {
             centerWorld: [1, 2, 3],
             rowWorld: [0, 1, 0],
@@ -193,7 +234,8 @@ describe('normalizeMprSegmentationConfig', () => {
             huStdDev: 2,
             volumeCm3: 1.5,
             sampleCount: 42,
-            effectiveThresholdHu: 88.8
+            effectiveThresholdHu: 88.8,
+            status: 'ready'
           }
         }
       ],
@@ -320,6 +362,46 @@ describe('normalizeMprSegmentationConfig', () => {
     expect(mergeMprSegmentationPreviewConfig(current, incoming).thresholdRegions[0]).toEqual({
       ...currentRegion,
       stats: incomingRegion.stats
+    })
+  })
+
+  it('merges stats through backend display boxes when source geometry differs after rotation', () => {
+    const displayBox: MprThresholdRegionBox = {
+      centerWorld: [10, 20, 30],
+      rowWorld: [0, 0.70710678, 0.70710678],
+      colWorld: [0.70710678, 0, -0.70710678],
+      normalWorld: [-0.5, 0.5, -0.70710678],
+      widthMm: 20,
+      heightMm: 30,
+      depthMm: 3,
+      sourceViewport: 'mpr-ax'
+    }
+    const sourceRegion = createRegion(3, 8)
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 4,
+      selectedRegionId: 'r1',
+      thresholdRegions: [
+        {
+          ...createRegion(3),
+          box: displayBox
+        }
+      ]
+    })
+    const incoming = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 4,
+      selectedRegionId: 'r1',
+      thresholdRegions: [sourceRegion]
+    })
+
+    const merged = mergeMprSegmentationPreviewConfig(current, incoming, {
+      displayBoxesByRegionId: new Map([['r1', displayBox]])
+    })
+
+    expect(merged.thresholdRegions[0]).toEqual({
+      ...current.thresholdRegions[0],
+      stats: incoming.thresholdRegions[0]?.stats
     })
   })
 
@@ -593,6 +675,64 @@ describe('normalizeMprSegmentationConfig', () => {
     }))
     expect(merged.thresholdRegions[0]?.stats).toEqual(incoming.thresholdRegions[0]?.stats)
     expect(merged.voiSpheres[0]?.stats).toEqual(incoming.voiSpheres[0]?.stats)
+  })
+
+  it('merges PET percent-of-max stats when backend returns the effective absolute threshold', () => {
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 14,
+      selectedRegionId: 'r1',
+      thresholdRegions: [createPetRegion(40)],
+      intensityContext: {
+        modality: 'PT',
+        valueType: 'SUV',
+        unit: 'g/ml',
+        label: 'g/ml (SUVbw)',
+        quantitative: true
+      }
+    })
+    const incomingRegion = {
+      ...createPetRegion(40, 42),
+      thresholdValue: 0.12
+    }
+    const incoming = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 14,
+      selectedRegionId: 'r1',
+      thresholdRegions: [incomingRegion],
+      intensityContext: {
+        modality: 'PT',
+        valueType: 'SUV',
+        unit: 'g/ml',
+        label: 'g/ml (SUVbw)',
+        quantitative: true
+      }
+    })
+
+    const merged = mergeMprSegmentationPreviewConfig(current, incoming)
+
+    expect(merged.thresholdRegions[0]?.stats).toEqual(incoming.thresholdRegions[0]?.stats)
+    expect(merged.thresholdRegions[0]?.thresholdValue).toBe(0.12)
+    expect(merged.intensityContext?.label).toBe('g/ml (SUVbw)')
+  })
+
+  it('does not merge PET stats when percent-of-max threshold changed locally', () => {
+    const current = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 15,
+      selectedRegionId: 'r1',
+      thresholdRegions: [createPetRegion(40)]
+    })
+    const incoming = normalizeMprSegmentationConfig({
+      enabled: true,
+      clientRevision: 15,
+      selectedRegionId: 'r1',
+      thresholdRegions: [createPetRegion(50, 42)]
+    })
+
+    const merged = mergeMprSegmentationPreviewConfig(current, incoming)
+
+    expect(merged.thresholdRegions[0]?.stats).toBeNull()
   })
 
   it('recolors threshold and VOI items without changing metrics or selection', () => {

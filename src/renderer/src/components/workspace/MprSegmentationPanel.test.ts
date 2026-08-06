@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MprSegmentationPanel from './MprSegmentationPanel.vue'
-import type { MprSegmentationConfig, MprThresholdRegion, MprVoiSphere } from '../../types/viewer'
+import type { MprPlaneInfo, MprSegmentationConfig, MprThresholdRegion, MprVoiSphere } from '../../types/viewer'
 import {
   MPR_SEGMENTATION_MAX_THRESHOLD_REGIONS,
   MPR_SEGMENTATION_MAX_VOI_SPHERES
@@ -154,7 +154,314 @@ describe('MprSegmentationPanel', () => {
     expect(wrapper.find('.mpr-segmentation-panel__preview-label').exists()).toBe(true)
   })
 
-  it('emits depth move updates immediately and preserves the draft through stale props', async () => {
+  it('does not render a threshold stats status slot when metrics are ready', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig()
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('[data-testid="mpr-threshold-status-r1"]').exists()).toBe(false)
+  })
+
+  it('does not render a threshold stats status slot while metrics are calculating', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig(createRegion({ stats: null }))
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('[data-testid="mpr-threshold-status-r1"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('正在计算分割体积指标')
+  })
+
+  it('describes an empty PET threshold region with the active quantitative unit', () => {
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createConfig(),
+          selectedRegionId: null,
+          thresholdRegions: []
+        },
+        petInfo: {
+          seriesId: 'pet-series',
+          sourceUnit: 'BQML',
+          sourceUnitLabel: 'BQML',
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          quantitative: true
+        },
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const emptyState = wrapper.get('[data-testid="mpr-segmentation-record-list"]').text()
+    expect(emptyState).toContain('g/ml (SUVbw) > 阈值')
+    expect(emptyState).toContain('区域最大值百分比')
+    expect(emptyState).not.toContain('HU > 阈值')
+  })
+
+  it('keeps PET threshold summary at two rows while stats update', async () => {
+    const intensityContext = {
+      modality: 'PT',
+      valueType: 'SUVbw',
+      unit: 'SUVbw',
+      label: 'g/ml (SUVbw)',
+      quantitative: true
+    }
+    const loadingRegion = createRegion({
+      thresholdMode: 'percentMax',
+      thresholdPercentMax: 7,
+      thresholdValue: 0.1,
+      thresholdHu: 0.1,
+      stats: null
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createConfig(loadingRegion),
+          intensityContext
+        },
+        petInfo: {
+          seriesId: 'pet-series',
+          sourceUnit: 'BQML',
+          sourceUnitLabel: 'BQML',
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          quantitative: true
+        },
+        embedded: true
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const summary = wrapper.get('[data-testid="mpr-threshold-summary-r1"]')
+    expect(summary.attributes('class')).toContain('min-h-[3rem]')
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-primary-r1"]').text()).toBe('7.0% 区域最大摄取值')
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-secondary-r1"]').text()).toBe('(SUVbw)')
+
+    const readyRegion = createRegion({
+      thresholdMode: 'percentMax',
+      thresholdPercentMax: 7,
+      thresholdValue: 0.1,
+      thresholdHu: 0.1,
+      stats: {
+        status: 'ready',
+        huMean: null,
+        huMin: null,
+        huMax: null,
+        huStdDev: null,
+        valueMean: 0.24,
+        valueMin: 0.1,
+        valueMax: 1.47,
+        valueStdDev: 0.21,
+        volumeCm3: 0.35,
+        mtvCm3: 0.35,
+        sampleCount: 1746,
+        effectiveThresholdHu: null,
+        effectiveThresholdValue: 0.1,
+        intensityContext
+      }
+    })
+    await wrapper.setProps({
+      config: {
+        ...createConfig(readyRegion),
+        intensityContext
+      }
+    })
+
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-primary-r1"]').text()).toBe('7.0% 区域最大摄取值 ~ 0.10 g/ml')
+    expect(wrapper.get('[data-testid="mpr-threshold-summary-secondary-r1"]').text()).toBe('(SUVbw)')
+  })
+
+  it('restores the selected threshold region from the saved panel state', async () => {
+    const r1 = createRegion({ id: 'r1' })
+    const r2 = createRegion({ id: 'r2', label: '2' })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        tabKey: 'tab-a',
+        config: {
+          ...createConfig(r1),
+          selectedRegionId: null,
+          thresholdRegions: [r1, r2]
+        },
+        panelState: {
+          selectedKind: 'threshold',
+          expandedRegionId: 'r2',
+          expandedVoiId: null,
+          scrollTop: 0
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        selectedRegionId: 'r2',
+        selectedVoi: false,
+        selectedVoiId: null
+      }),
+      'select'
+    ])
+  })
+
+  it('shows PET SUVpeak unavailable reasons from the metric help instead of the card body', async () => {
+    const region = createRegion({
+      thresholdMode: 'percentMax',
+      thresholdPercentMax: 40,
+      thresholdValue: 0.5,
+      stats: {
+        status: 'ready',
+        huMean: null,
+        huMin: null,
+        huMax: null,
+        huStdDev: null,
+        valueMean: 0.84,
+        valueMin: 0.58,
+        valueMax: 1.45,
+        valueStdDev: 0.23,
+        volumeCm3: 0.02,
+        mtvCm3: 0.02,
+        sampleCount: 86,
+        effectiveThresholdHu: null,
+        effectiveThresholdValue: 0.58,
+        uptakePeak: null,
+        uptakePeakReason: 'Segmented PET region is smaller than the 1.0 ml SUVpeak sphere',
+        intensityContext: {
+          modality: 'PT',
+          valueType: 'SUVbw',
+          unit: 'SUVbw',
+          label: 'g/ml (SUVbw)',
+          quantitative: true
+        }
+      }
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createConfig(region),
+          intensityContext: region.stats?.intensityContext
+        },
+        petInfo: {
+          seriesId: 'pet-series',
+          sourceUnit: 'BQML',
+          sourceUnitLabel: 'BQML',
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          quantitative: true
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).not.toContain('Segmented PET region is smaller')
+    const peakCell = wrapper.findAll('.mpr-segmentation-panel__metric-cell').find((cell) => cell.text().includes('SUVpeak'))
+    expect(peakCell?.text()).toContain('SUVpeak')
+    expect(peakCell?.find('.mpr-segmentation-panel__metric-label').classes() ?? []).not.toContain('uppercase')
+    const helpButton = peakCell?.find('.mpr-segmentation-panel__metric-help-button')
+    expect(helpButton?.attributes('title')).toContain('分割区域小于 1.0 ml，无法计算 SUVpeak。')
+
+    await helpButton?.trigger('click')
+
+    const help = wrapper.get('[data-testid="mpr-threshold-metric-help-r1-peak"]')
+    expect(help.text()).toContain('1.0 ml')
+    expect(help.text()).toContain('分割区域小于 1.0 ml，无法计算 SUVpeak。')
+
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="mpr-threshold-metric-help-r1-peak"]').exists()).toBe(false)
+  })
+
+  it('uses volume bounds to limit PET threshold depth', async () => {
+    const plane: MprPlaneInfo = {
+      viewport: 'mpr-ax',
+      centerWorld: [0, 0, 0],
+      cursorCenterWorld: [0, 0, 0],
+      rowWorld: [0, 1, 0],
+      colWorld: [0, 0, 1],
+      normalWorld: [1, 0, 0],
+      pixelSpacingRowMm: 1,
+      pixelSpacingColMm: 1,
+      pixelSpacingNormalMm: 1,
+      outputShape: [20, 20],
+      volumeBoundsWorld: [
+        [-10, -10, -10],
+        [-10, -10, 10],
+        [-10, 10, -10],
+        [-10, 10, 10],
+        [10, -10, -10],
+        [10, -10, 10],
+        [10, 10, -10],
+        [10, 10, 10]
+      ],
+      row: [0, 1, 0],
+      col: [0, 0, 1],
+      normal: [1, 0, 0],
+      imageToCanvasMatrix: null,
+      isOblique: false
+    }
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: createConfig(),
+        viewportPlanes: {
+          'mpr-ax': plane
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const depthSlider = wrapper.findAll<HTMLInputElement>('input[type="range"]')[1]!
+    expect(depthSlider.attributes('max')).toBe('20')
+    depthSlider.element.value = '30'
+    await depthSlider.trigger('change')
+
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [
+          expect.objectContaining({
+            box: expect.objectContaining({ depthMm: 20 })
+          })
+        ]
+      }),
+      'end'
+    ])
+  })
+
+  it('emits optimistic depth moves and preserves the draft through stale props', async () => {
     const wrapper = mount(MprSegmentationPanel, {
       props: {
         config: createConfig()
@@ -192,7 +499,7 @@ describe('MprSegmentationPanel', () => {
     expect(wrapper.findAll<HTMLInputElement>('input[type="range"]')[1]!.element.value).toBe('42')
   })
 
-  it('keeps HU slider input local and sends final HU on change', async () => {
+  it('emits optimistic HU slider moves and sends final HU on change', async () => {
     const wrapper = mount(MprSegmentationPanel, {
       props: {
         config: createConfig()
@@ -216,7 +523,7 @@ describe('MprSegmentationPanel', () => {
           })
         ]
       }),
-      'local'
+      'move'
     ])
 
     huSlider.element.value = '430'
@@ -227,6 +534,100 @@ describe('MprSegmentationPanel', () => {
         thresholdRegions: [
           expect.objectContaining({
             thresholdHu: 430
+          })
+        ]
+      }),
+      'end'
+    ])
+  })
+
+  it('optimistically updates PET percent threshold and preserves ready metrics while dragging', async () => {
+    const intensityContext = {
+      modality: 'PT',
+      valueType: 'SUVbw',
+      unit: 'SUVbw',
+      label: 'g/ml (SUVbw)',
+      quantitative: true
+    } as const
+    const readyStats = {
+      status: 'ready' as const,
+      huMean: null,
+      huMin: null,
+      huMax: null,
+      huStdDev: null,
+      valueMean: 0.84,
+      valueMin: 0.58,
+      valueMax: 1.45,
+      valueStdDev: 0.23,
+      volumeCm3: 0.02,
+      mtvCm3: 0.02,
+      sampleCount: 86,
+      effectiveThresholdHu: null,
+      effectiveThresholdValue: 0.58,
+      intensityContext
+    }
+    const region = createRegion({
+      thresholdMode: 'percentMax',
+      thresholdPercentMax: 40,
+      thresholdValue: 0.58,
+      stats: readyStats
+    })
+    const wrapper = mount(MprSegmentationPanel, {
+      props: {
+        config: {
+          ...createConfig(region),
+          intensityContext
+        },
+        petInfo: {
+          seriesId: 'pet-series',
+          sourceUnit: 'BQML',
+          sourceUnitLabel: 'BQML',
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          quantitative: true
+        }
+      },
+      global: {
+        stubs: {
+          AppIcon: true
+        }
+      }
+    })
+
+    const thresholdSlider = wrapper.get<HTMLInputElement>(
+      '.mpr-segmentation-panel__adjust-row--threshold input[type="range"]'
+    )
+    thresholdSlider.element.value = '25'
+    await thresholdSlider.trigger('input')
+
+    expect(thresholdSlider.element.value).toBe('25')
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [
+          expect.objectContaining({
+            thresholdMode: 'percentMax',
+            thresholdPercentMax: 25,
+            stats: expect.objectContaining({
+              status: 'ready',
+              valueMean: 0.84,
+              valueMin: 0.58,
+              valueMax: 1.45,
+              sampleCount: 86
+            })
+          })
+        ]
+      }),
+      'move'
+    ])
+
+    thresholdSlider.element.value = '30'
+    await thresholdSlider.trigger('change')
+    expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
+      expect.objectContaining({
+        thresholdRegions: [
+          expect.objectContaining({
+            thresholdPercentMax: 30,
+            stats: null
           })
         ]
       }),
@@ -451,6 +852,7 @@ describe('MprSegmentationPanel', () => {
 
     expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
       expect.objectContaining({
+        enabled: true,
         thresholdRegions: [],
         voiSpheres: [expect.objectContaining({ id: 'v1' })]
       }),
@@ -470,6 +872,7 @@ describe('MprSegmentationPanel', () => {
 
     expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
       expect.objectContaining({
+        enabled: true,
         thresholdRegions: [expect.objectContaining({ id: 'r1' })],
         selectedVoi: false,
         selectedVoiId: null,
@@ -478,6 +881,7 @@ describe('MprSegmentationPanel', () => {
       }),
       'end'
     ])
+    expect(wrapper.emitted('modeChange')?.at(-1)).toEqual(['segmentation:voi'])
   })
 
   it('clears threshold and VOI items together from mobile all clear', async () => {
@@ -505,6 +909,7 @@ describe('MprSegmentationPanel', () => {
 
     expect(wrapper.emitted('configChange')?.at(-1)).toEqual([
       expect.objectContaining({
+        enabled: true,
         thresholdRegions: [],
         voiSpheres: []
       }),
@@ -617,7 +1022,10 @@ describe('MprSegmentationPanel', () => {
         thresholdRegions: [
           expect.objectContaining({
             color: '#00ff00',
-            stats: regionStats
+            stats: expect.objectContaining({
+              ...regionStats,
+              status: 'ready'
+            })
           })
         ]
       }),
@@ -636,7 +1044,10 @@ describe('MprSegmentationPanel', () => {
         thresholdRegions: [
           expect.objectContaining({
             label: 'liver threshold',
-            stats: regionStats
+            stats: expect.objectContaining({
+              ...regionStats,
+              status: 'ready'
+            })
           })
         ]
       }),

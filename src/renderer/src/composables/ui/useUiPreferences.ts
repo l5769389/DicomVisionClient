@@ -203,6 +203,8 @@ interface UiPreferencesState {
   viewportAutoFitEnabled: boolean
   montageColumnCount: number
   selectedPseudocolorKey: string
+  defaultCtPseudocolorKey: string
+  defaultPetPseudocolorKey: string
   mprDefaultLayoutKey: MprDefaultLayoutKey
   dicomTagDisplayMode: DicomTagDisplayMode
   selectedWindowPresetId: string
@@ -223,10 +225,12 @@ interface UiPreferencesState {
   customWindowPresets: StoredCustomWindowPreset[]
 }
 
-const CURRENT_PREFERENCES_VERSION = 26
+const CURRENT_PREFERENCES_VERSION = 29
 const DEFAULT_THEME_ID = 'industrial-utility'
 const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
+const DEFAULT_PET_PSEUDOCOLOR_KEY = 'hotiron'
+const LEGACY_DEFAULT_PET_PSEUDOCOLOR_KEYS = new Set(['bwinverse', 'pet', 'petct-rainbow'])
 const DEFAULT_DICOM_TAG_DISPLAY_MODE: DicomTagDisplayMode = 'tree'
 const DEFAULT_WINDOW_PRESET_ID = 'lung'
 export const MAX_CUSTOM_WINDOW_PRESETS = 5
@@ -524,6 +528,8 @@ function createDefaultState(): UiPreferencesState {
     viewportAutoFitEnabled: true,
     montageColumnCount: 4,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
+    defaultCtPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
+    defaultPetPseudocolorKey: DEFAULT_PET_PSEUDOCOLOR_KEY,
     mprDefaultLayoutKey: DEFAULT_MPR_LAYOUT_KEY,
     dicomTagDisplayMode: DEFAULT_DICOM_TAG_DISPLAY_MODE,
     selectedWindowPresetId: DEFAULT_WINDOW_PRESET_ID,
@@ -1046,6 +1052,8 @@ function applyState(nextState: UiPreferencesState): void {
   state.viewportAutoFitEnabled = nextState.viewportAutoFitEnabled
   state.montageColumnCount = nextState.montageColumnCount
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
+  state.defaultCtPseudocolorKey = nextState.defaultCtPseudocolorKey
+  state.defaultPetPseudocolorKey = nextState.defaultPetPseudocolorKey
   state.mprDefaultLayoutKey = nextState.mprDefaultLayoutKey
   state.dicomTagDisplayMode = nextState.dicomTagDisplayMode
   state.selectedWindowPresetId = nextState.selectedWindowPresetId
@@ -1076,7 +1084,9 @@ function serializeState(): UiPreferencesState {
     viewerToolbarPlacement: state.viewerToolbarPlacement,
     viewportAutoFitEnabled: state.viewportAutoFitEnabled,
     montageColumnCount: state.montageColumnCount,
-    selectedPseudocolorKey: state.selectedPseudocolorKey,
+    selectedPseudocolorKey: state.defaultCtPseudocolorKey,
+    defaultCtPseudocolorKey: state.defaultCtPseudocolorKey,
+    defaultPetPseudocolorKey: state.defaultPetPseudocolorKey,
     mprDefaultLayoutKey: state.mprDefaultLayoutKey,
     dicomTagDisplayMode: state.dicomTagDisplayMode,
     selectedWindowPresetId: state.selectedWindowPresetId,
@@ -1210,7 +1220,19 @@ async function hydrateState(): Promise<void> {
         viewerToolbarPlacement: normalizeViewerToolbarPlacement(parsed.viewerToolbarPlacement),
         viewportAutoFitEnabled: parsed.viewportAutoFitEnabled !== false,
         montageColumnCount: Math.min(6, Math.max(2, normalizeInteger(parsed.montageColumnCount, 4))),
-        selectedPseudocolorKey: normalizePseudocolorKey(parsed.selectedPseudocolorKey),
+        selectedPseudocolorKey: normalizePseudocolorKey(
+          parsed.defaultCtPseudocolorKey ?? parsed.selectedPseudocolorKey
+        ),
+        defaultCtPseudocolorKey: normalizePseudocolorKey(
+          parsed.defaultCtPseudocolorKey ?? parsed.selectedPseudocolorKey
+        ),
+        defaultPetPseudocolorKey: normalizePseudocolorKey(
+          storedVersion < 29 &&
+            (parsed.defaultPetPseudocolorKey == null ||
+              LEGACY_DEFAULT_PET_PSEUDOCOLOR_KEYS.has(String(parsed.defaultPetPseudocolorKey).trim().toLowerCase()))
+            ? DEFAULT_PET_PSEUDOCOLOR_KEY
+            : parsed.defaultPetPseudocolorKey ?? DEFAULT_PET_PSEUDOCOLOR_KEY
+        ),
         mprDefaultLayoutKey: normalizeMprDefaultLayoutKey(parsed.mprDefaultLayoutKey),
         dicomTagDisplayMode: normalizeDicomTagDisplayMode(parsed.dicomTagDisplayMode),
         selectedWindowPresetId: normalizeWindowPresetId(parsed.selectedWindowPresetId, customWindowPresets),
@@ -1303,9 +1325,27 @@ export function useUiPreferences() {
     }
   })
   const selectedPseudocolorKey = computed({
-    get: () => state.selectedPseudocolorKey,
+    get: () => state.defaultCtPseudocolorKey,
     set: (value: string) => {
-      state.selectedPseudocolorKey = normalizePseudocolorKey(value)
+      const normalized = normalizePseudocolorKey(value)
+      state.selectedPseudocolorKey = normalized
+      state.defaultCtPseudocolorKey = normalized
+      void persistState()
+    }
+  })
+  const defaultCtPseudocolorKey = computed({
+    get: () => state.defaultCtPseudocolorKey,
+    set: (value: string) => {
+      const normalized = normalizePseudocolorKey(value)
+      state.selectedPseudocolorKey = normalized
+      state.defaultCtPseudocolorKey = normalized
+      void persistState()
+    }
+  })
+  const defaultPetPseudocolorKey = computed({
+    get: () => state.defaultPetPseudocolorKey,
+    set: (value: string) => {
+      state.defaultPetPseudocolorKey = normalizePseudocolorKey(value)
       void persistState()
     }
   })
@@ -1530,6 +1570,8 @@ export function useUiPreferences() {
     viewportCornerInfoPreference: computed(() => state.viewportCornerInfoPreference),
     workspaceDockPreference: computed(() => state.workspaceDockPreference),
     selectedPseudocolorKey,
+    defaultCtPseudocolorKey,
+    defaultPetPseudocolorKey,
     selectedWindowPresetId,
     setCrosshairConfigs,
     setDicomDeidentifyPreference,

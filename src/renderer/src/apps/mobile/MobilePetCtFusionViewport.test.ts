@@ -157,11 +157,11 @@ describe('MobilePetCtFusionViewport', () => {
 
     expect(primary.classes()).not.toContain('mobile-petct-fusion-viewport__pane--active')
     expect(primaryStage.attributes('data-active')).toBe('false')
-    expect(primaryStage.attributes('data-light-surface')).toBe('true')
-    expect(primaryStage.attributes('data-stage-surface-class')).toBe('viewer-stage-surface--white')
+    expect(primaryStage.attributes('data-light-surface')).toBe('undefined')
+    expect(primaryStage.attributes('data-stage-surface-class')).toBe('')
 
     for (const stage of wrapper.findAll('[data-testid="mobile-petct-fusion-reference"] .viewer-stage-stub')) {
-      expect(stage.attributes('data-light-surface')).toBe('false')
+      expect(stage.attributes('data-light-surface')).toBe('undefined')
       expect(stage.attributes('data-stage-surface-class')).toBe('')
     }
   })

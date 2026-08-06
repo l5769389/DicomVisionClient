@@ -8,17 +8,17 @@ import {
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   DEFAULT_PET_RANGE_UPPER_LIMIT,
   DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+  buildPetRangeUpperLimitOptions,
   getFusionPetPseudocolorGradient,
   getPseudocolorGradient,
-  normalizePetRangeUpperLimit
+  normalizePetRangeUpperLimit,
+  resolvePetRangeUpperLimit
 } from '../../../constants/pseudocolor'
-import type { ViewerTabItem } from '../../../types/viewer'
+import type { PetUnitAvailability, ViewerTabItem } from '../../../types/viewer'
 
 const PET_RANGE_EMIT_INTERVAL_MS = 80
 const PET_RANGE_MAX_DEBOUNCE_MS = 360
 const PET_RANGE_OPTIMISTIC_TTL_MS = 1600
-const petRangeMaxOptions = [5, 10, 20, 30, 40]
-const petRangeMaxOptionLabels = petRangeMaxOptions.map((option) => String(option))
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -29,22 +29,27 @@ const emit = defineEmits<{
   select: [value: string]
 }>()
 
-const fusionPetUnitOptions = [
-  { value: 'kBqml', label: 'kBq/ml' },
-  { value: 'SUVbsa', label: 'cm2/ml' },
-  { value: 'SUVbw', label: 'g/ml (SUVbw)' },
-  { value: 'SUL', label: 'g/ml* (SUL)' },
-  { value: 'percentIDg', label: '%ID/g' },
-  { value: 'source', label: 'Source' }
+const fallbackPetUnitOptions: PetUnitAvailability[] = [
+  {
+    unit: 'source',
+    label: 'Source',
+    available: true,
+    reason: 'PET quantitative metadata is still loading'
+  }
 ]
 
 const petDisplayInfo = computed(() =>
-  props.activeTab.viewType === 'PET'
-    ? props.activeTab.petInfo
-    : props.activeTab.fusionInfo
+  props.activeTab.viewType === 'PETCTFusion'
+    ? (props.activeTab.petInfo ?? props.activeTab.fusionInfo)
+    : props.activeTab.petInfo
 )
-const petUnitEventPrefix = computed(() => (props.activeTab.viewType === 'PET' ? 'petUnit' : 'fusionPetUnit'))
-const petWindowEventPrefix = computed(() => (props.activeTab.viewType === 'PET' ? 'petWindow' : 'fusionPetWindow'))
+const isFusion = computed(() => props.activeTab.viewType === 'PETCTFusion')
+const petUnitEventPrefix = computed(() => (isFusion.value ? 'fusionPetUnit' : 'petUnit'))
+const petWindowEventPrefix = computed(() => (isFusion.value ? 'fusionPetWindow' : 'petWindow'))
+const petUnitOptions = computed(() => {
+  const options = props.activeTab.petInfo?.unitOptions
+  return options?.length ? options : fallbackPetUnitOptions
+})
 
 function isLikelyCtWindowLeakedIntoPetRange(minValue: number, maxValue: number): boolean {
   const unit = String(petDisplayInfo.value?.petUnit ?? petDisplayInfo.value?.petUnitLabel ?? '').toLowerCase()
@@ -52,7 +57,7 @@ function isLikelyCtWindowLeakedIntoPetRange(minValue: number, maxValue: number):
   return isPetQuantUnit && minValue < -1 && maxValue >= 100
 }
 
-const selectedUnit = computed(() => petDisplayInfo.value?.petUnit ?? 'SUVbw')
+const selectedUnit = computed(() => petDisplayInfo.value?.petUnit ?? 'source')
 const backendWindowMax = computed(() => {
   const minValue = Number(petDisplayInfo.value?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
   const value = Number(petDisplayInfo.value?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
@@ -62,7 +67,13 @@ const backendWindowMax = computed(() => {
   return Number.isFinite(value) ? Math.max(DEFAULT_FUSION_PET_WINDOW_MIN, value) : DEFAULT_FUSION_PET_WINDOW_MAX
 })
 const draftWindowMax = ref(backendWindowMax.value)
-const rangeUpperLimit = ref(Math.max(DEFAULT_PET_RANGE_UPPER_LIMIT, Math.ceil(backendWindowMax.value)))
+const rangeUpperLimit = ref(
+  resolvePetRangeUpperLimit(
+    backendWindowMax.value,
+    props.activeTab.petInfo?.autoWindowMax,
+    selectedUnit.value
+  )
+)
 const draftRangeUpperLimit = ref(rangeUpperLimit.value)
 const rangeUpperLimitSearch = ref(formatRangeUpperLimit(rangeUpperLimit.value))
 const isDragging = ref(false)
@@ -74,13 +85,30 @@ let pendingOptimisticWindowMax: number | null = null
 let pendingOptimisticUntil = 0
 
 const rangeGradient = computed(() =>
-  props.activeTab.viewType === 'PET'
-    ? getPseudocolorGradient(DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET)
-    : getFusionPetPseudocolorGradient(DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET)
+  isFusion.value
+    ? getFusionPetPseudocolorGradient(
+        props.activeTab.petInfo?.fusionOverlayPseudocolorPreset
+          ?? props.activeTab.fusionInfo?.petPseudocolorPreset
+          ?? DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
+      )
+    : getPseudocolorGradient(
+        props.activeTab.petInfo?.pseudocolorPreset
+          ?? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+      )
 )
 const displayWindowMax = computed(() => Number(draftWindowMax.value).toFixed(draftWindowMax.value < 10 ? 2 : 0))
 const rangeUpperLimitModel = computed(() => formatRangeUpperLimit(draftRangeUpperLimit.value))
-const selectedUnitLabel = computed(() => fusionPetUnitOptions.find((option) => option.value === selectedUnit.value)?.label ?? selectedUnit.value)
+const selectedUnitLabel = computed(() =>
+  petUnitOptions.value.find((option) => option.unit === selectedUnit.value)?.label
+    ?? petDisplayInfo.value?.petUnitLabel
+    ?? selectedUnit.value
+)
+const petRangeMaxOptionLabels = computed(() =>
+  buildPetRangeUpperLimitOptions(
+    Number(props.activeTab.petInfo?.autoWindowMax ?? backendWindowMax.value),
+    selectedUnit.value
+  ).map((option) => formatRangeUpperLimit(option))
+)
 const rangeValueLabelPosition = computed(() => {
   if (rangeUpperLimit.value <= 0) {
     return 7
@@ -105,6 +133,29 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => [props.activeTab.key, selectedUnit.value, props.activeTab.petInfo?.autoWindowMax] as const,
+  (_current, previous) => {
+    const unitChanged = previous != null && previous[1] !== selectedUnit.value
+    if (unitChanged) {
+      clearPendingTimer()
+      pendingValue = null
+      pendingOptimisticWindowMax = null
+      pendingOptimisticUntil = 0
+      isDragging.value = false
+      draftWindowMax.value = backendWindowMax.value
+    }
+    const nextUpperLimit = resolvePetRangeUpperLimit(
+      backendWindowMax.value,
+      props.activeTab.petInfo?.autoWindowMax,
+      selectedUnit.value
+    )
+    rangeUpperLimit.value = nextUpperLimit
+    draftRangeUpperLimit.value = nextUpperLimit
+    rangeUpperLimitSearch.value = formatRangeUpperLimit(nextUpperLimit)
+  }
 )
 
 function clearPendingTimer(): void {
@@ -224,9 +275,9 @@ function isRangeUpperLimitOptionActive(rawValue: string): boolean {
   return Number.isFinite(value) && Math.abs(value - rangeUpperLimit.value) < 0.001
 }
 
-function handleUnitValue(value: string): void {
-  if (value) {
-    emit('select', `${petUnitEventPrefix.value}:${value}`)
+function handleUnitValue(unit: string, available: boolean): void {
+  if (unit && available) {
+    emit('select', `${petUnitEventPrefix.value}:${unit}`)
   }
 }
 
@@ -346,17 +397,19 @@ onBeforeUnmount(() => {
 
       <div data-tool-menu-root class="fusion-pet-display-tool__menu fusion-pet-display-tool__menu--unit theme-shell-panel">
         <button
-          v-for="option in fusionPetUnitOptions"
-          :key="option.value"
+          v-for="option in petUnitOptions"
+          :key="option.unit"
           type="button"
           role="radio"
-          :aria-checked="selectedUnit === option.value"
+          :aria-checked="selectedUnit === option.unit"
+          :disabled="!option.available"
+          :title="option.available ? option.label : (option.reason ?? option.label)"
           class="fusion-pet-display-tool__menu-option fusion-pet-display-tool__unit-option"
-          :class="{ 'fusion-pet-display-tool__menu-option--active': selectedUnit === option.value }"
-          @click="handleUnitValue(option.value)"
+          :class="{ 'fusion-pet-display-tool__menu-option--active': selectedUnit === option.unit }"
+          @click="handleUnitValue(option.unit, option.available)"
         >
           <span>{{ option.label }}</span>
-          <AppIcon v-if="selectedUnit === option.value" name="check" :size="14" />
+          <AppIcon v-if="selectedUnit === option.unit" name="check" :size="14" />
         </button>
       </div>
     </VMenu>
@@ -612,6 +665,17 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--theme-accent) 20%, transparent);
   background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
   color: var(--theme-text-primary);
+}
+
+.fusion-pet-display-tool__menu-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.fusion-pet-display-tool__menu-option:disabled:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--theme-text-secondary);
 }
 
 .fusion-pet-display-tool__menu-option--active {

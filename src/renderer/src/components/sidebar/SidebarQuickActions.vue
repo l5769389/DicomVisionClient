@@ -4,6 +4,7 @@ import { VBtn, VCard, VMenu } from 'vuetify/components'
 import type { FolderSeriesItem, ViewType } from '../../types/viewer'
 import { useUiLocale } from '../../composables/ui/useUiLocale'
 import {
+  isPetSeries,
   isPrimaryTwoDimensionalViewSupported,
   isSeriesViewSupported,
   resolvePrimaryTwoDimensionalViewType
@@ -122,7 +123,9 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
   },
   {
     label: '4D',
-    title: '4D',
+    title: isPetSeries(props.selectedSeries)
+      ? (isZh.value ? 'PET 动态分析暂未支持' : 'Dynamic PET analysis is not supported yet')
+      : '4D',
     viewType: '4D',
     disabled: !props.hasSelectedSeries || !props.isSelectedSeriesFourD || !isSeriesViewSupported(props.selectedSeries, '4D')
   },

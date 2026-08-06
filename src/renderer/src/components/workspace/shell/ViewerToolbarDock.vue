@@ -52,14 +52,14 @@ const utilityDetailToolKeys = new Set(['mprMip', 'volumeParams', 'surfaceParams'
 const actionDetailToolKeys = new Set(['annotate'])
 const unselectedActionMenuToolKeys = new Set(['page', 'rotate', 'export', 'reset'])
 const autoApplyOptionToolKeys = new Set(['measure', 'qa'])
-const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'crosshair', 'rotate3d', 'measure', 'qa', 'annotate'])
+const modeOptionPanelToolKeys = new Set(['pan', 'zoom', 'window', 'petIntensity', 'crosshair', 'rotate3d', 'measure', 'qa', 'annotate'])
 
 function getDockToolOptions(tool: StackTool): StackToolOption[] {
   return tool.options ?? tool.dockOptions ?? []
 }
 
 function hasDockToolOptions(tool: StackTool): boolean {
-  return getDockToolOptions(tool).length > 0
+  return Boolean(tool.inlineKind) || getDockToolOptions(tool).length > 0
 }
 
 function getDockPanelTool(tool: StackTool): StackTool {
@@ -159,7 +159,7 @@ const utilityPanelHelp = computed(() => {
 })
 
 function supportsPlayback(viewType: ViewerTabItem['viewType']): boolean {
-  return viewType === 'Stack' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
+  return viewType === 'Stack' || viewType === 'PET' || viewType === 'Layout' || viewType === 'MPR' || viewType === '4D'
 }
 
 function isToolDisabled(tool: StackTool): boolean {
@@ -851,7 +851,9 @@ watch(
   overflow: hidden;
 }
 
-.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--fusionPetDisplay {
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--petIntensity,
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--petPseudocolor,
+.viewer-toolbar-dock__tool-panel-body > .viewer-toolbar-dock-panel-content--petQuantification {
   flex: 1 1 auto;
   overflow: hidden;
 }

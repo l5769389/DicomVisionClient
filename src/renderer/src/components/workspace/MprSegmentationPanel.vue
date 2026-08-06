@@ -3,7 +3,7 @@ defineOptions({
   inheritAttrs: false
 })
 
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '../AppIcon.vue'
 import { useUiPreferences } from '../../composables/ui/useUiPreferences'
 import {
@@ -23,25 +23,36 @@ import {
   MPR_SEGMENTATION_MAX_VOI_SPHERES,
   createDefaultMprSegmentationConfig,
   normalizeMprSegmentationConfig,
+  normalizeMprSegmentationPanelState,
   resolveMprLegacyVoiSphere,
   type MprSegmentationConfigActionType,
   type MprSegmentationConfig,
+  type MprSegmentationPanelState,
+  type MprIntensityContext,
+  type MprPlaneInfo,
   type MprThresholdRegion,
-  type MprVoiSphere
+  type MprVoiSphere,
+  type MprViewportKey,
+  type PetInfo
 } from '../../types/viewer'
 
 const props = defineProps<{
   config: MprSegmentationConfig
+  tabKey?: string | null
+  panelState?: MprSegmentationPanelState | null
+  viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>> | null
   embedded?: boolean
   mobile?: boolean
   isProcessing?: boolean
   seriesId?: string | null
   seriesLabel?: string | null
+  petInfo?: PetInfo | null
 }>()
 
 const emit = defineEmits<{
   close: []
   configChange: [config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType]
+  panelStateChange: [state: Partial<MprSegmentationPanelState>]
   modeChange: [mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null]
 }>()
 
@@ -72,11 +83,43 @@ const localDraftActive = ref(false)
 const embeddedMode = ref<SegmentationMode>('segmentation:threshold')
 const importInputRef = ref<HTMLInputElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
+const recordListRef = ref<HTMLElement | null>(null)
 const panelPosition = ref<PanelPosition | null>(null)
 const panelDragState = ref<{ pointerId: number; offsetX: number; offsetY: number } | null>(null)
 const pendingExportConfirmation = ref<PendingExportConfirmation | null>(null)
+const openMetricHelpKey = ref<string | null>(null)
 const { exportPreference, locale } = useUiPreferences()
-const displayedConfig = computed(() => draftConfig.value ?? normalizeMprSegmentationConfig(props.config))
+const petIntensityContext = computed<MprIntensityContext | null>(() => {
+  if (!props.petInfo) {
+    return null
+  }
+  return {
+    modality: 'PT',
+    valueType: props.petInfo.petUnit || 'source',
+    unit: props.petInfo.petUnit || props.petInfo.sourceUnit || 'source',
+    label: props.petInfo.petUnitLabel || props.petInfo.sourceUnitLabel || 'PET',
+    quantitative: props.petInfo.quantitative === true,
+    warnings: props.petInfo.warnings ?? []
+  }
+})
+const displayedConfig = computed(() => {
+  const config = draftConfig.value ?? normalizeMprSegmentationConfig(props.config)
+  if (config.intensityContext || !petIntensityContext.value) {
+    return config
+  }
+  return {
+    ...config,
+    intensityContext: petIntensityContext.value
+  }
+})
+const intensityContext = computed(() => displayedConfig.value.intensityContext)
+const isPetSegmentation = computed(() =>
+  props.petInfo != null ||
+  ['PT', 'PET'].includes(String(intensityContext.value?.modality ?? '').trim().toUpperCase())
+)
+const intensityUnitLabel = computed(() =>
+  String(intensityContext.value?.label ?? intensityContext.value?.unit ?? (isPetSegmentation.value ? 'PET' : 'HU'))
+)
 const regions = computed(() => displayedConfig.value.thresholdRegions)
 const voiSpheres = computed(() => displayedConfig.value.voiSpheres)
 const selectedRegion = computed(() =>
@@ -100,6 +143,7 @@ const panelCopy = computed(() => isZh.value
       includeInExport: '包含在导出中',
       color: '颜色',
       description: '描述',
+      absolute: '绝对值',
       percent: '百分比',
       depth: '深度',
       voiTitle: 'VOI 球体',
@@ -142,6 +186,7 @@ const panelCopy = computed(() => isZh.value
       includeInExport: 'Include in export',
       color: 'Color',
       description: 'Description',
+      absolute: 'Absolute',
       percent: 'Percent',
       depth: 'Depth',
       voiTitle: 'VOI sphere',
@@ -170,6 +215,20 @@ const panelCopy = computed(() => isZh.value
       importFailure: 'Failed to import segmentation'
     }
 )
+const emptyThresholdMessage = computed(() => {
+  if (!isPetSegmentation.value) {
+    return panelCopy.value.emptyThreshold
+  }
+  return isZh.value
+    ? `在阈值分割模式中绘制一个或多个矩形区域。每个区域使用 ${intensityUnitLabel.value} > 阈值，也可按区域最大值百分比设置。`
+    : `Draw one or more rectangles in threshold mode. Each region uses ${intensityUnitLabel.value} > threshold, or a percentage of the regional maximum.`
+})
+const statsCopy = computed(() => ({
+  calculating: isZh.value ? '正在计算分割体积指标…' : 'Calculating segmentation volume metrics…',
+  empty: isZh.value ? '没有体素满足当前阈值。' : 'No voxels satisfy the current threshold.',
+  error: isZh.value ? '指标计算失败' : 'Metric calculation failed',
+  retry: isZh.value ? '重试' : 'Retry'
+}))
 const panelRootStyle = computed<Record<string, string>>(() => {
   if (props.embedded) {
     return {} as Record<string, string>
@@ -191,6 +250,71 @@ const panelRootStyle = computed<Record<string, string>>(() => {
   }
 })
 
+function emitPanelStatePatch(patch: Partial<MprSegmentationPanelState>): void {
+  const current = normalizeMprSegmentationPanelState(props.panelState)
+  emit('panelStateChange', normalizeMprSegmentationPanelState({ ...current, ...patch }, current))
+}
+
+function restorePanelScrollPosition(): void {
+  const targetScrollTop = normalizeMprSegmentationPanelState(props.panelState).scrollTop
+  nextTick(() => {
+    const element = recordListRef.value
+    if (!element) {
+      return
+    }
+    if (Math.abs(element.scrollTop - targetScrollTop) > 1) {
+      element.scrollTop = targetScrollTop
+    }
+  })
+}
+
+function handleRecordListScroll(): void {
+  const element = recordListRef.value
+  if (!element) {
+    return
+  }
+  emitPanelStatePatch({ scrollTop: element.scrollTop })
+}
+
+watch(
+  [
+    () => props.tabKey,
+    () => props.seriesId,
+    () => props.config.clientRevision
+  ],
+  () => {
+    localDraftActive.value = false
+    draftConfig.value = null
+    const nextState = normalizeMprSegmentationPanelState(props.panelState)
+    if (nextState.selectedKind === 'voi') {
+      embeddedMode.value = 'segmentation:voi'
+      if (
+        nextState.expandedVoiId &&
+        displayedConfig.value.selectedVoiId !== nextState.expandedVoiId &&
+        voiSpheres.value.some((sphere) => sphere.id === nextState.expandedVoiId)
+      ) {
+        emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: nextState.expandedVoiId }, 'select')
+      }
+    } else if (nextState.selectedKind === 'threshold') {
+      embeddedMode.value = 'segmentation:threshold'
+      if (
+        nextState.expandedRegionId &&
+        displayedConfig.value.selectedRegionId !== nextState.expandedRegionId &&
+        regions.value.some((region) => region.id === nextState.expandedRegionId)
+      ) {
+        emitPatch({ selectedRegionId: nextState.expandedRegionId, selectedVoi: false, selectedVoiId: null }, 'select')
+      }
+    }
+    restorePanelScrollPosition()
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.panelState?.scrollTop,
+  () => restorePanelScrollPosition()
+)
+
 watch(
   () => props.config,
   () => {
@@ -200,6 +324,38 @@ watch(
     draftConfig.value = null
   },
   { deep: true }
+)
+
+watch(
+  () => regions.value.map((region) => [
+    region.id,
+    region.box.centerWorld.join(','),
+    region.box.normalWorld.join(','),
+    region.box.depthMm,
+    props.viewportPlanes?.[region.box.sourceViewport]?.volumeBoundsWorld
+      ?.flat()
+      .join(',')
+  ].join(':')).join('|'),
+  () => {
+    if (localDraftActive.value) {
+      return
+    }
+    const overflowingRegion = regions.value.find((region) => region.box.depthMm > getDepthMaximum(region) + 1e-3)
+    if (!overflowingRegion) {
+      return
+    }
+    patchRegion(
+      overflowingRegion.id,
+      {
+        box: {
+          ...overflowingRegion.box,
+          depthMm: getDepthMaximum(overflowingRegion)
+        },
+        stats: null
+      },
+      'end'
+    )
+  }
 )
 
 watch(
@@ -496,8 +652,37 @@ async function handleImportFileChange(event: Event): Promise<void> {
   }
 }
 
+function closeMetricHelpOnOutsideClick(event: MouseEvent): void {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    closeMetricHelp()
+    return
+  }
+  if (
+    target.closest('.mpr-segmentation-panel__metric-help-button') ||
+    target.closest('.mpr-segmentation-panel__metric-help-popover')
+  ) {
+    return
+  }
+  closeMetricHelp()
+}
+
+function addMetricHelpOutsideListener(): void {
+  document.addEventListener('click', closeMetricHelpOnOutsideClick, true)
+}
+
+function removeMetricHelpOutsideListener(): void {
+  document.removeEventListener('click', closeMetricHelpOnOutsideClick, true)
+}
+
+function closeMetricHelp(): void {
+  openMetricHelpKey.value = null
+  removeMetricHelpOutsideListener()
+}
+
 onBeforeUnmount(() => {
   stopPanelDrag()
+  removeMetricHelpOutsideListener()
 })
 
 function emitPatch(patch: Partial<MprSegmentationConfig>, actionType: PanelActionType = 'end'): void {
@@ -535,6 +720,11 @@ function patchRegion(regionId: string, patch: Partial<MprThresholdRegion>, actio
 function selectRegion(regionId: string): void {
   const region = regions.value.find((candidate) => candidate.id === regionId)
   embeddedMode.value = 'segmentation:threshold'
+  emitPanelStatePatch({
+    selectedKind: 'threshold',
+    expandedRegionId: regionId,
+    expandedVoiId: null
+  })
   emit('modeChange', 'segmentation:threshold', region?.box.sourceViewport ?? null)
   emitPatch({ selectedRegionId: regionId, selectedVoi: false, selectedVoiId: null }, 'select')
 }
@@ -558,26 +748,71 @@ function deleteRegion(regionId: string): void {
 }
 
 function updateThreshold(region: MprThresholdRegion, value: string, actionType: 'move' | 'end' = 'move'): void {
-  patchRegion(region.id, { thresholdHu: Number(value), thresholdMode: 'hu', stats: null }, actionType === 'move' ? 'local' : actionType)
+  const thresholdValue = Number(value)
+  patchRegion(
+    region.id,
+    {
+      thresholdValue,
+      thresholdHu: thresholdValue,
+      thresholdMode: isPetSegmentation.value ? 'absolute' : 'hu',
+      componentMode: isPetSegmentation.value ? 'hotspotConnected' : 'all',
+      // Keep the last authoritative metrics visible while the server prepares
+      // the next preview. The final pointer release replaces them atomically.
+      stats: actionType === 'move' ? region.stats : null
+    },
+    actionType
+  )
 }
 
 function updateThresholdPercentile(region: MprThresholdRegion, value: string, actionType: 'move' | 'end' = 'move'): void {
-  patchRegion(region.id, { thresholdPercentile: Number(value), thresholdMode: 'percentile', stats: null }, actionType === 'move' ? 'local' : actionType)
+  const percent = Number(value)
+  patchRegion(
+    region.id,
+    isPetSegmentation.value
+      ? {
+          thresholdPercentMax: percent,
+          thresholdMode: 'percentMax',
+          stats: actionType === 'move' ? region.stats : null
+        }
+      : {
+          thresholdPercentile: percent,
+          thresholdMode: 'percentile',
+          stats: actionType === 'move' ? region.stats : null
+        },
+    actionType
+  )
 }
 
 function updateThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['thresholdMode']): void {
-  patchRegion(region.id, { thresholdMode: mode, stats: null }, 'end')
+  const isRelativeMode = mode === 'percentMax' || mode === 'percentile'
+  const nextThresholdValue = Number.isFinite(Number(region.thresholdValue ?? region.thresholdHu))
+    ? Number(region.thresholdValue ?? region.thresholdHu)
+    : Number(region.stats?.effectiveThresholdValue ?? region.stats?.effectiveThresholdHu ?? 0)
+  patchRegion(
+    region.id,
+    {
+      thresholdMode: mode,
+      thresholdValue: isRelativeMode ? region.thresholdValue ?? nextThresholdValue : nextThresholdValue,
+      thresholdHu: Number.isFinite(nextThresholdValue) ? nextThresholdValue : region.thresholdHu,
+      thresholdPercentMax: region.thresholdPercentMax ?? 40,
+      thresholdPercentile: region.thresholdPercentile ?? 80,
+      componentMode: isPetSegmentation.value ? 'hotspotConnected' : region.componentMode,
+      stats: null
+    },
+    'end'
+  )
 }
 
 function updateDepth(region: MprThresholdRegion, value: string, actionType: 'move' | 'end' = 'move'): void {
+  const depthMm = clampDepthForRegion(region, Number(value))
   patchRegion(
     region.id,
     {
       box: {
         ...region.box,
-        depthMm: Number(value)
+        depthMm
       },
-      stats: null
+      stats: actionType === 'move' ? region.stats : null
     },
     actionType
   )
@@ -659,7 +894,17 @@ function handlePanelPointerUp(event: PointerEvent): void {
 }
 
 function clearThresholdRegions(): void {
-  emitPatch({ selectedRegionId: null, thresholdRegions: [] }, 'end')
+  embeddedMode.value = 'segmentation:threshold'
+  emitPanelStatePatch({ selectedKind: 'threshold', expandedRegionId: null, expandedVoiId: null })
+  emit('modeChange', 'segmentation:threshold', null)
+  emitPatch({
+    enabled: true,
+    selectedRegionId: null,
+    selectedVoi: false,
+    selectedVoiId: null,
+    thresholdRegions: [],
+    voiSphere: resolveMprLegacyVoiSphere(displayedConfig.value.voiSpheres, null)
+  }, 'end')
 }
 
 function clearVoi(sphereId: string): void {
@@ -669,9 +914,17 @@ function clearVoi(sphereId: string): void {
     nextSpheres,
     isDeletingSelectedVoi ? nextSpheres[0]?.id ?? null : displayedConfig.value.selectedVoiId
   )
+  embeddedMode.value = 'segmentation:voi'
+  emitPanelStatePatch({
+    selectedKind: 'voi',
+    expandedRegionId: null,
+    expandedVoiId: nextSelectedVoi?.id ?? null
+  })
+  emit('modeChange', 'segmentation:voi')
   emitPatch({
-    selectedRegionId: isDeletingSelectedVoi ? null : displayedConfig.value.selectedRegionId,
-    selectedVoi: nextSelectedVoi !== null,
+    enabled: true,
+    selectedRegionId: null,
+    selectedVoi: true,
     selectedVoiId: nextSelectedVoi?.id ?? null,
     voiSpheres: nextSpheres,
     voiSphere: nextSelectedVoi
@@ -679,9 +932,13 @@ function clearVoi(sphereId: string): void {
 }
 
 function clearVoiSpheres(): void {
+  embeddedMode.value = 'segmentation:voi'
+  emitPanelStatePatch({ selectedKind: 'voi', expandedRegionId: null, expandedVoiId: null })
+  emit('modeChange', 'segmentation:voi')
   emitPatch({
-    selectedRegionId: displayedConfig.value.selectedRegionId,
-    selectedVoi: false,
+    enabled: true,
+    selectedRegionId: null,
+    selectedVoi: true,
     selectedVoiId: null,
     voiSpheres: [],
     voiSphere: null
@@ -722,6 +979,11 @@ function selectVoi(sphereId: string): void {
     return
   }
   embeddedMode.value = 'segmentation:voi'
+  emitPanelStatePatch({
+    selectedKind: 'voi',
+    expandedRegionId: null,
+    expandedVoiId: sphereId
+  })
   emit('modeChange', 'segmentation:voi')
   emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: sphereId }, 'select')
 }
@@ -737,6 +999,7 @@ function selectSegmentationMode(mode: SegmentationMode): void {
       selectVoi(targetVoi.id)
       return
     }
+    emitPanelStatePatch({ selectedKind: 'voi', expandedRegionId: null, expandedVoiId: null })
     emit('modeChange', 'segmentation:voi')
     emitPatch({ selectedRegionId: null, selectedVoi: true, selectedVoiId: null }, 'select')
     return
@@ -750,6 +1013,7 @@ function selectSegmentationMode(mode: SegmentationMode): void {
     selectRegion(targetRegion.id)
     return
   }
+  emitPanelStatePatch({ selectedKind: 'threshold', expandedRegionId: null, expandedVoiId: null })
   emit('modeChange', 'segmentation:threshold', null)
   emitPatch({ selectedRegionId: null, selectedVoi: false, selectedVoiId: null }, 'select')
 }
@@ -763,7 +1027,27 @@ function updateVoiLabel(sphere: MprVoiSphere, value: string): void {
 }
 
 function clearAll(): void {
-  emitConfig(createDefaultMprSegmentationConfig(), 'end')
+  const mode = embeddedMode.value
+  const isVoiMode = mode === 'segmentation:voi'
+  emitPanelStatePatch({
+    selectedKind: isVoiMode ? 'voi' : 'threshold',
+    expandedRegionId: null,
+    expandedVoiId: null,
+    scrollTop: 0
+  })
+  emit('modeChange', mode, null)
+  emitConfig(
+    {
+      ...createDefaultMprSegmentationConfig(),
+      enabled: true,
+      selectedVoi: isVoiMode
+    },
+    'end'
+  )
+}
+
+function retryRegionStats(): void {
+  emitConfig(displayedConfig.value, 'end')
 }
 
 function formatMetric(value: number | null | undefined, digits = 2): string {
@@ -773,36 +1057,171 @@ function formatMetric(value: number | null | undefined, digits = 2): string {
 function formatStatsSummary(region: MprThresholdRegion): string {
   const stats = region.stats
   return [
-    `mean ${formatMetric(stats?.huMean)}`,
-    `min ${formatMetric(stats?.huMin)}`,
-    `max ${formatMetric(stats?.huMax)}`,
-    `sd ${formatMetric(stats?.huStdDev)}`,
+    `mean ${formatMetric(stats?.valueMean ?? stats?.huMean)}`,
+    `min ${formatMetric(stats?.valueMin ?? stats?.huMin)}`,
+    `max ${formatMetric(stats?.valueMax ?? stats?.huMax)}`,
+    `sd ${formatMetric(stats?.valueStdDev ?? stats?.huStdDev)}`,
     `vol ${formatMetric(stats?.volumeCm3)} cm3`,
     `n ${stats?.sampleCount ?? 0}`,
-    `eff ${formatMetric(stats?.effectiveThresholdHu)}`
+    `eff ${formatMetric(stats?.effectiveThresholdValue ?? stats?.effectiveThresholdHu)}`
   ].join(' / ')
 }
 
-function getThresholdMetricRows(region: MprThresholdRegion): Array<{ key: string; label: string; value: string }> {
+interface MetricRow {
+  key: string
+  label: string
+  value: string
+  description?: string
+  notice?: string
+}
+
+function getPetMetricDescription(key: string, label: string): string {
+  if (!isPetSegmentation.value) {
+    return ''
+  }
+  if (key === 'vol') {
+    return isZh.value
+      ? 'MTV 是满足当前阈值、并属于目标连通热点的代谢体积，单位为 cm³。'
+      : 'MTV is the metabolic volume that satisfies the threshold and belongs to the target connected hotspot, in cm³.'
+  }
+  if (key === 'n') {
+    return isZh.value
+      ? 'N 是当前参与 PET 分割统计的三维体素数量。'
+      : 'N is the number of 3D voxels included in the PET segmentation statistics.'
+  }
+  if (key === 'eff') {
+    return isZh.value
+      ? 'EFF 是最终实际采用的阈值；百分比模式下等于区域最大摄取值乘以当前百分比。'
+      : 'EFF is the effective threshold. In percent mode it equals the regional maximum uptake multiplied by the selected percentage.'
+  }
+  if (key === 'peak') {
+    return isZh.value
+      ? `${label} 是在病灶内放置 1.0 ml 球形 VOI 时可得到的最高平均摄取值。`
+      : `${label} is the highest mean uptake from a 1.0 ml spherical VOI placed inside the lesion.`
+  }
+  if (key === 'tlg') {
+    return isZh.value
+      ? 'TLG 仅在可确认 FDG 且单位为 SUVbw 时显示，计算为 SUVmean × MTV。'
+      : 'TLG is shown only for confirmed FDG with SUVbw and is calculated as SUVmean × MTV.'
+  }
+  return ''
+}
+
+function localizeMetricNotice(reason?: string | null): string {
+  if (!reason) {
+    return ''
+  }
+  if (reason.includes('1.0 ml SUVpeak sphere')) {
+    return isZh.value
+      ? '分割区域小于 1.0 ml，无法计算 SUVpeak。'
+      : 'The segmented region is smaller than 1.0 ml, so SUVpeak cannot be calculated.'
+  }
+  if (reason.includes('FDG')) {
+    return isZh.value
+      ? '当前示踪剂不是可确认的 FDG，不能计算 TLG。'
+      : reason
+  }
+  return reason
+}
+
+function getThresholdMetricRows(region: MprThresholdRegion): MetricRow[] {
   const stats = region.stats
-  return [
-    { key: 'mean', label: 'mean', value: formatMetric(stats?.huMean) },
-    { key: 'min', label: 'min', value: formatMetric(stats?.huMin) },
-    { key: 'max', label: 'max', value: formatMetric(stats?.huMax) },
-    { key: 'sd', label: 'sd', value: formatMetric(stats?.huStdDev) },
-    { key: 'vol', label: 'vol', value: `${formatMetric(stats?.volumeCm3)} cm3` },
-    { key: 'n', label: 'n', value: stats ? String(stats.sampleCount) : '--' },
-    { key: 'eff', label: 'eff', value: formatMetric(stats?.effectiveThresholdHu) }
-  ]
+  const valuePrefix = isPetSegmentation.value && ['SUVbw', 'SUL'].includes(String(intensityContext.value?.valueType))
+    ? String(intensityContext.value?.valueType) === 'SUL' ? 'SUL' : 'SUV'
+    : ''
+  const meanLabel = valuePrefix ? `${valuePrefix}mean` : 'MEAN'
+  const maxLabel = valuePrefix ? `${valuePrefix}max` : 'MAX'
+  const peakLabel = valuePrefix === 'SUL' ? 'SULpeak' : 'SUVpeak'
+  const rows: MetricRow[] = [
+    { key: 'mean', label: meanLabel, value: formatMetric(stats?.valueMean ?? stats?.huMean) },
+    { key: 'min', label: 'MIN', value: formatMetric(stats?.valueMin ?? stats?.huMin) },
+    { key: 'max', label: maxLabel, value: formatMetric(stats?.valueMax ?? stats?.huMax) },
+    { key: 'sd', label: 'SD', value: formatMetric(stats?.valueStdDev ?? stats?.huStdDev) },
+    { key: 'vol', label: isPetSegmentation.value ? 'MTV' : 'VOL', value: `${formatMetric(stats?.mtvCm3 ?? stats?.volumeCm3)} cm3` },
+    { key: 'n', label: 'N', value: stats ? String(stats.sampleCount) : '--' },
+    { key: 'eff', label: 'EFF', value: formatMetric(stats?.effectiveThresholdValue ?? stats?.effectiveThresholdHu) }
+  ].map((row) => ({
+    ...row,
+    description: getPetMetricDescription(row.key, row.label)
+  }))
+  if (isPetSegmentation.value && valuePrefix) {
+    rows.push({
+      key: 'peak',
+      label: peakLabel,
+      value: formatMetric(stats?.uptakePeak),
+      description: getPetMetricDescription('peak', peakLabel),
+      notice: localizeMetricNotice(stats?.uptakePeakReason)
+    })
+  }
+  if (stats?.tlgAvailable) {
+    rows.push({
+      key: 'tlg',
+      label: 'TLG',
+      value: formatMetric(stats.tlg),
+      description: getPetMetricDescription('tlg', 'TLG')
+    })
+  }
+  return rows
+}
+
+function getMetricHelpKey(regionId: string, metricKey: string): string {
+  return `${regionId}:${metricKey}`
+}
+
+function getMetricHelpText(metric: MetricRow): string {
+  return [metric.description, metric.notice].filter(Boolean).join('\n')
+}
+
+function toggleMetricHelp(regionId: string, metric: MetricRow): void {
+  if (!getMetricHelpText(metric)) {
+    return
+  }
+  const key = getMetricHelpKey(regionId, metric.key)
+  if (openMetricHelpKey.value === key) {
+    closeMetricHelp()
+    return
+  }
+  openMetricHelpKey.value = key
+  addMetricHelpOutsideListener()
+}
+
+function isMetricHelpOpen(regionId: string, metricKey: string): boolean {
+  return openMetricHelpKey.value === getMetricHelpKey(regionId, metricKey)
+}
+
+function getRegionStatsStatus(region: MprThresholdRegion): 'calculating' | 'ready' | 'empty' | 'error' {
+  if (!region.stats) {
+    return 'calculating'
+  }
+  return region.stats.status ?? (region.stats.sampleCount > 0 ? 'ready' : 'empty')
+}
+
+function getRegionStatsMessage(region: MprThresholdRegion): string {
+  const status = getRegionStatsStatus(region)
+  if (status === 'calculating') {
+    return statsCopy.value.calculating
+  }
+  if (status === 'empty') {
+    return region.stats?.message || statsCopy.value.empty
+  }
+  if (status === 'error') {
+    return region.stats?.message || statsCopy.value.error
+  }
+  return ''
+}
+
+function shouldShowRegionStatsStatus(region: MprThresholdRegion): boolean {
+  const status = getRegionStatsStatus(region)
+  return status === 'empty' || status === 'error'
 }
 
 function formatVoiStatsSummary(sphere: MprVoiSphere): string {
   const stats = sphere.stats
   return [
-    `mean ${formatMetric(stats?.huMean)}`,
-    `min ${formatMetric(stats?.huMin)}`,
-    `max ${formatMetric(stats?.huMax)}`,
-    `sd ${formatMetric(stats?.huStdDev)}`,
+    `mean ${formatMetric(stats?.valueMean ?? stats?.huMean)}`,
+    `min ${formatMetric(stats?.valueMin ?? stats?.huMin)}`,
+    `max ${formatMetric(stats?.valueMax ?? stats?.huMax)}`,
+    `sd ${formatMetric(stats?.valueStdDev ?? stats?.huStdDev)}`,
     `vol ${formatMetric(stats?.volumeCm3)} cm3`,
     `n ${stats?.sampleCount ?? 0}`
   ].join(' / ')
@@ -811,17 +1230,152 @@ function formatVoiStatsSummary(sphere: MprVoiSphere): string {
 function getVoiMetricRows(sphere: MprVoiSphere): Array<{ key: string; label: string; value: string }> {
   const stats = sphere.stats
   return [
-    { key: 'mean', label: 'mean', value: formatMetric(stats?.huMean) },
-    { key: 'min', label: 'min', value: formatMetric(stats?.huMin) },
-    { key: 'max', label: 'max', value: formatMetric(stats?.huMax) },
-    { key: 'sd', label: 'sd', value: formatMetric(stats?.huStdDev) },
+    { key: 'mean', label: 'mean', value: formatMetric(stats?.valueMean ?? stats?.huMean) },
+    { key: 'min', label: 'min', value: formatMetric(stats?.valueMin ?? stats?.huMin) },
+    { key: 'max', label: 'max', value: formatMetric(stats?.valueMax ?? stats?.huMax) },
+    { key: 'sd', label: 'sd', value: formatMetric(stats?.valueStdDev ?? stats?.huStdDev) },
     { key: 'vol', label: 'vol', value: `${formatMetric(stats?.volumeCm3)} cm3` },
     { key: 'n', label: 'n', value: stats ? String(stats.sampleCount) : '--' }
   ]
 }
 
 function formatEffectiveThreshold(region: MprThresholdRegion): string {
-  return formatMetric(region.stats?.effectiveThresholdHu ?? region.thresholdHu)
+  return formatMetric(region.stats?.effectiveThresholdValue ?? region.stats?.effectiveThresholdHu ?? region.thresholdValue ?? region.thresholdHu)
+}
+
+function isRelativeThresholdMode(region: MprThresholdRegion): boolean {
+  return region.thresholdMode === (isPetSegmentation.value ? 'percentMax' : 'percentile')
+}
+
+function getThresholdPercent(region: MprThresholdRegion): number {
+  return isPetSegmentation.value
+    ? Number(region.thresholdPercentMax ?? 40)
+    : Number(region.thresholdPercentile ?? 80)
+}
+
+function getThresholdValue(region: MprThresholdRegion): number {
+  return Number(region.thresholdValue ?? region.thresholdHu)
+}
+
+function getThresholdMinimum(): number {
+  return isPetSegmentation.value ? 0 : MPR_SEGMENTATION_HU_LIMITS.min
+}
+
+function getThresholdMaximum(region: MprThresholdRegion): number {
+  if (!isPetSegmentation.value) {
+    return MPR_SEGMENTATION_HU_LIMITS.max
+  }
+  return Math.max(1, Number(region.stats?.valueMax ?? 0), getThresholdValue(region) * 2)
+}
+
+function getThresholdControlLabel(region: MprThresholdRegion): string {
+  return isRelativeThresholdMode(region) ? panelCopy.value.percent : intensityUnitLabel.value
+}
+
+function getThresholdControlMinimum(region: MprThresholdRegion): number {
+  return isRelativeThresholdMode(region) ? 0 : getThresholdMinimum()
+}
+
+function getThresholdControlMaximum(region: MprThresholdRegion): number {
+  return isRelativeThresholdMode(region) ? 100 : getThresholdMaximum(region)
+}
+
+function getThresholdControlStep(region: MprThresholdRegion): number {
+  return isRelativeThresholdMode(region) ? 0.5 : isPetSegmentation.value ? 0.01 : 1
+}
+
+function getThresholdControlValue(region: MprThresholdRegion): number {
+  return isRelativeThresholdMode(region) ? getThresholdPercent(region) : getThresholdValue(region)
+}
+
+function updateThresholdControl(region: MprThresholdRegion, value: string, actionType: 'move' | 'end' = 'move'): void {
+  if (isRelativeThresholdMode(region)) {
+    updateThresholdPercentile(region, value, actionType)
+    return
+  }
+  updateThreshold(region, value, actionType)
+}
+
+function dotVec3(left: [number, number, number], right: [number, number, number]): number {
+  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+function normalizeVec3(value: [number, number, number] | null | undefined): [number, number, number] | null {
+  if (!value) {
+    return null
+  }
+  const length = Math.hypot(value[0], value[1], value[2])
+  if (!Number.isFinite(length) || length <= 1e-6) {
+    return null
+  }
+  return [value[0] / length, value[1] / length, value[2] / length]
+}
+
+function getDepthMaximum(region: MprThresholdRegion): number {
+  const plane = props.viewportPlanes?.[region.box.sourceViewport] ?? null
+  const normal = normalizeVec3(region.box.normalWorld)
+  const bounds = plane?.volumeBoundsWorld
+  if (!normal || !bounds || bounds.length !== 8) {
+    return Math.max(MPR_SEGMENTATION_DEPTH_LIMITS.max, region.box.depthMm)
+  }
+  const centerProjection = dotVec3(region.box.centerWorld, normal)
+  const projections = bounds.map((point) => dotVec3(point, normal)).filter(Number.isFinite)
+  if (projections.length < 2) {
+    return Math.max(MPR_SEGMENTATION_DEPTH_LIMITS.max, region.box.depthMm)
+  }
+  const minProjection = Math.min(...projections)
+  const maxProjection = Math.max(...projections)
+  const availableDepth = Math.max(0, Math.min(
+    Math.abs(centerProjection - minProjection),
+    Math.abs(maxProjection - centerProjection)
+  ) * 2)
+  if (!Number.isFinite(availableDepth) || availableDepth <= MPR_SEGMENTATION_DEPTH_LIMITS.min) {
+    return MPR_SEGMENTATION_DEPTH_LIMITS.min
+  }
+  return Math.max(MPR_SEGMENTATION_DEPTH_LIMITS.min, Math.round(availableDepth * 10) / 10)
+}
+
+function clampDepthForRegion(region: MprThresholdRegion, value: number): number {
+  const fallback = region.box.depthMm
+  const depth = Number.isFinite(value) ? value : fallback
+  return Math.max(MPR_SEGMENTATION_DEPTH_LIMITS.min, Math.min(getDepthMaximum(region), depth))
+}
+
+function formatThresholdSummary(region: MprThresholdRegion): string {
+  if (isRelativeThresholdMode(region)) {
+    const suffix = isPetSegmentation.value
+      ? (isZh.value ? '% 区域最大摄取值' : '% regional maximum')
+      : '% / HU'
+    const effectiveThreshold = region.stats ? ` ~ ${formatEffectiveThreshold(region)} ${intensityUnitLabel.value}` : ''
+    return `${getThresholdPercent(region).toFixed(1)}${suffix}${effectiveThreshold}`
+  }
+  return `${intensityUnitLabel.value} > ${formatMetric(getThresholdValue(region))}`
+}
+
+function getThresholdSummaryUnitParts(): { primary: string; secondary: string } {
+  const label = intensityUnitLabel.value.trim()
+  const match = label.match(/^(.*?)\s*(\([^)]*\))$/)
+  if (!match) {
+    return { primary: label, secondary: '' }
+  }
+  const primary = match[1]?.trim() || label
+  return { primary, secondary: match[2] ?? '' }
+}
+
+function formatThresholdPanelSummaryPrimary(region: MprThresholdRegion): string {
+  const unitParts = getThresholdSummaryUnitParts()
+  if (isRelativeThresholdMode(region)) {
+    const suffix = isPetSegmentation.value
+      ? (isZh.value ? '% 区域最大摄取值' : '% regional maximum')
+      : '% / HU'
+    const effectiveThreshold = region.stats ? ` ~ ${formatEffectiveThreshold(region)} ${unitParts.primary}` : ''
+    return `${getThresholdPercent(region).toFixed(1)}${suffix}${effectiveThreshold}`
+  }
+  return `${unitParts.primary} > ${formatMetric(getThresholdValue(region))}`
+}
+
+function formatThresholdPanelSummarySecondary(): string {
+  return getThresholdSummaryUnitParts().secondary
 }
 
 function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['thresholdMode']): boolean {
@@ -966,9 +1520,11 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
     </div>
 
     <div
+      ref="recordListRef"
       class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]"
       :class="props.embedded ? 'max-h-none' : 'max-h-[min(32rem,calc(100vh-14rem))]'"
       data-testid="mpr-segmentation-record-list"
+      @scroll.passive="handleRecordListScroll"
     >
       <div
         v-if="!props.embedded || embeddedMode === 'segmentation:threshold'"
@@ -985,7 +1541,7 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
         v-if="(!props.embedded || embeddedMode === 'segmentation:threshold') && regions.length === 0"
         class="rounded-lg border border-dashed border-[var(--theme-border-soft)] px-3 py-3 text-[12px] text-[var(--theme-text-secondary)]"
       >
-        {{ panelCopy.emptyThreshold }}
+        {{ emptyThresholdMessage }}
       </div>
 
       <div
@@ -1044,12 +1600,31 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
             <AppIcon name="trash" :size="15" />
           </button>
         </div>
-
         <div
-          class="mt-2 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-2 text-[11px] leading-4 text-[var(--theme-text-secondary)]"
+          class="mt-2 min-h-[3rem] rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-2 text-[11px] leading-4 text-[var(--theme-text-secondary)]"
           :data-testid="`mpr-threshold-summary-${region.id}`"
         >
-          {{ region.thresholdMode === 'percentile' ? `${region.thresholdPercentile.toFixed(1)}% / HU ~ ${formatEffectiveThreshold(region)}` : `HU > ${region.thresholdHu}` }}
+          <span
+            class="block"
+            :data-testid="`mpr-threshold-summary-primary-${region.id}`"
+          >
+            {{ formatThresholdPanelSummaryPrimary(region) }}
+          </span>
+          <span
+            v-if="formatThresholdPanelSummarySecondary()"
+            class="block"
+            :data-testid="`mpr-threshold-summary-secondary-${region.id}`"
+          >
+            {{ formatThresholdPanelSummarySecondary() }}
+          </span>
+          <span
+            v-else
+            class="block"
+            aria-hidden="true"
+            :data-testid="`mpr-threshold-summary-secondary-${region.id}`"
+          >
+            &nbsp;
+          </span>
         </div>
 
         <div
@@ -1059,11 +1634,50 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
           <div
             v-for="metric in getThresholdMetricRows(region)"
             :key="metric.key"
-            class="mpr-segmentation-panel__metric-cell min-w-0 rounded-lg border px-2 py-1.5"
+            class="mpr-segmentation-panel__metric-cell relative min-w-0 rounded-lg border px-2 py-1.5"
+            :class="{ 'mpr-segmentation-panel__metric-cell--notice': metric.notice }"
           >
-            <div class="mpr-segmentation-panel__metric-label text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text-muted)]">{{ metric.label }}</div>
+            <div class="mpr-segmentation-panel__metric-label flex items-center gap-1 text-[9px] font-semibold tracking-[0.08em] text-[var(--theme-text-muted)]">
+              <span>{{ metric.label }}</span>
+              <button
+                v-if="getMetricHelpText(metric)"
+                type="button"
+                class="mpr-segmentation-panel__metric-help-button"
+                :title="getMetricHelpText(metric)"
+                :aria-label="`${metric.label} ${isZh ? '说明' : 'details'}`"
+                @click.stop="toggleMetricHelp(region.id, metric)"
+              >
+                <AppIcon name="explanation" :size="11" />
+              </button>
+            </div>
             <div class="mpr-segmentation-panel__metric-value mt-0.5 break-words font-semibold text-[var(--theme-text-secondary)]">{{ metric.value }}</div>
+            <div
+              v-if="isMetricHelpOpen(region.id, metric.key)"
+              class="mpr-segmentation-panel__metric-help-popover"
+              role="note"
+              :data-testid="`mpr-threshold-metric-help-${region.id}-${metric.key}`"
+            >
+              <div class="mpr-segmentation-panel__metric-help-title">{{ metric.label }} {{ isZh ? '说明' : 'Details' }}</div>
+              <p>{{ getMetricHelpText(metric) }}</p>
+            </div>
           </div>
+        </div>
+
+        <div
+          v-if="shouldShowRegionStatsStatus(region)"
+          class="mpr-segmentation-panel__stats-status mt-2 flex items-center justify-between gap-2 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card-soft)] px-2.5 py-2 text-[11px] text-[var(--theme-text-secondary)]"
+          :class="`mpr-segmentation-panel__stats-status--${getRegionStatsStatus(region)}`"
+          :data-testid="`mpr-threshold-status-${region.id}`"
+        >
+          <span>{{ getRegionStatsMessage(region) }}</span>
+          <button
+            v-if="getRegionStatsStatus(region) === 'error'"
+            type="button"
+            class="shrink-0 rounded-md border border-[var(--theme-border-soft)] px-2 py-1 font-semibold text-[var(--theme-text-primary)] hover:border-[var(--theme-border-strong)]"
+            @click.stop="retryRegionStats"
+          >
+            {{ statsCopy.retry }}
+          </button>
         </div>
 
         <div
@@ -1071,24 +1685,23 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
           class="mt-2 space-y-2"
         >
           <div
-            v-if="region.thresholdMode === 'percentile'"
             class="mpr-segmentation-panel__adjust-row mpr-segmentation-panel__adjust-row--threshold"
           >
-            <span class="mpr-segmentation-panel__adjust-label text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ panelCopy.percent }}</span>
+            <span class="mpr-segmentation-panel__adjust-label text-[12px] font-semibold text-[var(--theme-text-secondary)]">{{ getThresholdControlLabel(region) }}</span>
             <div class="mpr-segmentation-panel__record-mode inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5">
               <button
                 class="h-6 rounded px-2 text-[11px] font-semibold transition"
-                :class="isThresholdMode(region, 'hu') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                :class="isThresholdMode(region, isPetSegmentation ? 'absolute' : 'hu') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
                 type="button"
-                @click.stop="updateThresholdMode(region, 'hu')"
+                @click.stop="updateThresholdMode(region, isPetSegmentation ? 'absolute' : 'hu')"
               >
-                HU
+                {{ panelCopy.absolute }}
               </button>
               <button
                 class="h-6 rounded px-2 text-[11px] font-semibold transition"
-                :class="isThresholdMode(region, 'percentile') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
+                :class="isThresholdMode(region, isPetSegmentation ? 'percentMax' : 'percentile') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
                 type="button"
-                @click.stop="updateThresholdMode(region, 'percentile')"
+                @click.stop="updateThresholdMode(region, isPetSegmentation ? 'percentMax' : 'percentile')"
               >
                 %
               </button>
@@ -1096,66 +1709,22 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
             <input
               class="mpr-segmentation-panel__adjust-slider"
               type="range"
-              min="0"
-              max="100"
-              step="0.5"
-              :value="region.thresholdPercentile"
-              @input.stop="updateThresholdPercentile(region, ($event.target as HTMLInputElement).value, 'move')"
-              @change.stop="updateThresholdPercentile(region, ($event.target as HTMLInputElement).value, 'end')"
+              :min="getThresholdControlMinimum(region)"
+              :max="getThresholdControlMaximum(region)"
+              :step="getThresholdControlStep(region)"
+              :value="getThresholdControlValue(region)"
+              @input.stop="updateThresholdControl(region, ($event.target as HTMLInputElement).value, 'move')"
+              @change.stop="updateThresholdControl(region, ($event.target as HTMLInputElement).value, 'end')"
             />
             <input
               class="mpr-segmentation-panel__adjust-input rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
               type="number"
-              min="0"
-              max="100"
-              step="0.5"
-              :value="region.thresholdPercentile"
-              @input.stop="updateThresholdPercentile(region, ($event.target as HTMLInputElement).value, 'move')"
-              @change.stop="updateThresholdPercentile(region, ($event.target as HTMLInputElement).value, 'end')"
-            />
-          </div>
-          <div
-            v-else
-            class="mpr-segmentation-panel__adjust-row mpr-segmentation-panel__adjust-row--threshold"
-          >
-            <span class="mpr-segmentation-panel__adjust-label text-[12px] font-semibold text-[var(--theme-text-secondary)]">HU</span>
-            <div class="mpr-segmentation-panel__record-mode inline-flex shrink-0 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] p-0.5">
-              <button
-                class="h-6 rounded px-2 text-[11px] font-semibold transition"
-                :class="isThresholdMode(region, 'hu') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
-                type="button"
-                @click.stop="updateThresholdMode(region, 'hu')"
-              >
-                HU
-              </button>
-              <button
-                class="h-6 rounded px-2 text-[11px] font-semibold transition"
-                :class="isThresholdMode(region, 'percentile') ? 'bg-[var(--theme-accent)] text-white' : 'text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]'"
-                type="button"
-                @click.stop="updateThresholdMode(region, 'percentile')"
-              >
-                %
-              </button>
-            </div>
-            <input
-              class="mpr-segmentation-panel__adjust-slider"
-              type="range"
-              :min="MPR_SEGMENTATION_HU_LIMITS.min"
-              :max="MPR_SEGMENTATION_HU_LIMITS.max"
-              step="1"
-              :value="region.thresholdHu"
-              @input.stop="updateThreshold(region, ($event.target as HTMLInputElement).value, 'move')"
-              @change.stop="updateThreshold(region, ($event.target as HTMLInputElement).value, 'end')"
-            />
-            <input
-              class="mpr-segmentation-panel__adjust-input rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
-              type="number"
-              :min="MPR_SEGMENTATION_HU_LIMITS.min"
-              :max="MPR_SEGMENTATION_HU_LIMITS.max"
-              step="1"
-              :value="region.thresholdHu"
-              @input.stop="updateThreshold(region, ($event.target as HTMLInputElement).value, 'move')"
-              @change.stop="updateThreshold(region, ($event.target as HTMLInputElement).value, 'end')"
+              :min="getThresholdControlMinimum(region)"
+              :max="getThresholdControlMaximum(region)"
+              :step="getThresholdControlStep(region)"
+              :value="getThresholdControlValue(region)"
+              @input.stop="updateThresholdControl(region, ($event.target as HTMLInputElement).value, 'move')"
+              @change.stop="updateThresholdControl(region, ($event.target as HTMLInputElement).value, 'end')"
             />
           </div>
 
@@ -1165,9 +1734,9 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
               class="mpr-segmentation-panel__adjust-slider"
               type="range"
               :min="MPR_SEGMENTATION_DEPTH_LIMITS.min"
-              :max="MPR_SEGMENTATION_DEPTH_LIMITS.max"
+              :max="getDepthMaximum(region)"
               step="0.5"
-              :value="region.box.depthMm"
+              :value="clampDepthForRegion(region, region.box.depthMm)"
               @input.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'move')"
               @change.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'end')"
             />
@@ -1175,9 +1744,9 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
               class="mpr-segmentation-panel__adjust-input rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface-card)] px-2 py-1 text-right text-[12px] text-[var(--theme-text-primary)] outline-none transition focus:border-[var(--theme-border-strong)]"
               type="number"
               :min="MPR_SEGMENTATION_DEPTH_LIMITS.min"
-              :max="MPR_SEGMENTATION_DEPTH_LIMITS.max"
+              :max="getDepthMaximum(region)"
               step="0.5"
-              :value="region.box.depthMm"
+              :value="clampDepthForRegion(region, region.box.depthMm)"
               @input.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'move')"
               @change.stop="updateDepth(region, ($event.target as HTMLInputElement).value, 'end')"
             />
@@ -1372,7 +1941,7 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
                       @input.stop="updateRegionLabel(region, ($event.target as HTMLInputElement).value)"
                     />
                     <span class="shrink-0 text-[11px] text-[var(--theme-text-secondary)]">
-                      {{ region.thresholdMode === 'percentile' ? `${region.thresholdPercentile.toFixed(1)}% / HU~${formatEffectiveThreshold(region)}` : `HU>${region.thresholdHu}` }}
+                      {{ formatThresholdSummary(region) }}
                     </span>
                   </div>
                   <div
@@ -1577,6 +2146,7 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
 .mpr-segmentation-panel__adjust-row--threshold {
   grid-template-areas: 'label mode slider input';
   grid-template-columns: minmax(2.25rem, 3.5rem) auto minmax(6rem, 1fr) minmax(3.5rem, 4.5rem);
+  min-height: 2.25rem;
 }
 
 .mpr-segmentation-panel__adjust-label {
@@ -1608,6 +2178,24 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
   -webkit-appearance: none;
 }
 
+@container (max-width: 480px) {
+  .mpr-segmentation-panel__adjust-row--with-unit {
+    grid-template-areas:
+      'label input unit'
+      'slider slider slider';
+    grid-template-columns: minmax(2rem, 1fr) minmax(3.75rem, 5rem) auto;
+    row-gap: 0.3rem;
+  }
+
+  .mpr-segmentation-panel__adjust-row--threshold {
+    grid-template-areas:
+      'label mode input'
+      'slider slider slider';
+    grid-template-columns: minmax(0, 1fr) auto minmax(3.75rem, 4.75rem);
+    row-gap: 0.3rem;
+  }
+}
+
 .mpr-segmentation-panel__adjust-unit {
   grid-area: unit;
   min-width: 0;
@@ -1616,6 +2204,11 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
 
 .mpr-segmentation-panel__record-mode {
   grid-area: mode;
+}
+
+.mpr-segmentation-panel__metric-cell--notice {
+  cursor: help;
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
 }
 
 :global(:root[data-theme="clinical-light"]) .mpr-segmentation-panel__adjust-input {
@@ -1644,6 +2237,8 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
 
 .mpr-segmentation-panel__item {
   position: relative;
+  min-width: 0;
+  overflow: visible;
   border-color: var(--theme-border-soft);
   background: color-mix(in srgb, var(--theme-surface-card) 84%, transparent);
 }
@@ -1670,6 +2265,58 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
 .mpr-segmentation-panel__metric-cell {
   border-color: var(--theme-border-soft);
   background: color-mix(in srgb, var(--theme-surface-card-soft) 88%, transparent);
+}
+
+.mpr-segmentation-panel__metric-help-button {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--theme-text-muted) 84%, var(--theme-accent));
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.mpr-segmentation-panel__metric-help-button:hover,
+.mpr-segmentation-panel__metric-help-button:focus-visible {
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  color: var(--theme-accent);
+  outline: none;
+}
+
+.mpr-segmentation-panel__metric-help-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  width: min(15rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-strong));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 96%, black);
+  box-shadow: 0 18px 40px rgba(2, 8, 23, 0.34);
+  padding: 0.625rem 0.75rem;
+  color: var(--theme-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+}
+
+.mpr-segmentation-panel__metric-cell:nth-child(2n) .mpr-segmentation-panel__metric-help-popover {
+  right: 0;
+  left: auto;
+}
+
+.mpr-segmentation-panel__metric-help-title {
+  margin-bottom: 0.25rem;
+  color: var(--theme-text-primary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 @container (max-width: 360px) {
@@ -1711,9 +2358,9 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
 
   .mpr-segmentation-panel__adjust-row--threshold {
     grid-template-areas:
-      'label mode . input'
-      'slider slider slider slider';
-    grid-template-columns: max-content max-content minmax(0, 1fr) minmax(3.25rem, 4.25rem);
+      'label mode input'
+      'slider slider slider';
+    grid-template-columns: minmax(0, 1fr) auto minmax(3.5rem, 4.25rem);
     row-gap: 0.25rem;
   }
 
@@ -1785,9 +2432,9 @@ function isThresholdMode(region: MprThresholdRegion, mode: MprThresholdRegion['t
 
   .mpr-segmentation-panel__adjust-row--threshold {
     grid-template-areas:
-      'label mode . input'
-      'slider slider slider slider';
-    grid-template-columns: max-content max-content minmax(0, 1fr) minmax(3.25rem, 4rem);
+      'label mode input'
+      'slider slider slider';
+    grid-template-columns: minmax(0, 1fr) auto minmax(3.5rem, 4rem);
   }
 
   .mpr-segmentation-panel__adjust-slider {

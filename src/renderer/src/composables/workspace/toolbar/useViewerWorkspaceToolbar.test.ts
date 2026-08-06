@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { useUiPreferences } from '../../ui/useUiPreferences'
 import type { ViewerTabItem } from '../../../types/viewer'
 import { createVolumeOrientationQuaternion } from '../volume/volumeOrientation'
-import { useViewerWorkspaceToolbar } from './useViewerWorkspaceToolbar'
+import { resolveViewerToolCapabilityProfile, useViewerWorkspaceToolbar } from './useViewerWorkspaceToolbar'
 
 function create3dTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
   return {
@@ -500,6 +500,65 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(toolKeys).toContain('volumeClip')
     expect(toolKeys).toContain('volumePreset')
 
+    harness.wrapper.unmount()
+  })
+
+  it('uses PET tools only for the active PET Layout slot', async () => {
+    const petInfo = {
+      seriesId: 'pet',
+      petUnit: 'SUVbw',
+      petUnitLabel: 'g/ml (SUVbw)',
+      petWindowMin: 0,
+      petWindowMax: 8,
+      pseudocolorPreset: 'pet'
+    }
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'mixed::layout',
+      viewType: 'Layout',
+      viewId: '',
+      layoutSlots: [
+        {
+          id: 'slot-pet',
+          row: 0,
+          column: 0,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: 'pet',
+          viewType: 'PET',
+          sourceViewType: 'PET',
+          viewportKey: 'single',
+          viewId: 'pet-view',
+          petInfo
+        },
+        {
+          id: 'slot-ct',
+          row: 0,
+          column: 1,
+          rowSpan: 1,
+          columnSpan: 1,
+          seriesId: 'ct',
+          viewType: 'Stack',
+          sourceViewType: 'Stack',
+          viewportKey: 'single',
+          viewId: 'ct-view'
+        }
+      ]
+    } as ViewerTabItem)
+    await nextTick()
+
+    const getToolKeys = () => harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(harness.activeViewportKey.value).toBe('slot-pet')
+    expect(getToolKeys()).toContain('petIntensity')
+    expect(getToolKeys()).toContain('petPseudocolor')
+    expect(getToolKeys()).toContain('petQuantification')
+    expect(getToolKeys()).not.toContain('window')
+    expect(getToolKeys()).not.toContain('qa')
+
+    harness.activeViewportKey.value = 'slot-ct'
+    await nextTick()
+    expect(getToolKeys()).toContain('window')
+    expect(getToolKeys()).not.toContain('petIntensity')
     harness.wrapper.unmount()
   })
 
@@ -1028,7 +1087,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     harness.wrapper.unmount()
   })
 
-  it('uses fusion-specific toolbar actions without layout for PET/CT fusion', async () => {
+  it('routes PET/CT fusion tools and windowing by the active pane', async () => {
     const harness = mountToolbarHarness({
       ...create3dTab(),
       key: 'fusion:ct:pet',
@@ -1041,11 +1100,20 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
         'fusion-pet-cor-mip': 'mip-view'
       },
       fusionManualRegistration: false,
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 8,
+        pseudocolorPreset: 'bwinverse'
+      },
       fusionInfo: {
         paneRole: 'fusion-overlay-ax',
         ctSeriesId: 'ct',
         petSeriesId: 'pet',
         petPseudocolorPreset: 'petct-rainbow',
+        fusionWindowTarget: 'ct',
         alpha: 0.52,
         revision: 0,
         registration: {
@@ -1058,14 +1126,15 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     })
     await nextTick()
 
-    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
-    expect(toolKeys).not.toContain('layout')
-    expect(toolKeys).not.toContain('play')
-    expect(toolKeys).not.toContain('qa')
-    expect(toolKeys).toContain('fusionRegistration')
-    expect(toolKeys).toContain('fusionPetDisplay')
-    expect(toolKeys.at(-2)).toBe('fusionPetDisplay')
-    expect(toolKeys.at(-1)).toBe('fusionRegistration')
+    const getToolKeys = () => harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(getToolKeys()).not.toContain('layout')
+    expect(getToolKeys()).not.toContain('play')
+    expect(getToolKeys()).not.toContain('qa')
+    expect(getToolKeys()).toContain('window')
+    expect(getToolKeys()).toContain('petIntensity')
+    expect(getToolKeys()).toContain('petPseudocolor')
+    expect(getToolKeys()).toContain('petQuantification')
+    expect(getToolKeys()).toContain('fusionRegistration')
 
     const exportTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'export')!
     expect(exportTool.options?.map((option) => option.value)).toEqual([
@@ -1104,36 +1173,68 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
     expect(harness.toolbar.isToolSelected(manualTool)).toBe(true)
 
-    harness.emitTriggerViewAction.mockClear()
-    const petDisplayTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionPetDisplay')!
-    expect(petDisplayTool.inlineKind).toBe('fusionPetDisplay')
+    const intensityTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'petIntensity')!
+    const pseudocolorTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'petPseudocolor')!
+    const quantificationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'petQuantification')!
+    expect(intensityTool.petScope).toBe('fusion-overlay')
+    expect(pseudocolorTool.petScope).toBe('fusion-overlay')
+    expect(quantificationTool.petScope).toBe('fusion-overlay')
 
     harness.emitTriggerViewAction.mockClear()
-    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetPseudocolor:petct-hot')
+    harness.toolbar.selectToolOption(pseudocolorTool, 'fusionPetPseudocolor:petct-hot')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'fusionPseudocolor',
       value: 'fusionPseudocolor:petct-hot'
     })
 
     harness.emitTriggerViewAction.mockClear()
-    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetUnit:SUVbw')
+    harness.toolbar.selectToolOption(quantificationTool, 'fusionPetUnit:SUVbw')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'fusionPetUnit',
       value: 'fusionPetUnit:SUVbw'
     })
 
     harness.emitTriggerViewAction.mockClear()
-    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetWindow:0:12.5')
+    harness.toolbar.selectToolOption(intensityTool, 'fusionPetWindow:0:12.5')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'fusionPetWindow',
       value: 'fusionPetWindow:0:12.5'
     })
 
     harness.emitTriggerViewAction.mockClear()
-    harness.toolbar.selectToolOption(petDisplayTool, 'fusionPetDisplay:reset')
+    harness.toolbar.selectToolOption(intensityTool, 'fusionPetDisplay:reset')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'fusionPetDisplayReset'
     })
+
+    harness.activeViewportKey.value = 'fusion-ct-ax'
+    await nextTick()
+    expect(getToolKeys()).toContain('window')
+    expect(getToolKeys()).not.toContain('petIntensity')
+    expect(getToolKeys()).not.toContain('fusionRegistration')
+
+    harness.activeViewportKey.value = 'fusion-pet-ax'
+    await nextTick()
+    expect(getToolKeys()).not.toContain('window')
+    expect(getToolKeys()).toContain('petIntensity')
+    expect(getToolKeys()).toContain('measure')
+    expect(getToolKeys()).toContain('annotate')
+    expect(getToolKeys()).not.toContain('fusionRegistration')
+
+    harness.activeViewportKey.value = 'fusion-pet-cor-mip'
+    await nextTick()
+    expect(getToolKeys()).toContain('petIntensity')
+    expect(getToolKeys()).not.toContain('window')
+    expect(getToolKeys()).not.toContain('page')
+    expect(getToolKeys()).not.toContain('measure')
+    expect(getToolKeys()).not.toContain('annotate')
+    expect(getToolKeys()).not.toContain('fusionRegistration')
+
+    harness.activeViewportKey.value = 'fusion-overlay-ax'
+    await nextTick()
+    expect(getToolKeys()).toContain('fusionRegistration')
+    expect(getToolKeys()).toContain('window')
+    expect(getToolKeys()).toContain('petIntensity')
 
     harness.emitTriggerViewAction.mockClear()
     harness.toolbar.selectToolOption(manualTool, 'fusionRegistration:reset')
@@ -1184,35 +1285,143 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     await nextTick()
 
     const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
-    expect(toolKeys).not.toContain('layout')
-    expect(toolKeys).not.toContain('play')
+    expect(toolKeys).toContain('layout')
+    expect(toolKeys).toContain('montage')
+    expect(toolKeys).toContain('play')
     expect(toolKeys).not.toContain('qa')
     expect(toolKeys).not.toContain('fusionRegistration')
     expect(toolKeys).not.toContain('window')
     expect(toolKeys).not.toContain('pseudocolor')
-    expect(toolKeys).toContain('fusionPetDisplay')
+    expect(toolKeys).toContain('petIntensity')
+    expect(toolKeys).toContain('petPseudocolor')
+    expect(toolKeys).toContain('petQuantification')
 
-    const petDisplayTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'fusionPetDisplay')!
-    harness.toolbar.selectToolOption(petDisplayTool, 'petUnit:kBqml')
+    const quantificationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'petQuantification')!
+    harness.toolbar.selectToolOption(quantificationTool, 'petUnit:kBqml')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'petUnit',
       value: 'petUnit:kBqml'
     })
 
     harness.emitTriggerViewAction.mockClear()
-    harness.toolbar.selectToolOption(petDisplayTool, 'petWindow:0:12.5')
+    const intensityTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'petIntensity')!
+    harness.toolbar.selectToolOption(intensityTool, 'petWindow:0:12.5')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'petWindow',
       value: 'petWindow:0:12.5'
     })
 
     harness.emitTriggerViewAction.mockClear()
-    harness.toolbar.selectToolOption(petDisplayTool, 'petDisplay:reset')
+    harness.toolbar.selectToolOption(intensityTool, 'petDisplay:reset')
     expect(harness.emitTriggerViewAction).toHaveBeenCalledWith({
       action: 'petDisplayReset'
     })
 
     harness.wrapper.unmount()
+  })
+
+  it('uses PET intensity, LUT, and quantification for PET MPR without CT window presets', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'pet::MPR',
+      seriesId: 'pet',
+      title: 'PET · MPR',
+      viewType: 'MPR',
+      viewId: 'pet-mpr-ax',
+      viewportViewIds: {
+        'mpr-ax': 'pet-mpr-ax',
+        'mpr-cor': 'pet-mpr-cor',
+        'mpr-sag': 'pet-mpr-sag'
+      },
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 4.49,
+        pseudocolorPreset: 'bwinverse'
+      }
+    } as Partial<ViewerTabItem> as ViewerTabItem)
+    harness.activeViewportKey.value = 'mpr-ax'
+    await nextTick()
+
+    const toolKeys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(toolKeys).not.toContain('window')
+    expect(toolKeys).not.toContain('pseudocolor')
+    expect(toolKeys).toContain('petIntensity')
+    expect(toolKeys).toContain('petPseudocolor')
+    expect(toolKeys).toContain('petQuantification')
+    expect(toolKeys).toContain('segmentation')
+
+    harness.toolbar.applyTool(harness.toolbar.activeTools.value.find((tool) => tool.key === 'petIntensity')!)
+    expect(harness.emitSetActiveOperation).toHaveBeenCalledWith('stack:window')
+    harness.wrapper.unmount()
+  })
+
+  it('limits PET 3D to quantitative VR and MIP without CT surface tools', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'pet::3d',
+      seriesId: 'pet',
+      viewType: '3D',
+      render3dMode: 'surface',
+      volumeRenderConfig: {
+        preset: 'bone',
+        blendMode: 'mip',
+        layers: [],
+        lighting: {
+          shading: false,
+          interpolation: 'linear',
+          ambient: 1,
+          diffuse: 0,
+          specular: 0,
+          roughness: 1
+        }
+      },
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 8,
+        pseudocolorPreset: 'pet'
+      }
+    } as ViewerTabItem)
+    await nextTick()
+
+    const keys = harness.toolbar.activeTools.value.map((tool) => tool.key)
+    expect(keys).toContain('render3dMode')
+    expect(keys).toContain('petIntensity')
+    expect(keys).toContain('petPseudocolor')
+    expect(keys).toContain('petQuantification')
+    expect(keys).not.toContain('surfaceParams')
+    expect(keys).not.toContain('surfacePreset')
+    expect(keys).not.toContain('volumePreset')
+    expect(keys).not.toContain('volumeRemoveBed')
+    expect(harness.toolbar.activeSurfaceRenderConfig.value).toBeNull()
+    const renderTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'render3dMode')!
+    expect(renderTool.options?.map((option) => option.value)).toEqual([
+      'render3dMode:volume',
+      'volumeBlendMode:mip'
+    ])
+    expect(harness.toolbar.stackToolSelections.value.render3dMode).toBe('volumeBlendMode:mip')
+    harness.wrapper.unmount()
+  })
+
+  it('classifies static PET 4D as unsupported instead of reusing CT respiratory tools', () => {
+    expect(resolveViewerToolCapabilityProfile({
+      ...create3dTab(),
+      key: 'pet::4d',
+      viewType: '4D',
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'source',
+        petUnitLabel: 'BQML',
+        petWindowMin: 0,
+        petWindowMax: 12000,
+        pseudocolorPreset: 'pet'
+      }
+    } as ViewerTabItem, 'mpr-ax')).toBe('four-d-pet-unsupported')
   })
 
   it('shows segmentation only for regular MPR views', async () => {
@@ -1307,7 +1516,7 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:threshold')
     expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
       action: 'mprSegmentation',
-      actionType: 'end',
+      actionType: 'local',
       segmentationConfig: {
         enabled: true,
         clientRevision: 0,
@@ -1326,9 +1535,9 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(harness.emitSetActiveOperation).toHaveBeenLastCalledWith('stack:segmentation:voi')
     expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith({
       action: 'mprSegmentation',
-      actionType: 'end',
+      actionType: 'local',
       segmentationConfig: {
-        enabled: false,
+        enabled: true,
         clientRevision: 0,
         selectedRegionId: null,
         selectedVoi: false,
@@ -1339,6 +1548,63 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
       }
     })
 
+    harness.wrapper.unmount()
+  })
+
+  it('opens segmentation locally without preserving a selected rotated region', async () => {
+    const harness = mountToolbarHarness({
+      ...create3dTab(),
+      key: 'series-1::mpr',
+      title: 'Series 1 / MPR',
+      viewType: 'MPR',
+      mprSegmentationConfig: {
+        enabled: true,
+        clientRevision: 12,
+        selectedRegionId: 'r1',
+        selectedVoi: false,
+        selectedVoiId: null,
+        thresholdRegions: [
+          {
+            id: 'r1',
+            enabled: true,
+            label: '1',
+            thresholdHu: 300,
+            thresholdMode: 'hu',
+            thresholdPercentile: 80,
+            color: '#ff4df8',
+            componentMode: 'hotspotConnected',
+            box: {
+              centerWorld: [1, 2, 3],
+              rowWorld: [0, 1, 0],
+              colWorld: [0, 0, 1],
+              normalWorld: [1, 0, 0],
+              widthMm: 20,
+              heightMm: 30,
+              depthMm: 5,
+              sourceViewport: 'mpr-ax'
+            },
+            stats: null
+          }
+        ],
+        voiSpheres: [],
+        voiSphere: null
+      }
+    })
+    await nextTick()
+
+    const segmentationTool = harness.toolbar.activeTools.value.find((tool) => tool.key === 'segmentation')!
+    harness.toolbar.applyTool(segmentationTool)
+
+    expect(harness.emitTriggerViewAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'mprSegmentation',
+      actionType: 'local',
+      segmentationConfig: expect.objectContaining({
+        clientRevision: 12,
+        selectedRegionId: null,
+        selectedVoi: false,
+        selectedVoiId: null
+      })
+    }))
     harness.wrapper.unmount()
   })
 
@@ -1426,11 +1692,11 @@ describe('useViewerWorkspaceToolbar surface mode', () => {
     expect(zoomTool.rangeControl).toMatchObject({
       kind: 'zoom',
       value: 1,
-      min: 0.25,
-      max: 10,
+      min: 0.01,
+      max: 64,
       resetValue: 1
     })
-    expect(zoomTool.rangeControl?.ticks.map((tick) => tick.value)).toEqual([1, 2, 5, 10])
+    expect(zoomTool.rangeControl?.ticks.map((tick) => tick.value)).toEqual([0.1, 1, 2, 5, 10, 20, 40, 64])
 
     harness.activeTab.value = {
       ...harness.activeTab.value!,

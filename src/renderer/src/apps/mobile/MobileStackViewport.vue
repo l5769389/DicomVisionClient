@@ -540,8 +540,6 @@ watch(
       :render-surface-active="Boolean(stackTab)"
       :image-src="stackTab?.imageSrc ?? ''"
       :is-loading="Boolean(stackTab?.viewId) && (!stackTab?.imageSrc || isViewLoading)"
-      :light-surface="stackTab?.viewType === 'PET'"
-      :stage-surface-class="stackTab?.viewType === 'PET' ? 'viewer-stage-surface--white viewer-stage-surface--pet-standalone' : ''"
       loading-label="正在加载影像..."
       alt="2D"
       :active-operation="activeOperation"

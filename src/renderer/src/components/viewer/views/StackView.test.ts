@@ -57,12 +57,13 @@ function mountStackView(activeTab: ViewerTabItem) {
 }
 
 describe('StackView PET surface', () => {
-  it('uses a white light surface for standalone PET tabs', () => {
+  it('lets the active PET LUT determine the standalone surface treatment', () => {
     const wrapper = mountStackView(
       createStackTab({
         key: 'pet::PET',
         title: 'PET FDG SUV / PET',
         viewType: 'PET',
+        pseudocolorPreset: 'bwinverse',
         petInfo: {
           seriesId: 'pet',
           petUnit: 'SUVbw',
@@ -75,8 +76,9 @@ describe('StackView PET surface', () => {
 
     const stage = wrapper.find('.viewer-canvas-stage-stub')
     expect(stage.attributes('data-alt')).toBe('PET')
-    expect(stage.attributes('data-light-surface')).toBe('true')
-    expect(stage.attributes('data-stage-surface-class')).toBe('viewer-stage-surface--white viewer-stage-surface--pet-standalone')
+    expect(stage.attributes('data-light-surface')).toBe('false')
+    expect(stage.attributes('data-stage-surface-class')).toBeUndefined()
+    expect(stage.attributes('data-pseudocolor-preset')).toBe('bwinverse')
     wrapper.unmount()
   })
 
@@ -86,7 +88,7 @@ describe('StackView PET surface', () => {
     const stage = wrapper.find('.viewer-canvas-stage-stub')
     expect(stage.attributes('data-alt')).toBe('Stack')
     expect(stage.attributes('data-light-surface')).toBe('false')
-    expect(stage.attributes('data-stage-surface-class')).toBe('')
+    expect(stage.attributes('data-stage-surface-class')).toBeUndefined()
     wrapper.unmount()
   })
 

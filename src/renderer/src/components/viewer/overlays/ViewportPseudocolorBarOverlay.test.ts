@@ -21,7 +21,7 @@ describe('ViewportPseudocolorBarOverlay', () => {
     const barStyle = wrapper.get('.rounded-\\[2px\\]').attributes('style')
     expect(barStyle).toContain('width: 6px')
     expect(barStyle).toContain('height: 138px')
-    expect(barStyle).toContain('linear-gradient(0deg')
+    expect(barStyle).toContain('--viewport-pseudocolor-gradient: linear-gradient(0deg')
     wrapper.unmount()
   })
 
@@ -35,6 +35,25 @@ describe('ViewportPseudocolorBarOverlay', () => {
     })
 
     expect(wrapper.get('.rounded-\\[2px\\]').attributes('style')).toContain('width: 8px')
+    wrapper.unmount()
+  })
+
+  it('keeps sub-unit PET display bounds legible', () => {
+    const wrapper = mount(ViewportPseudocolorBarOverlay, {
+      props: {
+        stageWidth: 500,
+        stageHeight: 300,
+        pseudocolorPreset: 'hotmetal',
+        windowInfo: {
+          ww: 0.07,
+          wl: 0.035
+        },
+        valueDecimalPlaces: 2
+      }
+    })
+
+    expect(wrapper.text()).toContain('0.07')
+    expect(wrapper.text()).toContain('0.00')
     wrapper.unmount()
   })
 

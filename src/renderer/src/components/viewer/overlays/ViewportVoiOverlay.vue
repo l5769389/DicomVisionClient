@@ -9,6 +9,7 @@ import type {
   MprSegmentationConfig,
   MprSegmentationOverlay,
   MprSegmentationOverlayRegion,
+  MprSegmentationOverlayWorldPoint,
   MprThresholdRegion,
   MprThresholdRegionBox,
   MprVoiSphere,
@@ -24,19 +25,22 @@ import {
   MPR_SEGMENTATION_MAX_VOI_SPHERES,
   createDefaultMprSegmentationConfig,
   normalizeMprSegmentationConfig,
+  normalizeMprThresholdRegionBox,
   resolveMprLegacyVoiSphere
 } from '../../../types/viewer'
 import {
   canvasNormalizedPointToSourceImage,
   canvasNormalizedPointToWorld,
+  clipPolygonToUnitRect,
   createThresholdRegionFromImageRect,
   createVoiSphereFromImageCircle,
   estimateThresholdRegionDefaultDepthMm,
+  getThresholdRegionBoxPlaneIntersectionPoints,
   normalizeImageRectFromPoints,
   projectThresholdRegionBoxToCanvasPlane,
   projectVoiSphereToCanvasPlane,
-  resizeThresholdRegionBoxInPlane,
-  translateThresholdRegionBoxInPlane,
+  projectWorldPointsToCanvasPlane,
+  worldPointToCanvasNormalized,
   type NormalizedImagePoint,
   type ThresholdRegionProjection,
   type ThresholdResizeHandle
@@ -54,6 +58,7 @@ const props = withDefaults(
     isOblique?: boolean
     mprPlane?: MprPlaneInfo | null
     segmentationOverlay?: MprSegmentationOverlay | null
+    petSegmentation?: boolean
     viewportTransform?: ViewTransformInfo | null
     viewportKey: string
   }>(),
@@ -66,6 +71,7 @@ const props = withDefaults(
     isActive: false,
     isOblique: false,
     mprPlane: null,
+    petSegmentation: false,
     segmentationOverlay: null,
     viewportTransform: null
   }
@@ -84,7 +90,9 @@ type DragState =
       regionId: string
       label: string
       thresholdHu: number
+      thresholdValue: number
       thresholdMode: MprThresholdRegion['thresholdMode']
+      thresholdPercentMax: number
       thresholdPercentile: number
       color: string
       depthMm: number | null
@@ -92,15 +100,21 @@ type DragState =
   | {
       kind: 'move-threshold'
       pointerId: number
-      anchor: NormalizedImagePoint
+      anchorWorld: Vec3
       region: MprThresholdRegion
       baseBox: MprThresholdRegionBox
+      previewProjection: ThresholdRegionProjection
+      changed: boolean
     }
   | {
       kind: 'resize-threshold'
       pointerId: number
+      anchorWorld: Vec3
       region: MprThresholdRegion
       handle: ThresholdResizeHandle
+      baseBox: MprThresholdRegionBox
+      previewProjection: ThresholdRegionProjection
+      changed: boolean
     }
   | {
       kind: 'create-voi'
@@ -122,6 +136,14 @@ type DragState =
       sphere: MprVoiSphere
     }
 
+interface ThresholdCreationDefaults {
+  thresholdHu: number
+  thresholdValue: number
+  thresholdMode: MprThresholdRegion['thresholdMode']
+  thresholdPercentMax: number
+  thresholdPercentile: number
+}
+
 let regionSequence = 0
 let voiSequence = 0
 const overlayRef = ref<HTMLDivElement | null>(null)
@@ -130,12 +152,13 @@ const activeHighlightCanvasRef = ref<HTMLCanvasElement | null>(null)
 const dragState = ref<DragState | null>(null)
 const consumedPointerId = ref<number | null>(null)
 const draftConfig = ref<MprSegmentationConfig | null>(null)
+const pendingThresholdDisplayBoxes = ref(new Map<string, MprThresholdRegionBox>())
 const sortedHuCache = new Map<string, number[]>()
-const HIGHLIGHT_MAX_DRAW_SAMPLES_PER_REGION = 45_000
 const MIN_THRESHOLD_REGION_SOURCE_PX = 6
 const MIN_THRESHOLD_REGION_MM = 2
 const MIN_VOI_RADIUS_SOURCE_PX = 4
 const MIN_VOI_RADIUS_MM = 2
+const SEGMENTATION_DRAG_EPSILON = 1e-6
 let stableHighlightRenderRaf: number | null = null
 let activeHighlightRenderRaf: number | null = null
 const { locale } = useUiPreferences()
@@ -165,6 +188,11 @@ const isZh = computed(() => locale.value === 'zh-CN')
 const normalizedConfig = computed(() =>
   draftConfig.value ?? normalizeMprSegmentationConfig(props.config ?? createDefaultMprSegmentationConfig())
 )
+const isPetSegmentation = computed(() =>
+  props.petSegmentation ||
+  ['PT', 'PET'].includes(String(normalizedConfig.value.intensityContext?.modality ?? '').trim().toUpperCase())
+)
+const THRESHOLD_HANDLE_ORDER: ThresholdResizeHandle[] = ['nw', 'ne', 'se', 'sw']
 
 watch(
   () => props.config,
@@ -187,8 +215,173 @@ const overlayStyle = computed(() => ({
 
 interface RegionProjectionItem {
   region: MprThresholdRegion
+  interactionRegion: MprThresholdRegion
   projection: ThresholdRegionProjection
   editableGeometry: boolean
+  authoritativeGuide: boolean
+}
+
+function overlayWorldPointToVec3(point: MprSegmentationOverlayWorldPoint): Vec3 | null {
+  const x = Number(point.x)
+  const y = Number(point.y)
+  const z = Number(point.z)
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? [x, y, z] : null
+}
+
+function overlayWorldPointsToVec3(points: MprSegmentationOverlayWorldPoint[] | undefined): Vec3[] {
+  return (points ?? [])
+    .map(overlayWorldPointToVec3)
+    .filter((point): point is Vec3 => point !== null)
+}
+
+function buildProjectionGuideHandles(
+  projection: ThresholdRegionProjection,
+  box: MprThresholdRegionBox,
+  plane: MprPlaneInfo
+): Array<{ handle: ThresholdResizeHandle; point: NormalizedImagePoint }> | null {
+  const contour = clipPolygonToUnitRect(projection.contour)
+  if (contour.length !== 4) {
+    return null
+  }
+  const candidates = getThresholdRegionBoxPlaneIntersectionPoints(box, plane).map((worldPoint) => ({
+    handle: thresholdResizeHandleForWorldPoint(box, worldPoint),
+    point: worldPointToCanvasNormalized(plane, worldPoint, props.imageFrame, props.viewportTransform)
+  }))
+  const uniqueHandles = new Set(candidates.map((candidate) => candidate.handle))
+  if (candidates.length !== 4 || uniqueHandles.size !== 4) {
+    return null
+  }
+  const unused = [...candidates]
+  return contour.map((point, index) => {
+    let nearestIndex = 0
+    let nearestDistance = Number.POSITIVE_INFINITY
+    for (const [candidateIndex, candidate] of unused.entries()) {
+      const distance = squaredPointDistance(point, candidate.point)
+      if (distance < nearestDistance) {
+        nearestDistance = distance
+        nearestIndex = candidateIndex
+      }
+    }
+    const [candidate] = unused.splice(nearestIndex, 1)
+    return {
+      handle: candidate?.handle ?? THRESHOLD_HANDLE_ORDER[index]!,
+      point
+    }
+  })
+}
+
+function thresholdResizeHandleForWorldPoint(
+  box: MprThresholdRegionBox,
+  worldPoint: Vec3
+): ThresholdResizeHandle {
+  const delta = subVec3(worldPoint, box.centerWorld)
+  const colSign = dotVec3(delta, box.colWorld) >= 0 ? 1 : -1
+  const rowSign = dotVec3(delta, box.rowWorld) >= 0 ? 1 : -1
+  if (rowSign < 0) {
+    return colSign < 0 ? 'nw' : 'ne'
+  }
+  return colSign < 0 ? 'sw' : 'se'
+}
+
+function squaredPointDistance(a: NormalizedImagePoint, b: NormalizedImagePoint): number {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  return dx * dx + dy * dy
+}
+
+function cloneThresholdRegionBox(box: MprThresholdRegionBox): MprThresholdRegionBox {
+  return {
+    centerWorld: [...box.centerWorld],
+    rowWorld: [...box.rowWorld],
+    colWorld: [...box.colWorld],
+    normalWorld: [...box.normalWorld],
+    widthMm: box.widthMm,
+    heightMm: box.heightMm,
+    depthMm: box.depthMm,
+    sourceViewport: box.sourceViewport
+  }
+}
+
+function vec3ApproximatelyEqual(a: Vec3, b: Vec3, tolerance = 1e-4): boolean {
+  return a.every((value, index) => Math.abs(value - b[index]!) <= tolerance)
+}
+
+function thresholdRegionBoxesApproximatelyEqual(
+  first: MprThresholdRegionBox,
+  second: MprThresholdRegionBox,
+  tolerance = 1e-4
+): boolean {
+  return (
+    vec3ApproximatelyEqual(first.centerWorld, second.centerWorld, tolerance) &&
+    vec3ApproximatelyEqual(first.rowWorld, second.rowWorld, tolerance) &&
+    vec3ApproximatelyEqual(first.colWorld, second.colWorld, tolerance) &&
+    vec3ApproximatelyEqual(first.normalWorld, second.normalWorld, tolerance) &&
+    Math.abs(first.widthMm - second.widthMm) <= tolerance &&
+    Math.abs(first.heightMm - second.heightMm) <= tolerance &&
+    Math.abs(first.depthMm - second.depthMm) <= tolerance &&
+    first.sourceViewport === second.sourceViewport
+  )
+}
+
+function setPendingThresholdDisplayBox(regionId: string, box: MprThresholdRegionBox): void {
+  const next = new Map(pendingThresholdDisplayBoxes.value)
+  next.set(regionId, cloneThresholdRegionBox(box))
+  pendingThresholdDisplayBoxes.value = next
+}
+
+function clearMatchedPendingThresholdDisplayBoxes(): void {
+  const current = pendingThresholdDisplayBoxes.value
+  if (current.size === 0) {
+    return
+  }
+  const overlayByRegionId = new Map(
+    (props.segmentationOverlay?.regions ?? []).map((region) => [region.regionId, region])
+  )
+  let next: Map<string, MprThresholdRegionBox> | null = null
+  for (const [regionId, pendingBox] of current) {
+    const displayBox = normalizeMprThresholdRegionBox(overlayByRegionId.get(regionId)?.displayBox)
+    if (displayBox && thresholdRegionBoxesApproximatelyEqual(displayBox, pendingBox)) {
+      next ??= new Map(current)
+      next.delete(regionId)
+    }
+  }
+  if (next) {
+    pendingThresholdDisplayBoxes.value = next
+  }
+}
+
+watch(
+  () => props.segmentationOverlay,
+  () => {
+    clearMatchedPendingThresholdDisplayBoxes()
+  },
+  { deep: true }
+)
+
+function getActiveThresholdDragState(regionId: string): Extract<DragState, { kind: 'move-threshold' | 'resize-threshold' }> | null {
+  const state = dragState.value
+  if (
+    (state?.kind === 'move-threshold' || state?.kind === 'resize-threshold') &&
+    state.region.id === regionId &&
+    state.changed
+  ) {
+    return state
+  }
+  return null
+}
+
+function getDraggedThresholdRegionId(): string | null {
+  const state = dragState.value
+  if (!state) {
+    return null
+  }
+  if (state.kind === 'create-threshold') {
+    return state.regionId
+  }
+  if (state.kind === 'move-threshold' || state.kind === 'resize-threshold') {
+    return state.changed ? state.region.id : null
+  }
+  return null
 }
 
 const regionProjections = computed<RegionProjectionItem[]>(() => {
@@ -197,17 +390,91 @@ const regionProjections = computed<RegionProjectionItem[]>(() => {
   if (!normalizedConfig.value.enabled || !plane || !viewportKey) {
     return []
   }
+  const overlayByRegionId = new Map(
+    (props.segmentationOverlay?.regions ?? []).map((region) => [region.regionId, region])
+  )
   return normalizedConfig.value.thresholdRegions
     .filter((region) => region.enabled)
-    .map((region): RegionProjectionItem => {
-      const editableGeometry = region.box.sourceViewport === viewportKey
-      return {
-        region,
-        editableGeometry,
-        projection: projectThresholdRegionBoxToCanvasPlane(region.box, plane, props.imageFrame, props.viewportTransform)
+    .flatMap((region): RegionProjectionItem[] => {
+      const overlayRegion = overlayByRegionId.get(region.id)
+      const hasAuthoritativeGuide = Boolean(overlayRegion?.guideAuthoritative)
+      const backendDisplayBox = normalizeMprThresholdRegionBox(overlayRegion?.displayBox)
+      const activeThresholdDrag = getActiveThresholdDragState(region.id)
+      const pendingDisplayBox = pendingThresholdDisplayBoxes.value.get(region.id) ?? null
+      const pendingDisplayBoxMatched = Boolean(
+        pendingDisplayBox &&
+        backendDisplayBox &&
+        thresholdRegionBoxesApproximatelyEqual(pendingDisplayBox, backendDisplayBox)
+      )
+      const pendingProjection = pendingDisplayBox && !pendingDisplayBoxMatched
+        ? projectThresholdRegionBoxToCanvasPlane(
+            pendingDisplayBox,
+            plane,
+            props.imageFrame,
+            props.viewportTransform
+          )
+        : null
+      const interactionRegion = {
+        ...region,
+        box: activeThresholdDrag
+          ? region.box
+          : pendingDisplayBox && !pendingDisplayBoxMatched
+            ? pendingDisplayBox
+            : backendDisplayBox ?? region.box
       }
+      const backendWorldPoints = overlayWorldPointsToVec3(overlayRegion?.guideWorldPoints)
+      const backendProjection = projectWorldPointsToCanvasPlane(
+        backendWorldPoints,
+        plane,
+        props.imageFrame,
+        props.viewportTransform,
+        overlayRegion?.guideIntersectsPlane ?? true
+      )
+      const projection = activeThresholdDrag
+        ? activeThresholdDrag.previewProjection
+        : pendingProjection
+          ? pendingProjection
+          : overlayRegion
+          ? backendProjection
+          : projectThresholdRegionBoxToCanvasPlane(
+              region.box,
+              plane,
+              props.imageFrame,
+              props.viewportTransform
+            )
+      if (!projection?.visible) {
+        return []
+      }
+      const editableGeometry = interactionRegion.box.sourceViewport === viewportKey && Boolean(
+        !overlayRegion || backendDisplayBox || pendingDisplayBox
+      )
+      const guideHandles = editableGeometry
+        ? buildProjectionGuideHandles(projection, interactionRegion.box, plane)
+        : null
+      const fallbackHandles = projection.handles.length > 0
+        ? projection.handles
+        : [
+            { handle: 'nw' as const, point: { x: projection.clippedRect.xMin, y: projection.clippedRect.yMin } },
+            { handle: 'ne' as const, point: { x: projection.clippedRect.xMax, y: projection.clippedRect.yMin } },
+            { handle: 'se' as const, point: { x: projection.clippedRect.xMax, y: projection.clippedRect.yMax } },
+            { handle: 'sw' as const, point: { x: projection.clippedRect.xMin, y: projection.clippedRect.yMax } }
+          ]
+      const resolvedProjection = editableGeometry
+        ? {
+            ...projection,
+            handles: guideHandles ?? fallbackHandles
+          }
+        : projection
+      return [
+        {
+          region,
+          interactionRegion,
+          editableGeometry,
+          authoritativeGuide: hasAuthoritativeGuide || backendWorldPoints.length >= 3,
+          projection: resolvedProjection
+        }
+      ]
     })
-    .filter((item) => item.projection.visible)
 })
 
 interface VoiProjectionItem {
@@ -248,17 +515,7 @@ const backgroundSphereProjections = computed(() =>
 )
 
 const activeThresholdRegionId = computed(() => {
-  const state = dragState.value
-  if (!state) {
-    return null
-  }
-  if (state.kind === 'create-threshold') {
-    return state.regionId
-  }
-  if (state.kind === 'move-threshold' || state.kind === 'resize-threshold') {
-    return state.region.id
-  }
-  return null
+  return getDraggedThresholdRegionId()
 })
 
 function thresholdRegionSignature(region: MprThresholdRegion): string {
@@ -267,6 +524,8 @@ function thresholdRegionSignature(region: MprThresholdRegion): string {
     region.enabled ? 1 : 0,
     region.thresholdMode,
     region.thresholdHu,
+    region.thresholdValue,
+    region.thresholdPercentMax,
     region.thresholdPercentile,
     region.color,
     region.box.sourceViewport,
@@ -306,13 +565,29 @@ function samplePointsSignature(points: number[]): string {
   return hash.toString(36)
 }
 
+function worldPointsSignature(points: MprSegmentationOverlayWorldPoint[]): string {
+  return points
+    .map((point) => `${Number(point.x).toFixed(4)},${Number(point.y).toFixed(4)},${Number(point.z).toFixed(4)}`)
+    .join(';')
+}
+
 function overlayRegionsSignature(regions: MprSegmentationOverlayRegion[]): string {
   return regions.map((region) => {
     const points = region.samples?.points ?? []
+    const guidePoints = region.guidePoints ?? []
+    const guideWorldPoints = region.guideWorldPoints ?? []
+    const contourWorldPoints = region.contourWorldPoints ?? []
     return [
       region.regionId,
       region.visible ? 1 : 0,
       region.sampleRevision ?? 0,
+      region.guideAuthoritative ? 1 : 0,
+      region.guideIntersectsPlane === false ? 0 : 1,
+      guidePoints
+        .map((point) => `${Number(point.x).toFixed(6)},${Number(point.y).toFixed(6)}`)
+        .join(';'),
+      worldPointsSignature(guideWorldPoints),
+      contourWorldPoints.map(worldPointsSignature).join('/'),
       points.length,
       samplePointsSignature(points)
     ].join(':')
@@ -408,6 +683,34 @@ function rectSvgStyle(rect: { xMin: number; xMax: number; yMin: number; yMax: nu
   }
 }
 
+function projectionUsesPolygon(projection: ThresholdRegionProjection): boolean {
+  if (projection.contour.length < 3) {
+    return false
+  }
+  const { rect } = projection
+  return projection.contour.some((point) => {
+    const onHorizontalEdge = Math.abs(point.y - rect.yMin) < 1e-5 || Math.abs(point.y - rect.yMax) < 1e-5
+    const onVerticalEdge = Math.abs(point.x - rect.xMin) < 1e-5 || Math.abs(point.x - rect.xMax) < 1e-5
+    return !(onHorizontalEdge && onVerticalEdge)
+  })
+}
+
+function regionProjectionUsesPolygon(item: RegionProjectionItem): boolean {
+  return item.authoritativeGuide || projectionUsesPolygon(item.projection)
+}
+
+function projectionSvgPoints(projection: ThresholdRegionProjection): string {
+  const width = Math.max(1, props.imageFrame.width)
+  const height = Math.max(1, props.imageFrame.height)
+  return clipPolygonToUnitRect(projection.contour)
+    .map((point) => `${point.x * width},${point.y * height}`)
+    .join(' ')
+}
+
+function thresholdGuideDasharray(projection: ThresholdRegionProjection): string | undefined {
+  return projection.intersectsPlane ? undefined : '4 4'
+}
+
 function hexToRgba(color: string, alpha: number): string {
   const match = /^#([0-9a-fA-F]{6})$/.exec(color)
   if (!match) {
@@ -464,17 +767,159 @@ function percentileFromSortedValues(values: number[], percentile: number): numbe
 }
 
 function getPreviewThresholdHu(region: MprThresholdRegion, overlayRegion: MprSegmentationOverlayRegion): number {
-  if (region.thresholdMode !== 'percentile') {
-    return region.thresholdHu
+  const sortedValues = getSortedHuValues(overlayRegion)
+  if (region.thresholdMode === 'percentMax') {
+    const maximum = sortedValues.at(-1)
+    const percent = Math.max(0, Math.min(100, Number(region.thresholdPercentMax ?? 40)))
+    return maximum != null
+      ? maximum * percent / 100
+      : region.stats?.effectiveThresholdValue ?? region.stats?.effectiveThresholdHu ?? region.thresholdValue ?? region.thresholdHu
   }
-  return percentileFromSortedValues(getSortedHuValues(overlayRegion), region.thresholdPercentile) ?? region.stats?.effectiveThresholdHu ?? region.thresholdHu
+  if (region.thresholdMode !== 'percentile') {
+    return region.thresholdValue ?? region.thresholdHu
+  }
+  return percentileFromSortedValues(sortedValues, region.thresholdPercentile) ?? region.stats?.effectiveThresholdHu ?? region.thresholdHu
 }
 
-function hashCanvasPoint(x: number, y: number, seed: number): number {
-  let hash = ((x | 0) * 374761393 + (y | 0) * 668265263 + (seed | 0) * 2246822519) | 0
-  hash = (hash ^ (hash >>> 13)) | 0
-  hash = Math.imul(hash, 1274126177)
-  return (hash ^ (hash >>> 16)) >>> 0
+interface SourceBoundaryPoint {
+  x: number
+  y: number
+}
+
+interface SourceBoundaryEdge {
+  start: SourceBoundaryPoint
+  end: SourceBoundaryPoint
+}
+
+function sourceBoundaryPointKey(point: SourceBoundaryPoint): string {
+  return `${point.x}:${point.y}`
+}
+
+function traceQualifiedSampleContours(
+  qualifiedSamples: Map<string, { sourceCol: number; sourceRow: number }>
+): SourceBoundaryPoint[][] {
+  const edges: SourceBoundaryEdge[] = []
+  const appendEdge = (
+    neighborCol: number,
+    neighborRow: number,
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number
+  ): void => {
+    if (qualifiedSamples.has(`${neighborCol}:${neighborRow}`)) {
+      return
+    }
+    edges.push({
+      start: { x: startX, y: startY },
+      end: { x: endX, y: endY }
+    })
+  }
+
+  for (const { sourceCol, sourceRow } of qualifiedSamples.values()) {
+    appendEdge(sourceCol, sourceRow - 1, sourceCol, sourceRow, sourceCol + 1, sourceRow)
+    appendEdge(sourceCol + 1, sourceRow, sourceCol + 1, sourceRow, sourceCol + 1, sourceRow + 1)
+    appendEdge(sourceCol, sourceRow + 1, sourceCol + 1, sourceRow + 1, sourceCol, sourceRow + 1)
+    appendEdge(sourceCol - 1, sourceRow, sourceCol, sourceRow + 1, sourceCol, sourceRow)
+  }
+
+  const edgesByStart = new Map<string, number[]>()
+  edges.forEach((edge, index) => {
+    const key = sourceBoundaryPointKey(edge.start)
+    const indices = edgesByStart.get(key) ?? []
+    indices.push(index)
+    edgesByStart.set(key, indices)
+  })
+
+  const used = new Set<number>()
+  const contours: SourceBoundaryPoint[][] = []
+  for (let startEdgeIndex = 0; startEdgeIndex < edges.length; startEdgeIndex += 1) {
+    if (used.has(startEdgeIndex)) {
+      continue
+    }
+    const startEdge = edges[startEdgeIndex]!
+    const contour: SourceBoundaryPoint[] = [startEdge.start]
+    let edgeIndex = startEdgeIndex
+    for (let guard = 0; guard <= edges.length; guard += 1) {
+      if (used.has(edgeIndex)) {
+        break
+      }
+      used.add(edgeIndex)
+      const edge = edges[edgeIndex]!
+      contour.push(edge.end)
+      if (sourceBoundaryPointKey(edge.end) === sourceBoundaryPointKey(startEdge.start)) {
+        break
+      }
+      const nextEdgeIndex = (edgesByStart.get(sourceBoundaryPointKey(edge.end)) ?? [])
+        .find((candidate) => !used.has(candidate))
+      if (nextEdgeIndex == null) {
+        break
+      }
+      edgeIndex = nextEdgeIndex
+    }
+    if (contour.length >= 4) {
+      if (
+        sourceBoundaryPointKey(contour[0]!) ===
+        sourceBoundaryPointKey(contour[contour.length - 1]!)
+      ) {
+        contour.pop()
+      }
+      contours.push(contour)
+    }
+  }
+  return contours
+}
+
+function drawSmoothClosedContour(
+  context: CanvasRenderingContext2D,
+  points: Array<{ x: number; y: number }>
+): void {
+  if (points.length < 3) {
+    return
+  }
+  const midpoint = (left: { x: number; y: number }, right: { x: number; y: number }) => ({
+    x: (left.x + right.x) / 2,
+    y: (left.y + right.y) / 2
+  })
+  const first = points[0]!
+  const last = points[points.length - 1]!
+  const start = midpoint(last, first)
+  context.moveTo(start.x, start.y)
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]!
+    const next = points[(index + 1) % points.length]!
+    const nextMidpoint = midpoint(current, next)
+    context.quadraticCurveTo(current.x, current.y, nextMidpoint.x, nextMidpoint.y)
+  }
+  context.closePath()
+}
+
+function clipHighlightToProjection(
+  context: CanvasRenderingContext2D,
+  projection: ThresholdRegionProjection,
+  frame: OverlayImageFrame
+): void {
+  context.beginPath()
+  if (projectionUsesPolygon(projection) && projection.contour.length >= 3) {
+    projection.contour.forEach((point, index) => {
+      const x = point.x * frame.width
+      const y = point.y * frame.height
+      if (index === 0) {
+        context.moveTo(x, y)
+      } else {
+        context.lineTo(x, y)
+      }
+    })
+    context.closePath()
+  } else {
+    const rect = projection.clippedRect
+    const x = rect.xMin * frame.width
+    const y = rect.yMin * frame.height
+    const width = Math.max(0, rect.xMax - rect.xMin) * frame.width
+    const height = Math.max(0, rect.yMax - rect.yMin) * frame.height
+    context.rect(x, y, width, height)
+  }
+  context.clip()
 }
 
 function createSourcePixelProjector(
@@ -526,6 +971,50 @@ function createSourcePixelProjector(
       y: canvasY / targetHeight
     }
   }
+}
+
+function projectOverlayWorldContoursToCanvas(
+  overlayRegion: MprSegmentationOverlayRegion,
+  plane: MprPlaneInfo,
+  frame: OverlayImageFrame,
+  transform?: ViewTransformInfo | null
+): Array<Array<{ x: number; y: number }>> {
+  return (overlayRegion.contourWorldPoints ?? [])
+    .map((contour) =>
+      overlayWorldPointsToVec3(contour)
+        .map((worldPoint) => {
+          const projected = worldPointToCanvasNormalized(plane, worldPoint, frame, transform)
+          return {
+            x: projected.x * frame.width,
+            y: projected.y * frame.height
+          }
+        })
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    )
+    .filter((contour) => contour.length >= 3)
+}
+
+function drawHighlightContours(
+  context: CanvasRenderingContext2D,
+  thresholdRegion: MprThresholdRegion,
+  contours: Array<Array<{ x: number; y: number }>>
+): void {
+  if (!contours.length) {
+    return
+  }
+  context.beginPath()
+  for (const contour of contours) {
+    drawSmoothClosedContour(context, contour)
+  }
+  context.fillStyle = thresholdRegion.color
+  context.globalAlpha = 0.18
+  context.fill('evenodd')
+  context.globalAlpha = 0.96
+  context.strokeStyle = thresholdRegion.color
+  context.lineWidth = 1.8
+  context.lineJoin = 'round'
+  context.lineCap = 'round'
+  context.stroke()
 }
 
 function prepareHighlightCanvas(canvas: HTMLCanvasElement, frame: OverlayImageFrame): CanvasRenderingContext2D | null {
@@ -583,24 +1072,41 @@ function drawHighlightCanvasLayer(canvas: HTMLCanvasElement | null, includeRegio
       continue
     }
     const region = regionsById.get(overlayRegion.regionId)
-    const points = overlayRegion.samples?.points ?? []
-    if (!region?.enabled || points.length < 3) {
+    if (!region?.enabled) {
       continue
     }
-    const thresholdHu = getPreviewThresholdHu(region, overlayRegion)
     const currentProjection = projectionsByRegionId.get(region.id)
     if (!currentProjection?.visible || !currentProjection.intersectsPlane) {
       continue
     }
-    const { clippedRect } = currentProjection
-    const seed = normalizeOverlaySampleRevision(overlayRegion)
+    const worldContours = projectOverlayWorldContoursToCanvas(
+      overlayRegion,
+      plane,
+      frame,
+      props.viewportTransform
+    )
+    if (worldContours.length) {
+      context.save()
+      clipHighlightToProjection(context, currentProjection, frame)
+      drawHighlightContours(context, region, worldContours)
+      context.restore()
+      continue
+    }
+    const points = overlayRegion.samples?.points ?? []
+    if (points.length < 3) {
+      continue
+    }
+    const thresholdHu = getPreviewThresholdHu(region, overlayRegion)
     const sampleCount = Math.floor(points.length / 3)
-    const sampleStep = Math.max(1, Math.ceil(sampleCount / HIGHLIGHT_MAX_DRAW_SAMPLES_PER_REGION))
-    const sampleOffset = sampleStep > 1 ? seed % sampleStep : 0
-    context.fillStyle = region.color
-    context.globalAlpha = 0.92
-
-    for (let sampleIndex = sampleOffset; sampleIndex < sampleCount; sampleIndex += sampleStep) {
+    const sampledCount = Number(overlayRegion.samples?.sampledCount ?? sampleCount)
+    const totalCount = Number(overlayRegion.samples?.totalCount ?? sampleCount)
+    const hasCompleteMask = Number.isFinite(sampledCount) && Number.isFinite(totalCount) && sampledCount >= totalCount
+    if (!hasCompleteMask) {
+      continue
+    }
+    const { clippedRect } = currentProjection
+    const qualifiedSamples = new Map<string, { sourceCol: number; sourceRow: number }>()
+    for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
       const index = sampleIndex * 3
       const sourceX = Number(points[index])
       const sourceY = Number(points[index + 1])
@@ -620,12 +1126,32 @@ function drawHighlightCanvasLayer(canvas: HTMLCanvasElement | null, includeRegio
       ) {
         continue
       }
-      const x = canvasPoint.x * frame.width
-      const y = canvasPoint.y * frame.height
-      if ((hashCanvasPoint(Math.round(x), Math.round(y), seed) % 100) >= 54) {
-        continue
-      }
-      context.fillRect(Math.round(x), Math.round(y), 1.5, 1.5)
+      const sourceCol = Math.floor(sourceX)
+      const sourceRow = Math.floor(sourceY)
+      qualifiedSamples.set(`${sourceCol}:${sourceRow}`, { sourceCol, sourceRow })
+    }
+    if (!qualifiedSamples.size) {
+      continue
+    }
+
+    const contours = traceQualifiedSampleContours(qualifiedSamples)
+    if (contours.length) {
+      context.save()
+      clipHighlightToProjection(context, currentProjection, frame)
+      drawHighlightContours(
+        context,
+        region,
+        contours.map((contour) =>
+          contour.map((point) => {
+            const projected = projectSourcePixel(point.x, point.y)
+            return {
+              x: projected.x * frame.width,
+              y: projected.y * frame.height
+            }
+          })
+        )
+      )
+      context.restore()
     }
   }
   context.globalAlpha = 1
@@ -801,12 +1327,43 @@ function nextRegionIdentity(): { id: string; label: string } {
   }
 }
 
+function getThresholdCreationDefaults(): ThresholdCreationDefaults {
+  const selected = selectedRegion.value
+  if (isPetSegmentation.value) {
+    const selectedIsPetMode = selected?.thresholdMode === 'absolute' || selected?.thresholdMode === 'percentMax'
+    const selectedThresholdValue = Number(selected?.thresholdValue)
+    const selectedPercentMax = Number(selected?.thresholdPercentMax)
+    return {
+      thresholdHu: 0,
+      thresholdValue: selectedIsPetMode && Number.isFinite(selectedThresholdValue)
+        ? Math.max(0, selectedThresholdValue)
+        : 0,
+      thresholdMode: selectedIsPetMode ? selected.thresholdMode : 'percentMax',
+      thresholdPercentMax: Number.isFinite(selectedPercentMax)
+        ? Math.max(0, Math.min(100, selectedPercentMax))
+        : 40,
+      thresholdPercentile: 80
+    }
+  }
+  return {
+    thresholdHu: selected?.thresholdHu ?? DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU,
+    thresholdValue: selected?.thresholdValue ?? selected?.thresholdHu ?? DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU,
+    thresholdMode: selected?.thresholdMode ?? 'hu',
+    thresholdPercentMax: selected?.thresholdPercentMax ?? 40,
+    thresholdPercentile: selected?.thresholdPercentile ?? 80
+  }
+}
+
 function nextVoiIdentity(): { id: string; label: string } {
   voiSequence += 1
   return {
     id: `voi-${Date.now()}-${voiSequence}`,
     label: ''
   }
+}
+
+function resolveDragConfigActionType(actionType: 'move' | 'end'): MprSegmentationConfigActionType {
+  return actionType === 'move' ? 'local' : 'end'
 }
 
 function emitConfig(config: MprSegmentationConfig, actionType: MprSegmentationConfigActionType = 'end'): void {
@@ -832,7 +1389,7 @@ function completeSegmentationEdit(actionType: MprSegmentationConfigActionType = 
   )
 }
 
-function upsertRegion(region: MprThresholdRegion, actionType: 'move' | 'end'): void {
+function upsertRegion(region: MprThresholdRegion, actionType: MprSegmentationConfigActionType): void {
   const current = normalizedConfig.value
   const replaced = current.thresholdRegions.some((candidate) => candidate.id === region.id)
   emitConfig(
@@ -850,7 +1407,7 @@ function upsertRegion(region: MprThresholdRegion, actionType: 'move' | 'end'): v
   )
 }
 
-function removeThresholdRegion(regionId: string, actionType: 'move' | 'end' = 'end'): void {
+function removeThresholdRegion(regionId: string, actionType: MprSegmentationConfigActionType = 'end'): void {
   const current = normalizedConfig.value
   if (!current.thresholdRegions.some((candidate) => candidate.id === regionId)) {
     return
@@ -896,7 +1453,7 @@ function selectVoi(sphereId: string, actionType: MprSegmentationConfigActionType
   )
 }
 
-function removeVoiSphere(sphereId: string, actionType: 'move' | 'end' = 'end'): void {
+function removeVoiSphere(sphereId: string, actionType: MprSegmentationConfigActionType = 'end'): void {
   const current = normalizedConfig.value
   if (!current.voiSpheres.some((candidate) => candidate.id === sphereId)) {
     return
@@ -920,7 +1477,11 @@ function removeVoiSphere(sphereId: string, actionType: 'move' | 'end' = 'end'): 
   )
 }
 
-function upsertVoiSphere(sphere: MprVoiSphere, actionType: 'move' | 'end', selected: boolean): void {
+function upsertVoiSphere(
+  sphere: MprVoiSphere,
+  actionType: MprSegmentationConfigActionType,
+  selected: boolean
+): void {
   const current = normalizedConfig.value
   const replaced = current.voiSpheres.some((candidate) => candidate.id === sphere.id)
   const nextSpheres = replaced
@@ -1001,15 +1562,14 @@ function beginCreate(event: PointerEvent): void {
       return
     }
     const identity = nextRegionIdentity()
+    const thresholdDefaults = getThresholdCreationDefaults()
     beginDrag(event, {
       kind: 'create-threshold',
       pointerId: event.pointerId,
       anchor: point,
       regionId: identity.id,
       label: identity.label,
-      thresholdHu: selectedRegion.value?.thresholdHu ?? DEFAULT_MPR_SEGMENTATION_THRESHOLD_HU,
-      thresholdMode: selectedRegion.value?.thresholdMode ?? 'hu',
-      thresholdPercentile: selectedRegion.value?.thresholdPercentile ?? 80,
+      ...thresholdDefaults,
       color: selectedRegion.value?.color ?? props.defaultThresholdColor,
       depthMm: null
     })
@@ -1034,9 +1594,11 @@ function beginCreate(event: PointerEvent): void {
   }
 }
 
-function beginMoveThreshold(event: PointerEvent, region: MprThresholdRegion): void {
+function beginMoveThreshold(event: PointerEvent, item: RegionProjectionItem): void {
   const point = getPoint(event)
-  if (!point || !canSelectExistingSegmentation.value || region.box.sourceViewport !== mprViewportKey.value) {
+  const region = item.interactionRegion
+  const plane = props.mprPlane
+  if (!point || !plane || !canSelectExistingSegmentation.value || region.box.sourceViewport !== mprViewportKey.value) {
     return
   }
   if (region.id !== normalizedConfig.value.selectedRegionId || !isThresholdMode.value) {
@@ -1052,22 +1614,34 @@ function beginMoveThreshold(event: PointerEvent, region: MprThresholdRegion): vo
   beginDrag(event, {
     kind: 'move-threshold',
     pointerId: event.pointerId,
-    anchor: point,
+    anchorWorld: canvasNormalizedPointToWorld(plane, point, props.imageFrame, props.viewportTransform),
     region,
-    baseBox: region.box
+    baseBox: region.box,
+    previewProjection: item.projection,
+    changed: false
   })
 }
 
 function beginResizeThreshold(event: PointerEvent, handle: ThresholdResizeHandle): void {
-  const region = selectedRegion.value
-  if (!region || !canEditThreshold.value || region.box.sourceViewport !== mprViewportKey.value) {
+  const point = getPoint(event)
+  const plane = props.mprPlane
+  const selectedProjection = selectedRegionProjection.value
+  if (!point || !plane || !selectedProjection || !canEditThreshold.value) {
+    return
+  }
+  const region = selectedProjection.interactionRegion
+  if (region.box.sourceViewport !== mprViewportKey.value) {
     return
   }
   beginDrag(event, {
     kind: 'resize-threshold',
     pointerId: event.pointerId,
+    anchorWorld: canvasNormalizedPointToWorld(plane, point, props.imageFrame, props.viewportTransform),
     region,
-    handle
+    handle,
+    baseBox: region.box,
+    previewProjection: selectedProjection.projection,
+    changed: false
   })
 }
 
@@ -1112,8 +1686,69 @@ function subVec3(a: Vec3, b: Vec3): Vec3 {
   return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
+function scaleVec3(vector: Vec3, scalar: number): Vec3 {
+  return [vector[0] * scalar, vector[1] * scalar, vector[2] * scalar]
+}
+
+function dotVec3(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
 function vec3Length(value: Vec3): number {
   return Math.sqrt(value[0] * value[0] + value[1] * value[1] + value[2] * value[2])
+}
+
+function translateThresholdRegionBoxByWorldDelta(
+  box: MprThresholdRegionBox,
+  deltaWorld: Vec3
+): MprThresholdRegionBox {
+  return {
+    ...box,
+    centerWorld: addVec3(box.centerWorld, deltaWorld)
+  }
+}
+
+function getThresholdResizeHandleSigns(handle: ThresholdResizeHandle): { col: number; row: number } {
+  if (handle === 'nw') {
+    return { col: -1, row: -1 }
+  }
+  if (handle === 'ne') {
+    return { col: 1, row: -1 }
+  }
+  if (handle === 'se') {
+    return { col: 1, row: 1 }
+  }
+  return { col: -1, row: 1 }
+}
+
+function resizeThresholdRegionBoxByWorldPoint(
+  box: MprThresholdRegionBox,
+  handle: ThresholdResizeHandle,
+  draggedWorld: Vec3
+): MprThresholdRegionBox {
+  const handleSigns = getThresholdResizeHandleSigns(handle)
+  const fixedWorld = addVec3(
+    addVec3(
+      box.centerWorld,
+      scaleVec3(box.colWorld, -handleSigns.col * box.widthMm / 2)
+    ),
+    scaleVec3(box.rowWorld, -handleSigns.row * box.heightMm / 2)
+  )
+  const fixedToDragged = subVec3(draggedWorld, fixedWorld)
+  const widthMm = Math.max(MIN_THRESHOLD_REGION_MM, Math.abs(dotVec3(fixedToDragged, box.colWorld)))
+  const heightMm = Math.max(MIN_THRESHOLD_REGION_MM, Math.abs(dotVec3(fixedToDragged, box.rowWorld)))
+  return {
+    ...box,
+    centerWorld: addVec3(
+      addVec3(
+        fixedWorld,
+        scaleVec3(box.colWorld, handleSigns.col * widthMm / 2)
+      ),
+      scaleVec3(box.rowWorld, handleSigns.row * heightMm / 2)
+    ),
+    widthMm,
+    heightMm
+  }
 }
 
 function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
@@ -1140,7 +1775,9 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
         id: state.regionId,
         label: state.label,
         thresholdHu: state.thresholdHu,
+        thresholdValue: state.thresholdValue,
         thresholdMode: state.thresholdMode,
+        thresholdPercentMax: state.thresholdPercentMax,
         thresholdPercentile: state.thresholdPercentile,
         color: state.color,
         depthMm: state.depthMm ?? estimateThresholdRegionDefaultDepthMm(plane, rect)
@@ -1154,41 +1791,58 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
       }
       return
     }
-    upsertRegion(region, actionType)
+    upsertRegion(region, resolveDragConfigActionType(actionType))
     return
   }
 
   if (state.kind === 'move-threshold') {
-    const sourceAnchor = getSourcePoint(state.anchor)
-    const sourcePoint = getSourcePoint(point)
-    if (!sourceAnchor || !sourcePoint) {
+    const currentWorld = canvasNormalizedPointToWorld(plane, point, props.imageFrame, props.viewportTransform)
+    const deltaWorld = subVec3(currentWorld, state.anchorWorld)
+    if (!state.changed && vec3Length(deltaWorld) <= SEGMENTATION_DRAG_EPSILON) {
       return
     }
+    const nextBox = translateThresholdRegionBoxByWorldDelta(state.baseBox, deltaWorld)
+    const nextProjection = projectThresholdRegionBoxToCanvasPlane(
+      nextBox,
+      plane,
+      props.imageFrame,
+      props.viewportTransform
+    )
+    state.changed = true
+    state.previewProjection = nextProjection
+    setPendingThresholdDisplayBox(state.region.id, nextBox)
     upsertRegion(
       {
         ...state.region,
-        box: translateThresholdRegionBoxInPlane(state.baseBox, plane, {
-          x: sourcePoint.x - sourceAnchor.x,
-          y: sourcePoint.y - sourceAnchor.y
-        }),
+        box: nextBox,
         stats: null
       },
-      actionType
+      resolveDragConfigActionType(actionType)
     )
     return
   }
 
   if (state.kind === 'resize-threshold') {
-    const sourcePoint = getSourcePoint(point)
-    if (!sourcePoint) {
+    const currentWorld = canvasNormalizedPointToWorld(plane, point, props.imageFrame, props.viewportTransform)
+    const deltaWorld = subVec3(currentWorld, state.anchorWorld)
+    if (!state.changed && vec3Length(deltaWorld) <= SEGMENTATION_DRAG_EPSILON) {
       return
     }
-    upsertRegion(
-      clampThresholdRegionMinimumSize(
-        resizeThresholdRegionBoxInPlane(state.region, plane, viewportKey, state.handle, sourcePoint)
-      ),
-      actionType
+    const nextRegion = clampThresholdRegionMinimumSize({
+      ...state.region,
+      box: resizeThresholdRegionBoxByWorldPoint(state.baseBox, state.handle, currentWorld),
+      stats: null
+    })
+    const nextProjection = projectThresholdRegionBoxToCanvasPlane(
+      nextRegion.box,
+      plane,
+      props.imageFrame,
+      props.viewportTransform
     )
+    state.changed = true
+    state.previewProjection = nextProjection
+    setPendingThresholdDisplayBox(state.region.id, nextRegion.box)
+    upsertRegion(nextRegion, resolveDragConfigActionType(actionType))
     return
   }
 
@@ -1215,7 +1869,7 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
     }
     upsertVoiSphere(
       nextSphere,
-      actionType,
+      resolveDragConfigActionType(actionType),
       actionType === 'move'
     )
     return
@@ -1229,7 +1883,7 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
         radiusMm: Math.max(MIN_VOI_RADIUS_MM, vec3Length(subVec3(currentWorld, state.sphere.centerWorld))),
         stats: null
       },
-      actionType,
+      resolveDragConfigActionType(actionType),
       true
     )
     return
@@ -1243,7 +1897,7 @@ function updateDrag(event: PointerEvent, actionType: 'move' | 'end'): void {
       centerWorld: addVec3(state.sphere.centerWorld, subVec3(currentWorld, anchorWorld)),
       stats: null
     },
-    actionType,
+    resolveDragConfigActionType(actionType),
     true
   )
 }
@@ -1285,7 +1939,7 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
     return
   }
   if (item.editableGeometry) {
-    beginMoveThreshold(event, item.region)
+    beginMoveThreshold(event, item)
     return
   }
   selectRegion(item.region.id, 'select')
@@ -1329,14 +1983,28 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         v-for="item in backgroundRegionProjections"
         :key="item.region.id"
       >
+        <polygon
+          v-if="regionProjectionUsesPolygon(item)"
+          class="transition-colors"
+          :points="projectionSvgPoints(item.projection)"
+          :data-region-id="item.region.id"
+          :fill="item.region.id === normalizedConfig.selectedRegionId ? hexToRgba(item.region.color, 0.12) : 'transparent'"
+          :stroke="item.region.color"
+          :stroke-width="item.region.id === normalizedConfig.selectedRegionId ? 2.25 : 1.5"
+          :stroke-dasharray="thresholdGuideDasharray(item.projection)"
+          vector-effect="non-scaling-stroke"
+          :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
+          @pointerdown="handleThresholdRegionPointerDown($event, item)"
+        />
         <rect
+          v-else
           class="transition-colors"
           v-bind="rectSvgStyle(item.projection.clippedRect)"
           :data-region-id="item.region.id"
           :fill="item.region.id === normalizedConfig.selectedRegionId ? hexToRgba(item.region.color, 0.12) : 'transparent'"
           :stroke="item.region.color"
           :stroke-width="item.region.id === normalizedConfig.selectedRegionId ? 2.25 : 1.5"
-          :stroke-dasharray="item.projection.intersectsPlane ? undefined : '4 4'"
+          :stroke-dasharray="thresholdGuideDasharray(item.projection)"
           vector-effect="non-scaling-stroke"
           :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
           @pointerdown="handleThresholdRegionPointerDown($event, item)"
@@ -1364,15 +2032,28 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         @pointerdown="beginMoveVoi"
       />
 
+      <polygon
+        v-if="selectedRegionProjection && regionProjectionUsesPolygon(selectedRegionProjection)"
+        class="transition-colors"
+        :points="projectionSvgPoints(selectedRegionProjection.projection)"
+        :data-region-id="selectedRegionProjection.region.id"
+        :fill="hexToRgba(selectedRegionProjection.region.color, 0.12)"
+        :stroke="selectedRegionProjection.region.color"
+        stroke-width="2.25"
+        :stroke-dasharray="thresholdGuideDasharray(selectedRegionProjection.projection)"
+        vector-effect="non-scaling-stroke"
+        :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
+        @pointerdown="handleThresholdRegionPointerDown($event, selectedRegionProjection)"
+      />
       <rect
-        v-if="selectedRegionProjection"
+        v-else-if="selectedRegionProjection"
         class="transition-colors"
         v-bind="rectSvgStyle(selectedRegionProjection.projection.clippedRect)"
         :data-region-id="selectedRegionProjection.region.id"
         :fill="hexToRgba(selectedRegionProjection.region.color, 0.12)"
         :stroke="selectedRegionProjection.region.color"
         stroke-width="2.25"
-        :stroke-dasharray="selectedRegionProjection.projection.intersectsPlane ? undefined : '4 4'"
+        :stroke-dasharray="thresholdGuideDasharray(selectedRegionProjection.projection)"
         vector-effect="non-scaling-stroke"
         :pointer-events="canSelectExistingSegmentation ? 'all' : 'none'"
         @pointerdown="handleThresholdRegionPointerDown($event, selectedRegionProjection)"
@@ -1387,10 +2068,11 @@ function handleThresholdRegionPointerDown(event: PointerEvent, item: RegionProje
         :fill="selectedRegionProjection?.region.color ?? '#bef264'"
         r="4.5"
         stroke-width="1.5"
-        vector-effect="non-scaling-stroke"
-        :pointer-events="canEditThreshold ? 'all' : 'none'"
-        @pointerdown="beginResizeThreshold($event, point.handle)"
-      />
+	        vector-effect="non-scaling-stroke"
+	        :pointer-events="canEditThreshold ? 'all' : 'none'"
+	        :data-handle="point.handle"
+	        @pointerdown="beginResizeThreshold($event, point.handle)"
+	      />
 
       <ellipse
         v-if="selectedSphereProjection"

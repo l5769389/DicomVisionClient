@@ -18,6 +18,7 @@ import type {
   MprCrosshairInteractionPayload,
   MprSegmentationConfigActionType,
   MprSegmentationConfig,
+  MprSegmentationPanelState,
   QaWaterAnalysis,
   QaWaterMetricKey,
   ViewerLayoutTemplate,
@@ -381,6 +382,13 @@ function closeVolumeConfigPanel(): void {
 
 function handleMprSegmentationConfigChange(config: MprSegmentationConfig, actionType?: MprSegmentationConfigActionType): void {
   updateActiveMprSegmentationConfig(config, actionType)
+}
+
+function handleMprSegmentationPanelStateChange(state: Partial<MprSegmentationPanelState>): void {
+  handleToolbarViewAction({
+    action: 'mprSegmentationPanelState',
+    segmentationPanelState: state
+  })
 }
 
 function handleMprSegmentationModeChange(mode: 'segmentation:threshold' | 'segmentation:voi', viewportKey?: string | null): void {
@@ -2727,11 +2735,16 @@ onBeforeUnmount(() => {
           <MprSegmentationPanel
             class="pointer-events-auto"
             :config="activeMprSegmentationConfig"
+            :tab-key="activeTab.key"
+            :panel-state="activeTab.mprSegmentationPanelState ?? null"
+            :viewport-planes="activeTab.viewportPlanes ?? null"
             :is-processing="isMprSegmentationProcessing"
             :series-id="activeTab.seriesId"
             :series-label="activeTab.seriesTitle"
+            :pet-info="activeTab.petInfo ?? null"
             @close="closeMprSegmentationPanel"
             @config-change="handleMprSegmentationConfigChange"
+            @panel-state-change="handleMprSegmentationPanelStateChange"
             @mode-change="handleMprSegmentationModeChange"
           />
         </div>
@@ -3167,11 +3180,16 @@ onBeforeUnmount(() => {
               v-else-if="rightToolbarUtilityPanelKind === 'segmentation' && activeMprSegmentationConfig && activeTab.viewType === 'MPR'"
               class="viewer-workspace-dock-panel"
               :config="activeMprSegmentationConfig"
+              :tab-key="activeTab.key"
+              :panel-state="activeTab.mprSegmentationPanelState ?? null"
+              :viewport-planes="activeTab.viewportPlanes ?? null"
               :is-processing="isMprSegmentationProcessing"
               :series-id="activeTab.seriesId"
               :series-label="activeTab.seriesTitle"
+              :pet-info="activeTab.petInfo ?? null"
               embedded
               @config-change="handleMprSegmentationConfigChange"
+              @panel-state-change="handleMprSegmentationPanelStateChange"
               @mode-change="handleMprSegmentationModeChange"
             />
           </template>

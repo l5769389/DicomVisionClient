@@ -38,6 +38,7 @@ import {
   isStackLikeViewType,
   resolveComparePaneKey,
   resolveFusionPaneKey,
+  resolveMprResetOperationViewIds,
   resolveOperationTargets,
   resolveViewIdForTabViewport,
   usesContinuousDragPreview
@@ -96,10 +97,10 @@ import {
   type WebUploadPickMode
 } from '../../../platform/runtime'
 import {
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
   DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
-  DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PSEUDOCOLOR_PRESET,
   normalizeFusionPetPseudocolorPresetKey,
   normalizePseudocolorPresetKey
@@ -108,7 +109,9 @@ import {
   createDefaultVolumeRenderOptions,
   createDefaultMprMipConfig,
   createDefaultMprSegmentationConfig,
+  createDefaultMprSegmentationPanelState,
   normalizeMprSegmentationConfig,
+  normalizeMprSegmentationPanelState,
   normalizeVolumeRenderOptions,
   recolorMprSegmentationConfig
 } from '../../../types/viewer'
@@ -152,6 +155,7 @@ import type {
   MprMipConfig,
   MprMipOperationConfig,
   MprSegmentationConfig,
+  MprSegmentationPanelState,
   MprViewportKey,
   ViewImageResponse,
   ViewProgressInfo,
@@ -419,6 +423,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     hangingProtocolRules,
     mprSegmentationStylePreference,
     selectedPseudocolorKey,
+    defaultCtPseudocolorKey,
+    defaultPetPseudocolorKey,
     setWorkspaceDockPreference,
     workspaceDockPreference
   } = useUiPreferences()
@@ -430,29 +436,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   let backendConnectionPromise: Promise<void> | null = null
   let removeBackendOriginChangedListener: (() => void) | null = null
   let removeBackendStatusChangedListener: (() => void) | null = null
+  const mprSegmentationStatsTimeouts = new Map<string, ReturnType<typeof window.setTimeout>>()
   const selectedSeries = computed(
     () => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null
   )
   const activeTab = computed(() => viewerTabs.value.find((item) => item.key === activeTabKey.value) ?? null)
   const hasSelectedSeries = computed(() => Boolean(selectedSeriesId.value))
-
-  function shouldMigrateStandalonePetPseudocolor(tab: ViewerTabItem | null): boolean {
-    if (!tab || tab.viewType !== 'PET') {
-      return false
-    }
-    const preset = normalizePseudocolorPresetKey(tab.petInfo?.pseudocolorPreset ?? tab.pseudocolorPreset)
-    return preset !== DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
-  }
-
-  watch(
-    activeTab,
-    (tab) => {
-      if (shouldMigrateStandalonePetPseudocolor(tab)) {
-        handlePetConfigChange({ pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET })
-      }
-    },
-    { immediate: true }
-  )
 
   watch(
     () => [mprSegmentationStylePreference.value.thresholdColor, mprSegmentationStylePreference.value.voiColor] as const,
@@ -1099,6 +1088,97 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     })
   }
 
+  function deriveMprSegmentationPanelState(
+    config: MprSegmentationConfig,
+    previousState?: MprSegmentationPanelState | null
+  ): MprSegmentationPanelState {
+    const normalizedState = normalizeMprSegmentationPanelState(previousState)
+    if (config.selectedVoi && config.selectedVoiId) {
+      return normalizeMprSegmentationPanelState({
+        ...normalizedState,
+        selectedKind: 'voi',
+        expandedRegionId: null,
+        expandedVoiId: config.selectedVoiId
+      })
+    }
+    if (config.selectedRegionId) {
+      return normalizeMprSegmentationPanelState({
+        ...normalizedState,
+        selectedKind: 'threshold',
+        expandedRegionId: config.selectedRegionId,
+        expandedVoiId: null
+      })
+    }
+    return normalizeMprSegmentationPanelState({
+      ...normalizedState,
+      selectedKind: null,
+      expandedRegionId: null,
+      expandedVoiId: null
+    })
+  }
+
+  function scheduleMprSegmentationStatsTimeout(tabKey: string, config: MprSegmentationConfig): void {
+    const revision = config.clientRevision ?? 0
+    const timeoutKey = `${tabKey}:${revision}`
+    const previousTimeout = mprSegmentationStatsTimeouts.get(timeoutKey)
+    if (previousTimeout != null) {
+      window.clearTimeout(previousTimeout)
+    }
+    mprSegmentationStatsTimeouts.set(
+      timeoutKey,
+      window.setTimeout(() => {
+        mprSegmentationStatsTimeouts.delete(timeoutKey)
+        viewerTabs.value = viewerTabs.value.map((item) => {
+          if (item.key !== tabKey || item.mprSegmentationConfig?.clientRevision !== revision) {
+            return item
+          }
+          const currentConfig = normalizeMprSegmentationConfig(item.mprSegmentationConfig)
+          const hasPendingStats = currentConfig.thresholdRegions.some(
+            (region) => region.enabled && region.stats == null
+          )
+          if (!hasPendingStats) {
+            return item
+          }
+          return {
+            ...item,
+            viewportLoadingProgress: MPR_VIEWPORT_KEYS.reduce<
+              Partial<Record<MprViewportKey, ViewProgressInfo | null>>
+            >((progress, viewportKey) => {
+              progress[viewportKey] = null
+              return progress
+            }, { ...(item.viewportLoadingProgress ?? {}) }),
+            mprSegmentationConfig: {
+              ...currentConfig,
+              thresholdRegions: currentConfig.thresholdRegions.map((region) =>
+                !region.enabled || region.stats != null
+                  ? region
+                  : {
+                      ...region,
+                      stats: {
+                        status: 'error',
+                        message:
+                          locale.value === 'zh-CN'
+                            ? '分割体积指标计算超时，请重试。'
+                            : 'Segmentation volume metric calculation timed out. Retry.',
+                        huMean: null,
+                        huMin: null,
+                        huMax: null,
+                        huStdDev: null,
+                        volumeCm3: 0,
+                        sampleCount: 0,
+                        effectiveThresholdHu: null,
+                        effectiveThresholdValue: null,
+                        intensityContext: currentConfig.intensityContext
+                      }
+                    }
+              )
+            }
+          }
+        })
+      }, 15_000)
+    )
+  }
+
   function emitMprCrosshairMode(viewId: string, mode: MprCrosshairMode): void {
     emitViewOperation({
       viewId,
@@ -1155,11 +1235,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
   }
 
-  function normalizeMontageWindowInfo(windowInfo: WindowLevelInfo | null | undefined): WindowLevelInfo | null {
+  function normalizeMontageWindowInfo(
+    windowInfo: WindowLevelInfo | null | undefined,
+    isPet = false
+  ): WindowLevelInfo | null {
     const ww = Number(windowInfo?.ww)
     const wl = Number(windowInfo?.wl)
     return Number.isFinite(ww) && Number.isFinite(wl)
-      ? { ww: Math.max(1, ww), wl }
+      ? { ww: Math.max(isPet ? 0.000001 : 1, ww), wl }
       : null
   }
 
@@ -1168,7 +1251,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     windowInfo: WindowLevelInfo,
     options: { seedInitial?: boolean } = {}
   ): ViewerTabItem {
-    const ww = Math.max(1, Number(windowInfo.ww))
+    const isPet = Boolean(tab.petInfo)
+    const ww = Math.max(isPet ? 0.000001 : 1, Number(windowInfo.ww))
     const wl = Number(windowInfo.wl)
     if (!Number.isFinite(ww) || !Number.isFinite(wl)) {
       return tab
@@ -1176,17 +1260,33 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const nextWindowInfo = { ww, wl }
     const initialWindowInfo = options.seedInitial === false
       ? tab.initialWindowInfo
-      : normalizeMontageWindowInfo(tab.initialWindowInfo) ?? nextWindowInfo
+      : normalizeMontageWindowInfo(tab.initialWindowInfo, isPet) ?? nextWindowInfo
+    const petWindowMin = wl - ww / 2
+    const petWindowMax = wl + ww / 2
+    const petUnitLabel = tab.petInfo?.petUnitLabel ?? tab.petInfo?.petUnit ?? 'PET'
     return {
       ...tab,
       initialWindowInfo,
       currentWindowInfo: nextWindowInfo,
-      windowLabel: `WW ${Math.round(ww)} / WL ${Math.round(wl)}`,
+      windowLabel: isPet
+        ? `${petUnitLabel} ${petWindowMin.toFixed(2)}-${petWindowMax.toFixed(2)}`
+        : `WW ${Math.round(ww)} / WL ${Math.round(wl)}`,
+      ...(tab.petInfo
+        ? {
+            petInfo: {
+              ...tab.petInfo,
+              petWindowMin,
+              petWindowMax
+            }
+          }
+        : {}),
       cornerInfo: {
         ...tab.cornerInfo,
         tags: {
           ...(tab.cornerInfo.tags ?? {}),
-          windowLevel: [`W: ${Math.round(ww)} L: ${Math.round(wl)}`]
+          windowLevel: isPet
+            ? []
+            : [`W: ${Math.round(ww)} L: ${Math.round(wl)}`]
         }
       }
     }
@@ -1194,11 +1294,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function resetMontageDisplayState(tab: ViewerTabItem): ViewerTabItem {
     const resetWindowInfo =
-      normalizeMontageWindowInfo(tab.initialWindowInfo) ??
-      normalizeMontageWindowInfo(tab.currentWindowInfo)
+      normalizeMontageWindowInfo(tab.initialWindowInfo, Boolean(tab.petInfo)) ??
+      normalizeMontageWindowInfo(tab.currentWindowInfo, Boolean(tab.petInfo))
     const resetPseudocolorPreset = tab.petInfo
-      ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
-      : DEFAULT_PSEUDOCOLOR_PRESET
+      ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+      : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value)
     const nextTab: ViewerTabItem = {
       ...tab,
       montageTransformState: DEFAULT_MONTAGE_TRANSFORM,
@@ -1238,7 +1338,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if ((payload.action === 'volumePreset' || payload.action === 'surfacePreset' || payload.action === 'render3dMode' || payload.action === 'volumeOrientation') && !hasVolumeView(tab)) {
+    if ((payload.action === 'volumePreset' || payload.action === 'surfacePreset' || payload.action === 'render3dMode' || payload.action === 'volumeBlendMode' || payload.action === 'volumeOrientation') && !hasVolumeView(tab)) {
       return
     }
 
@@ -1258,7 +1358,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    if (payload.action === 'mprSegmentation' && tab.viewType !== 'MPR') {
+    if ((payload.action === 'mprSegmentation' || payload.action === 'mprSegmentationPanelState') && tab.viewType !== 'MPR') {
       return
     }
 
@@ -1350,6 +1450,37 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'fusionPetPanePseudocolor' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({
+        petPanePseudocolorPreset: payload.value.replace(/^fusionPetPanePseudocolor:/, '')
+      })
+      return
+    }
+
+    if (payload.action === 'fusionWindowTarget' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      handleFusionConfigChange({
+        windowTarget: payload.value.endsWith(':pet') ? 'pet' : 'ct'
+      })
+      return
+    }
+
+    if (payload.action === 'fusionAlpha' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      const alpha = Number(payload.value.replace(/^fusionAlpha:/, ''))
+      if (Number.isFinite(alpha)) {
+        handleFusionConfigChange({ alpha })
+      }
+      return
+    }
+
     if (payload.action === 'fusionPetUnit' && payload.value) {
       if (tab.viewType !== 'PETCTFusion') {
         return
@@ -1370,21 +1501,51 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'fusionPetControlWindowMax' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      const value = Number(payload.value.replace(/^fusionPetControlWindowMax:/, ''))
+      if (Number.isFinite(value) && value > 0) {
+        handleFusionConfigChange({ petControlWindowMax: value })
+      }
+      return
+    }
+
     if (payload.action === 'fusionPetDisplayReset') {
       if (tab.viewType !== 'PETCTFusion') {
         return
       }
-      handleFusionConfigChange({ pseudocolorPreset: 'petct-rainbow' })
-      handleFusionConfigChange({ petUnit: 'SUVbw' })
+      const preferredUnit = ['SUVbw', 'SUL', 'SUVbsa', 'kBqml', 'source']
+        .find((unit) => tab.petInfo?.unitOptions?.some((option) => option.unit === unit && option.available))
+        ?? tab.petInfo?.petUnit
+        ?? tab.fusionInfo?.petUnit
+        ?? 'source'
+      handleFusionConfigChange({ pseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET })
       handleFusionConfigChange({
-        petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
-        petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+        petPanePseudocolorPreset: normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+      })
+      handleFusionConfigChange({ windowTarget: 'ct' })
+      handleFusionConfigChange({ petUnit: preferredUnit })
+      handleFusionConfigChange({
+        petWindowMin: tab.petInfo?.autoWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN,
+        petWindowMax: tab.petInfo?.autoWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX
+      })
+      return
+    }
+
+    if (payload.action === 'petPseudocolor' && payload.value) {
+      if (!['PET', 'MPR', 'Montage', '3D', 'Layout', 'CompareStack'].includes(tab.viewType)) {
+        return
+      }
+      handlePetConfigChange({
+        pseudocolorPreset: payload.value.replace(/^petPseudocolor:/, '')
       })
       return
     }
 
     if (payload.action === 'petUnit' && payload.value) {
-      if (tab.viewType !== 'PET') {
+      if (!['PET', 'MPR', 'Montage', '3D', 'Layout', 'CompareStack'].includes(tab.viewType)) {
         return
       }
       handlePetConfigChange({ petUnit: payload.value.replace(/^petUnit:/, '') })
@@ -1392,7 +1553,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (payload.action === 'petWindow' && payload.value) {
-      if (tab.viewType !== 'PET') {
+      if ((tab.viewType !== 'PET' && tab.viewType !== 'MPR' && tab.viewType !== 'Montage' && tab.viewType !== '3D') || !tab.petInfo) {
         return
       }
       const [, maxValue] = payload.value.replace(/^petWindow:/, '').split(':')
@@ -1403,15 +1564,27 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'petControlWindowMax' && payload.value) {
+      const value = Number(payload.value.replace(/^petControlWindowMax:/, ''))
+      if (Number.isFinite(value) && value > 0) {
+        handlePetConfigChange({ petControlWindowMax: value })
+      }
+      return
+    }
+
     if (payload.action === 'petDisplayReset') {
-      if (tab.viewType !== 'PET') {
+      if ((tab.viewType !== 'PET' && tab.viewType !== 'MPR' && tab.viewType !== 'Montage' && tab.viewType !== '3D') || !tab.petInfo) {
         return
       }
+      const preferredUnit = ['SUVbw', 'SUL', 'SUVbsa', 'kBqml', 'source']
+        .find((unit) => tab.petInfo?.unitOptions?.some((option) => option.unit === unit && option.available))
+        ?? tab.petInfo.petUnit
+        ?? 'source'
       handlePetConfigChange({
-        pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
-        petUnit: 'SUVbw',
-        petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
-        petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX
+        pseudocolorPreset: normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value),
+        petUnit: preferredUnit,
+        petWindowMin: tab.petInfo.autoWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN,
+        petWindowMax: tab.petInfo.autoWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX
       })
       return
     }
@@ -1739,7 +1912,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           item.key === tab.key
             ? {
                 ...item,
-                mprSegmentationConfig: normalizedConfig
+                mprSegmentationConfig: normalizedConfig,
+                mprSegmentationPanelState: deriveMprSegmentationPanelState(normalizedConfig, item.mprSegmentationPanelState)
               }
             : item
         )
@@ -1753,31 +1927,39 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const actionType = payload.actionType === DRAG_ACTION_TYPES.move ? DRAG_ACTION_TYPES.move : DRAG_ACTION_TYPES.end
       const shouldShowSegmentationProgress =
         nextConfig.enabled && nextConfig.thresholdRegions.some((region) => region.enabled)
+      const shouldUpdateSegmentationProgress =
+        actionType === DRAG_ACTION_TYPES.end
 
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
               ...item,
-              viewportLoadingProgress: MPR_VIEWPORT_KEYS.reduce<Partial<Record<MprViewportKey, ViewProgressInfo | null>>>(
-                (progress, viewportKey) => {
-                  progress[viewportKey] = shouldShowSegmentationProgress
-                    ? {
-                        viewId,
-                        phase: 'render',
-                        progressPercent: null,
-                        message: null
-                      }
-                    : null
-                  return progress
-                },
-                {
-                  ...(item.viewportLoadingProgress ?? {})
-                }
-              ),
-              mprSegmentationConfig: nextConfig
+              viewportLoadingProgress: shouldUpdateSegmentationProgress
+                ? MPR_VIEWPORT_KEYS.reduce<Partial<Record<MprViewportKey, ViewProgressInfo | null>>>(
+                    (progress, viewportKey) => {
+                      progress[viewportKey] = shouldShowSegmentationProgress
+                        ? {
+                            viewId,
+                            phase: 'render',
+                            progressPercent: null,
+                            message: null
+                          }
+                        : null
+                      return progress
+                    },
+                    {
+                      ...(item.viewportLoadingProgress ?? {})
+                    }
+                  )
+                : item.viewportLoadingProgress,
+              mprSegmentationConfig: nextConfig,
+              mprSegmentationPanelState: deriveMprSegmentationPanelState(nextConfig, item.mprSegmentationPanelState)
             }
           : item
       )
+      if (actionType === DRAG_ACTION_TYPES.end && shouldShowSegmentationProgress) {
+        scheduleMprSegmentationStatsTimeout(tab.key, nextConfig)
+      }
 
       if (!nextConfig.enabled) {
         if (shouldEmitDisabled) {
@@ -1788,6 +1970,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
 
       emitMprSegmentationConfig(viewId, nextConfig, actionType)
+      return
+    }
+
+    if (payload.action === 'mprSegmentationPanelState' && payload.segmentationPanelState) {
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key || item.viewType !== 'MPR') {
+          return item
+        }
+        return {
+          ...item,
+          mprSegmentationPanelState: normalizeMprSegmentationPanelState(
+            payload.segmentationPanelState,
+            normalizeMprSegmentationPanelState(item.mprSegmentationPanelState)
+          )
+        }
+      })
       return
     }
 
@@ -2045,6 +2243,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.action === 'pseudocolor' && payload.value) {
       const presetKey = normalizePseudocolorPresetKey(payload.value)
+      const activeLayoutPetSlot = tab.viewType === 'Layout'
+        ? (tab.layoutSlots ?? []).find((slot) => slot.id === activeViewportKey.value && slot.petInfo)
+          ?? (tab.layoutSlots ?? []).find((slot) => slot.petInfo)
+        : null
+      const activeComparePetPane = tab.viewType === 'CompareStack'
+        ? (isCompareStackPaneKey(activeViewportKey.value) ? activeViewportKey.value : COMPARE_STACK_PANE_KEYS[0])
+        : null
+      if (tab.petInfo || activeLayoutPetSlot?.petInfo || (activeComparePetPane && tab.comparePetInfos?.[activeComparePetPane])) {
+        handlePetConfigChange({ pseudocolorPreset: presetKey })
+        return
+      }
       if (tab.viewType === 'Montage') {
         viewerTabs.value = viewerTabs.value.map((item) =>
           item.key === tab.key && item.viewType === 'Montage'
@@ -2121,10 +2330,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
       if (isMprLikeViewType(tab.viewType)) {
         const viewportKey = activeViewportKey.value as MprViewportKey
-        const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
+        const mprResetTargetViewIds = resolveMprResetOperationViewIds(tab, viewportKey)
+        const viewId = mprResetTargetViewIds[0] ?? ''
         if (!viewId) {
           return
         }
+        const petResetPreset = tab.petInfo
+          ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+          : null
+        const petResetUnit = tab.petInfo
+          ? (['SUVbw', 'SUL', 'SUVbsa', 'kBqml', 'source']
+              .find((unit) => tab.petInfo?.unitOptions?.some((option) => option.unit === unit && option.available))
+            ?? tab.petInfo.petUnit
+            ?? 'source')
+          : null
+        const petResetWindowMin = tab.petInfo?.autoWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN
+        const petResetWindowMax = tab.petInfo?.autoWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX
         viewInteractionOperationScheduler.cancel()
 
         viewerTabs.value = viewerTabs.value.map((item) => {
@@ -2134,23 +2355,42 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
           return {
             ...item,
-            mprCursor: null,
-            mprFrame: null,
+            mprCursor: item.mprCursor ?? null,
+            mprFrame: item.mprFrame ?? null,
             mprMipConfig: createDefaultMprMipConfig(),
             mprSegmentationConfig: createDefaultMprSegmentationConfig(),
+            mprSegmentationPanelState: createDefaultMprSegmentationPanelState(),
             mprCrosshairMode: 'orthogonal',
-            viewportCrosshairs: createEmptyMprCrosshairs(),
-            viewportScaleBars: createEmptyMprScaleBars(),
-            viewportOrientations: createEmptyMprOrientations(),
-            viewportTransformStates: {
+            pseudocolorPreset: item.petInfo
+              ? (petResetPreset ?? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value))
+              : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value),
+            petInfo: item.petInfo
+              ? {
+                  ...item.petInfo,
+                  pseudocolorPreset: petResetPreset ?? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value),
+                  ...(petResetUnit ? { petUnit: petResetUnit } : {}),
+                  petWindowMin: petResetWindowMin,
+                  petWindowMax: petResetWindowMax
+                }
+              : item.petInfo,
+            viewportCrosshairs: item.viewportCrosshairs ?? createEmptyMprCrosshairs(),
+            viewportScaleBars: item.viewportScaleBars ?? createEmptyMprScaleBars(),
+            viewportOrientations: item.viewportOrientations ?? createEmptyMprOrientations(),
+            viewportTransformStates: item.viewportTransformStates ?? {
               'mpr-ax': DEFAULT_VIEW_TRANSFORM,
               'mpr-cor': DEFAULT_VIEW_TRANSFORM,
               'mpr-sag': DEFAULT_VIEW_TRANSFORM
             },
             viewportPseudocolorPresets: {
-              'mpr-ax': DEFAULT_PSEUDOCOLOR_PRESET,
-              'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
-              'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
+              'mpr-ax': item.petInfo
+                ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+                : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value),
+              'mpr-cor': item.petInfo
+                ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+                : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value),
+              'mpr-sag': item.petInfo
+                ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+                : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value)
             }
           }
         })
@@ -2158,10 +2398,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           views.invalidateFourDMprState(tab.key)
         }
 
-        emitViewOperation({
-          viewId,
-          opType: VIEW_OPERATION_TYPES.reset,
-          subOpType: payload.action === 'resetAll' ? 'all' : 'view'
+        mprResetTargetViewIds.forEach((targetViewId) => {
+          emitViewOperation({
+            viewId: targetViewId,
+            opType: VIEW_OPERATION_TYPES.reset,
+            subOpType: payload.action === 'resetAll' ? 'all' : 'view',
+            ...(tab.viewType === 'MPR' && tab.petInfo && petResetPreset
+              ? {
+                  pseudocolorPreset: petResetPreset,
+                  ...(petResetUnit ? { petUnit: petResetUnit } : {}),
+                  petWindowMin: petResetWindowMin,
+                  petWindowMax: petResetWindowMax
+                }
+              : {})
+          })
         })
         return
       }
@@ -2194,10 +2444,22 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (isMprLikeViewType(tab.viewType)) {
       const viewportKey = activeViewportKey.value as MprViewportKey
-      const viewId = tab.viewportViewIds?.[viewportKey] ?? ''
+      const mprResetTargetViewIds = resolveMprResetOperationViewIds(tab, viewportKey)
+      const viewId = mprResetTargetViewIds[0] ?? ''
       if (!viewId) {
         return
       }
+      const petResetPreset = tab.petInfo
+        ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+        : null
+      const petResetUnit = tab.petInfo
+        ? (['SUVbw', 'SUL', 'SUVbsa', 'kBqml', 'source']
+            .find((unit) => tab.petInfo?.unitOptions?.some((option) => option.unit === unit && option.available))
+          ?? tab.petInfo.petUnit
+          ?? 'source')
+        : null
+      const petResetWindowMin = tab.petInfo?.autoWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN
+      const petResetWindowMax = tab.petInfo?.autoWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX
       viewInteractionOperationScheduler.cancel()
 
       viewerTabs.value = viewerTabs.value.map((item) => {
@@ -2207,29 +2469,58 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
         return {
           ...item,
-          mprCursor: null,
-          mprFrame: null,
+          mprCursor: item.mprCursor ?? null,
+          mprFrame: item.mprFrame ?? null,
           mprMipConfig: createDefaultMprMipConfig(),
           mprSegmentationConfig: createDefaultMprSegmentationConfig(),
-          viewportCrosshairs: createEmptyMprCrosshairs(),
-          viewportScaleBars: createEmptyMprScaleBars(),
-          viewportOrientations: createEmptyMprOrientations(),
-          viewportTransformStates: {
+          mprSegmentationPanelState: createDefaultMprSegmentationPanelState(),
+          pseudocolorPreset: item.petInfo
+            ? (petResetPreset ?? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value))
+            : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value),
+          petInfo: item.petInfo
+            ? {
+                ...item.petInfo,
+                pseudocolorPreset: petResetPreset ?? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value),
+                ...(petResetUnit ? { petUnit: petResetUnit } : {}),
+                petWindowMin: petResetWindowMin,
+                petWindowMax: petResetWindowMax
+              }
+            : item.petInfo,
+          viewportCrosshairs: item.viewportCrosshairs ?? createEmptyMprCrosshairs(),
+          viewportScaleBars: item.viewportScaleBars ?? createEmptyMprScaleBars(),
+          viewportOrientations: item.viewportOrientations ?? createEmptyMprOrientations(),
+          viewportTransformStates: item.viewportTransformStates ?? {
             'mpr-ax': DEFAULT_VIEW_TRANSFORM,
             'mpr-cor': DEFAULT_VIEW_TRANSFORM,
             'mpr-sag': DEFAULT_VIEW_TRANSFORM
           },
           viewportPseudocolorPresets: {
-            'mpr-ax': DEFAULT_PSEUDOCOLOR_PRESET,
-            'mpr-cor': DEFAULT_PSEUDOCOLOR_PRESET,
-            'mpr-sag': DEFAULT_PSEUDOCOLOR_PRESET
+            'mpr-ax': item.petInfo
+              ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+              : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value),
+            'mpr-cor': item.petInfo
+              ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+              : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value),
+            'mpr-sag': item.petInfo
+              ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+              : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value)
           }
         }
       })
 
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.reset
+      mprResetTargetViewIds.forEach((targetViewId) => {
+        emitViewOperation({
+          viewId: targetViewId,
+          opType: VIEW_OPERATION_TYPES.reset,
+          ...(tab.viewType === 'MPR' && tab.petInfo && petResetPreset
+            ? {
+                pseudocolorPreset: petResetPreset,
+                ...(petResetUnit ? { petUnit: petResetUnit } : {}),
+                petWindowMin: petResetWindowMin,
+                petWindowMax: petResetWindowMax
+              }
+            : {})
+        })
       })
       return
     }
@@ -2352,6 +2643,18 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
   function setActiveViewportKey(viewportKey: string): void {
     activeViewportKey.value = viewportKey
+    const tab = activeTab.value
+    if (tab?.viewType === 'CompareStack' && isCompareStackPaneKey(viewportKey)) {
+      const nextPetInfo = tab.comparePetInfos?.[viewportKey] ?? null
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key ? { ...item, petInfo: nextPetInfo } : item
+      )
+    } else if (tab?.viewType === 'Layout') {
+      const nextPetInfo = tab.layoutSlots?.find((slot) => slot.id === viewportKey)?.petInfo ?? null
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key ? { ...item, petInfo: nextPetInfo } : item
+      )
+    }
   }
 
   function getMprOperationContext(viewportKey: string): {
@@ -4107,56 +4410,169 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     petUnit?: string
     petWindowMin?: number
     petWindowMax?: number
+    petControlWindowMax?: number
   }): void {
     const tab = activeTab.value
-    if (!tab || tab.viewType !== 'PET') {
+    if (!tab || !['PET', 'MPR', 'Montage', '3D', 'Layout', 'CompareStack'].includes(tab.viewType)) {
       return
     }
-    const viewId = tab.viewId
-    if (!viewId) {
+    const layoutSlot = tab.viewType === 'Layout'
+      ? (tab.layoutSlots ?? []).find((slot) => slot.id === activeViewportKey.value && slot.viewId)
+        ?? (tab.layoutSlots ?? []).find((slot) => slot.viewId)
+      : null
+    const comparePaneKey = tab.viewType === 'CompareStack'
+      ? (isCompareStackPaneKey(activeViewportKey.value) ? activeViewportKey.value : COMPARE_STACK_PANE_KEYS[0])
+      : null
+    const activePetInfo = layoutSlot?.petInfo
+      ?? (comparePaneKey ? tab.comparePetInfos?.[comparePaneKey] : null)
+      ?? tab.petInfo
+    const activeViewId = tab.viewType === 'MPR'
+      ? getActiveMprOperationViewId(tab)
+      : layoutSlot?.viewId
+        ?? (comparePaneKey ? tab.compareViewIds?.[comparePaneKey] : null)
+        ?? tab.viewId
+    const targetViewIds = tab.viewType === 'MPR'
+      ? Object.values(tab.viewportViewIds ?? {}).filter((candidate): candidate is string => Boolean(candidate))
+      : activeViewId
+        ? [activeViewId]
+        : []
+    if (!activePetInfo) {
       return
     }
 
     const petUnit = payload.petUnit
+    const targetUnitOption = petUnit
+      ? activePetInfo.unitOptions?.find((option) => option.unit === petUnit && option.available)
+      : null
+    if (petUnit && !targetUnitOption) {
+      return
+    }
     const pseudocolorPreset = payload.pseudocolorPreset
       ? normalizePseudocolorPresetKey(payload.pseudocolorPreset)
       : null
+    const unitChanged = Boolean(petUnit && petUnit !== activePetInfo.petUnit)
+    const convertedUnitWindowMin = unitChanged && Number.isFinite(targetUnitOption?.autoWindowMin)
+      ? Number(targetUnitOption?.autoWindowMin)
+      : null
+    const convertedUnitWindowMax = unitChanged && Number.isFinite(targetUnitOption?.autoWindowMax)
+      ? Number(targetUnitOption?.autoWindowMax)
+      : null
+    const convertedUnitControlMax = unitChanged && Number.isFinite(targetUnitOption?.controlWindowMax)
+      ? Number(targetUnitOption?.controlWindowMax)
+      : null
     const petWindowMin = Number.isFinite(payload.petWindowMin)
       ? Number(payload.petWindowMin)
-      : (tab.petInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
+      : (convertedUnitWindowMin ?? activePetInfo.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
     const petWindowMax = Number.isFinite(payload.petWindowMax)
       ? Number(payload.petWindowMax)
-      : (tab.petInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+      : (convertedUnitWindowMax ?? activePetInfo.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+    const petControlWindowMax = Number.isFinite(payload.petControlWindowMax)
+      ? Number(payload.petControlWindowMax)
+      : (convertedUnitControlMax ?? activePetInfo.controlWindowMax)
+    const optimisticPetInfoPatch = {
+      ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
+      ...(petUnit
+        ? {
+            petUnit,
+            petUnitLabel: targetUnitOption?.label ?? petUnit,
+            ...(convertedUnitWindowMin != null ? { autoWindowMin: convertedUnitWindowMin } : {}),
+            ...(convertedUnitWindowMax != null ? { autoWindowMax: convertedUnitWindowMax } : {})
+          }
+        : {}),
+      ...(payload.petWindowMin != null || payload.petWindowMax != null || unitChanged
+        ? { petWindowMin, petWindowMax }
+        : {}),
+      ...(petControlWindowMax != null ? { controlWindowMax: petControlWindowMax } : {})
+    }
 
     viewerTabs.value = viewerTabs.value.map((item) =>
       item.key === tab.key
         ? {
             ...item,
-            petInfo: {
-              seriesId: item.seriesId,
-              ...(item.petInfo ?? {}),
-              ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
-              ...(petUnit ? { petUnit } : {}),
-              ...(payload.petWindowMin != null || payload.petWindowMax != null
-                ? { petWindowMin, petWindowMax }
-                : {})
-            },
-            ...(pseudocolorPreset ? { pseudocolorPreset } : {})
+            ...(item.viewType === 'Layout' && layoutSlot
+              ? {
+                  layoutSlots: (item.layoutSlots ?? []).map((slot) =>
+                    slot.id === layoutSlot.id && slot.petInfo
+                      ? {
+                          ...slot,
+                          petInfo: {
+                            ...slot.petInfo,
+                            ...optimisticPetInfoPatch
+                          },
+                          ...(pseudocolorPreset ? { pseudocolorPreset } : {})
+                        }
+                      : slot
+                  )
+                }
+              : item.viewType === 'CompareStack' && comparePaneKey
+                ? {
+                    comparePetInfos: {
+                      ...(item.comparePetInfos ?? {}),
+                      [comparePaneKey]: {
+                        ...activePetInfo,
+                        ...optimisticPetInfoPatch
+                      }
+                    },
+                    ...(pseudocolorPreset
+                      ? {
+                          comparePseudocolorPresets: {
+                            ...(item.comparePseudocolorPresets ?? {}),
+                            [comparePaneKey]: pseudocolorPreset
+                          }
+                        }
+                      : {})
+                  }
+                : {
+                    petInfo: {
+                      seriesId: item.seriesId,
+                      ...(item.petInfo ?? {}),
+                      ...optimisticPetInfoPatch
+                    }
+                  }),
+            ...(pseudocolorPreset && item.viewType !== 'Layout' && item.viewType !== 'CompareStack'
+              ? {
+                  pseudocolorPreset,
+                  ...(item.viewType === 'MPR'
+                    ? {
+                        viewportPseudocolorPresets: {
+                          'mpr-ax': pseudocolorPreset,
+                          'mpr-cor': pseudocolorPreset,
+                          'mpr-sag': pseudocolorPreset
+                        }
+                      }
+                    : {})
+                }
+              : {}),
+            ...(item.viewType === 'Montage' && (payload.petWindowMin != null || payload.petWindowMax != null || unitChanged)
+              ? {
+                  currentWindowInfo: {
+                    ww: Math.max(0.0001, petWindowMax - petWindowMin),
+                    wl: (petWindowMax + petWindowMin) / 2
+                  },
+                  windowLabel: `${targetUnitOption?.label ?? item.petInfo?.petUnitLabel ?? item.petInfo?.petUnit ?? 'PET'} ${petWindowMin.toFixed(2)}-${petWindowMax.toFixed(2)}`
+                }
+              : {})
           }
         : item
     )
 
-    emitViewOperation({
-      viewId,
-      opType: VIEW_OPERATION_TYPES.petConfig,
-      ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
-      ...(petUnit ? { petUnit } : {}),
-      ...(payload.petWindowMin != null || payload.petWindowMax != null
-        ? {
-            petWindowMin,
-            petWindowMax
-          }
-        : {})
+    if (!targetViewIds.length) {
+      return
+    }
+    targetViewIds.forEach((viewId) => {
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.petConfig,
+        ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
+        ...(petUnit ? { petUnit } : {}),
+        ...(payload.petWindowMin != null || payload.petWindowMax != null || unitChanged
+          ? {
+              petWindowMin,
+              petWindowMax
+            }
+          : {}),
+        ...(petControlWindowMax != null ? { petControlWindowMax } : {})
+      })
     })
   }
 
@@ -4166,6 +4582,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     petUnit?: string
     petWindowMin?: number
     petWindowMax?: number
+    petControlWindowMax?: number
+    petPanePseudocolorPreset?: string
+    windowTarget?: 'ct' | 'pet'
+    alpha?: number
     action?: 'reset' | 'save'
   }): void {
     const tab = activeTab.value
@@ -4190,6 +4610,69 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId,
         opType: VIEW_OPERATION_TYPES.fusionConfig,
         fusionManualRegistration: payload.manualRegistration
+      })
+      return
+    }
+
+    if (payload.petPanePseudocolorPreset) {
+      const presetKey = normalizePseudocolorPresetKey(payload.petPanePseudocolorPreset)
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              fusionInfo: item.fusionInfo
+                ? { ...item.fusionInfo, petPanePseudocolorPreset: presetKey }
+                : item.fusionInfo,
+              fusionPseudocolorPresets: {
+                ...(item.fusionPseudocolorPresets ?? {}),
+                [FUSION_PET_AXIAL_PANE_KEY]: presetKey,
+                [FUSION_PET_CORONAL_MIP_PANE_KEY]: presetKey
+              }
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionPetPanePseudocolorPreset: presetKey
+      })
+      return
+    }
+
+    if (payload.windowTarget) {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key && item.fusionInfo
+          ? { ...item, fusionInfo: { ...item.fusionInfo, fusionWindowTarget: payload.windowTarget } }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionWindowTarget: payload.windowTarget
+      })
+      return
+    }
+
+    if (payload.alpha != null && Number.isFinite(payload.alpha)) {
+      const alpha = Math.max(0, Math.min(1, Number(payload.alpha)))
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key && item.fusionInfo
+          ? {
+              ...item,
+              fusionInfo: { ...item.fusionInfo, alpha },
+              fusionComposites: Object.fromEntries(
+                Object.entries(item.fusionComposites ?? {}).map(([paneKey, composite]) => [
+                  paneKey,
+                  composite ? { ...composite, alpha } : composite
+                ])
+              )
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionAlpha: alpha
       })
       return
     }
@@ -4225,6 +4708,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.petUnit) {
       const petUnit = payload.petUnit
+      const unitOption = tab.petInfo?.unitOptions?.find((option) => option.unit === petUnit && option.available)
+      if (!unitOption) {
+        return
+      }
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
@@ -4242,6 +4729,31 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         viewId,
         opType: VIEW_OPERATION_TYPES.fusionConfig,
         fusionPetUnit: petUnit
+      })
+      return
+    }
+
+    if (payload.petControlWindowMax != null && Number.isFinite(payload.petControlWindowMax)) {
+      const petControlWindowMax = Math.max(0.000001, Number(payload.petControlWindowMax))
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? {
+              ...item,
+              ...(item.petInfo
+                ? {
+                    petInfo: {
+                      ...item.petInfo,
+                      controlWindowMax: petControlWindowMax
+                    }
+                  }
+                : {})
+            }
+          : item
+      )
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionPetControlWindowMax: petControlWindowMax
       })
       return
     }
@@ -5046,6 +5558,31 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     observedViewerStage = viewerStage.value
   }
 
+  watch(
+    () =>
+      viewerTabs.value.map((tab) => ({
+        key: tab.key,
+        revision: tab.mprSegmentationConfig?.clientRevision ?? 0,
+        complete:
+          tab.mprSegmentationConfig?.thresholdRegions
+            .filter((region) => region.enabled)
+            .every((region) => region.stats != null) ?? true
+      })),
+    (states) => {
+      for (const [timeoutKey, timeout] of mprSegmentationStatsTimeouts) {
+        const separatorIndex = timeoutKey.lastIndexOf(':')
+        const tabKey = timeoutKey.slice(0, separatorIndex)
+        const revision = Number(timeoutKey.slice(separatorIndex + 1))
+        const state = states.find((candidate) => candidate.key === tabKey)
+        if (!state || state.revision !== revision || state.complete) {
+          window.clearTimeout(timeout)
+          mprSegmentationStatsTimeouts.delete(timeoutKey)
+        }
+      }
+    },
+    { deep: true }
+  )
+
   onMounted(() => {
     removeBackendOriginChangedListener =
       window.viewerApi?.onBackendOriginChanged?.((origin) =>
@@ -5066,6 +5603,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     implicitDragInteractionIds.clear()
     wheelScrollAccumulatorByViewport.clear()
     viewInteractionOperationScheduler.cancel()
+    mprSegmentationStatsTimeouts.forEach((timeout) => window.clearTimeout(timeout))
+    mprSegmentationStatsTimeouts.clear()
     flushAllPendingVolumeConfig()
     flushAllPendingSurfaceConfig()
     clearActiveMprCrosshairDragLock()

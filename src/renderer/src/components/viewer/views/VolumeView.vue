@@ -101,6 +101,7 @@ function getLoadingLabel(): string {
       :alt="activeTab.viewType"
       :placeholder="viewerCopy.volumePlaceholder"
       :corner-info="activeTab.cornerInfo"
+      :pet-corner-info="Boolean(activeTab.petInfo)"
       :orientation="activeTab.orientation"
       :scale-bar="null"
       :show-corner-info="activeTab.showCornerInfo !== false"

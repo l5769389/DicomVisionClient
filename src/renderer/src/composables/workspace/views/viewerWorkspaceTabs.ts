@@ -24,7 +24,7 @@ import type {
   ViewType,
   WindowLevelInfo
 } from '../../../types/viewer'
-import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig, createDefaultVolumeRenderOptions } from '../../../types/viewer'
+import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig, createDefaultMprSegmentationPanelState, createDefaultVolumeRenderOptions } from '../../../types/viewer'
 import {
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
@@ -314,10 +314,12 @@ export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): Fusi
     ctSeriesId,
     petSeriesId,
     petPseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+    petPanePseudocolorPreset: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
     petUnit: 'SUVbw',
     petUnitLabel: 'g/ml (SUVbw)',
     petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
     petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
+    fusionWindowTarget: 'ct',
     alpha: 0.52,
     revision: 0,
     registration: {
@@ -332,11 +334,23 @@ export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): Fusi
 export function createDefaultPetInfo(seriesId = ''): PetInfo {
   return {
     seriesId,
+    sourceUnit: 'UNKNOWN',
+    sourceUnitLabel: 'Source',
     petUnit: 'SUVbw',
     petUnitLabel: 'g/ml (SUVbw)',
     petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
     petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
-    pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
+    autoWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
+    autoWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
+    pseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+    petPanePseudocolorPreset: DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+    fusionOverlayPseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+    unitOptions: [],
+    quantitative: false,
+    quantificationStatus: 'unsupported',
+    supportStatus: 'unsupported',
+    supportReason: 'PET quantitative metadata is still loading',
+    warnings: []
   }
 }
 
@@ -643,6 +657,14 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
     imageToCanvasMatrix.every((rowValue) => rowValue.every((entry) => Number.isFinite(entry)))
       ? imageToCanvasMatrix as [[number, number, number], [number, number, number], [number, number, number]]
       : null
+  const volumeBoundsValue = record.volumeBoundsWorld ?? record.volume_bounds_world
+  const volumeBoundsWorld = Array.isArray(volumeBoundsValue) && volumeBoundsValue.length === 8
+    ? volumeBoundsValue.map((point) => normalizeMprFrameAxisOrFallback(point, [Number.NaN, Number.NaN, Number.NaN]))
+    : null
+  const normalizedVolumeBoundsWorld =
+    volumeBoundsWorld && volumeBoundsWorld.every((point) => point.every((entry) => Number.isFinite(entry)))
+      ? volumeBoundsWorld as MprPlaneInfo['volumeBoundsWorld']
+      : null
 
   return {
     viewport: typeof record.viewport === 'string' ? record.viewport : '',
@@ -658,6 +680,7 @@ export function normalizeMprPlaneInfo(value: unknown): MprPlaneInfo | null {
       Number.isFinite(outputShape[0]) ? outputShape[0] : 0,
       Number.isFinite(outputShape[1]) ? outputShape[1] : 0
     ],
+    volumeBoundsWorld: normalizedVolumeBoundsWorld,
     row,
     col,
     normal,
@@ -819,6 +842,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     compareOrientations: createEmptyCompareOrientations(),
     compareTransformStates: createEmptyCompareTransformStates(),
     comparePseudocolorPresets: createEmptyComparePseudocolorPresets(),
+    comparePetInfos: {},
     fusionSeriesIds: { ctSeriesId: '', petSeriesId: '' },
     fusionViewIds: createEmptyFusionViewIds(),
     fusionImages: createEmptyFusionImages(),
@@ -837,7 +861,11 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionManualRegistration: false,
     fusionRegistrationDragActive: false,
     fusionRegistrationResetRevision: 0,
-    petInfo: viewType === 'PET' ? createDefaultPetInfo(series.seriesId) : null,
+    petInfo: (
+      viewType === 'PET' ||
+      ((viewType === 'Montage' || viewType === 'MPR' || viewType === '3D' || viewType === '4D') &&
+        ['PT', 'PET'].includes(String(series.modality ?? '').trim().toUpperCase()))
+    ) ? createDefaultPetInfo(series.seriesId) : null,
     ...createCompareSyncDefaults(),
     ...createLayoutSyncDefaults(),
     viewportViewIds: createEmptyMprViewIds(),
@@ -863,12 +891,17 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     transformState: createDefaultTransformInfo(),
     viewportTransformStates: createEmptyMprTransformStates(),
     scaleBar: null,
-    pseudocolorPreset: viewType === 'PET' ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET : DEFAULT_PSEUDOCOLOR_PRESET,
+    pseudocolorPreset: (
+      viewType === 'PET' ||
+      ((viewType === 'Montage' || viewType === 'MPR' || viewType === '3D') &&
+        ['PT', 'PET'].includes(String(series.modality ?? '').trim().toUpperCase()))
+    ) ? DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET : DEFAULT_PSEUDOCOLOR_PRESET,
     viewportPseudocolorPresets: createEmptyMprPseudocolorPresets(),
     viewportInitialWindowInfos: createEmptyMprInitialWindowInfos(),
     viewportCurrentWindowInfos: createEmptyMprCurrentWindowInfos(),
     mprMipConfig: createDefaultMprMipConfig(),
     mprSegmentationConfig: createDefaultMprSegmentationConfig(),
+    mprSegmentationPanelState: createDefaultMprSegmentationPanelState(),
     viewportSegmentationOverlays: createEmptyMprSegmentationOverlays(),
     mprCrosshairMode: 'orthogonal',
     volumePreset: undefined,

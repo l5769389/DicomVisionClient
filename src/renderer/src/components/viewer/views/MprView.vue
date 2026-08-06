@@ -158,6 +158,7 @@ const normalizedLayoutKey = computed<MprLayoutKey>(() => {
 
 const activeLayoutConfig = computed(() => MPR_LAYOUT_CONFIGS[normalizedLayoutKey.value])
 const viewportItems = computed(() => activeLayoutConfig.value.items)
+const isPetSegmentationContext = computed(() => props.activeTab.petInfo != null)
 
 const maximizedViewportKey = ref<MprDisplayViewportKey | null>(null)
 
@@ -559,11 +560,14 @@ watch(
       :mpr-segmentation-default-voi-color="props.mprSegmentationDefaultVoiColor"
       :mpr-segmentation-config="props.mprSegmentationConfig"
       :mpr-segmentation-overlay="getItemSegmentationOverlay(item)"
+      :mpr-segmentation-pet="isPetSegmentationContext"
+      :pet-corner-info="isPetSegmentationContext"
       :voi-editable="isItemSegmentationEditable(item)"
       :voi-oblique="isItemVoiOblique(item)"
       :scale-bar="getItemScaleBar(item)"
       :pseudocolor-preset="getItemPseudocolorPreset(item)"
       :pseudocolor-window-info="getItemPseudocolorWindowInfo(item)"
+      :pseudocolor-value-decimal-places="props.activeTab.petInfo ? 2 : null"
       :show-corner-info="props.activeTab.showCornerInfo !== false"
       :show-crosshair="props.activeTab.showCrosshair !== false"
       :show-scale-bar="item.kind !== 'volume' && props.activeTab.showScaleBar !== false"

@@ -181,10 +181,12 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  petPanePseudocolorPreset?: string
   petUnit?: string
   petUnitLabel?: string
   petWindowMin?: number | null
   petWindowMax?: number | null
+  fusionWindowTarget?: 'ct' | 'pet'
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
@@ -293,6 +295,15 @@ export interface MprFrameInfo {
   axisCol: [number, number, number]
 }
 
+export interface MprIntensityContext {
+  modality?: string
+  valueType?: string
+  unit?: string
+  label?: string
+  quantitative?: boolean
+  warnings?: string[]
+}
+
 export interface MprMipConfig {
   enabled?: boolean
   algorithm?: 'maximum' | 'minimum' | 'average' | 'sum'
@@ -314,6 +325,7 @@ export interface MprPlaneInfo {
   pixelSpacingColMm: number
   pixelSpacingNormalMm?: number
   outputShape: [number, number]
+  volumeBoundsWorld?: [[number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number]] | null
   row: [number, number, number]
   col: [number, number, number]
   normal: [number, number, number]
@@ -330,8 +342,11 @@ export interface MprSegmentationConfig {
   thresholdRegions?: MprThresholdRegion[]
   voiSpheres?: MprVoiSphere[]
   voiSphere?: MprVoiSphere | null
+  lowerValue?: number | null
+  upperValue?: number | null
   lowerHu?: number | null
   upperHu?: number | null
+  intensityContext?: MprIntensityContext
   opacity?: number
   color?: string
   voiBox?: MprSegmentationVoiBox | null
@@ -348,10 +363,27 @@ export interface MprSegmentationOverlayRect {
   yMax?: number
 }
 
+export interface MprSegmentationOverlayPoint {
+  x?: number
+  y?: number
+}
+
+export interface MprSegmentationOverlayWorldPoint {
+  x?: number
+  y?: number
+  z?: number
+}
+
 export interface MprSegmentationOverlayRegion {
   regionId: string
   visible?: boolean
   rect?: MprSegmentationOverlayRect | null
+  displayBox?: MprThresholdRegionBox | null
+  guidePoints?: MprSegmentationOverlayPoint[]
+  guideWorldPoints?: MprSegmentationOverlayWorldPoint[]
+  contourWorldPoints?: MprSegmentationOverlayWorldPoint[][]
+  guideAuthoritative?: boolean
+  guideIntersectsPlane?: boolean
   sampleRevision?: number
   samples?: MprSegmentationOverlaySamples | null
 }
@@ -375,9 +407,12 @@ export interface MprThresholdRegion {
   id: string
   enabled?: boolean
   label?: string
-  thresholdHu?: number
+  thresholdValue?: number | null
+  thresholdHu?: number | null
   thresholdMode?: string
+  thresholdPercentMax?: number | null
   thresholdPercentile?: number
+  componentMode?: 'all' | 'hotspotConnected'
   color?: string
   box: MprThresholdRegionBox
   stats?: MprThresholdRegionStats | null
@@ -395,6 +430,12 @@ export interface MprThresholdRegionBox {
 }
 
 export interface MprThresholdRegionStats {
+  status?: 'ready' | 'empty' | 'error'
+  message?: string | null
+  valueMean?: number | null
+  valueMin?: number | null
+  valueMax?: number | null
+  valueStdDev?: number | null
   huMean?: number | null
   huMin?: number | null
   huMax?: number | null
@@ -402,6 +443,14 @@ export interface MprThresholdRegionStats {
   volumeCm3?: number
   sampleCount?: number
   effectiveThresholdHu?: number | null
+  effectiveThresholdValue?: number | null
+  intensityContext?: MprIntensityContext
+  uptakePeak?: number | null
+  uptakePeakReason?: string | null
+  mtvCm3?: number | null
+  tlg?: number | null
+  tlgAvailable?: boolean
+  tlgReason?: string | null
 }
 
 export interface MprVoiSphere {
@@ -415,12 +464,17 @@ export interface MprVoiSphere {
 }
 
 export interface MprVoiSphereStats {
+  valueMean?: number | null
+  valueMin?: number | null
+  valueMax?: number | null
+  valueStdDev?: number | null
   huMean?: number | null
   huMin?: number | null
   huMax?: number | null
   huStdDev?: number | null
   volumeCm3?: number
   sampleCount?: number
+  intensityContext?: MprIntensityContext
 }
 
 export interface MtfCurvePointPayload {
@@ -646,11 +700,47 @@ export interface PacsWadoSeriesDownloadRequest {
 
 export interface PetInfo {
   seriesId: string
+  sourceUnit?: string
+  sourceUnitLabel?: string
   petUnit?: string
   petUnitLabel?: string
+  unitOptions?: PetUnitAvailability[]
+  quantitative?: boolean
+  quantificationStatus?: 'valid' | 'degraded' | 'unsupported' | 'quantitative' | 'source-only' | 'warning'
+  dicomUnits?: string | null
+  dicomSuvType?: string | null
+  mappingProvenance?: string | null
+  supportStatus?: 'static-supported' | 'unsupported'
+  supportReason?: string | null
+  photometricInterpretation?: string | null
+  warnings?: string[]
   petWindowMin?: number | null
   petWindowMax?: number | null
+  autoWindowMin?: number | null
+  autoWindowMax?: number | null
+  controlWindowMax?: number | null
+  rangeIsAutoSuggestion?: boolean
   pseudocolorPreset?: string
+  lutId?: string | null
+  lutVersion?: string | null
+  lutHash?: string | null
+  petPanePseudocolorPreset?: string | null
+  fusionOverlayPseudocolorPreset?: string | null
+  tracerName?: string | null
+  isFdg?: boolean
+}
+
+export interface PetUnitAvailability {
+  unit: string
+  label: string
+  available: boolean
+  reason?: string | null
+  provenance?: string | null
+  scale?: number | null
+  offset?: number | null
+  autoWindowMin?: number | null
+  autoWindowMax?: number | null
+  controlWindowMax?: number | null
 }
 
 export interface QaWaterAccuracyMetricsPayload {
@@ -910,11 +1000,15 @@ export interface ViewOperationRequest {
   fusionAlpha?: number | null
   fusionManualRegistration?: boolean | null
   fusionPetUnit?: string | null
+  fusionPetPanePseudocolorPreset?: string | null
+  fusionWindowTarget?: 'ct' | 'pet' | null
   fusionPetWindowMin?: number | null
   fusionPetWindowMax?: number | null
+  fusionPetControlWindowMax?: number | null
   petUnit?: string | null
   petWindowMin?: number | null
   petWindowMax?: number | null
+  petControlWindowMax?: number | null
   fusionRegistrationFile?: Record<string, unknown> | null
   mprMipConfig?: MprMipConfig | null
   mprSegmentationConfig?: MprSegmentationConfig | null

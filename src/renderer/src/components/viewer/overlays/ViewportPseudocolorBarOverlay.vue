@@ -10,11 +10,18 @@ const props = withDefaults(
     pseudocolorPreset?: string | null
     windowInfo?: WindowLevelInfo | null
     lightSurface?: boolean
+    /**
+     * PET quantitative ranges are commonly below one SUV.  Keep their scale
+     * endpoints stable (for example 0.00–0.08) instead of stripping the
+     * significant zeroes as we do for the general CT window overlay.
+     */
+    valueDecimalPlaces?: number | null
   }>(),
   {
     pseudocolorPreset: null,
     windowInfo: null,
-    lightSurface: false
+    lightSurface: false,
+    valueDecimalPlaces: null
   }
 )
 
@@ -22,7 +29,22 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
-function formatWindowValue(value: number): string {
+function formatWindowValue(value: number, decimalPlaces: number | null): string {
+  if (typeof decimalPlaces === 'number' && Number.isInteger(decimalPlaces) && decimalPlaces >= 0) {
+    return value.toFixed(decimalPlaces)
+  }
+  const magnitude = Math.abs(value)
+  if (magnitude === 0) {
+    return '0'
+  }
+  if (magnitude < 1) {
+    // PET SUVs commonly use sub-unit display ranges. Rounding these to an
+    // integer made both ends of a 0–0.07 range appear as "0".
+    return Number(value.toPrecision(3)).toString()
+  }
+  if (magnitude < 100) {
+    return Number(value.toFixed(2)).toString()
+  }
   return String(Math.round(value))
 }
 
@@ -57,15 +79,15 @@ const metrics = computed(() => {
     barStyle: {
       width: `${barWidth}px`,
       height: `${barHeight}px`,
-      background: getVerticalPseudocolorGradient(props.pseudocolorPreset)
+      '--viewport-pseudocolor-gradient': getVerticalPseudocolorGradient(props.pseudocolorPreset)
     },
-    bottomLabel: bottomValue == null ? '' : formatWindowValue(bottomValue),
+    bottomLabel: bottomValue == null ? '' : formatWindowValue(bottomValue, props.valueDecimalPlaces),
     bottomLabelStyle: labelStyle,
     containerStyle: {
       left: `${left}px`,
       top: `${top}px`
     },
-    topLabel: topValue == null ? '' : formatWindowValue(topValue),
+    topLabel: topValue == null ? '' : formatWindowValue(topValue, props.valueDecimalPlaces),
     topLabelStyle: labelStyle
   }
 })
@@ -78,7 +100,7 @@ const metrics = computed(() => {
     :style="metrics.containerStyle"
   >
     <div
-      class="rounded-[2px] shadow-[0_0_10px_rgba(0,0,0,0.4)]"
+      class="viewport-pseudocolor-bar rounded-[2px] shadow-[0_0_10px_rgba(0,0,0,0.4)]"
       :style="metrics.barStyle"
     ></div>
     <div
@@ -97,3 +119,9 @@ const metrics = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.viewport-pseudocolor-bar {
+  background: var(--viewport-pseudocolor-gradient);
+}
+</style>

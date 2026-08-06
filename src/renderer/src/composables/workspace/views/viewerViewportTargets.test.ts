@@ -6,8 +6,10 @@ import {
   resolveCompareOperationPaneKeys,
   resolveCompareOperationViewIds,
   resolveComparePaneKey,
+  resolveMprResetOperationViewIds,
   resolveOperationTargets,
   resolveMprViewportKey,
+  resolveRotate3dResetViewId,
   resolveViewIdForTabViewport,
   usesContinuousDragPreview
 } from './viewerViewportTargets'
@@ -99,6 +101,68 @@ describe('viewer viewport targets', () => {
     ])
   })
 
+  it('resolves MPR reset through only the active viewport view id', () => {
+    const tab = createTab({
+      viewType: 'MPR',
+      petInfo: {
+        seriesId: 'pet-series',
+        sourceUnit: 'GML',
+        sourceUnitLabel: 'SUVbw',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        unitOptions: [],
+        quantitative: true,
+        quantificationStatus: 'quantitative',
+        warnings: [],
+        petWindowMin: 0,
+        petWindowMax: 4.49,
+        autoWindowMin: 0,
+        autoWindowMax: 4.49,
+        pseudocolorPreset: 'hotiron'
+      },
+      viewportViewIds: {
+        'mpr-ax': 'axial-view',
+        'mpr-cor': 'coronal-view',
+        'mpr-sag': 'sagittal-view'
+      }
+    })
+
+    expect(resolveMprResetOperationViewIds(tab, 'mpr-cor')).toEqual(['coronal-view'])
+  })
+
+  it('resolves 3D rotation reset through an MPR child view instead of its volume parent', () => {
+    const mprTab = createTab({
+      viewType: 'MPR',
+      viewId: 'volume-view',
+      viewportViewIds: {
+        'mpr-ax': 'axial-view',
+        'mpr-cor': 'coronal-view',
+        'mpr-sag': 'sagittal-view'
+      }
+    })
+
+    expect(resolveRotate3dResetViewId(mprTab, 'mpr-cor')).toBe('coronal-view')
+    expect(resolveRotate3dResetViewId(mprTab, 'volume')).toBe('axial-view')
+    expect(
+      resolveRotate3dResetViewId(
+        {
+          ...mprTab,
+          viewType: '4D'
+        },
+        'mpr-sag'
+      )
+    ).toBe('sagittal-view')
+    expect(
+      resolveRotate3dResetViewId(
+        createTab({
+          viewType: '3D',
+          viewId: 'volume-view'
+        }),
+        'volume'
+      )
+    ).toBe('volume-view')
+  })
+
   it('orders compare operation targets from the active pane', () => {
     const tab = createTab({
       compareSyncScroll: true,
@@ -130,6 +194,27 @@ describe('viewer viewport targets', () => {
     })
 
     expect(resolveCompareOperationViewIds(tab, 'compare-b', VIEW_OPERATION_TYPES.scroll)).toEqual(['view-b'])
+  })
+
+  it('does not copy incompatible window or pseudocolor operations between CT and PET panes', () => {
+    const tab = createTab({
+      compareSyncWindow: true,
+      compareSyncPseudocolor: true,
+      compareSeriesModalities: {
+        'compare-a': 'CT',
+        'compare-b': 'PT'
+      },
+      compareViewIds: {
+        'compare-a': 'ct-view',
+        'compare-b': 'pet-view'
+      },
+      viewType: 'CompareStack'
+    })
+
+    expect(resolveCompareOperationViewIds(tab, 'compare-a', VIEW_OPERATION_TYPES.window)).toEqual(['ct-view'])
+    expect(resolveCompareOperationViewIds(tab, 'compare-b', VIEW_OPERATION_TYPES.window)).toEqual(['pet-view'])
+    expect(resolveCompareOperationViewIds(tab, 'compare-b', VIEW_OPERATION_TYPES.pseudocolor)).toEqual(['pet-view'])
+    expect(resolveCompareOperationViewIds(tab, 'compare-b', VIEW_OPERATION_TYPES.pan)).toEqual(['pet-view', 'ct-view'])
   })
 
   it('uses compare reset sync to decide whether reset targets one pane or both panes', () => {

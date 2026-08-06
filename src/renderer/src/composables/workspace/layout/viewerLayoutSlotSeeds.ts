@@ -99,7 +99,10 @@ async function createStackLayoutSeedSlot(
       currentWindowInfo: tab.currentWindowInfo ?? tab.initialWindowInfo ?? null,
       cornerInfo: tab.cornerInfo,
       orientation: tab.orientation,
-      scaleBar: tab.scaleBar ?? null
+      scaleBar: tab.scaleBar ?? null,
+      petInfo: tab.petInfo ?? null,
+      pseudocolorPreset: tab.pseudocolorPreset,
+      transformState: tab.transformState
     }),
     tab.imageSrc,
     cloneImageSrc
@@ -142,12 +145,14 @@ async function createCompareLayoutSeedSlots(
 ): Promise<ViewerLayoutSlot[]> {
   return await Promise.all(
     COMPARE_LAYOUT_PANE_KEYS.map(async (paneKey) => {
+      const modality = String(tab.compareSeriesModalities?.[paneKey] ?? '').trim().toUpperCase()
+      const viewType = modality === 'PT' || modality === 'PET' ? 'PET' : 'Stack'
       return await withClonedPreview(
         createSeedSlot({
           id: `seed-${paneKey}`,
           seriesId: tab.compareSeriesIds?.[paneKey] ?? null,
           seriesTitle: tab.compareSeriesTitles?.[paneKey] ?? null,
-          viewType: 'Stack',
+          viewType,
           sourceViewType: 'CompareStack',
           viewportKey: paneKey,
           viewId: tab.compareViewIds?.[paneKey] ?? null,
@@ -180,7 +185,7 @@ async function createLayoutSeedSlots(
   if (tab.viewType === 'MPR' || tab.viewType === '4D') {
     return await createMprLayoutSeedSlots(tab, cloneImageSrc)
   }
-  if (tab.viewType === 'Stack' || tab.viewType === '3D') {
+  if (tab.viewType === 'Stack' || tab.viewType === 'PET' || tab.viewType === '3D') {
     return [await createStackLayoutSeedSlot(tab, cloneImageSrc)]
   }
   if (tab.viewType === 'Layout') {

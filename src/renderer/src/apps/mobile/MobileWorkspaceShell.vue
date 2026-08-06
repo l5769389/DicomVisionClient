@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, useTemp
 import { STACK_OPERATION_PREFIX, VIEW_OPERATION_TYPES } from '@shared/viewerConstants'
 import AppIcon from '../../components/AppIcon.vue'
 import {
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   FUSION_PET_PSEUDOCOLOR_PRESET_OPTIONS,
   PSEUDOCOLOR_PRESET_OPTIONS,
   getFusionPetPseudocolorGradient,
@@ -1233,7 +1234,7 @@ const fusionCandidateSeries = computed(() => getFusionCandidatesForSeries(fusion
 const activeFusionPseudocolorKey = computed(() => (
   activeFusionTab.value?.fusionInfo?.petPseudocolorPreset ??
   activeFusionTab.value?.fusionPseudocolorPresets?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ??
-  'petct-rainbow'
+  DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
 ))
 const activeMprSegmentationConfig = computed<MprSegmentationConfig>(() =>
   activeMprTab.value?.mprSegmentationConfig ?? createDefaultMprSegmentationConfig()
@@ -4868,6 +4869,7 @@ onBeforeUnmount(() => {
               :config="activeMprSegmentationConfig"
               :series-id="activeMprTab.seriesId"
               :series-label="activeMprTab.title"
+              :pet-info="activeMprTab.petInfo ?? null"
               @close="closeSheet"
               @config-change="handleMprSegmentationConfigChange"
               @mode-change="handleMprSegmentationModeChange"

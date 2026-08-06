@@ -30,6 +30,7 @@ export interface ThresholdResizeHandlePoint {
 export interface ThresholdRegionProjection {
   rect: NormalizedImageRect
   clippedRect: NormalizedImageRect
+  contour: NormalizedImagePoint[]
   handles: ThresholdResizeHandlePoint[]
   intersectsPlane: boolean
   visible: boolean
@@ -378,13 +379,15 @@ export function createThresholdRegionFromImageRect(
     id: string
     label: string
     thresholdHu: number
+    thresholdValue?: number
     thresholdMode?: MprThresholdRegion['thresholdMode']
+    thresholdPercentMax?: number
     thresholdPercentile?: number
     color: string
     depthMm: number
   }
 ): MprThresholdRegion {
-  return {
+  const region: MprThresholdRegion = {
     id: options.id,
     enabled: true,
     label: options.label,
@@ -395,6 +398,13 @@ export function createThresholdRegionFromImageRect(
     box: buildThresholdRegionBoxFromImageRect(plane, viewportKey, rect, options.depthMm),
     stats: null
   }
+  if (options.thresholdValue !== undefined || options.thresholdMode === 'absolute' || options.thresholdMode === 'percentMax') {
+    region.thresholdValue = options.thresholdValue ?? options.thresholdHu
+  }
+  if (options.thresholdPercentMax !== undefined || options.thresholdMode === 'percentMax') {
+    region.thresholdPercentMax = options.thresholdPercentMax ?? 40
+  }
+  return region
 }
 
 function getBoxCorners(box: MprThresholdRegionBox): Vec3[] {
@@ -433,7 +443,7 @@ function dedupeWorldPoints(points: Vec3[]): Vec3[] {
   return result
 }
 
-function getBoxPlaneIntersectionPoints(box: MprThresholdRegionBox, plane: MprPlaneInfo): Vec3[] {
+export function getThresholdRegionBoxPlaneIntersectionPoints(box: MprThresholdRegionBox, plane: MprPlaneInfo): Vec3[] {
   const corners = getBoxCorners(box)
   const normal = plane.normalWorld as Vec3
   const center = plane.centerWorld as Vec3
@@ -518,8 +528,130 @@ function buildRectFromPoints(points: NormalizedImagePoint[]): NormalizedImageRec
   }
 }
 
+function orderContourPoints(points: NormalizedImagePoint[]): NormalizedImagePoint[] {
+  if (points.length < 3) {
+    return points
+  }
+  const center = points.reduce(
+    (result, point) => ({
+      x: result.x + point.x / points.length,
+      y: result.y + point.y / points.length
+    }),
+    { x: 0, y: 0 }
+  )
+  return [...points].sort(
+    (left, right) =>
+      Math.atan2(left.y - center.y, left.x - center.x) -
+      Math.atan2(right.y - center.y, right.x - center.x)
+  )
+}
+
+function convexHull(points: NormalizedImagePoint[]): NormalizedImagePoint[] {
+  const uniquePoints = [...new Map(
+    points.map((point) => [`${point.x.toFixed(8)}:${point.y.toFixed(8)}`, point] as const)
+  ).values()]
+  if (uniquePoints.length < 3) {
+    return uniquePoints
+  }
+  const sorted = [...uniquePoints].sort((left, right) => left.x - right.x || left.y - right.y)
+  const cross = (
+    origin: NormalizedImagePoint,
+    left: NormalizedImagePoint,
+    right: NormalizedImagePoint
+  ): number =>
+    (left.x - origin.x) * (right.y - origin.y) -
+    (left.y - origin.y) * (right.x - origin.x)
+  const buildHalf = (candidates: NormalizedImagePoint[]): NormalizedImagePoint[] => {
+    const half: NormalizedImagePoint[] = []
+    for (const point of candidates) {
+      while (half.length >= 2 && cross(half[half.length - 2]!, half[half.length - 1]!, point) <= 0) {
+        half.pop()
+      }
+      half.push(point)
+    }
+    return half
+  }
+  const lower = buildHalf(sorted)
+  const upper = buildHalf([...sorted].reverse())
+  lower.pop()
+  upper.pop()
+  return [...lower, ...upper]
+}
+
 function rectOverlapsImage(rect: NormalizedImageRect): boolean {
   return rect.xMax >= 0 && rect.xMin <= 1 && rect.yMax >= 0 && rect.yMin <= 1
+}
+
+export function clipPolygonToUnitRect(points: NormalizedImagePoint[]): NormalizedImagePoint[] {
+  type Boundary = {
+    inside: (point: NormalizedImagePoint) => boolean
+    intersection: (
+      start: NormalizedImagePoint,
+      end: NormalizedImagePoint
+    ) => NormalizedImagePoint
+  }
+
+  const boundaries: Boundary[] = [
+    {
+      inside: (point) => point.x >= 0,
+      intersection: (start, end) => {
+        const ratio = (0 - start.x) / (end.x - start.x)
+        return { x: 0, y: start.y + ratio * (end.y - start.y) }
+      }
+    },
+    {
+      inside: (point) => point.x <= 1,
+      intersection: (start, end) => {
+        const ratio = (1 - start.x) / (end.x - start.x)
+        return { x: 1, y: start.y + ratio * (end.y - start.y) }
+      }
+    },
+    {
+      inside: (point) => point.y >= 0,
+      intersection: (start, end) => {
+        const ratio = (0 - start.y) / (end.y - start.y)
+        return { x: start.x + ratio * (end.x - start.x), y: 0 }
+      }
+    },
+    {
+      inside: (point) => point.y <= 1,
+      intersection: (start, end) => {
+        const ratio = (1 - start.y) / (end.y - start.y)
+        return { x: start.x + ratio * (end.x - start.x), y: 1 }
+      }
+    }
+  ]
+
+  let clipped = points.filter(
+    (point) => Number.isFinite(point.x) && Number.isFinite(point.y)
+  )
+  for (const boundary of boundaries) {
+    if (clipped.length === 0) {
+      break
+    }
+    const input = clipped
+    clipped = []
+    let start = input[input.length - 1]!
+    for (const end of input) {
+      const startInside = boundary.inside(start)
+      const endInside = boundary.inside(end)
+      if (endInside) {
+        if (!startInside) {
+          clipped.push(boundary.intersection(start, end))
+        }
+        clipped.push(end)
+      } else if (startInside) {
+        clipped.push(boundary.intersection(start, end))
+      }
+      start = end
+    }
+  }
+
+  const deduplicated = clipped.filter((point, index, candidates) => {
+    const previous = candidates[(index + candidates.length - 1) % candidates.length]
+    return !previous || Math.abs(point.x - previous.x) > 1e-7 || Math.abs(point.y - previous.y) > 1e-7
+  })
+  return deduplicated.length >= 3 ? deduplicated : []
 }
 
 export function projectThresholdRegionBoxToPlane(
@@ -534,7 +666,7 @@ export function projectThresholdRegionBoxToPlane(
   const distanceToPlaneMm = dotVec3(delta, plane.normalWorld as Vec3)
   const intersectsPlane = Math.abs(distanceToPlaneMm) <= halfPlaneNormalExtentMm + 1e-6
   const projectionPoints = intersectsPlane
-    ? getBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToNormalizedImage(plane, point))
+    ? getThresholdRegionBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToNormalizedImage(plane, point))
     : getBoxCorners(box).map((point) => worldPointToNormalizedImage(plane, point))
   const rect = buildRectFromPoints(projectionPoints)
   if (!rect) {
@@ -542,6 +674,7 @@ export function projectThresholdRegionBoxToPlane(
     return {
       rect: emptyRect,
       clippedRect: emptyRect,
+      contour: [],
       handles: [],
       intersectsPlane,
       visible: false
@@ -552,6 +685,7 @@ export function projectThresholdRegionBoxToPlane(
   return {
     rect,
     clippedRect,
+    contour: intersectsPlane ? orderContourPoints(projectionPoints) : convexHull(projectionPoints),
     handles: intersectsPlane ? buildRectHandlePoints(clippedRect) : [],
     intersectsPlane,
     visible: overlapsImage
@@ -572,7 +706,7 @@ export function projectThresholdRegionBoxToCanvasPlane(
     }
   }
   const projectionPoints = baseProjection.intersectsPlane
-    ? getBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
+    ? getThresholdRegionBoxPlaneIntersectionPoints(box, plane).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
     : getBoxCorners(box).map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
   const rect = buildRectFromPoints(projectionPoints)
   if (!rect) {
@@ -582,9 +716,16 @@ export function projectThresholdRegionBoxToCanvasPlane(
       visible: false
     }
   }
+  const contour = clipPolygonToUnitRect(
+    baseProjection.intersectsPlane
+      ? orderContourPoints(projectionPoints)
+      : convexHull(projectionPoints)
+  )
+  const clippedContourRect = buildRectFromPoints(contour)
   return {
     rect,
-    clippedRect: clipRect(rect),
+    clippedRect: clippedContourRect ?? clipRect(rect),
+    contour,
     handles: baseProjection.intersectsPlane
       ? baseProjection.handles.map(({ handle, point }) => ({
           handle,
@@ -592,7 +733,36 @@ export function projectThresholdRegionBoxToCanvasPlane(
         }))
       : [],
     intersectsPlane: baseProjection.intersectsPlane,
-    visible: rectOverlapsImage(rect)
+    visible: rectOverlapsImage(rect) && contour.length >= 3
+  }
+}
+
+export function projectWorldPointsToCanvasPlane(
+  worldPoints: Vec3[],
+  plane: MprPlaneInfo,
+  frame: RenderedCanvasFrame,
+  transform?: ViewTransformInfo | null,
+  intersectsPlane = true
+): ThresholdRegionProjection | null {
+  const projectedContour = worldPoints
+    .filter((point) => point.length === 3 && point.every((value) => Number.isFinite(Number(value))))
+    .map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
+  if (projectedContour.length < 3) {
+    return null
+  }
+  const rect = buildRectFromPoints(projectedContour)
+  if (!rect) {
+    return null
+  }
+  const contour = clipPolygonToUnitRect(projectedContour)
+  const clippedContourRect = buildRectFromPoints(contour)
+  return {
+    rect,
+    clippedRect: clippedContourRect ?? clipRect(rect),
+    contour,
+    handles: [],
+    intersectsPlane,
+    visible: rectOverlapsImage(rect) && contour.length >= 3
   }
 }
 

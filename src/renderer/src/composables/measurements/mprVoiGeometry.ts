@@ -737,27 +737,19 @@ export function projectThresholdRegionBoxToCanvasPlane(
   }
 }
 
-export function projectThresholdRegionGuideToCanvasPlane(
-  sourcePoints: NormalizedImagePoint[],
+export function projectWorldPointsToCanvasPlane(
+  worldPoints: Vec3[],
   plane: MprPlaneInfo,
   frame: RenderedCanvasFrame,
   transform?: ViewTransformInfo | null,
   intersectsPlane = true
 ): ThresholdRegionProjection | null {
-  if (!intersectsPlane) {
+  const projectedContour = worldPoints
+    .filter((point) => point.length === 3 && point.every((value) => Number.isFinite(Number(value))))
+    .map((point) => worldPointToCanvasNormalized(plane, point, frame, transform))
+  if (projectedContour.length < 3) {
     return null
   }
-  const finitePoints = sourcePoints.filter(
-    (point) => Number.isFinite(point.x) && Number.isFinite(point.y)
-  )
-  if (finitePoints.length < 3) {
-    return null
-  }
-  const projectedContour = orderContourPoints(
-    finitePoints.map((point) =>
-      sourceImagePointToCanvasNormalized(plane, point, frame, transform)
-    )
-  )
   const rect = buildRectFromPoints(projectedContour)
   if (!rect) {
     return null

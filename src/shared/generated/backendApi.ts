@@ -378,8 +378,10 @@ export interface MprSegmentationOverlayRegion {
   regionId: string
   visible?: boolean
   rect?: MprSegmentationOverlayRect | null
+  displayBox?: MprThresholdRegionBox | null
   guidePoints?: MprSegmentationOverlayPoint[]
   guideWorldPoints?: MprSegmentationOverlayWorldPoint[]
+  contourWorldPoints?: MprSegmentationOverlayWorldPoint[][]
   guideAuthoritative?: boolean
   guideIntersectsPlane?: boolean
   sampleRevision?: number

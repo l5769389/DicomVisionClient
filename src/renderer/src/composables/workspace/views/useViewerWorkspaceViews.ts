@@ -569,8 +569,12 @@ function mergeMprSegmentationOverlaySamples(
   }
 }
 
-function hasMprSegmentationOverlaySamples(overlay: MprSegmentationOverlay | null | undefined): boolean {
-  return Boolean(overlay?.regions?.some((region) => region.samples?.points?.length))
+function hasMprSegmentationOverlayRenderablePayload(overlay: MprSegmentationOverlay | null | undefined): boolean {
+  return Boolean(overlay?.regions?.some((region) =>
+    Boolean(region.samples?.points?.length) ||
+    Boolean(region.guideWorldPoints?.length && region.guideWorldPoints.length >= 3) ||
+    Boolean(region.contourWorldPoints?.some((contour) => contour.length >= 3))
+  ))
 }
 
 interface CompareViewSizeUpdate {
@@ -1979,7 +1983,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const isStaleMprSegmentationPreview =
         mprSegmentationPayload != null &&
         isStaleMprSegmentationPreviewConfig(currentMprSegmentationConfig, incomingMprSegmentationConfig)
-      if (isStaleMprSegmentationPreview && (!hasMprSegmentationOverlayUpdate || !hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload))) {
+      if (isStaleMprSegmentationPreview && (!hasMprSegmentationOverlayUpdate || !hasMprSegmentationOverlayRenderablePayload(mprSegmentationOverlayPayload))) {
         return item
       }
       let incomingImageSrc: string | null = null
@@ -2036,7 +2040,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         hasMprSegmentationOverlayUpdate &&
         (
           mprSegmentationPayload == null ||
-          (isStaleMprSegmentationPreview && hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload)) ||
+          (isStaleMprSegmentationPreview && hasMprSegmentationOverlayRenderablePayload(mprSegmentationOverlayPayload)) ||
           incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
         )
       const mprCrosshairMode = allowGeometryUpdate
@@ -3012,7 +3016,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         hasMprSegmentationOverlayUpdate &&
         (
           mprSegmentationPayload == null ||
-          (isStaleMprSegmentationPreview && hasMprSegmentationOverlaySamples(mprSegmentationOverlayPayload)) ||
+          (isStaleMprSegmentationPreview && hasMprSegmentationOverlayRenderablePayload(mprSegmentationOverlayPayload)) ||
           incomingMprSegmentationConfig.clientRevision >= currentMprSegmentationConfig.clientRevision
         )
       const shouldClearMprSegmentationProgress =

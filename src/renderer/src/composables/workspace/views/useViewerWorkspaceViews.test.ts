@@ -1899,6 +1899,54 @@ describe('useViewerWorkspaceViews MPR segmentation preview updates', () => {
     expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.samples?.points).toEqual([1.5, 2.5, 512])
   })
 
+  it('accepts stale segmentation preview world guides before samples are available', () => {
+    const { viewerTabs, views } = createMprHarness()
+    const guideWorldPoints = [
+      { x: -1, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
+      { x: 1, y: 2, z: 0 },
+      { x: -1, y: 2, z: 0 }
+    ]
+
+    views.updateTabImage(
+      'mpr-tab',
+      {
+        viewId: 'mpr-ax-view',
+        imageFormat: 'png',
+        mprSegmentationConfig: {
+          enabled: true,
+          clientRevision: 3,
+          selectedRegionId: 'r1',
+          selectedVoi: false,
+          selectedVoiId: null,
+          thresholdRegions: [],
+          voiSpheres: [],
+          voiSphere: null
+        },
+        mprSegmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: true,
+              rect: null,
+              guideWorldPoints,
+              guideAuthoritative: true,
+              guideIntersectsPlane: true,
+              sampleRevision: 10
+            }
+          ]
+        }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]
+    expect(tab.mprSegmentationConfig?.clientRevision).toBe(4)
+    expect(tab.mprSegmentationConfig?.thresholdRegions).toHaveLength(1)
+    expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.guideWorldPoints).toEqual(guideWorldPoints)
+    expect(tab.viewportSegmentationOverlays?.['mpr-ax']?.regions[0]?.guideAuthoritative).toBe(true)
+  })
+
   it('preserves segmentation overlay samples when an image update has no segmentation payload', () => {
     let urlIndex = 0
     vi.stubGlobal('URL', {

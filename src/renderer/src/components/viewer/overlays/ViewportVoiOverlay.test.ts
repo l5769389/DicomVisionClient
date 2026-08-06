@@ -156,6 +156,14 @@ function createMixedConfig(): MprSegmentationConfig {
   }
 }
 
+function coronalWorldPointAtCanvas(x: number, y: number): { x: number; y: number; z: number } {
+  return {
+    x: y * 100 - 50,
+    y: 0,
+    z: x * 100 - 50
+  }
+}
+
 function createVoiConfig(selectedVoi = false, secondVoi = false): MprSegmentationConfig {
   const firstSphere = {
     id: 'v1',
@@ -254,22 +262,13 @@ describe('ViewportVoiOverlay', () => {
     expect(wrapper.find('ellipse[data-voi-id="v1"]').exists()).toBe(false)
   })
 
-  it('draws non-source threshold rects from the physical box intersection instead of backend mask bbox', () => {
+  it('uses the local physical box only while no backend overlay exists for the region', () => {
     const wrapper = mount(ViewportVoiOverlay, {
       props: {
         viewportKey: 'mpr-cor',
         config: createSegmentationConfig(),
         imageFrame: { left: 0, top: 0, width: 100, height: 100 },
-        mprPlane: coronalPlane,
-        segmentationOverlay: {
-          regions: [
-            {
-              regionId: 'r1',
-              visible: true,
-              rect: { xMin: 0.9, yMin: 0.9, xMax: 1, yMax: 1 }
-            }
-          ]
-        }
+        mprPlane: coronalPlane
       }
     })
 
@@ -280,7 +279,73 @@ describe('ViewportVoiOverlay', () => {
     expect(Number.parseFloat(regionRect.attributes('height') ?? '')).toBeCloseTo(20)
   })
 
-  it('uses authoritative backend guide points for the threshold envelope', () => {
+  it('uses backend world guide points for a stable editable threshold envelope', () => {
+    const config = createSegmentationConfig()
+    config.thresholdRegions[0] = {
+      ...config.thresholdRegions[0]!,
+      box: {
+        ...config.thresholdRegions[0]!.box,
+        sourceViewport: 'mpr-cor'
+      }
+    }
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config,
+        imageFrame: { left: 0, top: 0, width: 400, height: 300 },
+        mprPlane: coronalPlane,
+        segmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: true,
+              rect: null,
+              displayBox: {
+                centerWorld: [5, 0, 0],
+                rowWorld: [1, 0, 0],
+                colWorld: [0, 0, 1],
+                normalWorld: [0, 1, 0],
+                widthMm: 20,
+                heightMm: 30,
+                depthMm: 5,
+                sourceViewport: 'mpr-cor'
+              },
+              guideWorldPoints: [
+                coronalWorldPointAtCanvas(0.4, 0.4),
+                coronalWorldPointAtCanvas(0.6, 0.4),
+                coronalWorldPointAtCanvas(0.6, 0.7),
+                coronalWorldPointAtCanvas(0.4, 0.7)
+              ],
+              guideAuthoritative: false,
+              guideIntersectsPlane: true
+            }
+          ]
+        }
+      }
+    })
+
+    const guide = wrapper.find('polygon[data-region-id="r1"]')
+    expect(guide.exists()).toBe(true)
+    const polygonPoints = guide.attributes('points')!.split(' ').map((point) => {
+      const [x, y] = point.split(',').map(Number)
+      return { x, y }
+    })
+    expect(polygonPoints[0]!.x).toBeCloseTo(190)
+    expect(polygonPoints[0]!.y).toBeCloseTo(140)
+    expect(polygonPoints[2]!.x).toBeCloseTo(210)
+    expect(polygonPoints[2]!.y).toBeCloseTo(170)
+    const handles = wrapper.findAll('circle')
+    expect(handles).toHaveLength(4)
+    for (const [index, handle] of handles.entries()) {
+      expect(polygonPoints[index]!.x / 4).toBeCloseTo(Number.parseFloat(handle.attributes('cx')!))
+      expect(polygonPoints[index]!.y / 3).toBeCloseTo(Number.parseFloat(handle.attributes('cy')!))
+    }
+  })
+
+  it('uses authoritative backend world guide points for the threshold envelope', () => {
     const config = createSegmentationConfig()
     config.thresholdRegions[0] = {
       ...config.thresholdRegions[0]!,
@@ -304,11 +369,27 @@ describe('ViewportVoiOverlay', () => {
               regionId: 'r1',
               visible: true,
               rect: null,
+              displayBox: {
+                centerWorld: [5, 0, 0],
+                rowWorld: [1, 0, 0],
+                colWorld: [0, 0, 1],
+                normalWorld: [0, 1, 0],
+                widthMm: 20,
+                heightMm: 30,
+                depthMm: 5,
+                sourceViewport: 'mpr-cor'
+              },
               guidePoints: [
-                { x: 0.2, y: 0.2 },
-                { x: 0.8, y: 0.2 },
-                { x: 0.8, y: 0.6 },
-                { x: 0.2, y: 0.6 }
+                { x: 0.01, y: 0.01 },
+                { x: 0.08, y: 0.01 },
+                { x: 0.08, y: 0.06 },
+                { x: 0.01, y: 0.06 }
+              ],
+              guideWorldPoints: [
+                coronalWorldPointAtCanvas(0.4, 0.4),
+                coronalWorldPointAtCanvas(0.6, 0.4),
+                coronalWorldPointAtCanvas(0.6, 0.7),
+                coronalWorldPointAtCanvas(0.4, 0.7)
               ],
               guideAuthoritative: true,
               guideIntersectsPlane: true
@@ -320,9 +401,9 @@ describe('ViewportVoiOverlay', () => {
 
     const guide = wrapper.find('polygon[data-region-id="r1"]')
     expect(guide.exists()).toBe(true)
-    expect(guide.attributes('points')).toBe('20,20 80,20 80,60 20,60')
+    expect(guide.attributes('points')).toBe('40,40 60,40 60,70 40,70')
     expect(wrapper.find('rect[data-region-id="r1"]').exists()).toBe(false)
-    expect(wrapper.findAll('circle')).toHaveLength(0)
+    expect(wrapper.findAll('circle')).toHaveLength(4)
   })
 
   it('does not fall back to the physical rect when an authoritative guide has no contour', () => {
@@ -361,6 +442,50 @@ describe('ViewportVoiOverlay', () => {
     expect(wrapper.find('polygon[data-region-id="r1"]').exists()).toBe(false)
     expect(wrapper.find('rect[data-region-id="r1"]').exists()).toBe(false)
     expect(wrapper.findAll('circle')).toHaveLength(0)
+  })
+
+  it('renders non-intersecting authoritative backend world guide points as dashed', () => {
+    const config = createSegmentationConfig()
+    config.thresholdRegions[0] = {
+      ...config.thresholdRegions[0]!,
+      box: {
+        ...config.thresholdRegions[0]!.box,
+        sourceViewport: 'mpr-cor'
+      }
+    }
+    const wrapper = mount(ViewportVoiOverlay, {
+      props: {
+        activeOperation: 'segmentation:threshold',
+        editable: true,
+        isActive: true,
+        viewportKey: 'mpr-cor',
+        config,
+        imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+        mprPlane: coronalPlane,
+        segmentationOverlay: {
+          regions: [
+            {
+              regionId: 'r1',
+              visible: true,
+              rect: null,
+              guideWorldPoints: [
+                coronalWorldPointAtCanvas(0.3, 0.3),
+                coronalWorldPointAtCanvas(0.7, 0.3),
+                coronalWorldPointAtCanvas(0.7, 0.7),
+                coronalWorldPointAtCanvas(0.3, 0.7)
+              ],
+              guideAuthoritative: true,
+              guideIntersectsPlane: false
+            }
+          ]
+        }
+      }
+    })
+
+    const guide = wrapper.find('polygon[data-region-id="r1"]')
+    expect(guide.exists()).toBe(true)
+    expect(guide.attributes('points')).toBe('30,30 70,30 70,70 30,70')
+    expect(guide.attributes('stroke-dasharray')).toBe('4 4')
   })
 
   it('selects a VOI before exposing active viewport edit handles', async () => {
@@ -534,6 +659,14 @@ describe('ViewportVoiOverlay', () => {
                 regionId: 'r1',
                 visible: true,
                 rect: null,
+                guideWorldPoints: [
+                  coronalWorldPointAtCanvas(0.25, 0.4),
+                  coronalWorldPointAtCanvas(0.75, 0.4),
+                  coronalWorldPointAtCanvas(0.75, 0.6),
+                  coronalWorldPointAtCanvas(0.25, 0.6)
+                ],
+                guideAuthoritative: false,
+                guideIntersectsPlane: false,
                 sampleRevision: 1,
                 samples: {
                   points: [25.5, 45.5, 500],
@@ -547,8 +680,79 @@ describe('ViewportVoiOverlay', () => {
       })
       await wrapper.vm.$nextTick()
 
-      expect(wrapper.find('rect[data-region-id="r1"]').attributes('stroke-dasharray')).toBe('4 4')
+      expect(wrapper.find('polygon[data-region-id="r1"]').attributes('stroke-dasharray')).toBe('4 4')
       expect(fillRect).not.toHaveBeenCalled()
+    } finally {
+      getContext.mockRestore()
+      requestAnimationFrame.mockRestore()
+    }
+  })
+
+  it('draws threshold highlight from backend world contour points without samples', async () => {
+    const moveTo = vi.fn()
+    const quadraticCurveTo = vi.fn()
+    const fill = vi.fn()
+    const stroke = vi.fn()
+    const requestAnimationFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback): number => {
+        callback(0)
+        return 1
+      })
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({
+        ...createCanvasContextMock(),
+        moveTo,
+        quadraticCurveTo,
+        fill,
+        stroke
+      } as unknown as CanvasRenderingContext2D)
+
+    try {
+      const wrapper = mount(ViewportVoiOverlay, {
+        props: {
+          activeOperation: 'segmentation:threshold',
+          editable: true,
+          isActive: true,
+          viewportKey: 'mpr-cor',
+          config: createSegmentationConfig(),
+          imageFrame: { left: 0, top: 0, width: 100, height: 100 },
+          mprPlane: coronalPlane,
+          segmentationOverlay: {
+            regions: [
+              {
+                regionId: 'r1',
+                visible: true,
+                rect: null,
+                guideWorldPoints: [
+                  coronalWorldPointAtCanvas(0.2, 0.2),
+                  coronalWorldPointAtCanvas(0.8, 0.2),
+                  coronalWorldPointAtCanvas(0.8, 0.8),
+                  coronalWorldPointAtCanvas(0.2, 0.8)
+                ],
+                contourWorldPoints: [
+                  [
+                    coronalWorldPointAtCanvas(0.4, 0.4),
+                    coronalWorldPointAtCanvas(0.6, 0.4),
+                    coronalWorldPointAtCanvas(0.6, 0.6),
+                    coronalWorldPointAtCanvas(0.4, 0.6)
+                  ]
+                ],
+                guideAuthoritative: true,
+                guideIntersectsPlane: true
+              }
+            ]
+          }
+        }
+      })
+      await wrapper.vm.$nextTick()
+      await wrapper.vm.$nextTick()
+
+      expect(moveTo).toHaveBeenCalled()
+      expect(quadraticCurveTo).toHaveBeenCalled()
+      expect(fill).toHaveBeenCalledWith('evenodd')
+      expect(stroke).toHaveBeenCalled()
     } finally {
       getContext.mockRestore()
       requestAnimationFrame.mockRestore()

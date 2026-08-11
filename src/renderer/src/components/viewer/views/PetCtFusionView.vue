@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import type {
@@ -40,7 +41,13 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
-  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
+  fusionConfigChange: [payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    petUnit?: string
+    dismissFrameOfReferenceWarning?: boolean
+    action?: 'reset' | 'save'
+  }]
   fusionRegistrationDrag: [payload: {
     viewportKey: string
     phase: 'start' | 'move' | 'end'
@@ -223,6 +230,11 @@ const panes = computed<FusionPaneView[]>(() =>
 )
 
 const manualRegistrationEnabled = computed(() => props.activeTab.fusionManualRegistration === true)
+const frameOfReferenceWarningVisible = computed(() =>
+  props.activeTab.fusionInfo?.frameOfReferenceMatched === false &&
+  props.activeTab.fusionInfo.registration.saved !== true &&
+  props.activeTab.fusionFrameOfReferenceWarningDismissed !== true
+)
 const fusionRegistrationResetRevision = computed(() => props.activeTab.fusionRegistrationResetRevision ?? 0)
 const manualRegistrationHint = computed(() =>
   isZh.value
@@ -230,6 +242,18 @@ const manualRegistrationHint = computed(() =>
     : 'Registration mode · Left drag moves PET · Right drag rotates PET · Esc exits'
 )
 const loadingLabel = computed(() => (isZh.value ? '正在加载融合视图...' : 'Loading fusion view...'))
+const frameOfReferenceWarning = computed(() =>
+  isZh.value
+    ? 'CT 与 PET 坐标系不一致，请使用配准工具检查并保存配准。'
+    : 'CT and PET frames of reference differ. Review and save manual registration.'
+)
+const closeFrameOfReferenceWarningLabel = computed(() =>
+  isZh.value ? '关闭坐标系不匹配提示' : 'Dismiss frame of reference warning'
+)
+
+function dismissFrameOfReferenceWarning(): void {
+  emit('fusionConfigChange', { dismissFrameOfReferenceWarning: true })
+}
 const placeholderLabel = computed(() => (isZh.value ? 'PET/CT 融合预览' : 'PET/CT fusion preview'))
 const progressLabels = computed<Record<string, string>>(() => ({
   queued: isZh.value ? '准备渲染' : 'Preparing render',
@@ -656,7 +680,10 @@ function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
       src: petLayerSrc,
       alt: 'PET overlay',
       class: 'pet-ct-fusion-view__pet-layer',
-      style: getManualRegistrationPreviewStyle(paneKey)
+      style: {
+        ...getManualRegistrationPreviewStyle(paneKey),
+        opacity: String(Math.max(0, Math.min(1, Number(props.activeTab.fusionInfo?.alpha ?? 0.52))))
+      }
     }
   ]
 }
@@ -1163,6 +1190,23 @@ watch(
       {{ manualRegistrationHint }}
     </div>
     <div
+      v-if="frameOfReferenceWarningVisible && !manualRegistrationEnabled"
+      class="pet-ct-fusion-view__frame-warning"
+      data-testid="fusion-frame-of-reference-warning"
+    >
+      <span>{{ frameOfReferenceWarning }}</span>
+      <button
+        type="button"
+        class="pet-ct-fusion-view__frame-warning-close"
+        :aria-label="closeFrameOfReferenceWarningLabel"
+        :title="closeFrameOfReferenceWarningLabel"
+        data-testid="fusion-frame-of-reference-warning-close"
+        @click.stop="dismissFrameOfReferenceWarning"
+      >
+        <AppIcon name="close" :size="15" />
+      </button>
+    </div>
+    <div
       class="pet-ct-fusion-view__grid grid h-full min-h-0 grid-cols-2 grid-rows-2 gap-[3px]"
       :class="{ 'pet-ct-fusion-view__grid--expanded': expandedFusionPaneKey != null }"
     >
@@ -1294,6 +1338,48 @@ watch(
     0 0 0 1px rgba(0, 0, 0, 0.3),
     0 0 22px rgba(245, 158, 11, 0.18);
   pointer-events: none;
+}
+
+.pet-ct-fusion-view__frame-warning {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 34;
+  transform: translateX(-50%);
+  max-width: min(92%, 760px);
+  border: 1px solid rgba(245, 158, 11, 0.58);
+  border-radius: 6px;
+  background: rgba(48, 31, 8, 0.94);
+  color: #ffe8b3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+  pointer-events: auto;
+}
+
+.pet-ct-fusion-view__frame-warning-close {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: currentColor;
+}
+
+.pet-ct-fusion-view__frame-warning-close:hover,
+.pet-ct-fusion-view__frame-warning-close:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
 }
 
 .pet-ct-fusion-view__pane--active {

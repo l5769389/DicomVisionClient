@@ -181,12 +181,15 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  ctPseudocolorPreset?: string
   petPanePseudocolorPreset?: string
+  mipPseudocolorPreset?: string
   petUnit?: string
   petUnitLabel?: string
   petWindowMin?: number | null
   petWindowMax?: number | null
   fusionWindowTarget?: 'ct' | 'pet'
+  frameOfReferenceMatched?: boolean
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
@@ -997,6 +1000,7 @@ export interface ViewOperationRequest {
   ww?: number | null
   wl?: number | null
   pseudocolorPreset?: string | null
+  fusionPseudocolorTargets?: Array<'fusion-ct-ax' | 'fusion-pet-ax' | 'fusion-overlay-ax' | 'fusion-pet-cor-mip'> | null
   fusionAlpha?: number | null
   fusionManualRegistration?: boolean | null
   fusionPetUnit?: string | null

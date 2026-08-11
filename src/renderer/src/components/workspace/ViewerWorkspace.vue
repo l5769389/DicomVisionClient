@@ -182,7 +182,13 @@ const emit = defineEmits<{
     pivotY?: number
     rotationDeltaDegrees?: number
   }]
-  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
+  fusionConfigChange: [payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    petUnit?: string
+    dismissFrameOfReferenceWarning?: boolean
+    action?: 'reset' | 'save'
+  }]
   viewportWheel: [payload: number | { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
   windowControl: [control: 'minimize' | 'fullscreen' | 'close']
   viewportLayoutChange: [payload: { layoutKey: MprLayoutKey }]

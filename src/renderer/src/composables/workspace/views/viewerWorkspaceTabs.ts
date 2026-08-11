@@ -28,6 +28,7 @@ import { createDefaultMprMipConfig, createDefaultMprSegmentationConfig, createDe
 import {
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
+  DEFAULT_FUSION_PET_MIP_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
   DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET,
@@ -296,6 +297,9 @@ export function createEmptyFusionPseudocolorPresets(): Record<FusionPaneKey, str
     if (paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY) {
       return DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET
     }
+    if (paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY) {
+      return DEFAULT_FUSION_PET_MIP_PSEUDOCOLOR_PRESET
+    }
     return DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
   })
 }
@@ -314,12 +318,15 @@ export function createDefaultFusionInfo(ctSeriesId = '', petSeriesId = ''): Fusi
     ctSeriesId,
     petSeriesId,
     petPseudocolorPreset: DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
+    ctPseudocolorPreset: DEFAULT_PSEUDOCOLOR_PRESET,
     petPanePseudocolorPreset: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
+    mipPseudocolorPreset: DEFAULT_FUSION_PET_MIP_PSEUDOCOLOR_PRESET,
     petUnit: 'SUVbw',
     petUnitLabel: 'g/ml (SUVbw)',
     petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
     petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
     fusionWindowTarget: 'ct',
+    frameOfReferenceMatched: true,
     alpha: 0.52,
     revision: 0,
     registration: {
@@ -859,6 +866,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     fusionProjections: createEmptyFusionProjections(),
     fusionInfo: null,
     fusionManualRegistration: false,
+    fusionFrameOfReferenceWarningDismissed: false,
     fusionRegistrationDragActive: false,
     fusionRegistrationResetRevision: 0,
     petInfo: (

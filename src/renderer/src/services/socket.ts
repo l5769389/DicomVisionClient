@@ -115,6 +115,7 @@ export interface ViewOperationPayload {
   ww?: number
   wl?: number
   pseudocolorPreset?: string
+  fusionPseudocolorTargets?: Array<'fusion-ct-ax' | 'fusion-pet-ax' | 'fusion-overlay-ax' | 'fusion-pet-cor-mip'>
   mprMipConfig?: MprMipOperationConfig
   mprSegmentationConfig?: MprSegmentationOperationConfig
   mprCrosshairMode?: MprCrosshairMode

@@ -51,7 +51,8 @@ function createTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
         patientName: ['TEST PATIENT'],
         patientSummary: ['P001 / M / 042Y'],
         technique: ['120kV 30mA'],
-        sliceThickness: ['0.6mm']
+        sliceThickness: ['0.6mm'],
+        acquisitionDateTime: ['2026-07-23 10:00:00']
       }
     },
     orientation: { top: null, right: null, bottom: null, left: null, volumeQuaternion: null },
@@ -183,6 +184,36 @@ describe('MontageView', () => {
     expect(requestUrls[0]).toContain('wl=40')
     expect(requestUrls[0]).toContain('pseudocolorPreset=rainbow')
     expect(wrapper.find('[data-slice-index="0"] img').attributes('src')).toMatch(/^blob:montage-tile-/)
+  })
+
+  it('uses the PET quantitative range instead of a stale DICOM window for tile requests', async () => {
+    const wrapper = mountMontage('stack:window', {
+      currentWindowInfo: { ww: 25_800.74, wl: 12_899.87 },
+      petInfo: {
+        seriesId: 'series-1',
+        sourceUnit: 'BQML',
+        sourceUnitLabel: 'Source (BQML)',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 0.63,
+        pseudocolorPreset: 'blackbody',
+        unitOptions: [],
+        quantitative: true,
+        quantificationStatus: 'valid',
+        supportStatus: 'static-supported',
+        warnings: []
+      },
+      pseudocolorPreset: 'blackbody'
+    })
+
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(16))
+    const request = new URL(getTileRequests()[0]!)
+    expect(request.searchParams.get('ww')).toBe('0.63')
+    expect(request.searchParams.get('wl')).toBe('0.315')
+    expect(request.searchParams.get('petUnit')).toBe('SUVbw')
+    expect(wrapper.find('.montage-view__subtitle').text()).toContain('0.00–0.63')
+    expect(wrapper.find('.montage-view__subtitle').text()).not.toContain('25800')
   })
 
   it('renders and loads only the new visible rows after scrolling', async () => {
@@ -378,40 +409,22 @@ describe('MontageView', () => {
     expect(resetWrapper.emitted('stateChange')).toBeUndefined()
   })
 
-  it('keeps montage corner information in the shared header and expands only truncated lines', async () => {
+  it('keeps six important fields in the compact header and opens all information as an overlay', async () => {
     const wrapper = mountMontage()
 
     expect(wrapper.find('.montage-view__subtitle').text()).toContain('WW 400 / WL 40')
     expect(wrapper.find('.montage-view__subtitle').text()).toContain('Rainbow')
     expect(wrapper.find('.montage-view__subtitle').text()).not.toContain('1.00×')
     expect(wrapper.find('.montage-view__subtitle').text()).not.toContain('缩放')
-    expect(wrapper.find('.montage-view__common-info-label').text()).toBe('影像信息')
-    expect(wrapper.find('.montage-view__common-info').text()).toContain('SIEMENS / SOMATOM')
+    expect(wrapper.find('.montage-view__common-info-heading').text()).toBe('影像信息')
     expect(wrapper.find('.montage-view__common-info').text()).not.toContain('W: 400 L: 40')
-    const sliceThicknessLine = wrapper.findAll('.montage-view__common-info-line').find((line) => line.text() === '0.6mm')
-    expect(sliceThicknessLine?.attributes('data-tooltip')).toBe('层厚: 0.6mm')
-    Object.defineProperties(sliceThicknessLine?.element, {
-      clientWidth: { configurable: true, value: 40 },
-      scrollWidth: { configurable: true, value: 120 }
-    })
-    await sliceThicknessLine?.trigger('mouseenter', { clientX: 120, clientY: 40 })
-    expect(wrapper.find('.montage-view__tag-tooltip').text()).toBe('层厚: 0.6mm')
-    await sliceThicknessLine?.trigger('mouseleave')
+    expect(wrapper.find('.montage-view__common-info').text()).toContain('患者姓名')
+    expect(wrapper.find('.montage-view__common-info').text()).toContain('采集日期 / 时间')
+    expect(wrapper.find('.montage-view__common-info').text()).toContain('扫描参数 kV / mA')
+    expect(wrapper.findAll('.montage-view__common-info-line')).toHaveLength(6)
+    expect(wrapper.find('.montage-view__common-info-content').text()).not.toContain('SIEMENS / SOMATOM')
     expect(wrapper.find('.montage-view__tag-tooltip').exists()).toBe(false)
-
-    const modelLine = wrapper.findAll('.montage-view__common-info-line').find((line) => line.text() === 'SIEMENS / SOMATOM')
-    Object.defineProperties(modelLine?.element, {
-      clientWidth: { configurable: true, value: 180 },
-      scrollWidth: { configurable: true, value: 180 }
-    })
-    await modelLine?.trigger('mouseenter', { clientX: 120, clientY: 40 })
-    expect(wrapper.find('.montage-view__tag-tooltip').exists()).toBe(false)
-
-    await sliceThicknessLine?.trigger('click', { clientX: 120, clientY: 40 })
-    expect(wrapper.find('.montage-view__tag-tooltip').text()).toBe('层厚: 0.6mm')
-    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-    await wrapper.vm.$nextTick()
-    expect(wrapper.find('.montage-view__tag-tooltip').exists()).toBe(false)
+    expect(wrapper.find('.montage-view__common-info-panel').exists()).toBe(false)
     expect(wrapper.findAll('.montage-view__slice-info')).toHaveLength(0)
     const requestsBeforeHover = getCornerInfoRequests().length
     await wrapper.find('[data-slice-index="1"]').trigger('mouseenter')
@@ -427,6 +440,36 @@ describe('MontageView', () => {
       activeTab: createTab({ showCornerInfo: true })
     })
     expect(wrapper.find('.montage-view__common-info').text()).not.toContain('W: 400 L: 40')
+
+    await wrapper.find('.montage-view__common-info-toggle').trigger('click')
+    expect(wrapper.emitted('stateChange')).toContainEqual([{
+      tabKey: 'montage-series-1',
+      commonInfoExpanded: true
+    }])
+    await wrapper.setProps({
+      activeTab: createTab({ showCornerInfo: true, montageCommonInfoExpanded: true })
+    })
+    const panel = wrapper.get('.montage-view__common-info-panel')
+    expect(panel.text()).toContain('SIEMENS / SOMATOM')
+    expect(panel.text()).toContain('层厚')
+    expect(panel.element.parentElement).toBe(wrapper.get('.montage-view__common-info').element)
+    expect(window.getComputedStyle(panel.element).position).toBe('absolute')
+
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('stateChange')).toContainEqual([{
+      tabKey: 'montage-series-1',
+      commonInfoExpanded: false
+    }])
+
+    await wrapper.setProps({
+      activeTab: createTab({ showCornerInfo: true, montageCommonInfoExpanded: true })
+    })
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect((wrapper.emitted('stateChange') ?? []).filter(([payload]) =>
+      (payload as { commonInfoExpanded?: boolean }).commonInfoExpanded === false
+    )).toHaveLength(2)
   })
 
   it('applies one normalized pan/zoom transform to every loaded tile and suppresses drag activation', async () => {

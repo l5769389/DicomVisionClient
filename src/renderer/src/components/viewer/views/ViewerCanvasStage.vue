@@ -36,6 +36,7 @@ import ViewportPseudocolorBarOverlay from '../overlays/ViewportPseudocolorBarOve
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
+import ViewerPresentedImage from './ViewerPresentedImage.vue'
 import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import {
@@ -200,8 +201,6 @@ const emit = defineEmits<{
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const imageRef = ref<HTMLImageElement | null>(null)
-const displayedImageSrc = ref(props.imageSrc)
-const pendingImageSrc = ref<string | null>(null)
 const { viewerCopy } = useUiLocale()
 const stageSize = ref({
   width: 0,
@@ -314,7 +313,7 @@ const showWebRtcVideoPixels = computed(() =>
 )
 
 const hasImageContent = computed(() =>
-  Boolean(displayedImageSrc.value || props.imageSrc || (webRtcStream.value && hasPresentedWebRtcFrame.value)) ||
+  Boolean(props.imageSrc || (webRtcStream.value && hasPresentedWebRtcFrame.value)) ||
   props.imageLayers.some((layer) => Boolean(layer.src))
 )
 const isConnectingVolumeStream = computed(() =>
@@ -409,7 +408,7 @@ function getHoverImageRect(): DOMRect | null {
     return getContainedImageRect(video.getBoundingClientRect(), video.videoWidth, video.videoHeight)
   }
   const image = imageRef.value
-  if (image && displayedImageSrc.value) {
+  if (image && props.imageSrc) {
     return getRenderedImageRect(image)
   }
 
@@ -544,7 +543,7 @@ function updateStageMetricsNow(): void {
     return
   }
 
-  if (!image || !displayedImageSrc.value) {
+  if (!image || !props.imageSrc) {
     const fallbackFrame = getFallbackImageFrame(stageRect)
     if (hasImageContent.value && isValidImageFrame(fallbackFrame)) {
       commitImageFrame(fallbackFrame)
@@ -641,43 +640,16 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleStageMetricsUpdate)
 })
 
-function handlePendingImageLoad(event: Event): void {
-  const image = event.currentTarget as HTMLImageElement | null
-  const loadedSrc = image?.getAttribute('src') ?? ''
-  if (!loadedSrc || loadedSrc !== pendingImageSrc.value || loadedSrc !== props.imageSrc) {
-    return
-  }
-  displayedImageSrc.value = loadedSrc
-  pendingImageSrc.value = null
+function handlePresentedImage(image: HTMLImageElement): void {
+  imageRef.value = image
+  scheduleStageMetricsUpdate()
+  emit('imageLoaded', props.viewportKey)
 }
 
-function handlePendingImageError(event: Event): void {
-  const image = event.currentTarget as HTMLImageElement | null
-  if (image?.getAttribute('src') === pendingImageSrc.value) {
-    pendingImageSrc.value = null
-  }
+function handlePresentedImageElement(image: HTMLImageElement): void {
+  imageRef.value = image
+  scheduleStageMetricsUpdate()
 }
-
-watch(
-  () => props.imageSrc,
-  (nextImageSrc) => {
-    if (!nextImageSrc) {
-      pendingImageSrc.value = null
-      displayedImageSrc.value = ''
-      return
-    }
-    if (!displayedImageSrc.value) {
-      displayedImageSrc.value = nextImageSrc
-      pendingImageSrc.value = null
-      return
-    }
-    if (nextImageSrc === displayedImageSrc.value) {
-      pendingImageSrc.value = null
-      return
-    }
-    pendingImageSrc.value = nextImageSrc
-  }
-)
 
 let acquiredWebRtcViewId: string | null = null
 type FrameCallbackVideo = HTMLVideoElement & {
@@ -835,28 +807,18 @@ watch(
       :data-active-render-surface="renderSurfaceActive ? 'true' : 'false'"
       :data-viewport-key="viewportKey"
     >
-      <img
-        v-if="!webRtcStream && displayedImageSrc"
-        ref="imageRef"
-        class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
-        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
-        :src="displayedImageSrc"
+      <ViewerPresentedImage
+        v-if="!webRtcStream"
         :alt="alt"
-        :style="imageStyle"
-        draggable="false"
-        @dragstart.prevent
-        @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
-      />
-      <img
-        v-if="!webRtcStream && pendingImageSrc"
-        :key="pendingImageSrc"
-        class="viewer-image-preload pointer-events-none absolute h-px w-px opacity-0"
-        :src="pendingImageSrc"
-        alt=""
-        draggable="false"
-        aria-hidden="true"
-        @load="handlePendingImageLoad"
-        @error="handlePendingImageError"
+        :display-class="[
+          'viewer-image block h-full w-full select-none object-contain object-center pointer-events-none',
+          imageClass,
+          { 'opacity-[0.88] saturate-[0.9]': softImage }
+        ]"
+        :display-style="imageStyle"
+        :source="imageSrc"
+        @element-ready="handlePresentedImageElement"
+        @presented="handlePresentedImage"
       />
       <video
         v-if="webRtcStream"
@@ -876,29 +838,29 @@ watch(
         @loadedmetadata="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
         @resize="scheduleStageMetricsUpdate"
       />
-      <img
+      <ViewerPresentedImage
         v-if="showWebRtcStillFrame"
-        ref="imageRef"
-        class="viewer-image pointer-events-none absolute inset-0 z-[1] block h-full w-full select-none object-contain object-center"
-        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
-        :src="imageSrc"
         :alt="alt"
-        :style="imageStyle"
-        draggable="false"
-        @dragstart.prevent
-        @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
+        :display-class="[
+          'viewer-image pointer-events-none absolute inset-0 z-[1] block h-full w-full select-none object-contain object-center',
+          imageClass,
+          { 'opacity-[0.88] saturate-[0.9]': softImage }
+        ]"
+        :display-style="imageStyle"
+        :source="imageSrc"
+        @element-ready="handlePresentedImageElement"
+        @presented="handlePresentedImage"
       />
-      <img
+      <ViewerPresentedImage
         v-for="layer in imageLayers"
         :key="layer.key"
-        class="viewer-image viewer-image-layer pointer-events-none absolute inset-0 block h-full w-full select-none object-contain object-center"
-        :class="layer.class"
-        :src="layer.src"
         :alt="layer.alt ?? ''"
-        :style="layer.style"
-        draggable="false"
-        aria-hidden="true"
-        @dragstart.prevent
+        :display-class="[
+          'viewer-image viewer-image-layer pointer-events-none absolute inset-0 block h-full w-full select-none object-contain object-center',
+          layer.class
+        ]"
+        :display-style="layer.style"
+        :source="layer.src"
       />
       <ViewportCrosshairOverlay
         v-if="shouldShowCrosshair"

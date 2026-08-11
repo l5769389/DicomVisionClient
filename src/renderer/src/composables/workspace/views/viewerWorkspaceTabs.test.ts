@@ -31,13 +31,13 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
     expect(resolveFusionPaneSeriesId(FUSION_OVERLAY_AXIAL_PANE_KEY, undefined, 'fallback')).toBe('fallback')
   })
 
-  it('uses HotIron for PET panes and the PET-CT overlay by default', () => {
+  it('uses BWInverse for PET panes and HotIron for the PET-CT overlay by default', () => {
     const presets = createEmptyFusionPseudocolorPresets()
 
     expect(presets[FUSION_CT_AXIAL_PANE_KEY]).toBe('bw')
-    expect(presets[FUSION_PET_AXIAL_PANE_KEY]).toBe('hotiron')
+    expect(presets[FUSION_PET_AXIAL_PANE_KEY]).toBe('bwinverse')
     expect(presets[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('hotiron')
-    expect(presets[FUSION_PET_CORONAL_MIP_PANE_KEY]).toBe('hotiron')
+    expect(presets[FUSION_PET_CORONAL_MIP_PANE_KEY]).toBe('bwinverse')
   })
 
   it('uses the fusion PET-only pseudocolor by default for standalone PET tabs', () => {

@@ -189,15 +189,23 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  ctPseudocolorPreset?: string
   petPanePseudocolorPreset?: string
+  mipPseudocolorPreset?: string
   petUnit?: string
   petUnitLabel?: string
   petWindowMin?: number | null
   petWindowMax?: number | null
   fusionWindowTarget?: 'ct' | 'pet'
+  frameOfReferenceMatched?: boolean
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
+}
+
+export interface FusionPendingAlpha {
+  value: number
+  baseRevision: number
 }
 
 export type ViewerImageTransportFormat = 'png' | 'jpeg' | 'webp'
@@ -1457,8 +1465,10 @@ export interface ViewerTabItem {
   fusionProjections?: Partial<Record<FusionPaneKey, FusionProjectionInfo | null>>
   fusionLoadingProgress?: Partial<Record<FusionPaneKey, ViewProgressInfo | null>>
   fusionInfo?: FusionInfo | null
+  fusionPendingAlpha?: FusionPendingAlpha | null
   petInfo?: PetInfo | null
   fusionManualRegistration?: boolean
+  fusionFrameOfReferenceWarningDismissed?: boolean
   fusionRegistrationDragActive?: boolean
   fusionRegistrationResetRevision?: number
   compareSyncScroll?: boolean

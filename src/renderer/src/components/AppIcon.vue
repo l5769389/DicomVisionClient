@@ -108,7 +108,7 @@ const props = defineProps<{
 const mdiIconMap: Record<string, string> = {
   pan: mdiCursorMove,
   zoom: mdiLoupe,
-  window: mdiContrastCircle,
+  'pet-intensity': mdiContrastCircle,
   crosshair: mdiCrosshairsGps,
   mip: mdiLayersTriple,
   segmentation: mdiSegment,
@@ -227,7 +227,8 @@ const orientationFaceLetter = computed(() => {
   }
   return null
 })
-const iconPath = computed(() => (bedIconName.value || renderModeLetter.value || orientationFaceLetter.value) ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
+const isWindowLevelIcon = computed(() => props.name === 'window')
+const iconPath = computed(() => (bedIconName.value || renderModeLetter.value || orientationFaceLetter.value || isWindowLevelIcon.value) ? '' : (mdiIconMap[props.name] ?? mdiHelpCircleOutline))
 const iconSize = computed(() => props.size ?? 20)
 </script>
 
@@ -241,8 +242,18 @@ const iconSize = computed(() => props.size ?? 20)
     focusable="false"
     aria-hidden="true"
   >
+    <g v-if="isWindowLevelIcon" class="app-icon-svg__window-level">
+      <defs>
+        <linearGradient id="app-icon-window-level-gradient" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#ffffff" />
+          <stop offset="1" stop-color="#6b7280" />
+        </linearGradient>
+      </defs>
+      <circle cx="12" cy="12" r="8.25" fill="url(#app-icon-window-level-gradient)" />
+      <circle cx="12" cy="12" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5" />
+    </g>
     <g
-      v-if="bedIconName"
+      v-else-if="bedIconName"
       class="app-icon-svg__line-icon"
       :data-bed-icon="bedIconName === 'remove-bed' ? 'bed-visible' : bedIconName"
     >

@@ -1,7 +1,8 @@
 export const DEFAULT_PSEUDOCOLOR_PRESET = 'bw'
 export const DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET = 'hotiron'
-export const DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET = 'hotiron'
-export const DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET = DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+export const DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET = 'bwinverse'
+export const DEFAULT_FUSION_PET_MIP_PSEUDOCOLOR_PRESET = 'bwinverse'
+export const DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET = 'hotiron'
 export const DEFAULT_FUSION_PET_WINDOW_MIN = 0
 // Only used while the authoritative PET metadata is loading. The server derives
 // the actual display suggestion from the current quantitative volume.

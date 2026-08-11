@@ -6,6 +6,7 @@ import LayoutMenuPanel from './LayoutMenuPanel.vue'
 import MprLayoutMenuPanel from './MprLayoutMenuPanel.vue'
 import PseudocolorBand from './PseudocolorBand.vue'
 import {
+  DEFAULT_FUSION_PET_MIP_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_PSEUDOCOLOR_PRESET,
   DEFAULT_FUSION_PET_WINDOW_MAX,
   DEFAULT_FUSION_PET_WINDOW_MIN,
@@ -22,7 +23,14 @@ import {
   normalizePseudocolorPresetKey,
   resolvePetRangeUpperLimit
 } from '../../../constants/pseudocolor'
-import type { DrawingScope, ViewerTabItem } from '../../../types/viewer'
+import type { DrawingScope, FusionPaneKey, ViewerTabItem } from '../../../types/viewer'
+import {
+  FUSION_CT_AXIAL_PANE_KEY,
+  FUSION_OVERLAY_AXIAL_PANE_KEY,
+  FUSION_PET_AXIAL_PANE_KEY,
+  FUSION_PET_CORONAL_MIP_PANE_KEY,
+  isFusionPaneKey
+} from '../../../composables/workspace/views/viewerWorkspaceTabs'
 import {
   isStackToolOptionSelected,
   resolveStackToolOptionSelectionMode,
@@ -64,6 +72,7 @@ const isEditingPetCurrentUpper = ref(false)
 // the debounced value has been sent to the renderer.  Formatting belongs to
 // display labels, not to an input that is still under the user's control.
 const hasPetCurrentUpperUserText = ref(false)
+const fusionPseudocolorTargets = ref<FusionPaneKey[]>([])
 const zoomSliderDraftValue = ref<number | null>(null)
 let zoomSliderTimer: ReturnType<typeof window.setTimeout> | null = null
 let pendingZoomSliderValue: number | null = null
@@ -137,14 +146,13 @@ const petDisplayCopy = computed(() => ({
   pseudocolor: isZh.value ? '伪彩' : 'Pseudocolor',
   panePseudocolor: isZh.value ? 'PET 独立窗格伪彩' : 'PET Pane Pseudocolor',
   overlayPseudocolor: isZh.value ? '融合覆盖层伪彩' : 'Fusion Overlay Pseudocolor',
-  windowTarget: isZh.value ? '融合调窗目标' : 'Fusion Window Target',
   currentDisplayUpper: isZh.value ? '当前显示上限' : 'Current Display Upper',
   upper: isZh.value ? '上限' : 'Upper',
   unit: isZh.value ? '单位' : 'Unit',
   reset: isZh.value ? '重置 PET 显示' : 'Reset PET Display',
   resetDesc: isZh.value ? '恢复 PET 强度范围和单位。' : 'Restore PET range and unit.',
   rangeMax: isZh.value ? '控制上限' : 'Control Upper Limit',
-  opacity: isZh.value ? 'PET 覆盖层透明度' : 'PET Overlay Opacity',
+  opacity: isZh.value ? 'PET 覆盖层透明度' : 'PET Overlay Transparency',
   warnings: isZh.value ? '定量提示' : 'Quantification Notes'
 }))
 
@@ -366,6 +374,23 @@ const petDisplayScope = computed(() =>
 const isStandalonePetDisplay = computed(() => props.activeTab.viewType !== 'PETCTFusion')
 const isFusionPanePetDisplay = computed(() => petDisplayScope.value === 'fusion-pane')
 const isFusionOverlayPetDisplay = computed(() => petDisplayScope.value === 'fusion-overlay')
+const isFusionPseudocolorDisplay = computed(() =>
+  props.activeTab.viewType === 'PETCTFusion' && props.tool.key === 'petPseudocolor'
+)
+const activeFusionPaneKey = computed<FusionPaneKey>(() => {
+  if (props.tool.fusionPaneKey && isFusionPaneKey(props.tool.fusionPaneKey)) {
+    return props.tool.fusionPaneKey
+  }
+  return isFusionPaneKey(props.activeTab.fusionInfo?.paneRole)
+    ? props.activeTab.fusionInfo.paneRole
+    : FUSION_OVERLAY_AXIAL_PANE_KEY
+})
+const fusionPseudocolorTargetOptions = computed(() => [
+  { key: FUSION_CT_AXIAL_PANE_KEY, label: 'CT' },
+  { key: FUSION_PET_AXIAL_PANE_KEY, label: 'PET' },
+  { key: FUSION_OVERLAY_AXIAL_PANE_KEY, label: isZh.value ? '融合' : 'Fusion' },
+  { key: FUSION_PET_CORONAL_MIP_PANE_KEY, label: 'MIP' }
+])
 const showsPetIntensity = computed(() => props.tool.key === 'petIntensity')
 const showsPetPseudocolor = computed(() => props.tool.key === 'petPseudocolor')
 const showsPetQuantification = computed(() => props.tool.key === 'petQuantification')
@@ -414,10 +439,32 @@ const selectedPetPanePseudocolor = computed(() =>
     DEFAULT_PET_STANDALONE_PSEUDOCOLOR_PRESET
   )
 )
+const selectedFusionPanePseudocolor = computed(() => {
+  const paneKey = activeFusionPaneKey.value
+  const stored = props.activeTab.fusionPseudocolorPresets?.[paneKey]
+  if (stored) {
+    return normalizePseudocolorPresetKey(stored)
+  }
+  if (paneKey === FUSION_CT_AXIAL_PANE_KEY) {
+    return normalizePseudocolorPresetKey(props.activeTab.fusionInfo?.ctPseudocolorPreset ?? 'bw')
+  }
+  if (paneKey === FUSION_PET_AXIAL_PANE_KEY) {
+    return normalizePseudocolorPresetKey(props.activeTab.fusionInfo?.petPanePseudocolorPreset ?? 'bwinverse')
+  }
+  if (paneKey === FUSION_PET_CORONAL_MIP_PANE_KEY) {
+    return normalizePseudocolorPresetKey(
+      props.activeTab.fusionInfo?.mipPseudocolorPreset ?? DEFAULT_FUSION_PET_MIP_PSEUDOCOLOR_PRESET
+    )
+  }
+  return normalizePseudocolorPresetKey(props.activeTab.fusionInfo?.petPseudocolorPreset ?? 'hotiron')
+})
 const selectedVisiblePetPseudocolor = computed(() =>
-  isFusionPanePetDisplay.value ? selectedPetPanePseudocolor.value : selectedPetPseudocolor.value
+  isFusionPseudocolorDisplay.value
+    ? selectedFusionPanePseudocolor.value
+    : isFusionPanePetDisplay.value
+      ? selectedPetPanePseudocolor.value
+      : selectedPetPseudocolor.value
 )
-const selectedFusionWindowTarget = computed(() => props.activeTab.fusionInfo?.fusionWindowTarget ?? 'ct')
 const fusionPetPanePseudocolorOptions = computed(() =>
   PSEUDOCOLOR_PRESET_OPTIONS
     .filter((option) => ['bw', 'bwinverse', 'hotiron', 'hotmetal', 'pet', 'rainbow', 'blackbody'].includes(option.key))
@@ -429,7 +476,16 @@ const fusionPetPanePseudocolorOptions = computed(() =>
     }))
 )
 const petPseudocolorOptions = computed(() =>
-  isStandalonePetDisplay.value
+  isFusionPseudocolorDisplay.value
+    ? PSEUDOCOLOR_PRESET_OPTIONS
+        .filter((option) => ['bw', 'bwinverse', 'hotiron', 'hotmetal', 'pet', 'rainbow', 'blackbody'].includes(option.key))
+        .map((option) => ({
+          value: `fusionPanePseudocolor:${option.key}`,
+          key: option.key,
+          label: option.label,
+          gradient: option.gradient
+        }))
+    : isStandalonePetDisplay.value
     ? PSEUDOCOLOR_PRESET_OPTIONS
         .filter((option) => ['bw', 'bwinverse', 'hotiron', 'hotmetal', 'pet', 'rainbow', 'blackbody'].includes(option.key))
         .map((option) => ({
@@ -453,7 +509,7 @@ const petRangeGradient = computed(() =>
     : getFusionPetPseudocolorGradient(selectedPetPseudocolor.value)
 )
 const fusionAlphaPercent = computed(() =>
-  Math.round(Math.max(0, Math.min(1, Number(props.activeTab.fusionInfo?.alpha ?? 0.52))) * 100)
+  Math.round((1 - Math.max(0, Math.min(1, Number(props.activeTab.fusionInfo?.alpha ?? 0.52)))) * 100)
 )
 const petQuantificationWarnings = computed(() => petDisplayInfo.value?.warnings ?? [])
 const petWindowMaxLabel = computed(() => petDraftWindowMax.value.toFixed(petDraftWindowMax.value < 10 ? 2 : 0))
@@ -591,13 +647,55 @@ function commitPetRangeUpperLimitInput(): void {
 }
 
 function selectPetPseudocolor(value: string): void {
+  if (isFusionPseudocolorDisplay.value) {
+    const preset = value.replace(/^fusionPanePseudocolor:/, '')
+    const targets = fusionPseudocolorTargets.value.length > 0
+      ? fusionPseudocolorTargets.value
+      : [activeFusionPaneKey.value]
+    emit('select', `fusionPanePseudocolor:${targets.join(',')}:${preset}`)
+    return
+  }
   emit('select', value)
 }
 
-function handleFusionAlphaInput(event: Event): void {
+function toggleFusionPseudocolorTarget(target: FusionPaneKey): void {
+  if (fusionPseudocolorTargets.value.includes(target)) {
+    if (fusionPseudocolorTargets.value.length > 1) {
+      fusionPseudocolorTargets.value = fusionPseudocolorTargets.value.filter((item) => item !== target)
+    }
+    return
+  }
+  fusionPseudocolorTargets.value = [...fusionPseudocolorTargets.value, target]
+}
+
+watch(
+  activeFusionPaneKey,
+  (paneKey) => {
+    fusionPseudocolorTargets.value = [paneKey]
+  },
+  { immediate: true }
+)
+
+function fusionAlphaSelectionFromTransparencyInput(event: Event, prefix: 'fusionAlpha' | 'fusionAlphaCommit'): string | null {
   const percent = Number((event.target as HTMLInputElement | null)?.value)
-  if (Number.isFinite(percent)) {
-    emit('select', `fusionAlpha:${Math.max(0, Math.min(100, percent)) / 100}`)
+  if (!Number.isFinite(percent)) {
+    return null
+  }
+  const transparency = Math.max(0, Math.min(100, percent)) / 100
+  return `${prefix}:${1 - transparency}`
+}
+
+function handleFusionAlphaInput(event: Event): void {
+  const selection = fusionAlphaSelectionFromTransparencyInput(event, 'fusionAlpha')
+  if (selection) {
+    emit('select', selection)
+  }
+}
+
+function handleFusionAlphaChange(event: Event): void {
+  const selection = fusionAlphaSelectionFromTransparencyInput(event, 'fusionAlphaCommit')
+  if (selection) {
+    emit('select', selection)
   }
 }
 
@@ -902,7 +1000,31 @@ onBeforeUnmount(() => {
         <div class="viewer-toolbar-dock-panel-content__pet-display-scroll">
           <section v-if="showsPetPseudocolor" class="viewer-toolbar-dock-panel-content__pet-section">
             <div class="viewer-toolbar-dock-panel-content__section-label">
-              {{ isFusionOverlayPetDisplay ? petDisplayCopy.overlayPseudocolor : petDisplayCopy.pseudocolor }}
+              {{ isFusionPseudocolorDisplay ? (isZh ? '伪彩' : 'Pseudocolor') : isFusionOverlayPetDisplay ? petDisplayCopy.overlayPseudocolor : petDisplayCopy.pseudocolor }}
+            </div>
+            <div
+              v-if="isFusionPseudocolorDisplay"
+              class="viewer-toolbar-dock-panel-content__fusion-target-block"
+            >
+              <div class="viewer-toolbar-dock-panel-content__section-label">
+                {{ isZh ? '应用到窗口' : 'Apply to' }}
+              </div>
+              <div class="viewer-toolbar-dock-panel-content__fusion-targets" aria-label="Pseudocolor targets">
+                <button
+                  v-for="target in fusionPseudocolorTargetOptions"
+                  :key="target.key"
+                  type="button"
+                  role="checkbox"
+                  :aria-checked="fusionPseudocolorTargets.includes(target.key)"
+                  class="viewer-toolbar-dock-panel-content__fusion-target"
+                  :class="{ 'viewer-toolbar-dock-panel-content__fusion-target--active': fusionPseudocolorTargets.includes(target.key) }"
+                  :data-testid="`fusion-pseudocolor-target-${target.key}`"
+                  @click="toggleFusionPseudocolorTarget(target.key)"
+                >
+                  <span>{{ target.label }}</span>
+                  <AppIcon v-if="fusionPseudocolorTargets.includes(target.key)" name="check" :size="13" />
+                </button>
+              </div>
             </div>
             <div class="viewer-toolbar-dock-panel-content__pet-pseudocolor-grid">
               <button
@@ -926,22 +1048,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-if="showsPetIntensity && isFusionOverlayPetDisplay" class="viewer-toolbar-dock-panel-content__pet-section">
-            <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.windowTarget }}</div>
-            <div class="viewer-toolbar-dock-panel-content__pet-unit-grid">
-              <button
-                v-for="target in ['ct', 'pet']"
-                :key="target"
-                type="button"
-                role="radio"
-                :aria-checked="selectedFusionWindowTarget === target"
-                class="viewer-toolbar-dock-panel-content__chip"
-                :class="{ 'viewer-toolbar-dock-panel-content__chip--active': selectedFusionWindowTarget === target }"
-                @click="emit('select', `fusionWindowTarget:${target}`)"
-              >
-                {{ target.toUpperCase() }}
-              </button>
-            </div>
-            <div class="viewer-toolbar-dock-panel-content__pet-section-header mt-3">
+            <div class="viewer-toolbar-dock-panel-content__pet-section-header">
               <div class="viewer-toolbar-dock-panel-content__section-label">{{ petDisplayCopy.opacity }}</div>
               <strong>{{ fusionAlphaPercent }}%</strong>
             </div>
@@ -954,6 +1061,7 @@ onBeforeUnmount(() => {
               :value="fusionAlphaPercent"
               :aria-label="petDisplayCopy.opacity"
               @input="handleFusionAlphaInput"
+              @change="handleFusionAlphaChange"
             />
           </section>
 
@@ -1761,6 +1869,39 @@ onBeforeUnmount(() => {
 .viewer-toolbar-dock-panel-content__pet-unit-grid {
   display: grid;
   gap: 7px;
+}
+
+.viewer-toolbar-dock-panel-content__fusion-targets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.viewer-toolbar-dock-panel-content__fusion-target-block {
+  display: grid;
+  gap: 7px;
+}
+
+.viewer-toolbar-dock-panel-content__fusion-target {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 60%, transparent);
+  padding: 6px 9px;
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.viewer-toolbar-dock-panel-content__fusion-target--active {
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface-card));
+  color: var(--theme-text-primary);
 }
 
 .viewer-toolbar-dock-panel-content__pet-pseudocolor-option {

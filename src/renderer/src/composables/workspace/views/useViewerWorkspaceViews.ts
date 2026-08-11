@@ -1004,8 +1004,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   async function emitInitialPetConfigOperation(
     viewId: string,
-    preset: string,
-    petInfo?: ViewerTabItem['petInfo'] | null
+    preset: string
   ): Promise<void> {
     const normalizedPreset = normalizePseudocolorPresetKey(preset)
     if (!viewId) {
@@ -1014,10 +1013,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     await emitViewOperationWithAck({
       viewId,
       opType: VIEW_OPERATION_TYPES.petConfig,
-      pseudocolorPreset: normalizedPreset,
-      petWindowMin: petInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN,
-      petWindowMax: petInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX,
-      petUnit: petInfo?.petUnit
+      pseudocolorPreset: normalizedPreset
     })
   }
 
@@ -2331,23 +2327,36 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
           item.fusionSeriesIds?.petSeriesId ?? ''
         )
         const rawFusionInfo = payload.fusionInfo ?? ((payload as { fusion_info?: unknown }).fusion_info ?? null)
-        const fusionInfo = normalizeFusionInfoPayload(rawFusionInfo, previousFusionInfo)
+        const incomingFusionInfo = normalizeFusionInfoPayload(rawFusionInfo, previousFusionInfo)
         const payloadRecord = payload as Record<string, unknown>
         const hasFusionProjectionPayload = 'fusionProjection' in payloadRecord || 'fusion_projection' in payloadRecord
         const rawFusionProjection = payload.fusionProjection ?? ((payload as { fusion_projection?: unknown }).fusion_projection ?? null)
         const fusionProjection = normalizeFusionProjectionInfo(rawFusionProjection)
         const rawFusionComposite = payload.fusionComposite ?? ((payload as { fusion_composite?: unknown }).fusion_composite ?? null)
-        const fusionComposite = normalizeFusionCompositeInfoPayload(rawFusionComposite, fusionInfo)
+        const incomingFusionComposite = normalizeFusionCompositeInfoPayload(rawFusionComposite, incomingFusionInfo)
         const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
         const fusionPetInfo = rawPetInfo
-          ? normalizePetInfoPayload(rawPetInfo, item.petInfo ?? createDefaultPetInfo(fusionInfo.petSeriesId))
+          ? normalizePetInfoPayload(rawPetInfo, item.petInfo ?? createDefaultPetInfo(incomingFusionInfo.petSeriesId))
           : item.petInfo ?? null
         const acceptedRevision = item.fusionInfo?.revision ?? null
-        const isStaleFusionImage = acceptedRevision != null && fusionInfo.revision < acceptedRevision
+        const isStaleFusionImage = acceptedRevision != null && incomingFusionInfo.revision < acceptedRevision
         if (isStaleFusionImage) {
           revokeIncomingImageSrcIfNeeded()
           return item
         }
+        const pendingFusionAlpha = item.fusionPendingAlpha ?? null
+        const pendingFusionAlphaConfirmed = pendingFusionAlpha != null &&
+          incomingFusionInfo.revision >= pendingFusionAlpha.baseRevision &&
+          Math.abs(incomingFusionInfo.alpha - pendingFusionAlpha.value) <= 1e-6
+        const nextPendingFusionAlpha = pendingFusionAlphaConfirmed ? null : pendingFusionAlpha
+        const displayedFusionAlpha = nextPendingFusionAlpha?.value ?? incomingFusionInfo.alpha
+        const fusionInfo = {
+          ...incomingFusionInfo,
+          alpha: displayedFusionAlpha
+        }
+        const fusionComposite = incomingFusionComposite
+          ? { ...incomingFusionComposite, alpha: displayedFusionAlpha }
+          : null
         const fusionSeriesId = resolveFusionPaneSeriesId(fusionViewportKey, item.fusionSeriesIds, item.seriesId)
         const fusionSeriesCornerInfo =
           options.seriesCornerInfoMap.value[fusionSeriesId] ??
@@ -2417,6 +2426,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         return withRenderRevision({
           ...item,
           fusionInfo,
+          fusionPendingAlpha: nextPendingFusionAlpha,
           petInfo: fusionPetInfo,
           fusionImages: {
             ...(item.fusionImages ?? createEmptyFusionImages()),
@@ -2872,10 +2882,18 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       const previousPetInfo = item.petInfo ?? createDefaultPetInfo(item.seriesId)
       const rawPetInfo = payload.petInfo ?? ((payload as { pet_info?: unknown }).pet_info ?? null)
       const hasPetInfoPayload = typeof rawPetInfo === 'object' && rawPetInfo != null
-      const normalizedPetInfo = (item.viewType === 'PET' || (item.viewType === '3D' && rawPetInfo))
+      const normalizedPetInfo = (
+        item.viewType === 'PET' ||
+        (item.viewType === 'Montage' && rawPetInfo) ||
+        (item.viewType === '3D' && rawPetInfo)
+      )
         ? normalizePetInfoPayload(rawPetInfo, previousPetInfo)
         : null
-      const singlePseudocolorPreset = (item.viewType === 'PET' || (item.viewType === '3D' && normalizedPetInfo))
+      const singlePseudocolorPreset = (
+        item.viewType === 'PET' ||
+        (item.viewType === 'Montage' && normalizedPetInfo) ||
+        (item.viewType === '3D' && normalizedPetInfo)
+      )
         ? normalizePseudocolorPresetKey(normalizedPetInfo?.pseudocolorPreset ?? pseudocolorPreset)
         : pseudocolorPreset
       const petInfo = normalizedPetInfo
@@ -3487,7 +3505,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : fallbackValue
     const paneRoleCandidate = record.paneRole ?? record.pane_role
     const petPresetCandidate = record.petPseudocolorPreset ?? record.pet_pseudocolor_preset
+    const ctPresetCandidate = record.ctPseudocolorPreset ?? record.ct_pseudocolor_preset
     const petPanePresetCandidate = record.petPanePseudocolorPreset ?? record.pet_pane_pseudocolor_preset
+    const mipPresetCandidate = record.mipPseudocolorPreset ?? record.mip_pseudocolor_preset
     const petUnitCandidate = record.petUnit ?? record.pet_unit
     const petUnitLabelCandidate = record.petUnitLabel ?? record.pet_unit_label
     const petUnit = typeof petUnitCandidate === 'string' ? petUnitCandidate : fallback.petUnit
@@ -3509,9 +3529,15 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       petPseudocolorPreset: typeof petPresetCandidate === 'string'
         ? normalizeFusionPetPseudocolorPresetKey(petPresetCandidate)
         : fallback.petPseudocolorPreset,
+      ctPseudocolorPreset: typeof ctPresetCandidate === 'string'
+        ? normalizePseudocolorPresetKey(ctPresetCandidate)
+        : fallback.ctPseudocolorPreset,
       petPanePseudocolorPreset: typeof petPanePresetCandidate === 'string'
         ? normalizePseudocolorPresetKey(petPanePresetCandidate)
         : fallback.petPanePseudocolorPreset,
+      mipPseudocolorPreset: typeof mipPresetCandidate === 'string'
+        ? normalizePseudocolorPresetKey(mipPresetCandidate)
+        : fallback.mipPseudocolorPreset,
       petUnit,
       petUnitLabel,
       petWindowMin: petWindow.min,
@@ -3519,6 +3545,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       fusionWindowTarget: (record.fusionWindowTarget ?? record.fusion_window_target) === 'pet'
         ? 'pet'
         : fallback.fusionWindowTarget ?? 'ct',
+      frameOfReferenceMatched: typeof (record.frameOfReferenceMatched ?? record.frame_of_reference_matched) === 'boolean'
+        ? Boolean(record.frameOfReferenceMatched ?? record.frame_of_reference_matched)
+        : fallback.frameOfReferenceMatched ?? true,
       alpha: numberOrFallback(record.alpha, fallback.alpha),
       revision: numberOrFallback(record.revision, fallback.revision),
       registration: {
@@ -4163,13 +4192,13 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
     options.selectedSeriesId.value = seriesId
     const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
-    const sourcePetTab =
+    const sourceCtStackTab =
       viewType === 'Montage'
         ? options.viewerTabs.value.find(
             (item) =>
               item.key === options.activeTabKey.value &&
               item.seriesId === seriesId &&
-              (item.viewType === 'PET' || Boolean(item.petInfo))
+              item.viewType === 'Stack'
           ) ?? null
         : null
     const isPetBackedView =
@@ -4310,22 +4339,16 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         viewType !== 'MPR' && viewType !== '3D'
       )
       const initialPseudocolorPreset = isPetBackedView
-        ? normalizePseudocolorPresetKey(
-            sourcePetTab?.petInfo?.pseudocolorPreset ??
-            sourcePetTab?.pseudocolorPreset ??
-            defaultPetPseudocolorKey.value
+        ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+        : normalizePseudocolorPresetKey(
+            sourceCtStackTab?.pseudocolorPreset ?? defaultCtPseudocolorKey.value
           )
-        : normalizePseudocolorPresetKey(defaultCtPseudocolorKey.value)
       const initialPetInfo = isPetBackedView
         ? {
             ...createDefaultPetInfo(seriesId),
-            ...(sourcePetTab?.petInfo ?? {}),
             pseudocolorPreset: initialPseudocolorPreset
           }
         : null
-      const inheritedMontageSliceIndex = sourcePetTab
-        ? (parseSliceLabel(sourcePetTab.sliceLabel)?.index ?? 0)
-        : 0
       let nextViewId = ''
       let nextViewportViewIds = createEmptyMprViewIds()
 
@@ -4401,7 +4424,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
               montageColumnCount: viewType === 'Montage' ? montageColumnCount.value : item.montageColumnCount,
               montageSelectedSliceIndex:
                 viewType === 'Montage'
-                  ? (sourcePetTab ? inheritedMontageSliceIndex : (item.montageSelectedSliceIndex ?? 0))
+                  ? (item.montageSelectedSliceIndex ?? 0)
                   : item.montageSelectedSliceIndex,
               montageSliceCount: viewType === 'Montage' ? Math.max(0, Number(targetSeries?.instanceCount ?? 0)) : item.montageSliceCount,
               montageScrollTop: viewType === 'Montage' ? (item.montageScrollTop ?? 0) : item.montageScrollTop,
@@ -4440,7 +4463,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       if (viewType !== 'MPR' && nextViewId) {
         await bindViewSilentlyWithAck(nextViewId)
         if (isPetBackedView) {
-          await emitInitialPetConfigOperation(nextViewId, initialPseudocolorPreset, initialPetInfo)
+          await emitInitialPetConfigOperation(nextViewId, initialPseudocolorPreset)
         } else {
           await emitInitialPseudocolorOperation(nextViewId, initialPseudocolorPreset)
         }
@@ -4455,7 +4478,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         await Promise.all(
           Object.values(nextViewportViewIds).map((viewId) =>
             isPetBackedView
-              ? emitInitialPetConfigOperation(viewId, initialPseudocolorPreset, initialPetInfo)
+              ? emitInitialPetConfigOperation(viewId, initialPseudocolorPreset)
               : emitInitialPseudocolorOperation(viewId, initialPseudocolorPreset)
           )
         )

@@ -147,7 +147,7 @@ function mountFusionView(activeTab = createFusionTab()) {
           props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc', 'imageStyle', 'imageLayers', 'isLoading', 'lightSurface', 'showCornerInfo', 'showScaleBar', 'stageSurfaceClass'],
           emits: ['doubleClickViewport'],
           template:
-            '<div class="viewer-stage-stub viewer-viewport" :class="{ \'viewer-viewport--light-surface\': lightSurface }" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-image-src="imageSrc" :data-image-transform="imageStyle?.transform ?? \'\'" :data-image-transform-origin="imageStyle?.transformOrigin ?? \'\'" :data-is-loading="isLoading ? \'true\' : \'false\'" :data-layer-count="imageLayers?.length ?? 0" :data-layer-key="imageLayers?.[0]?.key ?? \'\'" :data-layer-src="imageLayers?.[0]?.src ?? \'\'" :data-layer-transform="imageLayers?.[0]?.style?.transform ?? \'\'" :data-layer-transform-origin="imageLayers?.[0]?.style?.transformOrigin ?? \'\'" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" :style="imageStyle" /></div>'
+            '<div class="viewer-stage-stub viewer-viewport" :class="{ \'viewer-viewport--light-surface\': lightSurface }" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-image-src="imageSrc" :data-image-transform="imageStyle?.transform ?? \'\'" :data-image-transform-origin="imageStyle?.transformOrigin ?? \'\'" :data-is-loading="isLoading ? \'true\' : \'false\'" :data-layer-count="imageLayers?.length ?? 0" :data-layer-key="imageLayers?.[0]?.key ?? \'\'" :data-layer-src="imageLayers?.[0]?.src ?? \'\'" :data-layer-opacity="imageLayers?.[0]?.style?.opacity ?? \'\'" :data-layer-transform="imageLayers?.[0]?.style?.transform ?? \'\'" :data-layer-transform-origin="imageLayers?.[0]?.style?.transformOrigin ?? \'\'" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" :style="imageStyle" /></div>'
         }
       }
     }
@@ -357,6 +357,7 @@ describe('PetCtFusionView', () => {
     const mipStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`)
     expect(overlayStage.attributes('data-layer-count')).toBe('1')
     expect(overlayStage.attributes('data-layer-key')).toBe('pet-registration-layer')
+    expect(overlayStage.attributes('data-layer-opacity')).toBe('0.52')
     expect(petStage.attributes('data-layer-count')).toBe('0')
     expect(mipStage.attributes('data-layer-count')).toBe('0')
 
@@ -598,6 +599,34 @@ describe('PetCtFusionView', () => {
         .classes()
     ).toContain('pet-ct-fusion-view__pane--manual-registration-target')
 
+    wrapper.unmount()
+  })
+
+  it('keeps a dismissed frame-of-reference warning hidden for the current fusion tab', async () => {
+    const fusionInfo = createFusionInfo(1)
+    fusionInfo.frameOfReferenceMatched = false
+    const activeTab = createFusionTab({ fusionInfo })
+    const wrapper = mountFusionView(activeTab)
+
+    expect(wrapper.find('[data-testid="fusion-frame-of-reference-warning"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="fusion-frame-of-reference-warning-close"]').trigger('click')
+    expect(wrapper.emitted('fusionConfigChange')?.at(-1)).toEqual([
+      { dismissFrameOfReferenceWarning: true }
+    ])
+
+    await wrapper.setProps({
+      activeTab: {
+        ...activeTab,
+        fusionFrameOfReferenceWarningDismissed: true,
+        fusionInfo: { ...fusionInfo, revision: 2 }
+      }
+    })
+    expect(wrapper.find('[data-testid="fusion-frame-of-reference-warning"]').exists()).toBe(false)
+
+    const reopened = mountFusionView(createFusionTab({ fusionInfo: { ...fusionInfo, revision: 3 } }))
+    expect(reopened.find('[data-testid="fusion-frame-of-reference-warning"]').exists()).toBe(true)
+
+    reopened.unmount()
     wrapper.unmount()
   })
 

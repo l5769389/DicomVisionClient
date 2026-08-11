@@ -20,7 +20,8 @@ describe('ViewportPseudocolorBarOverlay', () => {
     expect(wrapper.text()).toContain('-135')
     const barStyle = wrapper.get('.rounded-\\[2px\\]').attributes('style')
     expect(barStyle).toContain('width: 6px')
-    expect(barStyle).toContain('height: 138px')
+    expect(barStyle).toContain('height: 126px')
+    expect(wrapper.get('.pointer-events-none').attributes('style')).toContain('top: 97px')
     expect(barStyle).toContain('--viewport-pseudocolor-gradient: linear-gradient(0deg')
     wrapper.unmount()
   })
@@ -68,6 +69,20 @@ describe('ViewportPseudocolorBarOverlay', () => {
 
     expect(wrapper.find('.pointer-events-none').exists()).toBe(true)
     expect(wrapper.text()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('caps a tall MPR bar inside dynamic corner-information safe areas', () => {
+    const wrapper = mount(ViewportPseudocolorBarOverlay, {
+      props: {
+        stageWidth: 900,
+        stageHeight: 870,
+        pseudocolorPreset: 'bw'
+      }
+    })
+
+    expect(wrapper.get('.rounded-\\[2px\\]').attributes('style')).toContain('height: 360px')
+    expect(wrapper.get('.pointer-events-none').attributes('style')).toContain('top: 285px')
     wrapper.unmount()
   })
 

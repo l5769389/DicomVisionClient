@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnnotationOverlay, CornerInfo, FolderSeriesItem, FusionInfo, MeasurementOverlay, MprCrosshairInfo, ViewerTabItem } from '../../../types/viewer'
 import { useViewerWorkspaceViews } from './useViewerWorkspaceViews'
+import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createUniformLayoutTemplate } from '../layout/viewerLayoutTemplates'
 import {
@@ -693,6 +694,143 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
     })
   })
 
+  it('applies the configured default pseudocolor before rendering a standalone PET view', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultPetPseudocolorKey.value
+    preferences.defaultPetPseudocolorKey.value = 'rainbow'
+    postApiMock.mockResolvedValueOnce({ viewId: 'created-pet-view' })
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT'
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness([], '', [petSeries], 'pet-series')
+
+    try {
+      await views.openSeriesView('pet-series', 'PET')
+
+      expect(viewerTabs.value[0]).toMatchObject({
+        viewType: 'PET',
+        pseudocolorPreset: 'rainbow',
+        petInfo: {
+          pseudocolorPreset: 'rainbow'
+        }
+      })
+      expect(emitViewOperationWithAckMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          viewId: 'created-pet-view',
+          opType: 'petConfig',
+          pseudocolorPreset: 'rainbow'
+        })
+      )
+    } finally {
+      preferences.defaultPetPseudocolorKey.value = previousPreset
+    }
+  })
+
+  it('inherits the active same-series CT stack pseudocolor only when creating a montage tab', async () => {
+    postApiMock.mockResolvedValueOnce({ viewId: 'created-montage-view' })
+    const stackTab = {
+      ...createStackTab(),
+      pseudocolorPreset: 'blackbody'
+    }
+    const { viewerTabs, views } = createLifecycleHarness(
+      [stackTab],
+      stackTab.key,
+      [createSeriesItem('ct-series')],
+      'ct-series'
+    )
+
+    await views.openSeriesView('ct-series', 'Montage')
+
+    const montageTab = viewerTabs.value.find((tab) => tab.viewType === 'Montage')
+    expect(montageTab).toMatchObject({
+      viewId: 'created-montage-view',
+      pseudocolorPreset: 'blackbody'
+    })
+    expect(emitViewOperationWithAckMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        viewId: 'created-montage-view',
+        opType: 'pseudocolor',
+        pseudocolorPreset: 'blackbody'
+      })
+    )
+
+    viewerTabs.value = viewerTabs.value.map((tab) =>
+      tab.viewType === 'Stack' ? { ...tab, pseudocolorPreset: 'rainbow' } : tab
+    )
+    await views.openSeriesView('ct-series', 'Montage')
+    expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')?.pseudocolorPreset).toBe('blackbody')
+  })
+
+  it('uses the configured CT pseudocolor when a montage has no active stack source', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultCtPseudocolorKey.value
+    preferences.defaultCtPseudocolorKey.value = 'bwinverse'
+    postApiMock.mockResolvedValueOnce({ viewId: 'default-montage-view' })
+    const { viewerTabs, views } = createLifecycleHarness(
+      [],
+      '',
+      [createSeriesItem('ct-series')],
+      'ct-series'
+    )
+
+    try {
+      await views.openSeriesView('ct-series', 'Montage')
+      expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')?.pseudocolorPreset).toBe('bwinverse')
+    } finally {
+      preferences.defaultCtPseudocolorKey.value = previousPreset
+    }
+  })
+
+  it('initializes PET montage display independently from a same-series standalone PET view', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultPetPseudocolorKey.value
+    preferences.defaultPetPseudocolorKey.value = 'rainbow'
+    postApiMock.mockResolvedValueOnce({ viewId: 'created-pet-montage-view' })
+    const petTab = createPetTab('hotiron')
+    petTab.petInfo = {
+      ...petTab.petInfo!,
+      petUnit: 'SUVbw',
+      petWindowMin: 0.12,
+      petWindowMax: 6.25,
+      pseudocolorPreset: 'hotiron'
+    }
+    const unrelatedTab = createStackTab()
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT',
+      instanceCount: 104
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness(
+      [petTab, unrelatedTab],
+      unrelatedTab.key,
+      [petSeries],
+      'pet-series'
+    )
+
+    try {
+      await views.openSeriesView('pet-series', 'Montage')
+
+      expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')).toMatchObject({
+        viewId: 'created-pet-montage-view',
+        pseudocolorPreset: 'rainbow',
+        petInfo: {
+          petUnit: 'SUVbw',
+          petWindowMin: 0,
+          petWindowMax: 1,
+          pseudocolorPreset: 'rainbow'
+        }
+      })
+      expect(emitViewOperationWithAckMock).toHaveBeenCalledWith({
+        viewId: 'created-pet-montage-view',
+        opType: 'petConfig',
+        pseudocolorPreset: 'rainbow'
+      })
+    } finally {
+      preferences.defaultPetPseudocolorKey.value = previousPreset
+    }
+  })
+
   it('sends the initial PET display config before rendering the first MPR frame', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0)
@@ -1026,6 +1164,46 @@ describe('useViewerWorkspaceViews fusion layer updates', () => {
       width: 200,
       height: 200
     })
+  })
+
+  it('preserves optimistic fusion alpha across stale responses and clears it on confirmation', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:alpha-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createHarness()
+    viewerTabs.value = viewerTabs.value.map((tab) => ({
+      ...tab,
+      fusionInfo: tab.fusionInfo ? { ...tab.fusionInfo, alpha: 0.8 } : tab.fusionInfo,
+      fusionPendingAlpha: { value: 0.8, baseRevision: 1 }
+    }))
+
+    views.updateTabImage(
+      'fusion-tab',
+      {
+        viewId: 'overlay-view',
+        imageFormat: 'png',
+        fusionInfo: { ...createFusionInfo(2), alpha: 0.35 }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    expect(viewerTabs.value[0]?.fusionInfo?.alpha).toBe(0.8)
+    expect(viewerTabs.value[0]?.fusionPendingAlpha).toEqual({ value: 0.8, baseRevision: 1 })
+
+    views.updateTabImage(
+      'fusion-tab',
+      {
+        viewId: 'overlay-view',
+        imageFormat: 'png',
+        fusionInfo: { ...createFusionInfo(3), alpha: 0.8 }
+      },
+      new Uint8Array([4, 5, 6])
+    )
+
+    expect(viewerTabs.value[0]?.fusionInfo?.alpha).toBe(0.8)
+    expect(viewerTabs.value[0]?.fusionPendingAlpha).toBeNull()
   })
 })
 
@@ -1627,6 +1805,46 @@ describe('useViewerWorkspaceViews PET standalone pseudocolor updates', () => {
     const tab = viewerTabs.value[0]
     expect(tab.pseudocolorPreset).toBe('rainbow')
     expect(tab.petInfo?.pseudocolorPreset).toBe('rainbow')
+  })
+
+  it('applies authoritative PET display metadata to a Montage tab', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:pet-montage'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createPetHarness('blackbody')
+    viewerTabs.value[0] = {
+      ...viewerTabs.value[0]!,
+      viewType: 'Montage',
+      currentWindowInfo: { ww: 25_800.74, wl: 12_899.87 }
+    }
+
+    views.updateTabImage(
+      'pet-tab',
+      {
+        viewId: 'pet-view',
+        imageFormat: 'webp',
+        color: { pseudocolorPreset: 'blackbody' },
+        petInfo: {
+          ...createDefaultPetInfo('pet-series'),
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          petWindowMin: 0,
+          petWindowMax: 0.63,
+          pseudocolorPreset: 'blackbody'
+        }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]!
+    expect(tab.pseudocolorPreset).toBe('blackbody')
+    expect(tab.petInfo).toMatchObject({
+      petUnit: 'SUVbw',
+      petWindowMin: 0,
+      petWindowMax: 0.63,
+      pseudocolorPreset: 'blackbody'
+    })
   })
 
   it('keeps PET-only range lines while filtering CT window lines from standalone PET corner info', () => {

@@ -634,7 +634,7 @@ export function resolveViewportCornerInfoLineMap(cornerInfo: CornerInfo): Corner
     viewportLocation: viewportLocationLine ? [viewportLocationLine] : [],
     imageIndex: imageIndexLine ? [imageIndexLine] : [],
     patientName: topRight[0] ? [topRight[0]] : [],
-    patientSummary: topRight[1] ? [topRight[1]] : [],
+    patientSummary: topRight.slice(1),
     technique: techniqueLine ? [techniqueLine] : remainingBottomLeft[0] ? [remainingBottomLeft[0]] : [],
     sliceThickness: sliceThicknessLine ? [sliceThicknessLine] : [],
     acquisitionDateTime: acquisitionDateTimeLine ? [acquisitionDateTimeLine] : [],

@@ -20,6 +20,19 @@ describe('viewportCornerInfo', () => {
     )
   })
 
+  it('keeps patient ID and demographics as separate right-corner rows', () => {
+    const cornerInfo = {
+      topLeft: [],
+      topRight: ['ZHANG SAN', 'P000123', 'M / 058Y'],
+      bottomLeft: [],
+      bottomRight: []
+    }
+
+    expect(
+      applyViewportCornerInfoPreference(cornerInfo, createDefaultViewportCornerInfoPreference()).topRight
+    ).toEqual(['ZHANG SAN', 'P000123', 'M / 058Y'])
+  })
+
   it('normalizes unknown, duplicate, and over-limit items', () => {
     expect(
       normalizeViewportCornerInfoPreference({

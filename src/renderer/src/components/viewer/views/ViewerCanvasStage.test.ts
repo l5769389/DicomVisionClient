@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import type { CornerInfo, OrientationInfo } from '../../../types/viewer'
+import { createRenderedImageUrlRegistry } from '../../../composables/workspace/views/renderedImageUrlRegistry'
 
 const emptyCornerInfo: CornerInfo = {
   topLeft: [],
@@ -374,20 +375,99 @@ describe('ViewerCanvasStage layout metrics', () => {
     wrapper.unmount()
   })
 
-  it('never presents a stale replacement when windowing produces a newer frame', async () => {
+  it('finishes the current window frame and then catches up to the latest queued frame', async () => {
     const wrapper = mountStage('blob:frame-1')
     await wrapper.setProps({ imageSrc: 'blob:frame-2' })
     await nextTick()
-    const stalePreload = wrapper.get('img.viewer-image-preload')
+    const currentPreload = wrapper.get('img.viewer-image-preload')
 
     await wrapper.setProps({ imageSrc: 'blob:frame-3' })
+    await wrapper.setProps({ imageSrc: 'blob:frame-4' })
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-2')
+
+    await currentPreload.trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-2')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-4')
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-4')
+    wrapper.unmount()
+  })
+
+  it('keeps displayed and decoding object URLs alive until the replacement is presented', async () => {
+    const revokeObjectUrl = vi.fn()
+    let objectUrlIndex = 0
+    const registry = createRenderedImageUrlRegistry({
+      createObjectUrl: vi.fn(() => `blob:leased-frame-${++objectUrlIndex}`),
+      revokeObjectUrl
+    })
+    const frame1 = registry.create(new Uint8Array([1]), 'image/webp')
+    const frame2 = registry.create(new Uint8Array([2]), 'image/webp')
+    const frame3 = registry.create(new Uint8Array([3]), 'image/webp')
+    const wrapper = mountStage(frame1)
+
+    await wrapper.setProps({ imageSrc: frame2 })
+    await nextTick()
+    registry.revoke(frame1)
+    registry.revoke(frame2)
+    expect(revokeObjectUrl).not.toHaveBeenCalled()
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe(frame2)
+    expect(revokeObjectUrl).toHaveBeenCalledWith(frame1)
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame2)
+
+    await wrapper.setProps({ imageSrc: frame3 })
+    await nextTick()
+    registry.revoke(frame3)
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe(frame3)
+    expect(revokeObjectUrl).toHaveBeenCalledWith(frame2)
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame3)
+
+    wrapper.unmount()
+    expect(revokeObjectUrl).toHaveBeenCalledWith(frame3)
+  })
+
+  it('uses the same non-starving frame queue for fusion image layers', async () => {
+    const wrapper = mountStage('blob:ct-frame', {
+      imageLayers: [{ key: 'pet', src: 'blob:pet-1' }]
+    })
+
+    await wrapper.setProps({ imageLayers: [{ key: 'pet', src: 'blob:pet-2' }] })
+    await wrapper.setProps({ imageLayers: [{ key: 'pet', src: 'blob:pet-3' }] })
+    await nextTick()
+
+    expect(wrapper.get('img.viewer-image-layer').attributes('src')).toBe('blob:pet-1')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:pet-2')
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image-layer').attributes('src')).toBe('blob:pet-2')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:pet-3')
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image-layer').attributes('src')).toBe('blob:pet-3')
+    wrapper.unmount()
+  })
+
+  it('skips a failed in-flight preview and continues with the latest frame', async () => {
+    const wrapper = mountStage('blob:frame-1')
+    await wrapper.setProps({ imageSrc: 'blob:frame-2' })
+    await wrapper.setProps({ imageSrc: 'blob:frame-3' })
+    await nextTick()
+
+    await wrapper.get('img.viewer-image-preload').trigger('error')
     await nextTick()
     expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
     expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-3')
-
-    await stalePreload.trigger('load')
-    await nextTick()
-    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
 
     await wrapper.get('img.viewer-image-preload').trigger('load')
     await nextTick()

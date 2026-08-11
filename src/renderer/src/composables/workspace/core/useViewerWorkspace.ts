@@ -20,6 +20,7 @@ import {
 } from '../../../services/socket'
 import {
   COMPARE_STACK_PANE_KEYS,
+  FUSION_CT_AXIAL_PANE_KEY,
   FUSION_PANE_KEYS,
   FUSION_OVERLAY_AXIAL_PANE_KEY,
   FUSION_PET_AXIAL_PANE_KEY,
@@ -76,6 +77,7 @@ import {
 import { mergeLoadedFolderSeries } from './folderSeriesMerge'
 import { isLayoutStackDropSeriesSupported, resolveLayoutStackDropSeries } from './layoutDropSeries'
 import { createResizeRenderScheduler } from './resizeRenderScheduler'
+import { createFusionAlphaCommitScheduler } from './fusionAlphaCommitScheduler'
 import {
   createMprInteractionOperationScheduler,
   resolveViewDragPreviewFeedbackMode
@@ -239,6 +241,7 @@ interface ViewerWorkspaceState {
     petUnit?: string
     petWindowMin?: number
     petWindowMax?: number
+    dismissFrameOfReferenceWarning?: boolean
     action?: 'reset' | 'save'
   }) => void
   handleHoverViewportChange: (payload: { viewportKey: string; x: number | null; y: number | null }) => void
@@ -1442,6 +1445,53 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
+    if (payload.action === 'fusionPanePseudocolor' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      const match = payload.value.match(/^fusionPanePseudocolor:([^:]+):(.+)$/)
+      if (!match) {
+        return
+      }
+      const targets = match[1].split(',').filter(isFusionPaneKey)
+      if (targets.length === 0) {
+        return
+      }
+      const presetKey = normalizePseudocolorPresetKey(match[2])
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key) {
+          return item
+        }
+        const nextPresets = { ...(item.fusionPseudocolorPresets ?? {}) }
+        targets.forEach((target) => {
+          nextPresets[target] = presetKey
+        })
+        const fusionInfo = item.fusionInfo
+          ? {
+              ...item.fusionInfo,
+              ...(targets.includes(FUSION_CT_AXIAL_PANE_KEY) ? { ctPseudocolorPreset: presetKey } : {}),
+              ...(targets.includes(FUSION_PET_AXIAL_PANE_KEY) ? { petPanePseudocolorPreset: presetKey } : {}),
+              ...(targets.includes(FUSION_OVERLAY_AXIAL_PANE_KEY) ? { petPseudocolorPreset: presetKey } : {}),
+              ...(targets.includes(FUSION_PET_CORONAL_MIP_PANE_KEY) ? { mipPseudocolorPreset: presetKey } : {})
+            }
+          : item.fusionInfo
+        return { ...item, fusionInfo, fusionPseudocolorPresets: nextPresets }
+      })
+      const viewId = tab.fusionViewIds?.[targets[0]]
+        ?? tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
+        ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean)
+        ?? ''
+      if (viewId) {
+        emitViewOperation({
+          viewId,
+          opType: VIEW_OPERATION_TYPES.pseudocolor,
+          pseudocolorPreset: presetKey,
+          fusionPseudocolorTargets: targets
+        })
+      }
+      return
+    }
+
     if (payload.action === 'fusionPseudocolor' && payload.value) {
       if (tab.viewType !== 'PETCTFusion') {
         return
@@ -1477,6 +1527,18 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       const alpha = Number(payload.value.replace(/^fusionAlpha:/, ''))
       if (Number.isFinite(alpha)) {
         handleFusionConfigChange({ alpha })
+      }
+      return
+    }
+
+    if (payload.action === 'fusionAlphaCommit' && payload.value) {
+      if (tab.viewType !== 'PETCTFusion') {
+        return
+      }
+      const alpha = Number(payload.value.replace(/^fusionAlphaCommit:/, ''))
+      if (Number.isFinite(alpha)) {
+        handleFusionConfigChange({ alpha })
+        fusionAlphaCommitScheduler.flush()
       }
       return
     }
@@ -1525,7 +1587,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       handleFusionConfigChange({
         petPanePseudocolorPreset: normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
       })
-      handleFusionConfigChange({ windowTarget: 'ct' })
       handleFusionConfigChange({ petUnit: preferredUnit })
       handleFusionConfigChange({
         petWindowMin: tab.petInfo?.autoWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN,
@@ -2421,22 +2482,43 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return
       }
 
-      viewerTabs.value = viewerTabs.value.map((item) =>
-        item.key === tab.key
-          ? {
-              ...resetTabViewStateTargets(item, targets, DEFAULT_VIEW_TRANSFORM),
-              ...(item.viewType === 'Montage'
-                ? { montageTransformState: DEFAULT_MONTAGE_TRANSFORM }
-                : {})
-            }
-          : item
-      )
+      const standalonePetResetPreset = tab.viewType === 'PET'
+        ? normalizePseudocolorPresetKey(defaultPetPseudocolorKey.value)
+        : null
+
+      viewerTabs.value = viewerTabs.value.map((item) => {
+        if (item.key !== tab.key) {
+          return item
+        }
+        const resetItem = {
+          ...resetTabViewStateTargets(item, targets, DEFAULT_VIEW_TRANSFORM),
+          ...(item.viewType === 'Montage'
+            ? { montageTransformState: DEFAULT_MONTAGE_TRANSFORM }
+            : {})
+        }
+        if (!standalonePetResetPreset || item.viewType !== 'PET') {
+          return resetItem
+        }
+        return {
+          ...resetItem,
+          pseudocolorPreset: standalonePetResetPreset,
+          petInfo: item.petInfo
+            ? {
+                ...item.petInfo,
+                pseudocolorPreset: standalonePetResetPreset
+              }
+            : item.petInfo
+        }
+      })
 
       targets.forEach((target) => {
         emitViewOperation({
           viewId: target.viewId,
           opType: VIEW_OPERATION_TYPES.reset,
-          subOpType: payload.action === 'resetAll' ? 'all' : 'view'
+          subOpType: payload.action === 'resetAll' ? 'all' : 'view',
+          ...(standalonePetResetPreset
+            ? { pseudocolorPreset: standalonePetResetPreset }
+            : {})
         })
       })
       return
@@ -2688,6 +2770,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function emitScheduledViewOperation(payload: ViewOperationPayload): void {
+    if (
+      payload.opType === VIEW_OPERATION_TYPES.window &&
+      (
+        payload.actionType === DRAG_ACTION_TYPES.start ||
+        payload.actionType === DRAG_ACTION_TYPES.move ||
+        payload.actionType === DRAG_ACTION_TYPES.end
+      )
+    ) {
+      emitViewOperation(payload)
+      return
+    }
     viewInteractionOperationScheduler.emit(payload.viewId, payload)
   }
 
@@ -3371,6 +3464,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const { previewFeedbackMode: _previewFeedbackMode, ...socketPayload } = payload
     emitSocketViewOperation(socketPayload)
   }
+
+  const fusionAlphaCommitScheduler = createFusionAlphaCommitScheduler({
+    debounceMs: 80,
+    emit: ({ viewId, alpha }) => {
+      emitViewOperation({
+        viewId,
+        opType: VIEW_OPERATION_TYPES.fusionConfig,
+        fusionAlpha: alpha
+      })
+    }
+  })
 
   function recordInteractivePreviewSendTiming(payload: ViewOperationPayload): void {
     if (
@@ -4209,6 +4313,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const supportsInteractionSession =
       payload.opType === VIEW_OPERATION_TYPES.pan ||
       payload.opType === VIEW_OPERATION_TYPES.zoom ||
+      payload.opType === VIEW_OPERATION_TYPES.window ||
       payload.opType === VIEW_OPERATION_TYPES.rotate3d
     const interactionKey = `${viewId}:${payload.opType}`
     let resolvedInteractionId = typeof payload.interactionId === 'string' && payload.interactionId.trim()
@@ -4232,13 +4337,15 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     if (handleFusionPetWindowDrag(tab, payload)) {
+      clearCompletedInteraction()
       return
     }
 
     const supportsCanvasPosition =
       payload.opType === VIEW_OPERATION_TYPES.rotate3d ||
       payload.opType === VIEW_OPERATION_TYPES.pan ||
-      payload.opType === VIEW_OPERATION_TYPES.zoom
+      payload.opType === VIEW_OPERATION_TYPES.zoom ||
+      payload.opType === VIEW_OPERATION_TYPES.window
     const registeredViewportRect = viewportElements.value[payload.viewportKey]?.getBoundingClientRect()
     const resolvedCanvasWidth =
       typeof payload.canvasWidth === 'number' && Number.isFinite(payload.canvasWidth) && payload.canvasWidth > 0
@@ -4584,12 +4691,21 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     petWindowMax?: number
     petControlWindowMax?: number
     petPanePseudocolorPreset?: string
+    dismissFrameOfReferenceWarning?: boolean
     windowTarget?: 'ct' | 'pet'
     alpha?: number
     action?: 'reset' | 'save'
   }): void {
     const tab = activeTab.value
     if (!tab || tab.viewType !== 'PETCTFusion') {
+      return
+    }
+    if (payload.dismissFrameOfReferenceWarning === true) {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === tab.key
+          ? { ...item, fusionFrameOfReferenceWarningDismissed: true }
+          : item
+      )
       return
     }
     const viewId = tab.fusionViewIds?.[FUSION_OVERLAY_AXIAL_PANE_KEY] ?? Object.values(tab.fusionViewIds ?? {}).find(Boolean) ?? ''
@@ -4625,8 +4741,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                 : item.fusionInfo,
               fusionPseudocolorPresets: {
                 ...(item.fusionPseudocolorPresets ?? {}),
-                [FUSION_PET_AXIAL_PANE_KEY]: presetKey,
-                [FUSION_PET_CORONAL_MIP_PANE_KEY]: presetKey
+                [FUSION_PET_AXIAL_PANE_KEY]: presetKey
               }
             }
           : item
@@ -4660,6 +4775,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           ? {
               ...item,
               fusionInfo: { ...item.fusionInfo, alpha },
+              fusionPendingAlpha: {
+                value: alpha,
+                baseRevision: item.fusionPendingAlpha?.baseRevision ?? item.fusionInfo.revision
+              },
               fusionComposites: Object.fromEntries(
                 Object.entries(item.fusionComposites ?? {}).map(([paneKey, composite]) => [
                   paneKey,
@@ -4669,11 +4788,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
           : item
       )
-      emitViewOperation({
-        viewId,
-        opType: VIEW_OPERATION_TYPES.fusionConfig,
-        fusionAlpha: alpha
-      })
+      fusionAlphaCommitScheduler.schedule({ viewId, alpha })
       return
     }
 
@@ -4691,9 +4806,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                 : item.fusionInfo,
               fusionPseudocolorPresets: {
                 ...(item.fusionPseudocolorPresets ?? {}),
-                [FUSION_PET_AXIAL_PANE_KEY]: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET,
-                [FUSION_OVERLAY_AXIAL_PANE_KEY]: presetKey,
-                [FUSION_PET_CORONAL_MIP_PANE_KEY]: DEFAULT_FUSION_PET_STANDALONE_PSEUDOCOLOR_PRESET
+                [FUSION_OVERLAY_AXIAL_PANE_KEY]: presetKey
               }
             }
           : item
@@ -5607,6 +5720,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     mprSegmentationStatsTimeouts.clear()
     flushAllPendingVolumeConfig()
     flushAllPendingSurfaceConfig()
+    fusionAlphaCommitScheduler.flush()
     clearActiveMprCrosshairDragLock()
     cleanupHover()
     cleanupSocketListeners()

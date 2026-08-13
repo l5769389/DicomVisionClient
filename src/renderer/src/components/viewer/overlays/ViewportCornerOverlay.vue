@@ -197,7 +197,6 @@ watch(displayCornerInfo, () => {
         :role="isLineTruncated(position, lineIndex) ? 'button' : undefined"
         :tabindex="isLineTruncated(position, lineIndex) ? 0 : undefined"
         :aria-expanded="isLineTruncated(position, lineIndex) ? isLineExpanded(position, lineIndex) : undefined"
-        :title="isLineTruncated(position, lineIndex) ? line : undefined"
         @pointerenter="handleLinePointerEnter($event, position, lineIndex)"
         @pointerleave="handleLinePointerLeave(position, lineIndex)"
         @pointerdown.stop
@@ -208,7 +207,7 @@ watch(displayCornerInfo, () => {
       >
         {{ line }}
       </span>
-      <div v-if="getExpandedLine(position)" class="viewer-corner-detail">
+      <div v-if="getExpandedLine(position)" class="viewer-corner-detail" role="tooltip">
         <span class="viewer-corner-detail-line">{{ getExpandedLine(position) }}</span>
       </div>
     </div>

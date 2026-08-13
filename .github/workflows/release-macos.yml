@@ -1,9 +1,6 @@
 name: Release macOS
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -40,13 +37,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            tag="${{ inputs.tag }}"
-            mode="${{ inputs.release_mode }}"
-          else
-            tag="${{ github.ref_name }}"
-            mode="signed"
-          fi
+          tag="${{ inputs.tag }}"
+          mode="${{ inputs.release_mode }}"
           if [[ -z "$tag" || "$tag" != v* ]]; then
             echo "Release tag must use the vX.Y.Z format. Received: $tag" >&2
             exit 1
@@ -75,7 +67,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: l5769389/DicomVisionServer
-          ref: main
+          ref: ${{ steps.release.outputs.tag }}
           path: DicomVisionServer
 
       - name: Setup Node.js

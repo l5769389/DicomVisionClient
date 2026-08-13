@@ -28,6 +28,11 @@ import {
   applyMontageZoomDrag,
   normalizeMontageTransform
 } from '../../../composables/workspace/views/montageTransform'
+import {
+  createRenderedImageUrlRegistry,
+  releaseRenderedImageObjectUrl,
+  retainRenderedImageObjectUrl
+} from '../../../composables/workspace/views/renderedImageUrlRegistry'
 
 const props = withDefaults(defineProps<{
   activeTab: ViewerTabItem
@@ -49,6 +54,7 @@ const emit = defineEmits<{
     commonInfoExpanded?: boolean
   }]
   toggleSliceStar: [payload: { sliceIndex: number }]
+  retryDisplayConfig: [tabKey: string]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
@@ -65,9 +71,11 @@ const montageTransform = ref(normalizeMontageTransform(props.activeTab.montageTr
 const localWindowInfo = ref<WindowLevelInfo | null>(resolveTabWindowInfo(props.activeTab))
 const windowPreviewOrigin = ref<WindowLevelInfo | null>(null)
 const headerCornerInfo = ref<CornerInfo | null>(null)
-const commonInfoTooltip = ref<{ label: string; left: number; top: number } | null>(null)
-const pinnedCommonInfoId = ref<string | null>(null)
+const commonInfoRegion = ref<HTMLElement | null>(null)
 const tileStates = ref<Record<number, MontageTileState>>({})
+const presentedTileStates = ref<Record<number, MontageTileState>>({})
+const presentedWindowInfo = ref<WindowLevelInfo | null>(localWindowInfo.value)
+const presentedPseudocolorPreset = ref(props.activeTab.pseudocolorPreset)
 const backendRevision = ref(0)
 const scrollerWidth = ref(0)
 const scrollerHeight = ref(0)
@@ -76,6 +84,8 @@ let resizeObserver: ResizeObserver | null = null
 let scrollFrame: number | null = null
 let displayRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let queuedVisibleTileRefresh = false
+let requestedRenderIntent: 'preview' | 'final' = 'final'
+let requestedPresentationKey = ''
 let stopWatchingApiBaseUrl: (() => void) | null = null
 let headerCornerInfoController: AbortController | null = null
 let isPreparingInitialTileSync = false
@@ -111,8 +121,7 @@ const SLICE_CORNER_KEYS = new Set<ViewportCornerInfoItemKey>([
   'instanceNumber',
   'sopInstanceUid',
   'imagePositionPatient',
-  'imageOrientationPatient',
-  'acquisitionDateTime'
+  'imageOrientationPatient'
 ])
 const RUNTIME_CORNER_KEYS = new Set<ViewportCornerInfoItemKey>([
   'windowLevel',
@@ -123,11 +132,44 @@ const RUNTIME_CORNER_KEYS = new Set<ViewportCornerInfoItemKey>([
 
 interface CommonCornerInfoItem {
   id: string
+  key: ViewportCornerInfoItemKey
   line: string
   label: string
 }
 
+const COMMON_INFO_PRIORITY: ViewportCornerInfoItemKey[] = [
+  'patientName',
+  'patientSummary',
+  'examDescription',
+  'seriesDescription',
+  'modality',
+  'seriesNumber',
+  'acquisitionDateTime',
+  'technique',
+  'sliceThickness'
+]
+const COMMON_INFO_PRIORITY_INDEX = new Map(
+  COMMON_INFO_PRIORITY.map((key, index) => [key, index])
+)
+const COMPACT_COMMON_INFO_SLOTS: ViewportCornerInfoItemKey[][] = [
+  ['patientName'],
+  ['patientSummary'],
+  ['examDescription', 'seriesDescription'],
+  ['technique'],
+  ['acquisitionDateTime'],
+  ['sliceThickness']
+]
+
+const montageImageUrlRegistry = createRenderedImageUrlRegistry()
 const tileLoader = createMontageTileLoader({
+  createObjectUrl(blob) {
+    const imageSrc = URL.createObjectURL(blob)
+    montageImageUrlRegistry.markOwned(imageSrc)
+    return imageSrc
+  },
+  revokeObjectUrl(imageSrc) {
+    montageImageUrlRegistry.revoke(imageSrc)
+  },
   onStateChange(index, state) {
     const nextStates = { ...tileStates.value }
     if (state) {
@@ -141,6 +183,15 @@ const tileLoader = createMontageTileLoader({
 
 const sliceCount = computed(() => Math.max(0, Math.trunc(props.activeTab.montageSliceCount ?? 0)))
 const isPetMontage = computed(() => Boolean(props.activeTab.petInfo))
+const hasAuthoritativePetDisplay = computed(() =>
+  !isPetMontage.value || Boolean(props.activeTab.petInfo?.unitOptions?.length)
+)
+const canLoadMontageTiles = computed(
+  () =>
+    !props.activeTab.montageDisplayConfigLoading &&
+    !props.activeTab.montageDisplayConfigError &&
+    hasAuthoritativePetDisplay.value
+)
 const minimumWindowWidth = computed(resolveMinimumWindowWidth)
 const showCornerInfo = computed(() => props.activeTab.showCornerInfo !== false)
 const starredSliceIndexSet = computed(() => new Set(props.starredSliceIndexes))
@@ -151,33 +202,16 @@ const activeWindowInfo = computed(() =>
   resolveDisplayedWindowInfo(props.activeTab) ??
   null
 )
-const windowPreviewFilter = computed(() => {
-  const origin = windowPreviewOrigin.value
-  const current = activeWindowInfo.value
-  if (!origin || !current) {
-    return 'none'
-  }
-  const contrast = clampCssFilterValue(origin.ww / Math.max(minimumWindowWidth.value, current.ww), 0.25, 4)
-  const brightness = clampCssFilterValue(
-    1 + (origin.wl - current.wl) / Math.max(minimumWindowWidth.value, current.ww),
-    0.35,
-    2.5
-  )
-  if (Math.abs(contrast - 1) < 0.01 && Math.abs(brightness - 1) < 0.01) {
-    return 'none'
-  }
-  return `contrast(${contrast.toFixed(3)}) brightness(${brightness.toFixed(3)})`
-})
 const windowStatusLabel = computed(() => {
   if (isPetMontage.value) {
-    const windowInfo = activeWindowInfo.value
+    const windowInfo = presentedWindowInfo.value
     const minimum = windowInfo ? windowInfo.wl - windowInfo.ww / 2 : props.activeTab.petInfo?.petWindowMin
     const maximum = windowInfo ? windowInfo.wl + windowInfo.ww / 2 : props.activeTab.petInfo?.petWindowMax
     const unit = props.activeTab.petInfo?.petUnitLabel ?? props.activeTab.petInfo?.petUnit ?? 'PET'
     return `${formatPetValue(minimum)}–${formatPetValue(maximum)} ${unit}`
   }
-  const ww = activeWindowInfo.value?.ww
-  const wl = activeWindowInfo.value?.wl
+  const ww = presentedWindowInfo.value?.ww
+  const wl = presentedWindowInfo.value?.wl
   if (ww != null || wl != null) {
     return formatWindowStatus(ww, wl)
   }
@@ -188,26 +222,49 @@ const windowStatusLabel = computed(() => {
   return formatWindowLine(props.activeTab.windowLabel) ?? formatWindowStatus(null, null)
 })
 const pseudocolorStatusLabel = computed(() => {
-  const key = normalizePseudocolorPresetKey(props.activeTab.pseudocolorPreset)
+  const key = normalizePseudocolorPresetKey(presentedPseudocolorPreset.value)
   return PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === key)?.label ?? key
 })
 const configuredCornerKeys = computed(() =>
   VIEWPORT_CORNER_POSITIONS.flatMap((position) => viewportCornerInfoPreference.value[position])
 )
+const commonInfoExpanded = computed(() => props.activeTab.montageCommonInfoExpanded === true)
 const commonCornerItems = computed<CommonCornerInfoItem[]>(() => {
   if (!showCornerInfo.value) {
     return []
   }
   return configuredCornerKeys.value
-    .filter((key) => !SLICE_CORNER_KEYS.has(key) && !RUNTIME_CORNER_KEYS.has(key))
-    .flatMap((key) =>
+    .map((key, configuredIndex) => ({ key, configuredIndex }))
+    .filter(({ key }) => !SLICE_CORNER_KEYS.has(key) && !RUNTIME_CORNER_KEYS.has(key))
+    .sort((left, right) => {
+      const leftPriority = COMMON_INFO_PRIORITY_INDEX.get(left.key) ?? Number.MAX_SAFE_INTEGER
+      const rightPriority = COMMON_INFO_PRIORITY_INDEX.get(right.key) ?? Number.MAX_SAFE_INTEGER
+      return leftPriority - rightPriority || left.configuredIndex - right.configuredIndex
+    })
+    .flatMap(({ key }) =>
       (cornerInfoLineMap.value[key] ?? []).map((line) => ({
         id: `${key}:${line}`,
+        key,
         line,
         label: getCornerInfoItemLabel(key)
       }))
     )
 })
+const compactCommonCornerItems = computed<CommonCornerInfoItem[]>(() => {
+  const remainingItems = [...commonCornerItems.value]
+  const selectedItems: CommonCornerInfoItem[] = []
+
+  for (const slotKeys of COMPACT_COMMON_INFO_SLOTS) {
+    const itemIndex = remainingItems.findIndex((item) => slotKeys.includes(item.key))
+    if (itemIndex >= 0) {
+      selectedItems.push(remainingItems.splice(itemIndex, 1)[0]!)
+    }
+  }
+
+  selectedItems.push(...remainingItems.slice(0, Math.max(0, 6 - selectedItems.length)))
+  return selectedItems.slice(0, 6)
+})
+const hasExpandableCommonInfo = computed(() => commonCornerItems.value.length > 0)
 const rowCount = computed(() => Math.ceil(sliceCount.value / columnCount.value))
 const activePointerOperation = computed<'window' | 'pan' | 'zoom' | null>(() => {
   const operation = props.activeOperation.replace(/^stack:/, '').split(':')[0]
@@ -227,10 +284,6 @@ const scrollerCursorClass = computed(() => {
   }
   return ''
 })
-const transformedImageStyle = computed(() => ({
-  filter: windowPreviewFilter.value,
-  transform: `translate(${montageTransform.value.offsetX * 100}%, ${montageTransform.value.offsetY * 100}%) scale(${montageTransform.value.zoom})`
-}))
 const gridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${columnCount.value}, minmax(0, 1fr))`
 }))
@@ -286,14 +339,18 @@ const virtualizerStyle = computed(() => {
     paddingBottom: `${MONTAGE_GRID_PADDING + rowsAfter * rowStride.value}px`
   }
 })
+const montageImageStyle = computed(() => ({
+  transform: `translate3d(${montageTransform.value.offsetX * 100}%, ${montageTransform.value.offsetY * 100}%, 0) scale(${montageTransform.value.zoom})`
+}))
 
-function buildTileRequest(index: number): MontageTileRequest {
+function buildTileRequest(index: number, renderIntent: 'preview' | 'final' = requestedRenderIntent): MontageTileRequest {
   const workspaceId = getWorkspaceId()
   const params = new URLSearchParams({
     seriesId: props.activeTab.seriesId,
     sliceIndex: String(index),
     size: '256',
-    workspaceId
+    workspaceId,
+    renderIntent
   })
   const windowInfo = activeWindowInfo.value
   if (windowInfo?.ww != null && Number.isFinite(windowInfo.ww) && windowInfo.ww > 0) {
@@ -311,10 +368,22 @@ function buildTileRequest(index: number): MontageTileRequest {
   return {
     index,
     url: resolveBackendAssetUrl(`/api/v1/dicom/montage/tile?${params.toString()}`),
+    displayRevision: props.activeTab.montageDisplayRevision ?? 0,
+    renderIntent,
     headers: {
       [WORKSPACE_HEADER]: workspaceId
     }
   }
+}
+
+function resolveTilePresentationKey(requestUrl: string | null | undefined): string {
+  if (!requestUrl) {
+    return ''
+  }
+  const url = new URL(requestUrl)
+  url.searchParams.delete('sliceIndex')
+  url.searchParams.delete('renderIntent')
+  return url.toString()
 }
 
 function buildHeaderCornerInfoRequestUrl(): string {
@@ -367,11 +436,15 @@ async function loadHeaderCornerInfo(): Promise<void> {
   }
 }
 
-function syncVisibleTiles(): void {
-  if (isPreparingInitialTileSync && !activeWindowInfo.value) {
+function syncVisibleTiles(renderIntent: 'preview' | 'final' = requestedRenderIntent): void {
+  if (!canLoadMontageTiles.value || (isPreparingInitialTileSync && !activeWindowInfo.value)) {
     return
   }
-  tileLoader.sync(renderedIndexes.value.map(buildTileRequest))
+  requestedRenderIntent = renderIntent
+  const requests = renderedIndexes.value.map((index) => buildTileRequest(index, renderIntent))
+  if (tileLoader.sync(requests)) {
+    requestedPresentationKey = resolveTilePresentationKey(requests[0]?.url)
+  }
 }
 
 function syncVisibleContent(): void {
@@ -379,6 +452,9 @@ function syncVisibleContent(): void {
 }
 
 async function prepareInitialVisibleContent(): Promise<void> {
+  if (!canLoadMontageTiles.value) {
+    return
+  }
   if (!activeWindowInfo.value && sliceCount.value > 0) {
     isPreparingInitialTileSync = true
     try {
@@ -418,7 +494,8 @@ function handleScrollerScroll(): void {
 }
 
 function retryTile(index: number): void {
-  tileLoader.retry(buildTileRequest(index))
+  void index
+  tileLoader.retryBatch(renderedIndexes.value.map((tileIndex) => buildTileRequest(tileIndex, 'final')))
 }
 
 function tileErrorText(state: MontageTileState | undefined): string {
@@ -540,42 +617,42 @@ function clearVisibleTileRefreshTimer(): void {
   queuedVisibleTileRefresh = false
 }
 
-function requestDebouncedVisibleTileRefresh(): void {
+function requestDebouncedVisibleTileRefresh(renderIntent: 'preview' | 'final' = 'final'): void {
   clearVisibleTileRefreshTimer()
   displayRefreshTimer = setTimeout(() => {
     displayRefreshTimer = null
     queuedVisibleTileRefresh = false
-    syncVisibleTiles()
+    syncVisibleTiles(renderIntent)
   }, 90)
 }
 
-function requestThrottledVisibleTileRefresh(): void {
+function requestThrottledVisibleTileRefresh(renderIntent: 'preview' | 'final' = 'preview'): void {
   if (displayRefreshTimer) {
     queuedVisibleTileRefresh = true
     return
   }
-  syncVisibleTiles()
+  syncVisibleTiles(renderIntent)
   displayRefreshTimer = setTimeout(() => {
     displayRefreshTimer = null
     if (!queuedVisibleTileRefresh) {
       return
     }
     queuedVisibleTileRefresh = false
-    requestThrottledVisibleTileRefresh()
-  }, 120)
+    requestThrottledVisibleTileRefresh(renderIntent)
+  }, 50)
 }
 
 function requestVisibleTileRefresh(mode: 'debounce' | 'throttle' = 'debounce'): void {
   if (mode === 'throttle') {
-    requestThrottledVisibleTileRefresh()
+    requestThrottledVisibleTileRefresh('preview')
     return
   }
-  requestDebouncedVisibleTileRefresh()
+  requestDebouncedVisibleTileRefresh('final')
 }
 
 function flushVisibleTileRefresh(): void {
   clearVisibleTileRefreshTimer()
-  syncVisibleTiles()
+  syncVisibleTiles('final')
 }
 
 function getWindowDragSensitivity(windowWidth: number): number {
@@ -585,10 +662,6 @@ function getWindowDragSensitivity(windowWidth: number): number {
   }
   const scaled = width / WINDOW_DRAG_REFERENCE_WIDTH
   return Math.max(WINDOW_DRAG_MIN_SENSITIVITY, Math.min(WINDOW_DRAG_MAX_SENSITIVITY, scaled))
-}
-
-function clampCssFilterValue(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 1))
 }
 
 function hasRefreshingVisibleTiles(): boolean {
@@ -603,6 +676,69 @@ function clearWindowPreviewWhenReady(): void {
     return
   }
   windowPreviewOrigin.value = null
+}
+
+function releasePresentedTiles(): void {
+  Object.values(presentedTileStates.value).forEach((state) => {
+    releaseRenderedImageObjectUrl(state.imageSrc)
+  })
+  presentedTileStates.value = {}
+}
+
+function commitVisibleTileBatchWhenReady(): void {
+  const indexes = renderedIndexes.value
+  if (!indexes.length) {
+    return
+  }
+  const nextStates = indexes.map((index) => tileStates.value[index])
+  if (nextStates.some((state) => state?.status !== 'ready' || state.isRefreshing || !state.imageSrc)) {
+    return
+  }
+  if (new Set(nextStates.map((state) => state?.batchRevision)).size !== 1) {
+    return
+  }
+  if (nextStates.some((state) => (state?.displayRevision ?? 0) !== (props.activeTab.montageDisplayRevision ?? 0))) {
+    return
+  }
+  const completedPresentationKeys = new Set(
+    nextStates.map((state) => resolveTilePresentationKey(state?.requestUrl))
+  )
+  if (completedPresentationKeys.size !== 1 || !completedPresentationKeys.has(requestedPresentationKey)) {
+    return
+  }
+
+  const previous = presentedTileStates.value
+  const next: Record<number, MontageTileState> = {}
+  Object.entries(previous).forEach(([index, state]) => {
+    if (!indexes.includes(Number(index))) {
+      releaseRenderedImageObjectUrl(state.imageSrc)
+    }
+  })
+  nextStates.forEach((state, offset) => {
+    const index = indexes[offset]
+    const previousSource = previous[index]?.imageSrc
+    if (state.imageSrc !== previousSource) {
+      retainRenderedImageObjectUrl(state.imageSrc)
+      releaseRenderedImageObjectUrl(previousSource)
+    }
+    next[index] = state
+  })
+  presentedTileStates.value = next
+  const presentedRequestUrl = nextStates[0]?.requestUrl
+  if (presentedRequestUrl) {
+    const params = new URL(presentedRequestUrl).searchParams
+    const ww = Number(params.get('ww'))
+    const wl = Number(params.get('wl'))
+    presentedWindowInfo.value = Number.isFinite(ww) && Number.isFinite(wl) ? { ww, wl } : null
+    presentedPseudocolorPreset.value = params.get('pseudocolorPreset') ?? props.activeTab.pseudocolorPreset
+  } else {
+    presentedWindowInfo.value = activeWindowInfo.value ? { ...activeWindowInfo.value } : null
+    presentedPseudocolorPreset.value = props.activeTab.pseudocolorPreset
+  }
+}
+
+function getDisplayedTileState(index: number): MontageTileState | undefined {
+  return presentedTileStates.value[index] ?? tileStates.value[index]
 }
 
 function applyWindowDrag(
@@ -785,55 +921,28 @@ function getCornerInfoItemLabel(key: ViewportCornerInfoItemKey): string {
   return item ? getViewportCornerInfoItemLabel(item, isZh.value ? 'zh-CN' : 'en-US') : key
 }
 
-function isCommonInfoLineTruncated(element: HTMLElement): boolean {
-  return element.scrollWidth > element.clientWidth + 1
-}
-
-function showCommonInfoTooltip(event: MouseEvent, item: CommonCornerInfoItem): void {
-  if (!isCommonInfoLineTruncated(event.currentTarget as HTMLElement)) {
-    if (pinnedCommonInfoId.value !== item.id) {
-      hideCommonInfoTooltip()
-    }
+function closeCommonInfoExpanded(): void {
+  if (!commonInfoExpanded.value) {
     return
   }
-  const offsetX = 12
-  const offsetY = 14
-  const maxLeft = Math.max(8, window.innerWidth - 140)
-  const maxTop = Math.max(8, window.innerHeight - 48)
-  commonInfoTooltip.value = {
-    label: `${item.label}: ${item.line}`,
-    left: Math.min(maxLeft, Math.max(8, event.clientX + offsetX)),
-    top: Math.min(maxTop, Math.max(8, event.clientY + offsetY))
-  }
+  emit('stateChange', {
+    tabKey: props.activeTab.key,
+    commonInfoExpanded: false
+  })
 }
 
-function hideCommonInfoTooltip(force = false): void {
-  if (!force && pinnedCommonInfoId.value) {
+function handleDocumentPointerDown(event: PointerEvent): void {
+  const target = event.target
+  if (target instanceof Node && commonInfoRegion.value?.contains(target)) {
     return
   }
-  commonInfoTooltip.value = null
+  closeCommonInfoExpanded()
 }
 
-function toggleCommonInfoTooltip(event: MouseEvent, item: CommonCornerInfoItem): void {
-  event.stopPropagation()
-  const element = event.currentTarget as HTMLElement
-  if (!isCommonInfoLineTruncated(element)) {
-    pinnedCommonInfoId.value = null
-    hideCommonInfoTooltip(true)
-    return
+function handleDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    closeCommonInfoExpanded()
   }
-  if (pinnedCommonInfoId.value === item.id) {
-    pinnedCommonInfoId.value = null
-    hideCommonInfoTooltip(true)
-    return
-  }
-  pinnedCommonInfoId.value = item.id
-  showCommonInfoTooltip(event, item)
-}
-
-function handleDocumentPointerDown(): void {
-  pinnedCommonInfoId.value = null
-  hideCommonInfoTooltip(true)
 }
 
 function parseWindowInfoFromLine(line: string | null | undefined): WindowLevelInfo | null {
@@ -913,10 +1022,12 @@ function resolveTabWindowInfo(tab: ViewerTabItem): WindowLevelInfo | null {
           wl: (petWindowMax + petWindowMin) / 2
         }
       : null
+  if (tab.petInfo && petWindowInfo) {
+    return petWindowInfo
+  }
   return (
     normalizeWindowInfo(tab.currentWindowInfo) ??
     normalizeWindowInfo(tab.initialWindowInfo) ??
-    petWindowInfo ??
     parseWindowInfoFromLine(resolveViewportCornerInfoLineMap(tab.cornerInfo).windowLevel[0]) ??
     parseWindowInfoFromLine(tab.windowLabel)
   )
@@ -947,6 +1058,13 @@ function setColumnCount(count: number): void {
   void nextTick(() => {
     measureScroller()
     scrollSliceIntoView(selectedSliceIndex.value)
+  })
+}
+
+function toggleCommonInfoExpanded(): void {
+  emit('stateChange', {
+    tabKey: props.activeTab.key,
+    commonInfoExpanded: !commonInfoExpanded.value
   })
 }
 
@@ -1010,15 +1128,18 @@ watch(
     headerCornerInfoController?.abort()
     headerCornerInfoController = null
     headerCornerInfo.value = null
-    hideCommonInfoTooltip()
+    closeCommonInfoExpanded()
     windowPreviewOrigin.value = null
     lastPointerTileActivation = null
     tileLoader.clear()
     tileStates.value = {}
+    releasePresentedTiles()
     columnCount.value = Math.max(2, Math.min(6, props.activeTab.montageColumnCount ?? montageColumnCount.value))
     selectedSliceIndex.value = Math.max(0, props.activeTab.montageSelectedSliceIndex ?? 0)
     montageTransform.value = normalizeMontageTransform(props.activeTab.montageTransformState)
     localWindowInfo.value = resolveTabWindowInfo(props.activeTab)
+    presentedWindowInfo.value = localWindowInfo.value ? { ...localWindowInfo.value } : null
+    presentedPseudocolorPreset.value = props.activeTab.pseudocolorPreset
     void nextTick(() => {
       if (scroller.value) {
         scroller.value.scrollTop = Math.max(0, props.activeTab.montageScrollTop ?? 0)
@@ -1032,6 +1153,7 @@ watch(
 watch(renderedIndexes, syncVisibleContent)
 
 watch([tileStates, renderedIndexes], () => {
+  commitVisibleTileBatchWhenReady()
   clearWindowPreviewWhenReady()
 }, { deep: true })
 
@@ -1062,12 +1184,29 @@ watch(
 )
 
 watch(
+  () => props.activeTab.montageDisplayRevision,
+  (value, previousValue) => {
+    if (value == null || value === previousValue) {
+      return
+    }
+    clearVisibleTileRefreshTimer()
+    windowPreviewOrigin.value = null
+    localWindowInfo.value = resolveDisplayedWindowInfo(props.activeTab)
+    syncVisibleTiles('final')
+  },
+  { flush: 'sync' }
+)
+
+watch(
   () => [
     props.activeTab.currentWindowInfo?.ww,
     props.activeTab.currentWindowInfo?.wl,
     props.activeTab.initialWindowInfo?.ww,
     props.activeTab.initialWindowInfo?.wl,
-    props.activeTab.windowLabel
+    props.activeTab.windowLabel,
+    props.activeTab.petInfo?.petUnit,
+    props.activeTab.petInfo?.petWindowMin,
+    props.activeTab.petInfo?.petWindowMax
   ],
   () => {
     if (pointerSession?.operation === 'window') {
@@ -1097,7 +1236,7 @@ watch(
 
 watch(showCornerInfo, (enabled) => {
   if (!enabled) {
-    hideCommonInfoTooltip()
+    closeCommonInfoExpanded()
   }
 })
 
@@ -1110,15 +1249,20 @@ watch(
     props.activeTab.petInfo?.petUnit,
     props.activeTab.petInfo?.petWindowMin,
     props.activeTab.petInfo?.petWindowMax,
+    canLoadMontageTiles.value,
     backendRevision.value
   ],
   () => {
+    if (pointerSession?.operation === 'window') {
+      return
+    }
     requestVisibleTileRefresh()
   }
 )
 
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
+  document.addEventListener('keydown', handleDocumentKeydown)
   stopWatchingApiBaseUrl = onApiBaseURLChange(() => {
     backendRevision.value += 1
   })
@@ -1144,15 +1288,16 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  document.removeEventListener('keydown', handleDocumentKeydown)
   if (displayRefreshTimer) {
     clearVisibleTileRefreshTimer()
   }
   headerCornerInfoController?.abort()
   headerCornerInfoController = null
-  hideCommonInfoTooltip()
   stopWatchingApiBaseUrl?.()
   stopWatchingApiBaseUrl = null
   tileLoader.dispose()
+  releasePresentedTiles()
   resizeObserver?.disconnect()
   resizeObserver = null
   window.removeEventListener('resize', measureScroller)
@@ -1182,8 +1327,6 @@ onBeforeUnmount(() => {
             <span>{{ windowStatusLabel }}</span>
             <span aria-hidden="true">·</span>
             <span>{{ isZh ? '伪彩' : 'Color' }} {{ pseudocolorStatusLabel }}</span>
-            <span aria-hidden="true">·</span>
-            <span>{{ isZh ? '双击进入二维浏览' : 'Double-click to open 2D' }}</span>
           </div>
         </div>
         <div class="montage-view__columns" role="group" :aria-label="isZh ? '平铺列数' : 'Montage columns'">
@@ -1200,23 +1343,56 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <div v-if="showCornerInfo && commonCornerItems.length" class="montage-view__common-info">
-        <div class="montage-view__common-info-label">
+      <div
+        v-if="showCornerInfo && commonCornerItems.length"
+        ref="commonInfoRegion"
+        class="montage-view__common-info"
+        @pointerdown.stop
+      >
+        <div class="montage-view__common-info-heading">
           {{ isZh ? '影像信息' : 'Image info' }}
         </div>
         <div class="montage-view__common-info-content">
-          <span
-            v-for="item in commonCornerItems"
+          <div
+            v-for="item in compactCommonCornerItems"
             :key="item.id"
             class="montage-view__common-info-line"
             :aria-label="`${item.label}: ${item.line}`"
-            :data-tooltip="`${item.label}: ${item.line}`"
-            @click="toggleCommonInfoTooltip($event, item)"
-            @mouseenter="showCommonInfoTooltip($event, item)"
-            @mousemove="showCommonInfoTooltip($event, item)"
-            @mouseleave="hideCommonInfoTooltip()"
-            @pointerdown.stop
-          >{{ item.line }}</span>
+          >
+            <span class="montage-view__common-info-key">{{ item.label }}</span>
+            <span class="montage-view__common-info-value">{{ item.line }}</span>
+          </div>
+        </div>
+        <button
+          v-if="hasExpandableCommonInfo"
+          type="button"
+          class="montage-view__common-info-toggle"
+          :aria-controls="`${activeTab.key}-montage-common-info-panel`"
+          :aria-expanded="commonInfoExpanded"
+          :aria-label="commonInfoExpanded ? (isZh ? '收起影像信息' : 'Collapse image info') : (isZh ? '展开影像信息' : 'Expand image info')"
+          :title="commonInfoExpanded ? (isZh ? '收起影像信息' : 'Collapse image info') : (isZh ? '展开影像信息' : 'Expand image info')"
+          @pointerdown.stop
+          @click="toggleCommonInfoExpanded"
+        >
+          <AppIcon :name="commonInfoExpanded ? 'chevron-up' : 'chevron-down'" :size="15" />
+        </button>
+        <div
+          v-if="commonInfoExpanded"
+          :id="`${activeTab.key}-montage-common-info-panel`"
+          class="montage-view__common-info-panel"
+          role="region"
+          :aria-label="isZh ? '全部影像信息' : 'All image information'"
+        >
+          <div class="montage-view__common-info-panel-grid">
+            <div
+              v-for="item in commonCornerItems"
+              :key="`expanded-${item.id}`"
+              class="montage-view__common-info-panel-line"
+            >
+              <span class="montage-view__common-info-key">{{ item.label }}</span>
+              <span class="montage-view__common-info-panel-value">{{ item.line }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -1231,6 +1407,14 @@ onBeforeUnmount(() => {
       @contextmenu.prevent
       @scroll.passive="handleScrollerScroll"
     >
+      <div v-if="activeTab.montageDisplayConfigError" class="montage-view__config-error">
+        <AppIcon name="alert" :size="22" />
+        <span>{{ activeTab.montageDisplayConfigError }}</span>
+        <button type="button" class="montage-view__retry" @click="emit('retryDisplayConfig', activeTab.key)">
+          <AppIcon name="reset" :size="16" />
+          <span>{{ isZh ? '重试' : 'Retry' }}</span>
+        </button>
+      </div>
       <div class="montage-view__virtualizer" :style="virtualizerStyle">
         <div class="montage-view__grid" :style="gridStyle">
           <article
@@ -1245,15 +1429,15 @@ onBeforeUnmount(() => {
             @keydown="handleTileKeydown($event, index)"
           >
             <img
-              v-if="tileStates[index]?.status === 'ready' && tileStates[index]?.imageSrc"
-              :src="tileStates[index]?.imageSrc"
+              v-if="getDisplayedTileState(index)?.status === 'ready' && getDisplayedTileState(index)?.imageSrc"
+              :src="getDisplayedTileState(index)?.imageSrc"
               :alt="`${index + 1} / ${sliceCount}`"
               class="montage-view__image"
+              :style="montageImageStyle"
               draggable="false"
-              :style="transformedImageStyle"
             />
-            <div v-else-if="tileStates[index]?.status === 'error'" class="montage-view__placeholder">
-              <span class="montage-view__error">{{ tileErrorText(tileStates[index]) }}</span>
+            <div v-else-if="getDisplayedTileState(index)?.status === 'error'" class="montage-view__placeholder">
+              <span class="montage-view__error">{{ tileErrorText(getDisplayedTileState(index)) }}</span>
               <button
                 type="button"
                 class="montage-view__retry"
@@ -1286,14 +1470,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <div
-      v-if="commonInfoTooltip"
-      class="montage-view__tag-tooltip"
-      :style="{ left: `${commonInfoTooltip.left}px`, top: `${commonInfoTooltip.top}px` }"
-      role="tooltip"
-    >
-      {{ commonInfoTooltip.label }}
-    </div>
   </section>
 </template>
 
@@ -1313,6 +1489,8 @@ onBeforeUnmount(() => {
 }
 
 .montage-view__header {
+  position: relative;
+  z-index: 10;
   min-height: 54px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--theme-border-soft);
@@ -1365,77 +1543,157 @@ onBeforeUnmount(() => {
 }
 
 .montage-view__common-info {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin-top: 6px;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 72%, transparent);
   color: var(--theme-text-secondary);
 }
 
-.montage-view__common-info-label {
-  flex: none;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border-soft));
-  border-radius: 999px;
-  padding: 1px 7px;
-  color: var(--theme-text-primary);
-  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
-  font-size: 10px;
+.montage-view__common-info-heading {
+  align-self: center;
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 700;
   line-height: 16px;
   white-space: nowrap;
 }
 
 .montage-view__common-info-content {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   min-width: 0;
-  flex: 1;
-  flex-wrap: wrap;
-  gap: 2px 12px;
-  font: 500 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace;
+  gap: 4px 16px;
+  overflow: hidden;
 }
 
 .montage-view__common-info-line {
-  display: block;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 1px;
+  min-height: 32px;
   min-width: 0;
-  max-width: min(520px, 46%);
-  flex: 1 1 min(240px, 46%);
+}
+
+.montage-view__common-info-value {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.montage-view__common-info-line:hover {
-  color: var(--theme-text-primary);
-}
-
-.montage-view__common-info-toggle {
-  flex: none;
-  color: var(--theme-accent);
-  font-size: 10px;
-  line-height: 16px;
-}
-
-.montage-view__tag-tooltip {
-  position: fixed;
-  z-index: 80;
-  max-width: 220px;
-  border: 1px solid color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border-strong));
-  border-radius: 7px;
-  padding: 5px 8px;
-  color: var(--theme-text-primary);
-  background: var(--theme-surface-panel-solid);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 32%);
-  font-size: 11px;
-  line-height: 1.35;
-  pointer-events: none;
+.montage-view__common-info-key {
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
   white-space: nowrap;
 }
 
+.montage-view__common-info-value {
+  color: var(--theme-text-secondary);
+  font: 500 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.montage-view__common-info-toggle {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 6px;
+  color: var(--theme-text-secondary);
+  background: var(--theme-surface-card);
+}
+
+.montage-view__common-info-toggle:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-border-soft));
+  color: var(--theme-text-primary);
+}
+
+.montage-view__common-info-panel {
+  position: absolute;
+  z-index: 24;
+  top: calc(100% + 8px);
+  right: -12px;
+  left: -12px;
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  border-top: 1px solid var(--theme-border-strong);
+  border-bottom: 1px solid var(--theme-border-strong);
+  padding: 12px 16px 14px;
+  background: var(--theme-surface-panel-solid);
+  box-shadow: 0 16px 32px rgb(0 0 0 / 38%);
+}
+
+.montage-view__common-info-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+
+.montage-view__common-info-panel-line {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.montage-view__common-info-panel-value {
+  min-width: 0;
+  color: var(--theme-text-primary);
+  font: 500 10px/15px ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 1280px) {
+  .montage-view__common-info-panel-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .montage-view__header-top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .montage-view__common-info-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .montage-view__common-info-panel-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .montage-view__scroller {
+  position: relative;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   background: var(--montage-image-surface);
+}
+
+.montage-view__config-error {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--montage-overlay-muted);
+  background: var(--montage-image-surface);
+  text-align: center;
 }
 
 .montage-view__scroller--window {
@@ -1496,8 +1754,8 @@ onBeforeUnmount(() => {
   display: block;
   object-fit: contain;
   transform-origin: center;
-  user-select: none;
   will-change: transform;
+  user-select: none;
 }
 
 .montage-view__placeholder {

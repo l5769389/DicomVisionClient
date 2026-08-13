@@ -1,4 +1,4 @@
-import type { CompareSyncSettingKey, MprLayoutKey, PetInfo } from '../../../types/viewer'
+import type { CompareSyncSettingKey, FusionPaneKey, MprLayoutKey, PetInfo } from '../../../types/viewer'
 
 export interface StackToolOption {
   value: string
@@ -48,6 +48,7 @@ export interface StackTool {
   menuKind?: 'options' | 'layout' | 'mprLayout'
   inlineKind?: 'petIntensity' | 'petPseudocolor' | 'petQuantification' | 'fusionRegistration'
   petScope?: 'standalone' | 'fusion-pane' | 'fusion-overlay'
+  fusionPaneKey?: FusionPaneKey
   petInfo?: PetInfo | null
   options?: StackToolOption[]
   dockOptions?: StackToolOption[]

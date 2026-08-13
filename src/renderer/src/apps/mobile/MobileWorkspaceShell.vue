@@ -1385,7 +1385,6 @@ const {
   getAnnotations,
   getCornerInfoForExport,
   getExportMeasurements,
-  viewportHostRef: mobileShellRef,
   workspaceExportCopy
 })
 

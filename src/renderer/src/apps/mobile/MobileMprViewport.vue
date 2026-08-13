@@ -904,6 +904,7 @@ watch(
         :mtf-items="getMtfItems(viewport.key)"
         :selected-mtf-id="selectedMtfId ?? null"
         :mpr-crosshair="mprTab?.viewportCrosshairs?.[viewport.key] ?? null"
+        :mpr-crosshair-preview="mprTab?.optimisticViewportCrosshairs?.[viewport.key] ?? null"
         :mpr-frame="mprTab?.mprFrame ?? null"
         :mpr-plane="mprTab?.viewportPlanes?.[viewport.key] ?? null"
         :mpr-segmentation-default-threshold-color="mprSegmentationDefaultThresholdColor"

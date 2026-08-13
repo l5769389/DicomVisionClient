@@ -181,12 +181,15 @@ export interface FusionInfo {
   ctSeriesId: string
   petSeriesId: string
   petPseudocolorPreset: string
+  ctPseudocolorPreset?: string
   petPanePseudocolorPreset?: string
+  mipPseudocolorPreset?: string
   petUnit?: string
   petUnitLabel?: string
   petWindowMin?: number | null
   petWindowMax?: number | null
   fusionWindowTarget?: 'ct' | 'pet'
+  frameOfReferenceMatched?: boolean
   alpha: number
   revision: number
   registration: FusionRegistrationInfo
@@ -267,6 +270,13 @@ export interface MeasurementPointPayload {
   y: number
 }
 
+export interface MontageDisplayConfigResponse {
+  seriesId: string
+  modality: string
+  windowInfo: WindowInfo
+  petInfo?: PetInfo | null
+}
+
 export interface MprCrosshairInfo {
   centerX: number
   centerY: number
@@ -325,7 +335,6 @@ export interface MprPlaneInfo {
   pixelSpacingColMm: number
   pixelSpacingNormalMm?: number
   outputShape: [number, number]
-  volumeBoundsWorld?: [[number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number], [number, number, number]] | null
   row: [number, number, number]
   col: [number, number, number]
   normal: [number, number, number]
@@ -356,22 +365,16 @@ export interface MprSegmentationOverlay {
   regions?: MprSegmentationOverlayRegion[]
 }
 
+export interface MprSegmentationOverlayPoint {
+  x: number
+  y: number
+}
+
 export interface MprSegmentationOverlayRect {
   xMin?: number
   yMin?: number
   xMax?: number
   yMax?: number
-}
-
-export interface MprSegmentationOverlayPoint {
-  x?: number
-  y?: number
-}
-
-export interface MprSegmentationOverlayWorldPoint {
-  x?: number
-  y?: number
-  z?: number
 }
 
 export interface MprSegmentationOverlayRegion {
@@ -392,6 +395,12 @@ export interface MprSegmentationOverlaySamples {
   points?: number[]
   totalCount?: number
   sampledCount?: number
+}
+
+export interface MprSegmentationOverlayWorldPoint {
+  x: number
+  y: number
+  z: number
 }
 
 export interface MprSegmentationVoiBox {
@@ -822,6 +831,12 @@ export interface SeriesSummary {
   fourDPhaseCount?: number | null
   fourDPhases?: FourDPhaseItem[] | null
   compatibilityIssues?: DicomCompatibilityIssue[]
+  viewCapabilities?: Record<string, SeriesViewCapability>
+}
+
+export interface SeriesViewCapability {
+  supported?: boolean
+  blockedReason?: string | null
 }
 
 export interface SliceInfo {
@@ -889,6 +904,7 @@ export interface ViewExportMeasurementOverlayPayload {
 export interface ViewExportOverlaysPayload {
   annotations?: ViewExportAnnotationOverlayPayload[]
   measurements?: ViewExportMeasurementOverlayPayload[]
+  cornerInfo?: CornerInfoPayload | null
 }
 
 export interface ViewExportPointPayload {
@@ -997,6 +1013,7 @@ export interface ViewOperationRequest {
   ww?: number | null
   wl?: number | null
   pseudocolorPreset?: string | null
+  fusionPseudocolorTargets?: ('fusion-ct-ax' | 'fusion-pet-ax' | 'fusion-overlay-ax' | 'fusion-pet-cor-mip')[] | null
   fusionAlpha?: number | null
   fusionManualRegistration?: boolean | null
   fusionPetUnit?: string | null
@@ -1129,6 +1146,7 @@ export interface ApiOperations {
   GetModifyDicomTagJobApiV1DicomModifyTagJobsJobIdGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}'; request: never; response: DicomTagModifyJobStatusResponse }
   GetModifyDicomTagJobArtifactApiV1DicomModifyTagJobsJobIdArtifactGet: { method: 'GET'; path: '/api/v1/dicom/modifyTag/jobs/{job_id}/artifact'; request: never; response: unknown }
   GetMontageCornerInfoApiV1DicomMontageCornerInfoGet: { method: 'GET'; path: '/api/v1/dicom/montage/corner-info'; request: never; response: CornerInfoResponse }
+  GetMontageDisplayConfigApiV1DicomMontageDisplayConfigGet: { method: 'GET'; path: '/api/v1/dicom/montage/display-config'; request: never; response: MontageDisplayConfigResponse }
   GetMontageTileApiV1DicomMontageTileGet: { method: 'GET'; path: '/api/v1/dicom/montage/tile'; request: never; response: unknown }
   GetDicomTagsApiV1DicomTagsPost: { method: 'POST'; path: '/api/v1/dicom/tags'; request: DicomTagsRequest; response: DicomTagsResponse }
   GetSeriesThumbnailApiV1DicomThumbnailGet: { method: 'GET'; path: '/api/v1/dicom/thumbnail'; request: never; response: unknown }

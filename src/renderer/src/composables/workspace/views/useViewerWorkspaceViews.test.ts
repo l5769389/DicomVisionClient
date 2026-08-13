@@ -1,9 +1,11 @@
 import { computed, ref } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AnnotationOverlay, CornerInfo, FolderSeriesItem, FusionInfo, MeasurementOverlay, MprCrosshairInfo, ViewerTabItem } from '../../../types/viewer'
+import type { AnnotationOverlay, CornerInfo, FolderSeriesItem, FusionInfo, MeasurementOverlay, MprCrosshairInfo, MprViewportKey, ViewerTabItem } from '../../../types/viewer'
 import { useViewerWorkspaceViews } from './useViewerWorkspaceViews'
+import { useUiPreferences } from '../../ui/useUiPreferences'
 import { createDefaultVolumeRenderConfig } from '../volume/volumeRenderConfig'
 import { createUniformLayoutTemplate } from '../layout/viewerLayoutTemplates'
+import type { ActiveMprCrosshairDragLock } from './mprInteractionGuard'
 import {
   createDefaultTransformInfo,
   createEmptyCornerInfo,
@@ -52,7 +54,24 @@ afterEach(() => {
   bindViewSilentlyWithAckMock.mockResolvedValue({ ok: true })
   emitViewOperationWithAckMock.mockClear()
   emitViewOperationWithAckMock.mockResolvedValue({ ok: true })
+  vi.unstubAllGlobals()
 })
+
+function stubMontageDisplayConfig(options: {
+  modality?: string
+  petInfo?: ReturnType<typeof createDefaultPetInfo> | null
+  windowInfo?: { ww: number; wl: number }
+} = {}): void {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    seriesId: options.petInfo?.seriesId ?? 'ct-series',
+    modality: options.modality ?? 'CT',
+    windowInfo: options.windowInfo ?? { ww: 400, wl: 40 },
+    ...(options.petInfo ? { petInfo: options.petInfo } : {})
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  })))
+}
 
 function createFusionInfo(revision: number): FusionInfo {
   return {
@@ -384,6 +403,29 @@ function createLifecycleHarness(
   return { activeTabKey, activeViewportKey, selectedSeriesId, seriesList, viewerTabs, views }
 }
 
+function createMprViewportStage(): HTMLElement {
+  const stage = document.createElement('div')
+  ;(['mpr-ax', 'mpr-cor', 'mpr-sag'] as const).forEach((viewportKey, index) => {
+    const element = document.createElement('div')
+    element.dataset.activeRenderSurface = 'true'
+    element.dataset.viewportKey = viewportKey
+    element.getBoundingClientRect = vi.fn(() => ({
+      width: 640 + index,
+      height: 420 + index,
+      top: 0,
+      left: 0,
+      right: 640 + index,
+      bottom: 420 + index,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    }))
+    stage.appendChild(element)
+  })
+  document.body.appendChild(stage)
+  return stage
+}
+
 function createHarness() {
   const viewerTabs = ref<ViewerTabItem[]>([createFusionTab()])
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
@@ -412,11 +454,13 @@ function createHarness() {
   return { viewerTabs, views }
 }
 
-function createMprHarness() {
+function createMprHarness(
+  activeMprCrosshairDragLock = ref<ActiveMprCrosshairDragLock | null>(null)
+) {
   const viewerTabs = ref<ViewerTabItem[]>([createMprTab()])
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
   const views = useViewerWorkspaceViews({
-    activeMprCrosshairDragLock: ref(null),
+    activeMprCrosshairDragLock,
     activeTabKey: ref('mpr-tab'),
     activeViewportKey: ref('mpr-ax'),
     clearPendingVolumeConfig: vi.fn(),
@@ -436,7 +480,7 @@ function createMprHarness() {
     viewerTabs,
     withHoverCornerInfo: (cornerInfo) => cornerInfo
   })
-  return { viewerTabs, views }
+  return { activeMprCrosshairDragLock, viewerTabs, views }
 }
 
 function createStackHarness(lastHoverSample: {
@@ -561,7 +605,7 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
         tab: createPetTab(),
         viewId: 'pet-view',
         readWindowLabel: (tab) => tab.windowLabel,
-        expectedWindowLabel: 'SUV:0.00--1.00g/ml'
+        expectedWindowLabel: 'PET:0.00--1.00Source'
       },
       {
         label: '3D',
@@ -693,6 +737,227 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
     })
   })
 
+  it('applies the configured default pseudocolor before rendering a standalone PET view', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultPetPseudocolorKey.value
+    preferences.defaultPetPseudocolorKey.value = 'rainbow'
+    postApiMock.mockResolvedValueOnce({ viewId: 'created-pet-view' })
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT'
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness([], '', [petSeries], 'pet-series')
+
+    try {
+      await views.openSeriesView('pet-series', 'PET')
+
+      expect(viewerTabs.value[0]).toMatchObject({
+        viewType: 'PET',
+        pseudocolorPreset: 'rainbow',
+        petInfo: {
+          pseudocolorPreset: 'rainbow'
+        }
+      })
+      expect(emitViewOperationWithAckMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          viewId: 'created-pet-view',
+          opType: 'petConfig',
+          pseudocolorPreset: 'rainbow'
+        })
+      )
+    } finally {
+      preferences.defaultPetPseudocolorKey.value = previousPreset
+    }
+  })
+
+  it('keeps PET display intensity after the last same-series tab is closed', async () => {
+    postApiMock.mockResolvedValueOnce({ viewId: 'created-pet-view' })
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT'
+    } as FolderSeriesItem
+    const montageTab = {
+      ...createPetTab('hotiron'),
+      key: 'pet-series::Montage',
+      viewType: 'Montage' as const,
+      viewId: ''
+    }
+    const { viewerTabs, views } = createLifecycleHarness(
+      [montageTab],
+      montageTab.key,
+      [petSeries],
+      'pet-series'
+    )
+    const sharedPetInfo = {
+      ...montageTab.petInfo!,
+      petUnit: 'SUVbw',
+      petWindowMin: 0.2,
+      petWindowMax: 7.5,
+      controlWindowMax: 30,
+      unitOptions: [{ unit: 'SUVbw', label: 'g/ml (SUVbw)', available: true }]
+    }
+    views.rememberPetSeriesDisplayInfo(sharedPetInfo)
+    views.closeTab(montageTab.key)
+
+    await views.openSeriesView('pet-series', 'PET')
+
+    expect(viewerTabs.value.find((tab) => tab.viewType === 'PET')?.petInfo).toMatchObject({
+      petUnit: 'SUVbw',
+      petWindowMin: 0.2,
+      petWindowMax: 7.5,
+      controlWindowMax: 30
+    })
+    expect(emitViewOperationWithAckMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        viewId: 'created-pet-view',
+        opType: 'petConfig',
+        petUnit: 'SUVbw',
+        petWindowMin: 0.2,
+        petWindowMax: 7.5,
+        petControlWindowMax: 30
+      })
+    )
+  })
+
+  it('inherits a same-series CT stack pseudocolor when creating a montage tab even if another tab is active', async () => {
+    stubMontageDisplayConfig()
+    const stackTab = {
+      ...createStackTab(),
+      pseudocolorPreset: 'blackbody'
+    }
+    const activeTagTab = createTagTab()
+    const { viewerTabs, views } = createLifecycleHarness(
+      [stackTab, activeTagTab],
+      activeTagTab.key,
+      [createSeriesItem('ct-series')],
+      'ct-series'
+    )
+
+    await views.openSeriesView('ct-series', 'Montage')
+
+    const montageTab = viewerTabs.value.find((tab) => tab.viewType === 'Montage')
+    expect(montageTab).toMatchObject({
+      viewId: '',
+      pseudocolorPreset: 'blackbody'
+    })
+    expect(postApiMock).not.toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', expect.anything())
+
+    viewerTabs.value = viewerTabs.value.map((tab) =>
+      tab.viewType === 'Stack' ? { ...tab, pseudocolorPreset: 'rainbow' } : tab
+    )
+    await views.openSeriesView('ct-series', 'Montage')
+    expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')?.pseudocolorPreset).toBe('blackbody')
+  })
+
+  it('uses the configured CT pseudocolor when a montage has no active stack source', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultCtPseudocolorKey.value
+    preferences.defaultCtPseudocolorKey.value = 'bwinverse'
+    stubMontageDisplayConfig()
+    const { viewerTabs, views } = createLifecycleHarness(
+      [],
+      '',
+      [createSeriesItem('ct-series')],
+      'ct-series'
+    )
+
+    try {
+      await views.openSeriesView('ct-series', 'Montage')
+      expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')?.pseudocolorPreset).toBe('bwinverse')
+    } finally {
+      preferences.defaultCtPseudocolorKey.value = previousPreset
+    }
+  })
+
+  it('uses the configured PET pseudocolor when a montage has no PET 2D source', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultPetPseudocolorKey.value
+    preferences.defaultPetPseudocolorKey.value = 'rainbow'
+    const petInfo = {
+      ...createDefaultPetInfo('pet-series'),
+      sourceUnit: 'BQML',
+      petUnit: 'source',
+      petWindowMin: 0,
+      petWindowMax: 1,
+      unitOptions: [{ unit: 'source', label: 'Source', available: true }]
+    }
+    stubMontageDisplayConfig({ modality: 'PT', petInfo })
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT'
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness([], '', [petSeries], 'pet-series')
+
+    try {
+      await views.openSeriesView('pet-series', 'Montage')
+      expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')).toMatchObject({
+        pseudocolorPreset: 'rainbow',
+        petInfo: { pseudocolorPreset: 'rainbow' }
+      })
+    } finally {
+      preferences.defaultPetPseudocolorKey.value = previousPreset
+    }
+  })
+
+  it('inherits a non-active same-series PET 2D pseudocolor and its shared intensity when creating a montage tab', async () => {
+    const preferences = useUiPreferences()
+    const previousPreset = preferences.defaultPetPseudocolorKey.value
+    preferences.defaultPetPseudocolorKey.value = 'rainbow'
+    const authoritativePetInfo = {
+      ...createDefaultPetInfo('pet-series'),
+      sourceUnit: 'BQML',
+      petUnit: 'source',
+      petWindowMin: 0,
+      petWindowMax: 1,
+      controlWindowMax: 100_000,
+      unitOptions: [{ unit: 'source', label: 'Source', available: true }]
+    }
+    stubMontageDisplayConfig({
+      modality: 'PT',
+      petInfo: authoritativePetInfo,
+      windowInfo: { ww: 1, wl: 0.5 }
+    })
+    const petTab = createPetTab('hotiron')
+    petTab.petInfo = {
+      ...petTab.petInfo!,
+      petUnit: 'SUVbw',
+      petWindowMin: 0.12,
+      petWindowMax: 6.25,
+      pseudocolorPreset: 'hotiron',
+      unitOptions: [{ unit: 'SUVbw', label: 'g/ml (SUVbw)', available: true }]
+    }
+    const unrelatedTab = createStackTab()
+    const petSeries = {
+      ...createSeriesItem('pet-series'),
+      modality: 'PT',
+      instanceCount: 104
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness(
+      [petTab, unrelatedTab],
+      unrelatedTab.key,
+      [petSeries],
+      'pet-series'
+    )
+
+    try {
+      await views.openSeriesView('pet-series', 'Montage')
+
+      expect(viewerTabs.value.find((tab) => tab.viewType === 'Montage')).toMatchObject({
+        viewId: '',
+        pseudocolorPreset: 'hotiron',
+        petInfo: {
+          petUnit: 'SUVbw',
+          petWindowMin: 0.12,
+          petWindowMax: 6.25,
+          pseudocolorPreset: 'hotiron'
+        }
+      })
+      expect(postApiMock).not.toHaveBeenCalledWith('CreateViewApiV1ViewCreatePost', expect.anything())
+    } finally {
+      preferences.defaultPetPseudocolorKey.value = previousPreset
+    }
+  })
+
   it('sends the initial PET display config before rendering the first MPR frame', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0)
@@ -730,7 +995,15 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
       ...createSeriesItem('pet-series'),
       modality: 'PT'
     } as FolderSeriesItem
-    const { views } = createLifecycleHarness([], '', [petSeries], 'pet-series', stage)
+    const sourcePetTab = createPetTab('rainbow')
+    const unrelatedTab = createStackTab()
+    const { viewerTabs, views } = createLifecycleHarness(
+      [sourcePetTab, unrelatedTab],
+      unrelatedTab.key,
+      [petSeries],
+      'pet-series',
+      stage
+    )
 
     await views.openSeriesView('pet-series', 'MPR')
 
@@ -750,10 +1023,161 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
     expect(
       (emitViewOperationWithAckMock.mock.calls as unknown as Array<[Record<string, unknown>]>).map(([payload]) => payload)
     ).toEqual([
-      expect.objectContaining({ viewId: 'mpr-ax-view', opType: 'petConfig' }),
-      expect.objectContaining({ viewId: 'mpr-cor-view', opType: 'petConfig' }),
-      expect.objectContaining({ viewId: 'mpr-sag-view', opType: 'petConfig' })
+      expect.objectContaining({ viewId: 'mpr-ax-view', opType: 'petConfig', pseudocolorPreset: 'rainbow' }),
+      expect.objectContaining({ viewId: 'mpr-cor-view', opType: 'petConfig', pseudocolorPreset: 'rainbow' }),
+      expect.objectContaining({ viewId: 'mpr-sag-view', opType: 'petConfig', pseudocolorPreset: 'rainbow' })
     ])
+    expect(viewerTabs.value.find((tab) => tab.viewType === 'MPR')?.viewportPseudocolorPresets).toEqual({
+      'mpr-ax': 'rainbow',
+      'mpr-cor': 'rainbow',
+      'mpr-sag': 'rainbow'
+    })
+  })
+
+  it('inherits the same-series CT stack pseudocolor across all MPR viewports', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    const stage = document.createElement('div')
+    ;(['mpr-ax', 'mpr-cor', 'mpr-sag'] as const).forEach((viewportKey) => {
+      const element = document.createElement('div')
+      element.dataset.activeRenderSurface = 'true'
+      element.dataset.viewportKey = viewportKey
+      element.getBoundingClientRect = vi.fn(() => ({
+        width: 640,
+        height: 420,
+        top: 0,
+        left: 0,
+        right: 640,
+        bottom: 420,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      }))
+      stage.appendChild(element)
+    })
+    document.body.appendChild(stage)
+
+    const createdViewIds = ['mpr-ax-view', 'mpr-cor-view', 'mpr-sag-view']
+    postApiMock.mockImplementation(async (operation: string) =>
+      operation === 'CreateViewApiV1ViewCreatePost'
+        ? { viewId: createdViewIds.shift() }
+        : { success: true }
+    )
+    const sourceStackTab = {
+      ...createStackTab(),
+      pseudocolorPreset: 'blackbody'
+    }
+    const activeTagTab = createTagTab()
+    const { viewerTabs, views } = createLifecycleHarness(
+      [sourceStackTab, activeTagTab],
+      activeTagTab.key,
+      [createSeriesItem('ct-series')],
+      'ct-series',
+      stage
+    )
+
+    await views.openSeriesView('ct-series', 'MPR')
+
+    expect(viewerTabs.value.find((tab) => tab.viewType === 'MPR')?.viewportPseudocolorPresets).toEqual({
+      'mpr-ax': 'blackbody',
+      'mpr-cor': 'blackbody',
+      'mpr-sag': 'blackbody'
+    })
+    expect(
+      (emitViewOperationWithAckMock.mock.calls as unknown as Array<[Record<string, unknown>]>).map(([payload]) => payload)
+    ).toEqual([
+      expect.objectContaining({ viewId: 'mpr-ax-view', opType: 'pseudocolor', pseudocolorPreset: 'blackbody' }),
+      expect.objectContaining({ viewId: 'mpr-cor-view', opType: 'pseudocolor', pseudocolorPreset: 'blackbody' }),
+      expect.objectContaining({ viewId: 'mpr-sag-view', opType: 'pseudocolor', pseudocolorPreset: 'blackbody' })
+    ])
+  })
+
+  it.each([
+    { modality: 'CT', preset: 'blackbody', operationType: 'pseudocolor' },
+    { modality: 'PT', preset: 'rainbow', operationType: 'petConfig' }
+  ])('uses the configured $modality 2D default for MPR when no 2D tab exists', async ({ modality, preset, operationType }) => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    const preferences = useUiPreferences()
+    const preference = modality === 'PT'
+      ? preferences.defaultPetPseudocolorKey
+      : preferences.defaultCtPseudocolorKey
+    const previousPreset = preference.value
+    preference.value = preset
+    const stage = createMprViewportStage()
+    const createdViewIds = ['mpr-ax-view', 'mpr-cor-view', 'mpr-sag-view']
+    postApiMock.mockImplementation(async (operation: string) =>
+      operation === 'CreateViewApiV1ViewCreatePost'
+        ? { viewId: createdViewIds.shift() }
+        : { success: true }
+    )
+    const series = {
+      ...createSeriesItem(modality === 'PT' ? 'pet-series' : 'ct-series'),
+      modality
+    } as FolderSeriesItem
+    const { viewerTabs, views } = createLifecycleHarness(
+      [],
+      '',
+      [series],
+      series.seriesId,
+      stage
+    )
+
+    try {
+      await views.openSeriesView(series.seriesId, 'MPR')
+
+      expect(viewerTabs.value.find((tab) => tab.viewType === 'MPR')?.viewportPseudocolorPresets).toEqual({
+        'mpr-ax': preset,
+        'mpr-cor': preset,
+        'mpr-sag': preset
+      })
+      expect(
+        (emitViewOperationWithAckMock.mock.calls as unknown as Array<[Record<string, unknown>]>).map(([payload]) => payload)
+      ).toEqual([
+        expect.objectContaining({ viewId: 'mpr-ax-view', opType: operationType, pseudocolorPreset: preset }),
+        expect.objectContaining({ viewId: 'mpr-cor-view', opType: operationType, pseudocolorPreset: preset }),
+        expect.objectContaining({ viewId: 'mpr-sag-view', opType: operationType, pseudocolorPreset: preset })
+      ])
+    } finally {
+      preference.value = previousPreset
+    }
+  })
+
+  it('keeps an existing MPR pseudocolor when the same-series 2D pseudocolor changes', async () => {
+    const sourceStackTab = {
+      ...createStackTab(),
+      pseudocolorPreset: 'rainbow'
+    }
+    const mprTab = {
+      ...createMprTab(),
+      pseudocolorPreset: 'blackbody',
+      viewportPseudocolorPresets: {
+        'mpr-ax': 'blackbody',
+        'mpr-cor': 'blackbody',
+        'mpr-sag': 'blackbody'
+      }
+    }
+    const { activeTabKey, viewerTabs, views } = createLifecycleHarness(
+      [sourceStackTab, mprTab],
+      sourceStackTab.key,
+      [createSeriesItem('ct-series')],
+      'ct-series'
+    )
+
+    await views.openSeriesView('ct-series', 'MPR')
+
+    expect(activeTabKey.value).toBe(mprTab.key)
+    expect(viewerTabs.value.find((tab) => tab.viewType === 'MPR')?.viewportPseudocolorPresets).toEqual({
+      'mpr-ax': 'blackbody',
+      'mpr-cor': 'blackbody',
+      'mpr-sag': 'blackbody'
+    })
+    expect(emitViewOperationWithAckMock).not.toHaveBeenCalled()
   })
 
   it('switches between 2D and 3D tabs without releasing backend views', () => {
@@ -983,7 +1407,7 @@ describe('useViewerWorkspaceViews fusion layer updates', () => {
     vi.unstubAllGlobals()
   })
 
-  it('accepts final unchanged-primary PET layer updates after registration drag ends', () => {
+  it('ignores legacy PET layers and always presents the backend composite', () => {
     let urlIndex = 0
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => `blob:generated-${++urlIndex}`),
@@ -1018,14 +1442,49 @@ describe('useViewerWorkspaceViews fusion layer updates', () => {
     )
 
     const tab = viewerTabs.value[0]
-    expect(tab.fusionImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('blob:ct-base')
-    expect(tab.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]).toMatchObject({
-      ct: 'blob:ct-base',
-      pet: 'blob:generated-1',
-      revision: 2,
-      width: 200,
-      height: 200
+    expect(tab.fusionImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBe('blob:generated-1')
+    expect(tab.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBeNull()
+    expect(tab.fusionComposites?.[FUSION_OVERLAY_AXIAL_PANE_KEY]).toBeNull()
+  })
+
+  it('keeps pending control state separate from the alpha of the presented backend frame', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:alpha-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
     })
+    const { viewerTabs, views } = createHarness()
+    viewerTabs.value = viewerTabs.value.map((tab) => ({
+      ...tab,
+      fusionInfo: tab.fusionInfo ? { ...tab.fusionInfo, alpha: 0.8 } : tab.fusionInfo,
+      fusionPendingAlpha: { value: 0.8, baseRevision: 1 }
+    }))
+
+    views.updateTabImage(
+      'fusion-tab',
+      {
+        viewId: 'overlay-view',
+        imageFormat: 'png',
+        fusionInfo: { ...createFusionInfo(2), alpha: 0.35 }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    expect(viewerTabs.value[0]?.fusionInfo?.alpha).toBe(0.35)
+    expect(viewerTabs.value[0]?.fusionPendingAlpha).toEqual({ value: 0.8, baseRevision: 1 })
+
+    views.updateTabImage(
+      'fusion-tab',
+      {
+        viewId: 'overlay-view',
+        imageFormat: 'png',
+        fusionInfo: { ...createFusionInfo(3), alpha: 0.8 }
+      },
+      new Uint8Array([4, 5, 6])
+    )
+
+    expect(viewerTabs.value[0]?.fusionInfo?.alpha).toBe(0.8)
+    expect(viewerTabs.value[0]?.fusionPendingAlpha).toBeNull()
   })
 })
 
@@ -1629,6 +2088,113 @@ describe('useViewerWorkspaceViews PET standalone pseudocolor updates', () => {
     expect(tab.petInfo?.pseudocolorPreset).toBe('rainbow')
   })
 
+  it('applies authoritative PET display metadata to a Montage tab', () => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:pet-montage'),
+      revokeObjectURL: vi.fn()
+    })
+    const { viewerTabs, views } = createPetHarness('blackbody')
+    viewerTabs.value[0] = {
+      ...viewerTabs.value[0]!,
+      viewType: 'Montage',
+      currentWindowInfo: { ww: 25_800.74, wl: 12_899.87 }
+    }
+
+    views.updateTabImage(
+      'pet-tab',
+      {
+        viewId: 'pet-view',
+        imageFormat: 'webp',
+        color: { pseudocolorPreset: 'blackbody' },
+        petInfo: {
+          ...createDefaultPetInfo('pet-series'),
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          petWindowMin: 0,
+          petWindowMax: 0.63,
+          pseudocolorPreset: 'blackbody'
+        }
+      },
+      new Uint8Array([1, 2, 3])
+    )
+
+    const tab = viewerTabs.value[0]!
+    expect(tab.pseudocolorPreset).toBe('blackbody')
+    expect(tab.petInfo).toMatchObject({
+      petUnit: 'SUVbw',
+      petWindowMin: 0,
+      petWindowMax: 0.63,
+      pseudocolorPreset: 'blackbody'
+    })
+  })
+
+  it('uses the same authoritative PET upper limit in standalone and Montage views', () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:pet-range-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    const petTab = createPetTab('blackbody')
+    const montageTab = {
+      ...createPetTab('blackbody'),
+      key: 'pet-montage-tab',
+      viewType: 'Montage' as const,
+      viewId: 'pet-montage-view'
+    }
+    const { viewerTabs, views } = createLifecycleHarness(
+      [petTab, montageTab],
+      petTab.key
+    )
+    const authoritativePetInfo = {
+      ...createDefaultPetInfo('pet-series'),
+      sourceUnit: 'BQML',
+      sourceUnitLabel: 'Source (BQML)',
+      petUnit: 'SUVbw',
+      petUnitLabel: 'g/ml (SUVbw)',
+      petWindowMin: 0,
+      petWindowMax: 0.63,
+      autoWindowMin: 0,
+      autoWindowMax: 0.63,
+      controlWindowMax: 30,
+      unitOptions: [
+        {
+          unit: 'SUVbw',
+          label: 'g/ml (SUVbw)',
+          available: true,
+          autoWindowMin: 0,
+          autoWindowMax: 0.63,
+          controlWindowMax: 30
+        }
+      ]
+    }
+
+    views.updateTabImage(
+      petTab.key,
+      {
+        viewId: 'pet-view',
+        imageFormat: 'webp',
+        petInfo: authoritativePetInfo
+      },
+      new Uint8Array([1, 2, 3])
+    )
+    views.updateTabImage(
+      montageTab.key,
+      {
+        viewId: 'pet-montage-view',
+        imageFormat: 'webp',
+        petInfo: authoritativePetInfo
+      },
+      new Uint8Array([4, 5, 6])
+    )
+
+    const standalone = viewerTabs.value.find((tab) => tab.key === petTab.key)
+    const montage = viewerTabs.value.find((tab) => tab.key === montageTab.key)
+    expect(standalone?.petInfo?.petWindowMax).toBe(0.63)
+    expect(montage?.petInfo?.petWindowMax).toBe(standalone?.petInfo?.petWindowMax)
+    expect(montage?.petInfo?.controlWindowMax).toBe(standalone?.petInfo?.controlWindowMax)
+    expect(montage?.currentWindowInfo).toEqual(standalone?.currentWindowInfo)
+  })
+
   it('keeps PET-only range lines while filtering CT window lines from standalone PET corner info', () => {
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:pet-bwinverse'),
@@ -1717,6 +2283,253 @@ describe('useViewerWorkspaceViews PET-only corner info', () => {
 })
 
 describe('useViewerWorkspaceViews MPR state updates', () => {
+  it('defers batched MPR state until the matching image batch is presented', () => {
+    const { viewerTabs, views } = createMprHarness()
+    const previousCrosshair = createMprCrosshair(0.2, 0.3)
+    const nextCrosshair = createMprCrosshair(0.65, 0.7)
+    viewerTabs.value = viewerTabs.value.map((item) => ({
+      ...item,
+      mprRevision: 3,
+      viewportCrosshairs: {
+        ...(item.viewportCrosshairs ?? {}),
+        'mpr-ax': previousCrosshair
+      },
+      viewportSliceLabels: {
+        ...(item.viewportSliceLabels ?? {}),
+        'mpr-ax': '4 / 12'
+      }
+    }))
+
+    views.updateMprState('mpr-tab', {
+      viewId: 'mpr-ax-view',
+      mprRevision: 4,
+      mprBatchId: 'crosshair-1:4:preview',
+      mprBatchViewportKeys: ['mpr-ax', 'mpr-cor'],
+      mprBatchFinal: false,
+      slice_info: { current: 8, total: 12 },
+      mpr_crosshair: nextCrosshair
+    })
+
+    const tab = viewerTabs.value[0]
+    expect(tab.viewportCrosshairs?.['mpr-ax']).toEqual(previousCrosshair)
+    expect(tab.viewportSliceLabels?.['mpr-ax']).toBe('4 / 12')
+    expect(tab.mprRevision).toBe(3)
+  })
+
+  it('keeps the active crosshair viewport pixels stable while reference viewports update', async () => {
+    let urlIndex = 0
+    const createObjectURL = vi.fn(() => `blob:mpr-reference-${++urlIndex}`)
+    vi.stubGlobal('URL', {
+      createObjectURL,
+      revokeObjectURL: vi.fn()
+    })
+    class DecodedImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+
+      decode(): Promise<void> {
+        return Promise.resolve()
+      }
+    }
+    vi.stubGlobal('Image', DecodedImage)
+    const activeLock = ref<ActiveMprCrosshairDragLock | null>({
+      tabKey: 'mpr-tab',
+      viewportKey: 'mpr-ax',
+      phaseKey: null,
+      mode: 'move',
+      status: 'dragging',
+      interactionId: 'crosshair-1'
+    })
+    const { viewerTabs, views } = createMprHarness(activeLock)
+    viewerTabs.value = viewerTabs.value.map((tab) => ({
+      ...tab,
+      viewportViewIds: {
+        ...tab.viewportViewIds,
+        'mpr-cor': 'mpr-cor-view'
+      },
+      viewportImages: {
+        ...tab.viewportImages,
+        'mpr-cor': 'blob:mpr-cor-old'
+      }
+    }))
+
+    const basePayload = {
+      imageFormat: 'webp' as const,
+      interactionId: 'crosshair-1',
+      mprRevision: 4,
+      mprBatchId: 'crosshair-1:4:preview',
+      mprBatchViewportKeys: ['mpr-ax', 'mpr-cor'] as MprViewportKey[],
+      mprBatchFinal: false,
+      metadataMode: 'mpr-crosshair-preview'
+    }
+    views.queueMprFrameBatch(
+      'mpr-tab',
+      { ...basePayload, viewId: 'mpr-ax-view' },
+      new Uint8Array([1]),
+      {}
+    )
+    views.queueMprFrameBatch(
+      'mpr-tab',
+      { ...basePayload, viewId: 'mpr-cor-view' },
+      new Uint8Array([2]),
+      {}
+    )
+
+    await vi.waitFor(() => {
+      expect(viewerTabs.value[0].viewportImages).toMatchObject({
+        'mpr-ax': 'blob:mpr-ax',
+        'mpr-cor': 'blob:mpr-reference-1'
+      })
+    })
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+  })
+
+  it('presents every viewport in an MPR frame batch only after the whole batch decodes', async () => {
+    let urlIndex = 0
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:mpr-batch-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    class DecodedImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+
+      decode(): Promise<void> {
+        return Promise.resolve()
+      }
+    }
+    vi.stubGlobal('Image', DecodedImage)
+    const { viewerTabs, views } = createMprHarness()
+    viewerTabs.value = viewerTabs.value.map((tab) => ({
+      ...tab,
+      viewportViewIds: {
+        ...tab.viewportViewIds,
+        'mpr-cor': 'mpr-cor-view'
+      },
+      viewportImages: {
+        ...tab.viewportImages,
+        'mpr-cor': 'blob:mpr-cor-old'
+      }
+    }))
+
+    const basePayload = {
+      imageFormat: 'webp' as const,
+      interactionId: 'crosshair-1',
+      mprRevision: 4,
+      mprBatchId: 'crosshair-1:4:preview',
+      mprBatchViewportKeys: ['mpr-ax', 'mpr-cor'] as MprViewportKey[],
+      mprBatchFinal: false,
+      metadataMode: 'mpr-crosshair-preview'
+    }
+    expect(views.queueMprFrameBatch(
+      'mpr-tab',
+      { ...basePayload, viewId: 'mpr-ax-view' },
+      new Uint8Array([1]),
+      {}
+    )).toBe(true)
+    expect(viewerTabs.value[0].viewportImages).toMatchObject({
+      'mpr-ax': 'blob:mpr-ax',
+      'mpr-cor': 'blob:mpr-cor-old'
+    })
+
+    expect(views.queueMprFrameBatch(
+      'mpr-tab',
+      { ...basePayload, viewId: 'mpr-cor-view' },
+      new Uint8Array([2]),
+      {}
+    )).toBe(true)
+    await vi.waitFor(() => {
+      expect(viewerTabs.value[0].viewportImages).toMatchObject({
+        'mpr-ax': 'blob:mpr-batch-1',
+        'mpr-cor': 'blob:mpr-batch-2'
+      })
+    })
+  })
+
+  it('keeps revision 4 visible when revisions 2 and 3 finish decoding later', async () => {
+    let urlIndex = 0
+    const decodeResolvers = new Map<string, () => void>()
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => `blob:mpr-race-${++urlIndex}`),
+      revokeObjectURL: vi.fn()
+    })
+    class DeferredImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      private source = ''
+
+      set src(value: string) {
+        this.source = value
+      }
+
+      decode(): Promise<void> {
+        return new Promise((resolve) => {
+          decodeResolvers.set(this.source, resolve)
+        })
+      }
+    }
+    vi.stubGlobal('Image', DeferredImage)
+    const { viewerTabs, views } = createMprHarness()
+    viewerTabs.value = viewerTabs.value.map((tab) => ({
+      ...tab,
+      viewportViewIds: {
+        ...tab.viewportViewIds,
+        'mpr-cor': 'mpr-cor-view'
+      },
+      viewportImages: {
+        ...tab.viewportImages,
+        'mpr-cor': 'blob:mpr-cor-old'
+      }
+    }))
+
+    const queueRevision = (revision: number) => {
+      const batchId = `crosshair-1:${revision}:preview`
+      const common = {
+        imageFormat: 'webp' as const,
+        interactionId: 'crosshair-1',
+        mprRevision: revision,
+        mprBatchId: batchId,
+        mprBatchViewportKeys: ['mpr-ax', 'mpr-cor'] as MprViewportKey[],
+        mprBatchFinal: false,
+        metadataMode: 'mpr-crosshair-preview'
+      }
+      views.queueMprFrameBatch('mpr-tab', { ...common, viewId: 'mpr-ax-view' }, new Uint8Array([revision]), {})
+      views.queueMprFrameBatch('mpr-tab', { ...common, viewId: 'mpr-cor-view' }, new Uint8Array([revision]), {})
+    }
+
+    queueRevision(2)
+    queueRevision(3)
+    queueRevision(4)
+    await vi.waitFor(() => expect(decodeResolvers.size).toBe(6))
+    decodeResolvers.get('blob:mpr-race-5')?.()
+    decodeResolvers.get('blob:mpr-race-6')?.()
+    await vi.waitFor(() => {
+      expect(viewerTabs.value[0].viewportImages).toMatchObject({
+        'mpr-ax': 'blob:mpr-race-5',
+        'mpr-cor': 'blob:mpr-race-6'
+      })
+    })
+
+    for (const source of ['blob:mpr-race-1', 'blob:mpr-race-2', 'blob:mpr-race-3', 'blob:mpr-race-4']) {
+      decodeResolvers.get(source)?.()
+    }
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(viewerTabs.value[0].viewportImages).toMatchObject({
+      'mpr-ax': 'blob:mpr-race-5',
+      'mpr-cor': 'blob:mpr-race-6'
+    })
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })

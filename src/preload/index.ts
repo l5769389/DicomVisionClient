@@ -28,6 +28,7 @@ window.addEventListener(
 )
 
 contextBridge.exposeInMainWorld('viewerApi', {
+  platform: process.platform,
   chooseFolder: (mode?: 'files' | 'folder' | 'archive'): Promise<string[] | null> => ipcRenderer.invoke('viewer:choose-folder', mode),
   chooseExportDirectory: (): Promise<string | null> => ipcRenderer.invoke('viewer:choose-export-directory'),
   closeWindow: (): Promise<void> => ipcRenderer.invoke('viewer:close-window'),

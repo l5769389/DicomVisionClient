@@ -216,7 +216,8 @@ describe('ViewportCornerOverlay', () => {
       scrollWidth: { configurable: true, value: 220 }
     })
     await lines[2]!.trigger('pointerenter')
-    expect(lines[2]!.attributes('title')).toBe('PET TOMO[Recon]_L')
+    expect(lines[2]!.attributes('title')).toBeUndefined()
+    expect(lines[2]!.attributes('role')).toBe('button')
     expect(wrapper.get('.viewer-corner-detail').text()).toBe('PET TOMO[Recon]_L')
     expect(wrapper.get('.viewer-corner-detail').text()).not.toContain('PET_Animal')
 
@@ -253,7 +254,70 @@ describe('ViewportCornerOverlay', () => {
       scrollWidth: { configurable: true, value: 240 }
     })
     await firstLine.trigger('pointerenter')
+    expect(firstLine.attributes('title')).toBeUndefined()
+    expect(firstLine.attributes('role')).toBeUndefined()
     expect(wrapper.find('.viewer-corner-detail').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders every configured patient summary value on its own row', () => {
+    preferenceState.current = {
+      ...preferenceState.current,
+      topLeft: [],
+      topRight: ['patientName', 'patientSummary']
+    }
+    const wrapper = mount(ViewportCornerOverlay, {
+      props: {
+        viewportKey: 'mpr-axial',
+        cornerInfo: {
+          topLeft: [],
+          topRight: ['ZHANG SAN', 'P000123', 'M / 058Y'],
+          bottomLeft: [],
+          bottomRight: [],
+          tags: {
+            patientName: ['ZHANG SAN'],
+            patientSummary: ['P000123', 'M / 058Y']
+          }
+        }
+      }
+    })
+
+    expect(
+      wrapper.findAll('.viewer-corner-block--topRight > .viewer-corner-line').map((line) => line.text())
+    ).toEqual(['ZHANG SAN', 'P000123', 'M / 058Y'])
+    wrapper.unmount()
+  })
+
+  it('closes a revealed row when a resize makes the full line visible', async () => {
+    const wrapper = mount(ViewportCornerOverlay, {
+      props: {
+        viewportKey: 'ct-stack',
+        cornerInfo: {
+          topLeft: ['A long series description'],
+          topRight: [],
+          bottomLeft: [],
+          bottomRight: [],
+          tags: { patientName: ['A long series description'] }
+        }
+      }
+    })
+    const line = wrapper.get('.viewer-corner-line')
+    Object.defineProperties(line.element, {
+      clientWidth: { configurable: true, value: 80 },
+      scrollWidth: { configurable: true, value: 220 }
+    })
+    await line.trigger('pointerenter')
+    expect(wrapper.find('.viewer-corner-detail').exists()).toBe(true)
+
+    Object.defineProperties(line.element, {
+      clientWidth: { configurable: true, value: 240 },
+      scrollWidth: { configurable: true, value: 240 }
+    })
+    window.dispatchEvent(new Event('resize'))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.viewer-corner-detail').exists()).toBe(false)
+    expect(line.attributes('role')).toBeUndefined()
     wrapper.unmount()
   })
 

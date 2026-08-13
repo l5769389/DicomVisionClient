@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import AppIcon from '../../AppIcon.vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import type {
@@ -12,7 +13,6 @@ import type {
   MeasurementOverlay,
   OrientationInfo,
   Vec3,
-  ViewerImageLayer,
   ViewerTabItem
 } from '../../../types/viewer'
 import {
@@ -40,7 +40,13 @@ const emit = defineEmits<{
   deleteAnnotation: [payload: { viewportKey: string; annotationId: string }]
   copySelectedMeasurement: [viewportKey: string]
   deleteSelectedMeasurement: [viewportKey: string, measurementId?: string]
-  fusionConfigChange: [payload: { manualRegistration?: boolean; pseudocolorPreset?: string; petUnit?: string; action?: 'reset' | 'save' }]
+  fusionConfigChange: [payload: {
+    manualRegistration?: boolean
+    pseudocolorPreset?: string
+    petUnit?: string
+    dismissFrameOfReferenceWarning?: boolean
+    action?: 'reset' | 'save'
+  }]
   fusionRegistrationDrag: [payload: {
     viewportKey: string
     phase: 'start' | 'move' | 'end'
@@ -68,6 +74,11 @@ const emit = defineEmits<{
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
 }>()
+
+function getPaneRenderRevision(paneKey: FusionPaneKey): number | null {
+  const viewId = props.activeTab.fusionViewIds?.[paneKey]
+  return viewId ? props.activeTab.imageUpdateRevisions?.[viewId] ?? null : null
+}
 
 interface FusionPaneView {
   key: FusionPaneKey
@@ -223,6 +234,11 @@ const panes = computed<FusionPaneView[]>(() =>
 )
 
 const manualRegistrationEnabled = computed(() => props.activeTab.fusionManualRegistration === true)
+const frameOfReferenceWarningVisible = computed(() =>
+  props.activeTab.fusionInfo?.frameOfReferenceMatched === false &&
+  props.activeTab.fusionInfo.registration.saved !== true &&
+  props.activeTab.fusionFrameOfReferenceWarningDismissed !== true
+)
 const fusionRegistrationResetRevision = computed(() => props.activeTab.fusionRegistrationResetRevision ?? 0)
 const manualRegistrationHint = computed(() =>
   isZh.value
@@ -230,6 +246,18 @@ const manualRegistrationHint = computed(() =>
     : 'Registration mode · Left drag moves PET · Right drag rotates PET · Esc exits'
 )
 const loadingLabel = computed(() => (isZh.value ? '正在加载融合视图...' : 'Loading fusion view...'))
+const frameOfReferenceWarning = computed(() =>
+  isZh.value
+    ? 'CT 与 PET 坐标系不一致，请使用配准工具检查并保存配准。'
+    : 'CT and PET frames of reference differ. Review and save manual registration.'
+)
+const closeFrameOfReferenceWarningLabel = computed(() =>
+  isZh.value ? '关闭坐标系不匹配提示' : 'Dismiss frame of reference warning'
+)
+
+function dismissFrameOfReferenceWarning(): void {
+  emit('fusionConfigChange', { dismissFrameOfReferenceWarning: true })
+}
 const placeholderLabel = computed(() => (isZh.value ? 'PET/CT 融合预览' : 'PET/CT fusion preview'))
 const progressLabels = computed<Record<string, string>>(() => ({
   queued: isZh.value ? '准备渲染' : 'Preparing render',
@@ -639,44 +667,8 @@ function consumeManualRegistrationRightDoubleClick(state: ManualRegistrationDrag
   return distanceX <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX && distanceY <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX
 }
 
-function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
-  if (paneKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
-    return []
-  }
-  const petLayerSrc =
-    manualRegistrationEnabled.value && !isManualRegistrationPreviewPoseIdentity(manualRegistrationVisualPose.value)
-      ? manualRegistrationLockedImages.value?.layerImages[paneKey] || props.activeTab.fusionLayerImages?.[paneKey]?.pet
-      : props.activeTab.fusionLayerImages?.[paneKey]?.pet
-  if (!petLayerSrc) {
-    return []
-  }
-  return [
-    {
-      key: 'pet-registration-layer',
-      src: petLayerSrc,
-      alt: 'PET overlay',
-      class: 'pet-ct-fusion-view__pet-layer',
-      style: getManualRegistrationPreviewStyle(paneKey)
-    }
-  ]
-}
-
 function getFusionPaneImageSrc(pane: FusionPaneView): string {
-  if (
-    manualRegistrationEnabled.value &&
-    pane.key === FUSION_PET_AXIAL_PANE_KEY &&
-    !isManualRegistrationPreviewPoseIdentity(manualRegistrationVisualPose.value)
-  ) {
-    return manualRegistrationLockedImages.value?.images[pane.key] || pane.imageSrc
-  }
   return pane.imageSrc
-}
-
-function getFusionPaneImageStyle(paneKey: FusionPaneKey): Record<string, string> {
-  if (paneKey !== FUSION_PET_AXIAL_PANE_KEY) {
-    return {}
-  }
-  return getManualRegistrationPreviewStyle(paneKey)
 }
 
 function isFusionPetStandalonePane(paneKey: FusionPaneKey): boolean {
@@ -688,7 +680,7 @@ function getFusionPanePseudocolorPreset(paneKey: FusionPaneKey): string {
 }
 
 function hasFusionPaneVisualContent(pane: FusionPaneView): boolean {
-  return Boolean(getFusionPaneImageSrc(pane)) || getFusionImageLayers(pane.key).some((layer) => Boolean(layer.src))
+  return Boolean(getFusionPaneImageSrc(pane))
 }
 
 function getFusionPaneOrientation(pane: FusionPaneView): OrientationInfo {
@@ -774,54 +766,6 @@ function getPaneNaturalSize(paneKey: FusionPaneKey): { width: number; height: nu
   const width = image?.naturalWidth || layerSize?.width || getPaneViewportRect(paneKey)?.width || 0
   const height = image?.naturalHeight || layerSize?.height || getPaneViewportRect(paneKey)?.height || 0
   return { width, height }
-}
-
-function getManualRegistrationPreviewStyle(paneKey: FusionPaneKey): Record<string, string> {
-  void markerLayoutRevision.value
-  const pose = manualRegistrationVisualPose.value
-  if (!manualRegistrationEnabled.value || !pose || isManualRegistrationPreviewPoseIdentity(pose)) {
-    return {}
-  }
-  const viewportRect = getPaneViewportRect(paneKey)
-  if (!viewportRect) {
-    return {}
-  }
-  const naturalSize = getPaneNaturalSize(paneKey)
-  const imageRect = getContainedImageRectFromBox(viewportRect, naturalSize.width, naturalSize.height)
-  if (!naturalSize.width || !naturalSize.height || !imageRect.width || !imageRect.height) {
-    return {}
-  }
-
-  const scaleX = imageRect.width / naturalSize.width
-  const scaleY = imageRect.height / naturalSize.height
-  const translateX = pose.translateCanvasX * scaleX
-  const translateY = pose.translateCanvasY * scaleY
-  const imageCenterX = imageRect.left - viewportRect.left + pose.imageCenterCanvasX * scaleX
-  const imageCenterY = imageRect.top - viewportRect.top + pose.imageCenterCanvasY * scaleY
-  const rotationCenterX = imageCenterX + translateX
-  const rotationCenterY = imageCenterY + translateY
-  const round = (value: number): number => Math.round(value * 1000) / 1000
-  if (Math.abs(pose.rotationDegrees) < 0.001) {
-    return {
-      transform: `translate(${round(translateX)}px, ${round(translateY)}px)`,
-      transformOrigin: `${round(rotationCenterX)}px ${round(rotationCenterY)}px`,
-      willChange: 'transform'
-    }
-  }
-  const rotationRad = pose.rotationDegrees * Math.PI / 180
-  const cos = Math.cos(rotationRad)
-  const sin = Math.sin(rotationRad)
-  const matrixA = cos
-  const matrixB = sin
-  const matrixC = -sin
-  const matrixD = cos
-  const matrixE = rotationCenterX - cos * imageCenterX + sin * imageCenterY
-  const matrixF = rotationCenterY - sin * imageCenterX - cos * imageCenterY
-  return {
-    transform: `matrix(${round(matrixA)}, ${round(matrixB)}, ${round(matrixC)}, ${round(matrixD)}, ${round(matrixE)}, ${round(matrixF)})`,
-    transformOrigin: '0px 0px',
-    willChange: 'transform'
-  }
 }
 
 function setPaneRef(paneKey: FusionPaneKey, element: Element | ComponentPublicInstance | null): void {
@@ -1163,6 +1107,23 @@ watch(
       {{ manualRegistrationHint }}
     </div>
     <div
+      v-if="frameOfReferenceWarningVisible && !manualRegistrationEnabled"
+      class="pet-ct-fusion-view__frame-warning"
+      data-testid="fusion-frame-of-reference-warning"
+    >
+      <span>{{ frameOfReferenceWarning }}</span>
+      <button
+        type="button"
+        class="pet-ct-fusion-view__frame-warning-close"
+        :aria-label="closeFrameOfReferenceWarningLabel"
+        :title="closeFrameOfReferenceWarningLabel"
+        data-testid="fusion-frame-of-reference-warning-close"
+        @click.stop="dismissFrameOfReferenceWarning"
+      >
+        <AppIcon name="close" :size="15" />
+      </button>
+    </div>
+    <div
       class="pet-ct-fusion-view__grid grid h-full min-h-0 grid-cols-2 grid-rows-2 gap-[3px]"
       :class="{ 'pet-ct-fusion-view__grid--expanded': expandedFusionPaneKey != null }"
     >
@@ -1194,9 +1155,8 @@ watch(
           :draft-annotation="getDraftAnnotation(pane.key)"
           :draft-measurement="getDraftMeasurement(pane.key)"
           :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
-          :image-layers="getFusionImageLayers(pane.key)"
           :image-src="getFusionPaneImageSrc(pane)"
-          :image-style="getFusionPaneImageStyle(pane.key)"
+          :render-revision="getPaneRenderRevision(pane.key)"
           :is-active="activeViewportKey === pane.key"
           :is-loading="!hasFusionPaneVisualContent(pane)"
           :loading-label="getPaneLoadingLabel(pane.key)"
@@ -1294,6 +1254,48 @@ watch(
     0 0 0 1px rgba(0, 0, 0, 0.3),
     0 0 22px rgba(245, 158, 11, 0.18);
   pointer-events: none;
+}
+
+.pet-ct-fusion-view__frame-warning {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 34;
+  transform: translateX(-50%);
+  max-width: min(92%, 760px);
+  border: 1px solid rgba(245, 158, 11, 0.58);
+  border-radius: 6px;
+  background: rgba(48, 31, 8, 0.94);
+  color: #ffe8b3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+  pointer-events: auto;
+}
+
+.pet-ct-fusion-view__frame-warning-close {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: currentColor;
+}
+
+.pet-ct-fusion-view__frame-warning-close:hover,
+.pet-ct-fusion-view__frame-warning-close:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
 }
 
 .pet-ct-fusion-view__pane--active {

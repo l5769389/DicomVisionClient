@@ -169,7 +169,7 @@ describe('mprInteractionGuard', () => {
     ).toEqual(incomingCrosshair)
   })
 
-  it('suppresses active crosshair previews and stale MPR image updates', () => {
+  it('accepts current previews and suppresses only stale MPR image updates', () => {
     const update = {
       tabKey: 'series-1::MPR',
       viewportKey: 'mpr-ax' as const,
@@ -184,7 +184,7 @@ describe('mprInteractionGuard', () => {
         imageFormat: 'png',
         metadataMode: 'mpr-crosshair-preview'
       })
-    ).toBe(true)
+    ).toBe(false)
     expect(
       shouldSuppressMprCrosshairPreviewImageUpdate({
         acceptedMprRevision: 6,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type {
   AnnotationDraft,
   AnnotationOverlay,
@@ -16,7 +16,6 @@ import type {
   OrientationInfo,
   ScaleBarInfo,
   QaWaterAnalysis,
-  ViewerImageLayer,
   ViewTransformInfo,
   ViewerMtfItem,
   WindowLevelInfo
@@ -36,6 +35,7 @@ import ViewportPseudocolorBarOverlay from '../overlays/ViewportPseudocolorBarOve
 import ViewportQaWaterOverlay from '../overlays/ViewportQaWaterOverlay.vue'
 import ViewportScaleBarOverlay from '../overlays/ViewportScaleBarOverlay.vue'
 import ViewportVoiOverlay from '../overlays/ViewportVoiOverlay.vue'
+import ViewerPresentedImage from './ViewerPresentedImage.vue'
 import type { OverlayImageFrame } from '../overlays/overlayGeometry'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import {
@@ -52,6 +52,7 @@ import {
 import { bindView } from '../../../services/socket'
 import type { VolumeOrientationFace } from '../../../composables/workspace/volume/volumeOrientation'
 import { getPseudocolorBackgroundColor, isPseudocolorBackgroundLight } from '../../../constants/pseudocolor'
+import { isViewerPerfDebugEnabled } from '../../../composables/workspace/core/viewerPerfDebug'
 
 const props = withDefaults(
   defineProps<{
@@ -70,8 +71,6 @@ const props = withDefaults(
     selectedMtfId?: string | null
     measurements?: MeasurementOverlay[]
     imageClass?: string
-    imageStyle?: Record<string, string>
-    imageLayers?: ViewerImageLayer[]
     imageSrc: string
     mediaViewId?: string | null
     hideDraftHandles?: boolean
@@ -81,6 +80,7 @@ const props = withDefaults(
     loadingLabel?: string
     loadingProgressPercent?: number | null
     mprCrosshair?: MprCrosshairInfo | null
+    mprCrosshairPreview?: MprCrosshairInfo | null
     mprFrame?: MprFrameInfo | null
     mprPlane?: MprPlaneInfo | null
     mprSegmentationDefaultThresholdColor?: string
@@ -94,6 +94,7 @@ const props = withDefaults(
     pseudocolorPreset?: string | null
     pseudocolorWindowInfo?: WindowLevelInfo | null
     pseudocolorValueDecimalPlaces?: number | null
+    renderRevision?: number | null
     renderSurfaceActive?: boolean
     scaleBar?: ScaleBarInfo | null
     showCornerInfo?: boolean
@@ -101,7 +102,6 @@ const props = withDefaults(
     showPseudocolorBar?: boolean
     showScaleBar?: boolean
     showVolumeOrientationCube?: boolean
-    softImage?: boolean
     stageSurfaceClass?: string
     lightSurface?: boolean
     viewportTransform?: ViewTransformInfo | null
@@ -117,9 +117,7 @@ const props = withDefaults(
     measurements: () => [],
     cursorClass: '',
     draftMeasurementMode: null,
-    imageLayers: () => [],
     imageClass: '',
-    imageStyle: () => ({}),
     mediaViewId: null,
     hideDraftHandles: false,
     compactLoading: false,
@@ -128,6 +126,7 @@ const props = withDefaults(
     loadingLabel: '',
     loadingProgressPercent: null,
     mprCrosshair: null,
+    mprCrosshairPreview: null,
     mprFrame: null,
     mprPlane: null,
     mprSegmentationDefaultThresholdColor: DEFAULT_MPR_SEGMENTATION_COLOR,
@@ -140,6 +139,7 @@ const props = withDefaults(
     pseudocolorPreset: null,
     pseudocolorWindowInfo: null,
     pseudocolorValueDecimalPlaces: null,
+    renderRevision: null,
     renderSurfaceActive: false,
     scaleBar: null,
     showCornerInfo: true,
@@ -147,7 +147,6 @@ const props = withDefaults(
     showPseudocolorBar: true,
     showScaleBar: true,
     showVolumeOrientationCube: true,
-    softImage: false,
     stageSurfaceClass: '',
     lightSurface: false,
     viewportTransform: null,
@@ -200,13 +199,68 @@ const emit = defineEmits<{
 
 const stageRef = ref<HTMLDivElement | null>(null)
 const imageRef = ref<HTMLImageElement | null>(null)
-const displayedImageSrc = ref(props.imageSrc)
-const pendingImageSrc = ref<string | null>(null)
 const { viewerCopy } = useUiLocale()
 const stageSize = ref({
   width: 0,
   height: 0
 })
+
+interface RenderedFrameState {
+  source: string
+  receivedAtMs: number
+  renderRevision: number | null
+  annotations: AnnotationOverlay[]
+  cornerInfo: CornerInfo
+  measurements: MeasurementOverlay[]
+  mprCrosshair: MprCrosshairInfo | null
+  mprFrame: MprFrameInfo | null
+  mprPlane: MprPlaneInfo | null
+  mprSegmentationConfig: MprSegmentationConfig | null
+  mprSegmentationOverlay: MprSegmentationOverlay | null
+  orientation: OrientationInfo
+  pseudocolorPreset: string | null
+  pseudocolorWindowInfo: WindowLevelInfo | null
+  scaleBar: ScaleBarInfo | null
+  viewportTransform: ViewTransformInfo | null
+}
+
+function captureRenderedFrame(): RenderedFrameState {
+  return {
+    source: props.imageSrc,
+    receivedAtMs: typeof performance === 'undefined' ? Date.now() : performance.now(),
+    renderRevision: props.renderRevision,
+    annotations: props.annotations,
+    cornerInfo: props.cornerInfo,
+    measurements: props.measurements,
+    mprCrosshair: props.mprCrosshair,
+    mprFrame: props.mprFrame,
+    mprPlane: props.mprPlane,
+    mprSegmentationConfig: props.mprSegmentationConfig,
+    mprSegmentationOverlay: props.mprSegmentationOverlay,
+    orientation: props.orientation,
+    pseudocolorPreset: props.pseudocolorPreset,
+    pseudocolorWindowInfo: props.pseudocolorWindowInfo,
+    scaleBar: props.scaleBar,
+    viewportTransform: props.viewportTransform
+  }
+}
+
+const pendingRenderedFrames = new Map<string, RenderedFrameState>()
+const presentedSource = ref(props.imageSrc)
+const presentedFrame = shallowRef<RenderedFrameState>(captureRenderedFrame())
+
+watch(
+  captureRenderedFrame,
+  (frame) => {
+    if (frame.source) {
+      pendingRenderedFrames.set(frame.source, frame)
+    }
+    if (!frame.source || frame.source === presentedSource.value) {
+      presentedFrame.value = frame
+    }
+  },
+  { immediate: true, flush: 'pre' }
+)
 function createEmptyImageFrame(): OverlayImageFrame {
   return {
     left: 0,
@@ -307,15 +361,14 @@ const hasPresentedWebRtcFrame = computed(() =>
   hasPresentedThreeDVideoFrame(props.mediaViewId)
 )
 const showWebRtcStillFrame = computed(() =>
-  Boolean(webRtcStream.value && props.imageSrc && shouldShowThreeDStillFrame(props.mediaViewId))
+  Boolean(webRtcStream.value && presentedFrame.value.source && shouldShowThreeDStillFrame(props.mediaViewId))
 )
 const showWebRtcVideoPixels = computed(() =>
   Boolean(webRtcStream.value && hasPresentedWebRtcFrame.value && !showWebRtcStillFrame.value)
 )
 
 const hasImageContent = computed(() =>
-  Boolean(displayedImageSrc.value || props.imageSrc || (webRtcStream.value && hasPresentedWebRtcFrame.value)) ||
-  props.imageLayers.some((layer) => Boolean(layer.src))
+  Boolean(presentedFrame.value.source || (webRtcStream.value && hasPresentedWebRtcFrame.value))
 )
 const isConnectingVolumeStream = computed(() =>
   Boolean(
@@ -340,18 +393,18 @@ const shouldShowCornerInfo = computed(() => props.showCornerInfo && hasImageCont
 const shouldShowCrosshair = computed(() => props.showCrosshair && hasImageContent.value)
 const shouldShowScaleBar = computed(() => props.showScaleBar && hasImageContent.value)
 const shouldShowPseudocolorBar = computed(() =>
-  props.showPseudocolorBar && hasImageContent.value && props.viewportKey !== 'volume' && Boolean(props.pseudocolorPreset)
+  props.showPseudocolorBar && hasImageContent.value && props.viewportKey !== 'volume' && Boolean(presentedFrame.value.pseudocolorPreset)
 )
 const isLightSurface = computed(() =>
   props.lightSurface ||
   LIGHT_SURFACE_CLASS_PATTERN.test(props.stageSurfaceClass) ||
-  (Boolean(props.pseudocolorPreset) && isPseudocolorBackgroundLight(props.pseudocolorPreset))
+  (Boolean(presentedFrame.value.pseudocolorPreset) && isPseudocolorBackgroundLight(presentedFrame.value.pseudocolorPreset))
 )
 const scaleBarColorOverride = computed(() => (isLightSurface.value ? LIGHT_SURFACE_SCALE_BAR_COLOR : null))
 const lightSurfaceStyle = computed(() =>
-  props.pseudocolorPreset
+  presentedFrame.value.pseudocolorPreset
     ? {
-        background: getPseudocolorBackgroundColor(props.pseudocolorPreset),
+        background: getPseudocolorBackgroundColor(presentedFrame.value.pseudocolorPreset),
         backgroundImage: 'none'
       }
     : isLightSurface.value
@@ -409,7 +462,7 @@ function getHoverImageRect(): DOMRect | null {
     return getContainedImageRect(video.getBoundingClientRect(), video.videoWidth, video.videoHeight)
   }
   const image = imageRef.value
-  if (image && displayedImageSrc.value) {
+  if (image && presentedFrame.value.source) {
     return getRenderedImageRect(image)
   }
 
@@ -544,7 +597,7 @@ function updateStageMetricsNow(): void {
     return
   }
 
-  if (!image || !displayedImageSrc.value) {
+  if (!image || !presentedFrame.value.source) {
     const fallbackFrame = getFallbackImageFrame(stageRect)
     if (hasImageContent.value && isValidImageFrame(fallbackFrame)) {
       commitImageFrame(fallbackFrame)
@@ -641,43 +694,40 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleStageMetricsUpdate)
 })
 
-function handlePendingImageLoad(event: Event): void {
-  const image = event.currentTarget as HTMLImageElement | null
-  const loadedSrc = image?.getAttribute('src') ?? ''
-  if (!loadedSrc || loadedSrc !== pendingImageSrc.value || loadedSrc !== props.imageSrc) {
-    return
+function handlePresentedImage(image: HTMLImageElement, source: string): void {
+  presentedSource.value = source
+  const frame = pendingRenderedFrames.get(source)
+  if (frame) {
+    presentedFrame.value = frame
+    if (isViewerPerfDebugEnabled()) {
+      const now = typeof performance === 'undefined' ? Date.now() : performance.now()
+      console.debug('[viewer perf] frame presented', {
+        viewportKey: props.viewportKey,
+        mediaViewId: props.mediaViewId,
+        renderRevision: frame.renderRevision,
+        presentationMs: Math.round((now - frame.receivedAtMs) * 10) / 10,
+        source
+      })
+    }
   }
-  displayedImageSrc.value = loadedSrc
-  pendingImageSrc.value = null
+  for (const pendingSource of pendingRenderedFrames.keys()) {
+    if (pendingSource !== source && pendingSource !== props.imageSrc) {
+      pendingRenderedFrames.delete(pendingSource)
+    }
+  }
+  imageRef.value = image
+  scheduleStageMetricsUpdate()
+  emit('imageLoaded', props.viewportKey)
 }
 
-function handlePendingImageError(event: Event): void {
-  const image = event.currentTarget as HTMLImageElement | null
-  if (image?.getAttribute('src') === pendingImageSrc.value) {
-    pendingImageSrc.value = null
-  }
+function handlePresentedImageError(source: string): void {
+  pendingRenderedFrames.delete(source)
 }
 
-watch(
-  () => props.imageSrc,
-  (nextImageSrc) => {
-    if (!nextImageSrc) {
-      pendingImageSrc.value = null
-      displayedImageSrc.value = ''
-      return
-    }
-    if (!displayedImageSrc.value) {
-      displayedImageSrc.value = nextImageSrc
-      pendingImageSrc.value = null
-      return
-    }
-    if (nextImageSrc === displayedImageSrc.value) {
-      pendingImageSrc.value = null
-      return
-    }
-    pendingImageSrc.value = nextImageSrc
-  }
-)
+function handlePresentedImageElement(image: HTMLImageElement): void {
+  imageRef.value = image
+  scheduleStageMetricsUpdate()
+}
 
 let acquiredWebRtcViewId: string | null = null
 type FrameCallbackVideo = HTMLVideoElement & {
@@ -793,7 +843,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.imageSrc, webRtcStream.value, props.imageLayers.map((layer) => layer.src).join('|'), props.isActive, props.viewportKey] as const,
+  () => [props.imageSrc, webRtcStream.value, props.isActive, props.viewportKey] as const,
   async () => {
     await nextTick()
     observeLayout()
@@ -835,28 +885,17 @@ watch(
       :data-active-render-surface="renderSurfaceActive ? 'true' : 'false'"
       :data-viewport-key="viewportKey"
     >
-      <img
-        v-if="!webRtcStream && displayedImageSrc"
-        ref="imageRef"
-        class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
-        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
-        :src="displayedImageSrc"
+      <ViewerPresentedImage
+        v-if="!webRtcStream"
         :alt="alt"
-        :style="imageStyle"
-        draggable="false"
-        @dragstart.prevent
-        @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
-      />
-      <img
-        v-if="!webRtcStream && pendingImageSrc"
-        :key="pendingImageSrc"
-        class="viewer-image-preload pointer-events-none absolute h-px w-px opacity-0"
-        :src="pendingImageSrc"
-        alt=""
-        draggable="false"
-        aria-hidden="true"
-        @load="handlePendingImageLoad"
-        @error="handlePendingImageError"
+        :display-class="[
+          'viewer-image block h-full w-full select-none object-contain object-center pointer-events-none',
+          imageClass
+        ]"
+        :source="imageSrc"
+        @element-ready="handlePresentedImageElement"
+        @error="handlePresentedImageError"
+        @presented="handlePresentedImage"
       />
       <video
         v-if="webRtcStream"
@@ -864,68 +903,52 @@ watch(
         class="viewer-image block h-full w-full select-none object-contain object-center pointer-events-none"
         :class="[
           imageClass,
-          {
-            'opacity-[0.88] saturate-[0.9]': softImage,
-            'viewer-image--transport-hidden': !showWebRtcVideoPixels
-          }
+          { 'viewer-image--transport-hidden': !showWebRtcVideoPixels }
         ]"
-        :style="imageStyle"
         autoplay
         muted
         playsinline
         @loadedmetadata="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
         @resize="scheduleStageMetricsUpdate"
       />
-      <img
+      <ViewerPresentedImage
         v-if="showWebRtcStillFrame"
-        ref="imageRef"
-        class="viewer-image pointer-events-none absolute inset-0 z-[1] block h-full w-full select-none object-contain object-center"
-        :class="[imageClass, { 'opacity-[0.88] saturate-[0.9]': softImage }]"
-        :src="imageSrc"
         :alt="alt"
-        :style="imageStyle"
-        draggable="false"
-        @dragstart.prevent
-        @load="() => { scheduleStageMetricsUpdate(); emit('imageLoaded', viewportKey) }"
-      />
-      <img
-        v-for="layer in imageLayers"
-        :key="layer.key"
-        class="viewer-image viewer-image-layer pointer-events-none absolute inset-0 block h-full w-full select-none object-contain object-center"
-        :class="layer.class"
-        :src="layer.src"
-        :alt="layer.alt ?? ''"
-        :style="layer.style"
-        draggable="false"
-        aria-hidden="true"
-        @dragstart.prevent
+        :display-class="[
+          'viewer-image pointer-events-none absolute inset-0 z-[1] block h-full w-full select-none object-contain object-center',
+          imageClass
+        ]"
+        :source="imageSrc"
+        @element-ready="handlePresentedImageElement"
+        @error="handlePresentedImageError"
+        @presented="handlePresentedImage"
       />
       <ViewportCrosshairOverlay
         v-if="shouldShowCrosshair"
-        :corner-info="cornerInfo"
+        :corner-info="presentedFrame.cornerInfo"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
         :image-frame="imageFrame"
-        :mpr-crosshair="mprCrosshair"
-        :mpr-frame="mprFrame"
-        :mpr-plane="mprPlane"
+        :mpr-crosshair="mprCrosshairPreview ?? presentedFrame.mprCrosshair"
+        :mpr-frame="presentedFrame.mprFrame"
+        :mpr-plane="presentedFrame.mprPlane"
         :viewport-key="viewportKey"
         :is-active="isActive"
       />
       <ViewportVoiOverlay
         v-if="shouldShowImageOverlays"
         :active-operation="props.activeOperation"
-        :config="mprSegmentationConfig"
+        :config="presentedFrame.mprSegmentationConfig"
         :editable="voiEditable"
         :image-frame="imageFrame"
         :is-active="isActive"
         :is-oblique="voiOblique"
-        :mpr-plane="mprPlane"
+        :mpr-plane="presentedFrame.mprPlane"
         :default-threshold-color="mprSegmentationDefaultThresholdColor"
         :default-voi-color="mprSegmentationDefaultVoiColor"
         :pet-segmentation="mprSegmentationPet"
-        :segmentation-overlay="mprSegmentationOverlay"
-        :viewport-transform="viewportTransform"
+        :segmentation-overlay="presentedFrame.mprSegmentationOverlay"
+        :viewport-transform="presentedFrame.viewportTransform"
         :viewport-key="viewportKey"
         @config-change="handleMprSegmentationConfigChange"
         @mode-change="handleMprSegmentationModeChange"
@@ -934,15 +957,15 @@ watch(
         v-if="shouldShowScaleBar"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
-        :scale-bar="scaleBar"
+        :scale-bar="presentedFrame.scaleBar"
         :color-override="scaleBarColorOverride"
       />
       <ViewportPseudocolorBarOverlay
         v-if="shouldShowPseudocolorBar"
         :stage-width="stageSize.width"
         :stage-height="stageSize.height"
-        :pseudocolor-preset="pseudocolorPreset"
-        :window-info="pseudocolorWindowInfo"
+        :pseudocolor-preset="presentedFrame.pseudocolorPreset"
+        :window-info="presentedFrame.pseudocolorWindowInfo"
         :value-decimal-places="pseudocolorValueDecimalPlaces"
         :light-surface="isLightSurface"
       />
@@ -951,9 +974,9 @@ watch(
         :focus-state="getOverlayFocusState('measurement')"
         :draft-measurement-mode="draftMeasurementMode"
         :draft-measurement="draftMeasurement"
-        :measurements="measurements"
+        :measurements="presentedFrame.measurements"
         :image-frame="measurementFrame"
-        :viewport-transform="viewportTransform"
+        :viewport-transform="presentedFrame.viewportTransform"
         :hide-draft-handles="hideDraftHandles"
         @copy-selected-measurement="emit('copySelectedMeasurement', props.viewportKey)"
         @delete-selected-measurement="emit('deleteSelectedMeasurement', props.viewportKey, $event)"
@@ -961,7 +984,7 @@ watch(
       <ViewportAnnotationOverlay
         v-if="shouldShowImageOverlays"
         :focus-state="getOverlayFocusState('annotation')"
-        :annotations="annotations"
+        :annotations="presentedFrame.annotations"
         :selected-annotation-id="draftAnnotation?.annotationId ?? null"
         :draft-annotation="draftAnnotation"
         :image-frame="measurementFrame"
@@ -990,15 +1013,15 @@ watch(
       />
       <ViewportCornerOverlay
         v-if="shouldShowCornerInfo"
-        :corner-info="cornerInfo"
+        :corner-info="presentedFrame.cornerInfo"
         :pet="petCornerInfo"
-        :pseudocolor-preset="pseudocolorPreset"
+        :pseudocolor-preset="presentedFrame.pseudocolorPreset"
         :viewport-key="viewportKey"
       />
-      <ViewportOrientationOverlay v-if="shouldShowImageOverlays" :orientation="orientation" />
+      <ViewportOrientationOverlay v-if="shouldShowImageOverlays" :orientation="presentedFrame.orientation" />
       <VolumeOrientationCube
-        v-if="shouldShowImageOverlays && showVolumeOrientationCube && orientation.volumeQuaternion"
-        :orientation="orientation"
+        v-if="shouldShowImageOverlays && showVolumeOrientationCube && presentedFrame.orientation.volumeQuaternion"
+        :orientation="presentedFrame.orientation"
         @select-face="emit('volumeOrientationSelect', $event)"
       />
       <div

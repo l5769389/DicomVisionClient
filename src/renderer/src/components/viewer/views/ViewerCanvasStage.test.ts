@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import ViewerCanvasStage from './ViewerCanvasStage.vue'
 import type { CornerInfo, OrientationInfo } from '../../../types/viewer'
+import { createRenderedImageUrlRegistry } from '../../../composables/workspace/views/renderedImageUrlRegistry'
 
 const emptyCornerInfo: CornerInfo = {
   topLeft: [],
@@ -37,7 +38,11 @@ const overlayStubs = {
     template: '<button type="button" class="volume-orientation-cube-stub" @click="$emit(\'selectFace\', \'L\')" />'
   },
   ViewportAnnotationOverlay: annotationOverlayStub,
-  ViewportCornerOverlay: { template: '<div class="corner-overlay-stub" />' },
+  ViewportCornerOverlay: {
+    props: ['cornerInfo', 'pseudocolorPreset'],
+    template:
+      '<div class="corner-overlay-stub" :data-top-left="cornerInfo.topLeft[0] ?? \'\'" :data-preset="pseudocolorPreset ?? \'\'" />'
+  },
   ViewportCrosshairOverlay: { template: '<div class="crosshair-overlay-stub" />' },
   ViewportMtfOverlay: imageFrameOverlayStub,
   ViewportMeasurementOverlay: { template: '<div />' },
@@ -374,20 +379,99 @@ describe('ViewerCanvasStage layout metrics', () => {
     wrapper.unmount()
   })
 
-  it('never presents a stale replacement when windowing produces a newer frame', async () => {
+  it('finishes the current window frame and then catches up to the latest queued frame', async () => {
+    const raf = installQueuedRaf()
     const wrapper = mountStage('blob:frame-1')
     await wrapper.setProps({ imageSrc: 'blob:frame-2' })
     await nextTick()
-    const stalePreload = wrapper.get('img.viewer-image-preload')
+    const currentPreload = wrapper.get('img.viewer-image-preload')
 
     await wrapper.setProps({ imageSrc: 'blob:frame-3' })
+    await wrapper.setProps({ imageSrc: 'blob:frame-4' })
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-2')
+
+    await currentPreload.trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-2')
+    expect(wrapper.findAll('img.viewer-image-buffer').map((image) => image.attributes('src'))).toEqual([
+      'blob:frame-2',
+      'blob:frame-1'
+    ])
+    raf.flush()
+    await nextTick()
+    expect(wrapper.find('img.viewer-image-preload').exists()).toBe(false)
+    raf.flush()
+    await nextTick()
+    expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-4')
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-4')
+    wrapper.unmount()
+  })
+
+  it('keeps displayed and decoding object URLs alive until the replacement is presented', async () => {
+    const raf = installQueuedRaf()
+    const revokeObjectUrl = vi.fn()
+    let objectUrlIndex = 0
+    const registry = createRenderedImageUrlRegistry({
+      createObjectUrl: vi.fn(() => `blob:leased-frame-${++objectUrlIndex}`),
+      revokeObjectUrl
+    })
+    const frame1 = registry.create(new Uint8Array([1]), 'image/webp')
+    const frame2 = registry.create(new Uint8Array([2]), 'image/webp')
+    const frame3 = registry.create(new Uint8Array([3]), 'image/webp')
+    const wrapper = mountStage(frame1)
+
+    await wrapper.setProps({ imageSrc: frame2 })
+    await nextTick()
+    registry.revoke(frame1)
+    registry.revoke(frame2)
+    expect(revokeObjectUrl).not.toHaveBeenCalled()
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe(frame2)
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame1)
+    raf.flush()
+    await nextTick()
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame1)
+    raf.flush()
+    await nextTick()
+    expect(revokeObjectUrl).toHaveBeenCalledWith(frame1)
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame2)
+
+    await wrapper.setProps({ imageSrc: frame3 })
+    await nextTick()
+    registry.revoke(frame3)
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe(frame3)
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame2)
+    raf.flush()
+    await nextTick()
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame2)
+    raf.flush()
+    await nextTick()
+    expect(revokeObjectUrl).toHaveBeenCalledWith(frame2)
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(frame3)
+
+    wrapper.unmount()
+    expect(revokeObjectUrl).toHaveBeenCalledWith(frame3)
+  })
+
+  it('skips a failed in-flight preview and continues with the latest frame', async () => {
+    const wrapper = mountStage('blob:frame-1')
+    await wrapper.setProps({ imageSrc: 'blob:frame-2' })
+    await wrapper.setProps({ imageSrc: 'blob:frame-3' })
+    await nextTick()
+
+    await wrapper.get('img.viewer-image-preload').trigger('error')
     await nextTick()
     expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
     expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-3')
-
-    await stalePreload.trigger('load')
-    await nextTick()
-    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
 
     await wrapper.get('img.viewer-image-preload').trigger('load')
     await nextTick()
@@ -574,24 +658,6 @@ describe('ViewerCanvasStage layout metrics', () => {
     wrapper.unmount()
   })
 
-  it('treats image layers as image content for overlays', () => {
-    const wrapper = mountStage('', {
-      imageLayers: [
-        {
-          key: 'pet-layer',
-          src: 'blob:pet-layer',
-          alt: 'PET layer'
-        }
-      ]
-    })
-
-    expect(wrapper.find('.crosshair-overlay-stub').exists()).toBe(true)
-    expect(wrapper.find('.corner-overlay-stub').exists()).toBe(true)
-    expect(wrapper.find('.orientation-overlay-stub').exists()).toBe(true)
-    expect(wrapper.find('.scale-bar-overlay-stub').exists()).toBe(true)
-    wrapper.unmount()
-  })
-
   it('can hide corner info and scale bar overlays independently', () => {
     const wrapper = mountStage('blob:frame-1', {
       showCornerInfo: false,
@@ -624,6 +690,46 @@ describe('ViewerCanvasStage layout metrics', () => {
       expect(wrapper.find('.pseudocolor-bar-overlay-stub').exists()).toBe(false)
       wrapper.unmount()
     })
+  })
+
+  it('switches pixels and frame metadata atomically after the replacement image loads', async () => {
+    const firstCornerInfo: CornerInfo = {
+      ...emptyCornerInfo,
+      topLeft: ['Slice 1']
+    }
+    const secondCornerInfo: CornerInfo = {
+      ...emptyCornerInfo,
+      topLeft: ['Slice 2']
+    }
+    const wrapper = mountStage('blob:frame-1', {
+      cornerInfo: firstCornerInfo,
+      pseudocolorPreset: 'bw',
+      pseudocolorWindowInfo: { ww: 400, wl: 40 }
+    })
+
+    expect(wrapper.get('.corner-overlay-stub').attributes('data-top-left')).toBe('Slice 1')
+    expect(wrapper.get('.pseudocolor-bar-overlay-stub').attributes('data-preset')).toBe('bw')
+
+    await wrapper.setProps({
+      imageSrc: 'blob:frame-2',
+      cornerInfo: secondCornerInfo,
+      pseudocolorPreset: 'rainbow',
+      pseudocolorWindowInfo: { ww: 800, wl: 80 }
+    })
+
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
+    expect(wrapper.get('.corner-overlay-stub').attributes('data-top-left')).toBe('Slice 1')
+    expect(wrapper.get('.pseudocolor-bar-overlay-stub').attributes('data-ww')).toBe('400')
+
+    await wrapper.get('img.viewer-image-preload').trigger('load')
+    await nextTick()
+
+    expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-2')
+    expect(wrapper.get('.corner-overlay-stub').attributes('data-top-left')).toBe('Slice 2')
+    expect(wrapper.get('.corner-overlay-stub').attributes('data-preset')).toBe('rainbow')
+    expect(wrapper.get('.pseudocolor-bar-overlay-stub').attributes('data-ww')).toBe('800')
+    expect(wrapper.get('.pseudocolor-bar-overlay-stub').attributes('data-wl')).toBe('80')
+    wrapper.unmount()
   })
 
   it('does not render the pseudocolor bar for volume panes', () => {

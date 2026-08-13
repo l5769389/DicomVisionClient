@@ -524,12 +524,19 @@ function stopBackendProcess(): void {
 }
 
 function createWindow(): BrowserWindow {
+  const isMacOS = process.platform === 'darwin'
   const win = new BrowserWindow({
     width: 1600,
     height: 960,
     minWidth: 1280,
     minHeight: 800,
-    frame: false,
+    frame: isMacOS,
+    ...(isMacOS
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 14, y: 14 }
+        }
+      : {}),
     autoHideMenuBar: true,
     backgroundColor: '#07111b',
     icon: resolveAppIconPath(),

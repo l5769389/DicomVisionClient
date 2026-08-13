@@ -73,6 +73,11 @@ interface SliceInfo {
   total: number
 }
 
+function getPaneRenderRevision(paneKey: CompareStackPaneKey): number | null {
+  const viewId = props.activeTab.compareViewIds?.[paneKey]
+  return viewId ? props.activeTab.imageUpdateRevisions?.[viewId] ?? null : null
+}
+
 const sliderValues = ref<Record<CompareStackPaneKey, number>>(createComparePaneRecord(() => 1))
 const activeSliderKeys = ref<Record<CompareStackPaneKey, boolean>>(createComparePaneRecord(() => false))
 
@@ -243,6 +248,7 @@ function togglePaneSliceStar(pane: ComparePaneView): void {
           :is-active="activeViewportKey === pane.key"
           :render-surface-active="true"
           :image-src="pane.imageSrc"
+          :render-revision="getPaneRenderRevision(pane.key)"
           :is-loading="Boolean(activeTab.compareViewIds?.[pane.key]) && !pane.imageSrc"
           :loading-label="compareLoadingLabel"
           :alt="pane.title"

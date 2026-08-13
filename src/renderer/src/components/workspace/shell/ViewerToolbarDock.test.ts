@@ -88,6 +88,115 @@ describe('ViewerToolbarDock', () => {
     expect(wrapper.text()).not.toContain('Active tool')
   })
 
+  it('applies fusion pseudocolor to selected panes and follows the active pane', async () => {
+    const fusionTab = {
+      ...activeTab,
+      viewType: 'PETCTFusion',
+      fusionPseudocolorPresets: {
+        'fusion-ct-ax': 'bw',
+        'fusion-pet-ax': 'bwinverse',
+        'fusion-overlay-ax': 'hotiron',
+        'fusion-pet-cor-mip': 'bwinverse'
+      },
+      fusionInfo: {
+        paneRole: 'fusion-pet-ax',
+        ctSeriesId: 'ct',
+        petSeriesId: 'pet',
+        ctPseudocolorPreset: 'bw',
+        petPanePseudocolorPreset: 'bwinverse',
+        petPseudocolorPreset: 'hotiron',
+        mipPseudocolorPreset: 'bwinverse',
+        alpha: 0.52,
+        revision: 0,
+        registration: { translateRowMm: 0, translateColMm: 0, rotationDegrees: 0, saved: false }
+      }
+    } as ViewerTabItem
+    const pseudocolorTool: StackTool = {
+      key: 'petPseudocolor',
+      label: 'Pseudocolor',
+      icon: 'pseudocolor',
+      kind: 'action',
+      inlineKind: 'petPseudocolor',
+      fusionPaneKey: 'fusion-pet-ax'
+    }
+    const wrapper = mountDock({
+      activeTab: fusionTab,
+      activeTools: [pseudocolorTool],
+      isToolSelected: vi.fn(() => false),
+      openMenuKey: 'petPseudocolor'
+    })
+
+    expect(wrapper.get('[data-testid="fusion-pseudocolor-target-fusion-pet-ax"]').attributes('aria-checked')).toBe('true')
+    await wrapper.get('[data-testid="fusion-pseudocolor-target-fusion-ct-ax"]').trigger('click')
+    const hotMetal = wrapper.findAll('.viewer-toolbar-dock-panel-content__pet-pseudocolor-option')
+      .find((button) => button.text().includes('HotMetal'))
+    await hotMetal!.trigger('click')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)).toEqual([
+      expect.objectContaining({ key: 'petPseudocolor' }),
+      'fusionPanePseudocolor:fusion-pet-ax,fusion-ct-ax:hotmetal',
+      { keepMenuOpen: true }
+    ])
+
+    await wrapper.setProps({
+      activeTools: [{ ...pseudocolorTool, fusionPaneKey: 'fusion-pet-cor-mip' }]
+    })
+    expect(wrapper.get('[data-testid="fusion-pseudocolor-target-fusion-pet-cor-mip"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="fusion-pseudocolor-target-fusion-pet-ax"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('.viewer-toolbar-dock-panel-content__pet-pseudocolor-option--active').text()).toContain('BWInverse')
+  })
+
+  it('shows true PET overlay transparency without a CT/PET window target selector', async () => {
+    const fusionTab = {
+      ...activeTab,
+      viewType: 'PETCTFusion',
+      petInfo: {
+        seriesId: 'pet',
+        petUnit: 'SUVbw',
+        petUnitLabel: 'g/ml (SUVbw)',
+        petWindowMin: 0,
+        petWindowMax: 6,
+        pseudocolorPreset: 'bwinverse'
+      },
+      fusionInfo: {
+        paneRole: 'fusion-overlay-ax',
+        ctSeriesId: 'ct',
+        petSeriesId: 'pet',
+        petPseudocolorPreset: 'hotiron',
+        fusionWindowTarget: 'ct',
+        alpha: 0.52,
+        revision: 3,
+        registration: { translateRowMm: 0, translateColMm: 0, rotationDegrees: 0, saved: false }
+      }
+    } as ViewerTabItem
+    const petIntensityTool: StackTool = {
+      key: 'petIntensity',
+      label: 'PET Intensity',
+      icon: 'pet-intensity',
+      kind: 'mode',
+      inlineKind: 'petIntensity',
+      petScope: 'fusion-overlay'
+    }
+    const wrapper = mountDock({
+      activeTab: fusionTab,
+      activeTools: [petIntensityTool],
+      openMenuKey: 'petIntensity'
+    })
+
+    expect(wrapper.text()).not.toContain('Fusion Window Target')
+    const transparency = wrapper.get<HTMLInputElement>('input[aria-label="PET Overlay Transparency"]')
+    expect(transparency.element.value).toBe('48')
+
+    transparency.element.value = '100'
+    await transparency.trigger('input')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)?.[1]).toBe('fusionAlpha:0')
+
+    transparency.element.value = '0'
+    await transparency.trigger('input')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)?.[1]).toBe('fusionAlpha:1')
+    await transparency.trigger('change')
+    expect(wrapper.emitted('selectToolOption')?.at(-1)?.[1]).toBe('fusionAlphaCommit:1')
+  })
+
   it('does not render redundant empty-state copy or a footer collapse button', () => {
     useUiPreferences().setLocale('zh-CN')
     const wrapper = mountDock()

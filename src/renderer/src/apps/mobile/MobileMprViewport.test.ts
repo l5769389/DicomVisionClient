@@ -63,6 +63,7 @@ function mountMprViewport(
             'showCornerInfo',
             'showScaleBar',
             'activeOperation',
+            'mprCrosshairPreview',
             'mprSegmentationConfig',
             'mprSegmentationDefaultThresholdColor',
             'mprSegmentationDefaultVoiColor',
@@ -82,7 +83,7 @@ function mountMprViewport(
             'mprSegmentationModeChange'
           ],
           template:
-            '<div class="viewer-stage-stub" data-active-render-surface="true" :data-active="isActive ? \'true\' : \'false\'" :data-active-operation="activeOperation" :data-show-corner-info="showCornerInfo" :data-show-scale-bar="showScaleBar" :data-viewport-key="viewportKey" :data-voi-editable="voiEditable ? \'true\' : \'false\'" @click="$emit(\'clickViewport\', viewportKey)" @pointerdown="$emit(\'pointerDown\', $event, viewportKey)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)"><button class="segmentation-config-stub" @click.stop="$emit(\'mprSegmentationConfigChange\', mprSegmentationConfig, \'end\')">Config</button><button class="segmentation-mode-stub" @click.stop="$emit(\'mprSegmentationModeChange\', \'segmentation:voi\')">Mode</button></div>'
+            '<div class="viewer-stage-stub" data-active-render-surface="true" :data-active="isActive ? \'true\' : \'false\'" :data-active-operation="activeOperation" :data-has-crosshair-preview="mprCrosshairPreview ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo" :data-show-scale-bar="showScaleBar" :data-viewport-key="viewportKey" :data-voi-editable="voiEditable ? \'true\' : \'false\'" @click="$emit(\'clickViewport\', viewportKey)" @pointerdown="$emit(\'pointerDown\', $event, viewportKey)" @pointermove="$emit(\'pointerMove\', $event)" @pointerup="$emit(\'pointerUp\', $event)" @pointercancel="$emit(\'pointerCancel\', $event)"><button class="segmentation-config-stub" @click.stop="$emit(\'mprSegmentationConfigChange\', mprSegmentationConfig, \'end\')">Config</button><button class="segmentation-mode-stub" @click.stop="$emit(\'mprSegmentationModeChange\', \'segmentation:voi\')">Mode</button></div>'
         }
       }
     }
@@ -219,6 +220,26 @@ describe('MobileMprViewport', () => {
 
     expect(wrapper.findAll('[data-active-render-surface="true"]')).toHaveLength(3)
     expect(wrapper.find('[data-testid="mobile-mpr-primary"] [data-viewport-key="mpr-ax"]').exists()).toBe(true)
+  })
+
+  it('passes optimistic crosshair feedback to the matching mobile viewport', async () => {
+    const tab = {
+      ...createMprTab(),
+      optimisticViewportCrosshairs: {
+        'mpr-sag': {
+          centerX: 0.4,
+          centerY: 0.6,
+          hitRadius: 0.025,
+          horizontalPosition: 0.6,
+          verticalPosition: 0.4
+        }
+      }
+    } as ViewerTabItem
+    const wrapper = mountMprViewport('mpr-sag', `${STACK_OPERATION_PREFIX}${VIEW_OPERATION_TYPES.scroll}`, tab)
+    await flushPromises()
+
+    expect(wrapper.get('[data-viewport-key="mpr-sag"]').attributes('data-has-crosshair-preview')).toBe('true')
+    expect(wrapper.get('[data-viewport-key="mpr-ax"]').attributes('data-has-crosshair-preview')).toBe('false')
   })
 
   it('passes mobile MPR segmentation state through the active render surfaces', async () => {

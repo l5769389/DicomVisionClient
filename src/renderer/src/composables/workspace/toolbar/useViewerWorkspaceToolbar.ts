@@ -311,7 +311,7 @@ function toFusionPseudocolorSelectionValue(value: string | null | undefined): st
 const petIntensityTool: StackTool = {
   key: 'petIntensity',
   label: 'PET Intensity',
-  icon: 'window',
+  icon: 'pet-intensity',
   kind: 'mode',
   inlineKind: 'petIntensity',
   showSelectedOptionIcon: false,
@@ -863,7 +863,7 @@ const petTools: StackTool[] = [
 ]
 
 const fusionCtTools: StackTool[] = fusionTools.filter(
-  (tool) => !['petIntensity', 'petPseudocolor', 'petQuantification', 'fusionRegistration'].includes(tool.key)
+  (tool) => !['petIntensity', 'petQuantification', 'fusionRegistration'].includes(tool.key)
 )
 
 const fusionPetAxialTools: StackTool[] = petTools.filter(
@@ -1753,9 +1753,22 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
   }
 
   function withActivePetToolContext(tool: StackTool): StackTool {
-    return ['petIntensity', 'petPseudocolor', 'petQuantification'].includes(tool.key)
-      ? { ...tool, petInfo: getActivePetInfo() }
-      : tool
+    if (!['petIntensity', 'petPseudocolor', 'petQuantification'].includes(tool.key)) {
+      return tool
+    }
+    const fusionPaneKey = options.activeTab.value?.viewType === 'PETCTFusion'
+      ? (isFusionPaneKey(options.activeViewportKey.value)
+          ? options.activeViewportKey.value
+          : FUSION_OVERLAY_AXIAL_PANE_KEY)
+      : undefined
+    return {
+      ...tool,
+      ...(fusionPaneKey && tool.key === 'petPseudocolor'
+        ? { label: isZh.value ? '伪彩' : 'Pseudocolor' }
+        : {}),
+      petInfo: getActivePetInfo(),
+      fusionPaneKey
+    }
   }
 
   const activeTools = computed(() => {
@@ -2948,12 +2961,20 @@ export function useViewerWorkspaceToolbar(options: ViewerWorkspaceToolbarOptions
         options.emitTriggerViewAction({ action: 'fusionPetPanePseudocolor', value: optionValue })
         return
       }
+      if (optionValue.startsWith('fusionPanePseudocolor:')) {
+        options.emitTriggerViewAction({ action: 'fusionPanePseudocolor', value: optionValue })
+        return
+      }
       if (optionValue.startsWith('fusionWindowTarget:')) {
         options.emitTriggerViewAction({ action: 'fusionWindowTarget', value: optionValue })
         return
       }
       if (optionValue.startsWith('fusionAlpha:')) {
         options.emitTriggerViewAction({ action: 'fusionAlpha', value: optionValue })
+        return
+      }
+      if (optionValue.startsWith('fusionAlphaCommit:')) {
+        options.emitTriggerViewAction({ action: 'fusionAlphaCommit', value: optionValue })
         return
       }
       if (optionValue.startsWith('fusionPetUnit:')) {

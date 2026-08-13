@@ -51,12 +51,15 @@ function formatWindowValue(value: number, decimalPlaces: number | null): string 
 const metrics = computed(() => {
   const roundedStageWidth = Math.round(props.stageWidth)
   const roundedStageHeight = Math.round(props.stageHeight)
-  if (!props.pseudocolorPreset || roundedStageWidth < 96 || roundedStageHeight < 120) {
+  if (!props.pseudocolorPreset || roundedStageWidth < 96 || roundedStageHeight < 220) {
     return null
   }
 
-  const barHeight = Math.round(clamp(roundedStageHeight * 0.46, 88, Math.max(88, roundedStageHeight - 72)))
-  const top = Math.round(clamp((roundedStageHeight - barHeight) / 2, 16, Math.max(16, roundedStageHeight - barHeight - 16)))
+  const topSafeInset = Math.round(clamp(roundedStageHeight * 0.3, 78, 250))
+  const bottomSafeInset = Math.round(clamp(roundedStageHeight * 0.22, 70, 190))
+  const availableHeight = Math.max(72, roundedStageHeight - topSafeInset - bottomSafeInset)
+  const barHeight = Math.round(clamp(availableHeight * 0.9, 72, 360))
+  const top = Math.round(topSafeInset + Math.max(0, (availableHeight - barHeight) / 2))
   const left = Math.round(clamp(roundedStageWidth * 0.035, 14, 28))
   const barWidth = roundedStageWidth < 420 ? 6 : 8
   const labelOffset = barWidth + 6

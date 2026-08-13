@@ -49,7 +49,7 @@ function createMprTab(overrides: Partial<ViewerTabItem> = {}): ViewerTabItem {
 const globalStubs = {
   ViewerCanvasStage: {
     name: 'ViewerCanvasStage',
-    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel', 'mprCrosshair', 'cornerInfo', 'showVolumeOrientationCube'],
+    props: ['viewportKey', 'viewportClass', 'isActive', 'isLoading', 'loadingLabel', 'mprCrosshair', 'mprCrosshairPreview', 'cornerInfo', 'showVolumeOrientationCube'],
     emits: ['clickViewport', 'doubleClickViewport', 'volumeOrientationSelect', 'wheelViewport'],
     template: `
       <button
@@ -61,6 +61,7 @@ const globalStubs = {
         :data-loading="isLoading ? 'true' : 'false'"
         :data-loading-label="loadingLabel"
         :data-has-crosshair="mprCrosshair ? 'true' : 'false'"
+        :data-has-crosshair-preview="mprCrosshairPreview ? 'true' : 'false'"
         :data-corner-top-left="cornerInfo?.topLeft?.join('|') ?? ''"
         :data-corner-top-right="cornerInfo?.topRight?.join('|') ?? ''"
         :data-corner-bottom-left="cornerInfo?.bottomLeft?.join('|') ?? ''"
@@ -114,6 +115,32 @@ describe('MprView', () => {
     ])
     expect(wrapper.find('[data-viewport-key="mpr-ax"]').attributes('data-active')).toBe('true')
     expect(wrapper.find('[data-viewport-key="mpr-ax"]').attributes('data-has-crosshair')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('passes the optimistic crosshair to the dragged viewport only', () => {
+    const wrapper = mount(MprView, {
+      props: createMprProps({
+        activeTab: createMprTab({
+          optimisticViewportCrosshairs: {
+            'mpr-cor': {
+              centerX: 0.42,
+              centerY: 0.58,
+              hitRadius: 0.025,
+              horizontalPosition: 0.58,
+              verticalPosition: 0.42
+            }
+          }
+        })
+      }),
+      global: {
+        stubs: globalStubs
+      }
+    })
+
+    expect(wrapper.get('[data-viewport-key="mpr-cor"]').attributes('data-has-crosshair-preview')).toBe('true')
+    expect(wrapper.get('[data-viewport-key="mpr-ax"]').attributes('data-has-crosshair-preview')).toBe('false')
+    expect(wrapper.get('[data-viewport-key="mpr-sag"]').attributes('data-has-crosshair-preview')).toBe('false')
     wrapper.unmount()
   })
 

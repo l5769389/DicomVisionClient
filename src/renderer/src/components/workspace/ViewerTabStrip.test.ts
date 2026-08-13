@@ -97,6 +97,17 @@ function mountTabStrip(viewerTabs: ViewerTabItem[]) {
 }
 
 describe('ViewerTabStrip context menu', () => {
+  it('labels standalone PET 2D tabs as STACK while keeping the PET view type', () => {
+    const petTab = {
+      ...createTab('pet-tab', 'PET Animal'),
+      viewType: 'PET' as const
+    }
+    const wrapper = mountTabStrip([petTab])
+
+    expect(wrapper.get('.viewer-tab-type').text()).toBe('STACK')
+    expect(petTab.viewType).toBe('PET')
+  })
+
   it('keeps every tab in the same layout class while changing the active tab', async () => {
     const wrapper = mountTabStrip([createTab('tab-1', 'Series A'), createTab('tab-2', 'Series B')])
     const [firstTab, secondTab] = wrapper.findAll('.viewer-tab-item')

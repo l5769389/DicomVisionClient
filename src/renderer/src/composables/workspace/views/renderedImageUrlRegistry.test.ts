@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createRenderedImageUrlRegistry } from './renderedImageUrlRegistry'
+import {
+  createRenderedImageUrlRegistry,
+  releaseRenderedImageObjectUrl,
+  retainRenderedImageObjectUrl
+} from './renderedImageUrlRegistry'
 
 describe('rendered image URL registry', () => {
   it('releases only URLs created or marked as owned by the registry', () => {
@@ -34,5 +38,41 @@ describe('rendered image URL registry', () => {
     expect(clone).toEqual({ imageSrc: 'blob:clone', ownsImageSrc: true })
     registry.revoke(clone.imageSrc)
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:clone')
+  })
+
+  it('defers revocation while a rendered image URL is leased', () => {
+    const revokeObjectUrl = vi.fn()
+    const registry = createRenderedImageUrlRegistry({
+      createObjectUrl: vi.fn(() => 'blob:leased'),
+      revokeObjectUrl
+    })
+    const imageSrc = registry.create(new Uint8Array([1]), 'image/webp')
+
+    retainRenderedImageObjectUrl(imageSrc)
+    registry.revoke(imageSrc)
+    expect(revokeObjectUrl).not.toHaveBeenCalled()
+
+    releaseRenderedImageObjectUrl(imageSrc)
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1)
+    expect(revokeObjectUrl).toHaveBeenCalledWith(imageSrc)
+  })
+
+  it('waits for every display and decode lease before revoking once', () => {
+    const revokeObjectUrl = vi.fn()
+    const registry = createRenderedImageUrlRegistry({
+      createObjectUrl: vi.fn(() => 'blob:shared-lease'),
+      revokeObjectUrl
+    })
+    const imageSrc = registry.create(new Uint8Array([1]), 'image/webp')
+
+    retainRenderedImageObjectUrl(imageSrc)
+    retainRenderedImageObjectUrl(imageSrc)
+    registry.revokeAll()
+    releaseRenderedImageObjectUrl(imageSrc)
+    expect(revokeObjectUrl).not.toHaveBeenCalled()
+
+    releaseRenderedImageObjectUrl(imageSrc)
+    releaseRenderedImageObjectUrl(imageSrc)
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(1)
   })
 })

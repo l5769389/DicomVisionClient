@@ -144,10 +144,10 @@ function mountFusionView(activeTab = createFusionTab()) {
       stubs: {
         ViewerCanvasStage: {
           name: 'ViewerCanvasStage',
-          props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc', 'imageStyle', 'imageLayers', 'isLoading', 'lightSurface', 'showCornerInfo', 'showScaleBar', 'stageSurfaceClass'],
+          props: ['viewportKey', 'orientation', 'loadingLabel', 'loadingProgressPercent', 'imageSrc', 'isLoading', 'lightSurface', 'showCornerInfo', 'showScaleBar', 'stageSurfaceClass'],
           emits: ['doubleClickViewport'],
           template:
-            '<div class="viewer-stage-stub viewer-viewport" :class="{ \'viewer-viewport--light-surface\': lightSurface }" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-image-src="imageSrc" :data-image-transform="imageStyle?.transform ?? \'\'" :data-image-transform-origin="imageStyle?.transformOrigin ?? \'\'" :data-is-loading="isLoading ? \'true\' : \'false\'" :data-layer-count="imageLayers?.length ?? 0" :data-layer-key="imageLayers?.[0]?.key ?? \'\'" :data-layer-src="imageLayers?.[0]?.src ?? \'\'" :data-layer-transform="imageLayers?.[0]?.style?.transform ?? \'\'" :data-layer-transform-origin="imageLayers?.[0]?.style?.transformOrigin ?? \'\'" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" :style="imageStyle" /></div>'
+            '<div class="viewer-stage-stub viewer-viewport" :class="{ \'viewer-viewport--light-surface\': lightSurface }" :data-viewport-key="viewportKey" :data-orientation-top="orientation.top" :data-loading-label="loadingLabel" :data-loading-progress="loadingProgressPercent" :data-image-src="imageSrc" data-image-transform="" data-image-transform-origin="" :data-is-loading="isLoading ? \'true\' : \'false\'" data-layer-count="0" data-layer-key="" data-layer-src="" data-layer-opacity="" data-layer-transform="" data-layer-transform-origin="" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"><img v-if="imageSrc" class="viewer-image" :src="imageSrc" /></div>'
         }
       }
     }
@@ -204,23 +204,6 @@ async function flushManualRegistrationMoveFrame(): Promise<void> {
     schedule(() => resolve())
   })
   await nextTick()
-}
-
-function parseCssMatrix(transform: string): [number, number, number, number, number, number] {
-  const match = transform.match(/^matrix\(([-.\d]+), ([-.\d]+), ([-.\d]+), ([-.\d]+), ([-.\d]+), ([-.\d]+)\)$/)
-  expect(match).not.toBeNull()
-  return match!.slice(1).map(Number) as [number, number, number, number, number, number]
-}
-
-function applyCssMatrix(
-  matrix: [number, number, number, number, number, number],
-  point: { x: number; y: number }
-): { x: number; y: number } {
-  const [a, b, c, d, e, f] = matrix
-  return {
-    x: a * point.x + c * point.y + e,
-    y: b * point.x + d * point.y + f
-  }
 }
 
 describe('PetCtFusionView', () => {
@@ -328,23 +311,11 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
-  it('passes PET image layer to the overlay pane', () => {
+  it('ignores legacy fusion layer fields and displays only backend composite images', () => {
     const wrapper = mountFusionView(createFusionTab({
       fusionLayerImages: {
         [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
-          pet: 'pet-layer',
-          revision: 3,
-          width: 512,
-          height: 512
-        },
-        [FUSION_PET_AXIAL_PANE_KEY]: {
-          pet: 'pet-axial-layer',
-          revision: 3,
-          width: 512,
-          height: 512
-        },
-        [FUSION_PET_CORONAL_MIP_PANE_KEY]: {
-          pet: 'pet-mip-layer',
+          pet: 'legacy-pet-layer',
           revision: 3,
           width: 512,
           height: 512
@@ -353,47 +324,9 @@ describe('PetCtFusionView', () => {
     }))
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-    const petStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`)
-    const mipStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_CORONAL_MIP_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-count')).toBe('1')
-    expect(overlayStage.attributes('data-layer-key')).toBe('pet-registration-layer')
-    expect(petStage.attributes('data-layer-count')).toBe('0')
-    expect(mipStage.attributes('data-layer-count')).toBe('0')
-
-    wrapper.unmount()
-  })
-
-  it('keeps the PET overlay layer key stable across backend preview revisions', async () => {
-    const wrapper = mountFusionView(createFusionTab({
-      fusionLayerImages: {
-        [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
-          pet: 'pet-layer-1',
-          revision: 3,
-          width: 512,
-          height: 512
-        }
-      }
-    }))
-
-    const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-key')).toBe('pet-registration-layer')
-
-    await wrapper.setProps({
-      activeTab: createFusionTab({
-        fusionLayerImages: {
-          [FUSION_OVERLAY_AXIAL_PANE_KEY]: {
-            pet: 'pet-layer-2',
-            revision: 4,
-            width: 512,
-            height: 512
-          }
-        }
-      })
-    })
-    await nextTick()
-
-    expect(overlayStage.attributes('data-layer-key')).toBe('pet-registration-layer')
-
+    expect(overlayStage.attributes('data-image-src')).toBe('overlay-image')
+    expect(overlayStage.attributes('data-layer-count')).toBe('0')
+    expect(overlayStage.attributes('data-image-transform')).toBe('')
     wrapper.unmount()
   })
 
@@ -601,6 +534,34 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
+  it('keeps a dismissed frame-of-reference warning hidden for the current fusion tab', async () => {
+    const fusionInfo = createFusionInfo(1)
+    fusionInfo.frameOfReferenceMatched = false
+    const activeTab = createFusionTab({ fusionInfo })
+    const wrapper = mountFusionView(activeTab)
+
+    expect(wrapper.find('[data-testid="fusion-frame-of-reference-warning"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="fusion-frame-of-reference-warning-close"]').trigger('click')
+    expect(wrapper.emitted('fusionConfigChange')?.at(-1)).toEqual([
+      { dismissFrameOfReferenceWarning: true }
+    ])
+
+    await wrapper.setProps({
+      activeTab: {
+        ...activeTab,
+        fusionFrameOfReferenceWarningDismissed: true,
+        fusionInfo: { ...fusionInfo, revision: 2 }
+      }
+    })
+    expect(wrapper.find('[data-testid="fusion-frame-of-reference-warning"]').exists()).toBe(false)
+
+    const reopened = mountFusionView(createFusionTab({ fusionInfo: { ...fusionInfo, revision: 3 } }))
+    expect(reopened.find('[data-testid="fusion-frame-of-reference-warning"]').exists()).toBe(true)
+
+    reopened.unmount()
+    wrapper.unmount()
+  })
+
   it('exits manual registration with Escape without resetting registration state', async () => {
     const wrapper = mountFusionView(createFusionTab({ fusionManualRegistration: true }))
 
@@ -624,7 +585,7 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
-  it('previews translate drags by moving the PET layer and PET axial image together', async () => {
+  it('sends translate drags to the backend without transforming image pixels locally', async () => {
     const wrapper = mountFusionView(createFusionTab({
       fusionInfo: createFusionInfo(1),
       fusionManualRegistration: true,
@@ -650,10 +611,10 @@ describe('PetCtFusionView', () => {
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
     const petStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(24px, 18px)')
-    expect(overlayStage.attributes('data-layer-transform-origin')).toBe('124px 118px')
-    expect(petStage.attributes('data-image-transform')).toBe('translate(24px, 18px)')
-    expect(petStage.attributes('data-image-transform-origin')).toBe('124px 118px')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(overlayStage.attributes('data-layer-transform-origin')).toBe('')
+    expect(petStage.attributes('data-image-transform')).toBe('')
+    expect(petStage.attributes('data-image-transform-origin')).toBe('')
     expect(petStage.attributes('data-image-src')).toBe('pet-image')
     expect(wrapper.emitted('fusionRegistrationDrag')).toEqual([
       [{
@@ -687,8 +648,8 @@ describe('PetCtFusionView', () => {
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 31, clientX: 44, clientY: 42, button: 0 }))
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 31, clientX: 54, clientY: 45, button: 0 }))
     await flushManualRegistrationMoveFrame()
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(44px, 25px)')
-    expect(petStage.attributes('data-image-transform')).toBe('translate(44px, 25px)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(petStage.attributes('data-image-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')).toHaveLength(3)
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       {
@@ -708,8 +669,8 @@ describe('PetCtFusionView', () => {
 
     stage!.vm.$emit('pointerUp', createPointerEvent('pointerup', { pointerId: 31, clientX: 54, clientY: 45, button: 0 }))
     await nextTick()
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(44px, 25px)')
-    expect(petStage.attributes('data-image-transform')).toBe('translate(44px, 25px)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(petStage.attributes('data-image-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       {
         viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
@@ -741,10 +702,10 @@ describe('PetCtFusionView', () => {
       })
     })
     await nextTick()
-    expect(overlayStage.attributes('data-layer-src')).toBe('pet-layer')
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(44px, 25px)')
+    expect(overlayStage.attributes('data-layer-src')).toBe('')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(petStage.attributes('data-image-src')).toBe('pet-image')
-    expect(petStage.attributes('data-image-transform')).toBe('translate(44px, 25px)')
+    expect(petStage.attributes('data-image-transform')).toBe('')
 
     wrapper.unmount()
   })
@@ -774,9 +735,9 @@ describe('PetCtFusionView', () => {
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
     const petStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-src')).toBe('pet-layer')
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(24px, 18px)')
-    expect(petStage.attributes('data-image-transform')).toBe('translate(24px, 18px)')
+    expect(overlayStage.attributes('data-layer-src')).toBe('')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(petStage.attributes('data-image-transform')).toBe('')
 
     await wrapper.setProps({
       activeTab: createFusionTab({
@@ -800,7 +761,7 @@ describe('PetCtFusionView', () => {
     })
     await nextTick()
 
-    expect(overlayStage.attributes('data-layer-src')).toBe('pet-layer-reset')
+    expect(overlayStage.attributes('data-layer-src')).toBe('')
     expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(petStage.attributes('data-image-src')).toBe('pet-image-reset')
     expect(petStage.attributes('data-image-transform')).toBe('')
@@ -849,7 +810,7 @@ describe('PetCtFusionView', () => {
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 41, clientX: 75, clientY: 90, button: 0 }))
     await flushManualRegistrationMoveFrame()
 
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(25px, 30px)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       expect.objectContaining({
         phase: 'move',
@@ -920,7 +881,7 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
-  it('keeps the last local manual registration preview on pointer cancel', async () => {
+  it('commits the latest backend registration drag on pointer cancel without a local image transform', async () => {
     const wrapper = mountFusionView(createFusionTab({
       fusionManualRegistration: true,
       fusionLayerImages: {
@@ -944,12 +905,12 @@ describe('PetCtFusionView', () => {
     await flushManualRegistrationMoveFrame()
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(24px, 30px)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
 
     stage!.vm.$emit('pointerCancel', createPointerEvent('pointercancel', { pointerId: 42, clientX: 44, clientY: 55, button: 0 }))
     await nextTick()
 
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(24px, 30px)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       expect.objectContaining({
         phase: 'end',
@@ -1002,7 +963,7 @@ describe('PetCtFusionView', () => {
     wrapper.unmount()
   })
 
-  it('previews rotate drags without converting rotation pointer deltas into translation', async () => {
+  it('sends rotate drags to the backend without transforming image pixels locally', async () => {
     const wrapper = mountFusionView(createFusionTab({
       fusionManualRegistration: true,
       fusionLayerImages: {
@@ -1027,9 +988,9 @@ describe('PetCtFusionView', () => {
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
     const petStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_PET_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
-    expect(overlayStage.attributes('data-layer-transform-origin')).toBe('0px 0px')
-    expect(petStage.attributes('data-image-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
+    expect(overlayStage.attributes('data-layer-transform-origin')).toBe('')
+    expect(petStage.attributes('data-image-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')).toEqual([
       [expect.objectContaining({
         phase: 'start',
@@ -1049,7 +1010,7 @@ describe('PetCtFusionView', () => {
 
     stage!.vm.$emit('pointerUp', createPointerEvent('pointerup', { pointerId: 32, clientX: 100, clientY: 150, button: 2 }))
     await nextTick()
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       {
         viewportKey: FUSION_OVERLAY_AXIAL_PANE_KEY,
@@ -1082,10 +1043,10 @@ describe('PetCtFusionView', () => {
       })
     })
     await nextTick()
-    expect(overlayStage.attributes('data-layer-src')).toBe('pet-layer')
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(overlayStage.attributes('data-layer-src')).toBe('')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(petStage.attributes('data-image-src')).toBe('pet-image')
-    expect(petStage.attributes('data-image-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(petStage.attributes('data-image-transform')).toBe('')
 
     wrapper.unmount()
   })
@@ -1116,19 +1077,13 @@ describe('PetCtFusionView', () => {
     await nextTick()
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('translate(24px, 18px)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
 
     stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 46, clientX: 150, clientY: 100, button: 2 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 46, clientX: 142, clientY: 144, button: 2 }))
     await flushManualRegistrationMoveFrame()
 
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 224, 18)')
-    const transformedPressPoint = applyCssMatrix(
-      parseCssMatrix(overlayStage.attributes('data-layer-transform') ?? ''),
-      { x: 126, y: 82 }
-    )
-    expect(transformedPressPoint.x).toBeCloseTo(142, 3)
-    expect(transformedPressPoint.y).toBeCloseTo(144, 3)
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       expect.objectContaining({
         phase: 'move',
@@ -1144,7 +1099,7 @@ describe('PetCtFusionView', () => {
     stage!.vm.$emit('pointerUp', createPointerEvent('pointerup', { pointerId: 46, clientX: 142, clientY: 144, button: 2 }))
     await nextTick()
 
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 224, 18)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     wrapper.unmount()
   })
 
@@ -1173,19 +1128,13 @@ describe('PetCtFusionView', () => {
     await nextTick()
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
 
     stage!.vm.$emit('pointerDown', createPointerEvent('pointerdown', { pointerId: 48, clientX: 20, clientY: 20, button: 0 }), FUSION_OVERLAY_AXIAL_PANE_KEY)
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 48, clientX: 40, clientY: 20, button: 0 }))
     await flushManualRegistrationMoveFrame()
 
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 220, 0)')
-    const translatedRotatedPoint = applyCssMatrix(
-      parseCssMatrix(overlayStage.attributes('data-layer-transform') ?? ''),
-      { x: 150, y: 100 }
-    )
-    expect(translatedRotatedPoint.x).toBeCloseTo(120, 3)
-    expect(translatedRotatedPoint.y).toBeCloseTo(150, 3)
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
     expect(wrapper.emitted('fusionRegistrationDrag')?.at(-1)).toEqual([
       expect.objectContaining({
         phase: 'move',
@@ -1263,7 +1212,7 @@ describe('PetCtFusionView', () => {
     await flushManualRegistrationMoveFrame()
 
     const overlayStage = wrapper.find(`.viewer-stage-stub[data-viewport-key="${FUSION_OVERLAY_AXIAL_PANE_KEY}"]`)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
 
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 34, clientX: 105, clientY: 105, button: 2 }))
     await flushManualRegistrationMoveFrame()
@@ -1271,7 +1220,7 @@ describe('PetCtFusionView', () => {
     const nearPivotMove = wrapper.emitted('fusionRegistrationDrag')?.at(-1)?.[0] as { phase?: string; rotationDeltaDegrees?: number }
     expect(nearPivotMove.phase).toBe('move')
     expect(nearPivotMove.rotationDeltaDegrees).toBeCloseTo(90, 2)
-    expect(overlayStage.attributes('data-layer-transform')).toBe('matrix(0, 1, -1, 0, 200, 0)')
+    expect(overlayStage.attributes('data-layer-transform')).toBe('')
 
     stage!.vm.$emit('pointerMove', createPointerEvent('pointermove', { pointerId: 34, clientX: 50, clientY: 100, button: 2 }))
     await flushManualRegistrationMoveFrame()

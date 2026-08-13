@@ -188,6 +188,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       :is-active="true"
       :render-surface-active="true"
       :image-src="props.activeTab.imageSrc"
+      :render-revision="props.activeTab.viewId ? props.activeTab.imageUpdateRevisions?.[props.activeTab.viewId] ?? null : null"
       :is-loading="Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc"
       :loading-label="viewerCopy.loadingStackView"
       :alt="props.activeTab.viewType"

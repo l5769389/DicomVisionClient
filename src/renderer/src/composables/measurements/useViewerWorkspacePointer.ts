@@ -365,6 +365,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   let dragStartNormalizedPoint: ViewportCanvasPoint | null = null
   let lastDragNormalizedPoint: ViewportCanvasPoint | null = null
   let activeDragInteractionId: string | null = null
+  let activeCrosshairInteractionId: string | null = null
   let lastPointSequenceClick: { viewportKey: string; toolType: MeasurementToolType; point: MeasurementDraftPoint; timeStamp: number } | null = null
   measurementInteractionController.subscribe((state) => {
     measurementInteraction.value = state
@@ -401,6 +402,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       canvasHeight?: number
       mode?: 'move' | 'rotate'
       line?: CrosshairLineTarget
+      interactionId: string
     }) => {
       options.emitMprCrosshair({
         viewportKey: payload.viewportKey,
@@ -412,7 +414,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         canvasWidth: payload.canvasWidth,
         canvasHeight: payload.canvasHeight,
         mode: payload.mode,
-        line: payload.line
+        line: payload.line,
+        interactionId: payload.interactionId
       })
     },
     MPR_CROSSHAIR_THROTTLE_MS,
@@ -816,13 +819,13 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return imagePoint ? { ...imagePoint, canvasX: imagePoint.x, canvasY: imagePoint.y } : null
     }
 
-    const canvasX = Math.max(0, Math.min(1, (event.clientX - stageRect.left) / stageRect.width))
-    const canvasY = Math.max(0, Math.min(1, (event.clientY - stageRect.top) / stageRect.height))
+    const pixelX = Math.max(0, Math.min(stageRect.width, event.clientX - stageRect.left))
+    const pixelY = Math.max(0, Math.min(stageRect.height, event.clientY - stageRect.top))
     return {
-      x: canvasX,
-      y: canvasY,
-      canvasX,
-      canvasY,
+      x: pixelX / stageRect.width,
+      y: pixelY / stageRect.height,
+      canvasX: pixelX,
+      canvasY: pixelY,
       canvasWidth: stageRect.width,
       canvasHeight: stageRect.height
     }
@@ -889,6 +892,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     options.emitMprCrosshair({
       viewportKey,
       phase,
+      interactionId: activeCrosshairInteractionId ?? createDragInteractionId(VIEW_OPERATION_TYPES.crosshair),
       x: point.x,
       y: point.y,
       canvasX: point.canvasX,
@@ -1410,6 +1414,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       crosshairDragMode.value = 'move'
       crosshairRotationLine.value = null
       crosshairPointerViewportKey.value = ''
+      activeCrosshairInteractionId = null
       releasePointerCapture(pointerTarget)
     }
 
@@ -2204,7 +2209,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         canvasWidth: point.canvasWidth,
         canvasHeight: point.canvasHeight,
         mode: 'rotate',
-        line: crosshairRotationLine.value ?? undefined
+        line: crosshairRotationLine.value ?? undefined,
+        interactionId: activeCrosshairInteractionId ?? createDragInteractionId(VIEW_OPERATION_TYPES.crosshair)
       })
       return true
     }
@@ -2222,7 +2228,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       canvasY: point.canvasY,
       canvasWidth: point.canvasWidth,
       canvasHeight: point.canvasHeight,
-      mode: 'move'
+      mode: 'move',
+      interactionId: activeCrosshairInteractionId ?? createDragInteractionId(VIEW_OPERATION_TYPES.crosshair)
     })
     return true
   }
@@ -2475,6 +2482,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     event.preventDefault()
     setPointerCapture(pointerTarget, event.pointerId)
     isCrosshairDragging.value = true
+    activeCrosshairInteractionId = createDragInteractionId(VIEW_OPERATION_TYPES.crosshair)
     crosshairPointerViewportKey.value = viewportKey
     if (hitTarget === 'horizontal' || hitTarget === 'vertical') {
       crosshairDragMode.value = 'rotate'

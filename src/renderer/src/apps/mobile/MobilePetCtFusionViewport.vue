@@ -24,7 +24,6 @@ import type {
   MeasurementOverlay,
   MeasurementToolType,
   OrientationInfo,
-  ViewerImageLayer,
   ViewerTabItem,
   WorkspaceReadyPayload
 } from '../../types/viewer'
@@ -459,13 +458,10 @@ function getPaneImageRect(paneKey: FusionPaneKey): DOMRect | null {
 
 function getPaneNaturalSize(paneKey: FusionPaneKey): { width: number; height: number } {
   const image = getPaneImageElement(paneKey)
-  const layer = paneKey === FUSION_OVERLAY_AXIAL_PANE_KEY
-    ? fusionTab.value?.fusionLayerImages?.[FUSION_OVERLAY_AXIAL_PANE_KEY]
-    : null
   const rect = getPaneImageRect(paneKey)
   return {
-    width: image?.naturalWidth || layer?.width || rect?.width || 1,
-    height: image?.naturalHeight || layer?.height || rect?.height || 1
+    width: image?.naturalWidth || rect?.width || 1,
+    height: image?.naturalHeight || rect?.height || 1
   }
 }
 
@@ -501,26 +497,8 @@ function getFusionPaneImageSrc(paneKey: FusionPaneKey): string {
   return fusionTab.value?.fusionImages?.[paneKey] ?? ''
 }
 
-function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
-  if (paneKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
-    return []
-  }
-  const petLayerSrc = fusionTab.value?.fusionLayerImages?.[paneKey]?.pet ?? ''
-  if (!petLayerSrc) {
-    return []
-  }
-  return [
-    {
-      key: 'pet-layer',
-      src: petLayerSrc,
-      alt: 'PET overlay',
-      class: 'mobile-petct-fusion-viewport__pet-layer'
-    }
-  ]
-}
-
 function hasFusionPaneContent(paneKey: FusionPaneKey): boolean {
-  return Boolean(getFusionPaneImageSrc(paneKey)) || getFusionImageLayers(paneKey).some((layer) => Boolean(layer.src))
+  return Boolean(getFusionPaneImageSrc(paneKey))
 }
 
 function isPetStandalonePane(paneKey: FusionPaneKey): boolean {
@@ -1046,7 +1024,6 @@ watch(
         :draft-annotation="getDraftAnnotation(pane.key)"
         :draft-measurement="getDraftMeasurement(pane.key)"
         :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
-        :image-layers="getFusionImageLayers(pane.key)"
         :image-src="getFusionPaneImageSrc(pane.key)"
         :is-active="shouldShowActiveStyle(pane.key)"
         compact-loading

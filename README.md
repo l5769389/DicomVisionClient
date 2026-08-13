@@ -6,16 +6,22 @@
 
 DicomVision 是一套面向医学影像浏览、分析和教学验证场景的 DICOM Viewer。项目采用 C/S 架构：客户端基于 Vue、TypeScript 和 Electron 构建，后端基于 FastAPI、Socket.IO 和医学影像处理栈完成 DICOM 解析、渲染、重建、分析和导出，并将结果实时推送到桌面端、Web 端和移动端界面。
 
-## 项目概览
+## 可以做什么
 
 - 在线预览：[https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
+- 桌面版下载：[GitHub Releases](https://github.com/l5769389/DicomVisionClient/releases/latest)
 - Client 仓库：[https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - Server 仓库：[https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-- 当前发布：[DicomVision v3.1.3](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.3)
 
-DicomVision 将 DICOM 解析、重建、渲染和计算密集型分析置于后端，将交互、工作流和结果呈现置于客户端。浏览器、移动端和桌面端因此复用同一套影像能力，并可部署在局域网、云服务器或带内置后端的桌面安装包中。
+DicomVision 覆盖从影像导入、序列浏览到重建、融合、定量分析和导出的完整工作流：
 
-本项目特别适合客户端显存有限、但仍需要稳定使用统一 DICOM 浏览和后端 2D/3D 渲染能力的场景。对于显存充足且以本地 GPU 交互性能为首要目标的工作站，应优先评估 C3D 等原生方案；对于计算和界面必须同进程部署的产品，也可采用 Python/C++ 等前后端不分离的架构。DicomVision 的 C/S 设计侧重跨端复用、集中式渲染与轻量客户端接入。
+- 导入本地 DICOM、文件夹和压缩包，或通过 DICOMweb/DIMSE 从 PACS 查询和下载检查。
+- 使用 Stack、序列平铺、Compare 和 Layout 浏览 CT、MR、PET 等影像，并进行调窗、伪彩、缩放、平移和同步定位。
+- 创建正交或斜切 MPR、MIP、4D 时相播放、VR 体渲染和 Surface 表面重建。
+- 浏览 PET 定量影像，切换 SUV/SUL/%ID/g 等可用单位，控制强度范围，并完成 PET/CT 融合和手动配准。
+- 完成距离、角度、ROI、箭头和文本标注，以及阈值分割、VOI、MTF/FWHM 和水模 QA 分析。
+- 查看和编辑 DICOM Tag，执行批量修改、脱敏，并导出图像、DICOM、SR 和 GSPS。
+- 在 Electron 桌面端、浏览器和移动端使用一致的工作区；桌面安装包可直接携带后端服务。
 
 ## 架构与适用范围
 
@@ -24,7 +30,7 @@ DicomVision 将 DICOM 解析、重建、渲染和计算密集型分析置于后�
 - **多端一致工作流**：Electron 桌面端、浏览器和移动端共享视图、工具、PACS 与导出能力。
 - **安全导入**：支持 DICOM 文件、目录、ZIP、7z 与 RAR；压缩包在服务端临时目录中按路径、条目数、解压体积和压缩比限制处理。
 
-## 核心能力
+## 功能清单
 
 - **数据导入**：支持 DICOM 文件、文件夹、拖拽导入、浏览器上传，以及 ZIP、7z、RAR 压缩包；支持服务端样例数据与 PACS DICOMweb/DIMSE 查询和下载。
 - **2D 浏览**：支持窗宽窗位、缩放、平移、滚动、翻转、旋转、伪彩、同步浏览、Compare、Layout、多序列和多视图工作区。

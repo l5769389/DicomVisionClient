@@ -19,6 +19,7 @@ const SidebarSettingsDialog = defineAsyncComponent(() => import('./sidebar/Sideb
 const PacsBrowserDialog = defineAsyncComponent(() => import('./sidebar/PacsBrowserDialog.vue'))
 
 const props = defineProps<{
+  hasMacWindowControls: boolean
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
   connectionState: ConnectionState
@@ -153,7 +154,10 @@ function hideSeriesHoverCard(): void {
 </script>
 
 <template>
-  <aside class="sidebar-shell min-h-0 min-w-0 max-[900px]:max-h-[460px]">
+  <aside
+    class="sidebar-shell min-h-0 min-w-0 max-[900px]:max-h-[460px]"
+    :class="{ 'sidebar-shell--mac-window-controls': hasMacWindowControls }"
+  >
     <div class="flex h-full flex-col gap-2.5">
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
@@ -211,6 +215,10 @@ function hideSeriesHoverCard(): void {
   background: transparent !important;
   box-shadow: none !important;
   backdrop-filter: none;
+}
+
+.sidebar-shell--mac-window-controls {
+  padding-top: 30px;
 }
 
 .sidebar-source-group {

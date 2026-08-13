@@ -6,10 +6,10 @@ import LayoutView from './LayoutView.vue'
 vi.mock('./ViewerCanvasStage.vue', () => ({
   default: {
     name: 'ViewerCanvasStage',
-    props: ['viewportKey', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showCornerInfo', 'showPseudocolorBar', 'showScaleBar', 'showVolumeOrientationCube', 'hideDraftHandles', 'softImage', 'isLoading', 'isActive', 'cornerInfo'],
+    props: ['viewportKey', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showCornerInfo', 'showPseudocolorBar', 'showScaleBar', 'showVolumeOrientationCube', 'hideDraftHandles', 'isLoading', 'isActive', 'cornerInfo'],
     emits: ['doubleClickViewport', 'volumeOrientationSelect'],
     template:
-      '<div class="viewer-canvas-stage-stub" :data-viewport-key="viewportKey" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-show-volume-cube="showVolumeOrientationCube ? \'true\' : \'false\'" :data-hide-draft-handles="hideDraftHandles ? \'true\' : \'false\'" :data-soft-image="softImage ? \'true\' : \'false\'" :data-loading="isLoading ? \'true\' : \'false\'" :data-active="isActive ? \'true\' : \'false\'" :data-corner-top-left="cornerInfo?.topLeft?.join(\'|\') ?? \'\'" @click="$emit(\'volumeOrientationSelect\', \'R\')" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"></div>'
+      '<div class="viewer-canvas-stage-stub" :data-viewport-key="viewportKey" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-corner-info="showCornerInfo ? \'true\' : \'false\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-show-scale-bar="showScaleBar ? \'true\' : \'false\'" :data-show-volume-cube="showVolumeOrientationCube ? \'true\' : \'false\'" :data-hide-draft-handles="hideDraftHandles ? \'true\' : \'false\'" :data-loading="isLoading ? \'true\' : \'false\'" :data-active="isActive ? \'true\' : \'false\'" :data-corner-top-left="cornerInfo?.topLeft?.join(\'|\') ?? \'\'" @click="$emit(\'volumeOrientationSelect\', \'R\')" @dblclick="$emit(\'doubleClickViewport\', viewportKey)"></div>'
   }
 }))
 
@@ -156,7 +156,6 @@ describe('LayoutView viewport display controls', () => {
     )
 
     const stage = wrapper.get('.viewer-canvas-stage-stub[data-viewport-key="slot-1-1"]')
-    expect(stage.attributes('data-soft-image')).toBe('true')
     expect(stage.attributes('data-loading')).toBe('false')
     expect(stage.attributes('data-corner-top-left')).toBe('Patient Name|Series 1')
     expect(stage.attributes('data-show-volume-cube')).toBe('true')

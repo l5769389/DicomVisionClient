@@ -246,7 +246,7 @@ const iconSize = computed(() => props.size ?? 20)
       <defs>
         <linearGradient id="app-icon-window-level-gradient" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stop-color="#ffffff" />
-          <stop offset="1" stop-color="#6b7280" />
+          <stop offset="1" stop-color="#000000" />
         </linearGradient>
       </defs>
       <circle cx="12" cy="12" r="8.25" fill="url(#app-icon-window-level-gradient)" />

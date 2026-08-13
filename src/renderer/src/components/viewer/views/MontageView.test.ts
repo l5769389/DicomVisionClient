@@ -198,7 +198,13 @@ describe('MontageView', () => {
         petWindowMin: 0,
         petWindowMax: 0.63,
         pseudocolorPreset: 'blackbody',
-        unitOptions: [],
+        unitOptions: [
+          {
+            unit: 'SUVbw',
+            label: 'g/ml (SUVbw)',
+            available: true
+          }
+        ],
         quantitative: true,
         quantificationStatus: 'valid',
         supportStatus: 'static-supported',
@@ -214,6 +220,67 @@ describe('MontageView', () => {
     expect(request.searchParams.get('petUnit')).toBe('SUVbw')
     expect(wrapper.find('.montage-view__subtitle').text()).toContain('0.00–0.63')
     expect(wrapper.find('.montage-view__subtitle').text()).not.toContain('25800')
+  })
+
+  it('waits for authoritative PET metadata before loading tiles', async () => {
+    const provisionalPetInfo = {
+      seriesId: 'series-1',
+      sourceUnit: 'UNKNOWN',
+      sourceUnitLabel: 'Source',
+      petUnit: 'source',
+      petUnitLabel: 'Source',
+      petWindowMin: 0,
+      petWindowMax: 1,
+      pseudocolorPreset: 'blackbody',
+      unitOptions: [],
+      quantitative: false,
+      quantificationStatus: 'unsupported' as const,
+      supportStatus: 'unsupported' as const,
+      warnings: []
+    }
+    const wrapper = mountMontage('stack:window', {
+      currentWindowInfo: null,
+      initialWindowInfo: null,
+      windowLabel: '',
+      petInfo: provisionalPetInfo,
+      pseudocolorPreset: 'blackbody'
+    })
+
+    await Promise.resolve()
+    expect(getTileRequests()).toHaveLength(0)
+
+    await wrapper.setProps({
+      activeTab: createTab({
+        currentWindowInfo: { ww: 0.63, wl: 0.315 },
+        initialWindowInfo: { ww: 0.63, wl: 0.315 },
+        windowLabel: 'SUV 0.00-0.63',
+        petInfo: {
+          ...provisionalPetInfo,
+          sourceUnit: 'BQML',
+          sourceUnitLabel: 'Source (BQML)',
+          petUnit: 'SUVbw',
+          petUnitLabel: 'g/ml (SUVbw)',
+          petWindowMax: 0.63,
+          quantitative: true,
+          quantificationStatus: 'valid',
+          supportStatus: 'static-supported',
+          unitOptions: [
+            {
+              unit: 'SUVbw',
+              label: 'g/ml (SUVbw)',
+              available: true
+            }
+          ]
+        },
+        pseudocolorPreset: 'blackbody'
+      })
+    })
+
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(16))
+    const request = new URL(getTileRequests()[0]!)
+    expect(request.searchParams.get('ww')).toBe('0.63')
+    expect(request.searchParams.get('wl')).toBe('0.315')
+    expect(request.searchParams.get('petUnit')).toBe('SUVbw')
   })
 
   it('renders and loads only the new visible rows after scrolling', async () => {
@@ -298,7 +365,7 @@ describe('MontageView', () => {
     const requestCountForSlice = (sliceIndex: number) =>
       getTileRequests().filter((url) => new URL(url).searchParams.get('sliceIndex') === String(sliceIndex)).length
     expect(requestCountForSlice(0)).toBe(2)
-    expect(requestCountForSlice(1)).toBe(1)
+    expect(requestCountForSlice(1)).toBe(2)
   })
 
   it('explains when the running backend does not provide the montage endpoint', async () => {
@@ -337,6 +404,175 @@ describe('MontageView', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('ww=600'))).toBe(false)
   })
 
+  it('immediately requests final batches for toolbar window and pseudocolor revisions', async () => {
+    const wrapper = mountMontage()
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(16))
+
+    await wrapper.setProps({
+      activeTab: createTab({
+        currentWindowInfo: { ww: 1500, wl: -600 },
+        windowLabel: 'WW 1500 / WL -600',
+        montageDisplayRevision: 1
+      })
+    })
+
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(32))
+    const windowUrls = getTileRequests().slice(16, 32)
+    expect(windowUrls.every((url) => {
+      const params = new URL(url).searchParams
+      return params.get('ww') === '1500' &&
+        params.get('wl') === '-600' &&
+        params.get('pseudocolorPreset') === 'rainbow' &&
+        params.get('renderIntent') === 'final'
+    })).toBe(true)
+    await vi.waitFor(() => {
+      expect(wrapper.find('.montage-view__subtitle').text()).toContain('WW 1500 / WL -600')
+    })
+
+    await wrapper.setProps({
+      activeTab: createTab({
+        currentWindowInfo: { ww: 1500, wl: -600 },
+        windowLabel: 'WW 1500 / WL -600',
+        pseudocolorPreset: 'blackbody',
+        montageDisplayRevision: 2
+      })
+    })
+
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(48))
+    const pseudocolorUrls = getTileRequests().slice(32)
+    expect(pseudocolorUrls.every((url) => {
+      const params = new URL(url).searchParams
+      return params.get('ww') === '1500' &&
+        params.get('wl') === '-600' &&
+        params.get('pseudocolorPreset') === 'blackbody' &&
+        params.get('renderIntent') === 'final'
+    })).toBe(true)
+    await vi.waitFor(() => {
+      expect(wrapper.find('.montage-view__subtitle').text()).toContain('BlackBody')
+    })
+  })
+
+  it('keeps the previous title until the complete toolbar display batch succeeds', async () => {
+    const pendingRefreshes: Array<() => void> = []
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('/api/v1/dicom/montage/corner-info?')) {
+        return new Response(JSON.stringify({
+          cornerInfo: { topLeft: [], topRight: [], bottomLeft: ['W: 400 L: 40'], bottomRight: [] }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (String(url).includes('pseudocolorPreset=hotmetal')) {
+        return new Promise<Response>((resolve) => {
+          pendingRefreshes.push(() => resolve(new Response(new Blob(['tile'], { type: 'image/webp' }), {
+            status: 200,
+            headers: { 'Content-Type': 'image/webp' }
+          })))
+        })
+      }
+      return new Response(new Blob(['tile'], { type: 'image/webp' }), {
+        status: 200,
+        headers: { 'Content-Type': 'image/webp' }
+      })
+    })
+    const wrapper = mountMontage()
+    await vi.waitFor(() => expect(wrapper.findAll('.montage-view__image')).toHaveLength(16))
+    expect(wrapper.find('.montage-view__subtitle').text()).toContain('Rainbow')
+
+    await wrapper.setProps({
+      activeTab: createTab({
+        pseudocolorPreset: 'hotmetal',
+        montageDisplayRevision: 1
+      })
+    })
+    await vi.waitFor(() => expect(pendingRefreshes).toHaveLength(6))
+    expect(wrapper.find('.montage-view__subtitle').text()).toContain('Rainbow')
+    expect(wrapper.find('.montage-view__subtitle').text()).not.toContain('HotMetal')
+
+    let released = 0
+    while (released < 16) {
+      await vi.waitFor(() => expect(pendingRefreshes.length).toBeGreaterThan(0))
+      const batch = pendingRefreshes.splice(0)
+      batch.forEach((resolve) => resolve())
+      released += batch.length
+      await Promise.resolve()
+    }
+    await vi.waitFor(() => expect(wrapper.find('.montage-view__subtitle').text()).toContain('HotMetal'))
+  })
+
+  it('refreshes PET pseudocolor without changing its unit or fractional range', async () => {
+    const petInfo = {
+      seriesId: 'series-1',
+      sourceUnit: 'BQML',
+      sourceUnitLabel: 'Source (BQML)',
+      petUnit: 'SUVbw',
+      petUnitLabel: 'g/ml (SUVbw)',
+      petWindowMin: 0,
+      petWindowMax: 0.63,
+      pseudocolorPreset: 'bwinverse',
+      unitOptions: [{ unit: 'SUVbw', label: 'g/ml (SUVbw)', available: true }],
+      quantitative: true,
+      quantificationStatus: 'valid' as const,
+      supportStatus: 'static-supported' as const,
+      warnings: []
+    }
+    const wrapper = mountMontage('stack:window', {
+      currentWindowInfo: { ww: 0.63, wl: 0.315 },
+      initialWindowInfo: { ww: 0.63, wl: 0.315 },
+      petInfo,
+      pseudocolorPreset: 'bwinverse'
+    })
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(16))
+
+    await wrapper.setProps({
+      activeTab: createTab({
+        currentWindowInfo: { ww: 0.63, wl: 0.315 },
+        initialWindowInfo: { ww: 0.63, wl: 0.315 },
+        petInfo: { ...petInfo, pseudocolorPreset: 'rainbow' },
+        pseudocolorPreset: 'rainbow',
+        montageDisplayRevision: 1
+      })
+    })
+
+    await vi.waitFor(() => expect(getTileRequests()).toHaveLength(32))
+    expect(getTileRequests().slice(16).every((url) => {
+      const params = new URL(url).searchParams
+      return params.get('ww') === '0.63' &&
+        params.get('wl') === '0.315' &&
+        params.get('petUnit') === 'SUVbw' &&
+        params.get('pseudocolorPreset') === 'rainbow' &&
+        params.get('renderIntent') === 'final'
+    })).toBe(true)
+  })
+
+  it('keeps the previous presented state when a toolbar display batch fails', async () => {
+    const wrapper = mountMontage()
+    await vi.waitFor(() => expect(wrapper.findAll('.montage-view__image')).toHaveLength(16))
+    expect(wrapper.find('.montage-view__subtitle').text()).toContain('Rainbow')
+    const previousSource = wrapper.get('[data-slice-index="0"] img').attributes('src')
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('/api/v1/dicom/montage/corner-info?')) {
+        return new Response(JSON.stringify({
+          cornerInfo: { topLeft: [], topRight: [], bottomLeft: ['W: 400 L: 40'], bottomRight: [] }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({ detail: 'render failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    })
+
+    await wrapper.setProps({
+      activeTab: createTab({
+        pseudocolorPreset: 'hotmetal',
+        montageDisplayRevision: 1
+      })
+    })
+
+    await vi.waitFor(() => expect(getTileRequests().length).toBeGreaterThan(16))
+    expect(wrapper.find('.montage-view__subtitle').text()).toContain('Rainbow')
+    expect(wrapper.find('.montage-view__subtitle').text()).not.toContain('HotMetal')
+    expect(wrapper.get('[data-slice-index="0"] img').attributes('src')).toBe(previousSource)
+  })
+
   it('derives the title window values from the shared montage header metadata', async () => {
     const wrapper = mountMontage('stack:window', {
       windowLabel: '',
@@ -360,7 +596,7 @@ describe('MontageView', () => {
     )).toBe(true)
   })
 
-  it('updates window information immediately from drags across the montage area', async () => {
+  it('keeps the presented batch stable while backend window tiles refresh', async () => {
     const windowWrapper = mountMontage('stack:window')
     await vi.waitFor(() => expect(getTileRequests()).toHaveLength(16))
     await vi.waitFor(() => expect(windowWrapper.find('.montage-view__image').exists()).toBe(true))
@@ -380,8 +616,8 @@ describe('MontageView', () => {
       clientY: 30
     })
     await windowWrapper.vm.$nextTick()
-    expect(windowWrapper.find('.montage-view__subtitle').text()).toContain('WW 470 / WL 20')
-    expect(windowWrapper.find('.montage-view__image').attributes('style')).toContain('filter: contrast')
+    expect(windowWrapper.find('.montage-view__subtitle').text()).toContain('WW 400 / WL 40')
+    expect(windowWrapper.find('.montage-view__image').attributes('style')).toContain('scale(1)')
     await vi.waitFor(() => expect(getTileRequests().length).toBeGreaterThan(requestCountBeforeDrag))
     expect(getTileRequests().slice(requestCountBeforeDrag).some((url) =>
       url.includes('ww=470') && url.includes('wl=20')
@@ -506,6 +742,7 @@ describe('MontageView', () => {
     expect(transformEvents.at(-1)?.transform?.zoom).toBeGreaterThan(2)
     const imageTransforms = wrapper.findAll('.montage-view__image').map((image) => image.attributes('style'))
     expect(new Set(imageTransforms).size).toBe(1)
+    expect(getTileRequests().every((url) => !url.includes('zoom=') && !url.includes('offsetX='))).toBe(true)
 
     await wrapper.find('[data-slice-index="3"]').trigger('click')
     expect(wrapper.emitted('stateChange')).not.toContainEqual([{

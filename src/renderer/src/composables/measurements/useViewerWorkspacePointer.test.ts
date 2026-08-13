@@ -787,8 +787,8 @@ describe('useViewerWorkspacePointer', () => {
       viewportKey: 'mpr-ax',
       x: 0.6,
       y: 0.5,
-      canvasX: 0.6,
-      canvasY: 0.5,
+      canvasX: 120,
+      canvasY: 100,
       canvasWidth: 200,
       canvasHeight: 200
     })

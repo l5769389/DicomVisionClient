@@ -104,6 +104,7 @@ export interface ViewProgressInfo {
 export interface MprCrosshairInteractionPayload {
   viewportKey: string
   phase: 'start' | 'move' | 'end'
+  interactionId: string
   x: number
   y: number
   canvasX?: number
@@ -1363,6 +1364,9 @@ export interface ViewImageResponse {
   renderIntent?: 'pixel-only' | 'geometry-preview' | 'overlay-preview' | 'full'
   renderRevision?: number | null
   interactionId?: string | null
+  mprBatchId?: string | null
+  mprBatchViewportKeys?: MprViewportKey[] | null
+  mprBatchFinal?: boolean | null
   viewId: string
   slice_info?: {
     current: number
@@ -1467,6 +1471,12 @@ export interface ViewerTabItem {
   fusionInfo?: FusionInfo | null
   fusionPendingAlpha?: FusionPendingAlpha | null
   petInfo?: PetInfo | null
+  petSeriesDisplayPending?: {
+    petUnit?: string
+    petWindowMin?: number
+    petWindowMax?: number
+    controlWindowMax?: number
+  } | null
   fusionManualRegistration?: boolean
   fusionFrameOfReferenceWarningDismissed?: boolean
   fusionRegistrationDragActive?: boolean
@@ -1491,6 +1501,7 @@ export interface ViewerTabItem {
   mprFrame?: MprFrameInfo | null
   viewportPlanes?: Partial<Record<MprViewportKey, MprPlaneInfo | null>>
   viewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
+  optimisticViewportCrosshairs?: Partial<Record<MprViewportKey, MprCrosshairInfo | null>>
   mprRevision?: number | null
   viewportMprStateRevisions?: Partial<Record<MprViewportKey, number>>
   viewportMprImageRevisions?: Partial<Record<MprViewportKey, number>>
@@ -1552,8 +1563,11 @@ export interface ViewerTabItem {
   montageSliceCount?: number
   montageScrollTop?: number
   montageScrollRequestRevision?: number
+  montageDisplayRevision?: number
   montageTransformState?: MontageTransformInfo
   montageCommonInfoExpanded?: boolean
+  montageDisplayConfigLoading?: boolean
+  montageDisplayConfigError?: string | null
 }
 
 export type StackViewerTabItem = ViewerTabItem & { viewType: 'Stack' }

@@ -23,6 +23,8 @@ export interface ActiveMprCrosshairDragLock {
   startHorizontalAngleRad?: number
   startVerticalAngleRad?: number
   isDoubleOblique?: boolean
+  interactionId?: string | null
+  finalRevision?: number | null
 }
 
 export interface IncomingMprViewportUpdate {
@@ -30,6 +32,8 @@ export interface IncomingMprViewportUpdate {
   viewportKey: MprViewportKey | null | undefined
   phaseKey: string | null | undefined
   mprRevision?: number | null
+  interactionId?: string | null
+  batchFinal?: boolean | null
 }
 
 export function shouldPreserveLocalMprCrosshair(
@@ -43,7 +47,12 @@ export function shouldPreserveLocalMprCrosshair(
   return (
     lock.tabKey === update.tabKey &&
     lock.viewportKey === update.viewportKey &&
-    (lock.phaseKey ?? null) === (update.phaseKey ?? null)
+    (lock.phaseKey ?? null) === (update.phaseKey ?? null) &&
+    (
+      update.interactionId == null ||
+      lock.interactionId == null ||
+      update.interactionId === lock.interactionId
+    )
   )
 }
 
@@ -69,10 +78,6 @@ function isFinalImageFormat(value: string | null | undefined): boolean {
   return imageFormat === 'png' || imageFormat === 'webp'
 }
 
-function normalizeMetadataMode(value: string | null | undefined): string {
-  return String(value ?? '').toLowerCase()
-}
-
 export function shouldSuppressMprCrosshairPreviewImageUpdate(params: {
   acceptedMprRevision?: number | null
   lock: ActiveMprCrosshairDragLock | null | undefined
@@ -80,10 +85,6 @@ export function shouldSuppressMprCrosshairPreviewImageUpdate(params: {
   imageFormat: string | null | undefined
   metadataMode?: string | null | undefined
 }): boolean {
-  const isPreview = normalizeMetadataMode(params.metadataMode) === 'mpr-crosshair-preview'
-  if (isPreview && shouldPreserveLocalMprCrosshair(params.lock, params.update)) {
-    return true
-  }
   const acceptedRevision = finiteNumberOrNull(params.acceptedMprRevision)
   const incomingRevision = finiteNumberOrNull(params.update.mprRevision)
   return acceptedRevision != null && incomingRevision != null && incomingRevision < acceptedRevision
@@ -101,6 +102,7 @@ export function shouldCompleteMprCrosshairSettling(params: {
     !(
       params.lock?.status === 'settling' &&
       isFinalImageFormat(params.imageFormat) &&
+      params.update.batchFinal !== false &&
       shouldPreserveLocalMprCrosshair(params.lock, params.update)
     )
   ) {
@@ -114,6 +116,11 @@ export function shouldCompleteMprCrosshairSettling(params: {
   }
 
   if (params.incomingCrosshair == null) {
+    return false
+  }
+
+  const finalRevision = finiteNumberOrNull(params.lock.finalRevision)
+  if (finalRevision != null && incomingRevision != null && incomingRevision < finalRevision) {
     return false
   }
 
@@ -239,4 +246,3 @@ export function resolveOptimisticMprCrosshairRotation(params: {
     verticalAngleRad
   }
 }
-

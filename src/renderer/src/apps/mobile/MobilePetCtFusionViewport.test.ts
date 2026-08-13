@@ -7,7 +7,7 @@ import type { ViewerTabItem } from '../../types/viewer'
 
 vi.mock('../../components/viewer/views/ViewerCanvasStage.vue', () => ({
   default: {
-    props: ['viewportKey', 'cursorClass', 'imageSrc', 'imageLayers', 'isActive', 'lightSurface', 'loadingLabel', 'stageSurfaceClass'],
+    props: ['viewportKey', 'cursorClass', 'imageSrc', 'isActive', 'lightSurface', 'loadingLabel', 'stageSurfaceClass'],
     emits: [
       'clickViewport',
       'copyAnnotation',

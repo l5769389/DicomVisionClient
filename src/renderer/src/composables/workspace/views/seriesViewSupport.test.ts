@@ -105,4 +105,29 @@ describe('series view support', () => {
     expect(isSeriesViewSupported(createSeries(), '4D')).toBe(false)
     expect(isSeriesViewSupported(createSeries({ isFourDSeries: true, fourDPhaseCount: 3 }), '4D')).toBe(true)
   })
+
+  it('honors backend geometry and multi-frame capability blocks', () => {
+    const irregular = createSeries({
+      viewCapabilities: {
+        stack: { supported: true },
+        montage: { supported: true },
+        mpr: { supported: false, blockedReason: 'Irregular slice spacing' },
+        '3d': { supported: false, blockedReason: 'Irregular slice spacing' },
+        fusion: { supported: false, blockedReason: 'Irregular slice spacing' }
+      }
+    })
+    expect(isSeriesViewSupported(irregular, 'Stack')).toBe(true)
+    expect(isSeriesViewSupported(irregular, 'MPR')).toBe(false)
+    expect(isSeriesViewSupported(irregular, '3D')).toBe(false)
+
+    const multiframe = createSeries({
+      viewCapabilities: {
+        stack: { supported: false, blockedReason: 'Multi-frame unsupported' },
+        montage: { supported: false, blockedReason: 'Multi-frame unsupported' }
+      }
+    })
+    expect(resolveInitialSeriesViewType(multiframe)).toBe('Tag')
+    expect(isSeriesViewSupported(multiframe, 'Stack')).toBe(false)
+    expect(isSeriesViewSupported(multiframe, 'Montage')).toBe(false)
+  })
 })

@@ -40,6 +40,7 @@ declare global {
 
   interface Window {
     viewerApi?: {
+      platform: NodeJS.Platform
       chooseFolder: (mode?: 'files' | 'folder' | 'archive') => Promise<string | string[] | null>
       chooseExportDirectory: () => Promise<string | null>
       closeWindow: () => Promise<void>

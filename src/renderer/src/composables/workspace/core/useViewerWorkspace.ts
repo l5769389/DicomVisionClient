@@ -52,6 +52,13 @@ import {
   resetTabViewStateTargets
 } from '../operations/viewTabPatches'
 import type { ViewerToolbarActionPayload, ViewerTransformResetScope } from '../operations/viewActionTypes'
+import {
+  advanceMontageDisplayRevision,
+  applyMontageWindowInfoToTab,
+  commitMontagePseudocolor,
+  commitMontageWindowInfo,
+  normalizeMontageWindowInfo
+} from '../operations/montageDisplayState'
 import { useViewerWorkspaceConnection } from '../connection/useViewerWorkspaceConnection'
 import {
   applyThreeDFrameTransportUpdate,
@@ -291,6 +298,7 @@ interface ViewerWorkspaceState {
     windowInfo?: WindowLevelInfo
     commonInfoExpanded?: boolean
   }) => void
+  retryMontageDisplayConfig: (tabKey: string) => Promise<void>
   handleCompareSyncChange: (payload: { tabKey: string; key: CompareSyncSettingKey; value: boolean }) => void
   handleViewportLayoutChange: (payload?: { layoutKey?: MprLayoutKey | null }) => Promise<void>
   handleLayoutSlotDicomDrop: (payload: { tabKey: string; slotId: string; drop: DicomDropInput }) => Promise<void>
@@ -389,10 +397,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const FUSION_PET_WINDOW_DRAG_RANGE_FRACTION = 0.01
   // During MPR crosshair drag, incoming render frames may lag behind the pointer.
   // Keep the active viewport locally anchored, with the timer as a missing-end fallback.
-  const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 1800
+  const MPR_CROSSHAIR_DRAG_LOCK_TTL_MS = 10_000
   // After pointerup, the final PNG may arrive behind one or more stale previews.
   // Keep protecting the active viewport until the authoritative final frame lands.
-  const MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS = 250
+  const MPR_CROSSHAIR_SETTLING_FALLBACK_TTL_MS = 10_000
   const FOUR_D_FPS_MIN = 1
   const FOUR_D_FPS_MAX = 30
   const FOUR_D_DEFAULT_FPS = 2
@@ -668,11 +676,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   }
 
   function clearActiveMprCrosshairDragLock(): void {
+    const lock = activeMprCrosshairDragLock.value
     if (activeMprCrosshairDragLockTimer != null) {
       window.clearTimeout(activeMprCrosshairDragLockTimer)
       activeMprCrosshairDragLockTimer = null
     }
     activeMprCrosshairDragLock.value = null
+    if (lock) {
+      viewerTabs.value = viewerTabs.value.map((item) =>
+        item.key === lock.tabKey && item.optimisticViewportCrosshairs
+          ? { ...item, optimisticViewportCrosshairs: undefined }
+          : item
+      )
+    }
   }
 
   function armActiveMprCrosshairDragLockTimer(ttlMs: number): void {
@@ -681,7 +697,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
     activeMprCrosshairDragLockTimer = window.setTimeout(() => {
       activeMprCrosshairDragLockTimer = null
-      activeMprCrosshairDragLock.value = null
+      const timedOutLock = activeMprCrosshairDragLock.value
+      clearActiveMprCrosshairDragLock()
+      if (timedOutLock) {
+        void views.renderTab(timedOutLock.tabKey, true)
+      }
     }, ttlMs)
   }
 
@@ -708,8 +728,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     canvasHeight?: number
   } {
     return {
-      x: typeof payload.canvasX === 'number' && Number.isFinite(payload.canvasX) ? payload.canvasX : payload.x,
-      y: typeof payload.canvasY === 'number' && Number.isFinite(payload.canvasY) ? payload.canvasY : payload.y,
+      x: payload.x,
+      y: payload.y,
       canvasWidth: getFinitePositiveNumber(payload.canvasWidth) ?? undefined,
       canvasHeight: getFinitePositiveNumber(payload.canvasHeight) ?? undefined
     }
@@ -753,9 +773,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         lastPointerY: optimisticPointer.y,
         canvasWidth: optimisticPointer.canvasWidth ?? previousLock.canvasWidth,
         canvasHeight: optimisticPointer.canvasHeight ?? previousLock.canvasHeight,
+        interactionId: payload.interactionId,
         endedAt: Date.now()
       }
-      armActiveMprCrosshairDragLockTimer(MPR_CROSSHAIR_SETTLING_LOCK_TTL_MS)
+      armActiveMprCrosshairDragLockTimer(MPR_CROSSHAIR_SETTLING_FALLBACK_TTL_MS)
       return
     }
 
@@ -774,7 +795,8 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           lastPointerX: optimisticPointer.x,
           lastPointerY: optimisticPointer.y,
           canvasWidth: optimisticPointer.canvasWidth ?? previousLock.canvasWidth,
-          canvasHeight: optimisticPointer.canvasHeight ?? previousLock.canvasHeight
+          canvasHeight: optimisticPointer.canvasHeight ?? previousLock.canvasHeight,
+          interactionId: payload.interactionId
         }
       : (() => {
           const geometry = getTabViewportCrosshairGeometry(tab, payload.viewportKey)
@@ -790,6 +812,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
               lastPointerY: optimisticPointer.y,
               canvasWidth: optimisticPointer.canvasWidth,
               canvasHeight: optimisticPointer.canvasHeight,
+              interactionId: payload.interactionId,
               pointerOffsetX: (geometry?.center.x ?? optimisticPointer.x) - optimisticPointer.x,
               pointerOffsetY: (geometry?.center.y ?? optimisticPointer.y) - optimisticPointer.y
             }
@@ -810,6 +833,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             lastPointerY: optimisticPointer.y,
             canvasWidth: optimisticPointer.canvasWidth,
             canvasHeight: optimisticPointer.canvasHeight,
+            interactionId: payload.interactionId,
             startPointerAngleRad: getMprPointerAngleRad(optimisticPointer, centerX, centerY),
             startHorizontalAngleRad: geometry?.horizontalAngleRad ?? 0,
             startVerticalAngleRad: geometry?.verticalAngleRad ?? Math.PI / 2,
@@ -1238,63 +1262,6 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
   }
 
-  function normalizeMontageWindowInfo(
-    windowInfo: WindowLevelInfo | null | undefined,
-    isPet = false
-  ): WindowLevelInfo | null {
-    const ww = Number(windowInfo?.ww)
-    const wl = Number(windowInfo?.wl)
-    return Number.isFinite(ww) && Number.isFinite(wl)
-      ? { ww: Math.max(isPet ? 0.000001 : 1, ww), wl }
-      : null
-  }
-
-  function applyMontageWindowInfoToTab(
-    tab: ViewerTabItem,
-    windowInfo: WindowLevelInfo,
-    options: { seedInitial?: boolean } = {}
-  ): ViewerTabItem {
-    const isPet = Boolean(tab.petInfo)
-    const ww = Math.max(isPet ? 0.000001 : 1, Number(windowInfo.ww))
-    const wl = Number(windowInfo.wl)
-    if (!Number.isFinite(ww) || !Number.isFinite(wl)) {
-      return tab
-    }
-    const nextWindowInfo = { ww, wl }
-    const initialWindowInfo = options.seedInitial === false
-      ? tab.initialWindowInfo
-      : normalizeMontageWindowInfo(tab.initialWindowInfo, isPet) ?? nextWindowInfo
-    const petWindowMin = wl - ww / 2
-    const petWindowMax = wl + ww / 2
-    const petUnitLabel = tab.petInfo?.petUnitLabel ?? tab.petInfo?.petUnit ?? 'PET'
-    return {
-      ...tab,
-      initialWindowInfo,
-      currentWindowInfo: nextWindowInfo,
-      windowLabel: isPet
-        ? `${petUnitLabel} ${petWindowMin.toFixed(2)}-${petWindowMax.toFixed(2)}`
-        : `WW ${Math.round(ww)} / WL ${Math.round(wl)}`,
-      ...(tab.petInfo
-        ? {
-            petInfo: {
-              ...tab.petInfo,
-              petWindowMin,
-              petWindowMax
-            }
-          }
-        : {}),
-      cornerInfo: {
-        ...tab.cornerInfo,
-        tags: {
-          ...(tab.cornerInfo.tags ?? {}),
-          windowLevel: isPet
-            ? []
-            : [`W: ${Math.round(ww)} L: ${Math.round(wl)}`]
-        }
-      }
-    }
-  }
-
   function resetMontageDisplayState(tab: ViewerTabItem): ViewerTabItem {
     const resetWindowInfo =
       normalizeMontageWindowInfo(tab.initialWindowInfo, Boolean(tab.petInfo)) ??
@@ -1305,9 +1272,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const nextTab: ViewerTabItem = {
       ...tab,
       montageTransformState: DEFAULT_MONTAGE_TRANSFORM,
-      pseudocolorPreset: resetPseudocolorPreset
+      pseudocolorPreset: resetPseudocolorPreset,
+      ...(tab.petInfo
+        ? {
+            petInfo: {
+              ...tab.petInfo,
+              pseudocolorPreset: resetPseudocolorPreset
+            }
+          }
+        : {})
     }
-    return resetWindowInfo
+    const resetTab = resetWindowInfo
       ? applyMontageWindowInfoToTab(nextTab, resetWindowInfo, { seedInitial: true })
       : {
           ...nextTab,
@@ -1321,6 +1296,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             }
           }
         }
+    return advanceMontageDisplayRevision(resetTab)
   }
 
   function triggerViewAction(payload: ViewerToolbarActionPayload): void {
@@ -2318,15 +2294,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (tab.viewType === 'Montage') {
         viewerTabs.value = viewerTabs.value.map((item) =>
           item.key === tab.key && item.viewType === 'Montage'
-            ? {
-                ...item,
-                pseudocolorPreset: presetKey
-              }
+            ? commitMontagePseudocolor(item, presetKey)
             : item
         )
         return
       }
-      const targets = resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.pseudocolor)
+      const targets = tab.viewType === 'MPR'
+        ? MPR_VIEWPORT_KEYS.flatMap((viewportKey) => {
+            const viewId = tab.viewportViewIds?.[viewportKey]
+            return viewId
+              ? [{ viewId, viewportKey, kind: 'mpr' as const }]
+              : []
+          })
+        : resolveOperationTargets(tab, activeViewportKey.value, VIEW_OPERATION_TYPES.pseudocolor)
       if (!targets.length) {
         return
       }
@@ -2354,12 +2334,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
       if (tab.viewType === 'Montage') {
         const nextWindowInfo = {
-          ww: Math.max(1, ww),
+          ww: Math.max(tab.petInfo ? 0.000001 : 1, ww),
           wl
         }
         viewerTabs.value = viewerTabs.value.map((item) =>
           item.key === tab.key && item.viewType === 'Montage'
-            ? applyMontageWindowInfoToTab(item, nextWindowInfo, { seedInitial: false })
+            ? commitMontageWindowInfo(item, nextWindowInfo, { seedInitial: false })
             : item
         )
         return
@@ -3399,6 +3379,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     activeMprCrosshairDragLock,
     clearPendingVolumeConfig,
     completeActiveMprCrosshairDragLock,
+    clearActiveMprCrosshairDragLock,
     ensureSeriesCornerInfo,
     isViewLoading,
     message,
@@ -3648,6 +3629,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     if (shouldPreserveFrontendOverlays) {
       pendingPseudocolorOverlayPreservationViewIds.delete(viewId)
     }
+    if (
+      (tab.viewType === 'MPR' || tab.viewType === '4D') &&
+      views.queueMprFrameBatch(tab.key, payload, imageBinary, extraImageBinaries)
+    ) {
+      return
+    }
     views.updateTabImage(
       tab.key,
       shouldPreserveFrontendOverlays
@@ -3687,6 +3674,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     const tab = views.findTabByViewId(viewId)
     if (!tab) {
+      return
+    }
+
+    if (payload.mprBatchId) {
       return
     }
 
@@ -3875,7 +3866,20 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
   }
 
-  function handleImageError(error: { message?: string } | undefined): void {
+  function handleImageError(error: ({ message?: string } & Partial<ViewImageResponse>) | undefined): void {
+    if (error?.mprBatchId) {
+      views.failMprFrameBatch(error)
+    }
+    const mprLock = activeMprCrosshairDragLock.value
+    if (
+      mprLock &&
+      error?.interactionId &&
+      error.interactionId === mprLock.interactionId
+    ) {
+      const tabKey = mprLock.tabKey
+      clearActiveMprCrosshairDragLock()
+      void views.renderTab(tabKey, true)
+    }
     const tab = activeTab.value
     if (tab?.loadingProgress) {
       viewerTabs.value = viewerTabs.value.map((item) =>
@@ -4518,7 +4522,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     petWindowMin?: number
     petWindowMax?: number
     petControlWindowMax?: number
-  }): void {
+  }, options: { commitMontageDisplay?: boolean } = {}): void {
     const tab = activeTab.value
     if (!tab || !['PET', 'MPR', 'Montage', '3D', 'Layout', 'CompareStack'].includes(tab.viewType)) {
       return
@@ -4538,8 +4542,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       : layoutSlot?.viewId
         ?? (comparePaneKey ? tab.compareViewIds?.[comparePaneKey] : null)
         ?? tab.viewId
+    const sharesStandalonePetIntensity = tab.viewType === 'PET' || tab.viewType === 'Montage'
     const targetViewIds = tab.viewType === 'MPR'
       ? Object.values(tab.viewportViewIds ?? {}).filter((candidate): candidate is string => Boolean(candidate))
+      : sharesStandalonePetIntensity
+        ? viewerTabs.value
+            .filter((item) => item.seriesId === tab.seriesId && item.viewType === 'PET' && item.viewId)
+            .map((item) => item.viewId)
       : activeViewId
         ? [activeViewId]
         : []
@@ -4567,15 +4576,30 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     const convertedUnitControlMax = unitChanged && Number.isFinite(targetUnitOption?.controlWindowMax)
       ? Number(targetUnitOption?.controlWindowMax)
       : null
-    const petWindowMin = Number.isFinite(payload.petWindowMin)
+    let petWindowMin = Number.isFinite(payload.petWindowMin)
       ? Number(payload.petWindowMin)
       : (convertedUnitWindowMin ?? activePetInfo.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN)
-    const petWindowMax = Number.isFinite(payload.petWindowMax)
+    let petWindowMax = Number.isFinite(payload.petWindowMax)
       ? Number(payload.petWindowMax)
       : (convertedUnitWindowMax ?? activePetInfo.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
     const petControlWindowMax = Number.isFinite(payload.petControlWindowMax)
       ? Number(payload.petControlWindowMax)
       : (convertedUnitControlMax ?? activePetInfo.controlWindowMax)
+    const controlWindowClampedDisplay =
+      payload.petControlWindowMax != null &&
+      petControlWindowMax != null &&
+      Number.isFinite(petControlWindowMax) &&
+      petWindowMax > petControlWindowMax
+    if (controlWindowClampedDisplay) {
+      petWindowMin = DEFAULT_FUSION_PET_WINDOW_MIN
+      petWindowMax = petControlWindowMax
+    }
+    const petWindowChanged =
+      payload.petWindowMin != null ||
+      payload.petWindowMax != null ||
+      unitChanged ||
+      controlWindowClampedDisplay
+    const petIntensityChanged = petWindowChanged || petUnit != null || payload.petControlWindowMax != null
     const optimisticPetInfoPatch = {
       ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
       ...(petUnit
@@ -4586,16 +4610,48 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             ...(convertedUnitWindowMax != null ? { autoWindowMax: convertedUnitWindowMax } : {})
           }
         : {}),
-      ...(payload.petWindowMin != null || payload.petWindowMax != null || unitChanged
+      ...(petWindowChanged
         ? { petWindowMin, petWindowMax }
         : {}),
       ...(petControlWindowMax != null ? { controlWindowMax: petControlWindowMax } : {})
     }
 
-    viewerTabs.value = viewerTabs.value.map((item) =>
-      item.key === tab.key
+    viewerTabs.value = viewerTabs.value.map((item) => {
+      const isActiveItem = item.key === tab.key
+      const isSharedIntensityItem =
+        sharesStandalonePetIntensity &&
+        petIntensityChanged &&
+        item.seriesId === tab.seriesId &&
+        (item.viewType === 'PET' || item.viewType === 'Montage')
+      if (!isActiveItem && !isSharedIntensityItem) {
+        return item
+      }
+      const itemPetInfoPatch = isActiveItem
+        ? optimisticPetInfoPatch
+        : {
+            ...(petUnit
+              ? {
+                  petUnit,
+                  petUnitLabel: targetUnitOption?.label ?? petUnit,
+                  ...(convertedUnitWindowMin != null ? { autoWindowMin: convertedUnitWindowMin } : {}),
+                  ...(convertedUnitWindowMax != null ? { autoWindowMax: convertedUnitWindowMax } : {})
+                }
+              : {}),
+            ...(petWindowChanged ? { petWindowMin, petWindowMax } : {}),
+            ...(petControlWindowMax != null ? { controlWindowMax: petControlWindowMax } : {})
+          }
+      const pendingDisplayState = petIntensityChanged
+        ? {
+            ...(petUnit ? { petUnit } : {}),
+            ...(petWindowChanged ? { petWindowMin, petWindowMax } : {}),
+            ...(petControlWindowMax != null ? { controlWindowMax: petControlWindowMax } : {})
+          }
+        : item.petSeriesDisplayPending
+      return (
+      isActiveItem
         ? {
             ...item,
+            petSeriesDisplayPending: pendingDisplayState,
             ...(item.viewType === 'Layout' && layoutSlot
               ? {
                   layoutSlots: (item.layoutSlots ?? []).map((slot) =>
@@ -4633,7 +4689,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                     petInfo: {
                       seriesId: item.seriesId,
                       ...(item.petInfo ?? {}),
-                      ...optimisticPetInfoPatch
+                      ...itemPetInfoPatch
                     }
                   }),
             ...(pseudocolorPreset && item.viewType !== 'Layout' && item.viewType !== 'CompareStack'
@@ -4650,7 +4706,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                     : {})
                 }
               : {}),
-            ...(item.viewType === 'Montage' && (payload.petWindowMin != null || payload.petWindowMax != null || unitChanged)
+            ...(item.viewType === 'Montage' && (pseudocolorPreset || (petWindowChanged && options.commitMontageDisplay !== false))
+              ? {
+                  montageDisplayRevision: Math.max(0, Math.trunc(item.montageDisplayRevision ?? 0)) + 1
+                }
+              : {}),
+            ...(item.viewType === 'Montage' && petWindowChanged
               ? {
                   currentWindowInfo: {
                     ww: Math.max(0.0001, petWindowMax - petWindowMin),
@@ -4660,8 +4721,39 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
                 }
               : {})
           }
-        : item
-    )
+        : {
+            ...item,
+            petSeriesDisplayPending: pendingDisplayState,
+            petInfo: {
+              ...(item.petInfo ?? activePetInfo),
+              ...itemPetInfoPatch
+            },
+            ...(item.viewType === 'Montage' && petWindowChanged && options.commitMontageDisplay !== false
+              ? {
+                  montageDisplayRevision: Math.max(0, Math.trunc(item.montageDisplayRevision ?? 0)) + 1
+                }
+              : {}),
+            ...(item.viewType === 'Montage' && petWindowChanged
+              ? {
+                  currentWindowInfo: {
+                    ww: Math.max(0.0001, petWindowMax - petWindowMin),
+                    wl: (petWindowMax + petWindowMin) / 2
+                  }
+                }
+              : {})
+          }
+      )
+    })
+
+    if (sharesStandalonePetIntensity && petIntensityChanged) {
+      const sharedItem = viewerTabs.value.find(
+        (item) =>
+          item.seriesId === tab.seriesId &&
+          (item.viewType === 'PET' || item.viewType === 'Montage') &&
+          item.petInfo?.unitOptions?.length
+      )
+      views.rememberPetSeriesDisplayInfo(sharedItem?.petInfo)
+    }
 
     if (!targetViewIds.length) {
       return
@@ -4670,7 +4762,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       emitViewOperation({
         viewId,
         opType: VIEW_OPERATION_TYPES.petConfig,
-        ...(pseudocolorPreset ? { pseudocolorPreset } : {}),
+        ...(pseudocolorPreset && (viewId === activeViewId || tab.viewType === 'MPR')
+          ? { pseudocolorPreset }
+          : {}),
         ...(petUnit ? { petUnit } : {}),
         ...(payload.petWindowMin != null || payload.petWindowMax != null || unitChanged
           ? {
@@ -4848,15 +4942,31 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
 
     if (payload.petControlWindowMax != null && Number.isFinite(payload.petControlWindowMax)) {
       const petControlWindowMax = Math.max(0.000001, Number(payload.petControlWindowMax))
+      const currentPetWindowMax = Number(tab.fusionInfo?.petWindowMax ?? DEFAULT_FUSION_PET_WINDOW_MAX)
+      const clampDisplayWindow = Number.isFinite(currentPetWindowMax) && currentPetWindowMax > petControlWindowMax
+      const petWindowMin = clampDisplayWindow
+        ? DEFAULT_FUSION_PET_WINDOW_MIN
+        : tab.fusionInfo?.petWindowMin ?? DEFAULT_FUSION_PET_WINDOW_MIN
+      const petWindowMax = clampDisplayWindow ? petControlWindowMax : currentPetWindowMax
       viewerTabs.value = viewerTabs.value.map((item) =>
         item.key === tab.key
           ? {
               ...item,
+              ...(item.fusionInfo
+                ? {
+                    fusionInfo: {
+                      ...item.fusionInfo,
+                      petWindowMin,
+                      petWindowMax
+                    }
+                  }
+                : {}),
               ...(item.petInfo
                 ? {
                     petInfo: {
                       ...item.petInfo,
-                      controlWindowMax: petControlWindowMax
+                      controlWindowMax: petControlWindowMax,
+                      ...(clampDisplayWindow ? { petWindowMin, petWindowMax } : {})
                     }
                   }
                 : {})
@@ -4981,7 +5091,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
         return item
       }
 
-      const previousCrosshair = item.viewportCrosshairs?.[viewportKey] ?? null
+      const previousCrosshair = item.optimisticViewportCrosshairs?.[viewportKey] ?? item.viewportCrosshairs?.[viewportKey] ?? null
       const geometry = getTabViewportCrosshairGeometry(item, viewportKey)
       const phaseKey = getCurrentMprCrosshairPhaseKey(item)
       const update = {
@@ -5044,35 +5154,13 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       if (!nextCrosshair) {
         return item
       }
-      const viewportCrosshairs = {
-        ...(item.viewportCrosshairs ?? createEmptyMprCrosshairs()),
+      const optimisticViewportCrosshairs = {
+        ...(item.optimisticViewportCrosshairs ?? {}),
         [viewportKey]: nextCrosshair
       }
-
-      if (item.viewType !== '4D') {
-        return {
-          ...item,
-          viewportCrosshairs
-        }
-      }
-
-      const currentPhaseKey = String(Math.max(0, Math.trunc(item.fourDPhaseIndex ?? 0)))
-      const phaseCache = item.fourDPhaseCache?.[currentPhaseKey]
       return {
         ...item,
-        viewportCrosshairs,
-        fourDPhaseCache: phaseCache
-          ? {
-              ...(item.fourDPhaseCache ?? {}),
-              [currentPhaseKey]: {
-                ...phaseCache,
-                viewportCrosshairs: {
-                  ...(phaseCache.viewportCrosshairs ?? createEmptyMprCrosshairs()),
-                  [viewportKey]: nextCrosshair
-                }
-              }
-            }
-          : item.fourDPhaseCache
+        optimisticViewportCrosshairs
       }
     })
   }
@@ -5086,6 +5174,11 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       actionType: payload.phase,
       x: payload.x,
       y: payload.y,
+      canvasX: payload.canvasX,
+      canvasY: payload.canvasY,
+      canvasWidth: payload.canvasWidth,
+      canvasHeight: payload.canvasHeight,
+      interactionId: payload.interactionId,
       line: payload.line
     })
     if (tab?.viewType === '4D' && !isFourDPlaybackLocked(tab) && payload.phase === DRAG_ACTION_TYPES.end) {
@@ -5357,6 +5450,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     windowInfo?: WindowLevelInfo
     commonInfoExpanded?: boolean
   }): void {
+    const sourceTab = viewerTabs.value.find((item) => item.key === payload.tabKey && item.viewType === 'Montage')
     viewerTabs.value = viewerTabs.value.map((item) => {
       if (item.key !== payload.tabKey || item.viewType !== 'Montage') {
         return item
@@ -5387,6 +5481,12 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       }
       return payload.windowInfo ? applyMontageWindowInfoToTab(nextItem, payload.windowInfo) : nextItem
     })
+    if (sourceTab?.petInfo && payload.windowInfo && activeTabKey.value === payload.tabKey) {
+      handlePetConfigChange({
+        petWindowMin: payload.windowInfo.wl - payload.windowInfo.ww / 2,
+        petWindowMax: payload.windowInfo.wl + payload.windowInfo.ww / 2
+      }, { commitMontageDisplay: false })
+    }
   }
 
   async function openViewWithHangingProtocol(viewType: ViewType): Promise<void> {
@@ -5790,6 +5890,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     openSeriesCompare: openSeriesCompareWithBackend,
     openView: openViewWithHangingProtocol,
     removeSeries: views.removeSeries,
+    retryMontageDisplayConfig: views.retryMontageDisplayConfig,
     selectSeries: views.selectSeries,
     selectedSeriesId,
     seriesList,

@@ -35,6 +35,10 @@ const tabContextMenuAnchorStyle = computed(() => ({
   top: `${tabContextMenuPosition.value.y}px`
 }))
 
+function getTabTypeLabel(tab: ViewerTabItem): string {
+  return tab.viewType === 'PET' ? 'STACK' : tab.viewType
+}
+
 function openTabContextMenu(event: MouseEvent, tabKey: string): void {
   event.preventDefault()
   event.stopPropagation()
@@ -103,7 +107,7 @@ function closeOtherTabsFromMenu(): void {
         @keydown.space.prevent="emit('activateTab', tab.key)"
       >
         <span class="viewer-tab-title min-w-0 flex-1 truncate text-[13px] font-semibold">{{ tab.seriesTitle }}</span>
-        <span class="viewer-tab-type shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]">{{ tab.viewType }}</span>
+        <span class="viewer-tab-type shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]">{{ getTabTypeLabel(tab) }}</span>
         <button type="button" class="viewer-tab-close-inline" :aria-label="t('closeView')" @click.stop="emit('closeTab', tab.key)" @keydown.stop>
           <AppIcon name="close" :size="14" :stroke-width="2.1" />
         </button>

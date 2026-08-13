@@ -10,6 +10,7 @@ import type {
   MeasurementDraftPayload,
   MeasurementDraftPoint,
   MprCrosshairMode,
+  MprViewportKey,
   MprMipOperationConfig,
   MprSegmentationOperationConfig,
   ViewProgressInfo,
@@ -45,6 +46,12 @@ interface SocketAckPayload {
 
 interface SocketErrorPayload {
   message?: string
+  viewId?: string
+  interactionId?: string | null
+  mprRevision?: number | null
+  mprBatchId?: string | null
+  mprBatchViewportKeys?: MprViewportKey[] | null
+  mprBatchFinal?: boolean | null
 }
 
 export interface WebRtcIceServerConfig {

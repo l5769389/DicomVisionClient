@@ -41,7 +41,12 @@ describe('viewerWorkspaceTabs fusion helpers', () => {
   })
 
   it('uses the fusion PET-only pseudocolor by default for standalone PET tabs', () => {
-    expect(createDefaultPetInfo('pet-series').pseudocolorPreset).toBe('hotiron')
+    const pendingPetInfo = createDefaultPetInfo('pet-series')
+
+    expect(pendingPetInfo.pseudocolorPreset).toBe('hotiron')
+    expect(pendingPetInfo.petUnit).toBe('source')
+    expect(pendingPetInfo.petUnitLabel).toBe('Source')
+    expect(pendingPetInfo.unitOptions).toEqual([])
   })
 
   it('displays standalone Stack and PET tabs as 2D while keeping internal view types', () => {

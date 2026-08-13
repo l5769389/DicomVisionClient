@@ -13,7 +13,6 @@ import type {
   MeasurementOverlay,
   OrientationInfo,
   Vec3,
-  ViewerImageLayer,
   ViewerTabItem
 } from '../../../types/viewer'
 import {
@@ -75,6 +74,11 @@ const emit = defineEmits<{
   viewportClick: [viewportKey: string]
   viewportWheel: [payload: { viewportKey: string; deltaY: number; exact?: boolean; deltaX?: number; deltaMode?: number; ctrlKey?: boolean; canvasX?: number; canvasY?: number; canvasWidth?: number; canvasHeight?: number }]
 }>()
+
+function getPaneRenderRevision(paneKey: FusionPaneKey): number | null {
+  const viewId = props.activeTab.fusionViewIds?.[paneKey]
+  return viewId ? props.activeTab.imageUpdateRevisions?.[viewId] ?? null : null
+}
 
 interface FusionPaneView {
   key: FusionPaneKey
@@ -663,47 +667,8 @@ function consumeManualRegistrationRightDoubleClick(state: ManualRegistrationDrag
   return distanceX <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX && distanceY <= MANUAL_RIGHT_CLICK_MOVE_TOLERANCE_PX
 }
 
-function getFusionImageLayers(paneKey: FusionPaneKey): ViewerImageLayer[] {
-  if (paneKey !== FUSION_OVERLAY_AXIAL_PANE_KEY) {
-    return []
-  }
-  const petLayerSrc =
-    manualRegistrationEnabled.value && !isManualRegistrationPreviewPoseIdentity(manualRegistrationVisualPose.value)
-      ? manualRegistrationLockedImages.value?.layerImages[paneKey] || props.activeTab.fusionLayerImages?.[paneKey]?.pet
-      : props.activeTab.fusionLayerImages?.[paneKey]?.pet
-  if (!petLayerSrc) {
-    return []
-  }
-  return [
-    {
-      key: 'pet-registration-layer',
-      src: petLayerSrc,
-      alt: 'PET overlay',
-      class: 'pet-ct-fusion-view__pet-layer',
-      style: {
-        ...getManualRegistrationPreviewStyle(paneKey),
-        opacity: String(Math.max(0, Math.min(1, Number(props.activeTab.fusionInfo?.alpha ?? 0.52))))
-      }
-    }
-  ]
-}
-
 function getFusionPaneImageSrc(pane: FusionPaneView): string {
-  if (
-    manualRegistrationEnabled.value &&
-    pane.key === FUSION_PET_AXIAL_PANE_KEY &&
-    !isManualRegistrationPreviewPoseIdentity(manualRegistrationVisualPose.value)
-  ) {
-    return manualRegistrationLockedImages.value?.images[pane.key] || pane.imageSrc
-  }
   return pane.imageSrc
-}
-
-function getFusionPaneImageStyle(paneKey: FusionPaneKey): Record<string, string> {
-  if (paneKey !== FUSION_PET_AXIAL_PANE_KEY) {
-    return {}
-  }
-  return getManualRegistrationPreviewStyle(paneKey)
 }
 
 function isFusionPetStandalonePane(paneKey: FusionPaneKey): boolean {
@@ -715,7 +680,7 @@ function getFusionPanePseudocolorPreset(paneKey: FusionPaneKey): string {
 }
 
 function hasFusionPaneVisualContent(pane: FusionPaneView): boolean {
-  return Boolean(getFusionPaneImageSrc(pane)) || getFusionImageLayers(pane.key).some((layer) => Boolean(layer.src))
+  return Boolean(getFusionPaneImageSrc(pane))
 }
 
 function getFusionPaneOrientation(pane: FusionPaneView): OrientationInfo {
@@ -801,54 +766,6 @@ function getPaneNaturalSize(paneKey: FusionPaneKey): { width: number; height: nu
   const width = image?.naturalWidth || layerSize?.width || getPaneViewportRect(paneKey)?.width || 0
   const height = image?.naturalHeight || layerSize?.height || getPaneViewportRect(paneKey)?.height || 0
   return { width, height }
-}
-
-function getManualRegistrationPreviewStyle(paneKey: FusionPaneKey): Record<string, string> {
-  void markerLayoutRevision.value
-  const pose = manualRegistrationVisualPose.value
-  if (!manualRegistrationEnabled.value || !pose || isManualRegistrationPreviewPoseIdentity(pose)) {
-    return {}
-  }
-  const viewportRect = getPaneViewportRect(paneKey)
-  if (!viewportRect) {
-    return {}
-  }
-  const naturalSize = getPaneNaturalSize(paneKey)
-  const imageRect = getContainedImageRectFromBox(viewportRect, naturalSize.width, naturalSize.height)
-  if (!naturalSize.width || !naturalSize.height || !imageRect.width || !imageRect.height) {
-    return {}
-  }
-
-  const scaleX = imageRect.width / naturalSize.width
-  const scaleY = imageRect.height / naturalSize.height
-  const translateX = pose.translateCanvasX * scaleX
-  const translateY = pose.translateCanvasY * scaleY
-  const imageCenterX = imageRect.left - viewportRect.left + pose.imageCenterCanvasX * scaleX
-  const imageCenterY = imageRect.top - viewportRect.top + pose.imageCenterCanvasY * scaleY
-  const rotationCenterX = imageCenterX + translateX
-  const rotationCenterY = imageCenterY + translateY
-  const round = (value: number): number => Math.round(value * 1000) / 1000
-  if (Math.abs(pose.rotationDegrees) < 0.001) {
-    return {
-      transform: `translate(${round(translateX)}px, ${round(translateY)}px)`,
-      transformOrigin: `${round(rotationCenterX)}px ${round(rotationCenterY)}px`,
-      willChange: 'transform'
-    }
-  }
-  const rotationRad = pose.rotationDegrees * Math.PI / 180
-  const cos = Math.cos(rotationRad)
-  const sin = Math.sin(rotationRad)
-  const matrixA = cos
-  const matrixB = sin
-  const matrixC = -sin
-  const matrixD = cos
-  const matrixE = rotationCenterX - cos * imageCenterX + sin * imageCenterY
-  const matrixF = rotationCenterY - sin * imageCenterX - cos * imageCenterY
-  return {
-    transform: `matrix(${round(matrixA)}, ${round(matrixB)}, ${round(matrixC)}, ${round(matrixD)}, ${round(matrixE)}, ${round(matrixF)})`,
-    transformOrigin: '0px 0px',
-    willChange: 'transform'
-  }
 }
 
 function setPaneRef(paneKey: FusionPaneKey, element: Element | ComponentPublicInstance | null): void {
@@ -1238,9 +1155,8 @@ watch(
           :draft-annotation="getDraftAnnotation(pane.key)"
           :draft-measurement="getDraftMeasurement(pane.key)"
           :draft-measurement-mode="getDraftMeasurementMode(pane.key)"
-          :image-layers="getFusionImageLayers(pane.key)"
           :image-src="getFusionPaneImageSrc(pane)"
-          :image-style="getFusionPaneImageStyle(pane.key)"
+          :render-revision="getPaneRenderRevision(pane.key)"
           :is-active="activeViewportKey === pane.key"
           :is-loading="!hasFusionPaneVisualContent(pane)"
           :loading-label="getPaneLoadingLabel(pane.key)"

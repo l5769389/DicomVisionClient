@@ -132,6 +132,12 @@ const isSelectedSeriesFourD = computed(() =>
   isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
 const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' && Boolean(window.viewerApi))
+const isMacDesktop = computed(
+  () => hasDesktopWindowControls.value && window.viewerApi?.platform === 'darwin'
+)
+const hasCustomDesktopWindowControls = computed(
+  () => hasDesktopWindowControls.value && !isMacDesktop.value
+)
 const closeNotificationLabel = computed(() => (isZh.value ? '关闭通知' : 'Close notification'))
 const shouldShowInitialLocaleDialog = computed(() => !hasSelectedInitialLocale.value)
 const isDicomFileDropActive = ref(false)
@@ -516,6 +522,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
       >
         <SidebarPanel
           ref="sidebarPanelRef"
+          :has-mac-window-controls="isMacDesktop"
           :viewer-folder-source-mode="viewer.viewerFolderSourceMode"
           :viewer-platform="viewer.viewerPlatform"
           :connection-state="viewer.connectionState.value"
@@ -551,7 +558,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :is-view-loading="viewer.isViewLoading.value"
           :message="viewer.message.value"
           :selected-series-id="viewer.selectedSeriesId.value"
-          :show-window-controls="hasDesktopWindowControls"
+          :show-window-controls="hasCustomDesktopWindowControls"
           :viewer-platform="viewer.viewerPlatform"
           :viewer-tabs="viewer.viewerTabs.value"
           @activate-tab="viewer.activateTab"
@@ -563,6 +570,7 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           @layout-slot-series-drop="handleLayoutSlotSeriesDrop"
           @open-series-view="viewer.openSeriesView"
           @montage-state-change="viewer.handleMontageStateChange"
+          @retry-montage-display-config="viewer.retryMontageDisplayConfig"
           @set-active-operation="viewer.setActiveOperation"
           @hover-viewport-change="viewer.handleHoverViewportChange"
           @trigger-view-action="viewer.triggerViewAction"

@@ -6,16 +6,22 @@
 
 DicomVision is a client/server DICOM viewer for medical image viewing, analysis, and workflow validation. The client is built with Vue, TypeScript, and Electron. The backend is built with FastAPI, Socket.IO, and medical imaging libraries to parse, render, reconstruct, analyze, and export DICOM data while streaming rendered results to desktop, web, and mobile interfaces in real time.
 
-## Overview
+## What You Can Do
 
 - Web preview: [https://dicom.zhaolin.online/](https://dicom.zhaolin.online/)
+- Desktop downloads: [GitHub Releases](https://github.com/l5769389/DicomVisionClient/releases/latest)
 - Client repository: [https://github.com/l5769389/DicomVisionClient](https://github.com/l5769389/DicomVisionClient)
 - Server repository: [https://github.com/l5769389/DicomVisionServer](https://github.com/l5769389/DicomVisionServer)
-- Current release: [DicomVision v3.1.3](https://github.com/l5769389/DicomVisionClient/releases/tag/v3.1.3)
 
-DicomVision keeps DICOM parsing, reconstruction, rendering, and compute-intensive analysis on the backend while the client owns interaction, workflow, and presentation. The browser, mobile UI, and desktop app therefore reuse the same image capabilities across LAN deployments, cloud services, and desktop packages with an embedded backend.
+DicomVision covers the workflow from image import and series review through reconstruction, fusion, quantitative analysis, and export:
 
-The project is designed especially for deployments where the client has limited GPU memory but still needs shared DICOM viewing and backend 2D/3D rendering. For workstations with ample GPU resources and a strong requirement for fully local GPU interaction, native solutions such as C3D may be a better fit. For products that require UI and computation in one process, a non-separated Python or C++ implementation may also be preferable. DicomVision is optimized for cross-platform reuse, centralized rendering, and lightweight clients.
+- Import local DICOM files, folders, and archives, or query and retrieve studies from DICOMweb and DIMSE PACS sources.
+- Review CT, MR, PET, and other modalities in Stack, Montage, Compare, and Layout views with windowing, pseudocolor, zoom, pan, and synchronized navigation.
+- Create orthogonal or oblique MPR, MIP, 4D phase playback, VR volume rendering, and Surface reconstructions.
+- Review quantitative PET images, select available SUV/SUL/%ID/g units, control intensity ranges, and perform PET/CT fusion and manual registration.
+- Use distance, angle, ROI, arrow, and text tools alongside threshold segmentation, VOI, MTF/FWHM, and water phantom QA.
+- Inspect and edit DICOM tags, run batch edits and de-identification, and export images, DICOM, SR, and GSPS.
+- Use a consistent workspace in Electron, browsers, and mobile layouts; desktop packages can include the backend service.
 
 ## Architecture and Scope
 

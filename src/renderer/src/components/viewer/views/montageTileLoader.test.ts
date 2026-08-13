@@ -133,7 +133,7 @@ describe('createMontageTileLoader', () => {
 
     loader.sync([{ index: 0, url: 'http://backend.test/tile/0?ww=800' }])
     const refreshingState = stateChange.mock.calls.at(-1)?.[1]
-    expect(refreshingState).toEqual({
+    expect(refreshingState).toMatchObject({
       status: 'ready',
       imageSrc: 'blob:tile-1',
       isRefreshing: true
@@ -142,6 +142,72 @@ describe('createMontageTileLoader', () => {
     pending.shift()?.()
     await vi.waitFor(() => {
       expect(stateChange.mock.calls.some(([, state]) => state?.imageSrc === 'blob:tile-2')).toBe(true)
+    })
+    loader.dispose()
+  })
+
+  it('finishes the active batch and only follows with the latest pending batch', async () => {
+    const pending = new Map<string, (response: Response) => void>()
+    const stateChange = vi.fn()
+    const loader = createMontageTileLoader({
+      fetch: vi.fn((url) => new Promise<Response>((resolve) => pending.set(String(url), resolve))),
+      createObjectUrl: (blob) => `blob:${blob.size}:${Math.random()}`,
+      revokeObjectUrl: vi.fn(),
+      onStateChange: stateChange
+    })
+
+    loader.sync([{ index: 0, url: 'http://backend.test/tile/0?ww=2' }])
+    loader.sync([{ index: 0, url: 'http://backend.test/tile/0?ww=3' }])
+    loader.sync([{ index: 0, url: 'http://backend.test/tile/0?ww=4' }])
+
+    expect([...pending.keys()]).toEqual(['http://backend.test/tile/0?ww=2'])
+    pending.get('http://backend.test/tile/0?ww=2')?.(imageResponse())
+    await vi.waitFor(() => expect(pending.has('http://backend.test/tile/0?ww=4')).toBe(true))
+    expect(pending.has('http://backend.test/tile/0?ww=3')).toBe(false)
+    pending.get('http://backend.test/tile/0?ww=4')?.(imageResponse())
+    await vi.waitFor(() => {
+      expect(stateChange.mock.calls.some(([, state]) => state?.requestUrl?.includes('ww=4'))).toBe(true)
+    })
+    loader.dispose()
+  })
+
+  it('does not let a preview replace a queued final display batch', async () => {
+    const pending = new Map<string, (response: Response) => void>()
+    const stateChange = vi.fn()
+    const fetchMock = vi.fn((url) => new Promise<Response>((resolve) => pending.set(String(url), resolve)))
+    const loader = createMontageTileLoader({
+      fetch: fetchMock,
+      createObjectUrl: () => `blob:tile-${Math.random()}`,
+      revokeObjectUrl: vi.fn(),
+      onStateChange: stateChange
+    })
+
+    loader.sync([{
+      index: 0,
+      url: 'http://backend.test/tile/0?ww=2&renderIntent=preview',
+      displayRevision: 1,
+      renderIntent: 'preview'
+    }])
+    loader.sync([{
+      index: 0,
+      url: 'http://backend.test/tile/0?ww=4&renderIntent=final',
+      displayRevision: 2,
+      renderIntent: 'final'
+    }])
+    loader.sync([{
+      index: 0,
+      url: 'http://backend.test/tile/0?ww=3&renderIntent=preview',
+      displayRevision: 1,
+      renderIntent: 'preview'
+    }])
+
+    pending.get('http://backend.test/tile/0?ww=2&renderIntent=preview')?.(imageResponse())
+    await vi.waitFor(() => expect(pending.has('http://backend.test/tile/0?ww=4&renderIntent=final')).toBe(true))
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('ww=3'))).toBe(false)
+
+    pending.get('http://backend.test/tile/0?ww=4&renderIntent=final')?.(imageResponse())
+    await vi.waitFor(() => {
+      expect(stateChange.mock.calls.some(([, state]) => state?.displayRevision === 2 && state?.status === 'ready')).toBe(true)
     })
     loader.dispose()
   })

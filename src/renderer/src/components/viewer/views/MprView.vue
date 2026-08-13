@@ -379,6 +379,11 @@ function getItemCrosshair(item: MprViewportLayoutItem) {
   return viewportKey ? getViewportCrosshair(viewportKey) : null
 }
 
+function getItemCrosshairPreview(item: MprViewportLayoutItem) {
+  const viewportKey = asMprViewportKey(item)
+  return viewportKey ? props.activeTab.optimisticViewportCrosshairs?.[viewportKey] ?? null : null
+}
+
 function getItemFrame(item: MprViewportLayoutItem) {
   return asMprViewportKey(item) ? props.activeTab.mprFrame ?? null : null
 }
@@ -539,6 +544,7 @@ watch(
       :render-surface-active="isViewportActive(item.key)"
       :image-src="getItemImage(item)"
       :media-view-id="getItemMediaViewId(item)"
+      :render-revision="getItemMediaViewId(item) ? props.activeTab.imageUpdateRevisions?.[getItemMediaViewId(item) ?? ''] ?? null : null"
       :active-operation="props.activeOperation"
       :is-loading="isItemLoading(item)"
       :loading-label="getItemLoadingLabel(item)"
@@ -554,6 +560,7 @@ watch(
       :mtf-items="getItemMtfItems(item)"
       :selected-mtf-id="item.kind === 'volume' ? null : props.selectedMtfId ?? null"
       :mpr-crosshair="getItemCrosshair(item)"
+      :mpr-crosshair-preview="getItemCrosshairPreview(item)"
       :mpr-frame="getItemFrame(item)"
       :mpr-plane="getItemPlane(item)"
       :mpr-segmentation-default-threshold-color="props.mprSegmentationDefaultThresholdColor"
@@ -575,7 +582,6 @@ watch(
       :show-volume-orientation-cube="item.kind === 'volume' && props.activeTab.showVolumeOrientationCube !== false"
       :viewport-transform="getItemTransform(item)"
       :orientation="getItemOrientation(item)"
-      :soft-image="item.kind === 'volume'"
       @clear-mtf="emit('clearMtf')"
       @copy-selected-mtf="emit('copySelectedMtf', $event)"
       @copy-selected-measurement="emit('copySelectedMeasurement', $event)"

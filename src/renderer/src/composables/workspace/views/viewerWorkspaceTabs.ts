@@ -343,8 +343,8 @@ export function createDefaultPetInfo(seriesId = ''): PetInfo {
     seriesId,
     sourceUnit: 'UNKNOWN',
     sourceUnitLabel: 'Source',
-    petUnit: 'SUVbw',
-    petUnitLabel: 'g/ml (SUVbw)',
+    petUnit: 'source',
+    petUnitLabel: 'Source',
     petWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
     petWindowMax: DEFAULT_FUSION_PET_WINDOW_MAX,
     autoWindowMin: DEFAULT_FUSION_PET_WINDOW_MIN,
@@ -941,6 +941,7 @@ export function createTab(series: FolderSeriesItem, viewType: ViewType): ViewerT
     montageSliceCount: 0,
     montageScrollTop: 0,
     montageScrollRequestRevision: 0,
+    montageDisplayRevision: 0,
     montageTransformState: {
       zoom: 1,
       offsetX: 0,

@@ -28,6 +28,11 @@ import {
   applyMontageZoomDrag,
   normalizeMontageTransform
 } from '../../../composables/workspace/views/montageTransform'
+import {
+  createRenderedImageUrlRegistry,
+  releaseRenderedImageObjectUrl,
+  retainRenderedImageObjectUrl
+} from '../../../composables/workspace/views/renderedImageUrlRegistry'
 
 const props = withDefaults(defineProps<{
   activeTab: ViewerTabItem
@@ -49,6 +54,7 @@ const emit = defineEmits<{
     commonInfoExpanded?: boolean
   }]
   toggleSliceStar: [payload: { sliceIndex: number }]
+  retryDisplayConfig: [tabKey: string]
   pointerDown: [event: PointerEvent, viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
@@ -67,6 +73,9 @@ const windowPreviewOrigin = ref<WindowLevelInfo | null>(null)
 const headerCornerInfo = ref<CornerInfo | null>(null)
 const commonInfoRegion = ref<HTMLElement | null>(null)
 const tileStates = ref<Record<number, MontageTileState>>({})
+const presentedTileStates = ref<Record<number, MontageTileState>>({})
+const presentedWindowInfo = ref<WindowLevelInfo | null>(localWindowInfo.value)
+const presentedPseudocolorPreset = ref(props.activeTab.pseudocolorPreset)
 const backendRevision = ref(0)
 const scrollerWidth = ref(0)
 const scrollerHeight = ref(0)
@@ -75,6 +84,8 @@ let resizeObserver: ResizeObserver | null = null
 let scrollFrame: number | null = null
 let displayRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let queuedVisibleTileRefresh = false
+let requestedRenderIntent: 'preview' | 'final' = 'final'
+let requestedPresentationKey = ''
 let stopWatchingApiBaseUrl: (() => void) | null = null
 let headerCornerInfoController: AbortController | null = null
 let isPreparingInitialTileSync = false
@@ -149,7 +160,16 @@ const COMPACT_COMMON_INFO_SLOTS: ViewportCornerInfoItemKey[][] = [
   ['sliceThickness']
 ]
 
+const montageImageUrlRegistry = createRenderedImageUrlRegistry()
 const tileLoader = createMontageTileLoader({
+  createObjectUrl(blob) {
+    const imageSrc = URL.createObjectURL(blob)
+    montageImageUrlRegistry.markOwned(imageSrc)
+    return imageSrc
+  },
+  revokeObjectUrl(imageSrc) {
+    montageImageUrlRegistry.revoke(imageSrc)
+  },
   onStateChange(index, state) {
     const nextStates = { ...tileStates.value }
     if (state) {
@@ -163,6 +183,15 @@ const tileLoader = createMontageTileLoader({
 
 const sliceCount = computed(() => Math.max(0, Math.trunc(props.activeTab.montageSliceCount ?? 0)))
 const isPetMontage = computed(() => Boolean(props.activeTab.petInfo))
+const hasAuthoritativePetDisplay = computed(() =>
+  !isPetMontage.value || Boolean(props.activeTab.petInfo?.unitOptions?.length)
+)
+const canLoadMontageTiles = computed(
+  () =>
+    !props.activeTab.montageDisplayConfigLoading &&
+    !props.activeTab.montageDisplayConfigError &&
+    hasAuthoritativePetDisplay.value
+)
 const minimumWindowWidth = computed(resolveMinimumWindowWidth)
 const showCornerInfo = computed(() => props.activeTab.showCornerInfo !== false)
 const starredSliceIndexSet = computed(() => new Set(props.starredSliceIndexes))
@@ -173,33 +202,16 @@ const activeWindowInfo = computed(() =>
   resolveDisplayedWindowInfo(props.activeTab) ??
   null
 )
-const windowPreviewFilter = computed(() => {
-  const origin = windowPreviewOrigin.value
-  const current = activeWindowInfo.value
-  if (!origin || !current) {
-    return 'none'
-  }
-  const contrast = clampCssFilterValue(origin.ww / Math.max(minimumWindowWidth.value, current.ww), 0.25, 4)
-  const brightness = clampCssFilterValue(
-    1 + (origin.wl - current.wl) / Math.max(minimumWindowWidth.value, current.ww),
-    0.35,
-    2.5
-  )
-  if (Math.abs(contrast - 1) < 0.01 && Math.abs(brightness - 1) < 0.01) {
-    return 'none'
-  }
-  return `contrast(${contrast.toFixed(3)}) brightness(${brightness.toFixed(3)})`
-})
 const windowStatusLabel = computed(() => {
   if (isPetMontage.value) {
-    const windowInfo = activeWindowInfo.value
+    const windowInfo = presentedWindowInfo.value
     const minimum = windowInfo ? windowInfo.wl - windowInfo.ww / 2 : props.activeTab.petInfo?.petWindowMin
     const maximum = windowInfo ? windowInfo.wl + windowInfo.ww / 2 : props.activeTab.petInfo?.petWindowMax
     const unit = props.activeTab.petInfo?.petUnitLabel ?? props.activeTab.petInfo?.petUnit ?? 'PET'
     return `${formatPetValue(minimum)}–${formatPetValue(maximum)} ${unit}`
   }
-  const ww = activeWindowInfo.value?.ww
-  const wl = activeWindowInfo.value?.wl
+  const ww = presentedWindowInfo.value?.ww
+  const wl = presentedWindowInfo.value?.wl
   if (ww != null || wl != null) {
     return formatWindowStatus(ww, wl)
   }
@@ -210,7 +222,7 @@ const windowStatusLabel = computed(() => {
   return formatWindowLine(props.activeTab.windowLabel) ?? formatWindowStatus(null, null)
 })
 const pseudocolorStatusLabel = computed(() => {
-  const key = normalizePseudocolorPresetKey(props.activeTab.pseudocolorPreset)
+  const key = normalizePseudocolorPresetKey(presentedPseudocolorPreset.value)
   return PSEUDOCOLOR_PRESET_OPTIONS.find((option) => option.key === key)?.label ?? key
 })
 const configuredCornerKeys = computed(() =>
@@ -272,10 +284,6 @@ const scrollerCursorClass = computed(() => {
   }
   return ''
 })
-const transformedImageStyle = computed(() => ({
-  filter: windowPreviewFilter.value,
-  transform: `translate(${montageTransform.value.offsetX * 100}%, ${montageTransform.value.offsetY * 100}%) scale(${montageTransform.value.zoom})`
-}))
 const gridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${columnCount.value}, minmax(0, 1fr))`
 }))
@@ -331,14 +339,18 @@ const virtualizerStyle = computed(() => {
     paddingBottom: `${MONTAGE_GRID_PADDING + rowsAfter * rowStride.value}px`
   }
 })
+const montageImageStyle = computed(() => ({
+  transform: `translate3d(${montageTransform.value.offsetX * 100}%, ${montageTransform.value.offsetY * 100}%, 0) scale(${montageTransform.value.zoom})`
+}))
 
-function buildTileRequest(index: number): MontageTileRequest {
+function buildTileRequest(index: number, renderIntent: 'preview' | 'final' = requestedRenderIntent): MontageTileRequest {
   const workspaceId = getWorkspaceId()
   const params = new URLSearchParams({
     seriesId: props.activeTab.seriesId,
     sliceIndex: String(index),
     size: '256',
-    workspaceId
+    workspaceId,
+    renderIntent
   })
   const windowInfo = activeWindowInfo.value
   if (windowInfo?.ww != null && Number.isFinite(windowInfo.ww) && windowInfo.ww > 0) {
@@ -356,10 +368,22 @@ function buildTileRequest(index: number): MontageTileRequest {
   return {
     index,
     url: resolveBackendAssetUrl(`/api/v1/dicom/montage/tile?${params.toString()}`),
+    displayRevision: props.activeTab.montageDisplayRevision ?? 0,
+    renderIntent,
     headers: {
       [WORKSPACE_HEADER]: workspaceId
     }
   }
+}
+
+function resolveTilePresentationKey(requestUrl: string | null | undefined): string {
+  if (!requestUrl) {
+    return ''
+  }
+  const url = new URL(requestUrl)
+  url.searchParams.delete('sliceIndex')
+  url.searchParams.delete('renderIntent')
+  return url.toString()
 }
 
 function buildHeaderCornerInfoRequestUrl(): string {
@@ -412,11 +436,15 @@ async function loadHeaderCornerInfo(): Promise<void> {
   }
 }
 
-function syncVisibleTiles(): void {
-  if (isPreparingInitialTileSync && !activeWindowInfo.value) {
+function syncVisibleTiles(renderIntent: 'preview' | 'final' = requestedRenderIntent): void {
+  if (!canLoadMontageTiles.value || (isPreparingInitialTileSync && !activeWindowInfo.value)) {
     return
   }
-  tileLoader.sync(renderedIndexes.value.map(buildTileRequest))
+  requestedRenderIntent = renderIntent
+  const requests = renderedIndexes.value.map((index) => buildTileRequest(index, renderIntent))
+  if (tileLoader.sync(requests)) {
+    requestedPresentationKey = resolveTilePresentationKey(requests[0]?.url)
+  }
 }
 
 function syncVisibleContent(): void {
@@ -424,6 +452,9 @@ function syncVisibleContent(): void {
 }
 
 async function prepareInitialVisibleContent(): Promise<void> {
+  if (!canLoadMontageTiles.value) {
+    return
+  }
   if (!activeWindowInfo.value && sliceCount.value > 0) {
     isPreparingInitialTileSync = true
     try {
@@ -463,7 +494,8 @@ function handleScrollerScroll(): void {
 }
 
 function retryTile(index: number): void {
-  tileLoader.retry(buildTileRequest(index))
+  void index
+  tileLoader.retryBatch(renderedIndexes.value.map((tileIndex) => buildTileRequest(tileIndex, 'final')))
 }
 
 function tileErrorText(state: MontageTileState | undefined): string {
@@ -585,42 +617,42 @@ function clearVisibleTileRefreshTimer(): void {
   queuedVisibleTileRefresh = false
 }
 
-function requestDebouncedVisibleTileRefresh(): void {
+function requestDebouncedVisibleTileRefresh(renderIntent: 'preview' | 'final' = 'final'): void {
   clearVisibleTileRefreshTimer()
   displayRefreshTimer = setTimeout(() => {
     displayRefreshTimer = null
     queuedVisibleTileRefresh = false
-    syncVisibleTiles()
+    syncVisibleTiles(renderIntent)
   }, 90)
 }
 
-function requestThrottledVisibleTileRefresh(): void {
+function requestThrottledVisibleTileRefresh(renderIntent: 'preview' | 'final' = 'preview'): void {
   if (displayRefreshTimer) {
     queuedVisibleTileRefresh = true
     return
   }
-  syncVisibleTiles()
+  syncVisibleTiles(renderIntent)
   displayRefreshTimer = setTimeout(() => {
     displayRefreshTimer = null
     if (!queuedVisibleTileRefresh) {
       return
     }
     queuedVisibleTileRefresh = false
-    requestThrottledVisibleTileRefresh()
-  }, 120)
+    requestThrottledVisibleTileRefresh(renderIntent)
+  }, 50)
 }
 
 function requestVisibleTileRefresh(mode: 'debounce' | 'throttle' = 'debounce'): void {
   if (mode === 'throttle') {
-    requestThrottledVisibleTileRefresh()
+    requestThrottledVisibleTileRefresh('preview')
     return
   }
-  requestDebouncedVisibleTileRefresh()
+  requestDebouncedVisibleTileRefresh('final')
 }
 
 function flushVisibleTileRefresh(): void {
   clearVisibleTileRefreshTimer()
-  syncVisibleTiles()
+  syncVisibleTiles('final')
 }
 
 function getWindowDragSensitivity(windowWidth: number): number {
@@ -630,10 +662,6 @@ function getWindowDragSensitivity(windowWidth: number): number {
   }
   const scaled = width / WINDOW_DRAG_REFERENCE_WIDTH
   return Math.max(WINDOW_DRAG_MIN_SENSITIVITY, Math.min(WINDOW_DRAG_MAX_SENSITIVITY, scaled))
-}
-
-function clampCssFilterValue(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 1))
 }
 
 function hasRefreshingVisibleTiles(): boolean {
@@ -648,6 +676,69 @@ function clearWindowPreviewWhenReady(): void {
     return
   }
   windowPreviewOrigin.value = null
+}
+
+function releasePresentedTiles(): void {
+  Object.values(presentedTileStates.value).forEach((state) => {
+    releaseRenderedImageObjectUrl(state.imageSrc)
+  })
+  presentedTileStates.value = {}
+}
+
+function commitVisibleTileBatchWhenReady(): void {
+  const indexes = renderedIndexes.value
+  if (!indexes.length) {
+    return
+  }
+  const nextStates = indexes.map((index) => tileStates.value[index])
+  if (nextStates.some((state) => state?.status !== 'ready' || state.isRefreshing || !state.imageSrc)) {
+    return
+  }
+  if (new Set(nextStates.map((state) => state?.batchRevision)).size !== 1) {
+    return
+  }
+  if (nextStates.some((state) => (state?.displayRevision ?? 0) !== (props.activeTab.montageDisplayRevision ?? 0))) {
+    return
+  }
+  const completedPresentationKeys = new Set(
+    nextStates.map((state) => resolveTilePresentationKey(state?.requestUrl))
+  )
+  if (completedPresentationKeys.size !== 1 || !completedPresentationKeys.has(requestedPresentationKey)) {
+    return
+  }
+
+  const previous = presentedTileStates.value
+  const next: Record<number, MontageTileState> = {}
+  Object.entries(previous).forEach(([index, state]) => {
+    if (!indexes.includes(Number(index))) {
+      releaseRenderedImageObjectUrl(state.imageSrc)
+    }
+  })
+  nextStates.forEach((state, offset) => {
+    const index = indexes[offset]
+    const previousSource = previous[index]?.imageSrc
+    if (state.imageSrc !== previousSource) {
+      retainRenderedImageObjectUrl(state.imageSrc)
+      releaseRenderedImageObjectUrl(previousSource)
+    }
+    next[index] = state
+  })
+  presentedTileStates.value = next
+  const presentedRequestUrl = nextStates[0]?.requestUrl
+  if (presentedRequestUrl) {
+    const params = new URL(presentedRequestUrl).searchParams
+    const ww = Number(params.get('ww'))
+    const wl = Number(params.get('wl'))
+    presentedWindowInfo.value = Number.isFinite(ww) && Number.isFinite(wl) ? { ww, wl } : null
+    presentedPseudocolorPreset.value = params.get('pseudocolorPreset') ?? props.activeTab.pseudocolorPreset
+  } else {
+    presentedWindowInfo.value = activeWindowInfo.value ? { ...activeWindowInfo.value } : null
+    presentedPseudocolorPreset.value = props.activeTab.pseudocolorPreset
+  }
+}
+
+function getDisplayedTileState(index: number): MontageTileState | undefined {
+  return presentedTileStates.value[index] ?? tileStates.value[index]
 }
 
 function applyWindowDrag(
@@ -1042,10 +1133,13 @@ watch(
     lastPointerTileActivation = null
     tileLoader.clear()
     tileStates.value = {}
+    releasePresentedTiles()
     columnCount.value = Math.max(2, Math.min(6, props.activeTab.montageColumnCount ?? montageColumnCount.value))
     selectedSliceIndex.value = Math.max(0, props.activeTab.montageSelectedSliceIndex ?? 0)
     montageTransform.value = normalizeMontageTransform(props.activeTab.montageTransformState)
     localWindowInfo.value = resolveTabWindowInfo(props.activeTab)
+    presentedWindowInfo.value = localWindowInfo.value ? { ...localWindowInfo.value } : null
+    presentedPseudocolorPreset.value = props.activeTab.pseudocolorPreset
     void nextTick(() => {
       if (scroller.value) {
         scroller.value.scrollTop = Math.max(0, props.activeTab.montageScrollTop ?? 0)
@@ -1059,6 +1153,7 @@ watch(
 watch(renderedIndexes, syncVisibleContent)
 
 watch([tileStates, renderedIndexes], () => {
+  commitVisibleTileBatchWhenReady()
   clearWindowPreviewWhenReady()
 }, { deep: true })
 
@@ -1089,12 +1184,29 @@ watch(
 )
 
 watch(
+  () => props.activeTab.montageDisplayRevision,
+  (value, previousValue) => {
+    if (value == null || value === previousValue) {
+      return
+    }
+    clearVisibleTileRefreshTimer()
+    windowPreviewOrigin.value = null
+    localWindowInfo.value = resolveDisplayedWindowInfo(props.activeTab)
+    syncVisibleTiles('final')
+  },
+  { flush: 'sync' }
+)
+
+watch(
   () => [
     props.activeTab.currentWindowInfo?.ww,
     props.activeTab.currentWindowInfo?.wl,
     props.activeTab.initialWindowInfo?.ww,
     props.activeTab.initialWindowInfo?.wl,
-    props.activeTab.windowLabel
+    props.activeTab.windowLabel,
+    props.activeTab.petInfo?.petUnit,
+    props.activeTab.petInfo?.petWindowMin,
+    props.activeTab.petInfo?.petWindowMax
   ],
   () => {
     if (pointerSession?.operation === 'window') {
@@ -1137,9 +1249,13 @@ watch(
     props.activeTab.petInfo?.petUnit,
     props.activeTab.petInfo?.petWindowMin,
     props.activeTab.petInfo?.petWindowMax,
+    canLoadMontageTiles.value,
     backendRevision.value
   ],
   () => {
+    if (pointerSession?.operation === 'window') {
+      return
+    }
     requestVisibleTileRefresh()
   }
 )
@@ -1181,6 +1297,7 @@ onBeforeUnmount(() => {
   stopWatchingApiBaseUrl?.()
   stopWatchingApiBaseUrl = null
   tileLoader.dispose()
+  releasePresentedTiles()
   resizeObserver?.disconnect()
   resizeObserver = null
   window.removeEventListener('resize', measureScroller)
@@ -1290,6 +1407,14 @@ onBeforeUnmount(() => {
       @contextmenu.prevent
       @scroll.passive="handleScrollerScroll"
     >
+      <div v-if="activeTab.montageDisplayConfigError" class="montage-view__config-error">
+        <AppIcon name="alert" :size="22" />
+        <span>{{ activeTab.montageDisplayConfigError }}</span>
+        <button type="button" class="montage-view__retry" @click="emit('retryDisplayConfig', activeTab.key)">
+          <AppIcon name="reset" :size="16" />
+          <span>{{ isZh ? '重试' : 'Retry' }}</span>
+        </button>
+      </div>
       <div class="montage-view__virtualizer" :style="virtualizerStyle">
         <div class="montage-view__grid" :style="gridStyle">
           <article
@@ -1304,15 +1429,15 @@ onBeforeUnmount(() => {
             @keydown="handleTileKeydown($event, index)"
           >
             <img
-              v-if="tileStates[index]?.status === 'ready' && tileStates[index]?.imageSrc"
-              :src="tileStates[index]?.imageSrc"
+              v-if="getDisplayedTileState(index)?.status === 'ready' && getDisplayedTileState(index)?.imageSrc"
+              :src="getDisplayedTileState(index)?.imageSrc"
               :alt="`${index + 1} / ${sliceCount}`"
               class="montage-view__image"
+              :style="montageImageStyle"
               draggable="false"
-              :style="transformedImageStyle"
             />
-            <div v-else-if="tileStates[index]?.status === 'error'" class="montage-view__placeholder">
-              <span class="montage-view__error">{{ tileErrorText(tileStates[index]) }}</span>
+            <div v-else-if="getDisplayedTileState(index)?.status === 'error'" class="montage-view__placeholder">
+              <span class="montage-view__error">{{ tileErrorText(getDisplayedTileState(index)) }}</span>
               <button
                 type="button"
                 class="montage-view__retry"
@@ -1549,11 +1674,26 @@ onBeforeUnmount(() => {
 }
 
 .montage-view__scroller {
+  position: relative;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   background: var(--montage-image-surface);
+}
+
+.montage-view__config-error {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--montage-overlay-muted);
+  background: var(--montage-image-surface);
+  text-align: center;
 }
 
 .montage-view__scroller--window {
@@ -1614,8 +1754,8 @@ onBeforeUnmount(() => {
   display: block;
   object-fit: contain;
   transform-origin: center;
-  user-select: none;
   will-change: transform;
+  user-select: none;
 }
 
 .montage-view__placeholder {

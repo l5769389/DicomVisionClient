@@ -62,7 +62,7 @@ describe('AppIcon bed visibility icons', () => {
     expect(pseudocolor.get('path').attributes('d')).toBe(mdiPaletteOutline)
   })
 
-  it('renders windowing as a left-white right-gray circle without changing PET intensity', () => {
+  it('renders windowing as a left-white right-black circle without changing PET intensity', () => {
     const windowIcon = mount(AppIcon, { props: { name: 'window' } })
     const petIntensityIcon = mount(AppIcon, { props: { name: 'pet-intensity' } })
     const gradient = windowIcon.get('#app-icon-window-level-gradient')
@@ -71,7 +71,7 @@ describe('AppIcon bed visibility icons', () => {
     expect(gradient.attributes()).toMatchObject({ x1: '0', y1: '0', x2: '1', y2: '0' })
     expect(stops).toHaveLength(2)
     expect(stops[0]?.attributes('stop-color')).toBe('#ffffff')
-    expect(stops[1]?.attributes('stop-color')).toBe('#6b7280')
+    expect(stops[1]?.attributes('stop-color')).toBe('#000000')
     expect(petIntensityIcon.find('defs').exists()).toBe(false)
     expect(petIntensityIcon.get('path').attributes('d')).toBe(mdiContrastCircle)
   })

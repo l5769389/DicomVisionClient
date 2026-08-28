@@ -70,6 +70,32 @@ describe('fourDPhaseManifest', () => {
     expect(merged.find((series) => series.seriesId === 'other')?.isFourDSeries).toBeUndefined()
   })
 
+  it('propagates a failed 4D capability even when older phase metadata already exists', () => {
+    const blockedCapability = {
+      supported: false,
+      blockedCode: 'phase-mpr-unavailable',
+      blockedReason: 'Phase 25% requires resampling.'
+    }
+    const merged = mergeFourDManifestIntoSeriesList(
+      [
+        createSeries('root', {
+          isFourDSeries: true,
+          fourDPhaseCount: 2,
+          fourDPhases: createManifest().fourDPhases
+        })
+      ],
+      'root',
+      createManifest({
+        isFourDSeries: false,
+        fourDPhaseCount: 0,
+        fourDPhases: [],
+        viewCapability: blockedCapability
+      })
+    )
+
+    expect(merged[0]?.viewCapabilities?.['4d']).toEqual(blockedCapability)
+  })
+
   it('keeps richer existing phase metadata when backend manifest is less specific', () => {
     const existingPhases = [
       { phaseIndex: 0, label: 'Existing P0', seriesId: 'phase-0' },

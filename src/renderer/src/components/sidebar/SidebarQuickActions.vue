@@ -32,7 +32,6 @@ type SourcePickerAction = {
 
 const props = defineProps<{
   hasSelectedSeries: boolean
-  isSelectedSeriesFourD: boolean
   selectedSeries: FolderSeriesItem | null
   viewerFolderSourceMode: 'desktop-picker' | 'web-upload' | 'server-sample'
   viewerPlatform: 'desktop' | 'web'
@@ -119,7 +118,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
     label: '3D',
     title: '3D',
     viewType: '3D',
-    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, '3D')
+    disabled: !props.hasSelectedSeries
   },
   {
     label: '4D',
@@ -127,7 +126,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
       ? (isZh.value ? 'PET 动态分析暂未支持' : 'Dynamic PET analysis is not supported yet')
       : '4D',
     viewType: '4D',
-    disabled: !props.hasSelectedSeries || !props.isSelectedSeriesFourD || !isSeriesViewSupported(props.selectedSeries, '4D')
+    disabled: !props.hasSelectedSeries
   },
   {
     label: 'TAG',
@@ -140,7 +139,7 @@ const quickViewActions = computed<QuickViewAction[]>(() => [
     label: 'MPR',
     title: 'MPR',
     viewType: 'MPR',
-    disabled: !props.hasSelectedSeries || !isSeriesViewSupported(props.selectedSeries, 'MPR'),
+    disabled: !props.hasSelectedSeries,
     wide: true
   }
 ])

@@ -381,13 +381,13 @@ describe('ViewerCanvasStage layout metrics', () => {
 
   it('finishes the current window frame and then catches up to the latest queued frame', async () => {
     const raf = installQueuedRaf()
-    const wrapper = mountStage('blob:frame-1')
-    await wrapper.setProps({ imageSrc: 'blob:frame-2' })
+    const wrapper = mountStage('blob:frame-1', { sourceSliceIndex: 0 })
+    await wrapper.setProps({ imageSrc: 'blob:frame-2', sourceSliceIndex: 1 })
     await nextTick()
     const currentPreload = wrapper.get('img.viewer-image-preload')
 
-    await wrapper.setProps({ imageSrc: 'blob:frame-3' })
-    await wrapper.setProps({ imageSrc: 'blob:frame-4' })
+    await wrapper.setProps({ imageSrc: 'blob:frame-3', sourceSliceIndex: 2 })
+    await wrapper.setProps({ imageSrc: 'blob:frame-4', sourceSliceIndex: 3 })
     await nextTick()
     expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-1')
     expect(wrapper.get('img.viewer-image-preload').attributes('src')).toBe('blob:frame-2')
@@ -395,6 +395,10 @@ describe('ViewerCanvasStage layout metrics', () => {
     await currentPreload.trigger('load')
     await nextTick()
     expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-2')
+    expect(wrapper.emitted('framePresented')?.at(-1)).toEqual([{
+      viewportKey: 'single',
+      sourceSliceIndex: 1
+    }])
     expect(wrapper.findAll('img.viewer-image-buffer').map((image) => image.attributes('src'))).toEqual([
       'blob:frame-2',
       'blob:frame-1'
@@ -409,6 +413,10 @@ describe('ViewerCanvasStage layout metrics', () => {
     await wrapper.get('img.viewer-image-preload').trigger('load')
     await nextTick()
     expect(wrapper.get('img.viewer-image').attributes('src')).toBe('blob:frame-4')
+    expect(wrapper.emitted('framePresented')?.at(-1)).toEqual([{
+      viewportKey: 'single',
+      sourceSliceIndex: 3
+    }])
     wrapper.unmount()
   })
 

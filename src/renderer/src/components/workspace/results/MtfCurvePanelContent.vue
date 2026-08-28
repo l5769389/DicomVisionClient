@@ -24,9 +24,15 @@ const { locale, overlayCopy } = useUiLocale()
 const isZh = computed(() => locale.value === 'zh-CN')
 const metrics = computed(() => props.mtfItem?.metrics ?? null)
 const curve = computed(() => props.mtfItem?.curve ?? [])
+const status = computed(() => props.mtfItem?.status ?? null)
+const isReady = computed(() => status.value === 'ready')
 const xAxisUnit = computed(() => metrics.value?.unit || 'lp/mm')
 const xAxisLabel = computed(() => `${isZh.value ? '空间频率' : 'Spatial Frequency'} (${xAxisUnit.value})`)
-const xMax = computed(() => Math.max(...curve.value.map((point) => point.frequency), 1))
+const xMax = computed(() => {
+  const maximum = Math.max(...curve.value.map((point) => point.frequency).filter(Number.isFinite), 0)
+  return maximum > 0 ? maximum : 1
+})
+const yMax = computed(() => Math.max(...curve.value.map((point) => point.value), 1))
 const canUseSelectedMtf = computed(() => Boolean(props.mtfItem?.mtfId))
 
 function normalizeX(frequency: number): number {
@@ -34,7 +40,7 @@ function normalizeX(frequency: number): number {
 }
 
 function normalizeY(value: number): number {
-  return CHART_BOTTOM - Math.max(0, Math.min(1, value)) * CHART_HEIGHT
+  return CHART_BOTTOM - (Math.max(0, value) / yMax.value) * CHART_HEIGHT
 }
 
 const chartPath = computed(() => {
@@ -113,22 +119,119 @@ const markerItems = computed(() => {
     .filter((item): item is NonNullable<typeof item> => item != null)
 })
 
-const summaryRows = computed(() => {
+const metricPresentation = computed(() => {
   const currentMetrics = metrics.value
   if (!currentMetrics) {
-    return []
+    return null
   }
 
   const frequencyUnit = currentMetrics.unit || 'lp/mm'
   const fwhmUnit = frequencyUnit === 'lp/mm' ? 'mm' : 'px'
 
-  return [
-    { label: 'MTF50', value: currentMetrics.mtf50 != null ? `${currentMetrics.mtf50.toFixed(3)} ${frequencyUnit}` : '-' },
-    { label: 'MTF10', value: currentMetrics.mtf10 != null ? `${currentMetrics.mtf10.toFixed(3)} ${frequencyUnit}` : '-' },
-    { label: 'FWHM-W', value: currentMetrics.fwhmW != null ? `${currentMetrics.fwhmW.toFixed(3)} ${fwhmUnit}` : '-' },
-    { label: 'FWHM-H', value: currentMetrics.fwhmH != null ? `${currentMetrics.fwhmH.toFixed(3)} ${fwhmUnit}` : '-' }
-  ]
+  const warningCodes = new Set((props.mtfItem?.qualityWarnings ?? []).map((warning) => warning.code))
+  const unavailable = isZh.value ? '不可测' : 'Not measurable'
+  const formatFrequency = (value: number | null | undefined, nyquist: number | null | undefined, warningCode: string) => {
+    if (value != null) {
+      return `${value.toFixed(3)} ${frequencyUnit}`
+    }
+    if (nyquist != null && warningCodes.has(warningCode)) {
+      return `> ${nyquist.toFixed(3)} ${frequencyUnit}`
+    }
+    return unavailable
+  }
+
+  return {
+    radial: [
+      {
+        label: 'MTF50',
+        value: formatFrequency(currentMetrics.mtf50, currentMetrics.radialNyquist, 'mtf50-beyond-nyquist')
+      },
+      {
+        label: 'MTF10',
+        value: formatFrequency(currentMetrics.mtf10, currentMetrics.radialNyquist, 'mtf10-beyond-nyquist')
+      }
+    ],
+    directional: [
+      {
+        label: 'MTF50',
+        w: formatFrequency(currentMetrics.mtf50W, currentMetrics.nyquistW, 'mtf50-w-beyond-nyquist'),
+        h: formatFrequency(currentMetrics.mtf50H, currentMetrics.nyquistH, 'mtf50-h-beyond-nyquist')
+      },
+      {
+        label: 'MTF10',
+        w: formatFrequency(currentMetrics.mtf10W, currentMetrics.nyquistW, 'mtf10-w-beyond-nyquist'),
+        h: formatFrequency(currentMetrics.mtf10H, currentMetrics.nyquistH, 'mtf10-h-beyond-nyquist')
+      },
+      {
+        label: 'FWHM',
+        w: currentMetrics.fwhmW != null ? `${currentMetrics.fwhmW.toFixed(3)} ${fwhmUnit}` : unavailable,
+        h: currentMetrics.fwhmH != null ? `${currentMetrics.fwhmH.toFixed(3)} ${fwhmUnit}` : unavailable
+      }
+    ]
+  }
 })
+
+const directionalAssessment = computed(() => {
+  const w = metrics.value?.mtf50W
+  const h = metrics.value?.mtf50H
+  if (w == null || h == null || w <= 0 || h <= 0) {
+    return null
+  }
+
+  const ratio = Math.max(w, h) / Math.min(w, h)
+  if (ratio < 2) {
+    return null
+  }
+
+  return isZh.value
+    ? `W/H 方向的 MTF50 相差 ${ratio.toFixed(1)} 倍，请检查点源是否完整、近似圆形且 ROI 四周留有背景。`
+    : `W/H MTF50 differs by ${ratio.toFixed(1)}x. Check that the point source is complete, approximately round, and surrounded by background.`
+})
+
+const warningRows = computed(() => {
+  const translations: Record<string, string> = {
+    'source-size-uncorrected': '未进行有限点源尺寸修正，结果为实测点源 MTF。',
+    'roi-auto-expanded': '所选 ROI 小于 9 × 9 像素，分析时已围绕其中心自动补足最小范围。',
+    'unstable-dc-fallback': '有符号点扩散函数的零频响应不稳定，已使用峰值连通的正信号分量完成低置信度计算。',
+    'roi-small': 'ROI 小于 21 × 21 像素，频率估计可能不稳定。',
+    'point-near-roi-edge': '点源距离 ROI 边缘过近，可能没有包含完整 PSF。',
+    'fwhm-w-incomplete': 'FWHM-W 的两个半高交点未完整落在 ROI 内。',
+    'fwhm-h-incomplete': 'FWHM-H 的两个半高交点未完整落在 ROI 内。',
+    'low-snr': '点源信噪比较低，建议使用更大或背景更干净的 ROI。',
+    'nonuniform-background': 'ROI 背景不均匀，结果可能受到背景趋势影响。',
+    'mtf50-beyond-nyquist': '径向 MTF50 高于 Nyquist，无法给出精确值。',
+    'mtf10-beyond-nyquist': '径向 MTF10 高于 Nyquist，无法给出精确值。',
+    'mtf50-w-beyond-nyquist': 'MTF50-W 高于 Nyquist，无法给出精确值。',
+    'mtf10-w-beyond-nyquist': 'MTF10-W 高于 Nyquist，无法给出精确值。',
+    'mtf50-h-beyond-nyquist': 'MTF50-H 高于 Nyquist，无法给出精确值。',
+    'mtf10-h-beyond-nyquist': 'MTF10-H 高于 Nyquist，无法给出精确值。'
+  }
+  const rows = (props.mtfItem?.qualityWarnings ?? []).map((warning) => ({
+    code: warning.code,
+    message: isZh.value ? (translations[warning.code] ?? warning.message) : warning.message
+  }))
+  if (metrics.value && metrics.value.sourceSizeCorrected === false && !rows.some((row) => row.code === 'source-size-uncorrected')) {
+    rows.unshift({
+      code: 'source-size-uncorrected',
+      message: isZh.value
+        ? translations['source-size-uncorrected']
+        : 'Finite point-source size correction was not applied; this is a measured point-source MTF.'
+    })
+  }
+  return rows
+})
+
+const errorTitle = computed(() => isZh.value ? 'MTF 分析失败' : 'MTF analysis failed')
+const errorMessage = computed(() =>
+  props.mtfItem?.errorMessage?.trim() || (isZh.value ? '当前 ROI 无法完成 MTF 分析。' : 'The current ROI could not be analyzed.')
+)
+const errorSuggestion = computed(() =>
+  props.mtfItem?.errorSuggestion?.trim() || (
+    isZh.value
+      ? '请重新框选完整点源，并在四周保留足够的背景区域。'
+      : 'Draw a new ROI around the complete point source with sufficient background margin.'
+  )
+)
 
 function stripGuidePrefix(value: string, label: 'MTF50' | 'MTF10'): string {
   return value.replace(new RegExp(`^${label}\\s*`, 'i'), '').trim()
@@ -155,7 +258,22 @@ const readingGuideText = computed(() => [
 <template>
   <div class="mtf-curve-panel-content">
     <div class="mtf-curve-panel-content__scroll">
-      <section class="mtf-curve-panel-content__card">
+      <section v-if="status === 'calculating'" class="mtf-curve-panel-content__state" aria-live="polite">
+        <span class="mtf-curve-panel-content__spinner" aria-hidden="true" />
+        <div>
+          <strong>{{ overlayCopy.mtfCalculating }}</strong>
+          <p>{{ overlayCopy.mtfSubmitting }}</p>
+        </div>
+      </section>
+
+      <section v-else-if="status === 'error'" class="mtf-curve-panel-content__state mtf-curve-panel-content__state--error" role="alert">
+        <div class="mtf-curve-panel-content__eyebrow">{{ errorTitle }}</div>
+        <strong>{{ errorMessage }}</strong>
+        <p>{{ errorSuggestion }}</p>
+        <code v-if="mtfItem?.errorCode">{{ mtfItem.errorCode }}</code>
+      </section>
+
+      <section v-if="isReady" class="mtf-curve-panel-content__card">
         <div class="mtf-curve-panel-content__section-header">
           <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.curvePlot }}</div>
           <div class="mtf-curve-panel-content__legend">
@@ -182,13 +300,13 @@ const readingGuideText = computed(() => [
 
             <line :x1="CHART_LEFT" :y1="CHART_BOTTOM" :x2="CHART_RIGHT" :y2="CHART_BOTTOM" class="mtf-curve-panel-content__axis" />
             <line :x1="CHART_LEFT" :y1="CHART_BOTTOM" :x2="CHART_LEFT" :y2="CHART_TOP" class="mtf-curve-panel-content__axis" />
-            <line :x1="CHART_LEFT" y1="50" :x2="CHART_RIGHT" y2="50" class="mtf-curve-panel-content__grid-line" />
+            <line :x1="CHART_LEFT" :y1="normalizeY(0.5)" :x2="CHART_RIGHT" :y2="normalizeY(0.5)" class="mtf-curve-panel-content__grid-line" />
             <line :x1="CHART_LEFT" :y1="CHART_TOP" :x2="CHART_RIGHT" :y2="CHART_TOP" class="mtf-curve-panel-content__grid-line" />
             <line x1="54" :y1="CHART_TOP" x2="54" :y2="CHART_BOTTOM" class="mtf-curve-panel-content__grid-line" />
 
             <text x="0.8" :y="CHART_BOTTOM + 3.8" class="mtf-curve-panel-content__tick">0</text>
-            <text x="0.4" y="51.8" class="mtf-curve-panel-content__tick">0.5</text>
-            <text x="0.4" :y="CHART_TOP + 2.8" class="mtf-curve-panel-content__tick">1.0</text>
+            <text x="0.4" :y="normalizeY(0.5) + 1.8" class="mtf-curve-panel-content__tick">0.5</text>
+            <text x="0.4" :y="CHART_TOP + 2.8" class="mtf-curve-panel-content__tick">{{ yMax.toFixed(1) }}</text>
             <text :x="CHART_LEFT" y="96.8" class="mtf-curve-panel-content__tick">0</text>
             <text :x="CHART_RIGHT" y="96.8" text-anchor="end" class="mtf-curve-panel-content__tick">{{ xMax.toFixed(3) }}</text>
             <text x="0.8" y="5.2" class="mtf-curve-panel-content__axis-label">MTF</text>
@@ -216,24 +334,58 @@ const readingGuideText = computed(() => [
         </div>
       </section>
 
-      <section class="mtf-curve-panel-content__card">
-        <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.keyMetrics }}</div>
-        <div class="mtf-curve-panel-content__metrics">
+      <section v-if="isReady && metricPresentation" class="mtf-curve-panel-content__card mtf-curve-panel-content__card--metrics">
+        <div class="mtf-curve-panel-content__section-header">
+          <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.keyMetrics }}</div>
+          <div class="mtf-curve-panel-content__guide-heading">
+            <span>{{ overlayCopy.readingGuide }}</span>
+            <DockInfoPopover :text="readingGuideText" />
+          </div>
+        </div>
+
+        <div class="mtf-curve-panel-content__radial" :aria-label="isZh ? '径向指标' : 'Radial metrics'">
           <div
-            v-for="row in summaryRows"
+            v-for="row in metricPresentation.radial"
             :key="row.label"
-            class="mtf-curve-panel-content__metric"
+            class="mtf-curve-panel-content__radial-metric"
           >
-            <span>{{ row.label }}</span>
+            <span>{{ row.label }} <small>{{ isZh ? '径向' : 'Radial' }}</small></span>
             <strong>{{ row.value }}</strong>
           </div>
         </div>
+
+        <div class="mtf-curve-panel-content__direction-table" role="table" :aria-label="isZh ? '方向指标对照' : 'Directional metric comparison'">
+          <div class="mtf-curve-panel-content__direction-row mtf-curve-panel-content__direction-row--header" role="row">
+            <span role="columnheader">{{ isZh ? '指标' : 'Metric' }}</span>
+            <span role="columnheader">W</span>
+            <span role="columnheader">H</span>
+          </div>
+          <div
+            v-for="row in metricPresentation.directional"
+            :key="row.label"
+            class="mtf-curve-panel-content__direction-row"
+            role="row"
+          >
+            <strong role="rowheader">{{ row.label }}</strong>
+            <span role="cell">{{ row.w }}</span>
+            <span role="cell">{{ row.h }}</span>
+          </div>
+        </div>
+
+        <p v-if="directionalAssessment" class="mtf-curve-panel-content__direction-warning" role="status">
+          {{ directionalAssessment }}
+        </p>
       </section>
 
-      <section class="mtf-curve-panel-content__guide-heading">
-        <div class="mtf-curve-panel-content__eyebrow">{{ overlayCopy.readingGuide }}</div>
-        <DockInfoPopover :text="readingGuideText" />
-      </section>
+      <details v-if="isReady && warningRows.length" class="mtf-curve-panel-content__warnings">
+        <summary>
+          <span>{{ isZh ? '质量提示' : 'Quality Notes' }}</span>
+          <strong>{{ warningRows.length }}</strong>
+        </summary>
+        <ul>
+          <li v-for="warning in warningRows" :key="warning.code">{{ warning.message }}</li>
+        </ul>
+      </details>
     </div>
 
     <div class="mtf-curve-panel-content__actions">
@@ -260,7 +412,9 @@ const readingGuideText = computed(() => [
 <style scoped>
 .mtf-curve-panel-content {
   display: flex;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   color: var(--theme-text-primary);
@@ -273,16 +427,118 @@ const readingGuideText = computed(() => [
   align-content: start;
   gap: 10px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
-.mtf-curve-panel-content__card,
-.mtf-curve-panel-content__guide-heading {
+.mtf-curve-panel-content__card {
   border: 0;
   border-radius: 0;
   background: transparent;
   padding: 6px 2px;
+}
+
+.mtf-curve-panel-content__state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-left: 2px solid var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 8%, transparent);
+  padding: 12px;
+}
+
+.mtf-curve-panel-content__state strong {
+  display: block;
+  color: var(--theme-text-primary);
+  font-size: 13px;
+}
+
+.mtf-curve-panel-content__state p {
+  margin: 6px 0 0;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.mtf-curve-panel-content__state code {
+  display: block;
+  margin-top: 8px;
+  color: var(--theme-text-muted);
+  font-size: 10px;
+}
+
+.mtf-curve-panel-content__state--error {
+  display: block;
+  border-left-color: var(--theme-status-danger);
+  background: color-mix(in srgb, var(--theme-status-danger) 8%, transparent);
+}
+
+.mtf-curve-panel-content__state--error strong {
+  margin-top: 7px;
+  color: var(--theme-status-danger-text);
+}
+
+.mtf-curve-panel-content__spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  border: 2px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
+  border-top-color: var(--theme-accent);
+  border-radius: 999px;
+  animation: mtf-panel-spin 800ms linear infinite;
+}
+
+@keyframes mtf-panel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mtf-curve-panel-content__warnings {
+  border-left: 2px solid var(--theme-status-warning, #d8a13a);
+  background: color-mix(in srgb, var(--theme-status-warning, #d8a13a) 8%, transparent);
+  padding: 0 10px;
+}
+
+.mtf-curve-panel-content__warnings summary {
+  display: flex;
+  min-height: 38px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.mtf-curve-panel-content__warnings summary::-webkit-details-marker {
+  display: none;
+}
+
+.mtf-curve-panel-content__warnings summary strong {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-status-warning, #d8a13a) 16%, transparent);
+  color: var(--theme-status-warning-text, #f3c96f);
+  font-size: 10px;
+}
+
+.mtf-curve-panel-content__warnings ul {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 10px;
+  padding-left: 17px;
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .mtf-curve-panel-content__section-header {
@@ -331,17 +587,14 @@ const readingGuideText = computed(() => [
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background:
-    radial-gradient(circle at top, color-mix(in srgb, var(--theme-accent) 12%, transparent), transparent 58%),
-    color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-panel-strong-solid) 88%, transparent);
   padding: 0;
 }
 
 .mtf-curve-panel-content__svg {
   display: block;
   width: 100%;
-  min-height: 226px;
-  aspect-ratio: 1.2 / 1;
+  height: clamp(158px, 22vh, 208px);
 }
 
 .mtf-curve-panel-content__axis {
@@ -378,42 +631,116 @@ const readingGuideText = computed(() => [
   stroke-dasharray: 2 2;
 }
 
-.mtf-curve-panel-content__metrics {
+.mtf-curve-panel-content__card--metrics {
   display: grid;
-  gap: 7px;
+  gap: 8px;
+}
+
+.mtf-curve-panel-content__radial {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
   margin-top: 8px;
 }
 
-.mtf-curve-panel-content__metric {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 60%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--theme-surface-card-soft) 54%, transparent);
-  padding: 8px 9px;
+.mtf-curve-panel-content__radial-metric {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border-left: 2px solid color-mix(in srgb, var(--theme-accent) 72%, transparent);
+  background: color-mix(in srgb, var(--theme-surface-card-soft) 42%, transparent);
+  padding: 7px 8px;
 }
 
-.mtf-curve-panel-content__metric span {
+.mtf-curve-panel-content__radial-metric span {
   min-width: 0;
   color: var(--theme-text-muted);
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.12em;
 }
 
-.mtf-curve-panel-content__metric strong {
-  flex: 0 0 auto;
+.mtf-curve-panel-content__radial-metric small {
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.mtf-curve-panel-content__radial-metric strong {
+  min-width: 0;
   color: var(--theme-text-primary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.mtf-curve-panel-content__direction-table {
+  min-width: 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 68%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-border-soft) 68%, transparent);
+}
+
+.mtf-curve-panel-content__direction-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(50px, 0.7fr) repeat(2, minmax(0, 1.35fr));
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  border-top: 1px solid color-mix(in srgb, var(--theme-border-soft) 44%, transparent);
+  padding: 5px 4px;
+}
+
+.mtf-curve-panel-content__direction-row:first-child {
+  border-top: 0;
+}
+
+.mtf-curve-panel-content__direction-row--header {
+  min-height: 27px;
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mtf-curve-panel-content__direction-row--header span:not(:first-child) {
+  text-align: right;
+}
+
+.mtf-curve-panel-content__direction-row strong {
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.mtf-curve-panel-content__direction-row span[role='cell'] {
+  min-width: 0;
+  color: var(--theme-text-primary);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.mtf-curve-panel-content__direction-warning {
+  margin: 0;
+  border-left: 2px solid var(--theme-status-warning, #d8a13a);
+  background: color-mix(in srgb, var(--theme-status-warning, #d8a13a) 7%, transparent);
+  padding: 7px 8px;
+  color: var(--theme-text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .mtf-curve-panel-content__guide-heading {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  color: var(--theme-text-muted);
+  font-size: 9px;
+  font-weight: 750;
 }
 
 .mtf-curve-panel-content__actions {

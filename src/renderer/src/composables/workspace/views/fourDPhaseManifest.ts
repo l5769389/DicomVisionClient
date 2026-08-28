@@ -22,7 +22,8 @@ export function normalizeFourDManifestResponse(
     seriesId: value.seriesId || fallbackSeriesId,
     isFourDSeries: Boolean(value.isFourDSeries),
     fourDPhaseCount: Math.max(0, Number(value.fourDPhaseCount ?? normalizedPhases.length)),
-    fourDPhases: normalizedPhases
+    fourDPhases: normalizedPhases,
+    ...(value.viewCapability ? { viewCapability: value.viewCapability } : {})
   }
 }
 
@@ -56,19 +57,39 @@ export function mergeFourDManifestIntoSeriesList(
           normalizedPhases.length ||
           item.fourDPhaseCount ||
           (nextPhases?.length ?? null),
-        fourDPhases: nextPhases
+        fourDPhases: nextPhases,
+        viewCapabilities: manifest.viewCapability
+          ? {
+              ...(item.viewCapabilities ?? {}),
+              '4d': manifest.viewCapability
+            }
+          : item.viewCapabilities
       }
     }
 
     if (existingPhases.length) {
-      return item
+      return manifest.viewCapability
+        ? {
+            ...item,
+            viewCapabilities: {
+              ...(item.viewCapabilities ?? {}),
+              '4d': manifest.viewCapability
+            }
+          }
+        : item
     }
 
     return {
       ...item,
       isFourDSeries: false,
       fourDPhaseCount: null,
-      fourDPhases: null
+      fourDPhases: null,
+      viewCapabilities: manifest.viewCapability
+        ? {
+            ...(item.viewCapabilities ?? {}),
+            '4d': manifest.viewCapability
+          }
+        : item.viewCapabilities
     }
   })
 }
@@ -87,7 +108,8 @@ export function mergeFourDSeriesMetadataIntoSeriesList(
       seriesId: sourceSeries.seriesId,
       isFourDSeries: Boolean(sourceSeries.isFourDSeries || normalizedPhases.length),
       fourDPhaseCount: sourceSeries.fourDPhaseCount ?? normalizedPhases.length,
-      fourDPhases: normalizedPhases
+      fourDPhases: normalizedPhases,
+      viewCapability: sourceSeries.viewCapabilities?.['4d']
     })
   }, seriesList)
 }

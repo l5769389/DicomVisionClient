@@ -160,6 +160,7 @@ function createPointerHarness(
   const emitVolumeClip = vi.fn()
   const emitViewportDrag = vi.fn()
 
+  const emitMtfCommit = vi.fn()
   const pointer = useViewerWorkspacePointer({
     activeOperation,
     activeTab,
@@ -173,7 +174,7 @@ function createPointerHarness(
       committedMeasurements = upsertMeasurement(committedMeasurements, payload)
     },
     emitMeasurementDelete: vi.fn(),
-    emitMtfCommit: vi.fn(),
+    emitMtfCommit,
     emitMtfDelete: vi.fn(),
     emitMtfSelect: vi.fn(),
     emitMprCrosshair,
@@ -199,6 +200,7 @@ function createPointerHarness(
     createdMeasurements,
     emitActiveViewportChange,
     emitMeasurementDraft,
+    emitMtfCommit,
     emitMprCrosshair,
     emitVolumeClip,
     emitViewportDrag,
@@ -214,6 +216,50 @@ afterEach(() => {
 })
 
 describe('useViewerWorkspacePointer', () => {
+  it.each(['Stack', 'PET'] as const)('allows MTF ROI creation in original %s views', (viewType) => {
+    const { pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:qa:mtf',
+      activeTab: { viewType } as ViewerTabItem
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }), 'single')
+
+    expect(pointer.getMtfDraft('single')).not.toBeNull()
+  })
+
+  it('binds a newly committed MTF ROI to the slice that was actually presented', () => {
+    const { emitMtfCommit, pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:qa:mtf',
+      activeTab: { viewType: 'Stack' } as ViewerTabItem
+    })
+
+    pointer.handleViewportPointerDown(
+      createPointerEvent(viewport, { x: 0.2, y: 0.2 }, { pointerId: 45 }),
+      'single',
+      7
+    )
+    pointer.handleViewportPointerMove(createPointerEvent(viewport, { x: 0.4, y: 0.4 }, { pointerId: 45 }))
+    pointer.handleViewportPointerUp(
+      createPointerEvent(viewport, { x: 0.4, y: 0.4 }, { buttons: 0, pointerId: 45 })
+    )
+
+    expect(emitMtfCommit).toHaveBeenCalledWith(expect.objectContaining({
+      sourceSliceIndex: 7,
+      viewportKey: 'single'
+    }))
+  })
+
+  it('does not start MTF ROI creation in an interpolated MPR view', () => {
+    const { pointer, viewport } = createPointerHarness({
+      activeOperation: 'stack:qa:mtf',
+      activeTab: { viewType: 'MPR' } as ViewerTabItem
+    })
+
+    pointer.handleViewportPointerDown(createPointerEvent(viewport, { x: 0.2, y: 0.2 }), 'single')
+
+    expect(pointer.getMtfDraft('single')).toBeNull()
+  })
+
   it('updates a measurement draft and emits a move before pointer release', () => {
     const { emitMeasurementDraft, pointer, viewport } = createPointerHarness({
       activeOperation: 'stack:measure:line'

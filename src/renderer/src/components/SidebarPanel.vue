@@ -25,7 +25,6 @@ const props = defineProps<{
   connectionState: ConnectionState
   hasSelectedSeries: boolean
   isLoadingFolder: boolean
-  isSelectedSeriesFourD: boolean
   isSidebarCollapsed: boolean
   selectedSeriesId: string
   seriesList: FolderSeriesItem[]
@@ -162,7 +161,7 @@ function hideSeriesHoverCard(): void {
       <template v-if="!isSidebarCollapsed">
         <SidebarBrandPanel :viewer-platform="viewerPlatform" />
         <div class="sidebar-source-group">
-          <SidebarQuickActions :has-selected-series="hasSelectedSeries" :is-selected-series-four-d="isSelectedSeriesFourD" :selected-series="selectedSeries" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
+          <SidebarQuickActions :has-selected-series="hasSelectedSeries" :selected-series="selectedSeries" :viewer-folder-source-mode="viewerFolderSourceMode" :viewer-platform="viewerPlatform" @choose-folder="emit('chooseFolder', $event)" @open-view="emit('openView', $event)" />
           <div v-if="isPacsEntryVisible" class="sidebar-source-divider"></div>
           <SidebarPacsEntry v-if="isPacsEntryVisible" :pacs-preference="pacsPreference" @open="openPacsBrowser" />
         </div>

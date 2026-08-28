@@ -76,7 +76,7 @@ import {
 } from '../views/mprInteractionGuard'
 import { useViewerWorkspaceViews } from '../views/useViewerWorkspaceViews'
 import { MPR_VIEWPORT_KEYS } from '../views/fourDPhaseState'
-import { createLatestRequestGuard } from '../requests/latestRequest'
+import { createKeyedLatestRequestGuard, createLatestRequestGuard } from '../requests/latestRequest'
 import {
   createLayoutTemplateFromHangingProtocolRule,
   findMatchingHangingProtocolRule
@@ -90,6 +90,7 @@ import {
   resolveViewDragPreviewFeedbackMode
 } from './mprInteractionOperationScheduler'
 import { isViewerPerfDebugEnabled } from './viewerPerfDebug'
+import { applyMtfAnalysisResultToTabs, buildMtfAnalysisRequest } from './mtfAnalysisState'
 import { parseSliceLabel } from '../slices/useKeySliceStars'
 import { resolveInitialSeriesViewType, resolvePrimaryTwoDimensionalViewType } from '../views/seriesViewSupport'
 import {
@@ -154,6 +155,7 @@ import type {
   FourDPlaybackStateEvent,
   MtfCurvePoint,
   MtfMetrics,
+  MtfQualityWarning,
   MeasurementDraftPoint,
   MeasurementOverlay,
   MeasurementToolType,
@@ -172,6 +174,7 @@ import type {
   ViewTransformInfo,
   ViewerMtfItem,
   ViewerTabItem,
+  ViewUnavailableNotice,
   ViewType,
   WindowLevelInfo,
   SurfaceRenderConfig,
@@ -336,6 +339,8 @@ interface ViewerWorkspaceState {
   setActiveViewportKey: (viewportKey: string) => void
   setViewerStage: (payload: WorkspaceReadyPayload) => void
   statusToast: Ref<WorkspaceStatusToast | null>
+  viewUnavailableNotice: Ref<ViewUnavailableNotice | null>
+  dismissViewUnavailableNotice: () => void
   dismissStatusToast: () => void
   showStatusToast: (messageText: string, tone?: WorkspaceStatusToastTone, options?: WorkspaceStatusToastOptions) => void
   toggleSidebar: () => void
@@ -408,6 +413,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const backendOrigin = ref(DESKTOP_DEV_BACKEND_ORIGIN)
   const message = ref('')
   const statusToast = ref<WorkspaceStatusToast | null>(null)
+  const viewUnavailableNotice = ref<ViewUnavailableNotice | null>(null)
   const isSidebarCollapsed = ref(false)
   const isLoadingFolder = ref(false)
   const isViewLoading = ref(false)
@@ -421,6 +427,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const viewportElements = ref<Partial<Record<string, HTMLElement | null>>>({})
   const seriesCornerInfoMap = ref<Record<string, CornerInfo>>({})
   const loadingSeriesCornerInfo = new Map<string, Promise<CornerInfo>>()
+  const mtfAnalysisRequestGuard = createKeyedLatestRequestGuard<string>()
   const stageReadyRenderKeys = new Set<string>()
   const DEFAULT_VIEW_TRANSFORM: ViewTransformInfo = {
     rotationDegrees: 0,
@@ -542,6 +549,97 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     return ''
+  }
+
+  function resolveMtfAnalysisError(error: unknown): {
+    code: string | null
+    message: string
+    suggestion: string | null
+  } {
+    const responseData = (error as { response?: { data?: unknown } } | null)?.response?.data
+    const detail =
+      responseData && typeof responseData === 'object' && 'detail' in responseData
+        ? (responseData as { detail?: unknown }).detail
+        : null
+    if (detail && typeof detail === 'object') {
+      const structured = detail as { code?: unknown; message?: unknown; suggestion?: unknown }
+      const code = typeof structured.code === 'string' && structured.code.trim() ? structured.code.trim() : null
+      const backendMessage =
+        typeof structured.message === 'string' && structured.message.trim() ? structured.message.trim() : ''
+      const backendSuggestion =
+        typeof structured.suggestion === 'string' && structured.suggestion.trim() ? structured.suggestion.trim() : null
+      const localized: Record<string, { zh: string; en: string; suggestionZh?: string; suggestionEn?: string }> = {
+        'mtf-view-not-supported': {
+          zh: 'MTF 点源分析仅支持原始二维 Stack 或 PET 视图。',
+          en: 'MTF point-source analysis is only available in original 2D Stack or PET views.',
+          suggestionZh: '请在原始二维序列中重新选择点源 ROI。',
+          suggestionEn: 'Open the original 2D series and select the point-source ROI there.'
+        },
+        'mtf-roi-points-missing': {
+          zh: 'MTF ROI 缺少完整的两个角点。',
+          en: 'The MTF ROI does not contain both required corner points.',
+          suggestionZh: '请重新框选包含完整点源的矩形区域。',
+          suggestionEn: 'Draw a rectangular ROI around the complete point source.'
+        },
+        'mtf-source-too-small': {
+          zh: '源影像尺寸不足，无法进行 MTF 分析。',
+          en: 'The source image is too small for MTF analysis.',
+          suggestionZh: '请选择像素矩阵至少为 9 x 9 的源影像。',
+          suggestionEn: 'Use a source image with a pixel matrix of at least 9 x 9.'
+        },
+        'mtf-no-detectable-source': {
+          zh: 'ROI 中没有检测到可稳定计算的点源。',
+          en: 'No stable point source could be detected in the ROI.',
+          suggestionZh: '请框选一个孤立的亮点或暗点，并保留足够的周围背景。',
+          suggestionEn: 'Select one isolated bright or dark point source with enough surrounding background.'
+        },
+        'mtf-snr-too-low': {
+          zh: 'ROI 中点源的信噪比过低，无法可靠计算。',
+          en: 'The point-source SNR is too low for a reliable calculation.',
+          suggestionZh: '请使用更清晰的切片，或扩大 ROI 以包含更多背景。',
+          suggestionEn: 'Use a cleaner slice or enlarge the ROI to include more background.'
+        },
+        'mtf-non-finite-roi': {
+          zh: 'ROI 包含无效像素值。',
+          en: 'The ROI contains invalid pixel values.',
+          suggestionZh: '请在有效的源切片上重新选择 ROI。',
+          suggestionEn: 'Choose another ROI on a valid source slice.'
+        },
+        'mtf-source-unavailable': {
+          zh: '无法读取用于 MTF 分析的源影像。',
+          en: 'The source image for MTF analysis could not be read.',
+          suggestionZh: '请等待源影像加载完成后重试。',
+          suggestionEn: 'Wait for the source image to finish loading and retry.'
+        },
+        'mtf-source-slice-unavailable': {
+          zh: '用于 MTF 分析的源切片已不可用。',
+          en: 'The source slice for MTF analysis is no longer available.',
+          suggestionZh: '请返回源切片并重新框选点源 ROI。',
+          suggestionEn: 'Return to the source slice and select the point-source ROI again.'
+        }
+      }
+      const copy = code ? localized[code] : null
+      return {
+        code,
+        message: copy ? (locale.value === 'zh-CN' ? copy.zh : copy.en) : backendMessage,
+        suggestion:
+          copy
+            ? locale.value === 'zh-CN'
+              ? copy.suggestionZh ?? backendSuggestion
+              : copy.suggestionEn ?? backendSuggestion
+            : backendSuggestion
+      }
+    }
+
+    const fallback = resolveBackendErrorDetail(error)
+    return {
+      code: null,
+      message: fallback || (locale.value === 'zh-CN' ? 'MTF 分析失败。' : 'MTF analysis failed.'),
+      suggestion:
+        locale.value === 'zh-CN'
+          ? '请重新框选一个包含完整孤立点源的 ROI。'
+          : 'Select a new ROI containing one complete isolated point source.'
+    }
   }
 
   function buildLoadFailureToastMessage(error: unknown): string {
@@ -2915,7 +3013,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return resolveViewIdForTabViewport(tab, viewportKey) || null
     }
 
-    if (tab.viewType !== 'Stack') {
+    if (tab.viewType !== 'Stack' && tab.viewType !== 'PET') {
       return null
     }
 
@@ -2929,6 +3027,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     }
 
     viewerTabs.value = viewerTabs.value.map((item) => (item.key === tab.key ? updater(item) : item))
+  }
+
+  function updateTabMtfState(tabKey: string, updater: (current: ViewerTabItem) => ViewerTabItem): void {
+    viewerTabs.value = viewerTabs.value.map((item) => (item.key === tabKey ? updater(item) : item))
   }
 
   function findMtfItem(item: ViewerTabItem, mtfId?: string | null): ViewerMtfItem | null {
@@ -2991,9 +3093,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     points: MeasurementDraftPoint[]
     mtfId?: string
     scope?: DrawingScope
+    sourceSliceIndex?: number | null
   }): Promise<void> {
     const tab = activeTab.value
-    if (!tab || isFourDPlaybackLocked(tab) || (!isStackLikeViewType(tab.viewType) && !isMprLikeViewType(tab.viewType))) {
+    if (!tab || isFourDPlaybackLocked(tab) || (tab.viewType !== 'Stack' && tab.viewType !== 'PET')) {
       return
     }
 
@@ -3002,12 +3105,17 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       return
     }
 
-    await ensureBackendConnection()
     const mtfId = payload.mtfId ?? generateMtfId()
-    const nextSelectedMtfId = payload.mtfId ? mtfId : null
-    const scope = payload.scope ?? 'image'
-    const sliceIndex = resolveCurrentSliceIndex(tab, payload.viewportKey)
-    updateActiveTabMtfState((item) =>
+    const tabKey = tab.key
+    const analysisKey = `${tabKey}:${mtfId}`
+    const { token: analysisRevision } = mtfAnalysisRequestGuard.start(analysisKey)
+    const nextSelectedMtfId = mtfId
+    const sliceIndex = payload.sourceSliceIndex ?? resolveCurrentSliceIndex(tab, payload.viewportKey)
+    if (sliceIndex == null) {
+      return
+    }
+    const scope: DrawingScope = 'image'
+    updateTabMtfState(tabKey, (item) =>
       updateMtfItemCollection(
         item,
         {
@@ -3017,7 +3125,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           status: 'calculating',
           metrics: null,
           curve: [],
+          qualityWarnings: [],
+          errorCode: null,
           errorMessage: null,
+          errorSuggestion: null,
           scope,
           sliceIndex
         },
@@ -3028,14 +3139,19 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     )
 
     try {
+      await ensureBackendConnection()
       const { postApi } = await loadTypedApi()
-      const data = await postApi('AnalyzeMtfApiV1ViewMtfAnalyzePost', {
+      const data = await postApi('AnalyzeMtfApiV1ViewMtfAnalyzePost', buildMtfAnalysisRequest({
         viewId,
         viewportKey: payload.viewportKey,
-        points: payload.points
-      })
+        points: payload.points,
+        sourceSliceIndex: sliceIndex
+      }))
 
-      updateActiveTabMtfState((item) =>
+      if (!mtfAnalysisRequestGuard.isCurrent(analysisKey, analysisRevision)) {
+        return
+      }
+      viewerTabs.value = applyMtfAnalysisResultToTabs(viewerTabs.value, tabKey, mtfId, (item) =>
         updateMtfItemCollection(
           item,
           {
@@ -3045,7 +3161,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             status: 'ready',
             metrics: data.metrics as MtfMetrics,
             curve: data.curve as MtfCurvePoint[],
+            qualityWarnings: (data.qualityWarnings ?? []) as MtfQualityWarning[],
+            errorCode: null,
             errorMessage: null,
+            errorSuggestion: null,
             isPlaceholder: data.isPlaceholder ?? false,
             scope,
             sliceIndex
@@ -3055,13 +3174,14 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           }
         )
       )
+      mtfAnalysisRequestGuard.finish(analysisKey, analysisRevision)
     } catch (error) {
-      const fallbackMessage =
-        typeof error === 'object' && error != null && 'message' in error && typeof error.message === 'string'
-          ? error.message
-          : (locale.value === 'zh-CN' ? 'MTF 分析失败' : 'MTF analysis failed')
+      if (!mtfAnalysisRequestGuard.isCurrent(analysisKey, analysisRevision)) {
+        return
+      }
+      const analysisError = resolveMtfAnalysisError(error)
 
-      updateActiveTabMtfState((item) =>
+      viewerTabs.value = applyMtfAnalysisResultToTabs(viewerTabs.value, tabKey, mtfId, (item) =>
         updateMtfItemCollection(
           item,
           {
@@ -3071,7 +3191,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
             status: 'error',
             metrics: null,
             curve: [],
-            errorMessage: fallbackMessage,
+            qualityWarnings: [],
+            errorCode: analysisError.code,
+            errorMessage: analysisError.message,
+            errorSuggestion: analysisError.suggestion,
             scope,
             sliceIndex
           },
@@ -3080,6 +3203,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
           }
         )
       )
+      mtfAnalysisRequestGuard.finish(analysisKey, analysisRevision)
     }
   }
 
@@ -3383,6 +3507,9 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     ensureSeriesCornerInfo,
     isViewLoading,
     message,
+    onViewUnavailable: (notice) => {
+      viewUnavailableNotice.value = notice
+    },
     onBeforeCloseTab: (tab) => {
       if (tab.viewType === '4D') {
         emitFourDPlaybackStop({ tabKey: tab.key })
@@ -3414,9 +3541,7 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
   const resizeRenderScheduler = createResizeRenderScheduler({
     getActiveTab: () => activeTab.value,
     isViewLoading: () => isViewLoading.value,
-    renderTab: (tabKey) => {
-      void views.renderTab(tabKey)
-    }
+    renderTab: (tabKey) => views.renderTab(tabKey)
   })
   const viewInteractionOperationScheduler = createMprInteractionOperationScheduler<ViewOperationPayload>({
     emit: (_operationKey, payload) => emitViewOperation(payload)
@@ -3895,6 +4020,37 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
       message.value = error.message
       if (error.message.toLowerCase().includes('view size has not been set')) {
         void recoverFromMissingViewSize()
+        return
+      }
+
+      const failedTab = error.viewId
+        ? viewerTabs.value.find((tab) => {
+            if (tab.viewType === '3D') {
+              return tab.viewId === error.viewId && !tab.imageSrc
+            }
+            if (tab.viewType === 'MPR') {
+              const viewportKey = Object.entries(tab.viewportViewIds ?? {})
+                .find(([, viewId]) => viewId === error.viewId)?.[0] as MprViewportKey | undefined
+              return Boolean(viewportKey && !tab.viewportImages?.[viewportKey])
+            }
+            if (tab.viewType === '4D') {
+              return Object.entries(tab.fourDPhaseViewIds ?? {}).some(([phaseKey, viewIds]) => {
+                const viewportKey = Object.entries(viewIds ?? {})
+                  .find(([, viewId]) => viewId === error.viewId)?.[0] as MprViewportKey | undefined
+                return Boolean(viewportKey && !tab.fourDPhaseCache?.[phaseKey]?.viewportImages?.[viewportKey])
+              })
+            }
+            return false
+          })
+        : null
+
+      if (failedTab && (failedTab.viewType === 'MPR' || failedTab.viewType === '3D' || failedTab.viewType === '4D')) {
+        viewUnavailableNotice.value = {
+          viewType: failedTab.viewType,
+          blockedCode: 'initial-render-failed',
+          detail: error.message
+        }
+        views.closeTab(failedTab.key)
       }
     }
   }
@@ -5898,6 +6054,10 @@ export function useViewerWorkspace(): ViewerWorkspaceState {
     setActiveViewportKey,
     setViewerStage,
     statusToast,
+    viewUnavailableNotice,
+    dismissViewUnavailableNotice: () => {
+      viewUnavailableNotice.value = null
+    },
     dismissStatusToast,
     showStatusToast,
     toggleSidebar,

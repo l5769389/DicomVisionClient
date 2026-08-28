@@ -57,7 +57,7 @@ describe('useUiPreferences', () => {
       version: 11,
       locale: 'en-US',
       themeId: 'clinical-light',
-      viewerToolbarPlacement: 'right',
+      viewerToolbarPlacement: 'top',
       viewerImageFormatPreference: 'webp',
       selectedPseudocolorKey: 'rainbow',
       mprDefaultLayoutKey: 'quad',
@@ -105,7 +105,7 @@ describe('useUiPreferences', () => {
     expect(preferences.themeId.value).toBe('clinical-light')
     expect(document.documentElement.dataset.theme).toBe('clinical-light')
     expect(document.documentElement.style.colorScheme).toBe('light')
-    expect(preferences.viewerToolbarPlacement.value).toBe('right')
+    expect(preferences).not.toHaveProperty('viewerToolbarPlacement')
     expect(preferences.viewportAutoFitEnabled.value).toBe(true)
     expect(preferences.montageColumnCount.value).toBe(4)
     expect(preferences.selectedPseudocolorKey.value).toBe('rainbow')
@@ -172,7 +172,6 @@ describe('useUiPreferences', () => {
   it('persists user changes after hydration', async () => {
     const preferences = await loadPreferences()
 
-    preferences.viewerToolbarPlacement.value = 'right'
     preferences.viewportAutoFitEnabled.value = false
     preferences.montageColumnCount.value = 6
     preferences.defaultCtPseudocolorKey.value = 'hotiron'
@@ -244,7 +243,7 @@ describe('useUiPreferences', () => {
     await flushPreferences()
 
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
-    expect(saved.viewerToolbarPlacement).toBe('right')
+    expect(saved).not.toHaveProperty('viewerToolbarPlacement')
     expect(saved.viewportAutoFitEnabled).toBe(false)
     expect(saved.montageColumnCount).toBe(6)
     expect(saved.selectedPseudocolorKey).toBe('hotiron')
@@ -386,15 +385,17 @@ describe('useUiPreferences', () => {
     })
   })
 
-  it('defaults to the right toolbar and falls back to it for unknown placement values', async () => {
-    const defaultPreferences = await loadPreferences()
-    expect(defaultPreferences.viewerToolbarPlacement.value).toBe('right')
-
+  it('ignores and removes the legacy toolbar placement preference', async () => {
     const preferences = await loadPreferences({
-      viewerToolbarPlacement: 'floating'
+      viewerToolbarPlacement: 'top'
     })
 
-    expect(preferences.viewerToolbarPlacement.value).toBe('right')
+    expect(preferences).not.toHaveProperty('viewerToolbarPlacement')
+    preferences.viewportAutoFitEnabled.value = false
+    await flushPreferences()
+
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(saved).not.toHaveProperty('viewerToolbarPlacement')
   })
 
   it('tracks first-run locale selection without interrupting migrated users', async () => {

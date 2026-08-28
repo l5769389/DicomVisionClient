@@ -331,13 +331,18 @@ describe('SidebarSeriesList compatibility check', () => {
     wrapper.unmount()
   })
 
-  it('disables unsupported 3D, 4D, and MPR actions for dose report style series', async () => {
+  it('keeps unsupported MPR, 3D, and 4D context actions clickable so the workspace can explain why', async () => {
     const wrapper = mountSidebar([
       createSeries({
         seriesDescription: 'Dose Report',
         instanceCount: 1,
         width: 675,
-        height: 257
+        height: 257,
+        viewCapabilities: {
+          mpr: { supported: false, blockedCode: 'image-pixels-unavailable' },
+          '3d': { supported: false, blockedCode: 'image-pixels-unavailable' },
+          '4d': { supported: false, blockedCode: 'not-four-d-series' }
+        }
       })
     ])
 
@@ -352,12 +357,22 @@ describe('SidebarSeriesList compatibility check', () => {
     const volumeAction = actions.find((button) => button.text().includes('Volume rendering'))
     const fourDAction = actions.find((button) => button.text().includes('Respiratory phase playback'))
 
-    expect(mprAction?.attributes('disabled')).toBeDefined()
-    expect(volumeAction?.attributes('disabled')).toBeDefined()
-    expect(fourDAction?.attributes('disabled')).toBeDefined()
+    expect(mprAction?.attributes('disabled')).toBeUndefined()
+    expect(volumeAction?.attributes('disabled')).toBeUndefined()
+    expect(fourDAction?.attributes('disabled')).toBeUndefined()
 
     await mprAction!.trigger('click')
-    expect(wrapper.emitted('openSeriesView')).toBeUndefined()
+    await wrapper.find('.series-card-stub').trigger('contextmenu', { clientX: 20, clientY: 30 })
+    await nextTick()
+    await wrapper.get('[data-testid="series-context-3d"]').trigger('click')
+    await wrapper.find('.series-card-stub').trigger('contextmenu', { clientX: 20, clientY: 30 })
+    await nextTick()
+    await wrapper.get('[data-testid="series-context-4d"]').trigger('click')
+    expect(wrapper.emitted('openSeriesView')).toEqual([
+      ['series-1', 'MPR'],
+      ['series-1', '3D'],
+      ['series-1', '4D']
+    ])
 
     wrapper.unmount()
   })

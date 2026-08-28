@@ -41,7 +41,6 @@ import { useWorkspaceHotkeys } from '../../composables/workspace/shell/useWorksp
 import { useQuickPreviewDrop } from '../../composables/workspace/shell/useQuickPreviewDrop'
 import ViewerTabStrip from './ViewerTabStrip.vue'
 import AppIcon from '../AppIcon.vue'
-import ViewerToolbar from './shell/ViewerToolbar.vue'
 import ViewerToolbarDock from './shell/ViewerToolbarDock.vue'
 import type { StackTool, StackToolOptionSelectBehavior } from './shell/toolbarTypes'
 import type { SurfaceRenderConfig, VolumeClipMode, VolumeRenderConfig } from '../../types/viewer'
@@ -85,7 +84,6 @@ const VolumeRenderConfigPanel = defineAsyncComponent(() => import('./VolumeRende
 const MeasurementMetricsPanelContent = defineAsyncComponent(() => import('./results/MeasurementMetricsPanelContent.vue'))
 const MtfCurvePanelContent = defineAsyncComponent(() => import('./results/MtfCurvePanelContent.vue'))
 const QaWaterResultPanelContent = defineAsyncComponent(() => import('./results/QaWaterResultPanelContent.vue'))
-const ViewerResultDock = defineAsyncComponent(() => import('./results/ViewerResultDock.vue'))
 const FusionRegistrationSaveDialog = defineAsyncComponent(() => import('./export/FusionRegistrationSaveDialog.vue'))
 const WorkspaceExportNameDialog = defineAsyncComponent(() => import('./export/WorkspaceExportNameDialog.vue'))
 const WorkspaceExportNotice = defineAsyncComponent(() => import('./export/WorkspaceExportNotice.vue'))
@@ -138,7 +136,7 @@ const emit = defineEmits<{
   }]
   tagIndexChange: [payload: { tabKey: string; index: number }]
   mtfClear: []
-  mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string; scope?: DrawingScope }]
+  mtfCommit: [payload: { viewportKey: string; points: { x: number; y: number }[]; mtfId?: string; scope?: DrawingScope; sourceSliceIndex?: number | null }]
   mtfCopy: [payload?: { mtfId?: string | null }]
   mtfDelete: [payload?: { mtfId?: string | null }]
   mtfSelect: [payload: { mtfId: string | null }]
@@ -212,7 +210,6 @@ const emit = defineEmits<{
 }>()
 
 const viewportHostRef = useTemplateRef<HTMLElement>('viewportHostRef')
-const workspaceContentRef = useTemplateRef<HTMLElement>('workspaceContentRef')
 const exportNameInputRef = ref<HTMLInputElement | null>(null)
 const activeTabRef = computed(() => props.activeTab)
 const activeTabKeyRef = computed(() => props.activeTabKey)
@@ -231,7 +228,6 @@ const {
   qaWaterMetrics,
   roiStatOptions,
   setWorkspaceDockPreference,
-  viewerToolbarPlacement,
   viewportAutoFitEnabled,
   viewportCornerInfoPreference,
   workspaceDockPreference
@@ -247,7 +243,6 @@ const {
 const DEFAULT_ANNOTATION_TEXT = ''
 const ANNOTATION_DRAG_START_THRESHOLD = 3
 const ANNOTATION_POINT_CLOSE_EPSILON = 0.0005
-const TOP_RESULT_DOCK_MIN_CONTENT_WIDTH = 1280
 const RIGHT_TOOLBAR_DOCK_MIN_WIDTH = 224
 const RIGHT_TOOLBAR_DOCK_MAX_WIDTH = 360
 const RIGHT_TOOLBAR_DOCK_COLLAPSE_THRESHOLD = 196
@@ -320,7 +315,7 @@ const {
   emitMeasurementDelete: emitMeasurementDeleteRequest,
   emitMtfCommit: (payload) => emit('mtfCommit', {
     ...payload,
-    scope: drawingScopePreference.value.mtf
+    scope: 'image'
   }),
   emitMtfDelete: (payload) => emit('mtfDelete', payload),
   emitMtfSelect: (payload) => emit('mtfSelect', payload),
@@ -358,7 +353,6 @@ const {
   setMenuOpen,
   stackToolSelections,
   toolbarIconSize,
-  toggleIconSize,
   updateActiveMprMipConfig,
   updateActiveMprSegmentationConfig
 } = useViewerWorkspaceToolbar({
@@ -460,9 +454,7 @@ const isVolumeConfigPanelAvailable = computed(() => {
   return activeTabRef.value.viewType === '3D' || (activeTabRef.value.viewType === 'MPR' && activeMprLayoutKey.value === 'mpr-3d')
 })
 
-const isRightToolbarLayout = computed(() => viewerToolbarPlacement.value === 'right')
-const shouldShowTopToolbar = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && !isRightToolbarLayout.value))
-const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D' && isRightToolbarLayout.value))
+const shouldShowRightToolbarDock = computed(() => Boolean(activeTabRef.value && activeTabRef.value.viewType !== 'Tag' && activeTabRef.value.viewType !== '4D'))
 const rightToolbarUtilityPanelKind = computed<'volume' | 'surface' | 'mprMip' | 'segmentation' | null>(() => {
   const activeTab = activeTabRef.value
   if (!shouldShowRightToolbarDock.value || !activeTab) {
@@ -1699,11 +1691,15 @@ function handleAnnotationPointerCancel(event: PointerEvent): boolean {
 function handleAnnotationPointerLeave(_viewportKey: string): void {
 }
 
-function handleViewportPointerDownWithAnnotations(event: PointerEvent, viewportKey: string): void {
+function handleViewportPointerDownWithAnnotations(
+  event: PointerEvent,
+  viewportKey: string,
+  sourceSliceIndex?: number | null
+): void {
   if (handleAnnotationPointerDown(event, viewportKey)) {
     return
   }
-  handleViewportPointerDown(event, viewportKey)
+  handleViewportPointerDown(event, viewportKey, sourceSliceIndex)
 }
 
 function handleViewportPointerMoveWithAnnotations(event: PointerEvent): void {
@@ -1741,7 +1737,6 @@ const isMprSegmentationProcessing = computed(() => {
 })
 const hasViewerTabs = computed(() => props.viewerTabs.length > 0)
 const isTabStripCollapsed = ref(false)
-const workspaceContentWidth = ref(0)
 type RightDockResizeTarget = 'toolbar' | 'result'
 const rightDockResize = usePointerDockResize<RightDockResizeTarget>({
   onCommit: (target, result) => {
@@ -1781,7 +1776,6 @@ function getRightDockDisplayCollapsed(target: RightDockResizeTarget): boolean {
 }
 const shouldForceShowTabStrip = computed(() => !props.activeTab || props.activeTab.viewType === 'Tag')
 const shouldShowTabStrip = computed(() => hasViewerTabs.value && (!isTabStripCollapsed.value || shouldForceShowTabStrip.value))
-const shouldShowTabStripToggle = computed(() => hasViewerTabs.value && Boolean(props.activeTab) && props.activeTab?.viewType !== 'Tag')
 const selectedMtfId = computed(() => activeMtfState.value?.selectedMtfId ?? null)
 const selectedMtfItem = computed(() => {
   const state = activeMtfState.value
@@ -1825,14 +1819,13 @@ const activeResultPanelKind = computed<WorkspaceResultPanel | null>(() => {
     return 'measurement'
   }
   if (activeResultPanel.value === 'mtfCurve') {
-    return selectedMtfItem.value?.status === 'ready' ? 'mtfCurve' : null
+    return selectedMtfItem.value ? 'mtfCurve' : null
   }
   if (activeResultPanel.value === 'qaWater') {
     return isWaterPhantomQaOperation(props.activeOperation) ? 'qaWater' : null
   }
   return null
 })
-const topResultDockCanReserve = computed(() => workspaceContentWidth.value >= TOP_RESULT_DOCK_MIN_CONTENT_WIDTH)
 const qaResultPanelTitle = computed(() => (locale.value === 'zh-CN' ? 'QA 报告' : 'QA Report'))
 const measurementResultPanelTitle = computed(() => (locale.value === 'zh-CN' ? '测量详情' : 'Measurement Details'))
 const resultPanelTitle = computed(() => {
@@ -1862,17 +1855,8 @@ const resultPanelToolKey = computed(() => {
   }
   return null
 })
-const shouldShowTopResultDock = computed(() =>
-  Boolean(
-    activeTabRef.value &&
-    activeTabRef.value.viewType !== 'Tag' &&
-    !isRightToolbarLayout.value &&
-    (activeResultPanelKind.value || topResultDockCanReserve.value)
-  )
-)
-
 function handleOpenMtfCurve(): void {
-  if (selectedMtfItem.value?.status === 'ready') {
+  if (selectedMtfItem.value) {
     activeResultPanel.value = 'mtfCurve'
   }
 }
@@ -2072,7 +2056,7 @@ function handleDeleteSelectedMeasurementHotkey(): boolean {
 function handleSelectMtf(payload: { mtfId: string | null }): void {
   emit('mtfSelect', payload)
   const item = payload.mtfId ? activeMtfState.value?.items.find((candidate) => candidate.mtfId === payload.mtfId) : null
-  if (item?.status === 'ready') {
+  if (item) {
     activeResultPanel.value = 'mtfCurve'
   }
 }
@@ -2110,7 +2094,7 @@ watch(
 watch(
   () => [selectedMtfItem.value?.mtfId ?? null, selectedMtfItem.value?.status ?? null] as const,
   ([mtfId, status]) => {
-    if (mtfId && status === 'ready') {
+    if (mtfId && status) {
       activeResultPanel.value = 'mtfCurve'
     }
   }
@@ -2208,29 +2192,8 @@ const { canScrollTabsLeft, canScrollTabsRight, handleTabStripWheel, notifyWorksp
     viewportHostRef
   })
 
-function updateWorkspaceContentWidth(): void {
-  workspaceContentWidth.value = workspaceContentRef.value?.clientWidth ?? 0
-}
-
 watch(
-  () => workspaceContentRef.value,
-  (element, _previousElement, onCleanup) => {
-    updateWorkspaceContentWidth()
-    if (!element || typeof ResizeObserver === 'undefined') {
-      return
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateWorkspaceContentWidth()
-    })
-    resizeObserver.observe(element)
-    onCleanup(() => resizeObserver.disconnect())
-  },
-  { flush: 'post', immediate: true }
-)
-
-watch(
-  () => [viewerToolbarPlacement.value, viewportAutoFitEnabled.value, props.activeTabKey, shouldShowTopResultDock.value] as const,
+  () => [viewportAutoFitEnabled.value, props.activeTabKey] as const,
   () => {
     void nextTick().then(() => {
       notifyWorkspaceReady()
@@ -2383,29 +2346,6 @@ onBeforeUnmount(() => {
         @tab-strip-wheel="handleTabStripWheel"
       />
 
-      <ViewerToolbar
-        v-if="shouldShowTopToolbar && activeTab"
-        :active-tab="activeTab"
-        :active-tools="activeTools"
-        :are-toolbar-actions-disabled="areToolbarActionsDisabled"
-        :is-playing="isPlaying"
-        :is-playback-paused="isPlaybackPaused"
-        :is-tool-selected="isToolSelected"
-        :is-tab-strip-collapsed="isTabStripCollapsed"
-        :menu-icon-size="menuIconSize"
-        :open-menu-key="openMenuKey"
-        :show-tab-strip-toggle="shouldShowTabStripToggle"
-        :stack-tool-selections="stackToolSelections"
-        :toggle-icon-size="toggleIconSize"
-        :toolbar-icon-size="toolbarIconSize"
-        @apply-tool="handleToolbarApplyTool"
-        @end-playback="endPlayback"
-        @pause-playback="pausePlayback"
-        @select-tool-option="handleToolbarSelectToolOption"
-        @set-menu-open="handleToolbarSetMenuOpen"
-        @toggle-tab-strip="toggleTabStripCollapsed"
-      />
-
       <div v-if="isViewLoading && activeTab?.viewType !== 'Tag'" class="theme-shell-panel-strong grid flex-1 place-items-center rounded-[20px] border p-8">
         <div class="flex items-center gap-3 text-sm text-[var(--theme-text-secondary)]">
           <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--theme-accent)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--theme-accent)_14%,transparent)]"></span>
@@ -2415,7 +2355,6 @@ onBeforeUnmount(() => {
 
       <div
         v-else-if="activeTab"
-        ref="workspaceContentRef"
         class="viewer-workspace-content flex min-h-0 flex-1 gap-2"
         :class="{ 'viewer-workspace-content--right-toolbar': shouldShowRightToolbarDock }"
         :data-right-dock-resizing="isRightDockResizing ? 'true' : 'false'"
@@ -2424,56 +2363,6 @@ onBeforeUnmount(() => {
         <div
           class="theme-viewport-surface relative min-w-0 flex-1 overflow-hidden p-2"
         >
-        <div
-          v-if="!isRightToolbarLayout && isVolumeConfigPanelAvailable && isVolumeConfigPanelOpen && (activeVolumeRenderConfig || activeSurfaceRenderConfig)"
-          class="absolute right-5 top-5 z-[20]"
-        >
-          <VolumeRenderConfigPanel
-            v-if="activeVolumeRenderConfig"
-            :config="activeVolumeRenderConfig"
-            @close="closeVolumeConfigPanel"
-            @config-change="emit('volumeConfigChange', $event)"
-          />
-          <SurfaceRenderConfigPanel
-            v-else-if="activeSurfaceRenderConfig"
-            :config="activeSurfaceRenderConfig"
-            @close="closeVolumeConfigPanel"
-            @config-change="emit('surfaceConfigChange', $event)"
-          />
-        </div>
-
-        <div
-          v-if="!isRightToolbarLayout && (activeTab.viewType === 'MPR' || activeTab.viewType === '4D') && isMprMipPanelOpen && activeMprMipConfig"
-          class="pointer-events-none absolute inset-y-0 right-0 z-[20] flex items-start"
-        >
-          <MprMipConfigPanel
-            class="pointer-events-auto max-h-full rounded-r-[18px]!"
-            :config="activeMprMipConfig"
-            @config-change="updateActiveMprMipConfig"
-          />
-        </div>
-
-        <div
-          v-if="!isRightToolbarLayout && activeTab.viewType === 'MPR' && isMprSegmentationPanelOpen && activeMprSegmentationConfig"
-          class="contents"
-        >
-          <MprSegmentationPanel
-            class="pointer-events-auto"
-            :config="activeMprSegmentationConfig"
-            :tab-key="activeTab.key"
-            :panel-state="activeTab.mprSegmentationPanelState ?? null"
-            :viewport-planes="activeTab.viewportPlanes ?? null"
-            :is-processing="isMprSegmentationProcessing"
-            :series-id="activeTab.seriesId"
-            :series-label="activeTab.seriesTitle"
-            :pet-info="activeTab.petInfo ?? null"
-            @close="closeMprSegmentationPanel"
-            @config-change="handleMprSegmentationConfigChange"
-            @panel-state-change="handleMprSegmentationPanelStateChange"
-            @mode-change="handleMprSegmentationModeChange"
-          />
-        </div>
-
         <div
           ref="viewportHostRef"
           class="viewer-viewport-frame-shell"
@@ -2714,12 +2603,9 @@ onBeforeUnmount(() => {
           :is-slice-playback-paused="isPlaybackPaused"
           :is-slice-playback-playing="isPlaying"
           :open-menu-key="openMenuKey"
-          :show-tab-strip-toggle="shouldShowTabStripToggle"
           :stack-tool-selections="stackToolSelections"
           :mpr-layout-key="activeMprLayoutKey"
-          :toggle-icon-size="toggleIconSize"
           :toolbar-icon-size="toolbarIconSize"
-          :toolbar-placement="viewerToolbarPlacement"
           :viewport-auto-fit-enabled="viewportAutoFitEnabled"
           :viewport-aspect-ratio="viewportFrameAspectRatio ?? 1"
           :result-panel-icon="resultPanelIcon"
@@ -2784,41 +2670,6 @@ onBeforeUnmount(() => {
 
         </div>
         </div>
-
-        <div
-          v-if="shouldShowTopResultDock"
-          class="viewer-workspace-right-dock-resize-handle"
-          aria-hidden="true"
-          @pointerdown="startRightDockResize('result', $event)"
-        ></div>
-
-        <ViewerResultDock
-          v-if="shouldShowTopResultDock"
-          :has-content="Boolean(activeResultPanelKind)"
-          :icon="resultPanelIcon"
-          :title="resultPanelTitle"
-          :width="getRightDockDisplayWidth('result')"
-          :collapsed="getRightDockDisplayCollapsed('result')"
-          :resizing="activeRightDockResizeTarget === 'result'"
-          @close="closeResultPanel"
-          @collapse-change="handleRightDockCollapseChange('result', $event)"
-        >
-          <MeasurementMetricsPanelContent
-            v-if="activeResultPanelKind === 'measurement'"
-            :measurement="selectedMeasurementEntry?.measurement ?? null"
-            :viewport-key="selectedMeasurementEntry?.viewportKey ?? null"
-          />
-          <MtfCurvePanelContent
-            v-if="activeResultPanelKind === 'mtfCurve'"
-            :mtf-item="selectedMtfItem"
-            @copy="handleCopySelectedMtf"
-            @delete="handleDeleteSelectedMtf"
-          />
-          <QaWaterResultPanelContent
-            v-else-if="activeResultPanelKind === 'qaWater'"
-            :analysis="qaWaterAnalysis"
-          />
-        </ViewerResultDock>
 
         <div
           v-if="shouldShowRightToolbarDock && activeTab"

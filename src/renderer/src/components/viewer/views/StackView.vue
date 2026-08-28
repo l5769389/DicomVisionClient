@@ -49,7 +49,7 @@ const emit = defineEmits<{
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
-  pointerDown: [event: PointerEvent, viewportKey: string]
+  pointerDown: [event: PointerEvent, viewportKey: string, sourceSliceIndex?: number | null]
   pointerLeave: [viewportKey: string]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
@@ -79,6 +79,7 @@ const sliceInfo = computed(() => {
 const sliderValue = ref(1)
 const isSliceSliderActive = ref(false)
 const currentSliceIndex = computed(() => Math.max(0, sliceInfo.value.current - 1))
+const presentedSliceIndex = ref<number | null>(currentSliceIndex.value)
 const sortedStarredSliceIndexes = computed(() =>
   [...new Set(props.starredSliceIndexes ?? [])]
     .filter((index) => Number.isFinite(index) && index >= 0 && index < sliceInfo.value.total)
@@ -113,8 +114,15 @@ watch(
   () => {
     isSliceSliderActive.value = false
     sliderValue.value = clampSliceValue(sliceInfo.value.current, sliceInfo.value.total)
+    presentedSliceIndex.value = currentSliceIndex.value
   }
 )
+
+function handleFramePresented(payload: { viewportKey: string; sourceSliceIndex: number | null }): void {
+  if (payload.viewportKey === 'single' && payload.sourceSliceIndex != null) {
+    presentedSliceIndex.value = payload.sourceSliceIndex
+  }
+}
 
 function beginSliceSliderDrag(): void {
   isSliceSliderActive.value = true
@@ -189,6 +197,7 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       :render-surface-active="true"
       :image-src="props.activeTab.imageSrc"
       :render-revision="props.activeTab.viewId ? props.activeTab.imageUpdateRevisions?.[props.activeTab.viewId] ?? null : null"
+      :source-slice-index="currentSliceIndex"
       :is-loading="Boolean(props.activeTab.viewId) && !props.activeTab.imageSrc"
       :loading-label="viewerCopy.loadingStackView"
       :alt="props.activeTab.viewType"
@@ -225,10 +234,11 @@ function jumpToStarredSlice(sliceIndex: number | null): void {
       @click-viewport="emit('viewportClick', $event)"
       @hover-viewport-change="emit('hoverViewportChange', $event)"
       @image-loaded="emit('imageLoaded', $event)"
+      @frame-presented="handleFramePresented"
       @open-mtf-curve="emit('openMtfCurve')"
       @select-mtf="emit('selectMtf', $event)"
       @wheel-viewport="emit('viewportWheel', $event)"
-      @pointer-down="emit('pointerDown', $event, 'single')"
+      @pointer-down="emit('pointerDown', $event, 'single', presentedSliceIndex)"
       @pointer-leave="emit('pointerLeave', $event)"
       @pointer-move="emit('pointerMove', $event)"
       @pointer-up="emit('pointerUp', $event)"

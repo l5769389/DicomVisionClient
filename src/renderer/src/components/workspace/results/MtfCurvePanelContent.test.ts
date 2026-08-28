@@ -54,6 +54,9 @@ describe('MtfCurvePanelContent', () => {
     expect(wrapper.find('.mtf-curve-panel-content__svg').attributes('viewBox')).toBe('0 0 100 100')
     expect(wrapper.find('.mtf-curve-panel-content__curve').exists()).toBe(true)
     expect(wrapper.find('.mtf-curve-panel-content__chart').exists()).toBe(true)
+    expect(wrapper.findAll('.mtf-curve-panel-content__radial-metric')).toHaveLength(2)
+    expect(wrapper.findAll('.mtf-curve-panel-content__direction-row')).toHaveLength(4)
+    expect(wrapper.find('.mtf-curve-panel-content__metric').exists()).toBe(false)
     expect(wrapper.find('.v-menu').exists()).toBe(false)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.classes()).not.toContain('fixed')
@@ -74,6 +77,148 @@ describe('MtfCurvePanelContent', () => {
     expect(wrapper.find('.mtf-curve-panel-content__actions').element.parentElement).toBe(wrapper.element)
     expect(wrapper.text()).toContain('Copy MTF ROI')
     expect(wrapper.text()).toContain('Delete MTF ROI')
+    wrapper.unmount()
+  })
+
+  it('renders directional values, Nyquist bounds, invalid FWHM and quality warnings', () => {
+    const wrapper = mount(MtfCurvePanelContent, {
+      props: {
+        mtfItem: {
+          ...mtfItem,
+          metrics: {
+            ...mtfItem.metrics!,
+            mtf50: null,
+            mtf10: 0.88,
+            mtf50W: 0.41,
+            mtf10W: null,
+            mtf50H: 0.37,
+            mtf10H: 0.79,
+            radialNyquist: 1,
+            nyquistW: 1.25,
+            nyquistH: 0.625,
+            fwhmW: null,
+            sourceSizeCorrected: false
+          },
+          qualityWarnings: [
+            { code: 'source-size-uncorrected', message: 'Finite point-source size correction was not applied.' },
+            { code: 'mtf50-beyond-nyquist', message: 'Radial MTF50 remains above its threshold at Nyquist.' },
+            { code: 'mtf10-w-beyond-nyquist', message: 'MTF10-W remains above its threshold at Nyquist.' },
+            { code: 'fwhm-w-incomplete', message: 'FWHM-W is incomplete.' }
+          ],
+          curve: [
+            { frequency: 0, value: 1 },
+            { frequency: 0.5, value: 1.35 },
+            { frequency: 1, value: 0.65 }
+          ]
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('MTF50 Radial')
+    expect(wrapper.text()).toContain('> 1.000 lp/mm')
+    expect(wrapper.get('.mtf-curve-panel-content__direction-row--header').text()).toContain('W')
+    expect(wrapper.get('.mtf-curve-panel-content__direction-row--header').text()).toContain('H')
+    expect(wrapper.text()).toContain('MTF50')
+    expect(wrapper.text()).toContain('0.410 lp/mm')
+    expect(wrapper.text()).toContain('MTF10')
+    expect(wrapper.text()).toContain('> 1.250 lp/mm')
+    expect(wrapper.text()).toContain('FWHM')
+    expect(wrapper.text()).toContain('Not measurable')
+    expect(wrapper.text()).toContain('Quality Notes')
+    expect(wrapper.text()).toContain('Finite point-source size correction was not applied.')
+    expect(wrapper.get('.mtf-curve-panel-content__warnings summary').text()).toContain('4')
+    expect(wrapper.get('.mtf-curve-panel-content__warnings').attributes('open')).toBeUndefined()
+    expect(wrapper.text()).toContain('1.4')
+    wrapper.unmount()
+  })
+
+  it('flags a large W/H difference without turning it into a pass-fail result', () => {
+    const wrapper = mount(MtfCurvePanelContent, {
+      props: {
+        mtfItem: {
+          ...mtfItem,
+          metrics: {
+            ...mtfItem.metrics!,
+            mtf50W: 1.591,
+            mtf50H: 0.282,
+            mtf10W: 2.18,
+            mtf10H: 0.393,
+            fwhmW: 0.618,
+            fwhmH: 1.72
+          }
+        }
+      }
+    })
+
+    const warning = wrapper.get('.mtf-curve-panel-content__direction-warning')
+    expect(warning.text()).toContain('5.6x')
+    expect(warning.text()).toContain('approximately round')
+    expect(wrapper.findAll('.mtf-curve-panel-content__direction-row')).toHaveLength(4)
+    wrapper.unmount()
+  })
+
+  it('uses the actual curve Nyquist as the chart x-axis maximum', () => {
+    const wrapper = mount(MtfCurvePanelContent, {
+      props: {
+        mtfItem: {
+          ...mtfItem,
+          metrics: {
+            ...mtfItem.metrics!,
+            mtf50: 0.2,
+            mtf10: 0.5,
+            radialNyquist: 0.625
+          },
+          curve: [
+            { frequency: 0, value: 1 },
+            { frequency: 0.2, value: 0.5 },
+            { frequency: 0.625, value: 0.08 }
+          ]
+        }
+      }
+    })
+
+    expect(wrapper.findAll('.mtf-curve-panel-content__tick').some((item) => item.text() === '0.625')).toBe(true)
+    expect(wrapper.get('.mtf-curve-panel-content__curve').attributes('d')).toContain('L 98.00')
+    wrapper.unmount()
+  })
+
+  it('renders calculating state in the result panel before metrics are ready', () => {
+    const wrapper = mount(MtfCurvePanelContent, {
+      props: {
+        mtfItem: {
+          ...mtfItem,
+          status: 'calculating',
+          metrics: null,
+          curve: []
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('Calculating')
+    expect(wrapper.find('.mtf-curve-panel-content__spinner').exists()).toBe(true)
+    expect(wrapper.find('.mtf-curve-panel-content__chart').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders structured failure reason and suggestion instead of the HTTP status text', () => {
+    const wrapper = mount(MtfCurvePanelContent, {
+      props: {
+        mtfItem: {
+          ...mtfItem,
+          status: 'error',
+          metrics: null,
+          curve: [],
+          errorCode: 'mtf-no-detectable-source',
+          errorMessage: 'No stable point source could be detected in the ROI.',
+          errorSuggestion: 'Select one isolated point source with surrounding background.'
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('No stable point source could be detected')
+    expect(wrapper.text()).toContain('Select one isolated point source')
+    expect(wrapper.text()).toContain('mtf-no-detectable-source')
+    expect(wrapper.text()).not.toContain('Request failed with status code')
     wrapper.unmount()
   })
 })

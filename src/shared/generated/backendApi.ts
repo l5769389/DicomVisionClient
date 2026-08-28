@@ -129,6 +129,7 @@ export interface FourDPhasesResponse {
   isFourDSeries?: boolean
   fourDPhaseCount?: number
   fourDPhases?: FourDPhaseItem[]
+  viewCapability?: SeriesViewCapability
 }
 
 export interface FourDPlaybackFpsRequest {
@@ -494,11 +495,24 @@ export interface MtfCurvePointPayload {
 export interface MtfMetricsPayload {
   mtf50?: number | null
   mtf10?: number | null
+  mtf50W?: number | null
+  mtf10W?: number | null
+  mtf50H?: number | null
+  mtf10H?: number | null
+  nyquistW?: number | null
+  nyquistH?: number | null
+  radialNyquist?: number | null
   fwhmW?: number | null
   fwhmH?: number | null
   peakValue?: number | null
   sampleCount?: number | null
   unit?: string | null
+  sourceSizeCorrected?: boolean
+}
+
+export interface MtfQualityWarningPayload {
+  code: string
+  message: string
 }
 
 export interface OperationAcceptedResponse {
@@ -836,6 +850,7 @@ export interface SeriesSummary {
 
 export interface SeriesViewCapability {
   supported?: boolean
+  blockedCode?: string | null
   blockedReason?: string | null
 }
 
@@ -972,6 +987,7 @@ export interface ViewMtfAnalyzeRequest {
   viewId: string
   viewportKey: string
   points: MeasurementPointPayload[]
+  sourceSliceIndex?: number | null
 }
 
 export interface ViewMtfAnalyzeResponse {
@@ -980,6 +996,7 @@ export interface ViewMtfAnalyzeResponse {
   points: MeasurementPointPayload[]
   metrics: MtfMetricsPayload
   curve: MtfCurvePointPayload[]
+  qualityWarnings?: MtfQualityWarningPayload[]
   isPlaceholder?: boolean
 }
 

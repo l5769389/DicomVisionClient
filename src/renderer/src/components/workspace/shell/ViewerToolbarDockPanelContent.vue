@@ -41,6 +41,7 @@ import {
 } from './toolbarTypes'
 import { useUiLocale } from '../../../composables/ui/useUiLocale'
 import { useUiPreferences, type DrawingScopePreference } from '../../../composables/ui/useUiPreferences'
+import { resolveDrawingScopeToolKey } from './drawingScopeSupport'
 
 const props = defineProps<{
   activeTab: ViewerTabItem
@@ -731,17 +732,8 @@ function isFooterActionOption(option: StackToolOption): boolean {
 
 const regularOptions = computed(() => (props.tool.options ?? []).filter((option) => !isFooterActionOption(option)))
 const drawingScopeToolKey = computed<keyof DrawingScopePreference | null>(() => {
-  if (props.tool.key === 'measure') {
-    return 'measurement'
-  }
-  if (props.tool.key === 'annotate') {
-    return 'annotation'
-  }
-  if (props.tool.key === 'qa') {
-    const selectedQaOption = props.stackToolSelections.qa ?? props.tool.options?.find((option) => !option.disabled)?.value ?? 'qa:mtf'
-    return selectedQaOption === 'qa:water-phantom' ? 'qaWater' : 'mtf'
-  }
-  return null
+  const selectedQaOption = props.stackToolSelections.qa ?? props.tool.options?.find((option) => !option.disabled)?.value ?? 'qa:mtf'
+  return resolveDrawingScopeToolKey(props.tool.key, selectedQaOption)
 })
 const drawingScopeDescription = computed(() => {
   if (drawingScopeToolKey.value === 'measurement') {
@@ -752,9 +744,6 @@ const drawingScopeDescription = computed(() => {
   }
   if (drawingScopeToolKey.value === 'qaWater') {
     return dockDrawingScopeCopy.value.qaWater
-  }
-  if (drawingScopeToolKey.value === 'mtf') {
-    return dockDrawingScopeCopy.value.mtf
   }
   return ''
 })

@@ -376,6 +376,7 @@ function createLifecycleHarness(
   const selectedSeriesId = ref(selectedSeriesIdValue)
   const seriesList = ref<FolderSeriesItem[]>(seriesItems)
   const emptyCornerInfo: CornerInfo = createEmptyCornerInfo()
+  const onViewUnavailable = vi.fn()
   const views = useViewerWorkspaceViews({
     activeMprCrosshairDragLock: ref(null),
     activeTabKey,
@@ -385,6 +386,7 @@ function createLifecycleHarness(
     ensureSeriesCornerInfo: vi.fn(async () => emptyCornerInfo),
     isViewLoading: ref(false),
     message: ref(''),
+    onViewUnavailable,
     selectedSeries: computed(() => seriesList.value.find((item) => item.seriesId === selectedSeriesId.value) ?? null),
     selectedSeriesId,
     seriesCornerInfoMap: ref(
@@ -400,7 +402,7 @@ function createLifecycleHarness(
     viewerTabs,
     withHoverCornerInfo: (cornerInfo) => cornerInfo
   })
-  return { activeTabKey, activeViewportKey, selectedSeriesId, seriesList, viewerTabs, views }
+  return { activeTabKey, activeViewportKey, onViewUnavailable, selectedSeriesId, seriesList, viewerTabs, views }
 }
 
 function createMprViewportStage(): HTMLElement {
@@ -422,6 +424,25 @@ function createMprViewportStage(): HTMLElement {
     }))
     stage.appendChild(element)
   })
+  document.body.appendChild(stage)
+  return stage
+}
+
+function createSingleViewportStage(width = 640, height = 420): HTMLElement {
+  const stage = document.createElement('div')
+  stage.dataset.activeRenderSurface = 'true'
+  stage.dataset.viewportKey = 'single'
+  stage.getBoundingClientRect = vi.fn(() => ({
+    width,
+    height,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: height,
+    x: 0,
+    y: 0,
+    toJSON: () => ({})
+  }))
   document.body.appendChild(stage)
   return stage
 }
@@ -580,6 +601,37 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
     vi.unstubAllGlobals()
   })
 
+  it('retries the same 2D viewport size after a failed resize request', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      queueMicrotask(() => callback(0))
+      return 1
+    })
+    const stage = createSingleViewportStage(960, 640)
+    const stackTab = createStackTab()
+    const { views } = createLifecycleHarness(
+      [stackTab],
+      stackTab.key,
+      [createSeriesItem('ct-series')],
+      'ct-series',
+      stage
+    )
+    postApiMock
+      .mockRejectedValueOnce(new Error('temporary resize failure'))
+      .mockResolvedValueOnce({ success: true })
+
+    await expect(views.renderTab(stackTab.key)).rejects.toThrow('temporary resize failure')
+    await expect(views.renderTab(stackTab.key)).resolves.toBeUndefined()
+
+    const sizeRequests = postApiMock.mock.calls.filter(
+      ([operation]) => operation === 'SetViewSizeApiV1ViewSetSizePost'
+    )
+    expect(sizeRequests).toHaveLength(2)
+    expect(sizeRequests.map(([, payload]) => payload)).toEqual([
+      expect.objectContaining({ viewId: 'stack-view', size: { width: 960, height: 640 } }),
+      expect.objectContaining({ viewId: 'stack-view', size: { width: 960, height: 640 } })
+    ])
+  })
+
   it('updates live window values in every desktop viewport family', () => {
     let urlIndex = 0
     vi.stubGlobal('URL', {
@@ -734,6 +786,87 @@ describe('useViewerWorkspaceViews tab lifecycle', () => {
       key: 'open-series::3D',
       viewId: 'created-volume-view',
       viewType: '3D'
+    })
+  })
+
+  it('reports a known volume compatibility failure without creating an empty tab or backend view', async () => {
+    const series = createSeriesItem('blocked-series')
+    series.viewCapabilities = {
+      mpr: {
+        supported: false,
+        blockedCode: 'irregular-slice-spacing',
+        blockedReason: 'The series contains irregular slice spacing and requires resampling.'
+      }
+    }
+    const { onViewUnavailable, viewerTabs, views } = createLifecycleHarness([], '', [series], series.seriesId)
+
+    await views.openSeriesView(series.seriesId, 'MPR')
+
+    expect(postApiMock).not.toHaveBeenCalled()
+    expect(viewerTabs.value).toEqual([])
+    expect(onViewUnavailable).toHaveBeenCalledOnce()
+    expect(onViewUnavailable).toHaveBeenCalledWith({
+      viewType: 'MPR',
+      blockedCode: 'irregular-slice-spacing',
+      detail: 'The series contains irregular slice spacing and requires resampling.'
+    })
+  })
+
+  it('refreshes 4D capability before opening and reports a blocked phase without creating a tab', async () => {
+    const series = createSeriesItem('four-d-series')
+    series.isFourDSeries = true
+    series.fourDPhaseCount = 2
+    series.fourDPhases = [
+      { phaseIndex: 0, label: '25%', seriesId: 'phase-25' },
+      { phaseIndex: 1, label: '50%', seriesId: 'phase-50' }
+    ]
+    postApiMock.mockResolvedValueOnce({
+      seriesId: series.seriesId,
+      isFourDSeries: true,
+      fourDPhaseCount: 2,
+      fourDPhases: series.fourDPhases,
+      viewCapability: {
+        supported: false,
+        blockedCode: 'phase-mpr-unavailable',
+        blockedReason: 'Phase 25%: irregular slice spacing.'
+      }
+    })
+    const { onViewUnavailable, viewerTabs, views } = createLifecycleHarness([], '', [series], series.seriesId)
+
+    await views.openSeriesView(series.seriesId, '4D')
+
+    expect(postApiMock).toHaveBeenCalledOnce()
+    expect(postApiMock).toHaveBeenCalledWith('GetFourDPhasesApiV1DicomFourDPhasesPost', {
+      seriesId: series.seriesId
+    })
+    expect(viewerTabs.value).toEqual([])
+    expect(onViewUnavailable).toHaveBeenCalledWith({
+      viewType: '4D',
+      blockedCode: 'phase-mpr-unavailable',
+      detail: 'Phase 25%: irregular slice spacing.'
+    })
+  })
+
+  it('releases partially created MPR views and closes the unfinished tab', async () => {
+    postApiMock
+      .mockResolvedValueOnce({ viewId: 'created-ax-view' })
+      .mockRejectedValueOnce({ response: { status: 422, data: { detail: 'Irregular slice spacing' } } })
+      .mockResolvedValueOnce({ viewId: 'created-sag-view' })
+      .mockResolvedValue({ ok: true })
+    const series = createSeriesItem('mpr-series')
+    const { onViewUnavailable, viewerTabs, views } = createLifecycleHarness([], '', [series], series.seriesId)
+
+    await views.openSeriesView(series.seriesId, 'MPR')
+
+    await vi.waitFor(() => {
+      expect(postApiMock).toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'created-ax-view' })
+      expect(postApiMock).toHaveBeenCalledWith('CloseViewApiV1ViewClosePost', { viewId: 'created-sag-view' })
+    })
+    expect(viewerTabs.value).toEqual([])
+    expect(onViewUnavailable).toHaveBeenCalledWith({
+      viewType: 'MPR',
+      blockedCode: 'view-open-failed',
+      detail: 'Irregular slice spacing'
     })
   })
 

@@ -6,9 +6,10 @@ import StackView from './StackView.vue'
 vi.mock('./ViewerCanvasStage.vue', () => ({
   default: {
     name: 'ViewerCanvasStage',
-    props: ['alt', 'lightSurface', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showPseudocolorBar', 'stageSurfaceClass', 'viewportKey'],
+    props: ['alt', 'lightSurface', 'pseudocolorPreset', 'pseudocolorWindowInfo', 'showPseudocolorBar', 'sourceSliceIndex', 'stageSurfaceClass', 'viewportKey'],
+    emits: ['framePresented', 'pointerDown'],
     template:
-      '<div class="viewer-canvas-stage-stub" :data-alt="alt" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-stage-surface-class="stageSurfaceClass" :data-viewport-key="viewportKey"></div>'
+      '<div class="viewer-canvas-stage-stub" :data-alt="alt" :data-light-surface="lightSurface ? \'true\' : \'false\'" :data-pseudocolor-preset="pseudocolorPreset ?? \'\'" :data-pseudocolor-ww="pseudocolorWindowInfo?.ww ?? \'\'" :data-show-pseudocolor-bar="showPseudocolorBar ? \'true\' : \'false\'" :data-source-slice-index="sourceSliceIndex ?? \'\'" :data-stage-surface-class="stageSurfaceClass" :data-viewport-key="viewportKey"></div>'
   }
 }))
 
@@ -57,6 +58,20 @@ function mountStackView(activeTab: ViewerTabItem) {
 }
 
 describe('StackView PET surface', () => {
+  it('uses the decoded frame slice for pointer interactions', async () => {
+    const wrapper = mountStackView(createStackTab({ sliceLabel: '6 / 10' }))
+    const stage = wrapper.findComponent({ name: 'ViewerCanvasStage' })
+    const event = new Event('pointerdown') as PointerEvent
+
+    expect(stage.attributes('data-source-slice-index')).toBe('5')
+    stage.vm.$emit('framePresented', { viewportKey: 'single', sourceSliceIndex: 3 })
+    stage.vm.$emit('pointerDown', event)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('pointerDown')?.at(-1)).toEqual([event, 'single', 3])
+    wrapper.unmount()
+  })
+
   it('lets the active PET LUT determine the standalone surface treatment', () => {
     const wrapper = mountStackView(
       createStackTab({

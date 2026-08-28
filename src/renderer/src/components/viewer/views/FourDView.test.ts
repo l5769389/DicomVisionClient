@@ -4,27 +4,6 @@ import FourDView from './FourDView.vue'
 import { createDefaultMprMipConfig, type FourDPhaseItem, type MprViewportKey, type ViewerTabItem } from '../../../types/viewer'
 import type { StackTool } from '../../workspace/shell/toolbarTypes'
 
-vi.mock('../../workspace/shell/ViewerToolbar.vue', () => ({
-  default: {
-    name: 'ViewerToolbar',
-    props: ['activeTools'],
-    emits: ['applyTool', 'selectToolOption', 'setMenuOpen'],
-    template: `
-      <div class="viewer-toolbar-stub">
-        <button
-          v-for="tool in activeTools"
-          :key="tool.key"
-          class="viewer-toolbar-tool"
-          type="button"
-          @click="$emit('applyTool', tool)"
-        >
-          {{ tool.label }}
-        </button>
-      </div>
-    `
-  }
-}))
-
 vi.mock('../../../composables/ui/useUiLocale', async () => {
   const { computed, ref } = await import('vue')
   const { uiMessages } = await import('../../../composables/ui/uiMessages')
@@ -172,7 +151,6 @@ function createFourDProps(overrides: Partial<InstanceType<typeof FourDView>['$pr
     openMenuKey: null,
     stackToolSelections: {},
     toolbarIconSize: 20,
-    toggleIconSize: 12,
     ...overrides
   }
 }
@@ -305,7 +283,7 @@ describe('FourDView', () => {
     wrapper.unmount()
   })
 
-  it('uses the normal MPR toolbar tools inside the compact 4D toolbar', async () => {
+  it('always uses the right dock for the normal MPR toolbar tools', async () => {
     const wrapper = mount(FourDView, {
       props: {
         ...createFourDProps({
@@ -317,13 +295,18 @@ describe('FourDView', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('Crosshair')
-    expect(wrapper.text()).toContain('Pan')
-    expect(wrapper.text()).toContain('Zoom')
-    expect(wrapper.text()).toContain('Window')
-    expect(wrapper.text()).toContain('MIP')
+    expect(wrapper.find('.viewer-toolbar-stub').exists()).toBe(false)
+    expect(wrapper.find('.viewer-toolbar-dock').exists()).toBe(true)
+    expect(wrapper.findAll('.viewer-toolbar-dock__button').map((button) => button.attributes('title'))).toEqual([
+      'Crosshair',
+      'Pan',
+      'Zoom',
+      'Window',
+      'MIP',
+      'Reset'
+    ])
 
-    await wrapper.findAll('.viewer-toolbar-tool')[1]!.trigger('click')
+    await wrapper.findAll('.viewer-toolbar-dock__button')[1]!.trigger('click')
     expect(wrapper.emitted('applyTool')?.[0]?.[0]).toMatchObject({ key: 'pan' })
     wrapper.unmount()
   })
@@ -332,7 +315,6 @@ describe('FourDView', () => {
     const wrapper = mount(FourDView, {
       props: {
         ...createFourDProps({
-          toolbarPlacement: 'right',
           activeMprMipConfig: createDefaultMprMipConfig(),
           isMprMipPanelOpen: true,
           isToolSelected: (tool: StackTool) => tool.key === 'pan'
@@ -366,7 +348,6 @@ describe('FourDView', () => {
   it('renders result content in the right dock below the 4D status controls', () => {
     const qaTool: StackTool = { key: 'qa', label: 'QA', icon: 'qa', kind: 'mode' }
     const props = createFourDProps({
-      toolbarPlacement: 'right',
       activeTools: [qaTool, ...createFourDProps().activeTools],
       resultPanelIcon: 'mtf',
       resultPanelOpen: true,

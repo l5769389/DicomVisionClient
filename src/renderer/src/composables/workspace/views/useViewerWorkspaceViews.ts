@@ -89,7 +89,12 @@ import {
   getOwnedLayoutSlotImageSrcs
 } from '../layout/viewerLayoutSlotSeeds'
 import { getDistinctFourDPhaseSeriesIds, resolveFourDPhaseSeriesId } from './fourDPhaseMetadata'
-import { isPetSeries, isSeriesViewSupported, resolvePrimaryTwoDimensionalViewType } from './seriesViewSupport'
+import {
+  getSeriesViewAvailability,
+  isPetSeries,
+  isSeriesViewSupported,
+  resolvePrimaryTwoDimensionalViewType
+} from './seriesViewSupport'
 import {
   FourDPhaseRenderTracker,
   MPR_VIEWPORT_KEYS,
@@ -195,6 +200,7 @@ import type {
   ViewerLayoutSlot,
   ViewerLayoutTemplate,
   ViewerTabItem,
+  ViewUnavailableNotice,
   ViewType,
   WindowLevelInfo
 } from '../../../types/viewer'
@@ -206,6 +212,7 @@ interface ViewerWorkspaceViewsOptions {
   activeMprCrosshairDragLock: Ref<ActiveMprCrosshairDragLock | null>
   isViewLoading: Ref<boolean>
   message: Ref<string>
+  onViewUnavailable?: (notice: ViewUnavailableNotice) => void
   onBeforeCloseTab?: (tab: ViewerTabItem) => void
   selectedSeries: ComputedRef<FolderSeriesItem | null>
   selectedSeriesId: Ref<string>
@@ -654,6 +661,7 @@ const VIEWPORT_LAYOUT_WAIT_FRAMES = 60
 
 export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
   const viewSizeCache = new Map<string, string>()
+  const viewSizeRequestGenerations = new Map<string, number>()
   const viewSizeUpdateDeduper = createViewSizeUpdateDeduper()
   const queuedFourDPreloadTabKeys = new Set<string>()
   const fourDPreloadRequests = new Map<string, Promise<void>>()
@@ -991,18 +999,37 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   function handleOpenSeriesViewFailure(error: unknown, seriesId: string, viewType: ViewType, tabKey: string): void {
     const detail = resolveBackendErrorDetail(error)
-    closeIncompleteTab(tabKey)
+    const guardedViewType = viewType === 'MPR' || viewType === '3D' || viewType === '4D' ? viewType : null
+    if (guardedViewType && options.viewerTabs.value.some((item) => item.key === tabKey)) {
+      closeTab(tabKey)
+    } else {
+      closeIncompleteTab(tabKey)
+    }
     if (isSeriesMissingError(error)) {
       removeSeries(seriesId)
       options.message.value = viewMessage(
         '当前序列已失效，请重新上传 DICOM 或重新加载示例影像。',
         'The current series is no longer available. Upload DICOM files again or reload the sample images.'
       )
+      if (guardedViewType) {
+        options.onViewUnavailable?.({
+          viewType: guardedViewType,
+          blockedCode: 'series-not-found',
+          detail: options.message.value
+        })
+      }
       return
     }
     options.message.value = detail
       ? viewMessage(`${viewType} 视图打开失败：${detail}`, `${viewType} view failed to open: ${detail}`)
       : viewMessage(`${viewType} 视图打开失败。`, `${viewType} view failed to open.`)
+    if (guardedViewType) {
+      options.onViewUnavailable?.({
+        viewType: guardedViewType,
+        blockedCode: 'view-open-failed',
+        detail
+      })
+    }
   }
 
   function revokeObjectUrlIfNeeded(imageSrc: string | null | undefined): void {
@@ -1511,7 +1538,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   async function createMprViewportViews(seriesId: string, viewGroupKey?: string): Promise<Record<MprViewportKey, string>> {
     const { postApi } = await loadTypedApi()
-    const responses = await Promise.all(
+    const responses = await Promise.allSettled(
       MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
         const data = await postApi('CreateViewApiV1ViewCreatePost', {
           seriesId,
@@ -1522,11 +1549,24 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       })
     )
 
+    const createdViewIds = responses.flatMap((result) => result.status === 'fulfilled' ? [result.value[1]] : [])
+    const failedResponse = responses.find((result) => result.status === 'rejected')
+    if (failedResponse?.status === 'rejected') {
+      releaseBackendViews(createdViewIds)
+      throw failedResponse.reason
+    }
+
     return responses.reduce(
-      (accumulator, [viewportKey, viewId]) => ({
-        ...accumulator,
-        [viewportKey]: viewId
-      }),
+      (accumulator, result) => {
+        if (result.status !== 'fulfilled') {
+          return accumulator
+        }
+        const [viewportKey, viewId] = result.value
+        return {
+          ...accumulator,
+          [viewportKey]: viewId
+        }
+      },
       createEmptyMprViewIds()
     )
   }
@@ -1794,12 +1834,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
 
   function hasViewSizeChanged(viewId: string, size: { width: number; height: number }): boolean {
     const nextSignature = `${size.width}x${size.height}`
-    const previousSignature = viewSizeCache.get(viewId)
-    if (previousSignature === nextSignature) {
-      return false
-    }
-    viewSizeCache.set(viewId, nextSignature)
-    return true
+    return viewSizeCache.get(viewId) !== nextSignature
   }
 
   function rebindOpenViews(): void {
@@ -1847,34 +1882,66 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     })
   }
 
-  async function loadFourDManifest(seriesId: string): Promise<FourDPhasesResponse | null> {
+  async function loadFourDManifest(seriesId: string, throwOnError = false): Promise<FourDPhasesResponse | null> {
     const existingRequest = fourDManifestRequests.get(seriesId)
     if (existingRequest) {
       return existingRequest
     }
 
     const request = (async () => {
-      try {
-        const { postApi } = await loadTypedApi()
-        const data = await postApi('GetFourDPhasesApiV1DicomFourDPhasesPost', { seriesId })
-        const manifest = normalizeFourDManifestResponse(data, seriesId)
-        if (!manifest) {
-          return null
-        }
-        options.seriesList.value = mergeFourDManifestIntoSeriesList(options.seriesList.value, seriesId, manifest)
-        return manifest
-      } catch (error) {
-        console.error(error)
+      const { postApi } = await loadTypedApi()
+      const data = await postApi('GetFourDPhasesApiV1DicomFourDPhasesPost', { seriesId })
+      const manifest = normalizeFourDManifestResponse(data, seriesId)
+      if (!manifest) {
         return null
       }
+      options.seriesList.value = mergeFourDManifestIntoSeriesList(options.seriesList.value, seriesId, manifest)
+      return manifest
     })()
 
     fourDManifestRequests.set(seriesId, request)
     try {
       return await request
+    } catch (error) {
+      console.error(error)
+      if (throwOnError) {
+        throw error
+      }
+      return null
     } finally {
       fourDManifestRequests.delete(seriesId)
     }
+  }
+
+  async function ensureRequestedVolumeViewAvailable(
+    seriesId: string,
+    viewType: 'MPR' | '3D' | '4D'
+  ): Promise<boolean> {
+    let series = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    if (viewType === '4D' && !series?.viewCapabilities?.['4d']) {
+      try {
+        await loadFourDManifest(seriesId, true)
+      } catch (error) {
+        options.onViewUnavailable?.({
+          viewType,
+          blockedCode: 'availability-check-failed',
+          detail: resolveBackendErrorDetail(error)
+        })
+        return false
+      }
+      series = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? series
+    }
+
+    const availability = getSeriesViewAvailability(series, viewType)
+    if (availability.supported) {
+      return true
+    }
+    options.onViewUnavailable?.({
+      viewType,
+      blockedCode: availability.blockedCode,
+      detail: availability.blockedReason
+    })
+    return false
   }
 
   async function resolveFourDPhaseItems(seriesId: string): Promise<{
@@ -4345,6 +4412,8 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       return
     }
 
+    const requestGeneration = (viewSizeRequestGenerations.get(update.viewId) ?? 0) + 1
+    viewSizeRequestGenerations.set(update.viewId, requestGeneration)
     await viewSizeUpdateDeduper.run(update, renderOnBind, async () => {
       const { postApi } = await loadTypedApi()
       if (renderOnBind) {
@@ -4366,6 +4435,9 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         imageFormat: VIEWER_IMAGE_TRANSPORT_FORMAT
       })
     })
+    if (viewSizeRequestGenerations.get(update.viewId) === requestGeneration) {
+      viewSizeCache.set(update.viewId, `${update.size.width}x${update.size.height}`)
+    }
   }
 
   async function waitForCompareViewportLayout(compareViewIds: Partial<Record<CompareStackPaneKey, string>>): Promise<void> {
@@ -4564,16 +4636,19 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
     }
 
     options.selectedSeriesId.value = seriesId
-    const targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
+    let targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? null
     const isPetBackedView =
       viewType === 'PET' ||
       ((viewType === 'Montage' || viewType === 'MPR' || viewType === '3D') && isPetSeries(targetSeries))
-    if (!isSeriesViewSupported(targetSeries, viewType)) {
-      options.message.value = viewMessage(`当前序列不支持 ${viewType} 视图。`, `${viewType} view is not supported for this series.`)
+    if (
+      (viewType === 'MPR' || viewType === '3D' || viewType === '4D') &&
+      !(await ensureRequestedVolumeViewAvailable(seriesId, viewType))
+    ) {
       return
     }
-    if (viewType === '4D' && !isFourDSeriesItem(targetSeries)) {
-      options.message.value = viewMessage('当前序列不是 4D 序列。', 'The current series is not a 4D series.')
+    targetSeries = options.seriesList.value.find((item) => item.seriesId === seriesId) ?? targetSeries
+    if (!isSeriesViewSupported(targetSeries, viewType)) {
+      options.message.value = viewMessage(`当前序列不支持 ${viewType} 视图。`, `${viewType} view is not supported for this series.`)
       return
     }
 
@@ -4642,12 +4717,17 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
         updateFourDTab(tabKey, updatedSeries, phaseCount, phaseItems, initialPhaseIndex)
         options.activeViewportKey.value = 'mpr-ax'
         options.activeTabKey.value = tabKey
+        options.isViewLoading.value = false
+        await nextTick()
+        const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
+        await setFourDPhase(tabKey, refreshedTab?.fourDPhaseIndex ?? 0)
+        options.message.value = ''
+      } catch (error) {
+        handleOpenSeriesViewFailure(error, seriesId, viewType, tabKey)
+        console.error(error)
       } finally {
         options.isViewLoading.value = false
       }
-      await nextTick()
-      const refreshedTab = options.viewerTabs.value.find((item) => item.key === tabKey)
-      await setFourDPhase(tabKey, refreshedTab?.fourDPhaseIndex ?? 0)
       return
     }
 
@@ -4742,23 +4822,7 @@ export function useViewerWorkspaceViews(options: ViewerWorkspaceViewsOptions) {
       let nextViewportViewIds = createEmptyMprViewIds()
 
       if (viewType === 'MPR') {
-        const { postApi } = await loadTypedApi()
-        const responses = await Promise.all(
-          MPR_VIEWPORT_KEYS.map(async (viewportKey) => {
-            const data = await postApi('CreateViewApiV1ViewCreatePost', {
-              seriesId,
-              viewType: getCreateViewTypeForViewport(viewportKey)
-            })
-            return [viewportKey, data.viewId] as const
-          })
-        )
-        nextViewportViewIds = responses.reduce(
-          (accumulator, [viewportKey, viewId]) => ({
-            ...accumulator,
-            [viewportKey]: viewId
-          }),
-          createEmptyMprViewIds()
-        )
+        nextViewportViewIds = await createMprViewportViews(seriesId)
       } else if (viewType !== 'Montage') {
         const { postApi } = await loadTypedApi()
         const data = await postApi('CreateViewApiV1ViewCreatePost', {

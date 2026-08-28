@@ -109,6 +109,7 @@ const props = withDefaults(
     voiOblique?: boolean
     viewportClass?: string
     viewportKey: string
+    sourceSliceIndex?: number | null
   }>(),
   {
     annotations: () => [],
@@ -142,6 +143,7 @@ const props = withDefaults(
     renderRevision: null,
     renderSurfaceActive: false,
     scaleBar: null,
+    sourceSliceIndex: null,
     showCornerInfo: true,
     showCrosshair: true,
     showPseudocolorBar: true,
@@ -171,6 +173,7 @@ const emit = defineEmits<{
   doubleClickViewport: [viewportKey: string]
   hoverViewportChange: [payload: { viewportKey: string; x: number | null; y: number | null; row?: number | null; col?: number | null }]
   imageLoaded: [viewportKey: string]
+  framePresented: [payload: { viewportKey: string; sourceSliceIndex: number | null }]
   openMtfCurve: []
   selectMtf: [payload: { mtfId: string | null }]
   pointerCancel: [event: PointerEvent]
@@ -221,6 +224,7 @@ interface RenderedFrameState {
   pseudocolorPreset: string | null
   pseudocolorWindowInfo: WindowLevelInfo | null
   scaleBar: ScaleBarInfo | null
+  sourceSliceIndex: number | null
   viewportTransform: ViewTransformInfo | null
 }
 
@@ -241,6 +245,7 @@ function captureRenderedFrame(): RenderedFrameState {
     pseudocolorPreset: props.pseudocolorPreset,
     pseudocolorWindowInfo: props.pseudocolorWindowInfo,
     scaleBar: props.scaleBar,
+    sourceSliceIndex: props.sourceSliceIndex,
     viewportTransform: props.viewportTransform
   }
 }
@@ -718,6 +723,10 @@ function handlePresentedImage(image: HTMLImageElement, source: string): void {
   imageRef.value = image
   scheduleStageMetricsUpdate()
   emit('imageLoaded', props.viewportKey)
+  emit('framePresented', {
+    viewportKey: props.viewportKey,
+    sourceSliceIndex: frame?.sourceSliceIndex ?? null
+  })
 }
 
 function handlePresentedImageError(source: string): void {

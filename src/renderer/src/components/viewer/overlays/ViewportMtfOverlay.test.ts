@@ -50,6 +50,9 @@ describe('ViewportMtfOverlay', () => {
 
     expect(wrapper.find('[aria-label="View MTF curve"]').exists()).toBe(false)
     expect(wrapper.findAll('button')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('MTF50')
+    expect(wrapper.text()).not.toContain('FWHM')
+    expect(wrapper.text()).not.toContain('0.510')
 
     await wrapper.get('[aria-label="Copy MTF ROI"]').trigger('click')
     await wrapper.get('[aria-label="Delete MTF ROI"]').trigger('click')
@@ -57,6 +60,27 @@ describe('ViewportMtfOverlay', () => {
     expect(wrapper.emitted('copy')).toHaveLength(1)
     expect(wrapper.emitted('clear')).toHaveLength(1)
     expect(wrapper.emitted('openCurve')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('does not render calculation or failure text over the image', () => {
+    const wrapper = mount(ViewportMtfOverlay, {
+      props: {
+        imageFrame: { left: 0, top: 0, width: 300, height: 240 },
+        mtfItems: [
+          {
+            ...mtfItem,
+            status: 'error',
+            metrics: null,
+            errorMessage: 'No stable point source could be detected.'
+          }
+        ],
+        selectedMtfId: mtfItem.mtfId
+      }
+    })
+
+    expect(wrapper.text()).not.toContain('No stable point source')
+    expect(wrapper.findAll('button')).toHaveLength(2)
     wrapper.unmount()
   })
 })

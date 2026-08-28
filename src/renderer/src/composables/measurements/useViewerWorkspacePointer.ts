@@ -74,7 +74,12 @@ interface PointerComposableOptions {
     labelLines?: string[]
   }) => void
   emitMeasurementDelete: (payload: { viewportKey: string; measurementId: string }) => void
-  emitMtfCommit: (payload: { viewportKey: string; points: MeasurementDraftPoint[]; mtfId?: string }) => void
+  emitMtfCommit: (payload: {
+    viewportKey: string
+    points: MeasurementDraftPoint[]
+    mtfId?: string
+    sourceSliceIndex?: number | null
+  }) => void
   emitMtfDelete: (payload: { mtfId: string }) => void
   emitMtfSelect: (payload: { mtfId: string | null }) => void
   emitMprCrosshair: (payload: MprCrosshairInteractionPayload) => void
@@ -109,13 +114,17 @@ interface PointerComposableState {
   deleteSelectedMtf: (viewportKey?: string) => boolean
   draftMeasurements: Ref<Partial<Record<string, MeasurementDraft | null>>>
   finishPointSequenceMeasurement: (viewportKey?: string) => boolean
-  getMtfDraft: (viewportKey: string) => { mtfId?: string; points: MeasurementDraftPoint[] } | null
+  getMtfDraft: (viewportKey: string) => {
+    mtfId?: string
+    points: MeasurementDraftPoint[]
+    sourceSliceIndex?: number | null
+  } | null
   getMtfDraftMode: (viewportKey: string) => DraftMeasurementMode | null
   getDraftMeasurementMode: (viewportKey: string) => DraftMeasurementMode | null
   getViewportIdleCursorClass: (viewportKey: string) => string
   handleViewportPointerCancel: (event: PointerEvent) => void
   handleViewportPointerLeave: (viewportKey: string) => void
-  handleViewportPointerDown: (event: PointerEvent, viewportKey: string) => void
+  handleViewportPointerDown: (event: PointerEvent, viewportKey: string, sourceSliceIndex?: number | null) => void
   handleViewportPointerMove: (event: PointerEvent) => void
   handleViewportPointerUp: (event: PointerEvent) => void
   setActiveViewport: (viewportKey: string) => void
@@ -329,6 +338,7 @@ type ActiveMeasurementEditState = Extract<
 interface MtfDraft {
   mtfId?: string
   points: MeasurementDraftPoint[]
+  sourceSliceIndex?: number | null
 }
 
 interface PointSequenceDraftResolution {
@@ -573,7 +583,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
   function isMtfOperationEnabled(): boolean {
     const viewType = options.activeTab.value?.viewType
     return (
-      (viewType === 'Stack' || isMprLikeViewType(viewType)) &&
+      (viewType === 'Stack' || viewType === 'PET') &&
       (getNormalizedOperation() === 'mtf' || getQaToolType() === 'mtf')
     )
   }
@@ -979,7 +989,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       viewportKey: selectedMtf.viewportKey,
       draft: {
         mtfId: selectedMtf.mtfId,
-        points: selectedMtf.points
+        points: selectedMtf.points,
+        sourceSliceIndex: selectedMtf.sliceIndex
       }
     }
   }
@@ -1285,7 +1296,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
 
     options.emitMtfCommit({
       viewportKey: selected.viewportKey,
-      points: offsetMeasurementPoints(selected.draft.points, 0.01)
+      points: offsetMeasurementPoints(selected.draft.points, 0.01),
+      sourceSliceIndex: selected.draft.sourceSliceIndex
     })
     return true
   }
@@ -2006,7 +2018,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     mtfInteractionController.startEditingHandle(viewportKey, mtfItem.mtfId, handleIndex)
     updateMtfDraft(viewportKey, {
       mtfId: mtfItem.mtfId,
-      points: mtfItem.points
+      points: mtfItem.points,
+      sourceSliceIndex: mtfItem.sliceIndex
     })
     setViewportCursor(viewportKey, 'cursor-pointer')
   }
@@ -2022,7 +2035,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     mtfInteractionController.startMovePending(viewportKey, mtfItem.mtfId, startPoint)
     updateMtfDraft(viewportKey, {
       mtfId: mtfItem.mtfId,
-      points: mtfItem.points
+      points: mtfItem.points,
+      sourceSliceIndex: mtfItem.sliceIndex
     })
     setViewportCursor(viewportKey, 'cursor-move')
   }
@@ -2031,14 +2045,16 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     pointerTarget: HTMLElement,
     pointerId: number,
     viewportKey: string,
-    point: MeasurementDraftPoint
+    point: MeasurementDraftPoint,
+    sourceSliceIndex?: number | null
   ): void {
     setPointerCapture(pointerTarget, pointerId)
     mtfInteractionController.startCreate(viewportKey)
     options.emitMtfSelect({ mtfId: null })
     clearMtfDraft(viewportKey)
     updateMtfDraft(viewportKey, {
-      points: buildRectRoiDraftPoints(point, point)
+      points: buildRectRoiDraftPoints(point, point),
+      sourceSliceIndex
     })
   }
 
@@ -2070,7 +2086,8 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
         options.emitMtfCommit({
           viewportKey,
           points: draft.points,
-          mtfId: draft.mtfId
+          mtfId: draft.mtfId,
+          sourceSliceIndex: draft.sourceSliceIndex
         })
         if (draft.mtfId) {
           clearMtfDraft(viewportKey)
@@ -2421,7 +2438,12 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     return true
   }
 
-  function handleMtfPointerDown(event: PointerEvent, viewportKey: string, pointerTarget: HTMLElement): boolean {
+  function handleMtfPointerDown(
+    event: PointerEvent,
+    viewportKey: string,
+    pointerTarget: HTMLElement,
+    sourceSliceIndex?: number | null
+  ): boolean {
     if (!isMtfOperationEnabled()) {
       return false
     }
@@ -2459,7 +2481,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return true
     }
 
-    startNewMtf(pointerTarget, event.pointerId, viewportKey, context.point)
+    startNewMtf(pointerTarget, event.pointerId, viewportKey, context.point, sourceSliceIndex)
     return true
   }
 
@@ -2699,7 +2721,11 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
     clearViewportCursor(viewportKey)
   }
 
-  function handleViewportPointerDown(event: PointerEvent, viewportKey: string): void {
+  function handleViewportPointerDown(
+    event: PointerEvent,
+    viewportKey: string,
+    sourceSliceIndex?: number | null
+  ): void {
     if (!event.isPrimary || (event.button !== POINTER_BUTTON_LEFT && event.button !== POINTER_BUTTON_RIGHT)) {
       return
     }
@@ -2721,7 +2747,7 @@ export function useViewerWorkspacePointer(options: PointerComposableOptions): Po
       return
     }
 
-    if (handleMtfPointerDown(event, viewportKey, context.pointerTarget)) {
+    if (handleMtfPointerDown(event, viewportKey, context.pointerTarget, sourceSliceIndex)) {
       return
     }
 

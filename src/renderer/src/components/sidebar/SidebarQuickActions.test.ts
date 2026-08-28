@@ -123,7 +123,6 @@ function mountQuickActions(
   return mount(SidebarQuickActions, {
     props: {
       hasSelectedSeries: Boolean(selectedSeries),
-      isSelectedSeriesFourD: false,
       selectedSeries,
       viewerFolderSourceMode: 'desktop-picker',
       viewerPlatform: 'desktop',
@@ -161,6 +160,36 @@ describe('SidebarQuickActions', () => {
     await wrapper.findAll('button.quick-action-button--secondary')[0]!.trigger('click')
 
     expect(wrapper.emitted('openView')).toEqual([['Stack']])
+    wrapper.unmount()
+  })
+
+  it('keeps MPR, 3D, and 4D clickable when the selected series is known to be incompatible', () => {
+    const wrapper = mountQuickActions(createSeries({
+      viewCapabilities: {
+        mpr: { supported: false, blockedCode: 'irregular-slice-spacing' },
+        '3d': { supported: false, blockedCode: 'irregular-slice-spacing' },
+        '4d': { supported: false, blockedCode: 'phase-mpr-unavailable' }
+      }
+    }))
+    const buttonsByLabel = new Map(
+      wrapper.findAll('button.quick-action-button--secondary').map((button) => [button.text().trim(), button])
+    )
+
+    for (const label of ['MPR', '3D', '4D']) {
+      expect(buttonsByLabel.get(label)?.attributes('disabled')).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
+
+  it('disables MPR, 3D, and 4D only when no series is selected', () => {
+    const wrapper = mountQuickActions(null)
+    const buttonsByLabel = new Map(
+      wrapper.findAll('button.quick-action-button--secondary').map((button) => [button.text().trim(), button])
+    )
+
+    for (const label of ['MPR', '3D', '4D']) {
+      expect(buttonsByLabel.get(label)?.attributes('disabled')).toBeDefined()
+    }
     wrapper.unmount()
   })
 

@@ -15,33 +15,13 @@ type MtfRenderMode = 'committed' | 'selected' | 'moving' | 'draft'
 interface RenderedMtfItem {
   key: string
   mtfId: string | null
-  status: ViewerMtfItem['status'] | null
   rect: OverlayRectBounds
   handlePoints: OverlayScreenPoint[]
-  metrics: ViewerMtfItem['metrics'] | null
-  errorMessage: string | null
   mode: MtfRenderMode
 }
 
-interface MtfMetricRow {
-  label: string
-  value: string
-}
-
-interface RenderedMetricCard {
-  key: string
-  mtfId: string | null
-  status: ViewerMtfItem['status'] | null
-  errorMessage: string | null
-  rows: MtfMetricRow[]
-  style: { left: string; top: string }
-  statusLabel: string
-  isActive: boolean
-}
-
-const MIN_POPUP_RECT_SIZE_PX = 6
-const CARD_WIDTH = 228
-const CARD_HEIGHT = 176
+const ACTION_BAR_WIDTH = 82
+const ACTION_BAR_HEIGHT = 42
 
 const committedStrokeOuter = 'rgba(3,15,24,0.92)'
 const committedStrokeInner = 'rgba(244,114,182,0.98)'
@@ -92,11 +72,8 @@ function buildRenderedMtfItem(
   return {
     key,
     mtfId: source?.mtfId ?? (key === 'draft' ? props.mtfDraft?.mtfId ?? null : key),
-    status: source?.status ?? null,
     rect,
     handlePoints: getOverlayHandlePointsFromRectBounds(rect),
-    metrics: source?.metrics ?? null,
-    errorMessage: source?.errorMessage ?? null,
     mode
   }
 }
@@ -111,53 +88,11 @@ function toMtfRenderMode(mode: DraftMeasurementMode | null | undefined): MtfRend
   return 'draft'
 }
 
-function canShowMetricCardForItem(item: RenderedMtfItem | null): boolean {
-  if (!item) {
-    return false
-  }
-  if (item.mode !== 'draft') {
-    return true
-  }
-  return item.rect.width >= MIN_POPUP_RECT_SIZE_PX && item.rect.height >= MIN_POPUP_RECT_SIZE_PX
-}
-
-function buildMetricRows(metrics: ViewerMtfItem['metrics'] | null | undefined): MtfMetricRow[] {
-  if (!metrics) {
-    return []
-  }
-
-  const unit = metrics.unit || 'lp/mm'
-  const fwhmUnit = unit === 'lp/mm' ? 'mm' : 'px'
-  return [
-    { label: 'MTF50', value: metrics.mtf50 != null ? `${metrics.mtf50.toFixed(3)} ${unit}` : '-' },
-    { label: 'MTF10', value: metrics.mtf10 != null ? `${metrics.mtf10.toFixed(3)} ${unit}` : '-' },
-    { label: 'FWHM-W', value: metrics.fwhmW != null ? `${metrics.fwhmW.toFixed(3)} ${fwhmUnit}` : '-' },
-    { label: 'FWHM-H', value: metrics.fwhmH != null ? `${metrics.fwhmH.toFixed(3)} ${fwhmUnit}` : '-' }
-  ]
-}
-
-function getStatusLabel(item: RenderedMtfItem | null): string {
-  if (!item || (item.mode === 'draft' && !item.mtfId)) {
-    return overlayCopy.value.mtfDrawRoi
-  }
-
-  switch (item.status) {
-    case 'calculating':
-      return overlayCopy.value.mtfCalculating
-    case 'error':
-      return overlayCopy.value.mtfFailed
-    case 'ready':
-      return item.mode === 'selected' ? overlayCopy.value.mtfSelectedRoi : ''
-    default:
-      return item.mode === 'selected' ? overlayCopy.value.mtfSelectedRoi : overlayCopy.value.mtfRoi
-  }
-}
-
-function getMetricCardStyle(rect: OverlayRectBounds): { left: string; top: string } {
+function getActionBarStyle(rect: OverlayRectBounds): { left: string; top: string } {
   const minLeft = props.imageFrame.left + 12
-  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - CARD_WIDTH, minLeft)
+  const maxLeft = Math.max(props.imageFrame.left + props.imageFrame.width - ACTION_BAR_WIDTH - 12, minLeft)
   const minTop = props.imageFrame.top + 12
-  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - CARD_HEIGHT, minTop)
+  const maxTop = Math.max(props.imageFrame.top + props.imageFrame.height - ACTION_BAR_HEIGHT - 12, minTop)
 
   return {
     left: `${Math.round(Math.max(minLeft, Math.min(maxLeft, rect.left + rect.width + 12)))}px`,
@@ -196,7 +131,7 @@ const allRenderedItems = computed(() =>
 )
 
 const activeRenderedItem = computed(() => {
-  if (canShowMetricCardForItem(renderedDraftItem.value)) {
+  if (renderedDraftItem.value?.mtfId) {
     return renderedDraftItem.value
   }
 
@@ -207,19 +142,8 @@ const activeRenderedItem = computed(() => {
   return renderedCommittedItems.value.find((item) => item.mtfId === props.selectedMtfId) ?? null
 })
 
-const renderedMetricCards = computed<RenderedMetricCard[]>(() =>
-  allRenderedItems.value
-    .filter((item) => canShowMetricCardForItem(item))
-    .map((item) => ({
-      key: item.key,
-      mtfId: item.mtfId,
-      status: item.status,
-      errorMessage: item.errorMessage,
-      rows: buildMetricRows(item.metrics),
-      style: getMetricCardStyle(item.rect),
-      statusLabel: getStatusLabel(item),
-      isActive: item.mtfId != null && item.mtfId === activeRenderedItem.value?.mtfId
-    }))
+const activeActionStyle = computed(() =>
+  activeRenderedItem.value ? getActionBarStyle(activeRenderedItem.value.rect) : null
 )
 
 function getOuterStroke(item: RenderedMtfItem): string {
@@ -313,64 +237,28 @@ function getShapeFill(item: RenderedMtfItem): string {
     </svg>
 
     <div
-      v-for="card in renderedMetricCards"
-      :key="`${card.key}-metrics`"
-      class="absolute z-[6] w-[228px] rounded-2xl border border-pink-300/20 bg-[linear-gradient(180deg,rgba(28,9,21,0.96),rgba(19,7,15,0.98))] p-3 text-slate-100 shadow-[0_18px_32px_rgba(0,0,0,0.34)]"
-      :class="[
-        card.isActive ? 'z-[13] border-pink-200/38 shadow-[0_20px_38px_rgba(0,0,0,0.44)]' : '',
-        props.focusState === 'focus' ? 'ring-1 ring-pink-200/18' : ''
-      ]"
-      :style="card.style"
+      v-if="activeRenderedItem?.mtfId && activeActionStyle"
+      class="pointer-events-auto absolute z-[13] inline-flex items-center gap-1 rounded-xl border border-white/12 bg-slate-950/92 p-1 shadow-[0_12px_24px_rgba(0,0,0,0.34)]"
+      :class="props.focusState === 'focus' ? 'ring-1 ring-pink-200/18' : ''"
+      :style="activeActionStyle"
+      @pointerdown.stop.prevent
     >
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-[10px] font-semibold uppercase tracking-[0.22em] text-pink-200/72">{{ overlayCopy.mtfMetric }}</div>
-          <div v-if="card.statusLabel" class="mt-1 text-sm font-semibold text-white">{{ card.statusLabel }}</div>
-        </div>
-        <div
-          v-if="card.isActive"
-          class="pointer-events-auto inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/6 p-1"
-          @pointerdown.stop.prevent
-        >
-          <button
-            type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="!card.mtfId"
-            :aria-label="overlayCopy.copyMtfRoi"
-            @click="emit('copy')"
-          >
-            <AppIcon name="copy" :size="16" />
-          </button>
-          <button
-            type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/16 bg-red-400/10 text-red-100 transition hover:bg-red-400/18 disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="!card.mtfId"
-            :aria-label="overlayCopy.deleteMtfRoi"
-            @click="emit('clear')"
-          >
-            <AppIcon name="trash" :size="16" />
-          </button>
-        </div>
-      </div>
-
-      <div v-if="card.status === 'ready'" class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[12px] leading-5">
-        <template v-for="row in card.rows" :key="row.label">
-          <div class="text-slate-400">{{ row.label }}</div>
-          <div class="text-right font-medium text-slate-50">{{ row.value }}</div>
-        </template>
-      </div>
-
-      <div v-else-if="card.status === 'error'" class="mt-3 text-[12px] leading-5 text-red-100/90">
-        {{ card.errorMessage || overlayCopy.mtfIncomplete }}
-      </div>
-
-      <div v-else-if="card.status === 'calculating'" class="mt-3 text-[12px] leading-5 text-slate-300">
-        {{ overlayCopy.mtfSubmitting }}
-      </div>
-
-      <div v-else class="mt-3 text-[12px] leading-5 text-slate-300">
-        {{ overlayCopy.mtfDrawGuide }}
-      </div>
+      <button
+        type="button"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-slate-100 transition hover:bg-white/12"
+        :aria-label="overlayCopy.copyMtfRoi"
+        @click="emit('copy')"
+      >
+        <AppIcon name="copy" :size="16" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/16 bg-red-400/10 text-red-100 transition hover:bg-red-400/18"
+        :aria-label="overlayCopy.deleteMtfRoi"
+        @click="emit('clear')"
+      >
+        <AppIcon name="trash" :size="16" />
+      </button>
     </div>
   </div>
 </template>

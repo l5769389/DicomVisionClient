@@ -1100,7 +1100,6 @@ const genericToolsWithCrosshair: StackTool[] = [
     options: [
       { value: 'reset:view', label: 'Reset View', icon: 'reset', description: 'Reset crosshair, MIP config, transforms, and pseudocolor.' },
       { value: 'reset:measurements', label: 'Clear Measurements', icon: 'measure', description: 'Remove all measurements in the current MPR study.' },
-      { value: 'reset:mtf', label: 'Clear MTF', icon: 'mtf', description: 'Remove all MTF ROIs in the current MPR study.' },
       { value: 'reset:annotations', label: 'Clear Annotations', icon: 'annotate', description: 'Remove all annotation overlays in the current MPR study.' },
       { value: 'reset:all', label: 'Reset All', icon: 'trash', description: 'Reset the view and clear measurements, MTF, and annotations.' }
     ]

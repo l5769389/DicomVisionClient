@@ -13,6 +13,7 @@ import type {
   OperationAcceptedResponse as BackendOperationAcceptedResponse,
   OrientationInfo as BackendOrientationInfo,
   ScaleBarInfo as BackendScaleBarInfo,
+  SeriesViewCapability as BackendSeriesViewCapability,
   SeriesSummary as BackendSeriesSummary,
   ViewCreateResponse as BackendViewCreateResponse,
   ViewHoverRequest as BackendViewHoverRequest,
@@ -1028,11 +1029,24 @@ export function isStaleMprSegmentationPreviewConfig(
 export interface MtfMetrics {
   mtf50: number | null
   mtf10: number | null
+  mtf50W?: number | null
+  mtf10W?: number | null
+  mtf50H?: number | null
+  mtf10H?: number | null
+  nyquistW?: number | null
+  nyquistH?: number | null
+  radialNyquist?: number | null
   fwhmW: number | null
   fwhmH: number | null
   peakValue: number | null
   sampleCount: number | null
   unit?: string | null
+  sourceSizeCorrected?: boolean
+}
+
+export interface MtfQualityWarning {
+  code: string
+  message: string
 }
 
 export interface MtfCurvePoint {
@@ -1049,7 +1063,10 @@ export interface ViewerMtfItem {
   sliceIndex?: number | null
   metrics?: MtfMetrics | null
   curve?: MtfCurvePoint[]
+  qualityWarnings?: MtfQualityWarning[]
+  errorCode?: string | null
   errorMessage?: string | null
+  errorSuggestion?: string | null
   isPlaceholder?: boolean
 }
 
@@ -1098,6 +1115,13 @@ export interface FourDPhasesResponse {
   isFourDSeries: boolean
   fourDPhaseCount: number
   fourDPhases: FourDPhaseItem[]
+  viewCapability?: BackendSeriesViewCapability
+}
+
+export interface ViewUnavailableNotice {
+  viewType: 'MPR' | '3D' | '4D'
+  blockedCode?: string | null
+  detail?: string | null
 }
 
 export interface FourDPlaybackStartRequest {

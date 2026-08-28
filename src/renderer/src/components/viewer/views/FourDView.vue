@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AppIcon from '../../AppIcon.vue'
-import ViewerToolbar from '../../workspace/shell/ViewerToolbar.vue'
 import ViewerToolbarDock from '../../workspace/shell/ViewerToolbarDock.vue'
 import MprMipConfigPanel from '../../workspace/MprMipConfigPanel.vue'
 import FourDStatusControls from './FourDStatusControls.vue'
@@ -47,11 +46,8 @@ const props = defineProps<{
   isToolSelected: (tool: StackTool) => boolean
   menuIconSize: number
   openMenuKey: string | null
-  showTabStripToggle?: boolean
   stackToolSelections: Partial<Record<string, string>>
   toolbarIconSize: number
-  toggleIconSize: number
-  toolbarPlacement?: 'top' | 'right'
   viewportAutoFitEnabled?: boolean
   viewportAspectRatio?: number
   activeMprMipConfig?: MprMipConfig | null
@@ -106,7 +102,6 @@ const FPS_MAX = 30
 const fps = ref(props.activeTab.fourDPlaybackFps ?? 2)
 const { viewerCopy } = useUiLocale()
 const copy = computed(() => viewerCopy.value)
-const isRightToolbarLayout = computed(() => props.toolbarPlacement === 'right')
 const viewportFrameAutoFit = computed(() => props.viewportAutoFitEnabled !== false)
 const viewportFrameStyle = computed(() =>
   buildViewportFrameStyle(viewportFrameAutoFit.value, props.viewportAspectRatio ?? 1)
@@ -349,64 +344,10 @@ watch(
 
 <template>
   <div
-    class="four-d-root h-full min-h-0 w-full gap-2 text-[var(--theme-text-primary)]"
-    :class="isRightToolbarLayout ? 'four-d-root--right' : 'four-d-root--top'"
+    class="four-d-root four-d-root--right h-full min-h-0 w-full gap-2 text-[var(--theme-text-primary)]"
   >
-    <div v-if="!isRightToolbarLayout" class="four-d-toolbar-shell flex min-h-10 flex-wrap items-center justify-between gap-2 px-3 py-2">
-      <div class="min-w-0 flex-1">
-        <ViewerToolbar
-          class="four-d-viewer-toolbar"
-          :active-tab="activeTab"
-          :active-tools="activeTools"
-          :are-toolbar-actions-disabled="toolbarLocked"
-          embedded
-          :is-playing="isSlicePlaybackPlaying"
-          :is-playback-paused="isSlicePlaybackPaused"
-          :is-tool-selected="isToolSelected"
-          :is-tab-strip-collapsed="props.isTabStripCollapsed"
-          :menu-icon-size="menuIconSize"
-          :open-menu-key="openMenuKey"
-          :show-tab-strip-toggle="false"
-          :stack-tool-selections="stackToolSelections"
-          :toggle-icon-size="toggleIconSize"
-          :toolbar-icon-size="toolbarIconSize"
-          @apply-tool="emitWhenIdle(() => emit('applyTool', $event))"
-          @end-playback="emit('endPlayback')"
-          @pause-playback="emit('pausePlayback')"
-          @select-tool-option="(tool, optionValue) => emitToolbarOption(tool, optionValue)"
-          @set-menu-open="emit('setMenuOpen', $event)"
-          @toggle-tab-strip="emit('toggleTabStrip')"
-        />
-      </div>
-
-      <FourDStatusControls
-        :interaction-locked="interactionLocked"
-        :external-playback-locked="isSlicePlaybackActive"
-        :is-playing="isPlaying"
-        :normalized-fps="normalizedFps"
-        :normalized-phase-index="normalizedPhaseIndex"
-        :phase-items="phaseItems"
-        :phase-load-progress-label="phaseLoadProgressLabel"
-        :phase-runtime-kind="phaseRuntimeKind"
-        :phase-status-aria-label="phaseStatusAriaLabel"
-        :phase-visual-states="phaseVisualStates"
-        :playback-button-disabled="playbackButtonDisabled"
-        :playback-button-label="playbackButtonLabel"
-        :playback-button-title="playbackButtonTitle"
-        :playback-progress="playbackProgress"
-        :show-phase-panel="false"
-        show-playback-controls
-        :show-tab-strip-toggle="props.showTabStripToggle"
-        :is-tab-strip-collapsed="props.isTabStripCollapsed"
-        @fps-change="selectFps"
-        @playback-toggle="togglePlayback"
-        @toggle-tab-strip="emit('toggleTabStrip')"
-      />
-    </div>
-
     <div
-      class="four-d-content grid min-h-0 gap-2"
-      :class="isRightToolbarLayout ? 'four-d-content--right' : 'four-d-content--top'"
+      class="four-d-content four-d-content--right grid min-h-0 gap-2"
     >
       <div class="four-d-viewport-host min-h-0">
         <div
@@ -472,29 +413,7 @@ watch(
         </div>
       </div>
 
-      <FourDStatusControls
-        v-if="!isRightToolbarLayout"
-        :interaction-locked="interactionLocked"
-        :external-playback-locked="isSlicePlaybackActive"
-        :is-playing="isPlaying"
-        :normalized-fps="normalizedFps"
-        :normalized-phase-index="normalizedPhaseIndex"
-        :phase-items="phaseItems"
-        :phase-load-progress-label="phaseLoadProgressLabel"
-        :phase-runtime-kind="phaseRuntimeKind"
-        :phase-status-aria-label="phaseStatusAriaLabel"
-        :phase-visual-states="phaseVisualStates"
-        :playback-button-disabled="playbackButtonDisabled"
-        :playback-button-label="playbackButtonLabel"
-        :playback-button-title="playbackButtonTitle"
-        :playback-progress="playbackProgress"
-        show-phase-panel
-        :show-playback-controls="false"
-        @phase-change="selectPhase"
-      />
-
       <ViewerToolbarDock
-        v-else
         :active-tab="activeTab"
         :active-tools="activeTools"
         :are-toolbar-actions-disabled="toolbarLocked"
@@ -571,16 +490,8 @@ watch(
   display: grid;
 }
 
-.four-d-root--top {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
 .four-d-root--right {
   grid-template-rows: minmax(0, 1fr);
-}
-
-.four-d-content--top {
-  grid-template-columns: minmax(0, 1fr) 104px;
 }
 
 .four-d-content--right {
@@ -605,13 +516,6 @@ watch(
   height: min(100cqh, calc(100cqw / var(--viewer-fixed-aspect-ratio, 1)));
 }
 
-@media (max-width: 1280px) {
-  .four-d-content--top {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) auto;
-  }
-}
-
 .four-d-dock-panel {
   width: 100%;
   max-width: 100%;
@@ -628,15 +532,6 @@ watch(
     background 150ms ease,
     color 150ms ease,
     box-shadow 150ms ease;
-}
-
-.four-d-toolbar-shell {
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--theme-surface-panel-solid) 78%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 10px 28px rgba(0, 0, 0, 0.16);
 }
 
 .four-d-playback-controls {
@@ -926,14 +821,6 @@ watch(
 .four-d-phase-runtime__dot--error {
   background: #fb7185;
   box-shadow: 0 0 0 4px color-mix(in srgb, #fb7185 14%, transparent);
-}
-
-.four-d-viewer-toolbar {
-  min-height: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
 }
 
 .four-d-state-overlay {

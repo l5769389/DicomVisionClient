@@ -327,10 +327,6 @@ const drawingScopeRows = computed(() => [
   {
     key: 'qaWater' as const,
     title: isZh.value ? '水模 QA' : 'Water QA'
-  },
-  {
-    key: 'mtf' as const,
-    title: 'MTF'
   }
 ])
 const dicomExportLabel = computed(() => {

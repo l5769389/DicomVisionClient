@@ -482,7 +482,7 @@ describe('MobileSettingsOverlay', () => {
     await wrapper.get('[data-testid="mobile-settings-measure-line-width"]').setValue('4')
     await wrapper.findAll('[data-testid="mobile-settings-measure-editing-line"]')[0].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-measure-completed-line"]')[1].trigger('click')
-    expect(wrapper.findAll('[data-testid="mobile-settings-drawing-scope-series"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-testid="mobile-settings-drawing-scope-series"]')).toHaveLength(3)
     await wrapper.findAll('[data-testid="mobile-settings-drawing-scope-series"]')[1].trigger('click')
     await wrapper.findAll('[data-testid="mobile-settings-roi-stat"]')[0].trigger('click')
 

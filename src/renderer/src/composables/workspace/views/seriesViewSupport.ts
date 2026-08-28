@@ -68,7 +68,13 @@ function hasReportLikeDescription(series: FolderSeriesItem): boolean {
   return REPORT_LIKE_DESCRIPTION_PATTERNS.some((pattern) => pattern.test(text))
 }
 
-type SeriesCapabilityKey = 'stack' | 'montage' | 'mpr' | '3d' | 'fusion'
+type SeriesCapabilityKey = 'stack' | 'montage' | 'mpr' | '3d' | '4d' | 'fusion'
+
+export interface SeriesViewAvailability {
+  supported: boolean
+  blockedCode?: string | null
+  blockedReason?: string | null
+}
 
 function isBackendCapabilitySupported(
   series: FolderSeriesItem | null | undefined,
@@ -87,12 +93,60 @@ export function getSeriesViewBlockedReason(
       ? '3d'
       : viewType === 'MPR'
         ? 'mpr'
-        : viewType === 'Montage'
-          ? 'montage'
-          : viewType === 'PET' || viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout'
-            ? 'stack'
-            : null
+      : viewType === '4D'
+          ? '4d'
+          : viewType === 'Montage'
+            ? 'montage'
+            : viewType === 'PET' || viewType === 'Stack' || viewType === 'CompareStack' || viewType === 'Layout'
+              ? 'stack'
+              : null
   return capability ? series?.viewCapabilities?.[capability]?.blockedReason ?? null : null
+}
+
+function blockedAvailability(blockedCode: string, blockedReason: string): SeriesViewAvailability {
+  return { supported: false, blockedCode, blockedReason }
+}
+
+export function getSeriesViewAvailability(
+  series: FolderSeriesItem | null | undefined,
+  viewType: 'MPR' | '3D' | '4D'
+): SeriesViewAvailability {
+  if (!series) {
+    return blockedAvailability('series-not-selected', 'No DICOM series is selected.')
+  }
+
+  const backendCapability = series.viewCapabilities?.[viewType === 'MPR' ? 'mpr' : viewType === '3D' ? '3d' : '4d']
+  if (backendCapability?.supported === false) {
+    return {
+      supported: false,
+      blockedCode: backendCapability.blockedCode,
+      blockedReason: backendCapability.blockedReason
+    }
+  }
+
+  if (viewType === '4D') {
+    if (isPetSeries(series)) {
+      return blockedAvailability('dynamic-pet-unsupported', 'Dynamic PET analysis is not supported yet.')
+    }
+    if (!isFourDSeriesItem(series)) {
+      return blockedAvailability('not-four-d-series', 'The series does not contain at least two detectable 4D phases.')
+    }
+    return { supported: true }
+  }
+
+  if (!hasRenderablePixelGrid(series)) {
+    return blockedAvailability('image-pixels-unavailable', 'The series does not contain a renderable image pixel grid.')
+  }
+  if (isTagPreferredSeries(series) || hasNonVolumeStandardObjectType(series) || hasNonVolumeModality(series)) {
+    return blockedAvailability('non-volume-dicom-object', 'This DICOM object type cannot be used for volume display.')
+  }
+  if (hasReportLikeDescription(series)) {
+    return blockedAvailability('report-like-series', 'Report and secondary-capture series cannot be used for volume display.')
+  }
+  if (getSeriesExtendedFrameCount(series) < 2) {
+    return blockedAvailability('insufficient-slices', 'MPR and 3D require at least two image slices.')
+  }
+  return { supported: true }
 }
 
 export function isTagPreferredSeries(series: FolderSeriesItem | null | undefined): boolean {
@@ -137,7 +191,7 @@ export function isSeriesViewSupported(series: FolderSeriesItem | null | undefine
     return Boolean(series)
   }
   if (viewType === '4D') {
-    return !isPetSeries(series) && isFourDSeriesItem(series)
+    return !isPetSeries(series) && isFourDSeriesItem(series) && isBackendCapabilitySupported(series, '4d')
   }
   if (viewType === '3D' || viewType === 'MPR') {
     return (

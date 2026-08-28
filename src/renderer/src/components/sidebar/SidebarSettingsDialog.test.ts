@@ -67,17 +67,17 @@ function mountSettingsDialog() {
   })
 }
 
-async function openToolbarLayoutSection(
+async function openViewportLayoutSection(
   wrapper: ReturnType<typeof mountSettingsDialog>,
-  labels = { display: '显示', toolbarLayout: '操作区布局' }
+  labels = { display: '显示', viewportLayout: '视口布局' }
 ): Promise<void> {
   const displayGroupButton = wrapper.findAll('.settings-nav-item').find((button) => button.text().includes(labels.display))
   expect(displayGroupButton).toBeTruthy()
   await displayGroupButton!.trigger('click')
 
-  const toolbarLayoutButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes(labels.toolbarLayout))
-  expect(toolbarLayoutButton).toBeTruthy()
-  await toolbarLayoutButton!.trigger('click')
+  const viewportLayoutButton = wrapper.findAll('.settings-nav-subitem').find((button) => button.text().includes(labels.viewportLayout))
+  expect(viewportLayoutButton).toBeTruthy()
+  await viewportLayoutButton!.trigger('click')
   await nextTick()
 }
 
@@ -103,12 +103,12 @@ async function openMeasurementStyleSection(wrapper: ReturnType<typeof mountSetti
   await nextTick()
 }
 
-describe('SidebarSettingsDialog toolbar layout settings', () => {
+describe('SidebarSettingsDialog viewport layout settings', () => {
   beforeEach(() => {
     preferenceStorage.value = null
     const preferences = useUiPreferences()
     preferences.setLocale('zh-CN')
-    preferences.viewerToolbarPlacement.value = 'top'
+    preferences.viewportAutoFitEnabled.value = true
   })
 
   it('keeps the settings search outside the independently scrolling navigation list', () => {
@@ -121,60 +121,50 @@ describe('SidebarSettingsDialog toolbar layout settings', () => {
     wrapper.unmount()
   })
 
-  it('shows toolbar layout skeleton cards and switches placement', async () => {
+  it('removes toolbar placement controls and keeps viewport adaptation', async () => {
     const preferences = useUiPreferences()
     const wrapper = mountSettingsDialog()
 
-    await openToolbarLayoutSection(wrapper)
+    await openViewportLayoutSection(wrapper)
 
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-top"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').exists()).toBe(true)
-    expect(wrapper.find('.settings-toolbar-layout-skeleton__button-group').exists()).toBe(true)
-    expect(wrapper.find('.settings-toolbar-layout-skeleton__panel').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-toolbar-layout-top"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('顶部工具栏')
+    expect(wrapper.find('[data-testid="settings-viewport-auto-fit"]').exists()).toBe(true)
 
-    await wrapper.find('[data-testid="settings-toolbar-layout-right"]').trigger('click')
-
-    expect(preferences.viewerToolbarPlacement.value).toBe('right')
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').classes()).toContain('settings-toolbar-layout-choice--active')
+    await wrapper.find('[data-testid="settings-viewport-auto-fit"]').trigger('click')
+    expect(preferences.viewportAutoFitEnabled.value).toBe(false)
 
     wrapper.unmount()
   })
 
-  it('shows English toolbar layout copy when the locale is English', async () => {
+  it('shows English viewport layout copy without toolbar placement choices', async () => {
     const preferences = useUiPreferences()
     preferences.setLocale('en-US')
     const wrapper = mountSettingsDialog()
 
-    await openToolbarLayoutSection(wrapper, { display: 'Display', toolbarLayout: 'Toolbar Layout' })
+    await openViewportLayoutSection(wrapper, { display: 'Display', viewportLayout: 'Viewport Layout' })
 
-    expect(wrapper.text()).toContain('Viewer Toolbar Layout')
-    expect(wrapper.text()).toContain('Top Toolbar')
-    expect(wrapper.text()).toContain('Right Dock')
-
-    await wrapper.find('[data-testid="settings-toolbar-layout-right"]').trigger('click')
-
-    expect(preferences.viewerToolbarPlacement.value).toBe('right')
-    expect(wrapper.text()).toContain('Right Dock')
+    expect(wrapper.text()).toContain('Viewport Layout')
+    expect(wrapper.text()).toContain('Adapt Viewports to Window')
+    expect(wrapper.text()).not.toContain('Top Toolbar')
+    expect(wrapper.text()).not.toContain('Right Dock')
 
     wrapper.unmount()
   })
 
-  it('resets toolbar layout back to right dock', async () => {
+  it('resets viewport adaptation to enabled', async () => {
     const preferences = useUiPreferences()
-    preferences.viewerToolbarPlacement.value = 'top'
+    preferences.viewportAutoFitEnabled.value = false
     const wrapper = mountSettingsDialog()
 
-    await openToolbarLayoutSection(wrapper)
-    preferences.viewerToolbarPlacement.value = 'top'
-    await nextTick()
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-top"]').classes()).toContain('settings-toolbar-layout-choice--active')
+    await openViewportLayoutSection(wrapper)
 
     const resetButton = wrapper.findAll('button').find((button) => button.text().trim() === '恢复默认')
     expect(resetButton).toBeTruthy()
     await resetButton!.trigger('click')
 
-    expect(preferences.viewerToolbarPlacement.value).toBe('right')
-    expect(wrapper.find('[data-testid="settings-toolbar-layout-right"]').classes()).toContain('settings-toolbar-layout-choice--active')
+    expect(preferences.viewportAutoFitEnabled.value).toBe(true)
 
     wrapper.unmount()
   })
@@ -249,7 +239,7 @@ describe('SidebarSettingsDialog measurement and annotation settings', () => {
     })
   })
 
-  it('shows independent drawing scope controls for measurements, annotations, water QA, and MTF', async () => {
+  it('shows drawing scope controls only for drawings that can span a series', async () => {
     const preferences = useUiPreferences()
     const wrapper = mountSettingsDialog()
 
@@ -258,7 +248,8 @@ describe('SidebarSettingsDialog measurement and annotation settings', () => {
     expect(wrapper.find('[data-testid="settings-drawing-scope-measurement-series"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="settings-drawing-scope-annotation-series"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="settings-drawing-scope-qaWater-series"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="settings-drawing-scope-mtf-series"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-drawing-scope-mtf-series"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('MTF analysis always remains bound to its source image.')
 
     await wrapper.get('[data-testid="settings-drawing-scope-annotation-series"]').trigger('click')
 

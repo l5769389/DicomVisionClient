@@ -362,22 +362,19 @@ const contextMenuActions = computed<SeriesContextMenuActionItem[]>(() => [
     key: 'MPR' as const,
     title: 'MPR',
     subtitle: isZh.value ? '多平面重建' : 'Multi-planar reconstruction',
-    badge: 'MPR',
-    disabled: !isSeriesViewSupported(contextSeries.value, 'MPR')
+    badge: 'MPR'
   },
   {
     key: '3D' as const,
     title: '3D',
     subtitle: isZh.value ? '体渲染' : 'Volume rendering',
-    badge: '3D',
-    disabled: !isSeriesViewSupported(contextSeries.value, '3D')
+    badge: '3D'
   },
   {
     key: '4D' as const,
     title: '4D',
     subtitle: isZh.value ? '呼吸相位播放' : 'Respiratory phase playback',
-    badge: '4D',
-    disabled: !isSeriesViewSupported(contextSeries.value, '4D')
+    badge: '4D'
   },
   {
     key: 'Tag' as const,
@@ -558,7 +555,7 @@ async function handleContextAction(action: SeriesContextAction): Promise<void> {
   if ((action === 'Stack' || action === 'Montage') && !isPrimaryTwoDimensionalViewSupported(series)) {
     return
   }
-  if ((action === 'MPR' || action === '3D' || action === '4D' || action === 'Tag') && !isSeriesViewSupported(series, action)) {
+  if (action === 'Tag' && !isSeriesViewSupported(series, action)) {
     return
   }
 

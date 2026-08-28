@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FolderSeriesItem } from '../../../types/viewer'
 import {
+  getSeriesViewAvailability,
   isSeriesViewSupported,
   isSeriesVolumeViewSupported,
   resolveInitialSeriesViewType,
@@ -129,5 +130,42 @@ describe('series view support', () => {
     expect(resolveInitialSeriesViewType(multiframe)).toBe('Tag')
     expect(isSeriesViewSupported(multiframe, 'Stack')).toBe(false)
     expect(isSeriesViewSupported(multiframe, 'Montage')).toBe(false)
+  })
+
+  it('preserves structured backend reasons for guarded volume views', () => {
+    const series = createSeries({
+      isFourDSeries: true,
+      fourDPhaseCount: 10,
+      viewCapabilities: {
+        mpr: {
+          supported: false,
+          blockedCode: 'irregular-slice-spacing',
+          blockedReason: 'The series contains irregular slice spacing.'
+        },
+        '4d': {
+          supported: false,
+          blockedCode: 'phase-mpr-unavailable',
+          blockedReason: 'Phase 25% requires resampling.'
+        }
+      }
+    })
+
+    expect(getSeriesViewAvailability(series, 'MPR')).toEqual({
+      supported: false,
+      blockedCode: 'irregular-slice-spacing',
+      blockedReason: 'The series contains irregular slice spacing.'
+    })
+    expect(getSeriesViewAvailability(series, '4D')).toEqual({
+      supported: false,
+      blockedCode: 'phase-mpr-unavailable',
+      blockedReason: 'Phase 25% requires resampling.'
+    })
+  })
+
+  it('requires explicit valid phase metadata when a 4D capability is unavailable', () => {
+    expect(getSeriesViewAvailability(createSeries(), '4D')).toMatchObject({
+      supported: false,
+      blockedCode: 'not-four-d-series'
+    })
   })
 })

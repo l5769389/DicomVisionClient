@@ -178,8 +178,6 @@ export interface RoiStatPreference {
 }
 
 export type QaWaterMetricKey = 'accuracy' | 'uniformity' | 'noise'
-export type ViewerToolbarPlacement = 'top' | 'right'
-
 export interface QaWaterMetricPreference {
   key: QaWaterMetricKey
   label: string
@@ -199,7 +197,6 @@ interface UiPreferencesState {
   locale: AppLocale
   hasSelectedInitialLocale: boolean
   themeId: string
-  viewerToolbarPlacement: ViewerToolbarPlacement
   viewportAutoFitEnabled: boolean
   montageColumnCount: number
   selectedPseudocolorKey: string
@@ -227,7 +224,6 @@ interface UiPreferencesState {
 
 const CURRENT_PREFERENCES_VERSION = 29
 const DEFAULT_THEME_ID = 'industrial-utility'
-const DEFAULT_VIEWER_TOOLBAR_PLACEMENT: ViewerToolbarPlacement = 'right'
 const DEFAULT_PSEUDOCOLOR_KEY = 'bw'
 const DEFAULT_PET_PSEUDOCOLOR_KEY = 'hotiron'
 const LEGACY_DEFAULT_PET_PSEUDOCOLOR_KEYS = new Set(['bwinverse', 'pet', 'petct-rainbow'])
@@ -524,7 +520,6 @@ function createDefaultState(): UiPreferencesState {
     locale: 'zh-CN',
     hasSelectedInitialLocale: false,
     themeId: DEFAULT_THEME_ID,
-    viewerToolbarPlacement: DEFAULT_VIEWER_TOOLBAR_PLACEMENT,
     viewportAutoFitEnabled: true,
     montageColumnCount: 4,
     selectedPseudocolorKey: DEFAULT_PSEUDOCOLOR_KEY,
@@ -601,10 +596,6 @@ function normalizeLabel(value: unknown, fallback: string): string {
 
 function normalizeThemeId(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value : DEFAULT_THEME_ID
-}
-
-function normalizeViewerToolbarPlacement(value: unknown): ViewerToolbarPlacement {
-  return value === 'top' || value === 'right' ? value : DEFAULT_VIEWER_TOOLBAR_PLACEMENT
 }
 
 function normalizePseudocolorKey(value: unknown): string {
@@ -1048,7 +1039,6 @@ function applyState(nextState: UiPreferencesState): void {
   state.locale = nextState.locale
   state.hasSelectedInitialLocale = nextState.hasSelectedInitialLocale
   state.themeId = nextState.themeId
-  state.viewerToolbarPlacement = nextState.viewerToolbarPlacement
   state.viewportAutoFitEnabled = nextState.viewportAutoFitEnabled
   state.montageColumnCount = nextState.montageColumnCount
   state.selectedPseudocolorKey = nextState.selectedPseudocolorKey
@@ -1081,7 +1071,6 @@ function serializeState(): UiPreferencesState {
     locale: state.locale,
     hasSelectedInitialLocale: state.hasSelectedInitialLocale,
     themeId: state.themeId,
-    viewerToolbarPlacement: state.viewerToolbarPlacement,
     viewportAutoFitEnabled: state.viewportAutoFitEnabled,
     montageColumnCount: state.montageColumnCount,
     selectedPseudocolorKey: state.defaultCtPseudocolorKey,
@@ -1217,7 +1206,6 @@ async function hydrateState(): Promise<void> {
         locale: normalizeLocale(parsed.locale),
         hasSelectedInitialLocale: hasExplicitInitialLocaleFlag ? parsed.hasSelectedInitialLocale === true : true,
         themeId: normalizeThemeId(parsed.themeId),
-        viewerToolbarPlacement: normalizeViewerToolbarPlacement(parsed.viewerToolbarPlacement),
         viewportAutoFitEnabled: parsed.viewportAutoFitEnabled !== false,
         montageColumnCount: Math.min(6, Math.max(2, normalizeInteger(parsed.montageColumnCount, 4))),
         selectedPseudocolorKey: normalizePseudocolorKey(
@@ -1300,13 +1288,6 @@ export function useUiPreferences() {
     get: () => state.themeId,
     set: (value: string) => {
       state.themeId = normalizeThemeId(value)
-      void persistState()
-    }
-  })
-  const viewerToolbarPlacement = computed({
-    get: () => state.viewerToolbarPlacement,
-    set: (value: ViewerToolbarPlacement) => {
-      state.viewerToolbarPlacement = normalizeViewerToolbarPlacement(value)
       void persistState()
     }
   })
@@ -1553,7 +1534,6 @@ export function useUiPreferences() {
     getWindowPresetLabel,
     hasSelectedInitialLocale,
     locale,
-    viewerToolbarPlacement,
     viewportAutoFitEnabled,
     montageColumnCount,
     dicomTagDisplayMode,

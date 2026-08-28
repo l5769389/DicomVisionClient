@@ -7,7 +7,6 @@ import { useUiLocale } from './composables/ui/useUiLocale'
 import { useUiPreferences, type AppLocale } from './composables/ui/useUiPreferences'
 import { useViewerWorkspace } from './composables/workspace/core/useViewerWorkspace'
 import type { DicomDropInput } from './platform/runtime'
-import { isFourDSeriesItem } from './types/viewer'
 import { resolvePrimaryTwoDimensionalViewType } from './composables/workspace/views/seriesViewSupport'
 import { normalizeInlineSvg } from './utils/svg'
 import { initializePwaInstall } from './platform/pwaInstall'
@@ -103,6 +102,11 @@ const ViewerWorkspace = defineAsyncComponent({
   delay: 0,
   suspensible: false
 })
+const ViewUnavailableDialog = defineAsyncComponent({
+  loader: () => import('./components/workspace/ViewUnavailableDialog.vue'),
+  delay: 0,
+  suspensible: false
+})
 
 const viewer = useViewerWorkspace()
 const { locale } = useUiLocale()
@@ -127,9 +131,6 @@ const shouldShowIcpFooter = computed(
     !viewer.hasSelectedSeries.value &&
     viewer.seriesList.value.length === 0 &&
     viewer.viewerTabs.value.length === 0
-)
-const isSelectedSeriesFourD = computed(() =>
-  isFourDSeriesItem(viewer.seriesList.value.find((item) => item.seriesId === viewer.selectedSeriesId.value))
 )
 const hasDesktopWindowControls = computed(() => typeof window !== 'undefined' && Boolean(window.viewerApi))
 const isMacDesktop = computed(
@@ -528,7 +529,6 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           :connection-state="viewer.connectionState.value"
           :has-selected-series="viewer.hasSelectedSeries.value"
           :is-loading-folder="viewer.isLoadingFolder.value"
-          :is-selected-series-four-d="isSelectedSeriesFourD"
           :is-sidebar-collapsed="effectiveSidebarCollapsed"
           :selected-series-id="viewer.selectedSeriesId.value"
           :series-list="viewer.seriesList.value"
@@ -687,6 +687,10 @@ const handleDicomFileDrop = (event: DragEvent): void => {
           <ShellIcon name="close" :size="13" />
         </button>
       </div>
+      <ViewUnavailableDialog
+        :notice="viewer.viewUnavailableNotice.value"
+        @close="viewer.dismissViewUnavailableNotice"
+      />
     </VMain>
   </VApp>
 </template>

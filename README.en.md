@@ -2,6 +2,8 @@
 
 [中文说明](./README.md)
 
+> **Desktop performance note**: If you use the desktop app and want better local rendering and interaction performance, use [Voxenra](https://github.com/l5769389/voxenra).
+
 **Remote-rendered DICOM workspace for Desktop, Web, and Mobile**
 
 DicomVision is a client/server DICOM viewer for medical image viewing, analysis, and workflow validation. The client is built with Vue, TypeScript, and Electron. The backend is built with FastAPI, Socket.IO, and medical imaging libraries to parse, render, reconstruct, analyze, and export DICOM data while streaming rendered results to desktop, web, and mobile interfaces in real time.

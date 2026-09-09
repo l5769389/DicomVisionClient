@@ -2,6 +2,8 @@
 
 [English](./README.en.md)
 
+> **桌面端性能提示**：如果你使用桌面端应用，并希望获得更好的本地渲染与交互性能，建议使用 [Voxenra](https://github.com/l5769389/voxenra)。
+
 **面向桌面、Web 与移动端的远程渲染 DICOM 工作站**
 
 DicomVision 是一套面向医学影像浏览、分析和教学验证场景的 DICOM Viewer。项目采用 C/S 架构：客户端基于 Vue、TypeScript 和 Electron 构建，后端基于 FastAPI、Socket.IO 和医学影像处理栈完成 DICOM 解析、渲染、重建、分析和导出，并将结果实时推送到桌面端、Web 端和移动端界面。
